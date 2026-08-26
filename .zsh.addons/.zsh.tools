@@ -1,0 +1,181 @@
+# Small commands and terminal-aware output wrappers.
+
+mkcd() {
+  emulate -L zsh
+
+  (( $# == 1 )) || { print -u2 'usage: mkcd <directory>'; return 2; }
+  command mkdir -p -- "$1" && builtin cd -- "$1"
+}
+
+_tools_sanitize() {
+  REPLY=${1//[[:cntrl:]]/?}
+}
+
+_tools_git_operation() {
+  emulate -L zsh
+
+  local git_dir=$1
+  REPLY=''
+  if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+    REPLY='merge'
+  elif [[ -f "$git_dir/CHERRY_PICK_HEAD" ]]; then
+    REPLY='cherry-pick'
+  elif [[ -f "$git_dir/REVERT_HEAD" ]]; then
+    REPLY='revert'
+  elif [[ -f "$git_dir/BISECT_LOG" ]]; then
+    REPLY='bisect'
+  elif [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
+    REPLY='rebase'
+  fi
+}
+
+# Restore the entire repository to HEAD and remove untracked files after an
+# explicit preview and confirmation. Ignored files, stashes, and commits stay.
+git-discard-all() {
+  emulate -L zsh
+
+  (( $# == 0 )) || {
+    print -u2 'usage: git-discard-all'
+    return 2
+  }
+
+  local root='' display_root='' git_dir='' operation=''
+  local changes='' remaining='' answer=''
+
+  root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
+    print -u2 'git-discard-all: not inside a Git working tree'
+    return 1
+  }
+  command git -C "$root" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 || {
+    print -u2 'git-discard-all: this repository has no commit to restore'
+    return 1
+  }
+
+  git_dir=$(command git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || {
+    print -u2 'git-discard-all: could not inspect repository state'
+    return 1
+  }
+  _tools_git_operation "$git_dir"
+  operation=$REPLY
+  if [[ -n $operation ]]; then
+    print -u2 -- "git-discard-all: refusing during an active ${operation} operation"
+    print -u2 'Finish or abort that operation explicitly first.'
+    return 1
+  fi
+
+  changes=$(command git -C "$root" -c core.fsmonitor=false status \
+    --porcelain=v1 --untracked-files=all) || {
+    print -u2 'git-discard-all: could not inspect the working tree'
+    return 1
+  }
+  if [[ -z $changes ]]; then
+    print -- 'Nothing to discard; the working tree is already clean.'
+    return 0
+  fi
+
+  print -r -- "$changes"
+  print
+  print -u2 'This permanently discards staged and unstaged tracked changes'
+  print -u2 'and deletes untracked files and directories across the repository.'
+  print -u2 'Ignored files, stashes, commits, and nested repositories are preserved.'
+
+  read -r "answer?Discard everything listed above? [y/N] "
+  if [[ $answer != [yY] ]]; then
+    print -- 'Cancelled; nothing was changed.'
+    return 1
+  fi
+
+  command git -C "$root" restore --source=HEAD --staged --worktree -- . || {
+    print -u2 'git-discard-all: failed while restoring tracked files'
+    return 1
+  }
+  command git -C "$root" clean -fdq -- . || {
+    print -u2 'git-discard-all: tracked files were restored, but cleaning failed'
+    return 1
+  }
+
+  remaining=$(command git -C "$root" -c core.fsmonitor=false status \
+    --porcelain=v1 --untracked-files=all) || {
+    print -u2 'git-discard-all: changes were applied, but verification failed'
+    return 1
+  }
+  if [[ -n $remaining ]]; then
+    print -u2 'Some changes remain, usually inside a submodule or nested repository:'
+    print -ru2 -- "$remaining"
+    return 1
+  fi
+
+  _tools_sanitize "$root"
+  display_root=$REPLY
+  print -- "Discarded all working-tree changes in ${display_root}."
+}
+
+# Refresh cached executable versions and capabilities after installing or
+# upgrading a tool without starting a new shell. The next use rebuilds them.
+prompt-refresh() {
+  (( ${+parameters[_PROMPT_RUNTIME_VERSION_CACHE]} )) &&
+    _PROMPT_RUNTIME_VERSION_CACHE=()
+  (( ${+parameters[_PROMPT_GIT_DIR_CACHE]} )) &&
+    _PROMPT_GIT_DIR_CACHE=()
+  _GREP_SUPPORTS_COLOR=-1
+  _GREP_COLOR_BINARY=''
+  rehash
+}
+
+# Highlight matches only for interactive terminal output. Pipes, command
+# substitutions, and redirected files remain byte-for-byte plain unless the
+# caller explicitly requests --color=always. Capability detection runs only on
+# the first interactive use of each resolved grep executable and is cached in
+# memory for the shell's lifetime.
+typeset -gi _GREP_SUPPORTS_COLOR=-1
+typeset -g _GREP_COLOR_BINARY=''
+unalias grep 2>/dev/null
+grep() {
+  emulate -L zsh
+
+  local grep_binary=${commands[grep]:-}
+  if [[ $grep_binary != $_GREP_COLOR_BINARY ]]; then
+    _GREP_SUPPORTS_COLOR=-1
+    _GREP_COLOR_BINARY=$grep_binary
+  fi
+
+  if [[ -t 1 ]]; then
+    if (( _GREP_SUPPORTS_COLOR < 0 )); then
+      command grep --color=never -q -- '' /dev/null 2>/dev/null
+      if (( $? <= 1 )); then
+        _GREP_SUPPORTS_COLOR=1
+      else
+        _GREP_SUPPORTS_COLOR=0
+      fi
+    fi
+  fi
+
+  if [[ -t 1 ]] && (( _GREP_SUPPORTS_COLOR )); then
+    local -x GREP_COLOR=${GREP_COLOR:-'1;38;5;199'}
+    local -x GREP_COLORS=${GREP_COLORS:-'ms=1;38;5;199:mc=1;38;5;199'}
+    command grep --color=auto "$@"
+  else
+    command grep "$@"
+  fi
+}
+
+# Render the semantic emphasis already embedded in manual pages with the same
+# palette as the prompt. The exported values are local to this invocation, so
+# ordinary `less` sessions keep their own appearance.
+man() {
+  emulate -L zsh
+
+  local -x MANCOLOR=${MANCOLOR:-1}
+  local -x MANPAGER=${MANPAGER:-'less -sR'}
+  local -x LESS_TERMCAP_mb=${LESS_TERMCAP_mb:-$'\e[1;38;5;199m'}
+  local -x LESS_TERMCAP_md=${LESS_TERMCAP_md:-$'\e[1;38;5;81m'}
+  local -x LESS_TERMCAP_me=${LESS_TERMCAP_me:-$'\e[0m'}
+  local -x LESS_TERMCAP_so=${LESS_TERMCAP_so:-$'\e[1;38;5;16;48;5;75m'}
+  local -x LESS_TERMCAP_se=${LESS_TERMCAP_se:-$'\e[0m'}
+  local -x LESS_TERMCAP_us=${LESS_TERMCAP_us:-$'\e[4;38;5;221m'}
+  local -x LESS_TERMCAP_ue=${LESS_TERMCAP_ue:-$'\e[0m'}
+
+  command man "$@"
+}
+
+:

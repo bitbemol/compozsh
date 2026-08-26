@@ -1,0 +1,913 @@
+# -----------------------------------------------------------------------------
+# Native completion and line editing
+# -----------------------------------------------------------------------------
+
+autoload -Uz compinit
+# Preserve compinit's full ownership/permission audit on a fresh shell, but do
+# not repeat the same initialization when this file is sourced again.
+if (( ! ${+_comps} )) || [[ ${(t)_comps} != association* ]]; then
+  compinit
+fi
+
+zstyle ':completion:*' menu select
+zstyle ':completion:*' group-name ''
+zstyle ':completion:*' squeeze-slashes true
+zstyle ':completion:*' matcher-list \
+  'm:{a-zA-Z}={A-Za-z}' \
+  'r:|[._-]=* r:|=*'
+zstyle ':completion:*:descriptions' format '%F{cyan}-- %d --%f'
+zstyle ':completion:*:warnings' format '%F{red}no matches%f'
+if [[ -n ${LS_COLORS:-} ]]; then
+  zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+else
+  zstyle ':completion:*' list-colors \
+    'di=1;38;5;39' 'ln=38;5;207' 'so=38;5;44' 'pi=38;5;220' \
+    'ex=1;38;5;83' 'bd=1;38;5;203' 'cd=38;5;209' \
+    'or=1;4;38;5;203' 'mi=1;38;5;196' \
+    'su=1;38;5;229;48;5;203' 'sg=1;38;5;229;48;5;176' \
+    'tw=38;5;16;48;5;220' 'ow=38;5;16;48;5;203' \
+    'st=38;5;16;48;5;215' 'ca=1;38;5;221'
+fi
+
+# Apple keyboards omit dedicated Home, End, and forward-Delete keys. Use Zsh's
+# Emacs map as the primary, portable macOS editing layer; keep terminal escape
+# sequences below as optional aliases for full-size and Fn/Globe key chords.
+bindkey -e
+KEYTIMEOUT=${KEYTIMEOUT:-10}
+zmodload zsh/terminfo
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search edit-command-line
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+zle -N edit-command-line
+
+_bind_zle_keys() {
+  local widget=$1 key=''
+  shift
+  for key in "$@"; do
+    [[ -n $key ]] && bindkey "$key" "$widget"
+  done
+}
+
+# Bind both terminfo capabilities and the normal/application sequences emitted
+# by Terminal, iTerm2, and common SSH terminals. Duplicate bindings are benign.
+_bind_zle_keys up-line-or-beginning-search \
+  '^P' "${terminfo[kcuu1]:-}" $'\e[A' $'\eOA'
+_bind_zle_keys down-line-or-beginning-search \
+  '^N' "${terminfo[kcud1]:-}" $'\e[B' $'\eOB'
+_bind_zle_keys backward-char \
+  '^B' "${terminfo[kcub1]:-}" $'\e[D' $'\eOD'
+_bind_zle_keys forward-char \
+  '^F' "${terminfo[kcuf1]:-}" $'\e[C' $'\eOC'
+_bind_zle_keys beginning-of-line \
+  '^A' "${terminfo[khome]:-}" $'\e[H' $'\eOH' $'\e[1~'
+_bind_zle_keys end-of-line \
+  '^E' "${terminfo[kend]:-}" $'\e[F' $'\eOF' $'\e[4~'
+_bind_zle_keys delete-char \
+  "${terminfo[kdch1]:-}" $'\e[3~'
+_bind_zle_keys backward-word \
+  $'\eb' $'\e[1;3D'
+_bind_zle_keys forward-word \
+  $'\ef' $'\e[1;3C'
+_bind_zle_keys backward-kill-word \
+  $'\e\x7f' $'\e\b'
+_bind_zle_keys reverse-menu-complete \
+  "${terminfo[kcbt]:-}" $'\e[Z'
+_bind_zle_keys edit-command-line '^X^E'
+
+# Shared state for the native history and navigation pickers. Collection stays
+# feature-specific; rendering, input, resize, and cleanup use this one contract.
+typeset -ga _ZLE_PICKER_RESULTS=()
+typeset -ga _ZLE_PICKER_LABELS=()
+typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
+typeset -ga _ZLE_PICKER_DISPLAY=()
+typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
+typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
+typeset -g _ZLE_PICKER_TITLE=''
+typeset -g _ZLE_PICKER_BROWSE_LABEL='items'
+typeset -g _ZLE_PICKER_EMPTY_LABEL='no matches'
+typeset -g _ZLE_PICKER_FOOTER=''
+typeset -g _ZLE_PICKER_COLLECTOR=''
+typeset -g _ZLE_PICKER_HEADER=''
+typeset -g _ZLE_PICKER_QUERY_ROW=''
+typeset -gi _ZLE_PICKER_QUERY_START=0
+typeset -gi _ZLE_PICKER_QUERY_END=0
+typeset -g _ZLE_PICKER_POSTDISPLAY=''
+typeset -g _ZLE_PICKER_QUERY=''
+typeset -gi _ZLE_PICKER_SELECTED=0
+typeset -g _ZLE_PICKER_SELECTED_VALUE=''
+typeset -gi _ZLE_PICKER_ACTIVE=0
+typeset -gi _ZLE_PICKER_ACCEPTED=0
+typeset -gi _ZLE_PICKER_DIGIT_SELECT=0
+typeset -gi _ZLE_PICKER_COPY_ENABLED=0
+typeset -g _ZLE_PICKER_ACTION='select'
+typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
+
+# Native fuzzy history search. The public result limit may be established by
+# the local initializer; the widget also caps it to the terminal height.
+typeset -g ZSH_HISTORY_SEARCH_MAX_RESULTS=${ZSH_HISTORY_SEARCH_MAX_RESULTS:-8}
+typeset -ga _HISTORY_SEARCH_RESULTS=()
+zmodload -F zsh/parameter p:history
+
+_zle_picker_escape_pattern() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local MATCH
+  REPLY=${1//(#m)[\][|()\\*?#<>~^]/\\$MATCH}
+}
+
+# Keep picker layout independent from the prompt add-on. Both features use the
+# same small width rule, but neither should require the other to be loaded.
+_zle_picker_abbreviate() {
+  local text=$1
+  local -i max_width=$2 left_width=0 right_width=0
+
+  if (( max_width <= 0 )); then
+    REPLY=''
+    return
+  fi
+  if (( ${#text} <= max_width )); then
+    REPLY=$text
+    return
+  fi
+  if (( max_width < 5 )); then
+    REPLY='…'
+    return
+  fi
+
+  left_width=$(( (max_width - 1) / 3 ))
+  right_width=$(( max_width - 1 - left_width ))
+  REPLY="${text[1,left_width]}…${text[-right_width,-1]}"
+}
+
+# Resolve picker colors when drawing rather than copying legacy overrides at
+# bootstrap time. This preserves initializer-defined legacy roles without
+# creating a peer add-on ordering dependency.
+_zle_picker_style() {
+  local role=$1 fallback=$2 legacy="history-search-${1#picker-}"
+
+  if (( ${+ZSH_HIGHLIGHT_STYLES[$legacy]} )); then
+    REPLY=${ZSH_HIGHLIGHT_STYLES[$legacy]}
+  else
+    REPLY=${ZSH_HIGHLIGHT_STYLES[$role]:-$fallback}
+  fi
+}
+
+# Append newest-first matches for one native Zsh pattern, optionally requiring
+# additional patterns. The first pattern should be the most selective one so a
+# fragment search does not scan the complete history in shell code.
+_history_search_append_matches() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local seed_pattern=$1 raw_limit=$2
+  shift 2
+  local event='' entry='' required_pattern=''
+  local -i limit=$raw_limit matched=0
+  local -a required_patterns=("$@")
+  local -a events=( ${(kOn)history[(R)${~seed_pattern}]} )
+
+  for event in "${events[@]}"; do
+    entry=${history[$event]}
+    [[ -n $entry ]] || continue
+    matched=1
+    for required_pattern in "${required_patterns[@]}"; do
+      [[ $required_pattern == "$seed_pattern" ]] && continue
+      if [[ $entry != ${~required_pattern} ]]; then
+        matched=0
+        break
+      fi
+    done
+    (( matched )) || continue
+    (( ${_HISTORY_SEARCH_RESULTS[(Ie)$entry]} )) && continue
+    _HISTORY_SEARCH_RESULTS+=("$entry")
+    (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
+  done
+}
+
+# Rank full literal matches first. Multi-fragment queries then require every
+# whitespace-separated fragment but allow them to appear in any order. If no
+# literal-fragment result exists, each fragment falls back to ordered-character
+# fuzzy matching. Every tier remains newest-first.
+_history_search_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 raw_limit=$2 literal='' pattern='' fragment=''
+  local event='' entry=''
+  local character='' seed_pattern='' longest_fragment=''
+  local -i limit=8 index=0 seed_index=1 previous_count=0
+  local -a fragments=() literal_patterns=() fuzzy_patterns=() events=()
+  typeset -ga _HISTORY_SEARCH_RESULTS=()
+
+  [[ $raw_limit == <-> ]] && limit=$raw_limit
+  (( limit < 1 )) && limit=1
+  (( limit > 20 )) && limit=20
+
+  if [[ -z $query ]]; then
+    events=( ${(kOn)history} )
+    for event in "${events[@]}"; do
+      entry=${history[$event]}
+      [[ -n $entry ]] || continue
+      (( ${_HISTORY_SEARCH_RESULTS[(Ie)$entry]} )) && continue
+      _HISTORY_SEARCH_RESULTS+=("$entry")
+      (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
+    done
+    return 0
+  fi
+
+  _zle_picker_escape_pattern "$query"
+  literal=$REPLY
+  _history_search_append_matches "(#i)${literal}*" $limit
+  (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
+  _history_search_append_matches "(#i)*${literal}*" $limit
+  (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
+
+  fragments=( ${=query} )
+  (( ${#fragments} )) || return 0
+
+  if (( ${#fragments} == 1 )); then
+    pattern='(#i)*'
+    for character in "${(s::)fragments[1]}"; do
+      _zle_picker_escape_pattern "$character"
+      pattern+="${REPLY}*"
+    done
+    _history_search_append_matches "$pattern" $limit
+    return 0
+  fi
+
+  for fragment in "${fragments[@]}"; do
+    _zle_picker_escape_pattern "$fragment"
+    literal_patterns+=("(#i)*${REPLY}*")
+    if (( ${#fragment} > ${#longest_fragment} )); then
+      longest_fragment=$fragment
+      seed_index=${#literal_patterns}
+      seed_pattern=${literal_patterns[-1]}
+    fi
+  done
+
+  previous_count=${#_HISTORY_SEARCH_RESULTS}
+  _history_search_append_matches "$seed_pattern" $limit "${literal_patterns[@]}"
+  (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
+  # Exact fragments are more useful than broader fuzzy approximations. Only
+  # fall back when the unordered literal tier contributed nothing new.
+  (( ${#_HISTORY_SEARCH_RESULTS} > previous_count )) && return 0
+
+  for fragment in "${fragments[@]}"; do
+    pattern='(#i)*'
+    index=0
+    for character in "${(s::)fragment}"; do
+      _zle_picker_escape_pattern "$character"
+      (( index++ )) && pattern+='[^[:space:]]#'
+      pattern+=$REPLY
+    done
+    pattern+='*'
+    fuzzy_patterns+=("$pattern")
+  done
+  _history_search_append_matches "${fuzzy_patterns[seed_index]}" $limit \
+    "${fuzzy_patterns[@]}"
+}
+
+# Build a fixed-width list shared by history and navigation selectors. Labels
+# are made visible before display so control bytes can never become terminal
+# instructions. Result values remain untouched for the eventual action.
+_zle_picker_render() {
+  emulate -L zsh
+
+  local query=$1
+  local -i selected=$2 columns=${COLUMNS:-80} row_width content_width
+  local -i query_width=0
+  local -i index=0 count=${#_ZLE_PICKER_RESULTS} index_width=2 index_end=0
+  local shown_query='' shown_title='' shown_browse='' shown_empty=''
+  local query_label='Search ' query_open='‹' query_close='›'
+  local label='' row='' footer='' result_index=''
+  typeset -ga _ZLE_PICKER_DISPLAY=()
+  typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
+  typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
+  _ZLE_PICKER_QUERY_ROW=''
+  _ZLE_PICKER_QUERY_START=0
+  _ZLE_PICKER_QUERY_END=0
+  _ZLE_PICKER_INDEXES_VISIBLE=0
+
+  (( columns < 4 )) && columns=4
+  row_width=$(( columns - 1 ))
+  shown_query=${(V)query}
+  shown_title=${(V)_ZLE_PICKER_TITLE}
+  shown_browse=${(V)_ZLE_PICKER_BROWSE_LABEL}
+  shown_empty=${(V)_ZLE_PICKER_EMPTY_LABEL}
+
+  if [[ -n $shown_query ]]; then
+    _ZLE_PICKER_HEADER="${shown_title} · ${count} shown"
+  else
+    _ZLE_PICKER_HEADER="${shown_title} · ${shown_browse} · ${count} shown"
+  fi
+  if (( ${#_ZLE_PICKER_HEADER} > row_width )); then
+    _ZLE_PICKER_HEADER="${_ZLE_PICKER_HEADER[1,$(( row_width - 1 ))]}…"
+  fi
+
+  # A stable dedicated row prevents layout shifts and lets long input use the
+  # terminal width. Abbreviation preserves both ends, favoring newly typed text;
+  # the complete query remains untouched for matching.
+  query_width=$(( row_width - ${#query_label} - ${#query_open} - ${#query_close} ))
+  if (( query_width > 0 )); then
+    _zle_picker_abbreviate "$shown_query" $query_width
+    shown_query=$REPLY
+    _ZLE_PICKER_QUERY_ROW="${query_label}${query_open}${shown_query}${query_close}"
+    _ZLE_PICKER_QUERY_START=${#query_label}
+    _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+  else
+    query_label='› '
+    query_width=$(( row_width - ${#query_label} ))
+    _zle_picker_abbreviate "$shown_query" $query_width
+    _ZLE_PICKER_QUERY_ROW="${query_label}${REPLY}"
+    _ZLE_PICKER_QUERY_START=0
+    _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+  fi
+
+  for result_index in "${_ZLE_PICKER_RESULT_INDEXES[@]}"; do
+    (( ${#result_index} > index_width )) && index_width=${#result_index}
+  done
+  (( count && row_width >= index_width + 7 )) && _ZLE_PICKER_INDEXES_VISIBLE=1
+
+  if (( count == 0 )); then
+    row="[--]   ${shown_empty}"
+    (( ${#row} > row_width )) && row="${row[1,$(( row_width - 1 ))]}…"
+    _ZLE_PICKER_DISPLAY+=("${(r:$row_width:: :)row}")
+    _ZLE_PICKER_DISPLAY_STYLES+=(picker-empty)
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
+  else
+    for label in "${_ZLE_PICKER_LABELS[@]}"; do
+      (( ++index ))
+      label=${label//$'\n'/ ↵ }
+      label=${label//$'\t'/ ⇥ }
+      label=${(V)label}
+      result_index=${_ZLE_PICKER_RESULT_INDEXES[index]:-$index}
+      if (( _ZLE_PICKER_INDEXES_VISIBLE )); then
+        content_width=$(( row_width - index_width - 5 ))
+        (( ${#label} > content_width )) && label="${label[1,$(( content_width - 1 ))]}…"
+        if (( index == selected )); then
+          row="[${(l:$index_width:: :)result_index}] ● ${label}"
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-selected)
+          index_end=0
+        else
+          row="[${(l:$index_width:: :)result_index}]   ${label}"
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-text)
+          index_end=$(( index_width + 2 ))
+        fi
+      else
+        content_width=$(( row_width - 2 ))
+        (( ${#label} > content_width )) && label="${label[1,$(( content_width - 1 ))]}…"
+        if (( index == selected )); then
+          row="● ${label}"
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-selected)
+        else
+          row="· ${label}"
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-text)
+        fi
+        index_end=0
+      fi
+      _ZLE_PICKER_DISPLAY+=("${(r:$row_width:: :)row}")
+      _ZLE_PICKER_DISPLAY_INDEX_ENDS+=($index_end)
+    done
+  fi
+
+  footer=$_ZLE_PICKER_FOOTER
+  (( ${#footer} > row_width )) && footer="${footer[1,$(( row_width - 1 ))]}…"
+  _ZLE_PICKER_DISPLAY+=("${(r:$row_width:: :)footer}")
+  _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
+  _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
+}
+
+# Draw every selector through POSTDISPLAY so native region_highlight provides
+# color without embedding escape sequences or corrupting width calculations.
+_zle_picker_show() {
+  emulate -L zsh
+
+  local row='' style_key='' style='' index_style='' query_style=''
+  local -i index=0 index_end=0
+  local -i offset=$(( ${#PREDISPLAY} + ${#BUFFER} + 1 )) end=0
+
+  region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+  POSTDISPLAY=$'\n'"$_ZLE_PICKER_HEADER"
+
+  _zle_picker_style picker-header 'fg=75,bold'
+  style=$REPLY
+  end=$(( offset + ${#_ZLE_PICKER_HEADER} ))
+  region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
+  (( offset = end + 1 ))
+
+  POSTDISPLAY+=$'\n'"$_ZLE_PICKER_QUERY_ROW"
+  _zle_picker_style picker-muted 'fg=242'
+  style=$REPLY
+  end=$(( offset + ${#_ZLE_PICKER_QUERY_ROW} ))
+  region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
+  if (( _ZLE_PICKER_QUERY_END > _ZLE_PICKER_QUERY_START )); then
+    _zle_picker_style picker-query 'fg=16,bg=44,bold'
+    query_style=$REPLY
+    region_highlight+=(
+      "P$(( offset + _ZLE_PICKER_QUERY_START )) $(( offset + _ZLE_PICKER_QUERY_END )) ${query_style} memo=my-zsh-picker"
+    )
+  fi
+  (( offset = end + 1 ))
+
+  for (( index = 1; index <= ${#_ZLE_PICKER_DISPLAY}; ++index )); do
+    row=${_ZLE_PICKER_DISPLAY[index]}
+    style_key=${_ZLE_PICKER_DISPLAY_STYLES[index]}
+    _zle_picker_style "$style_key" 'fg=252'
+    style=$REPLY
+    index_end=${_ZLE_PICKER_DISPLAY_INDEX_ENDS[index]}
+    POSTDISPLAY+=$'\n'"$row"
+    end=$(( offset + ${#row} ))
+    if (( index_end )); then
+      _zle_picker_style picker-index 'fg=44,bold'
+      index_style=$REPLY
+      region_highlight+=(
+        "P${offset} $(( offset + index_end )) ${index_style} memo=my-zsh-picker"
+        "P$(( offset + index_end )) ${end} ${style} memo=my-zsh-picker"
+      )
+    else
+      region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
+    fi
+    (( offset = end + 1 ))
+  done
+
+  _ZLE_PICKER_POSTDISPLAY=$POSTDISPLAY
+  zle -R
+}
+
+# ZLE enables bracketed paste in modern terminals. Consume its complete closing
+# marker here so pasted filter text cannot leak into the normal command buffer.
+_zle_picker_read_bracketed_paste() {
+  emulate -L zsh
+
+  local character='' pasted='' marker=$'\e[201~'
+  local -i content_length=0 max_length=1048576
+  REPLY=''
+
+  # A malformed or interrupted terminal sequence must not trap the editor in
+  # an unbounded read or grow memory forever.
+  while IFS= read -r -t 1 -k 1 character; do
+    pasted+=$character
+    (( ${#pasted} <= max_length )) || return 1
+    if (( ${#pasted} >= ${#marker} )) && [[ $pasted[-${#marker},-1] == $marker ]]; then
+      content_length=$(( ${#pasted} - ${#marker} ))
+      (( content_length > 0 )) && REPLY=${pasted[1,$content_length]}
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Adapt the history-specific collector to the reusable picker result contract.
+_history_search_picker_collect() {
+  emulate -L zsh
+
+  _history_search_collect "$1" "$2"
+  typeset -ga _ZLE_PICKER_RESULTS=("${_HISTORY_SEARCH_RESULTS[@]}")
+  typeset -ga _ZLE_PICKER_LABELS=("${_HISTORY_SEARCH_RESULTS[@]}")
+  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
+}
+
+# Run one searchable selector inside the active line editor. Collection is a
+# narrow callback; input parsing, layout, color, cancellation, and cleanup stay
+# centralized so every picker has identical ergonomics and safety behavior.
+_zle_picker_loop() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 raw_limit=$2 key='' sequence='' suffix=''
+  local collector=$_ZLE_PICKER_COLLECTOR
+  local saved_postdisplay=$POSTDISPLAY
+  local -i configured_limit=8 limit=8 selected=1 count=0 direct_position=0
+  local -i accepted=0 cancelled=0 aborted=0 copy_requested=0
+  local -i saved_suspended=${_ZLE_AUTOSUGGEST_SUSPENDED:-0}
+
+  [[ $raw_limit == <-> ]] && configured_limit=$raw_limit
+  (( configured_limit < 1 )) && configured_limit=1
+  (( configured_limit > 20 )) && configured_limit=20
+  (( ${+functions[$collector]} )) || return 2
+
+  _ZLE_PICKER_SELECTED_VALUE=''
+  _ZLE_PICKER_ACCEPTED=0
+  _ZLE_PICKER_ACTION='select'
+  _ZLE_PICKER_ACTIVE=1
+  _ZLE_AUTOSUGGEST_SUSPENDED=1
+  region_highlight=("${(@)region_highlight:#*memo=my-zsh-autosuggestion}")
+  if [[ -n ${_ZLE_AUTOSUGGEST_DISPLAY:-} &&
+        $POSTDISPLAY == "$_ZLE_AUTOSUGGEST_DISPLAY" ]]; then
+    saved_postdisplay=''
+    POSTDISPLAY=''
+  fi
+  _ZLE_AUTOSUGGEST_SUFFIX=''
+  _ZLE_AUTOSUGGEST_DISPLAY=''
+  {
+    while (( !accepted && !cancelled && !aborted )); do
+      limit=$configured_limit
+      (( LINES > 0 && limit > LINES - 6 )) && limit=$(( LINES - 6 ))
+      (( limit < 1 )) && limit=1
+      "$collector" "$query" $limit
+      count=${#_ZLE_PICKER_RESULTS}
+      (( count == 0 )) && selected=0
+      (( count > 0 && selected < 1 )) && selected=1
+      (( selected > count )) && selected=$count
+
+      _ZLE_PICKER_QUERY=$query
+      _ZLE_PICKER_SELECTED=$selected
+      _zle_picker_render "$query" $selected
+      _zle_picker_show
+
+      key=''
+      if ! IFS= read -r -k 1 key; then
+        cancelled=1
+        break
+      fi
+
+      case $key in
+        ($'\r'|$'\n')
+          if (( count )); then
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x03')
+          aborted=1
+          ;;
+        ($'\x07')
+          cancelled=1
+          ;;
+        ($'\x7f'|$'\x08')
+          if [[ -n $query ]]; then
+            query=${query[1,-2]}
+            selected=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x15')
+          query=''
+          selected=1
+          ;;
+        ($'\x19')
+          if (( _ZLE_PICKER_COPY_ENABLED && count )); then
+            copy_requested=1
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x17')
+          query=${query%%[[:space:]]#}
+          query=${query%%[^[:space:]]#}
+          selected=1
+          ;;
+        ($'\x0c')
+          zle clear-screen
+          ;;
+        ($'\x12'|$'\x0e'|$'\t')
+          if (( count )); then
+            (( selected = selected % count + 1 ))
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x10')
+          if (( count )); then
+            (( selected = (selected + count - 2) % count + 1 ))
+          else
+            zle beep
+          fi
+          ;;
+        ($'\e')
+          sequence=''
+          if ! IFS= read -r -t 0.1 -k 1 sequence; then
+            cancelled=1
+            continue
+          fi
+          case $sequence in
+            ('w'|'W')
+              if (( _ZLE_PICKER_COPY_ENABLED && count )); then
+                copy_requested=1
+                accepted=1
+              else
+                zle beep
+              fi
+              ;;
+            ($'\x7f'|$'\x08')
+              query=${query%%[[:space:]]#}
+              query=${query%%[^[:space:]]#}
+              selected=1
+              ;;
+            ('['|'O')
+              suffix=''
+              if ! IFS= read -r -t 0.1 -k 1 suffix; then
+                cancelled=1
+                continue
+              fi
+              sequence+=$suffix
+              case $sequence in
+                ('[A'|'OA'|'[Z')
+                  if (( count )); then
+                    (( selected = (selected + count - 2) % count + 1 ))
+                  else
+                    zle beep
+                  fi
+                  ;;
+                ('[B'|'OB')
+                  if (( count )); then
+                    (( selected = selected % count + 1 ))
+                  else
+                    zle beep
+                  fi
+                  ;;
+                ('[3')
+                  suffix=''
+                  IFS= read -r -t 0.1 -k 1 suffix
+                  if [[ $suffix == '~' && -n $query ]]; then
+                    query=${query[1,-2]}
+                    selected=1
+                  fi
+                  ;;
+                ('[2')
+                  suffix=''
+                  if IFS= read -r -t 0.1 -k 3 suffix && [[ $suffix == '00~' ]] &&
+                     _zle_picker_read_bracketed_paste; then
+                    query+=$REPLY
+                    selected=1
+                  else
+                    cancelled=1
+                  fi
+                  ;;
+                (*)
+                  cancelled=1
+                  ;;
+              esac
+              ;;
+            (*)
+              cancelled=1
+              ;;
+          esac
+          ;;
+        ([0-9])
+          # Navigation selectors expose stable single-digit labels. When the
+          # list is still unfiltered, a visible digit is an immediate choice;
+          # otherwise digits remain ordinary searchable text.
+          direct_position=0
+          if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE )) &&
+             [[ -z $query ]]; then
+            direct_position=${_ZLE_PICKER_RESULT_INDEXES[(Ie)$key]}
+          fi
+          if (( direct_position )); then
+            selected=$direct_position
+            accepted=1
+          else
+            query+=$key
+            selected=1
+          fi
+          ;;
+        (*)
+          if [[ $key == [[:print:]] ]]; then
+            query+=$key
+            selected=1
+          else
+            zle beep
+          fi
+          ;;
+      esac
+    done
+
+    if (( accepted )); then
+      _ZLE_PICKER_ACCEPTED=1
+      _ZLE_PICKER_SELECTED_VALUE=${_ZLE_PICKER_RESULTS[selected]}
+      (( copy_requested )) && _ZLE_PICKER_ACTION='copy'
+    fi
+  } always {
+    _ZLE_PICKER_ACTIVE=0
+    _ZLE_AUTOSUGGEST_SUSPENDED=$saved_suspended
+    region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+    POSTDISPLAY=$saved_postdisplay
+    _ZLE_PICKER_POSTDISPLAY=''
+    _ZLE_PICKER_QUERY=''
+    _ZLE_PICKER_QUERY_ROW=''
+    _ZLE_PICKER_QUERY_START=0
+    _ZLE_PICKER_QUERY_END=0
+    _ZLE_PICKER_SELECTED=0
+    _ZLE_PICKER_DIGIT_SELECT=0
+    _ZLE_PICKER_COPY_ENABLED=0
+    _ZLE_PICKER_INDEXES_VISIBLE=0
+    zle -R -c
+  }
+
+  if (( aborted )); then
+    zle .send-break
+    return 130
+  fi
+  (( accepted ))
+}
+
+_history_fuzzy_search_widget() {
+  emulate -L zsh
+
+  local original_buffer=$BUFFER
+  _ZLE_PICKER_TITLE='History'
+  _ZLE_PICKER_BROWSE_LABEL='recent commands'
+  _ZLE_PICKER_EMPTY_LABEL='no matches'
+  _ZLE_PICKER_FOOTER='↑↓ move · type refine · ⏎ insert · esc cancel · ^U clear'
+  _ZLE_PICKER_COLLECTOR='_history_search_picker_collect'
+  _ZLE_PICKER_DIGIT_SELECT=0
+
+  if _zle_picker_loop "$original_buffer" \
+       "${ZSH_HISTORY_SEARCH_MAX_RESULTS:-8}"; then
+    BUFFER=$_ZLE_PICKER_SELECTED_VALUE
+    CURSOR=${#BUFFER}
+  fi
+  zle redisplay
+}
+
+zle -N history-fuzzy-search _history_fuzzy_search_widget
+bindkey '^R' history-fuzzy-search
+
+# Treat / as a word boundary so Option-Backspace edits paths naturally.
+WORDCHARS=${WORDCHARS//\//}
+
+# -----------------------------------------------------------------------------
+# Native history autosuggestions
+# -----------------------------------------------------------------------------
+
+# Suggestions are derived from the live Zsh history and displayed outside the
+# editable buffer. They are never part of a command until explicitly accepted.
+typeset -g ZSH_AUTOSUGGEST_ENABLED=${ZSH_AUTOSUGGEST_ENABLED:-1}
+typeset -gi _ZLE_AUTOSUGGEST_SUSPENDED=0
+typeset -g _ZLE_AUTOSUGGEST_CACHE_BUFFER=''
+typeset -g _ZLE_AUTOSUGGEST_CACHE_HISTORY=''
+typeset -g _ZLE_AUTOSUGGEST_CACHE_FULL=''
+typeset -g _ZLE_AUTOSUGGEST_SUFFIX=''
+typeset -g _ZLE_AUTOSUGGEST_DISPLAY=''
+
+_zle_autosuggest_find() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local prefix=$1 pattern='' event='' entry=''
+  local -a events=()
+  typeset -g _ZLE_AUTOSUGGEST_CACHE_FULL=''
+
+  _zle_picker_escape_pattern "$prefix"
+  pattern="${REPLY}*"
+  events=( ${(kOn)history[(R)${~pattern}]} )
+
+  for event in "${events[@]}"; do
+    entry=${history[$event]}
+    [[ $entry == "$prefix"* && $entry != "$prefix" ]] || continue
+    # Tabs, newlines, escapes, and other control bytes are valid history, but
+    # writing them to POSTDISPLAY could alter the terminal rather than its UI.
+    [[ $entry == *[[:cntrl:]]* ]] && continue
+    _ZLE_AUTOSUGGEST_CACHE_FULL=$entry
+    return 0
+  done
+  return 1
+}
+
+_zle_autosuggest_update() {
+  emulate -L zsh
+
+  # Remove only this feature's previous highlight and display. If another
+  # widget owns POSTDISPLAY, leave it untouched and stand down for this redraw.
+  region_highlight=("${(@)region_highlight:#*memo=my-zsh-autosuggestion}")
+  if [[ -n $_ZLE_AUTOSUGGEST_DISPLAY &&
+        $POSTDISPLAY == "$_ZLE_AUTOSUGGEST_DISPLAY" ]]; then
+    POSTDISPLAY=''
+  elif [[ -n $POSTDISPLAY ]]; then
+    _ZLE_AUTOSUGGEST_DISPLAY=''
+    _ZLE_AUTOSUGGEST_SUFFIX=''
+    return 0
+  fi
+  _ZLE_AUTOSUGGEST_DISPLAY=''
+  _ZLE_AUTOSUGGEST_SUFFIX=''
+
+  [[ $ZSH_AUTOSUGGEST_ENABLED == 1 ]] || return 0
+  (( !_ZLE_AUTOSUGGEST_SUSPENDED )) || return 0
+  (( ${ZLE_RECURSIVE:-0} == 0 && ${REGION_ACTIVE:-0} == 0 &&
+     ${SUFFIX_ACTIVE:-0} == 0 && CURSOR == ${#BUFFER} )) || return 0
+  [[ -n $BUFFER && $BUFFER != ' '* && $BUFFER != *[[:cntrl:]]* ]] || return 0
+
+  local history_token="${HISTCMD:-0}:${HISTNO:-0}"
+  local full='' style=${ZSH_HIGHLIGHT_STYLES[autosuggestion]:-'fg=242'}
+  local -i start=0 end=0
+
+  if [[ $history_token == $_ZLE_AUTOSUGGEST_CACHE_HISTORY ]]; then
+    if [[ $BUFFER == $_ZLE_AUTOSUGGEST_CACHE_BUFFER ]]; then
+      full=$_ZLE_AUTOSUGGEST_CACHE_FULL
+    elif [[ $BUFFER == "$_ZLE_AUTOSUGGEST_CACHE_BUFFER"* ]]; then
+      if [[ -z $_ZLE_AUTOSUGGEST_CACHE_FULL ]]; then
+        full=''
+      elif [[ $_ZLE_AUTOSUGGEST_CACHE_FULL == "$BUFFER"* &&
+              $_ZLE_AUTOSUGGEST_CACHE_FULL != "$BUFFER" ]]; then
+        full=$_ZLE_AUTOSUGGEST_CACHE_FULL
+      else
+        _zle_autosuggest_find "$BUFFER"
+        full=$_ZLE_AUTOSUGGEST_CACHE_FULL
+      fi
+    else
+      _zle_autosuggest_find "$BUFFER"
+      full=$_ZLE_AUTOSUGGEST_CACHE_FULL
+    fi
+  else
+    _zle_autosuggest_find "$BUFFER"
+    full=$_ZLE_AUTOSUGGEST_CACHE_FULL
+  fi
+
+  _ZLE_AUTOSUGGEST_CACHE_BUFFER=$BUFFER
+  _ZLE_AUTOSUGGEST_CACHE_HISTORY=$history_token
+  _ZLE_AUTOSUGGEST_CACHE_FULL=$full
+  [[ -n $full && $full == "$BUFFER"* && $full != "$BUFFER" ]] || return 0
+
+  _ZLE_AUTOSUGGEST_SUFFIX=${full[$(( ${#BUFFER} + 1 )),-1]}
+  _ZLE_AUTOSUGGEST_DISPLAY=$_ZLE_AUTOSUGGEST_SUFFIX
+  POSTDISPLAY=$_ZLE_AUTOSUGGEST_DISPLAY
+  start=$(( ${#PREDISPLAY} + ${#BUFFER} ))
+  end=$(( start + ${#POSTDISPLAY} ))
+  region_highlight+=(
+    "P${start} ${end} ${style} memo=my-zsh-autosuggestion"
+  )
+}
+
+_zle_autosuggest_reset() {
+  emulate -L zsh
+
+  region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+  if [[ -n $_ZLE_PICKER_POSTDISPLAY &&
+        $POSTDISPLAY == "$_ZLE_PICKER_POSTDISPLAY" ]]; then
+    POSTDISPLAY=''
+  fi
+  _ZLE_PICKER_POSTDISPLAY=''
+  _ZLE_PICKER_ACTIVE=0
+  _ZLE_AUTOSUGGEST_SUSPENDED=0
+  _ZLE_AUTOSUGGEST_CACHE_BUFFER=''
+  _ZLE_AUTOSUGGEST_CACHE_HISTORY=''
+  _ZLE_AUTOSUGGEST_CACHE_FULL=''
+  _ZLE_AUTOSUGGEST_SUFFIX=''
+  _ZLE_AUTOSUGGEST_DISPLAY=''
+}
+
+_zle_autosuggest_is_active() {
+  [[ -n $_ZLE_AUTOSUGGEST_SUFFIX &&
+     $_ZLE_AUTOSUGGEST_CACHE_BUFFER == "$BUFFER" &&
+     $POSTDISPLAY == "$_ZLE_AUTOSUGGEST_DISPLAY" ]] &&
+    (( CURSOR == ${#BUFFER} ))
+}
+
+_zle_autosuggest_accept_character() {
+  if _zle_autosuggest_is_active; then
+    BUFFER+="${_ZLE_AUTOSUGGEST_SUFFIX[1]}"
+    CURSOR=${#BUFFER}
+  else
+    zle .forward-char
+  fi
+}
+
+_zle_autosuggest_accept_word() {
+  if _zle_autosuggest_is_active; then
+    BUFFER+=$_ZLE_AUTOSUGGEST_SUFFIX
+    zle .forward-word
+    BUFFER=${BUFFER[1,CURSOR]}
+    CURSOR=${#BUFFER}
+  else
+    zle .forward-word
+  fi
+}
+
+_zle_autosuggest_accept_all() {
+  if _zle_autosuggest_is_active; then
+    BUFFER+=$_ZLE_AUTOSUGGEST_SUFFIX
+    CURSOR=${#BUFFER}
+  else
+    zle .end-of-line
+  fi
+}
+
+zle -N autosuggest-accept-character _zle_autosuggest_accept_character
+zle -N autosuggest-accept-word _zle_autosuggest_accept_word
+zle -N autosuggest-accept-all _zle_autosuggest_accept_all
+_bind_zle_keys autosuggest-accept-character \
+  '^F' "${terminfo[kcuf1]:-}" $'\e[C' $'\eOC'
+_bind_zle_keys autosuggest-accept-word \
+  $'\ef' $'\e[1;3C'
+_bind_zle_keys autosuggest-accept-all \
+  '^E' "${terminfo[kend]:-}" $'\e[F' $'\eOF' $'\e[4~'
+unfunction _bind_zle_keys
+
+autoload -Uz add-zle-hook-widget
+add-zle-hook-widget -d line-init _zle_autosuggest_reset 2>/dev/null
+add-zle-hook-widget -d line-init _zle_picker_line_init 2>/dev/null
+add-zle-hook-widget line-init _zle_autosuggest_reset
+(( ${+functions[_zle_picker_line_init]} )) &&
+  add-zle-hook-widget line-init _zle_picker_line_init
+
+add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight 2>/dev/null
+add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update 2>/dev/null
+(( ${+functions[_zle_syntax_highlight]} )) &&
+  add-zle-hook-widget line-pre-redraw _zle_syntax_highlight
+add-zle-hook-widget line-pre-redraw _zle_autosuggest_update
+
+:

@@ -1,0 +1,334 @@
+# Xcode-specific tools. This peer unit is loaded by the .zshrc bootstrap only
+# while its name matches .zsh.<name> inside the adjacent add-on directory.
+
+# Apple documents an Xcode 27 issue where Codex does not automatically receive
+# Xcode-provided agent skills. This add-on implements Apple's `xcrun agent
+# skills export` workaround and also places the portable export where other
+# common agents can discover it:
+# https://developer.apple.com/documentation/xcode-release-notes/xcode-27-release-notes
+#
+# Re-evaluate this workaround when Apple marks that issue resolved. The
+# Codex-in-Xcode destination may then be removable; keep the multi-agent export
+# only if it still provides value outside Xcode.
+
+# Detect coding-agent surfaces that can discover local Agent Skills. A CLI on
+# PATH or its standard macOS application bundle is sufficient; merely having a
+# vendor's consumer web or chat application is not.
+_detect_xcode_skill_vendor() {
+  emulate -L zsh
+
+  local vendor=$1 binary='' app_name='' app_root=''
+  local -a binaries=() app_names=() matches=()
+
+  case $vendor in
+    codex)
+      binaries=(codex)
+      app_names=(ChatGPT Codex)
+      ;;
+    claude)
+      binaries=(claude)
+      app_names=(Claude)
+      ;;
+    gemini)
+      binaries=(gemini)
+      ;;
+    antigravity)
+      binaries=(agy antigravity)
+      app_names=(Antigravity)
+      ;;
+    kiro)
+      binaries=(kiro-cli kiro)
+      app_names=(Kiro)
+      ;;
+    *)
+      REPLY=''
+      return 2
+      ;;
+  esac
+
+  for binary in "${binaries[@]}"; do
+    (( $+commands[$binary] )) && matches+=("$binary CLI")
+  done
+
+  for app_root in /Applications "$HOME/Applications"; do
+    for app_name in "${app_names[@]}"; do
+      [[ -d "$app_root/$app_name.app/Contents" ]] && matches+=("$app_name app")
+    done
+  done
+
+  REPLY=${(j:, :)matches}
+  (( ${#matches} != 0 ))
+}
+
+# Remove only a temporary directory created immediately below an agent skill
+# root by this add-on. Keeping this validation beside the recursive removal
+# prevents a malformed path from broadening cleanup.
+_remove_xcode_skill_temp_tree() {
+  emulate -L zsh
+
+  local target=${1:A} expected_parent=${2:A} name=${${1:A}:t}
+  [[ ${target:h} == $expected_parent &&
+     ( $name == .xcode-skill-stage.* ||
+       $name == .xcode-skill-backup.* ) ]] || {
+    print -u2 -r -- "Xcode skill update: refused unsafe cleanup target: $target"
+    return 1
+  }
+  [[ -e $target || -L $target ]] || return 0
+  command rm -rf -- "$target"
+}
+
+# Copy one staged Xcode export into an agent's global skill directory. Existing
+# directories are updated only when a marker proves this function created them;
+# a same-named personal skill is preserved and reported as a conflict. Every
+# managed skill is built completely in a sibling directory before one swap, so
+# a failed copy leaves the previous skill intact and stale files disappear.
+_install_xcode_skills_for_agent() {
+  emulate -L zsh
+
+  local source_dir=$1 target_dir=$2 agent_name=$3 xcode_build=$4
+  local source_skill='' target_skill='' marker='.xcode-skill-export'
+  local stage_dir='' backup_dir=''
+  local -i installed=0 updated=0 conflicts=0 failures=0 refreshing=0 restored=0
+
+  target_dir=${target_dir:A}
+  if ! command mkdir -p -- "$target_dir"; then
+    print -u2 -r -- "  ✗ $agent_name: cannot create $target_dir"
+    return 1
+  fi
+
+  for source_skill in "$source_dir"/*(N/); do
+    [[ -f "$source_skill/SKILL.md" ]] || continue
+    target_skill="$target_dir/${source_skill:t}"
+
+    if [[ -L $target_skill || ( -e $target_skill && ! -d $target_skill ) ]]; then
+      print -u2 -r -- \
+        "  ! $agent_name: kept conflicting ${source_skill:t}"
+      (( ++conflicts ))
+      continue
+    fi
+
+    if [[ -d $target_skill &&
+          ( ! -f "$target_skill/$marker" || -L "$target_skill/$marker" ) ]]; then
+      print -u2 -r -- \
+        "  ! $agent_name: kept existing personal skill ${source_skill:t}"
+      (( ++conflicts ))
+      continue
+    fi
+
+    [[ -d $target_skill ]] && refreshing=1 || refreshing=0
+    stage_dir=$(command mktemp -d \
+      "$target_dir/.xcode-skill-stage.XXXXXX") || {
+      print -u2 -r -- "  ✗ $agent_name: cannot stage ${source_skill:t}"
+      (( ++failures ))
+      continue
+    }
+
+    if ! command cp -R -f "$source_skill"/. "$stage_dir" ||
+        ! print -r -- "$xcode_build" >| "$stage_dir/$marker"; then
+      print -u2 -r -- "  ✗ $agent_name: failed to copy ${source_skill:t}"
+      (( ++failures ))
+      _remove_xcode_skill_temp_tree "$stage_dir" "$target_dir" ||
+        (( ++failures ))
+      continue
+    fi
+
+    backup_dir=''
+    if (( refreshing )); then
+      backup_dir=$(command mktemp -d \
+        "$target_dir/.xcode-skill-backup.XXXXXX") || {
+        print -u2 -r -- "  ✗ $agent_name: cannot stage refresh ${source_skill:t}"
+        (( ++failures ))
+        _remove_xcode_skill_temp_tree "$stage_dir" "$target_dir" ||
+          (( ++failures ))
+        continue
+      }
+      if ! command mv -- "$target_skill" "$backup_dir/previous"; then
+        print -u2 -r -- "  ✗ $agent_name: cannot refresh ${source_skill:t}"
+        (( ++failures ))
+        _remove_xcode_skill_temp_tree "$stage_dir" "$target_dir" ||
+          (( ++failures ))
+        _remove_xcode_skill_temp_tree "$backup_dir" "$target_dir" ||
+          (( ++failures ))
+        continue
+      fi
+    fi
+
+    if ! command mv -- "$stage_dir" "$target_skill"; then
+      print -u2 -r -- "  ✗ $agent_name: cannot activate ${source_skill:t}"
+      (( ++failures ))
+      restored=0
+      if (( refreshing )); then
+        if command mv -- "$backup_dir/previous" "$target_skill"; then
+          restored=1
+        else
+          (( ++failures ))
+          print -u2 -r -- \
+            "  ! $agent_name: previous skill retained at $backup_dir/previous"
+        fi
+      fi
+      _remove_xcode_skill_temp_tree "$stage_dir" "$target_dir" ||
+        (( ++failures ))
+      if [[ -n $backup_dir ]] && (( !refreshing || restored )); then
+        _remove_xcode_skill_temp_tree "$backup_dir" "$target_dir" ||
+          (( ++failures ))
+      fi
+      continue
+    fi
+
+    if (( refreshing )); then
+      (( ++updated ))
+      command chmod -R u+w "$backup_dir" 2>/dev/null
+      _remove_xcode_skill_temp_tree "$backup_dir" "$target_dir" ||
+        (( ++failures ))
+    else
+      (( ++installed ))
+    fi
+  done
+
+  print -r -- \
+    "  $agent_name: ${installed} installed, ${updated} refreshed, ${conflicts} kept"
+  (( conflicts == 0 && failures == 0 ))
+}
+
+# Export Apple's portable Xcode skills once, then make them discoverable to the
+# common local coding agents. No Xcode process or filesystem write occurs until
+# this function is explicitly invoked.
+update_xcode_skills() {
+  emulate -L zsh
+
+  local agent_path='' xcode_version='' xcode_build='' stage_dir=''
+  local shared_agent_name=''
+  local temp_root=${TMPDIR:-/tmp}
+  local -i overall_status=0 install_status=0
+  local -i codex_installed=0 claude_installed=0 gemini_installed=0
+  local -i antigravity_installed=0 kiro_installed=0
+  local -a exported_skills=()
+  local -a detected_vendors=() agent_names=() skill_dirs=()
+  local -i index=0
+
+  if (( $# != 0 )); then
+    print -u2 -r -- 'usage: update_xcode_skills'
+    return 2
+  fi
+
+  if _detect_xcode_skill_vendor codex; then
+    codex_installed=1
+    detected_vendors+=("Codex ($REPLY)")
+  fi
+  if _detect_xcode_skill_vendor claude; then
+    claude_installed=1
+    detected_vendors+=("Claude Code ($REPLY)")
+  fi
+  if _detect_xcode_skill_vendor gemini; then
+    gemini_installed=1
+    detected_vendors+=("Gemini CLI ($REPLY)")
+  fi
+  if _detect_xcode_skill_vendor antigravity; then
+    antigravity_installed=1
+    detected_vendors+=("Google Antigravity ($REPLY)")
+  fi
+  if _detect_xcode_skill_vendor kiro; then
+    kiro_installed=1
+    detected_vendors+=("Kiro ($REPLY)")
+  fi
+
+  if (( codex_installed || gemini_installed )); then
+    if (( codex_installed && gemini_installed )); then
+      shared_agent_name='Codex + Gemini CLI'
+    elif (( codex_installed )); then
+      shared_agent_name='Codex'
+    else
+      shared_agent_name='Gemini CLI'
+    fi
+    agent_names+=("$shared_agent_name")
+    skill_dirs+=("$HOME/.agents/skills")
+  fi
+  if (( claude_installed )); then
+    agent_names+=('Claude Code')
+    skill_dirs+=("$HOME/.claude/skills")
+  fi
+  if (( antigravity_installed )); then
+    agent_names+=('Google Antigravity')
+    skill_dirs+=("$HOME/.gemini/config/skills")
+  fi
+  if (( kiro_installed )); then
+    agent_names+=('Kiro')
+    skill_dirs+=("$HOME/.kiro/skills")
+  fi
+  if (( codex_installed )); then
+    agent_names+=('Codex in Xcode')
+    skill_dirs+=(
+      "$HOME/Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode"
+    )
+  fi
+
+  if (( ${#agent_names} == 0 )); then
+    print -u2 -r -- 'update_xcode_skills: no supported local coding agent found'
+    print -u2 -r -- \
+      'Install Codex, Claude Code, Gemini CLI, Antigravity, or Kiro first.'
+    return 1
+  fi
+
+  if (( ! $+commands[xcrun] )) || \
+      ! agent_path=$(command xcrun --find agent 2>/dev/null) || \
+      [[ -z $agent_path ]]; then
+    print -u2 -r -- \
+      "update_xcode_skills: Xcode's agent command is unavailable"
+    print -u2 -r -- \
+      'Select a compatible Xcode with xcode-select, then try again.'
+    return 1
+  fi
+
+  print -r -- "Detected: ${(j:, :)detected_vendors}"
+
+  stage_dir=$(command mktemp -d "${temp_root%/}/xcode-skills.XXXXXX") || {
+    print -u2 -r -- 'update_xcode_skills: cannot create a temporary directory'
+    return 1
+  }
+
+  {
+    xcode_version=$(command xcodebuild -version 2>/dev/null)
+    xcode_build=${${(M)${(f)xcode_version}:#Build version *}#Build version }
+
+    print -r -- 'Exporting portable Apple skills from:'
+    [[ -n $xcode_version ]] && print -r -- "$xcode_version"
+
+    if ! command xcrun agent skills export --output-dir "$stage_dir"; then
+      overall_status=1
+    else
+      exported_skills=("$stage_dir"/*/SKILL.md(N.))
+      if (( ${#exported_skills} == 0 )); then
+        print -u2 -r -- 'update_xcode_skills: Xcode exported no usable skills'
+        overall_status=1
+      else
+        print -r -- \
+          "Installing ${#exported_skills} skills for local coding agents:"
+        for (( index = 1; index <= ${#agent_names}; ++index )); do
+          _install_xcode_skills_for_agent \
+            "$stage_dir" "${skill_dirs[$index]}" \
+            "${agent_names[$index]}" "$xcode_build"
+          install_status=$?
+          (( install_status == 0 )) || overall_status=1
+        done
+      fi
+    fi
+  } always {
+    if [[ -n $stage_dir && -d $stage_dir &&
+          ${stage_dir:t} == xcode-skills.* ]]; then
+      command rm -rf -- "$stage_dir"
+    fi
+  }
+
+  if (( overall_status == 0 )); then
+    print -r -- "Xcode skills are ready for: ${(j:, :)agent_names}."
+    print -r -- 'Start a new agent session to make the exported skills available.'
+    (( gemini_installed )) && \
+      print -r -- 'An open Gemini CLI session can instead run /skills reload.'
+  else
+    print -u2 -r -- \
+      'The Xcode skill update did not complete; review the messages above.'
+  fi
+  return overall_status
+}
+
+:

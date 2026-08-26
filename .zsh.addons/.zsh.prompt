@@ -1,0 +1,2015 @@
+# -----------------------------------------------------------------------------
+# Prompt
+# -----------------------------------------------------------------------------
+
+zmodload zsh/datetime
+zmodload -F zsh/stat b:zstat
+
+# Public prompt palette. UI structure uses muted colors, identity and location
+# have reserved hues, and state colors keep their conventional meaning. The
+# early local initializer may replace a role; this unit fills missing defaults.
+_prompt_apply_color_defaults() {
+  emulate -L zsh
+  local -A defaults=(
+    frame       240
+    identity    109
+    path        80
+    project     245
+    symbol      87
+    success     71
+    warning     221
+    danger      203
+    info        75
+    detached    170
+    duration    177
+    environment 147
+    jobs        215
+    tool        69
+    framework   176
+    container   44
+  )
+  local role
+
+  typeset -gA ZSH_PROMPT_COLORS
+  for role in ${(k)defaults}; do
+    (( ${+ZSH_PROMPT_COLORS[$role]} )) ||
+      ZSH_PROMPT_COLORS[$role]=${defaults[$role]}
+  done
+}
+_prompt_apply_color_defaults
+unfunction _prompt_apply_color_defaults
+
+typeset -gF _PROMPT_COMMAND_STARTED=0
+typeset -g _PROMPT_EXIT_SEGMENT=''
+typeset -g _PROMPT_TIME_SEGMENT=''
+typeset -g _PROMPT_ENV_SEGMENT=''
+typeset -g _PROMPT_GIT_SEGMENT=''
+typeset -g _PROMPT_GIT_TEXT=''
+typeset -g _PROMPT_GIT_COLOR=${ZSH_PROMPT_COLORS[success]}
+typeset -g _PROMPT_PATH_SEGMENT=''
+typeset -g _PROMPT_PATH_TEXT=''
+typeset -g _PROMPT_PROJECT_SEGMENT=''
+typeset -g _PROMPT_PROJECT_NAME_TEXT=''
+typeset -g _PROMPT_SYMBOL_COLOR=${ZSH_PROMPT_COLORS[symbol]}
+typeset -gi _PROMPT_TOP_BASE_WIDTH=0
+typeset -ga _PROMPT_PROJECT_ITEMS=()
+typeset -ga _PROMPT_PROJECT_ITEM_WIDTHS=()
+typeset -gA _PROMPT_RUNTIME_VERSION_CACHE=()
+typeset -gA _PROMPT_GIT_DIR_CACHE=()
+# Replace terminal control characters before displaying text from paths,
+# repositories, tools, or custom hooks.
+_prompt_sanitize() {
+  REPLY=${1//[[:cntrl:]]/?}
+}
+
+# Sanitize dynamic text and escape Zsh's prompt-expansion character.
+_prompt_escape() {
+  _prompt_sanitize "$1"
+  REPLY=${REPLY//\%/%%}
+}
+
+# Abbreviate text to a visible width while preserving useful context at both
+# ends. "head" favors the beginning; "tail" favors the end.
+_prompt_abbreviate() {
+  local text=$1 bias=${3:-tail}
+  local -i max_width=$2 left_width=0 right_width=0
+
+  if (( max_width <= 0 )); then
+    REPLY=''
+    return
+  fi
+  if (( ${#text} <= max_width )); then
+    REPLY=$text
+    return
+  fi
+  if (( max_width < 5 )); then
+    REPLY='…'
+    return
+  fi
+
+  if [[ $bias == head ]]; then
+    left_width=$(( (max_width - 1) * 2 / 3 ))
+  else
+    left_width=$(( (max_width - 1) / 3 ))
+  fi
+  right_width=$(( max_width - 1 - left_width ))
+  REPLY="${text[1,left_width]}…${text[-right_width,-1]}"
+}
+
+# Called by custom project-context functions to append a safe, colored item.
+prompt_add_project_segment() {
+  (( $# >= 1 )) || return 2
+  local text=$1 color=${2:-white}
+
+  _prompt_escape "$text"
+  _PROMPT_PROJECT_EXTRA_SEGMENTS+=("%F{${color}}${REPLY}%f")
+  _PROMPT_PROJECT_EXTRA_WIDTHS+=("${#text}")
+}
+
+_prompt_git_operation() {
+  local git_dir=$1
+
+  if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+    REPLY='merge'
+  elif [[ -f "$git_dir/CHERRY_PICK_HEAD" ]]; then
+    REPLY='cherry-pick'
+  elif [[ -f "$git_dir/REVERT_HEAD" ]]; then
+    REPLY='revert'
+  elif [[ -f "$git_dir/BISECT_LOG" ]]; then
+    REPLY='bisect'
+  elif [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
+    REPLY='rebase'
+  else
+    REPLY=''
+  fi
+}
+
+# Avoid launching Git in ordinary directories. Standard repositories,
+# submodules, and linked worktrees all expose a .git directory or file in an
+# ancestor; explicit Git environments still defer discovery to Git itself.
+_prompt_has_git_context() {
+  emulate -L zsh
+
+  [[ -n ${GIT_DIR:-} || -n ${GIT_WORK_TREE:-} ]] && return 0
+
+  local dir=$1
+  while [[ -n $dir ]]; do
+    [[ -e "$dir/.git" ]] && return 0
+    [[ $dir == / ]] && break
+    dir=${dir:h}
+  done
+  return 1
+}
+
+# Render a compact Git summary. Porcelain v2 gives branch and file state in one
+# Git call. The metadata directory is resolved once per working directory so
+# operation checks do not require another Git process on every prompt.
+_prompt_git() {
+  setopt localoptions noglobsubst
+
+  local git_output line branch='' oid='' upstream=''
+  local separator=$'\x1f'
+  local git_dir operation=''
+  local cache_key="${PWD}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
+  local summary=''
+  local color=${ZSH_PROMPT_COLORS[success]}
+  local -i staged=0 modified=0 untracked=0 conflicted=0 ahead=0 behind=0 stash=0
+  local -i detached=0
+  local -a fields indicators
+
+  REPLY=''
+  _PROMPT_GIT_TEXT=''
+  _PROMPT_GIT_COLOR=${ZSH_PROMPT_COLORS[success]}
+  _prompt_has_git_context "$PWD" || return
+  # A repository may configure an executable fsmonitor hook. Prompt rendering
+  # is passive, so never run repository-controlled code while reading status.
+  git_output=$(GIT_OPTIONAL_LOCKS=0 command git -c core.fsmonitor=false status \
+    --porcelain=v2 --branch --show-stash 2>/dev/null) || return
+
+  while IFS= read -r line; do
+    case $line in
+      '# branch.oid '*)
+        oid=${line#\# branch.oid }
+        ;;
+      '# branch.head '*)
+        branch=${line#\# branch.head }
+        ;;
+      '# branch.upstream '*)
+        upstream=${line#\# branch.upstream }
+        ;;
+      '# branch.ab '*)
+        fields=(${=line})
+        ahead=${fields[3]#+}
+        behind=${fields[4]#-}
+        ;;
+      '# stash '*)
+        stash=${line#\# stash }
+        ;;
+      '1 '*|'2 '*)
+        [[ ${line[3]} != '.' ]] && (( staged++ ))
+        [[ ${line[4]} != '.' ]] && (( modified++ ))
+        ;;
+      'u '*)
+        (( conflicted++ ))
+        ;;
+      '? '*)
+        (( untracked++ ))
+        ;;
+    esac
+  done <<< "$git_output"
+
+  if [[ $branch == '(detached)' ]]; then
+    branch="@${oid[1,7]}"
+    color=${ZSH_PROMPT_COLORS[detached]}
+    detached=1
+  elif [[ -z $branch ]]; then
+    branch='unknown'
+  fi
+
+  if (( ${+_PROMPT_GIT_DIR_CACHE[$cache_key]} )) &&
+     [[ -d ${_PROMPT_GIT_DIR_CACHE[$cache_key]} ]]; then
+    git_dir=${_PROMPT_GIT_DIR_CACHE[$cache_key]}
+  else
+    git_dir=$(command git rev-parse --absolute-git-dir 2>/dev/null)
+    [[ -n $git_dir ]] && _PROMPT_GIT_DIR_CACHE[$cache_key]=$git_dir
+  fi
+  if [[ -n $git_dir ]]; then
+    _prompt_git_operation "$git_dir"
+    operation=$REPLY
+  fi
+
+  (( staged ))     && indicators+=("+${staged}")
+  (( modified ))   && indicators+=("!${modified}")
+  (( untracked ))  && indicators+=("?${untracked}")
+  (( conflicted )) && indicators+=("x${conflicted}")
+  (( stash ))      && indicators+=("≡${stash}")
+  (( ahead ))      && indicators+=("⇡${ahead}")
+  (( behind ))     && indicators+=("⇣${behind}")
+  [[ -n $operation ]] && indicators+=("⚡${operation}")
+  (( !detached )) && [[ -z $upstream ]] && indicators+=('no-upstream')
+
+  if (( conflicted )) || [[ -n $operation ]]; then
+    color=${ZSH_PROMPT_COLORS[danger]}
+  elif (( staged || modified || untracked )); then
+    color=${ZSH_PROMPT_COLORS[warning]}
+  elif (( behind )); then
+    color=${ZSH_PROMPT_COLORS[info]}
+  fi
+
+  if (( ${#indicators} == 0 )); then
+    summary="git:${branch} ✓"
+  else
+    summary="git:${branch} ${(j: :)indicators}"
+  fi
+
+  _PROMPT_GIT_TEXT=$summary
+  _PROMPT_GIT_COLOR=$color
+  _prompt_escape "$summary"
+  REPLY="%F{${color}}${REPLY}%f"
+}
+
+# Reflow the path and already-collected Git summary without launching Git again.
+# This is also safe to call for every live terminal resize.
+_prompt_layout() {
+  local rendered_path=$_PROMPT_PATH_TEXT
+  local rendered_summary=$_PROMPT_GIT_TEXT
+  local rendered_git=''
+  local -i max_path_width=0 max_summary_width=0
+  local -i line_limit=0 top_width=0 git_inline=0
+
+  _PROMPT_PATH_SEGMENT=''
+  _PROMPT_GIT_SEGMENT=''
+  line_limit=$(( COLUMNS > 0 ? COLUMNS - 3 : 77 ))
+
+  # Prefer moving Git to its own row before shortening the location.
+  if [[ -n $rendered_summary ]]; then
+    top_width=$((
+      _PROMPT_TOP_BASE_WIDTH + ${#_PROMPT_PATH_TEXT} +
+      1 + ${#_PROMPT_GIT_TEXT}
+    ))
+    (( top_width <= line_limit )) && git_inline=1
+  fi
+
+  # If the first row alone cannot fit, preserve both the location prefix and
+  # the current-directory end while abbreviating only the middle.
+  max_path_width=$(( line_limit - _PROMPT_TOP_BASE_WIDTH ))
+  _prompt_abbreviate "$rendered_path" "$max_path_width" tail
+  rendered_path=$REPLY
+  if [[ -n $rendered_path ]]; then
+    _prompt_escape "$rendered_path"
+    _PROMPT_PATH_SEGMENT="%F{${ZSH_PROMPT_COLORS[path]}}${REPLY}%f"
+  fi
+
+  [[ -n $rendered_summary ]] || return
+
+  # Once Git has its own line, keep even very narrow terminals from wrapping.
+  # Preserve the beginning and status-bearing end with a middle ellipsis.
+  max_summary_width=$(( COLUMNS > 0 ? COLUMNS - 7 : 73 ))
+  _prompt_abbreviate "$rendered_summary" "$max_summary_width" head
+  rendered_summary=$REPLY
+
+  _prompt_escape "$rendered_summary"
+  rendered_git="%F{${_PROMPT_GIT_COLOR}}${REPLY}%f"
+
+  if (( git_inline )); then
+    _PROMPT_GIT_SEGMENT=" ${rendered_git}"
+  else
+    _PROMPT_GIT_SEGMENT=$'\n'"%F{${ZSH_PROMPT_COLORS[frame]}}├─%f ${rendered_git}"
+  fi
+}
+
+# Keep complete project facts from left to right and hide the least-important
+# trailing items when the context row becomes too narrow. All data is cached in
+# memory by _prompt_project_context, so resizing performs no detection work.
+_prompt_project_layout() {
+  local project_name=$_PROMPT_PROJECT_NAME_TEXT
+  local rendered_name=''
+  local -a visible_items
+  local -i line_limit=0 max_name_width=0 used_width=0
+  local -i item_width=0 separator_width=0 index=0
+
+  _PROMPT_PROJECT_SEGMENT=''
+  [[ -n $project_name ]] || return
+
+  line_limit=$(( COLUMNS > 0 ? COLUMNS - 3 : 77 ))
+  max_name_width=$(( line_limit - 3 ))
+  _prompt_abbreviate "$project_name" "$max_name_width" head
+  project_name=$REPLY
+
+  used_width=$(( 3 + ${#project_name} ))
+  for (( index = 1; index <= ${#_PROMPT_PROJECT_ITEMS}; index++ )); do
+    item_width=${_PROMPT_PROJECT_ITEM_WIDTHS[index]:-0}
+    separator_width=$(( ${#visible_items} ? 3 : 1 ))
+    (( used_width + separator_width + item_width <= line_limit )) || break
+    visible_items+=("${_PROMPT_PROJECT_ITEMS[index]}")
+    (( used_width += separator_width + item_width ))
+  done
+
+  _prompt_escape "$project_name"
+  rendered_name=$REPLY
+  _PROMPT_PROJECT_SEGMENT=$'\n'"%F{${ZSH_PROMPT_COLORS[frame]}}├─%f %F{${ZSH_PROMPT_COLORS[project]}}${rendered_name}%f"
+  if (( ${#visible_items} )); then
+    _PROMPT_PROJECT_SEGMENT+=" ${(j: · :)visible_items}"
+  fi
+}
+
+# Optional project and toolchain context for the prompt. All setup is deferred
+# until the prompt invokes these helpers, so this peer may load before or after
+# the prompt unit without changing the final shell.
+
+typeset -gA _PROMPT_RUNTIME_COLORS=(
+  zsh cyan
+  c-cpp blue
+  objective-c blue
+  asm yellow
+  scheme magenta
+  racket magenta
+  lisp magenta
+  typescript blue
+  deno green
+  php magenta
+  shell green
+  powershell blue
+  kotlin magenta
+  lua blue
+  r blue
+  zig yellow
+  gdscript blue
+  terraform magenta
+  julia magenta
+  perl blue
+  fortran blue
+  ocaml yellow
+  scala red
+  erlang red
+  gleam magenta
+  groovy blue
+  fsharp cyan
+  visual-basic blue
+  swift 208
+  node green
+  python yellow
+  haskell magenta
+  rust 208
+  go cyan
+  ruby red
+  java blue
+  dotnet magenta
+  dart cyan
+  elixir magenta
+)
+typeset -gA _PROMPT_RUNTIME_LABELS=(
+  c-cpp 'c/c++'
+  objective-c 'objective-c'
+  asm asm
+  scheme scheme
+  racket racket
+  lisp lisp
+  typescript typescript
+  shell shell
+  powershell powershell
+  gdscript godot
+  terraform terraform
+  fsharp 'f#'
+  visual-basic 'visual-basic'
+)
+
+# Public extension points for uncommon or personal project types. The local
+# initializer can populate them before this portable detector loads.
+typeset -ga PROMPT_PROJECT_MARKERS
+typeset -ga PROMPT_PROJECT_CONTEXT_FUNCTIONS
+typeset -ga _PROMPT_PROJECT_EXTRA_SEGMENTS=()
+typeset -ga _PROMPT_PROJECT_EXTRA_WIDTHS=()
+
+# Exact manifests that establish a project root even when source files live in
+# deeper package/module directories. Wildcard project files are handled by the
+# resolver; the full detector below attaches their language and tool semantics.
+typeset -ga _PROMPT_PROJECT_ROOT_MARKERS=(
+  Package.swift package.json tsconfig.json deno.json deno.jsonc
+  composer.json composer.lock CMakeLists.txt meson.build configure.ac
+  configure.in MODULE.bazel WORKSPACE WORKSPACE.bazel conanfile.py
+  conanfile.txt vcpkg.json xmake.lua DESCRIPTION renv.lock build.zig
+  project.godot .terraform.lock.hcl JuliaProject.toml Project.toml
+  Manifest.toml cpanfile Makefile.PL Build.PL fpm.toml dune-project
+  build.sbt build.sc rebar.config gleam.toml pyproject.toml setup.py
+  setup.cfg requirements.txt Pipfile poetry.lock pdm.lock hatch.toml
+  environment.yml environment.yaml mkdocs.yml mkdocs.yaml uv.lock
+  .python-version stack.yaml cabal.project Cargo.toml go.mod go.work Gemfile
+  .ruby-version pom.xml build.gradle build.gradle.kts settings.gradle
+  settings.gradle.kts global.json pubspec.yaml mix.exs terragrunt.hcl
+  Pulumi.yaml Chart.yaml kustomization.yaml kustomization.yml serverless.yml
+  serverless.yaml pixi.toml melos.yaml melos.yml _quarto.yml _quarto.yaml
+  Makefile makefile GNUmakefile build.ninja buf.yaml buf.gen.yaml Justfile
+  justfile Taskfile.yml Taskfile.yaml Dockerfile compose.yaml compose.yml
+  docker-compose.yaml docker-compose.yml .devcontainer/devcontainer.json
+  flake.nix shell.nix devenv.nix devenv.yaml mise.toml .mise.toml Vagrantfile
+  supabase/config.toml
+)
+typeset -ga _PROMPT_SOURCE_SCAN_LANGUAGES=()
+typeset -ga _PROMPT_RESOLVED_SOURCE_LANGUAGES=()
+typeset -gi _PROMPT_SOURCE_SCAN_SATURATED=0
+typeset -gi _PROMPT_RESOLVED_SOURCE_SCAN_SATURATED=0
+typeset -gi _PROMPT_SOURCE_SCAN_UNSAFE=0
+typeset -gi _PROMPT_RESOLVED_SOURCE_SCAN_UNSAFE=0
+typeset -gi _PROMPT_METADATA_MAX_BYTES=1048576
+
+# Find the nearest native Git ownership boundary without running Git or reading
+# project data. Nested package manifests may become the displayed project root,
+# but their enclosing repository can still control binaries placed on PATH.
+_prompt_repository_boundary() {
+  emulate -L zsh
+
+  local dir=${1:a}
+  REPLY=''
+  while [[ -n $dir && $dir != / ]]; do
+    if [[ -e "$dir/.git" || -L "$dir/.git" ]]; then
+      REPLY=$dir
+      return 0
+    fi
+    dir=${dir:h}
+  done
+  return 1
+}
+
+# A runtime found through PATH is still untrusted when its lexical path or
+# resolved target lives inside the project being rendered or its enclosing Git
+# repository. Entering a project must never execute code supplied by that
+# project merely to draw the prompt.
+_prompt_runtime_binary_is_trusted() {
+  emulate -L zsh
+
+  local binary=$1 project_root=$2
+  local binary_path=${binary:a} binary_target=${binary:A}
+  local root='' root_path=${project_root:a} root_target=${project_root:A}
+  local boundary='' boundary_path='' boundary_target=''
+  local -a boundaries=()
+
+  [[ $binary_path != "$root_path" && $binary_path != "$root_path"/* &&
+     $binary_target != "$root_target" && $binary_target != "$root_target"/* ]] ||
+    return 1
+
+  for root in "$root_path" "$root_target"; do
+    _prompt_repository_boundary "$root" || continue
+    (( ${boundaries[(Ie)$REPLY]} )) || boundaries+=("$REPLY")
+  done
+  for boundary in "${boundaries[@]}"; do
+    boundary_path=${boundary:a}
+    boundary_target=${boundary:A}
+    [[ $binary_path != "$boundary_path" &&
+       $binary_path != "$boundary_path"/* &&
+       $binary_target != "$boundary_target" &&
+       $binary_target != "$boundary_target"/* ]] || return 1
+  done
+  return 0
+}
+
+# Version metadata is inert text, but it still comes from an untrusted project.
+# Reject symlinks, paths escaping the project, and unexpectedly large files
+# before any read so prompt rendering cannot disclose arbitrary local content
+# or allocate an unbounded line.
+_prompt_metadata_file_is_safe() {
+  emulate -L zsh
+
+  local project_root=$1 candidate=$2
+  local candidate_path=${candidate:a} candidate_target=''
+  local root_path=${project_root:a} root_target=${project_root:A}
+  local -a facts=()
+  REPLY=''
+
+  [[ -f $candidate && ! -L $candidate ]] || return 1
+  candidate_target=${candidate:A}
+  [[ $candidate_path == "$root_path"/* &&
+     $candidate_target == "$root_target"/* ]] || return 1
+  zstat -A facts +size -- "$candidate" 2>/dev/null || return 1
+  (( ${facts[1]:--1} >= 0 &&
+     ${facts[1]} <= _PROMPT_METADATA_MAX_BYTES )) || return 1
+  REPLY=$candidate
+}
+
+_prompt_select_metadata_file() {
+  emulate -L zsh
+
+  local project_root=$1 candidate=''
+  shift
+  REPLY=''
+  for candidate in "$@"; do
+    _prompt_metadata_file_is_safe "$project_root" "$candidate" || continue
+    return 0
+  done
+  return 1
+}
+
+# Version commands must describe the installed tool, not activate project
+# policy. Command substitution already isolates this helper's directory and
+# environment changes from the interactive shell, so probes run from `/` and
+# common toolchain proxies are explicitly forbidden from auto-installing.
+_prompt_version_probe() {
+  emulate -L zsh
+
+  local -x GOTOOLCHAIN=local
+  local -x RUSTUP_AUTO_INSTALL=0
+  local -x CHECKPOINT_DISABLE=1
+  local -x DOTNET_CLI_TELEMETRY_OPTOUT=1
+  local -x DOTNET_NOLOGO=1
+  builtin cd -- / || return 1
+  command "$@"
+}
+
+# Resolve a runtime once per project and relevant shell environment. Checking
+# the cache before executable lookup keeps missing tools cheap too; PATH and
+# environment selectors ensure activations and toolchain switches get new keys.
+_prompt_runtime_version() {
+  setopt localoptions noglobsubst
+
+  local language=$1 project_root=$2
+  local binary='' output='' first_line='' version=''
+  local separator=$'\x1f'
+  local cache_key="${language}${separator}${project_root}${separator}${PATH}"
+  local candidate implementation='' token=''
+  local -i version_ok=1
+  local -a words parts
+
+  # Version-manager shims may keep the same executable path while environment
+  # selectors change the implementation behind it. Include only selectors
+  # relevant to this runtime so unrelated environment changes do not fragment
+  # the per-project cache.
+  case $language in
+    python)
+      cache_key+="${separator}${VIRTUAL_ENV:-}${separator}${CONDA_PREFIX:-}"
+      cache_key+="${separator}${PYENV_VERSION:-}"
+      ;;
+    node|typescript)
+      cache_key+="${separator}${NODENV_VERSION:-}"
+      ;;
+    ruby)
+      cache_key+="${separator}${RBENV_VERSION:-}"
+      ;;
+    java|kotlin|scala|groovy)
+      cache_key+="${separator}${JAVA_HOME:-}${separator}${JENV_VERSION:-}"
+      ;;
+    go)
+      cache_key+="${separator}${GOENV_VERSION:-}${separator}${GOTOOLCHAIN:-}"
+      ;;
+    rust)
+      cache_key+="${separator}${RUSTUP_TOOLCHAIN:-}"
+      ;;
+    terraform)
+      cache_key+="${separator}${TFENV_TERRAFORM_VERSION:-}"
+      ;;
+    php)
+      cache_key+="${separator}${PHPENV_VERSION:-}"
+      ;;
+    perl)
+      cache_key+="${separator}${PLENV_VERSION:-}"
+      ;;
+    c-cpp|objective-c|asm|swift)
+      cache_key+="${separator}${DEVELOPER_DIR:-}${separator}${SDKROOT:-}"
+      cache_key+="${separator}${TOOLCHAINS:-}"
+      ;;
+    dotnet|fsharp|visual-basic)
+      cache_key+="${separator}${DOTNET_ROOT:-}"
+      ;;
+  esac
+
+  if (( ${+_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]} )); then
+    REPLY=${_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]}
+    return
+  fi
+
+  case $language in
+    zsh)     binary=${commands[zsh]:-} ;;
+    c-cpp)
+      binary=${commands[c++]:-}
+      [[ -z $binary ]] && binary=${commands[clang++]:-}
+      [[ -z $binary ]] && binary=${commands[g++]:-}
+      ;;
+    objective-c)
+      binary=${commands[clang]:-}
+      [[ -z $binary ]] && binary=${commands[cc]:-}
+      ;;
+    asm)
+      binary=${commands[nasm]:-}
+      [[ -z $binary ]] && binary=${commands[cc]:-}
+      ;;
+    scheme)
+      for candidate in mit-scheme guile chezscheme scheme racket; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    racket)  binary=${commands[racket]:-} ;;
+    lisp)
+      for candidate in sbcl ccl clisp ecl; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    typescript)  binary=${commands[tsc]:-} ;;
+    deno)        binary=${commands[deno]:-} ;;
+    php)        binary=${commands[php]:-} ;;
+    shell)      binary=${commands[bash]:-} ;;
+    powershell) binary=${commands[pwsh]:-} ;;
+    kotlin)     binary=${commands[kotlinc]:-} ;;
+    lua)
+      for candidate in lua lua5.5 lua5.4 lua5.3 luajit; do
+        binary=${commands[$candidate]:-}
+        [[ -n $binary ]] && break
+      done
+      ;;
+    r)          binary=${commands[R]:-} ;;
+    zig)        binary=${commands[zig]:-} ;;
+    gdscript)
+      binary=${commands[godot]:-}
+      [[ -z $binary ]] && binary=${commands[godot4]:-}
+      ;;
+    terraform)
+      binary=${commands[terraform]:-}
+      if [[ -n $binary ]]; then
+        implementation=terraform
+      else
+        binary=${commands[tofu]:-}
+        [[ -n $binary ]] && implementation=tofu
+      fi
+      ;;
+    julia)      binary=${commands[julia]:-} ;;
+    perl)       binary=${commands[perl]:-} ;;
+    fortran)
+      for candidate in gfortran flang ifx ifort; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    ocaml)      binary=${commands[ocamlc]:-} ;;
+    scala)
+      for candidate in scala-cli scalac scala; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    erlang)     binary=${commands[erl]:-} ;;
+    gleam)      binary=${commands[gleam]:-} ;;
+    groovy)     binary=${commands[groovy]:-} ;;
+    fsharp|visual-basic) binary=${commands[dotnet]:-} ;;
+    swift)   binary=${commands[swift]:-} ;;
+    node)    binary=${commands[node]:-} ;;
+    python)
+      if [[ -n ${VIRTUAL_ENV:-} ]]; then
+        binary=${commands[python]:-}
+      fi
+      [[ -z $binary ]] && binary=${commands[python3]:-}
+      [[ -z $binary ]] && binary=${commands[python]:-}
+      ;;
+    haskell) binary=${commands[ghc]:-} ;;
+    rust)    binary=${commands[rustc]:-} ;;
+    go)      binary=${commands[go]:-} ;;
+    ruby)    binary=${commands[ruby]:-} ;;
+    java)    binary=${commands[java]:-} ;;
+    dotnet)  binary=${commands[dotnet]:-} ;;
+    dart)    binary=${commands[dart]:-} ;;
+    elixir)  binary=${commands[elixir]:-} ;;
+  esac
+
+  if [[ -n $binary ]] &&
+     ! _prompt_runtime_binary_is_trusted "$binary" "$project_root"; then
+    binary=''
+  fi
+
+  if [[ -z $binary && $language == kotlin && -x "$project_root/gradlew" ]]; then
+    REPLY='gradle-managed'
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return
+  fi
+
+  if [[ -z $binary ]]; then
+    REPLY='not-installed'
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return
+  fi
+
+  case $language in
+    zsh)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    c-cpp|objective-c|asm)
+      if [[ ${binary:t} == nasm ]]; then
+        output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
+        words=(${=output})
+        version="nasm ${words[3]:-}"
+      else
+        output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+        first_line=${output%%$'\n'*}
+        if [[ $first_line == *'clang version '* ]]; then
+          version=${first_line#*clang version }
+          version="clang ${version%% *}"
+        elif [[ $first_line == *'GCC '* || $first_line == *'gcc '* ]]; then
+          words=(${=first_line})
+          version="gcc ${words[-1]}"
+        else
+          words=(${=first_line})
+          version="${binary:t} ${words[-1]:-}"
+        fi
+      fi
+      ;;
+    scheme)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      if [[ $implementation == racket ]]; then
+        version=${first_line#*Racket v}
+        version="racket ${version%% *}"
+      else
+        for token in "${words[@]}"; do
+          if [[ $token == [0-9]* ]]; then
+            version="${implementation} ${token//[\(\),]/}"
+            break
+          fi
+        done
+      fi
+      ;;
+    racket)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*Racket v}
+      version="${version%% *}"
+      ;;
+    lisp)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version="${implementation} ${token//[\(\),]/}"
+          break
+        fi
+      done
+      ;;
+    typescript)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    deno)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+    php)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+    shell)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*version }
+      version=${version%%[^0-9.]*}
+      ;;
+    powershell)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    kotlin)
+      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      words=(${=output})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version=${token//[\(\),]/}
+          break
+        fi
+      done
+      ;;
+    lua)
+      output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    r)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[3]}
+      ;;
+    zig)
+      version=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      ;;
+    gdscript)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      first_line=${first_line%% *}
+      parts=(${(s:.:)first_line})
+      version="${parts[1]:-}.${parts[2]:-}"
+      [[ ${parts[3]:-} == <-> ]] && version+=".${parts[3]}"
+      ;;
+    terraform)
+      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]#v}
+      [[ $implementation == tofu ]] && version+="-tofu"
+      ;;
+    julia)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]}
+      ;;
+    perl)
+      version=$(_prompt_version_probe "$binary" -e 'print $^V' 2>&1) || version_ok=0
+      version=${version#v}
+      ;;
+    fortran)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version="${implementation} ${token//[\(\),]/}"
+          break
+        fi
+      done
+      ;;
+    ocaml)
+      version=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      ;;
+    scala)
+      if [[ $implementation == scala-cli ]]; then
+        output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      else
+        output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      fi
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version=${token//[\(\),]/}
+          break
+        fi
+      done
+      ;;
+    erlang)
+      version=$(_prompt_version_probe "$binary" -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().' 2>&1) || version_ok=0
+      ;;
+    gleam)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    groovy)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]}
+      ;;
+    fsharp|visual-basic)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      ;;
+    swift)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*Swift version }
+      version=${version%% *}
+      ;;
+    node)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      version=${version#v}
+      ;;
+    python)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      version=${output#Python }
+      ;;
+    haskell)
+      version=$(_prompt_version_probe "$binary" --numeric-version 2>&1) || version_ok=0
+      ;;
+    rust)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    go)
+      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]#go}
+      ;;
+    ruby)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    java)
+      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${(z)first_line})
+      version=${words[3]}
+      ;;
+    dotnet)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      ;;
+    dart)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[4]}
+      ;;
+    elixir)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output##*$'\n'}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+  esac
+
+  # A command may exist as a system stub but fail to provide a usable runtime.
+  if (( version_ok )); then
+    version=${version%%$'\n'*}
+    words=(${=version})
+    version="${(j: :)words}"
+    [[ -z $version ]] && version='unknown'
+  else
+    version='unavailable'
+  fi
+  _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$version
+  REPLY=$version
+}
+
+# Read the version requested by common version-manager files. A project-specific
+# file wins; .tool-versions is the portable fallback shared by asdf and mise.
+_prompt_expected_runtime_version() {
+  emulate -L zsh
+  setopt localoptions noglobsubst
+
+  local language=$1 project_root=$2 expected='' file='' line=''
+  local tool_name=$language wanted rest
+  local -a words
+
+  case $language in
+    node)
+      _prompt_select_metadata_file "$project_root" \
+        "$project_root/.nvmrc" "$project_root/.node-version" && file=$REPLY
+      tool_name=nodejs
+      ;;
+    python)
+      _prompt_select_metadata_file "$project_root" "$project_root/.python-version" && file=$REPLY
+      ;;
+    swift)
+      _prompt_select_metadata_file "$project_root" "$project_root/.swift-version" && file=$REPLY
+      ;;
+    typescript)
+      _prompt_select_metadata_file "$project_root" "$project_root/.typescript-version" && file=$REPLY
+      ;;
+    deno)
+      _prompt_select_metadata_file "$project_root" "$project_root/.deno-version" && file=$REPLY
+      ;;
+    php)
+      _prompt_select_metadata_file "$project_root" "$project_root/.php-version" && file=$REPLY
+      ;;
+    shell)
+      _prompt_select_metadata_file "$project_root" "$project_root/.bash-version" && file=$REPLY
+      tool_name=bash
+      ;;
+    powershell)
+      _prompt_select_metadata_file "$project_root" "$project_root/.powershell-version" && file=$REPLY
+      tool_name=powershell-core
+      ;;
+    kotlin)
+      _prompt_select_metadata_file "$project_root" "$project_root/.kotlin-version" && file=$REPLY
+      ;;
+    lua)
+      _prompt_select_metadata_file "$project_root" "$project_root/.lua-version" && file=$REPLY
+      ;;
+    r)
+      _prompt_select_metadata_file "$project_root" "$project_root/.R-version" && file=$REPLY
+      tool_name=R
+      ;;
+    zig)
+      _prompt_select_metadata_file "$project_root" "$project_root/.zig-version" && file=$REPLY
+      ;;
+    gdscript)
+      _prompt_select_metadata_file "$project_root" "$project_root/.godot-version" && file=$REPLY
+      tool_name=godot
+      ;;
+    terraform)
+      _prompt_select_metadata_file "$project_root" "$project_root/.terraform-version" && file=$REPLY
+      ;;
+    julia)
+      _prompt_select_metadata_file "$project_root" "$project_root/.julia-version" && file=$REPLY
+      ;;
+    perl)
+      _prompt_select_metadata_file "$project_root" "$project_root/.perl-version" && file=$REPLY
+      ;;
+    fortran)
+      _prompt_select_metadata_file "$project_root" "$project_root/.fortran-version" && file=$REPLY
+      ;;
+    ocaml)
+      _prompt_select_metadata_file "$project_root" "$project_root/.ocaml-version" && file=$REPLY
+      ;;
+    scala)
+      _prompt_select_metadata_file "$project_root" "$project_root/.scala-version" && file=$REPLY
+      ;;
+    erlang)
+      _prompt_select_metadata_file "$project_root" "$project_root/.erlang-version" && file=$REPLY
+      ;;
+    gleam)
+      _prompt_select_metadata_file "$project_root" "$project_root/.gleam-version" && file=$REPLY
+      ;;
+    groovy)
+      _prompt_select_metadata_file "$project_root" "$project_root/.groovy-version" && file=$REPLY
+      ;;
+    haskell)
+      _prompt_select_metadata_file "$project_root" "$project_root/.ghc-version" && file=$REPLY
+      tool_name=ghc
+      ;;
+    rust)
+      _prompt_select_metadata_file "$project_root" "$project_root/rust-toolchain" && file=$REPLY
+      ;;
+    go)
+      if _prompt_select_metadata_file "$project_root" "$project_root/go.mod"; then
+        file=$REPLY
+        while read -r line wanted rest; do
+          if [[ $line == go ]]; then
+            expected=$wanted
+            break
+          fi
+        done < "$file"
+        file=''
+      fi
+      tool_name=golang
+      ;;
+    ruby)
+      _prompt_select_metadata_file "$project_root" "$project_root/.ruby-version" && file=$REPLY
+      ;;
+    java)
+      _prompt_select_metadata_file "$project_root" "$project_root/.java-version" && file=$REPLY
+      ;;
+    dotnet|fsharp|visual-basic)
+      _prompt_select_metadata_file "$project_root" "$project_root/.dotnet-version" && file=$REPLY
+      tool_name=dotnet-core
+      ;;
+    elixir)
+      _prompt_select_metadata_file "$project_root" "$project_root/.elixir-version" && file=$REPLY
+      ;;
+  esac
+
+  if [[ -n $file ]]; then
+    IFS= read -r expected < "$file"
+  fi
+
+  if [[ -z $expected ]] &&
+     _prompt_select_metadata_file "$project_root" "$project_root/.tool-versions"; then
+    file=$REPLY
+    while read -r line wanted rest; do
+      if [[ $line == "$tool_name" ]]; then
+        expected=$wanted
+        break
+      fi
+    done < "$file"
+  fi
+
+  expected=${expected%%#*}
+  words=(${=expected})
+  REPLY=${words[1]:-}
+}
+
+_prompt_versions_match() {
+  setopt localoptions noglobsubst
+
+  local active=${1#v} expected=${2#v}
+  local token
+  local -a words
+
+  # Named release channels cannot be compared reliably with a numeric version.
+  case $expected in
+    ''|system|latest|stable|nightly|lts/*) return 0 ;;
+  esac
+  [[ $expected != [0-9]* ]] && return 0
+
+  # Compiler labels include their implementation (for example
+  # "gfortran 15.2.0"). Compare the first numeric token when present, and do
+  # not warn for wrapper-managed toolchains that expose no comparable number.
+  if [[ $active != [0-9]* ]]; then
+    words=(${=active})
+    active=''
+    for token in "${words[@]}"; do
+      if [[ $token == [0-9]* ]]; then
+        active=${token//[\(\),]/}
+        break
+      fi
+    done
+    [[ -z $active ]] && return 0
+  fi
+
+  [[ $active == $expected || $active == ${expected}.* || $active == ${expected}-* ]]
+}
+
+# Collect source-language evidence from one directory without invoking the full
+# detector. Root resolution uses this while walking upward, then the expensive
+# manifest/tool/framework pass runs exactly once at the chosen project root.
+_prompt_scan_source_languages() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local dir=$1 scan_dir='' candidate='' file='' language=''
+  local -i saw_shell=0
+  local -a scan_dirs=() files=()
+  typeset -ga _PROMPT_SOURCE_SCAN_LANGUAGES=()
+  typeset -gi _PROMPT_SOURCE_SCAN_SATURATED=0
+  typeset -gi _PROMPT_SOURCE_SCAN_UNSAFE=0
+
+  scan_dirs+=("$dir")
+  for candidate in \
+    "$dir"/{src,source,Sources,include,lib,app,public,scripts,modules,bin,R,notebooks} \
+    "$dir"/src/{main,test}/{java,kotlin,scala,groovy}; do
+    if [[ -L $candidate ]]; then
+      _PROMPT_SOURCE_SCAN_UNSAFE=1
+    elif [[ -d $candidate ]]; then
+      scan_dirs+=("$candidate")
+    fi
+  done
+
+  for scan_dir in "${scan_dirs[@]}"; do
+    # `oN` avoids sorting and `Y129` proves whether the 128-entry evidence
+    # budget saturated without enumerating the complete directory.
+    files=(
+      "$scan_dir"/*.(c|cc|cpp|cxx|hh|hpp|hxx|m|mm|asm|s|S|scm|ss|rkt|lisp|cl|asd|swift|php|ps1|psm1|psd1|kt|kts|lua|R|Rmd|Rproj|zig|tf|jl|pl|pm|f|f90|f95|f03|ml|mli|scala|erl|hrl|groovy|ipynb|java|cs|fs|vb|sh)(NY129oN:t)
+      "$scan_dir"/*.tf.json(NY1oN:t)
+    )
+    if (( ${#files} >= 129 )); then
+      _PROMPT_SOURCE_SCAN_SATURATED=1
+      files=("${files[1,128]}")
+    fi
+    for file in "${files[@]}"; do
+      language=''
+      case $file in
+        *.c|*.cc|*.cpp|*.cxx|*.hh|*.hpp|*.hxx) language=c-cpp ;;
+        *.m|*.mm)                 language=objective-c ;;
+        *.asm|*.s|*.S)           language=asm ;;
+        *.scm|*.ss)              language=scheme ;;
+        *.rkt)                    language=racket ;;
+        *.lisp|*.cl|*.asd)       language=lisp ;;
+        Project.swift|Workspace.swift|Tuist.swift) continue ;;
+        *.swift)                 language=swift ;;
+        *.php)                   language=php ;;
+        *.ps1|*.psm1|*.psd1)    language=powershell ;;
+        build.gradle.kts)        continue ;;
+        *.kt|*.kts)              language=kotlin ;;
+        xmake.lua)               continue ;;
+        *.lua)                   language=lua ;;
+        *.R|*.Rmd|*.Rproj)       language=r ;;
+        *.zig)                   language=zig ;;
+        *.tf|*.tf.json)          language=terraform ;;
+        *.jl)                    language=julia ;;
+        *.pl|*.pm)               language=perl ;;
+        *.f|*.f90|*.f95|*.f03)  language=fortran ;;
+        *.ml|*.mli)              language=ocaml ;;
+        *.scala)                 language=scala ;;
+        *.erl|*.hrl)             language=erlang ;;
+        *.groovy)                language=groovy ;;
+        *.ipynb)                 language=python ;;
+        *.java)                  language=java ;;
+        *.cs)                    language=dotnet ;;
+        *.fs)                    language=fsharp ;;
+        *.vb)                    language=visual-basic ;;
+        *.sh)                    saw_shell=1 ;;
+      esac
+      [[ -n $language ]] || continue
+      (( ${_PROMPT_SOURCE_SCAN_LANGUAGES[(Ie)$language]} )) ||
+        _PROMPT_SOURCE_SCAN_LANGUAGES+=("$language")
+    done
+  done
+
+  (( saw_shell && ! ${#_PROMPT_SOURCE_SCAN_LANGUAGES} )) &&
+    _PROMPT_SOURCE_SCAN_LANGUAGES+=(shell)
+}
+
+# Resolve ownership separately from project inspection. Source files identify
+# the nearest standalone project, while an enclosing manifest or Git root owns
+# nested packages and conventional source trees.
+_prompt_resolve_project_root() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local dir=$1 marker='' language='' nearest_source_root=''
+  local -i root_anchor=0
+  local -a nearest_languages=() source_languages=() wildcard_matches=()
+  REPLY=''
+  typeset -ga _PROMPT_RESOLVED_SOURCE_LANGUAGES=()
+  typeset -gi _PROMPT_RESOLVED_SOURCE_SCAN_SATURATED=0
+  typeset -gi _PROMPT_RESOLVED_SOURCE_SCAN_UNSAFE=0
+
+  while [[ -n $dir && $dir != / && $dir != $HOME ]]; do
+    _prompt_scan_source_languages "$dir"
+    (( _PROMPT_SOURCE_SCAN_SATURATED )) &&
+      _PROMPT_RESOLVED_SOURCE_SCAN_SATURATED=1
+    (( _PROMPT_SOURCE_SCAN_UNSAFE )) &&
+      _PROMPT_RESOLVED_SOURCE_SCAN_UNSAFE=1
+    if (( ${#_PROMPT_SOURCE_SCAN_LANGUAGES} )); then
+      if [[ -z $nearest_source_root ]]; then
+        nearest_source_root=$dir
+        nearest_languages=("${_PROMPT_SOURCE_SCAN_LANGUAGES[@]}")
+      fi
+      for language in "${_PROMPT_SOURCE_SCAN_LANGUAGES[@]}"; do
+        (( ${source_languages[(Ie)$language]} )) || source_languages+=("$language")
+      done
+    fi
+
+    root_anchor=0
+    if [[ -e "$dir/.git" ]]; then
+      root_anchor=1
+    else
+      for marker in "${_PROMPT_PROJECT_ROOT_MARKERS[@]}"; do
+        if [[ -e "$dir/$marker" ]]; then
+          root_anchor=1
+          break
+        fi
+      done
+    fi
+
+    if (( !root_anchor )); then
+      wildcard_matches=(
+        "$dir"/*.(xcodeproj|xcworkspace|cabal|gemspec|opam|sln|slnx|csproj|fsproj|vbproj|rockspec|Rproj|asd)(NY1oN)
+      )
+      (( ${#wildcard_matches} )) && root_anchor=1
+    fi
+
+    if (( !root_anchor )); then
+      for marker in "${PROMPT_PROJECT_MARKERS[@]}"; do
+        if [[ -e "$dir/$marker" ]]; then
+          root_anchor=1
+          break
+        fi
+      done
+    fi
+
+    if (( root_anchor )); then
+      REPLY=$dir
+      _PROMPT_RESOLVED_SOURCE_LANGUAGES=("${source_languages[@]}")
+      return 0
+    fi
+    dir=${dir:h}
+  done
+
+  if [[ -n $nearest_source_root ]]; then
+    if [[ ${nearest_source_root:t} ==
+          (src|source|lib|main|test|tests|kotlin|scala|groovy) &&
+          ${nearest_source_root:h} != $HOME &&
+          ${nearest_source_root:h} != / ]]; then
+      nearest_source_root=${nearest_source_root:h}
+    fi
+    REPLY=$nearest_source_root
+    _PROMPT_RESOLVED_SOURCE_LANGUAGES=("${nearest_languages[@]}")
+    return 0
+  fi
+  return 1
+}
+
+# Find the nearest project directory and render every runtime identified there.
+_prompt_project_context() {
+  emulate -L zsh
+
+  local dir='' project_root=''
+  local language version expected color label
+  local runtime_text warning_text
+  local marker hook
+  local -i custom_project=0 large_project=0 index=0
+  local -a languages rendered rendered_widths wildcard_matches root_entries
+  local -a tools frameworks environment warnings warning_widths
+
+  _PROMPT_PROJECT_SEGMENT=''
+  _PROMPT_PROJECT_NAME_TEXT=''
+  _PROMPT_PROJECT_ITEMS=()
+  _PROMPT_PROJECT_ITEM_WIDTHS=()
+
+  _prompt_resolve_project_root "$PWD" || return
+  project_root=$REPLY
+  dir=$project_root
+
+  if [[ -n $dir ]]; then
+    languages=()
+    custom_project=0
+
+    # Detailed wildcard semantics are useful for ordinary project roots, but
+    # repeatedly proving absent patterns in a directory with thousands of
+    # generated entries makes latency scale with file count. Detect saturation
+    # from an unsorted bounded sample and keep only already-resolved language
+    # evidence plus exact manifest markers for that exceptional case.
+    large_project=$(( _PROMPT_RESOLVED_SOURCE_SCAN_SATURATED ||
+                      _PROMPT_RESOLVED_SOURCE_SCAN_UNSAFE ))
+    if (( !large_project )); then
+      root_entries=("$dir"/*(DNY129oN))
+      (( ${#root_entries} >= 129 )) && large_project=1
+    fi
+    if (( large_project )); then
+      for language in "${_PROMPT_RESOLVED_SOURCE_LANGUAGES[@]}"; do
+        [[ $language == shell ]] && continue
+        (( ${languages[(Ie)$language]} )) || languages+=("$language")
+      done
+      [[ -f "$dir/Package.swift" ]] && languages+=(swift)
+      [[ -f "$dir/package.json" ]] && languages+=(node)
+      [[ -f "$dir/tsconfig.json" ]] && languages+=(typescript)
+      [[ -f "$dir/deno.json" || -f "$dir/deno.jsonc" ]] && languages+=(deno)
+      [[ -f "$dir/composer.json" || -f "$dir/composer.lock" ]] && languages+=(php)
+      [[ -f "$dir/project.godot" ]] && languages+=(gdscript)
+      [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ||
+         -f "$dir/requirements.txt" ]] && languages+=(python)
+      [[ -f "$dir/Cargo.toml" ]] && languages+=(rust)
+      [[ -f "$dir/go.mod" ]] && languages+=(go)
+      [[ -f "$dir/Gemfile" || -f "$dir/.ruby-version" ]] && languages+=(ruby)
+      [[ -f "$dir/pubspec.yaml" ]] && languages+=(dart)
+      [[ -f "$dir/mix.exs" ]] && languages+=(elixir)
+      [[ -f "$dir/global.json" ]] && languages+=(dotnet)
+      languages=(${(u)languages})
+
+      for marker in "${_PROMPT_PROJECT_ROOT_MARKERS[@]}" \
+                    "${PROMPT_PROJECT_MARKERS[@]}"; do
+        if [[ -e "$dir/$marker" ]]; then
+          custom_project=1
+          break
+        fi
+      done
+      if (( ! ${#languages} && ! custom_project &&
+            ${_PROMPT_RESOLVED_SOURCE_LANGUAGES[(Ie)shell]} )); then
+        languages+=(shell)
+      fi
+      (( ${#languages} || custom_project )) || project_root=''
+    else
+
+    [[ -f "$dir/.zshrc" && -e "$dir/.git" ]] && languages+=(zsh)
+
+    # Compiled languages expose a toolchain rather than a runtime. Inspect the
+    # project root and one conventional source level without recursive searches.
+    wildcard_matches=(
+      "$dir"/*.c(NY1oN) "$dir"/*.cc(NY1oN) "$dir"/*.cpp(NY1oN) "$dir"/*.cxx(NY1oN)
+      "$dir"/*.hh(NY1oN) "$dir"/*.hpp(NY1oN) "$dir"/*.hxx(NY1oN)
+      "$dir"/{src,source,Sources,lib,app}/*.c(NY1oN)
+      "$dir"/{src,source,Sources,lib,app}/*.cc(NY1oN)
+      "$dir"/{src,source,Sources,lib,app}/*.cpp(NY1oN)
+      "$dir"/{src,source,Sources,lib,app}/*.cxx(NY1oN)
+      "$dir"/{src,source,Sources,include,lib,app}/*.hh(NY1oN)
+      "$dir"/{src,source,Sources,include,lib,app}/*.hpp(NY1oN)
+      "$dir"/{src,source,Sources,include,lib,app}/*.hxx(NY1oN)
+    )
+    (( ${#wildcard_matches} )) && languages+=(c-cpp)
+    if [[ -f "$dir/CMakeLists.txt" || -f "$dir/meson.build" ||
+          -f "$dir/configure.ac" || -f "$dir/configure.in" ||
+          -f "$dir/MODULE.bazel" || -f "$dir/WORKSPACE" ||
+          -f "$dir/WORKSPACE.bazel" || -f "$dir/conanfile.py" ||
+          -f "$dir/conanfile.txt" || -f "$dir/vcpkg.json" ||
+          -f "$dir/xmake.lua" ]]; then
+      custom_project=1
+    fi
+
+    wildcard_matches=(
+      "$dir"/*.asm(NY1oN) "$dir"/*.s(NY1oN) "$dir"/*.S(NY1oN)
+      "$dir"/{src,source,Sources,lib,app}/*.asm(NY1oN)
+      "$dir"/{src,source,Sources,lib,app}/*.s(NY1oN)
+      "$dir"/{src,source,Sources,lib,app}/*.S(NY1oN)
+    )
+    (( ${#wildcard_matches} )) && languages+=(asm)
+
+    wildcard_matches=("$dir"/*.scm(NY1oN) "$dir"/*.ss(NY1oN) "$dir"/{src,source,lib}/*.scm(NY1oN) "$dir"/{src,source,lib}/*.ss(NY1oN))
+    (( ${#wildcard_matches} )) && languages+=(scheme)
+    wildcard_matches=("$dir"/*.rkt(NY1oN) "$dir"/{src,source,lib}/*.rkt(NY1oN))
+    (( ${#wildcard_matches} )) && languages+=(racket)
+    wildcard_matches=(
+      "$dir"/*.lisp(NY1oN) "$dir"/*.cl(NY1oN) "$dir"/*.asd(NY1oN)
+      "$dir"/{src,source,lib}/*.lisp(NY1oN) "$dir"/{src,source,lib}/*.cl(NY1oN)
+      "$dir"/{src,source,lib}/*.asd(NY1oN)
+    )
+    (( ${#wildcard_matches} )) && languages+=(lisp)
+
+    wildcard_matches=("$dir"/*.xcodeproj(NY1oN) "$dir"/*.xcworkspace(NY1oN))
+    if (( ${#wildcard_matches} )); then
+      custom_project=1
+      wildcard_matches=("$dir"/*.m(NY1oN) "$dir"/*.mm(NY1oN))
+      (( ${#wildcard_matches} )) && languages+=(objective-c)
+    else
+      wildcard_matches=("$dir"/*.mm(NY1oN) "$dir"/{src,source,Sources,app}/*.mm(NY1oN))
+      (( ${#wildcard_matches} )) && languages+=(objective-c)
+    fi
+
+    wildcard_matches=("$dir"/*.swift(NY1oN) "$dir"/{src,source,Sources,app}/*.swift(NY1oN))
+    wildcard_matches=(${wildcard_matches:#*/Project.swift})
+    wildcard_matches=(${wildcard_matches:#*/Workspace.swift})
+    wildcard_matches=(${wildcard_matches:#*/Tuist.swift})
+    [[ -f "$dir/Package.swift" || ${#wildcard_matches} -gt 0 ]] && languages+=(swift)
+
+    [[ -f "$dir/package.json" ]] && languages+=(node)
+    [[ -f "$dir/tsconfig.json" ]] && languages+=(typescript)
+    [[ -f "$dir/deno.json" || -f "$dir/deno.jsonc" ]] && languages+=(deno)
+
+    wildcard_matches=("$dir"/*.php(NY1oN) "$dir"/{src,app,public}/*.php(NY1oN))
+    [[ -f "$dir/composer.json" || -f "$dir/composer.lock" ||
+       ${#wildcard_matches} -gt 0 ]] && languages+=(php)
+
+    wildcard_matches=(
+      "$dir"/*.ps1(NY1oN) "$dir"/*.psm1(NY1oN) "$dir"/*.psd1(NY1oN)
+      "$dir"/{src,scripts,modules}/*.ps1(NY1oN)
+      "$dir"/{src,scripts,modules}/*.psm1(NY1oN)
+      "$dir"/{src,scripts,modules}/*.psd1(NY1oN)
+    )
+    (( ${#wildcard_matches} )) && languages+=(powershell)
+
+    wildcard_matches=(
+      "$dir"/*.kt(NY1oN) "$dir"/*.kts(NY1oN) "$dir"/{src,app}/*.kt(NY1oN)
+    )
+    wildcard_matches=(${wildcard_matches:#*.gradle.kts})
+    (( ${#wildcard_matches} )) && languages+=(kotlin)
+
+    wildcard_matches=("$dir"/*.lua(NY1oN) "$dir"/{src,lua,lib}/*.lua(NY1oN) "$dir"/*.rockspec(NY1oN))
+    wildcard_matches=(${wildcard_matches:#*/xmake.lua})
+    (( ${#wildcard_matches} )) && languages+=(lua)
+
+    wildcard_matches=(
+      "$dir"/*.R(NY1oN) "$dir"/*.Rmd(NY1oN) "$dir"/{R,src,scripts}/*.R(NY1oN)
+      "$dir"/notebooks/*.Rmd(NY1oN) "$dir"/*.Rproj(NY1oN)
+    )
+    [[ -f "$dir/DESCRIPTION" || -f "$dir/renv.lock" ||
+       ${#wildcard_matches} -gt 0 ]] && languages+=(r)
+
+    wildcard_matches=("$dir"/*.zig(NY1oN) "$dir"/{src,source}/*.zig(NY1oN))
+    [[ -f "$dir/build.zig" || ${#wildcard_matches} -gt 0 ]] && languages+=(zig)
+
+    [[ -f "$dir/project.godot" ]] && languages+=(gdscript)
+
+    wildcard_matches=("$dir"/*.tf(NY1oN) "$dir"/*.tf.json(NY1oN))
+    [[ -f "$dir/.terraform.lock.hcl" || ${#wildcard_matches} -gt 0 ]] && languages+=(terraform)
+
+    wildcard_matches=("$dir"/*.jl(NY1oN) "$dir"/{src,scripts}/*.jl(NY1oN))
+    [[ -f "$dir/JuliaProject.toml" || -f "$dir/Project.toml" ||
+       -f "$dir/Manifest.toml" || ${#wildcard_matches} -gt 0 ]] && languages+=(julia)
+
+    wildcard_matches=("$dir"/*.pl(NY1oN) "$dir"/*.pm(NY1oN) "$dir"/{lib,bin,script,scripts}/*.pl(NY1oN) "$dir"/{lib,bin}/*.pm(NY1oN))
+    if [[ -f "$dir/cpanfile" || -f "$dir/Makefile.PL" || -f "$dir/Build.PL" ||
+          ${#wildcard_matches} -gt 0 ]]; then
+      languages+=(perl)
+    fi
+
+    wildcard_matches=(
+      "$dir"/*.f(NY1oN) "$dir"/*.f90(NY1oN) "$dir"/*.f95(NY1oN) "$dir"/*.f03(NY1oN)
+      "$dir"/{src,source,app}/*.f(NY1oN) "$dir"/{src,source,app}/*.f90(NY1oN)
+      "$dir"/{src,source,app}/*.f95(NY1oN) "$dir"/{src,source,app}/*.f03(NY1oN)
+    )
+    [[ -f "$dir/fpm.toml" || ${#wildcard_matches} -gt 0 ]] && languages+=(fortran)
+
+    wildcard_matches=("$dir"/*.ml(NY1oN) "$dir"/*.mli(NY1oN) "$dir"/{src,lib}/*.ml(NY1oN) "$dir"/{src,lib}/*.mli(NY1oN) "$dir"/*.opam(NY1oN))
+    [[ -f "$dir/dune-project" || ${#wildcard_matches} -gt 0 ]] && languages+=(ocaml)
+
+    wildcard_matches=(
+      "$dir"/*.scala(NY1oN) "$dir"/{src,app}/*.scala(NY1oN)
+    )
+    if [[ -f "$dir/build.sbt" || -f "$dir/build.sc" ]]; then
+      languages+=(scala)
+      custom_project=1
+    elif (( ${#wildcard_matches} )); then
+      languages+=(scala)
+    fi
+
+    wildcard_matches=("$dir"/*.erl(NY1oN) "$dir"/*.hrl(NY1oN) "$dir"/{src,include}/*.erl(NY1oN) "$dir"/{src,include}/*.hrl(NY1oN))
+    [[ -f "$dir/rebar.config" || ${#wildcard_matches} -gt 0 ]] && languages+=(erlang)
+
+    [[ -f "$dir/gleam.toml" ]] && languages+=(gleam)
+
+    wildcard_matches=(
+      "$dir"/*.groovy(NY1oN) "$dir"/{src,app}/*.groovy(NY1oN)
+    )
+    (( ${#wildcard_matches} )) && languages+=(groovy)
+
+    wildcard_matches=("$dir"/*.ipynb(NY1oN) "$dir"/notebooks/*.ipynb(NY1oN))
+    if [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ||
+          -f "$dir/setup.cfg" || -f "$dir/requirements.txt" ||
+          -f "$dir/Pipfile" || -f "$dir/poetry.lock" ||
+          -f "$dir/pdm.lock" || -f "$dir/hatch.toml" ||
+          -f "$dir/environment.yml" || -f "$dir/environment.yaml" ||
+          -f "$dir/mkdocs.yml" || -f "$dir/mkdocs.yaml" ||
+          -f "$dir/uv.lock" || -f "$dir/.python-version" ||
+          ${#wildcard_matches} -gt 0 ]]; then
+      languages+=(python)
+    fi
+
+    wildcard_matches=("$dir"/*.cabal(NY1oN))
+    [[ -f "$dir/stack.yaml" || -f "$dir/cabal.project" ||
+       ${#wildcard_matches} -gt 0 ]] && languages+=(haskell)
+
+    [[ -f "$dir/Cargo.toml" ]] && languages+=(rust)
+    [[ -f "$dir/go.mod" ]] && languages+=(go)
+
+    wildcard_matches=("$dir"/*.gemspec(NY1oN))
+    [[ -f "$dir/Gemfile" || -f "$dir/.ruby-version" ||
+       ${#wildcard_matches} -gt 0 ]] && languages+=(ruby)
+
+    wildcard_matches=(
+      "$dir"/*.java(NY1oN) "$dir"/{src,app}/*.java(NY1oN)
+    )
+    if (( ${#wildcard_matches} )); then
+      languages+=(java)
+    fi
+
+    if [[ -f "$dir/pom.xml" || -f "$dir/build.gradle" ||
+          -f "$dir/build.gradle.kts" ||
+          -f "$dir/settings.gradle" || -f "$dir/settings.gradle.kts" ]]; then
+      custom_project=1
+    fi
+
+    wildcard_matches=("$dir"/*.csproj(NY1oN))
+    (( ${#wildcard_matches} )) && languages+=(dotnet)
+    wildcard_matches=("$dir"/*.fsproj(NY1oN) "$dir"/*.fs(NY1oN) "$dir"/{src,app}/*.fs(NY1oN))
+    (( ${#wildcard_matches} )) && languages+=(fsharp)
+    wildcard_matches=("$dir"/*.vbproj(NY1oN) "$dir"/*.vb(NY1oN) "$dir"/{src,app}/*.vb(NY1oN))
+    (( ${#wildcard_matches} )) && languages+=(visual-basic)
+    wildcard_matches=("$dir"/*.sln(NY1oN) "$dir"/*.slnx(NY1oN))
+    if (( ${#wildcard_matches} )) &&
+       (( ! ${languages[(I)dotnet]} && ! ${languages[(I)fsharp]} &&
+          ! ${languages[(I)visual-basic]} )); then
+      languages+=(dotnet)
+    fi
+    if [[ -f "$dir/global.json" ]] &&
+       (( ! ${languages[(I)dotnet]} && ! ${languages[(I)fsharp]} &&
+          ! ${languages[(I)visual-basic]} )); then
+      languages+=(dotnet)
+    fi
+
+    [[ -f "$dir/pubspec.yaml" ]] && languages+=(dart)
+    [[ -f "$dir/mix.exs" ]] && languages+=(elixir)
+
+    # Infrastructure-only and cross-language repositories may not contain a
+    # source file at their root, but these manifests still define a project.
+    if [[ -f "$dir/terragrunt.hcl" || -f "$dir/Pulumi.yaml" ||
+          -f "$dir/Chart.yaml" || -f "$dir/kustomization.yaml" ||
+          -f "$dir/kustomization.yml" || -f "$dir/serverless.yml" ||
+          -f "$dir/serverless.yaml" || -f "$dir/pixi.toml" ||
+          -f "$dir/melos.yaml" || -f "$dir/melos.yml" ||
+          -f "$dir/_quarto.yml" || -f "$dir/_quarto.yaml" ||
+          -f "$dir/Makefile" || -f "$dir/makefile" ||
+          -f "$dir/GNUmakefile" || -f "$dir/build.ninja" ||
+          -f "$dir/buf.yaml" || -f "$dir/buf.gen.yaml" ||
+          -f "$dir/Justfile" ||
+          -f "$dir/justfile" || -f "$dir/Taskfile.yml" ||
+          -f "$dir/Taskfile.yaml" || -f "$dir/Dockerfile" ||
+          -f "$dir/compose.yaml" || -f "$dir/compose.yml" ||
+          -f "$dir/docker-compose.yaml" || -f "$dir/docker-compose.yml" ||
+          -f "$dir/.devcontainer/devcontainer.json" ||
+          -f "$dir/flake.nix" || -f "$dir/shell.nix" ||
+          -f "$dir/devenv.nix" || -f "$dir/devenv.yaml" ||
+          -f "$dir/mise.toml" || -f "$dir/.mise.toml" ||
+          -f "$dir/Vagrantfile" || -f "$dir/supabase/config.toml" ]]; then
+      custom_project=1
+    fi
+
+    for marker in "${PROMPT_PROJECT_MARKERS[@]}"; do
+      if [[ -e "$dir/$marker" ]]; then
+        custom_project=1
+        break
+      fi
+    done
+
+    # Shell scripts are ubiquitous in polyglot repos, so identify them only
+    # when no stronger built-in or locally extended project has been found.
+    if (( ! ${#languages} && ! custom_project )); then
+      wildcard_matches=("$dir"/*.sh(NY1oN) "$dir"/{bin,scripts,src}/*.sh(NY1oN))
+      (( ${#wildcard_matches} )) && languages+=(shell)
+    fi
+
+    # Preserve language evidence found between the current directory and its
+    # owning root, including source trees deeper than the conventional levels
+    # inspected above.
+    for language in "${_PROMPT_RESOLVED_SOURCE_LANGUAGES[@]}"; do
+      [[ $language == shell ]] && continue
+      (( ${languages[(Ie)$language]} )) || languages+=("$language")
+    done
+    if (( ! ${#languages} && ! custom_project &&
+          ${_PROMPT_RESOLVED_SOURCE_LANGUAGES[(Ie)shell]} )); then
+      languages+=(shell)
+    fi
+
+    # A bare Git directory with no recognizable project signal should not add
+    # an otherwise empty context row.
+    (( ${#languages} || custom_project )) || project_root=''
+    fi
+  fi
+
+  [[ -z $project_root ]] && return
+
+  for language in "${languages[@]}"; do
+    _prompt_runtime_version "$language" "$project_root"
+    version=$REPLY
+    color=${_PROMPT_RUNTIME_COLORS[$language]:-white}
+    [[ $version == not-installed || $version == unavailable ||
+       $version == unknown ]] && color=${ZSH_PROMPT_COLORS[danger]}
+    label=${_PROMPT_RUNTIME_LABELS[$language]:-$language}
+    runtime_text="${label} ${version}"
+    _prompt_escape "$runtime_text"
+    rendered+=("%F{${color}}${REPLY}%f")
+    rendered_widths+=("${#runtime_text}")
+
+    _prompt_expected_runtime_version "$language" "$project_root"
+    expected=$REPLY
+    if [[ -n $expected && $version != not-installed &&
+          $version != unavailable && $version != unknown ]] &&
+       ! _prompt_versions_match "$version" "$expected"; then
+      warning_text="⚠ ${label} wants ${expected}"
+      _prompt_escape "$warning_text"
+      warnings+=("%F{${ZSH_PROMPT_COLORS[danger]}}${REPLY}%f")
+      warning_widths+=("${#warning_text}")
+    fi
+  done
+
+  if (( large_project )); then
+    # Keep custom extension hooks and mismatch warnings, but omit the optional
+    # wildcard-derived tool/framework decoration that would rescan a saturated
+    # root. Exact manifests and bounded source evidence still identify it.
+    _PROMPT_PROJECT_EXTRA_SEGMENTS=()
+    _PROMPT_PROJECT_EXTRA_WIDTHS=()
+    for hook in "${PROMPT_PROJECT_CONTEXT_FUNCTIONS[@]}"; do
+      (( ${+functions[$hook]} )) && "$hook" "$project_root"
+    done
+    for (( index = 1; index <= ${#_PROMPT_PROJECT_EXTRA_SEGMENTS}; index++ )); do
+      rendered+=("${_PROMPT_PROJECT_EXTRA_SEGMENTS[index]}")
+      rendered_widths+=("${_PROMPT_PROJECT_EXTRA_WIDTHS[index]:-0}")
+    done
+    rendered+=("${warnings[@]}")
+    rendered_widths+=("${warning_widths[@]}")
+    _PROMPT_PROJECT_NAME_TEXT=${project_root:t}
+    _PROMPT_PROJECT_ITEMS=("${rendered[@]}")
+    _PROMPT_PROJECT_ITEM_WIDTHS=("${rendered_widths[@]}")
+    _prompt_project_layout
+    return 0
+  fi
+
+  # Package managers and build systems. Lockfiles take precedence when several
+  # Node or Python artifacts coexist after a migration.
+  if [[ -f "$project_root/bun.lock" || -f "$project_root/bun.lockb" ]]; then
+    tools+=(bun)
+  elif [[ -f "$project_root/pnpm-lock.yaml" ]]; then
+    tools+=(pnpm)
+  elif [[ -f "$project_root/yarn.lock" ]]; then
+    tools+=(yarn)
+  elif [[ -f "$project_root/package-lock.json" ]]; then
+    tools+=(npm)
+  fi
+  [[ -f "$project_root/turbo.json" ]] && tools+=(turbo)
+  [[ -f "$project_root/nx.json" ]] && tools+=(nx)
+  [[ -f "$project_root/lerna.json" ]] && tools+=(lerna)
+  [[ -f "$project_root/rush.json" ]] && tools+=(rush)
+  [[ -f "$project_root/composer.json" || -f "$project_root/composer.lock" ]] && tools+=(composer)
+
+  [[ -f "$project_root/Package.swift" ]] && tools+=(swiftpm)
+  wildcard_matches=("$project_root"/*.xcodeproj(NY1oN) "$project_root"/*.xcworkspace(NY1oN))
+  if (( ${#wildcard_matches} )); then
+    tools+=(xcode)
+
+    wildcard_matches=("$project_root"/*.xcworkspace(NY1oN))
+    (( ${#wildcard_matches} )) && tools+=(xcworkspace)
+    [[ -f "$project_root/Podfile" || -f "$project_root/Podfile.lock" ]] && tools+=(cocoapods)
+    [[ -f "$project_root/Cartfile" || -f "$project_root/Cartfile.resolved" ]] && tools+=(carthage)
+    if [[ -f "$project_root/Tuist.swift" || -f "$project_root/Project.swift" ||
+          -f "$project_root/Workspace.swift" || -d "$project_root/Tuist" ]]; then
+      tools+=(tuist)
+    fi
+    if [[ -f "$project_root/project.yml" || -f "$project_root/project.yaml" ]]; then
+      tools+=(xcodegen)
+    fi
+    [[ -f "$project_root/.swiftlint.yml" ||
+       -f "$project_root/.swiftlint.yaml" ]] && tools+=(swiftlint)
+    [[ -f "$project_root/.swiftformat" ]] && tools+=(swiftformat)
+    [[ -f "$project_root/Fastfile" ||
+       -f "$project_root/fastlane/Fastfile" ]] && tools+=(fastlane)
+    [[ -f "$project_root/Mintfile" ]] && tools+=(mint)
+  fi
+
+  if [[ -f "$project_root/uv.lock" ]]; then
+    tools+=(uv)
+  elif [[ -f "$project_root/poetry.lock" ]]; then
+    tools+=(poetry)
+  elif [[ -f "$project_root/pdm.lock" ]]; then
+    tools+=(pdm)
+  elif [[ -f "$project_root/pixi.toml" || -f "$project_root/pixi.lock" ]]; then
+    tools+=(pixi)
+  elif [[ -f "$project_root/hatch.toml" ]]; then
+    tools+=(hatch)
+  elif [[ -f "$project_root/Pipfile" ]]; then
+    tools+=(pipenv)
+  elif [[ -f "$project_root/environment.yml" ||
+          -f "$project_root/environment.yaml" ]]; then
+    tools+=(conda)
+  elif [[ -f "$project_root/requirements.txt" ]]; then
+    tools+=(pip)
+  fi
+
+  [[ -f "$project_root/Cargo.toml" ]] && tools+=(cargo)
+  [[ -f "$project_root/go.mod" ]] && tools+=('go-modules')
+  [[ -f "$project_root/buf.yaml" || -f "$project_root/buf.gen.yaml" ]] && tools+=(buf)
+  [[ -f "$project_root/stack.yaml" ]] && tools+=(stack)
+  wildcard_matches=("$project_root"/*.cabal(NY1oN))
+  [[ -f "$project_root/cabal.project" || ${#wildcard_matches} -gt 0 ]] && tools+=(cabal)
+  if (( ${languages[(I)haskell]} )) && [[ -f "$project_root/package.yaml" ]]; then
+    tools+=(hpack)
+  fi
+  [[ -f "$project_root/Gemfile" ]] && tools+=(bundler)
+  [[ -f "$project_root/pom.xml" ]] && tools+=(maven)
+  [[ -f "$project_root/build.gradle" || -f "$project_root/build.gradle.kts" ||
+     -f "$project_root/settings.gradle" ||
+     -f "$project_root/settings.gradle.kts" ]] && tools+=(gradle)
+  [[ -f "$project_root/build.sc" || -f "$project_root/mill-build/build.sc" ]] && tools+=(mill)
+  wildcard_matches=("$project_root"/*.sln(NY1oN) "$project_root"/*.slnx(NY1oN))
+  (( ${#wildcard_matches} )) && tools+=(solution)
+  [[ -f "$project_root/packages.lock.json" ||
+     -f "$project_root/Directory.Packages.props" ]] && tools+=(nuget)
+  [[ -f "$project_root/pubspec.yaml" ]] && tools+=(pub)
+  [[ -f "$project_root/melos.yaml" || -f "$project_root/melos.yml" ]] && tools+=(melos)
+  [[ -f "$project_root/mix.exs" ]] && tools+=(mix)
+  [[ -f "$project_root/renv.lock" ]] && tools+=(renv)
+  [[ -f "$project_root/pak.lock" ]] && tools+=(pak)
+  wildcard_matches=("$project_root"/*.rockspec(NY1oN))
+  (( ${#wildcard_matches} )) && tools+=(luarocks)
+  [[ -f "$project_root/cpanfile" || -f "$project_root/Makefile.PL" ||
+     -f "$project_root/Build.PL" ]] && tools+=(cpan)
+  [[ -f "$project_root/cpanfile.snapshot" ]] && tools+=(carton)
+  [[ -f "$project_root/dist.ini" ]] && tools+=(dzil)
+  [[ -f "$project_root/fpm.toml" ]] && tools+=(fpm)
+  [[ -f "$project_root/dune-project" ]] && tools+=(dune)
+  wildcard_matches=("$project_root"/*.opam(NY1oN))
+  (( ${#wildcard_matches} )) && tools+=(opam)
+  [[ -f "$project_root/build.sbt" ]] && tools+=(sbt)
+  [[ -f "$project_root/rebar.config" ]] && tools+=(rebar3)
+
+  [[ -f "$project_root/CMakeLists.txt" ]] && tools+=(cmake)
+  [[ -f "$project_root/meson.build" ]] && tools+=(meson)
+  [[ -f "$project_root/configure.ac" || -f "$project_root/configure.in" ]] && tools+=(autotools)
+  [[ -f "$project_root/MODULE.bazel" || -f "$project_root/WORKSPACE" ||
+     -f "$project_root/WORKSPACE.bazel" ]] && tools+=(bazel)
+  [[ -f "$project_root/conanfile.py" || -f "$project_root/conanfile.txt" ]] && tools+=(conan)
+  [[ -f "$project_root/vcpkg.json" ]] && tools+=(vcpkg)
+  [[ -f "$project_root/xmake.lua" ]] && tools+=(xmake)
+  [[ -f "$project_root/Makefile" || -f "$project_root/makefile" ||
+     -f "$project_root/GNUmakefile" ]] && tools+=(make)
+  [[ -f "$project_root/build.ninja" ]] && tools+=(ninja)
+  [[ -f "$project_root/Justfile" || -f "$project_root/justfile" ]] && tools+=(just)
+  [[ -f "$project_root/Taskfile.yml" || -f "$project_root/Taskfile.yaml" ]] && tools+=(task)
+  [[ -f "$project_root/terragrunt.hcl" ]] && tools+=(terragrunt)
+  [[ -f "$project_root/.tflint.hcl" ]] && tools+=(tflint)
+  [[ -f "$project_root/Pulumi.yaml" ]] && tools+=(pulumi)
+  [[ -f "$project_root/Chart.yaml" ]] && tools+=(helm)
+  [[ -f "$project_root/kustomization.yaml" ||
+     -f "$project_root/kustomization.yml" ]] && tools+=(kustomize)
+  [[ -f "$project_root/serverless.yml" ||
+     -f "$project_root/serverless.yaml" ]] && tools+=(serverless)
+  wildcard_matches=("$project_root"/*.asd(NY1oN))
+  (( ${#wildcard_matches} )) && tools+=(asdf)
+
+  # Frameworks use distinctive config files rather than parsing arbitrary source.
+  wildcard_matches=("$project_root"/next.config.*(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(next)
+  wildcard_matches=("$project_root"/nuxt.config.*(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(nuxt)
+  wildcard_matches=("$project_root"/vite.config.*(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(vite)
+  wildcard_matches=("$project_root"/astro.config.*(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(astro)
+  wildcard_matches=("$project_root"/remix.config.*(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(remix)
+  wildcard_matches=("$project_root"/gatsby-config.*(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(gatsby)
+  [[ -f "$project_root/angular.json" ]] && frameworks+=(angular)
+  [[ -f "$project_root/svelte.config.js" ]] && frameworks+=(sveltekit)
+  [[ -f "$project_root/expo-env.d.ts" ]] && frameworks+=(expo)
+  [[ -f "$project_root/react-native.config.js" ]] && frameworks+=('react-native')
+  wildcard_matches=(
+    "$project_root"/forge.config.*(NY1oN)
+    "$project_root"/electron-builder.{yml,yaml,json,json5,js,ts}(NY1oN)
+  )
+  (( ${#wildcard_matches} )) && frameworks+=(electron)
+  wildcard_matches=("$project_root"/.storybook/main.*(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(storybook)
+  [[ -f "$project_root/prisma/schema.prisma" ]] && frameworks+=(prisma)
+  [[ -f "$project_root/manage.py" ]] && frameworks+=(django)
+  [[ -f "$project_root/mkdocs.yml" || -f "$project_root/mkdocs.yaml" ]] && frameworks+=(mkdocs)
+  [[ -f "$project_root/config/application.rb" && -f "$project_root/bin/rails" ]] && frameworks+=(rails)
+  wildcard_matches=("$project_root"/lib/*_web/router.ex(NY1oN))
+  (( ${#wildcard_matches} )) && frameworks+=(phoenix)
+  [[ -f "$project_root/src-tauri/tauri.conf.json" ||
+     -f "$project_root/src-tauri/tauri.conf.json5" ]] && frameworks+=(tauri)
+  if [[ -f "$project_root/pubspec.yaml" && -d "$project_root/lib" &&
+        ( -d "$project_root/android" || -d "$project_root/ios" ) ]]; then
+    frameworks+=(flutter)
+  fi
+  [[ -f "$project_root/artisan" ]] && frameworks+=(laravel)
+  [[ -f "$project_root/symfony.lock" ]] && frameworks+=(symfony)
+  [[ -f "$project_root/wp-config.php" ]] && frameworks+=(wordpress)
+  [[ -f "$project_root/core/lib/Drupal.php" ]] && frameworks+=(drupal)
+  [[ -f "$project_root/app/src/main/AndroidManifest.xml" ]] && frameworks+=(android)
+  [[ -f "$project_root/_quarto.yml" || -f "$project_root/_quarto.yaml" ]] && frameworks+=(quarto)
+  [[ -f "$project_root/lazy-lock.json" && -d "$project_root/lua" ]] && frameworks+=(neovim)
+  [[ -f "$project_root/supabase/config.toml" ]] && frameworks+=(supabase)
+
+  wildcard_matches=("$project_root"/*.ipynb(NY1oN) "$project_root"/notebooks/*.ipynb(NY1oN))
+  (( ${#wildcard_matches} )) && tools+=(jupyter)
+
+  # Workspace and development-environment signals are intentionally compact.
+  if [[ -f "$project_root/pnpm-workspace.yaml" || -f "$project_root/turbo.json" ||
+        -f "$project_root/nx.json" || -f "$project_root/lerna.json" ||
+        -f "$project_root/rush.json" || -f "$project_root/melos.yaml" ||
+        -f "$project_root/melos.yml" || -f "$project_root/go.work" ]]; then
+    environment+=(workspace)
+  fi
+  if [[ -f "$project_root/Dockerfile" || -f "$project_root/compose.yaml" ||
+        -f "$project_root/compose.yml" || -f "$project_root/docker-compose.yaml" ||
+        -f "$project_root/docker-compose.yml" ]]; then
+    environment+=(docker)
+  fi
+  [[ -f "$project_root/.devcontainer/devcontainer.json" ]] && environment+=(devcontainer)
+  [[ -f "$project_root/flake.nix" || -f "$project_root/shell.nix" ]] && environment+=(nix)
+  [[ -f "$project_root/devenv.nix" || -f "$project_root/devenv.yaml" ]] && environment+=(devenv)
+  [[ -f "$project_root/mise.toml" || -f "$project_root/.mise.toml" ]] && environment+=(mise)
+  [[ -f "$project_root/.envrc" ]] && environment+=(direnv)
+  [[ -f "$project_root/Vagrantfile" ]] && environment+=(vagrant)
+
+  # Custom hooks run after built-in detection and append through the safe helper.
+  _PROMPT_PROJECT_EXTRA_SEGMENTS=()
+  _PROMPT_PROJECT_EXTRA_WIDTHS=()
+  for hook in "${PROMPT_PROJECT_CONTEXT_FUNCTIONS[@]}"; do
+    (( ${+functions[$hook]} )) && "$hook" "$project_root"
+  done
+
+  for language in "${tools[@]}"; do
+    rendered+=("%F{${ZSH_PROMPT_COLORS[tool]}}${language}%f")
+    rendered_widths+=("${#language}")
+  done
+  for language in "${frameworks[@]}"; do
+    rendered+=("%F{${ZSH_PROMPT_COLORS[framework]}}${language}%f")
+    rendered_widths+=("${#language}")
+  done
+  for language in "${environment[@]}"; do
+    rendered+=("%F{${ZSH_PROMPT_COLORS[container]}}${language}%f")
+    rendered_widths+=("${#language}")
+  done
+  for (( index = 1; index <= ${#_PROMPT_PROJECT_EXTRA_SEGMENTS}; index++ )); do
+    rendered+=("${_PROMPT_PROJECT_EXTRA_SEGMENTS[index]}")
+    rendered_widths+=("${_PROMPT_PROJECT_EXTRA_WIDTHS[index]:-0}")
+  done
+  rendered+=("${warnings[@]}")
+  rendered_widths+=("${warning_widths[@]}")
+
+  _PROMPT_PROJECT_NAME_TEXT=${project_root:t}
+  _PROMPT_PROJECT_ITEMS=("${rendered[@]}")
+  _PROMPT_PROJECT_ITEM_WIDTHS=("${rendered_widths[@]}")
+  _prompt_project_layout
+}
+
+_prompt_update() {
+  local last_status=$?
+  emulate -L zsh
+
+  local -F 1 elapsed=0
+  local env_name='' prompt_identity='' prompt_path='' title_path=''
+  local -i top_extra_width=0 job_count=0
+
+  _PROMPT_EXIT_SEGMENT=''
+  _PROMPT_SYMBOL_COLOR=${ZSH_PROMPT_COLORS[symbol]}
+  if (( last_status != 0 )); then
+    _PROMPT_EXIT_SEGMENT=" %F{${ZSH_PROMPT_COLORS[danger]}}exit:${last_status}%f"
+    _PROMPT_SYMBOL_COLOR=${ZSH_PROMPT_COLORS[danger]}
+    (( top_extra_width += 6 + ${#last_status} ))
+  fi
+
+  _PROMPT_TIME_SEGMENT=''
+  if (( _PROMPT_COMMAND_STARTED > 0 )); then
+    elapsed=$(( EPOCHREALTIME - _PROMPT_COMMAND_STARTED ))
+    if (( elapsed >= 2.0 )); then
+      _PROMPT_TIME_SEGMENT=" %F{${ZSH_PROMPT_COLORS[duration]}}${elapsed}s%f"
+      (( top_extra_width += 2 + ${#elapsed} ))
+    fi
+  fi
+  _PROMPT_COMMAND_STARTED=0
+
+  _PROMPT_ENV_SEGMENT=''
+  if [[ -n ${VIRTUAL_ENV:-} ]]; then
+    env_name=${VIRTUAL_ENV:t}
+  elif [[ -n ${CONDA_DEFAULT_ENV:-} && ${CONDA_DEFAULT_ENV} != base ]]; then
+    env_name=$CONDA_DEFAULT_ENV
+  fi
+  if [[ -n $env_name ]]; then
+    _prompt_escape "$env_name"
+    _PROMPT_ENV_SEGMENT=" %F{${ZSH_PROMPT_COLORS[environment]}}py:${REPLY}%f"
+    (( top_extra_width += 4 + ${#env_name} ))
+  fi
+
+  _prompt_git
+  prompt_identity=${(%):-%n@%m}
+  prompt_path=${(%):-%4~}
+  _PROMPT_PATH_TEXT=$prompt_path
+  job_count=${#jobstates}
+  (( job_count )) && (( top_extra_width += 6 + ${#job_count} ))
+  _PROMPT_TOP_BASE_WIDTH=$(( 3 + ${#prompt_identity} + 1 + top_extra_width ))
+  _prompt_layout
+
+  if (( ${+functions[_prompt_project_context]} )); then
+    _prompt_project_context
+  else
+    _PROMPT_PROJECT_NAME_TEXT=''
+    _PROMPT_PROJECT_ITEMS=()
+    _PROMPT_PROJECT_ITEM_WIDTHS=()
+    _PROMPT_PROJECT_SEGMENT=''
+  fi
+
+  # Keep the window/tab title useful without printing anything in the terminal.
+  if [[ $TERM != dumb ]]; then
+    title_path=${(%):-%~}
+    _prompt_sanitize "${prompt_identity}: ${title_path}"
+    print -rn -- $'\e]0;'"${REPLY}"$'\a'
+  fi
+}
+
+_prompt_command_started() {
+  emulate -L zsh
+
+  _PROMPT_COMMAND_STARTED=$EPOCHREALTIME
+
+  if [[ $TERM != dumb ]]; then
+    local command_name=${1%% *} title_identity=''
+    title_identity=${(%):-%n@%m}
+    _prompt_sanitize "${title_identity}: ${command_name[1,60]}"
+    print -rn -- $'\e]0;'"${REPLY}"$'\a'
+  fi
+}
+
+# SIGWINCH is sent when the window or font size changes. Preserve an existing
+# initializer/vendor handler before installing the prompt's composable wrapper.
+# Re-sourcing recognizes its own body and never chains the wrapper recursively.
+typeset _prompt_existing_TRAPWINCH=${functions[TRAPWINCH]:-}
+if [[ -n $_prompt_existing_TRAPWINCH &&
+      $_prompt_existing_TRAPWINCH != ${_PROMPT_TRAPWINCH_BODY:-} ]]; then
+  functions[_prompt_previous_TRAPWINCH]=$_prompt_existing_TRAPWINCH
+elif [[ -z $_prompt_existing_TRAPWINCH ]]; then
+  unfunction _prompt_previous_TRAPWINCH 2>/dev/null
+fi
+
+# Redraw only the layout of cached facts; do not rerun Git or project/toolchain
+# detection while a window edge is being dragged.
+TRAPWINCH() {
+  local -i previous_status=0
+  if (( ${+functions[_prompt_previous_TRAPWINCH]} )); then
+    _prompt_previous_TRAPWINCH "$@" || previous_status=$?
+  fi
+  zle || return $previous_status
+  emulate -L zsh
+
+  if (( ${_ZLE_PICKER_ACTIVE:-0} )); then
+    _zle_picker_render "$_ZLE_PICKER_QUERY" $_ZLE_PICKER_SELECTED
+    _zle_picker_show
+    return $previous_status
+  fi
+  _prompt_layout
+  _prompt_project_layout
+  zle reset-prompt
+  zle -R
+  return $previous_status
+}
+typeset -g _PROMPT_TRAPWINCH_BODY=${functions[TRAPWINCH]}
+unset _prompt_existing_TRAPWINCH
+
+# Re-sourcing the file should not stack duplicate hooks.
+precmd_functions=("${precmd_functions[@]-}")
+preexec_functions=("${preexec_functions[@]-}")
+precmd_functions=(${precmd_functions:#_prompt_update})
+precmd_functions+=(_prompt_update)
+preexec_functions=(${preexec_functions:#_prompt_command_started})
+preexec_functions+=(_prompt_command_started)
+
+PROMPT='%F{${ZSH_PROMPT_COLORS[frame]}}╭─%f %F{${ZSH_PROMPT_COLORS[identity]}}%n@%m%f ${_PROMPT_PATH_SEGMENT}${_PROMPT_ENV_SEGMENT}${_PROMPT_GIT_SEGMENT}${_PROMPT_TIME_SEGMENT}${_PROMPT_EXIT_SEGMENT} %(1j.%F{${ZSH_PROMPT_COLORS[jobs]}}%j jobs%f .)${_PROMPT_PROJECT_SEGMENT}
+%F{${ZSH_PROMPT_COLORS[frame]}}╰─%f %F{${_PROMPT_SYMBOL_COLOR}}❯%f '
+RPROMPT='%F{${ZSH_PROMPT_COLORS[frame]}}%D{%H:%M}%f'
+
+:

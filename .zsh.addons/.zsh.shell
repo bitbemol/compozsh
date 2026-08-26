@@ -1,0 +1,35 @@
+# -----------------------------------------------------------------------------
+# Shell behaviour
+# -----------------------------------------------------------------------------
+
+setopt PROMPT_SUBST          # Expand variables in the prompt.
+unsetopt TRANSIENT_RPROMPT   # Preserve the clock on completed prompts.
+setopt INTERACTIVE_COMMENTS  # Allow comments at the command line.
+setopt AUTO_CD               # Enter a directory by typing its path.
+setopt AUTO_PUSHD            # Keep visited directories in a stack.
+setopt PUSHD_IGNORE_DUPS
+setopt PUSHD_SILENT
+setopt CORRECT               # Offer to correct a misspelled command.
+setopt NO_BEEP
+setopt NO_CLOBBER            # Refuse to overwrite non-empty files with >.
+setopt CLOBBER_EMPTY         # Zsh 5.9: allow > to reuse an empty file.
+
+# Keep a useful history across terminal windows unless the local initializer
+# selected different storage or limits for this machine.
+HISTFILE=${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}
+HISTSIZE=${HISTSIZE:-50000}
+SAVEHIST=${SAVEHIST:-50000}
+setopt EXTENDED_HISTORY
+setopt SHARE_HISTORY
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_IGNORE_SPACE
+setopt HIST_REDUCE_BLANKS
+setopt HIST_SAVE_NO_DUPS
+
+# Let BSD/macOS tools color semantic output only when stdout is a terminal.
+# LSCOLORS covers directories, links, sockets, pipes, executables, devices,
+# privileged files, writable directories, and dataless files in that order.
+typeset -gx CLICOLOR=${CLICOLOR:-1}
+typeset -gx LSCOLORS=${LSCOLORS:-ExFxgxDxCxBxbxHbHfadabdx}
+
+:

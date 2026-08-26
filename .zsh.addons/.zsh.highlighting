@@ -1,0 +1,531 @@
+# -----------------------------------------------------------------------------
+# Native command-line syntax highlighting
+# -----------------------------------------------------------------------------
+
+# Public color palette. The early local initializer may replace individual
+# roles; this unit fills only missing defaults.
+_zle_apply_highlight_style_defaults() {
+  emulate -L zsh
+  local -A defaults=(
+    alias              'fg=171,bold'
+    global-alias       'fg=177,bold,underline'
+    suffix-alias       'fg=215,bold'
+    function           'fg=75,bold'
+    builtin            'fg=44,bold'
+    command            'fg=77,bold'
+    directory          'fg=39,bold,underline'
+    executable         'fg=83,bold,underline'
+    symlink            'fg=207,underline'
+    symlink-directory  'fg=141,bold,underline'
+    hardlink           'fg=214,underline'
+    file               'fg=250,underline'
+    special-file       'fg=203,bold,underline'
+    argument           'fg=252'
+    option             'fg=81'
+    keyword            'fg=220,bold'
+    pipeline           'fg=213,bold'
+    logical            'fg=203,bold'
+    separator          'fg=245,bold'
+    structure          'fg=229,underline'
+    conditional        'fg=221'
+    arithmetic         'fg=208,bold'
+    redirection        'fg=69,bold'
+    redirection-target 'fg=222,underline'
+    assignment         'fg=68'
+    string             'fg=186'
+    variable           'fg=111'
+    substitution       'fg=176'
+    glob               'fg=209'
+    history            'fg=199,bold'
+    escape             'fg=87'
+    number             'fg=216'
+    comment            'fg=244'
+    autosuggestion     'fg=242'
+    picker-header       'fg=75,bold'
+    picker-query        'fg=16,bg=44,bold'
+    picker-index        'fg=44,bold'
+    picker-selected     'fg=16,bg=75,bold'
+    picker-text         'fg=252'
+    picker-muted        'fg=242'
+    picker-empty        'fg=203,bold'
+  )
+  local role
+
+  typeset -gA ZSH_HIGHLIGHT_STYLES
+  for role in ${(k)defaults}; do
+    (( ${+ZSH_HIGHLIGHT_STYLES[$role]} )) ||
+      ZSH_HIGHLIGHT_STYLES[$role]=${defaults[$role]}
+  done
+}
+_zle_apply_highlight_style_defaults
+unfunction _zle_apply_highlight_style_defaults
+
+# zstat recognizes hard links without launching an external process while the
+# user is typing. It is part of the standard Zsh 5.9 installation.
+zmodload -F zsh/stat b:zstat
+
+_zle_add_highlight() {
+  local -i start=$1 end=$2
+  local style=${ZSH_HIGHLIGHT_STYLES[$3]:-}
+  [[ -n $style ]] &&
+    region_highlight+=("$start $end $style memo=compozsh")
+}
+
+_zle_is_redirection() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local operator=${1##[0-9]##}
+  case $operator in
+    '<'|'<>'|'>'|'>|'|'>!'|'>>'|'>>|'|'>>!'|\
+    '<<'|'<<-'|'<<<'|'<&'|'>&'|'>&|'|'>&!'|\
+    '&>'|'&>|'|'&>!'|'>>&'|'>>&|'|'>>&!'|'&>>'|'&>>|'|'&>>!')
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+_zle_is_assignment() {
+  emulate -L zsh
+  local word=${(Q)1}
+  [[ $word =~ '^[A-Za-z_][A-Za-z0-9_]*(\[[^]]+\])?(\+)?=' ]]
+}
+
+_zle_is_number() {
+  emulate -L zsh
+  local word=${(Q)1}
+  [[ $word =~ '^[+-]?(([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?|0[xX][0-9a-fA-F]+|[0-9]+#[0-9a-zA-Z_]+)$' ]]
+}
+
+# Return the exact kind of command resolution Zsh itself will use.
+_zle_command_category() {
+  emulate -L zsh
+
+  local name=$1 suffix=${1:e}
+  REPLY=''
+  if [[ -n ${aliases[(Ie)$name]} ]]; then
+    REPLY='alias'
+  elif [[ -n ${galiases[(Ie)$name]} ]]; then
+    REPLY='global-alias'
+  elif (( ${reswords[(Ie)$name]} )); then
+    REPLY='keyword'
+  elif [[ -n ${functions[(Ie)$name]} ]]; then
+    REPLY='function'
+  elif [[ -n ${builtins[(Ie)$name]} ]]; then
+    REPLY='builtin'
+  elif [[ -n ${commands[(Ie)$name]} ]]; then
+    REPLY='command'
+  elif [[ -n $suffix && -n ${saliases[(Ie)$suffix]} ]]; then
+    REPLY='suffix-alias'
+  else
+    return 1
+  fi
+}
+
+# Resolve literal paths only—never evaluate substitutions or globs from the
+# editable command line. REPLY contains the most specific filesystem category.
+_zle_path_category() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local raw=$1 literal=${(Q)1} stack_prefix='' stack_number=''
+  local named_directory=''
+  local -a file_stat=()
+  local -a stack_entries=()
+  local -i stack_index=0
+  typeset -gi _ZLE_PATH_EXECUTABLE=0
+  REPLY=''
+
+  # Expansion-dependent words cannot be resolved safely before execution.
+  [[ $literal == *'$'* || $literal == *'`'* ]] && return 1
+  [[ $literal == *'*'* || $literal == *'?'* || $literal == *'['* ]] && return 1
+
+  if [[ $raw == '~' ]]; then
+    literal=$HOME
+  elif [[ $raw == '~/'* ]]; then
+    literal="$HOME/${literal#\~/}"
+  elif [[ $raw == '~'<->(|/*) ]]; then
+    stack_prefix=${raw%%/*}
+    stack_number=${stack_prefix#\~}
+    (( stack_index = 10#$stack_number ))
+    stack_entries=("$PWD" "${dirstack[@]}")
+    (( stack_index < ${#stack_entries} )) || return 1
+    literal="${stack_entries[stack_index + 1]}${literal#$stack_prefix}"
+  elif [[ $raw == '~'?*(|/*) ]]; then
+    stack_prefix=${raw%%/*}
+    named_directory=${stack_prefix#\~}
+    [[ -n ${nameddirs[(Ie)$named_directory]} ]] || return 1
+    literal="${nameddirs[(e)$named_directory]}${literal#$stack_prefix}"
+  fi
+
+  [[ -e $literal || -L $literal ]] || return 1
+  [[ -x $literal && ! -d $literal ]] && _ZLE_PATH_EXECUTABLE=1
+
+  if [[ -L $literal ]]; then
+    if [[ -d $literal ]]; then
+      REPLY='symlink-directory'
+    else
+      REPLY='symlink'
+    fi
+  elif [[ -d $literal ]]; then
+    REPLY='directory'
+  elif [[ -f $literal ]]; then
+    if zstat -A file_stat +nlink -- "$literal" 2>/dev/null &&
+       (( ${file_stat[1]:-1} > 1 )); then
+      REPLY='hardlink'
+    elif [[ -x $literal ]]; then
+      REPLY='executable'
+    else
+      REPLY='file'
+    fi
+  elif [[ -e $literal ]]; then
+    REPLY='special-file'
+  else
+    return 1
+  fi
+}
+
+# Highlight the editable buffer immediately before each ZLE redraw. Zsh's
+# lexer supplies the tokens; this function only tracks their source positions
+# and enough command state to distinguish commands from arguments.
+_zle_syntax_highlight() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  # Zsh 5.9 memo tags let this highlighter replace only its own regions while
+  # preserving selection colors and highlights added by other native widgets.
+  region_highlight=("${(@)region_highlight:#*memo=compozsh}")
+  (( ${_ZLE_PICKER_ACTIVE:-0} )) && return 0
+  (( ${REGION_ACTIVE:-0} )) && return 0
+  [[ -n $BUFFER ]] || return 0
+
+  local token='' plain='' character='' category=''
+  local redirection_operator=''
+  local reserved_context='' precommand_context='' expression_context=''
+  local -a tokens=()
+  local -i scan=1 start=0 end=0 found=0 token_index=0
+  local -i command_expected=1 redirection_target=0 declaration_context=0
+  local -i precommand_option_argument=0 brace_closed=0 array_assignment=0
+  local -i case_context=0 case_pattern=0 function_signature=0
+  local -i buffer_length=${#BUFFER}
+
+  # Keep comments as single tokens and treat newlines as whitespace; the scan
+  # below observes newlines directly so they still begin a new command.
+  tokens=("${(@Z+cn+)BUFFER}") 2>/dev/null
+
+  for (( token_index = 1; token_index <= ${#tokens}; ++token_index )); do
+    token=${tokens[token_index]}
+    found=0
+    while (( scan <= buffer_length )); do
+      character=${BUFFER[scan]}
+      if [[ $character == [[:space:]] ]]; then
+        if [[ $character == $'\n' && ${BUFFER[scan - 1]} != '\\' &&
+              -z $expression_context ]] &&
+           (( !array_assignment && !case_pattern )); then
+          command_expected=1
+          declaration_context=0
+        fi
+        (( ++scan ))
+        continue
+      fi
+      if [[ ${BUFFER[scan,scan + ${#token} - 1]} == "$token" ]]; then
+        found=1
+        break
+      fi
+      (( ++scan ))
+    done
+    (( found )) || continue
+
+    start=$(( scan - 1 ))
+    end=$(( start + ${#token} ))
+    (( scan += ${#token} ))
+
+    # With (Z+c+), a token beginning with an unquoted # is the complete
+    # comment, including its spaces. Quoted and escaped hashes remain words.
+    if [[ $token == \#* ]]; then
+      _zle_add_highlight $start $end comment
+      continue
+    fi
+
+    # `always` is contextual rather than a normal reserved word: Zsh only
+    # recognizes it immediately after the closing brace of a try block.
+    if (( brace_closed )) && [[ $token == always ]]; then
+      _zle_add_highlight $start $end keyword
+      brace_closed=0
+      command_expected=1
+      continue
+    fi
+    brace_closed=0
+
+    # Zsh's lexer returns a complete arithmetic command as one token.
+    if (( ${#token} >= 4 )) &&
+       [[ ${token[1,2]} == '((' && ${token[-2,-1]} == '))' ]]; then
+      _zle_add_highlight $start $end arithmetic
+      command_expected=0
+      continue
+    fi
+
+    if [[ $expression_context == conditional ]]; then
+      case $token in
+        '!'|'('|')'|'&&'|'||'|'='|'=='|'!='|'=~'|'<'|'>'|\
+        -a|-b|-c|-d|-e|-f|-g|-h|-k|-n|-o|-p|-r|-s|-t|-u|-v|-w|-x|-z|-L|-O|-G|-S|-N|\
+        -nt|-ot|-ef|-eq|-ne|-lt|-gt|-le|-ge)
+          _zle_add_highlight $start $end conditional
+          continue
+          ;;
+      esac
+    fi
+
+    if (( case_pattern )) && [[ $token == '|' ]]; then
+      _zle_add_highlight $start $end glob
+      continue
+    fi
+
+    if _zle_is_redirection "$token"; then
+      _zle_add_highlight $start $end redirection
+      redirection_target=1
+      redirection_operator=$token
+      continue
+    fi
+
+    case $token in
+      '|'|'|&')
+        _zle_add_highlight $start $end pipeline
+        command_expected=1
+        declaration_context=0
+        continue
+        ;;
+      '&&'|'||')
+        _zle_add_highlight $start $end logical
+        command_expected=1
+        declaration_context=0
+        continue
+        ;;
+      '&'|'&!'|'&|'|';'|';;'|';&'|';|')
+        _zle_add_highlight $start $end separator
+        case $token in
+          '&'|'&!'|'&|'|';') command_expected=1 ;;
+        esac
+        declaration_context=0
+        if (( case_context )) && [[ $token == (';;'|';&'|';|') ]]; then
+          case_pattern=1
+          command_expected=0
+        fi
+        continue
+        ;;
+      '('|')'|'()'|'{'|'}'|'[['|']]'|'(('|'))')
+        _zle_add_highlight $start $end structure
+        case $token in
+          '('|'()'|'{') command_expected=1 ;;
+          ')')
+            if (( case_pattern )); then
+              case_pattern=0
+              command_expected=1
+            elif (( array_assignment )); then
+              array_assignment=0
+              command_expected=0
+            else
+              command_expected=1
+            fi
+            ;;
+          '}')         command_expected=0; brace_closed=1 ;;
+          '[[')        expression_context='conditional'; command_expected=0 ;;
+          ']]')        expression_context=''; command_expected=0 ;;
+          *)           command_expected=0 ;;
+        esac
+        declaration_context=0
+        continue
+        ;;
+    esac
+
+    if (( redirection_target )); then
+      category='redirection-target'
+      if [[ $redirection_operator != *'<&' && $redirection_operator != *'>&' ]] &&
+         _zle_path_category "$token"; then
+        category=$REPLY
+      elif [[ $token == *\"* || $token == *\'* ]]; then
+        category='string'
+      fi
+      _zle_add_highlight $start $end $category
+      redirection_target=0
+      redirection_operator=''
+      continue
+    fi
+
+    # Reserved words only have control meaning in the grammar positions where
+    # Zsh recognizes them; `echo in` and a file literally named `in` remain
+    # ordinary arguments.
+    if (( case_context )) && [[ $token == esac ]]; then
+      _zle_add_highlight $start $end keyword
+      (( --case_context ))
+      case_pattern=0
+      reserved_context=''
+      command_expected=0
+      continue
+    fi
+
+    if (( command_expected )); then
+      case $token in
+        if|then|elif|else|do|while|until|time|coproc|'!'|'-'|noglob|nocorrect|fi|done|esac|end)
+          _zle_add_highlight $start $end keyword
+          reserved_context=''
+          if [[ $token == esac ]]; then
+            (( case_context > 0 )) && (( --case_context ))
+            case_pattern=0
+          fi
+          command_expected=1
+          declaration_context=0
+          continue
+          ;;
+        for|foreach|select|case)
+          _zle_add_highlight $start $end keyword
+          reserved_context='await-in'
+          [[ $token == case ]] && (( ++case_context ))
+          command_expected=0
+          declaration_context=0
+          continue
+          ;;
+        repeat|function)
+          _zle_add_highlight $start $end keyword
+          reserved_context=$token
+          command_expected=0
+          declaration_context=0
+          continue
+          ;;
+        declare|export|float|integer|local|readonly|typeset)
+          _zle_add_highlight $start $end keyword
+          reserved_context=''
+          command_expected=0
+          declaration_context=1
+          continue
+          ;;
+      esac
+    elif [[ $reserved_context == 'await-in' && $token == in ]]; then
+      _zle_add_highlight $start $end keyword
+      reserved_context=''
+      (( case_context )) && case_pattern=1
+      continue
+    fi
+
+    # Assignments before a command do not consume the command position.
+    if (( command_expected )) && _zle_is_assignment "$token"; then
+      _zle_add_highlight $start $end assignment
+      if [[ $token == *'=(' ]]; then
+        array_assignment=1
+        command_expected=0
+      fi
+      continue
+    fi
+
+    if (( command_expected && precommand_option_argument )); then
+      _zle_add_highlight $start $end argument
+      precommand_option_argument=0
+      continue
+    fi
+
+    if (( command_expected )) && [[ -n $precommand_context && $token == -* ]]; then
+      _zle_add_highlight $start $end option
+      [[ $precommand_context == exec && $token == -a ]] && precommand_option_argument=1
+      continue
+    fi
+
+    # Recognize the common `name() { ... }` declaration form before command
+    # lookup; the function does not need to exist yet.
+    if (( command_expected && token_index < ${#tokens} )) &&
+       [[ $token == [A-Za-z_][A-Za-z0-9_]# && ${BUFFER[end + 1]} == '(' ]]; then
+      function_signature=0
+      if [[ ${tokens[token_index + 1]} == '()' ]]; then
+        function_signature=1
+      elif (( token_index + 2 <= ${#tokens} )) &&
+           [[ ${tokens[token_index + 1]} == '(' && ${tokens[token_index + 2]} == ')' ]]; then
+        function_signature=1
+      fi
+      if (( function_signature )); then
+        _zle_add_highlight $start $end function
+        command_expected=0
+        continue
+      fi
+    fi
+
+    if (( command_expected )); then
+      plain=${(Q)token}
+      category=''
+      if _zle_command_category "$plain"; then
+        category=$REPLY
+        _zle_add_highlight $start $end $category
+      elif _zle_path_category "$token"; then
+        if (( _ZLE_PATH_EXECUTABLE )); then
+          category='command'
+          _zle_add_highlight $start $end $category
+        elif [[ $REPLY == directory || $REPLY == 'symlink-directory' ]]; then
+          category=$REPLY
+          _zle_add_highlight $start $end $category
+        fi
+      fi
+
+      # These native precommand modifiers intentionally leave another command
+      # position open; regular commands consume it.
+      if [[ $category == builtin && $plain == (command|builtin|exec) ]]; then
+        precommand_context=$plain
+        command_expected=1
+      else
+        precommand_context=''
+        command_expected=0
+        [[ $category == builtin && $plain == alias ]] && declaration_context=1
+      fi
+      continue
+    fi
+
+    if (( declaration_context )) &&
+       _zle_is_assignment "$token"; then
+      _zle_add_highlight $start $end assignment
+      continue
+    fi
+
+    category='argument'
+    plain=${(Q)token}
+    if [[ $reserved_context == function ]]; then
+      category='function'
+      reserved_context=''
+    elif [[ -n ${galiases[(Ie)$plain]} ]]; then
+      category='global-alias'
+    elif _zle_path_category "$token"; then
+      category=$REPLY
+    elif [[ $token == *\"* || $token == *\'* ]]; then
+      category='string'
+    elif _zle_is_number "$token"; then
+      category='number'
+    elif [[ $token == -* ]]; then
+      category='option'
+    elif [[ $token == *'$('* || $token == *'`'* ||
+            $token == '<('* || $token == '>('* || $token == '=('* ]]; then
+      category='substitution'
+    elif [[ $token == *'$'* ]]; then
+      category='variable'
+    elif [[ $token == '!'* ]]; then
+      category='history'
+    elif [[ $token == *'*'* || $token == *'?'* || $token == *'['* ||
+            ( $token == *'{'* && $token == *'}'* ) ]]; then
+      category='glob'
+    elif [[ $token == *\\* ]]; then
+      category='escape'
+    fi
+    _zle_add_highlight $start $end $category
+
+    # `repeat N command` has one argument before its command position.
+    if [[ $reserved_context == repeat ]]; then
+      reserved_context=''
+      command_expected=1
+    fi
+  done
+}
+
+autoload -Uz add-zle-hook-widget
+add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight 2>/dev/null
+add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update 2>/dev/null
+add-zle-hook-widget line-pre-redraw _zle_syntax_highlight
+(( ${+functions[_zle_autosuggest_update]} )) &&
+  add-zle-hook-widget line-pre-redraw _zle_autosuggest_update
+
+:

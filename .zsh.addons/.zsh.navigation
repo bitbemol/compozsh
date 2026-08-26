@@ -1,0 +1,429 @@
+# -----------------------------------------------------------------------------
+# Small conveniences
+# -----------------------------------------------------------------------------
+
+(( ${+aliases[..]} )) || alias ..='cd ..'
+(( ${+aliases[...]} )) || alias ...='cd ../..'
+(( ${+aliases[....]} )) || alias ....='cd ../../..'
+(( ${+aliases[ll]} )) || alias ll='ls -lah'
+(( ${+aliases[la]} )) || alias la='ls -A'
+
+# Directory and branch selectors share the same bounded ZLE picker. Their
+# source data is captured once before opening; refinement launches no commands.
+typeset -g ZSH_NAVIGATION_PICKER_MAX_RESULTS=${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}
+typeset -ga _NAVIGATION_PICKER_VALUES=()
+typeset -ga _NAVIGATION_PICKER_LABELS=()
+typeset -ga _NAVIGATION_PICKER_INDEXES=()
+typeset -g _ZLE_PICKER_BOOTSTRAP=''
+
+# Navigation remains usable without the prompt add-on. Keep these display
+# helpers private to this unit so peer add-on order never becomes a dependency.
+_navigation_sanitize() {
+  REPLY=${1//[[:cntrl:]]/?}
+}
+
+_navigation_abbreviate() {
+  local text=$1
+  local -i max_width=$2 left_width=0 right_width=0
+
+  if (( max_width <= 0 )); then
+    REPLY=''
+    return
+  fi
+  if (( ${#text} <= max_width )); then
+    REPLY=$text
+    return
+  fi
+  if (( max_width < 5 )); then
+    REPLY='…'
+    return
+  fi
+
+  left_width=$(( (max_width - 1) / 3 ))
+  right_width=$(( max_width - 1 - left_width ))
+  REPLY="${text[1,left_width]}…${text[-right_width,-1]}"
+}
+
+# Navigation owns its pattern boundary so this add-on remains independently
+# sourceable. A tiny repeated safety primitive is preferable to a hidden load-
+# order dependency on another peer add-on's private implementation.
+_navigation_escape_pattern() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local MATCH
+  REPLY=${1//(#m)[\][|()\\*?#<>~^]/\\$MATCH}
+}
+
+_navigation_picker_append_matches() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local pattern=$1 raw_limit=$2 value='' label=''
+  local -i limit=$raw_limit index=0
+
+  for (( index = 1; index <= ${#_NAVIGATION_PICKER_VALUES}; ++index )); do
+    label=${_NAVIGATION_PICKER_LABELS[index]}
+    [[ $label == ${~pattern} ]] || continue
+    value=${_NAVIGATION_PICKER_VALUES[index]}
+    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
+    _ZLE_PICKER_RESULTS+=("$value")
+    _ZLE_PICKER_LABELS+=("$label")
+    _ZLE_PICKER_RESULT_INDEXES+=("${_NAVIGATION_PICKER_INDEXES[index]}")
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  done
+}
+
+# Navigation lists are intentionally small and already ordered by recency.
+# Rank literal prefix and substring matches before character-ordered fuzzy ones.
+_navigation_picker_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 raw_limit=$2 literal='' pattern='(#i)*' character=''
+  local -i limit=$raw_limit index=0
+  typeset -ga _ZLE_PICKER_RESULTS=()
+  typeset -ga _ZLE_PICKER_LABELS=()
+  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
+
+  if [[ -z $query ]]; then
+    for (( index = 1; index <= ${#_NAVIGATION_PICKER_VALUES}; ++index )); do
+      _ZLE_PICKER_RESULTS+=("${_NAVIGATION_PICKER_VALUES[index]}")
+      _ZLE_PICKER_LABELS+=("${_NAVIGATION_PICKER_LABELS[index]}")
+      _ZLE_PICKER_RESULT_INDEXES+=("${_NAVIGATION_PICKER_INDEXES[index]}")
+      (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+    done
+    return 0
+  fi
+
+  _navigation_escape_pattern "$query"
+  literal=$REPLY
+  _navigation_picker_append_matches "(#i)${literal}*" $limit
+  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  _navigation_picker_append_matches "(#i)*${literal}*" $limit
+  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+
+  for character in "${(s::)query}"; do
+    _navigation_escape_pattern "$character"
+    pattern+="${REPLY}*"
+  done
+  _navigation_picker_append_matches "$pattern" $limit
+}
+
+_navigation_picker_widget() {
+  _zle_picker_loop '' "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
+}
+
+# `vared` supplies a normal nested ZLE when a command launches a selector. The
+# guarded line-init hook runs the picker, then closes the otherwise empty editor
+# as soon as the selection or cancellation is complete.
+_zle_picker_line_init() {
+  emulate -L zsh
+
+  [[ $_ZLE_PICKER_BOOTSTRAP == navigation-picker ]] || return 0
+  _ZLE_PICKER_BOOTSTRAP=''
+  zle navigation-picker
+  zle .accept-line
+}
+
+_navigation_picker_run() {
+  emulate -L zsh
+
+  local picker_buffer=''
+  _ZLE_PICKER_BOOTSTRAP='navigation-picker'
+  if ! vared picker_buffer; then
+    _ZLE_PICKER_BOOTSTRAP=''
+    return 2
+  fi
+  _ZLE_PICKER_BOOTSTRAP=''
+  (( _ZLE_PICKER_ACCEPTED )) && return 0
+  return 1
+}
+
+autoload -Uz add-zle-hook-widget
+zle -N navigation-picker _navigation_picker_widget
+add-zle-hook-widget -d line-init _zle_autosuggest_reset 2>/dev/null
+add-zle-hook-widget -d line-init _zle_picker_line_init 2>/dev/null
+(( ${+functions[_zle_autosuggest_reset]} )) &&
+  add-zle-hook-widget line-init _zle_autosuggest_reset
+add-zle-hook-widget line-init _zle_picker_line_init
+
+# Print navigation stacks with fixed-width indexes so the selector and its
+# target remain visually obvious even when paths or branch names are long.
+_stack_print_entry() {
+  emulate -L zsh
+
+  local index=$1 marker=$2 label=$3
+  local -i columns=${COLUMNS:-80} label_width=0
+  (( columns > 0 )) || columns=80
+  label_width=$(( columns - ${#index} - 5 ))
+  (( label_width > 0 )) || label_width=1
+  _navigation_sanitize "$label"
+  label=$REPLY
+  _navigation_abbreviate "$label" $label_width
+  label=$REPLY
+
+  print -Pn -- "%F{cyan}[${index}]%f "
+  if [[ $marker == current ]]; then
+    print -Pn -- '%F{green}●%f '
+  else
+    print -Pn -- '%F{240}↳%f '
+  fi
+  print -r -- "$label"
+}
+
+# Capture Zsh's native directory stack once for either the selector or the
+# printable fallback. Indexes retain their standard ~0, ~1, ... meanings.
+_directory_stack_capture() {
+  emulate -L zsh
+
+  local path='' display=''
+  local -a entries=("$PWD" "${dirstack[@]}")
+  local -i index=0
+  typeset -ga _NAVIGATION_PICKER_VALUES=()
+  typeset -ga _NAVIGATION_PICKER_LABELS=()
+  typeset -ga _NAVIGATION_PICKER_INDEXES=()
+
+  for path in "${entries[@]}"; do
+    if [[ $path == $HOME || $path == $HOME/* ]]; then
+      display="~${path#$HOME}"
+    else
+      display=$path
+    fi
+    _NAVIGATION_PICKER_VALUES+=("$path")
+    _NAVIGATION_PICKER_LABELS+=("$display")
+    _NAVIGATION_PICKER_INDEXES+=($index)
+    (( ++index ))
+  done
+}
+
+_directory_stack_print() {
+  emulate -L zsh
+
+  local path='' marker=''
+  local -i index=0
+
+  print -P '%F{blue}Directory stack%f'
+  for path in "${_NAVIGATION_PICKER_LABELS[@]}"; do
+    marker='recent'
+    (( index == 0 )) && marker='current'
+    _stack_print_entry $index "$marker" "$path"
+    (( ++index ))
+  done
+  if (( ${#_NAVIGATION_PICKER_VALUES} > 1 )); then
+    print -P '%F{240}Run %F{cyan}d%F{240} to jump interactively.%f'
+  else
+    print -P '%F{240}Previous directories will appear here as you move around.%f'
+  fi
+}
+
+# Open the visual selector with `d`; `d --list` keeps a printable view for
+# copyable output. Native ~N expansion remains available as standard Zsh
+# syntax, but the selector's visible digits are the primary direct interface.
+unalias d 2>/dev/null
+d() {
+  emulate -L zsh
+
+  (( $# <= 1 )) || {
+    print -u2 'usage: d [--list]'
+    return 2
+  }
+  [[ $# == 0 || $1 == --list ]] || {
+    print -u2 'usage: d [--list]'
+    return 2
+  }
+
+  local -i picker_status=0
+  _directory_stack_capture
+  if (( $# )) || [[ ! -t 0 || ! -t 1 || $TERM == dumb ]]; then
+    _directory_stack_print
+    return 0
+  fi
+  if (( ! ${+functions[_zle_picker_loop]} )); then
+    _directory_stack_print
+    return 0
+  fi
+
+  _ZLE_PICKER_TITLE='Directories'
+  _ZLE_PICKER_BROWSE_LABEL='recent locations'
+  _ZLE_PICKER_EMPTY_LABEL='no matching directories'
+  _ZLE_PICKER_FOOTER='0–9 select · ↑↓ move · type filter · ⏎ cd · esc cancel'
+  _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
+  _ZLE_PICKER_DIGIT_SELECT=1
+  _navigation_picker_run
+  picker_status=$?
+  (( picker_status == 1 )) && return 0
+  (( picker_status == 0 )) || return $picker_status
+  [[ $_ZLE_PICKER_SELECTED_VALUE == $PWD ]] ||
+    builtin cd -- "$_ZLE_PICKER_SELECTED_VALUE"
+}
+
+# Build a most-recently-used list from Git's own checkout reflog. Keeping this
+# derived avoids a second history file and also sees switches made by IDEs or
+# other shells. Deleted branches and detached commit IDs are filtered out.
+_git_recent_branches() {
+  emulate -L zsh
+
+  local root=$1 current='' refs='' ref_marker='' ref=''
+  local subject='' transition='' from='' to='' candidate=''
+  local -a local_branches=()
+  local -A local_branch_set=() recent_branch_set=()
+  typeset -ga _GIT_RECENT_BRANCHES=()
+  typeset -g _GIT_RECENT_CURRENT=''
+
+  refs=$(command git -C "$root" for-each-ref \
+    --format='%(HEAD)%09%(refname:short)' refs/heads 2>/dev/null) || return 1
+  while IFS=$'\t' read -r ref_marker ref; do
+    [[ -n $ref ]] || continue
+    local_branches+=("$ref")
+    local_branch_set[$ref]=1
+    [[ $ref_marker == '*' ]] && current=$ref
+  done <<< "$refs"
+
+  [[ -n $current ]] && {
+    _GIT_RECENT_BRANCHES+=("$current")
+    recent_branch_set[$current]=1
+    _GIT_RECENT_CURRENT=$current
+  }
+  (( ${#_GIT_RECENT_BRANCHES} == ${#local_branches} )) && return 0
+
+  while IFS= read -r subject; do
+    [[ $subject == 'checkout: moving from '*' to '* ]] || continue
+    transition=${subject#checkout: moving from }
+    from=${transition%% to *}
+    to=${transition#* to }
+
+    for candidate in "$to" "$from"; do
+      [[ -n $candidate ]] || continue
+
+      [[ -n ${local_branch_set[$candidate]-} ]] || continue
+      [[ -z ${recent_branch_set[$candidate]-} ]] || continue
+      _GIT_RECENT_BRANCHES+=("$candidate")
+      recent_branch_set[$candidate]=1
+    done
+
+    (( ${#_GIT_RECENT_BRANCHES} == ${#local_branches} )) && break
+  done < <(command git -C "$root" reflog show --format='%gs' \
+    --grep-reflog='^checkout: moving from ' --max-count=200 HEAD 2>/dev/null)
+}
+
+# Resolve and populate the branch-picker context behind one Git boundary.
+_git_branch_stack_load() {
+  emulate -L zsh
+
+  local root=''
+  root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
+    print -u2 'g: not inside a Git working tree'
+    return 1
+  }
+  _git_recent_branches "$root" || {
+    print -u2 'g: could not inspect local branches'
+    return 1
+  }
+  (( ${#_GIT_RECENT_BRANCHES} )) || {
+    print -u2 'g: this repository has no local branch history yet'
+    return 1
+  }
+  REPLY=$root
+}
+
+# Copy a ref name as inert stdin data. `pbcopy` is resolved by the caller so
+# unsupported hosts never advertise or enter this action path.
+_git_copy_branch() {
+  emulate -L zsh
+
+  local branch=$1 clipboard_binary=$2 display=''
+  [[ -n $clipboard_binary && -x $clipboard_binary ]] || {
+    print -u2 'g: clipboard support is unavailable on this host'
+    return 1
+  }
+  print -rn -- "$branch" | command "$clipboard_binary" || {
+    print -u2 'g: could not copy the selected branch'
+    return 1
+  }
+  _navigation_sanitize "$branch"
+  display=$REPLY
+  print -r -- "Copied branch ${display}."
+}
+
+_git_branch_stack_print() {
+  emulate -L zsh
+
+  local branch='' marker='recent'
+  local -i index=0
+
+  print -P '%F{blue}Branch stack%f'
+  for branch in "${_GIT_RECENT_BRANCHES[@]}"; do
+    marker='recent'
+    [[ $branch == $_GIT_RECENT_CURRENT ]] && marker='current'
+    _stack_print_entry $index "$marker" "$branch"
+    (( ++index ))
+  done
+}
+
+# Keep `g <arguments>` as the familiar Git shorthand. Its no-argument form,
+# which would otherwise only print Git's help, opens the recent-branch picker.
+unalias g 2>/dev/null
+g() {
+  emulate -L zsh
+
+  (( $# == 0 )) || {
+    command git "$@"
+    return $?
+  }
+  if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]]; then
+    command git
+    return $?
+  fi
+
+  local root='' repo='' branch='' clipboard_binary=${commands[pbcopy]:-}
+  local -i index=0 picker_status=0
+  _git_branch_stack_load || return
+  root=$REPLY
+
+  if (( ! ${+functions[_zle_picker_loop]} )); then
+    _git_branch_stack_print
+    return 0
+  fi
+
+  typeset -ga _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+  typeset -ga _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
+  typeset -ga _NAVIGATION_PICKER_INDEXES=()
+  for (( index = 0; index < ${#_GIT_RECENT_BRANCHES}; ++index )); do
+    _NAVIGATION_PICKER_INDEXES+=($index)
+  done
+
+  repo=${root:t}
+  _ZLE_PICKER_TITLE="Branches · ${repo}"
+  [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_TITLE+=' · detached HEAD'
+  _ZLE_PICKER_BROWSE_LABEL='recent checkouts'
+  _ZLE_PICKER_EMPTY_LABEL='no matching branches'
+  _ZLE_PICKER_COPY_ENABLED=0
+  if [[ -n $clipboard_binary ]]; then
+    _ZLE_PICKER_FOOTER='⌥W/^Y copy · 0–9 switch · ↑↓ move · type filter · ⏎ switch · esc cancel'
+    _ZLE_PICKER_COPY_ENABLED=1
+  else
+    _ZLE_PICKER_FOOTER='0–9 switch · ↑↓ move · type filter · ⏎ switch · esc cancel'
+  fi
+  _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
+  _ZLE_PICKER_DIGIT_SELECT=1
+  _navigation_picker_run
+  picker_status=$?
+  (( picker_status == 1 )) && return 0
+  (( picker_status == 0 )) || return $picker_status
+
+  branch=$_ZLE_PICKER_SELECTED_VALUE
+  if [[ $_ZLE_PICKER_ACTION == copy ]]; then
+    _git_copy_branch "$branch" "$clipboard_binary"
+    return $?
+  fi
+  [[ $branch == "$_GIT_RECENT_CURRENT" ]] && return 0
+  command git -C "$root" switch --no-guess "$branch"
+}
+
+# Remove the former static branch-list helper when re-sourcing an older shell.
+# `g` is now the single branch navigation interface.
+unfunction b 2>/dev/null
+unalias b 2>/dev/null
+
+:
