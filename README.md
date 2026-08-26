@@ -18,7 +18,8 @@ third-party plugins.
 - Runtime mismatch warnings from project version files
 - Shared, deduplicated shell history
 - Protection against accidentally overwriting non-empty files with `>`
-- Case-insensitive native Zsh completion with a selectable menu
+- Case-insensitive native Zsh completion plus a contextual fuzzy directory
+  picker on `Tab`
 - Prefix-based history search with Up/Down or `Ctrl-P`/`Ctrl-N`
 - A native fuzzy `Ctrl-R` history picker with ranked, order-independent
   fragments and deduplicated results
@@ -135,7 +136,7 @@ compozsh/
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.shell         shell options, history, and native tool colors
-│   ├── .zsh.editor        completion, editing, fuzzy history, and suggestions
+│   ├── .zsh.editor        completion, directory/history pickers, and editing
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory and Git branch navigation pickers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
@@ -161,7 +162,7 @@ peer owns one focused concern and can still be sourced independently:
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion and ZLE editing | Completion menus, macOS-friendly bindings, the shared visual picker, fuzzy `Ctrl-R`, and history autosuggestions |
+| `.zsh.editor` | Completion and ZLE editing | Native completion, contextual fuzzy directory completion, macOS-friendly bindings, the shared visual picker, fuzzy `Ctrl-R`, and history autosuggestions |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
 | `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` Git/branch picker, recent stacks, numbered selection, and small navigation aliases |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
@@ -449,7 +450,8 @@ details; directly test an underscore-prefixed helper only when its algorithm is
 the precise contract being protected.
 
 The suite currently protects bootstrap and discovery behavior, initializer
-precedence, order-independent and standalone add-ons, fuzzy matching, syntax
+precedence, order-independent and standalone add-ons, fuzzy history and
+directory matching, contextual completion hierarchy and fallbacks, syntax
 classification, palette extension, public tools, destructive-operation safety,
 and synchronization between the shipped add-ons and this README.
 
@@ -595,7 +597,8 @@ Home, End, or forward-Delete keys missing from compact Apple keyboards:
 | `Ctrl-Y` | Restore the most recently deleted text |
 | `Ctrl-_` | Undo the last edit |
 | `Up` / `Down` or `Ctrl-P` / `Ctrl-N` | Search history using the typed prefix |
-| `Tab` / `Shift-Tab` | Complete forward / backward |
+| `Tab` | Open the directory picker for a lone `AUTO_CD` path; otherwise complete natively |
+| `Shift-Tab` | Complete backward in native menus; move upward inside a picker |
 | `Ctrl-R` | Open fuzzy history search |
 | `Ctrl-L` | Redraw a clean terminal screen |
 | `Ctrl-X Ctrl-E` | Edit the command in `$EDITOR` |
@@ -609,6 +612,52 @@ optional aliases when the terminal sends them.
 `Cmd-C`, `Cmd-V`, `Cmd-K`, and other Command-key shortcuts remain owned by the
 terminal application and macOS. They are intentionally not shadowed by Zsh;
 the shell generally never receives those key combinations.
+
+## Contextual directory completion
+
+When the editable line contains only an `AUTO_CD` directory path, `Tab` opens
+the same searchable picker used elsewhere in Compozsh:
+
+```text
+❯ ~/Dev
+Directories · ~/ · matches for Dev · 2 shown
+Search ‹›
+[1] ● Developer/
+[2]   Devices/
+tab/→ open · ⇧tab/← back · ↑↓ move · 0–9/⏎ insert · type filter
+```
+
+The fragment already typed stays as a required fuzzy match, while the picker
+query starts empty. A visible digit therefore inserts its row immediately; you
+can instead type another fuzzy filter or move with `Up`/`Down` and
+`Ctrl-P`/`Ctrl-N`. Press `Tab` or `Right Arrow` to open the selected directory
+inside the same picker. `Shift-Tab` or `Left Arrow` returns to the previous
+level reached during that picker session.
+
+A visible number or `Enter` inserts the selected full path and appends `/`; it
+does not change directory or execute anything. Press `Enter` once the picker
+closes to let Zsh's native `AUTO_CD` enter that path. Empty or unreadable
+children preserve the last usable level and show a visible explanation instead
+of silently closing the picker.
+
+Only immediate child directories are collected. Hidden children appear when
+the typed name begins with `.`, symbolic links to directories are included,
+and spaces or shell-special characters are escaped before insertion. No
+recursive scan, subprocess, network access, or persistent index is involved.
+Each drill-down performs exactly one shallow listing of that selected level.
+
+The contextual behavior is deliberately narrow. Commands, options, multiple
+words such as `git switch`, file arguments, a cursor in the middle of the line,
+missing or unreadable parents, and an exact command that shares a directory
+name all delegate to Zsh's original `expand-or-complete` widget. Outside the
+picker, `Shift-Tab` continues to use native reverse completion.
+
+At most ten rows are shown so every visible index remains a single direct key.
+Change the smaller bound from the local initializer when desired:
+
+```zsh
+ZSH_DIRECTORY_PICKER_MAX_RESULTS=8
+```
 
 ## History autosuggestions
 

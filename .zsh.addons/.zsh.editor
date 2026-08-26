@@ -99,6 +99,7 @@ typeset -gi _ZLE_PICKER_ACTIVE=0
 typeset -gi _ZLE_PICKER_ACCEPTED=0
 typeset -gi _ZLE_PICKER_DIGIT_SELECT=0
 typeset -gi _ZLE_PICKER_COPY_ENABLED=0
+typeset -gi _ZLE_PICKER_HIERARCHY_ENABLED=0
 typeset -g _ZLE_PICKER_ACTION='select'
 typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
 
@@ -106,6 +107,13 @@ typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
 # the local initializer; the widget also caps it to the terminal height.
 typeset -g ZSH_HISTORY_SEARCH_MAX_RESULTS=${ZSH_HISTORY_SEARCH_MAX_RESULTS:-8}
 typeset -ga _HISTORY_SEARCH_RESULTS=()
+typeset -g ZSH_DIRECTORY_PICKER_MAX_RESULTS=${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10}
+typeset -ga _DIRECTORY_PICKER_VALUES=()
+typeset -ga _DIRECTORY_PICKER_LABELS=()
+typeset -ga _DIRECTORY_PICKER_STACK=()
+typeset -g _DIRECTORY_PICKER_PATH_QUERY=''
+typeset -g _DIRECTORY_PICKER_LOCATION=''
+typeset -g _DIRECTORY_PICKER_INPUT=''
 zmodload -F zsh/parameter p:history
 
 _zle_picker_escape_pattern() {
@@ -565,7 +573,14 @@ _zle_picker_loop() {
           zle clear-screen
           ;;
         ($'\x12'|$'\x0e'|$'\t')
-          if (( count )); then
+          if (( _ZLE_PICKER_HIERARCHY_ENABLED )) && [[ $key == $'\t' ]]; then
+            if (( count )); then
+              _ZLE_PICKER_ACTION='descend'
+              accepted=1
+            else
+              zle beep
+            fi
+          elif (( count )); then
             (( selected = selected % count + 1 ))
           else
             zle beep
@@ -606,11 +621,41 @@ _zle_picker_loop() {
               fi
               sequence+=$suffix
               case $sequence in
-                ('[A'|'OA'|'[Z')
+                ('[A'|'OA')
                   if (( count )); then
                     (( selected = (selected + count - 2) % count + 1 ))
                   else
                     zle beep
+                  fi
+                  ;;
+                ('[Z')
+                  if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+                    _ZLE_PICKER_ACTION='parent'
+                    accepted=1
+                  elif (( count )); then
+                    (( selected = (selected + count - 2) % count + 1 ))
+                  else
+                    zle beep
+                  fi
+                  ;;
+                ('[C'|'OC')
+                  if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+                    if (( count )); then
+                      _ZLE_PICKER_ACTION='descend'
+                      accepted=1
+                    else
+                      zle beep
+                    fi
+                  else
+                    cancelled=1
+                  fi
+                  ;;
+                ('[D'|'OD')
+                  if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+                    _ZLE_PICKER_ACTION='parent'
+                    accepted=1
+                  else
+                    cancelled=1
                   fi
                   ;;
                 ('[B'|'OB')
@@ -694,6 +739,7 @@ _zle_picker_loop() {
     _ZLE_PICKER_SELECTED=0
     _ZLE_PICKER_DIGIT_SELECT=0
     _ZLE_PICKER_COPY_ENABLED=0
+    _ZLE_PICKER_HIERARCHY_ENABLED=0
     _ZLE_PICKER_INDEXES_VISIBLE=0
     zle -R -c
   }
@@ -726,6 +772,310 @@ _history_fuzzy_search_widget() {
 
 zle -N history-fuzzy-search _history_fuzzy_search_widget
 bindkey '^R' history-fuzzy-search
+
+# Match immediate child directories through the shared picker without scanning
+# recursively or invoking external commands. The path fragment already present
+# in the command buffer remains a required filter; the picker's own query can
+# refine that set further while its empty state keeps direct digits available.
+_directory_picker_label_matches() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local label=$1 query=$2 literal='' pattern='(#i)*' character=''
+  [[ -n $query ]] || return 0
+
+  _zle_picker_escape_pattern "$query"
+  literal=$REPLY
+  [[ $label == (#i)${~literal}* || $label == (#i)*${~literal}* ]] && return 0
+
+  for character in "${(s::)query}"; do
+    _zle_picker_escape_pattern "$character"
+    pattern+="${REPLY}*"
+  done
+  [[ $label == ${~pattern} ]]
+}
+
+_directory_picker_append_matches() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local pattern=$1 required_query=$2
+  local -i limit=$3 index=0
+  local value='' label=''
+
+  for (( index = 1; index <= ${#_DIRECTORY_PICKER_VALUES}; ++index )); do
+    label=${_DIRECTORY_PICKER_LABELS[index]}
+    [[ $label == ${~pattern} ]] || continue
+    _directory_picker_label_matches "$label" "$required_query" || continue
+    value=${_DIRECTORY_PICKER_VALUES[index]}
+    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
+    _ZLE_PICKER_RESULTS+=("$value")
+    _ZLE_PICKER_LABELS+=("$label")
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  done
+}
+
+_directory_picker_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 raw_limit=$2 required_query=$_DIRECTORY_PICKER_PATH_QUERY
+  local literal='' pattern='(#i)*' character=''
+  local -i limit=10 index=0 result_index=0
+  typeset -ga _ZLE_PICKER_RESULTS=()
+  typeset -ga _ZLE_PICKER_LABELS=()
+  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
+
+  [[ $raw_limit == <-> ]] && limit=$raw_limit
+  (( limit < 1 )) && limit=1
+  (( limit > 10 )) && limit=10
+
+  # With no interactive query, rank the path fragment already typed by the
+  # user. This keeps the picker query row empty, so visible digits stay direct.
+  if [[ -z $query && -n $required_query ]]; then
+    query=$required_query
+    required_query=''
+  fi
+
+  if [[ -z $query ]]; then
+    for (( index = 1; index <= ${#_DIRECTORY_PICKER_VALUES}; ++index )); do
+      _ZLE_PICKER_RESULTS+=("${_DIRECTORY_PICKER_VALUES[index]}")
+      _ZLE_PICKER_LABELS+=("${_DIRECTORY_PICKER_LABELS[index]}")
+      (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
+    done
+  else
+    _zle_picker_escape_pattern "$query"
+    literal=$REPLY
+    _directory_picker_append_matches "(#i)${literal}*" "$required_query" $limit
+    if (( ${#_ZLE_PICKER_RESULTS} < limit )); then
+      _directory_picker_append_matches "(#i)*${literal}*" "$required_query" $limit
+    fi
+    if (( ${#_ZLE_PICKER_RESULTS} < limit )); then
+      for character in "${(s::)query}"; do
+        _zle_picker_escape_pattern "$character"
+        pattern+="${REPLY}*"
+      done
+      _directory_picker_append_matches "$pattern" "$required_query" $limit
+    fi
+  fi
+
+  for (( index = 1; index <= ${#_ZLE_PICKER_RESULTS}; ++index )); do
+    result_index=$index
+    (( result_index == 10 )) && result_index=0
+    _ZLE_PICKER_RESULT_INDEXES+=($result_index)
+  done
+}
+
+# Parse only the exact context where a path is Zsh's command-position AUTO_CD
+# candidate. Every ambiguous context returns nonzero so Tab can delegate to the
+# native completion widget unchanged.
+_directory_picker_prepare() {
+  local autocd_enabled=${options[autocd]:-off}
+  local internal_navigation=${3:-0}
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local buffer=$1 raw_cursor=$2 token='' input_path='' resolved=''
+  local base='' insertion_prefix='' entry='' name=''
+  local -i cursor=0 prefix_length=0
+  local -a words=() entries=()
+  typeset -ga _DIRECTORY_PICKER_VALUES=()
+  typeset -ga _DIRECTORY_PICKER_LABELS=()
+  _DIRECTORY_PICKER_PATH_QUERY=''
+  _DIRECTORY_PICKER_LOCATION=''
+
+  [[ ( $autocd_enabled == on || $internal_navigation == 1 ) &&
+     $raw_cursor == <-> ]] || return 1
+  cursor=$raw_cursor
+  (( cursor == ${#buffer} )) || return 1
+  [[ -n $buffer && $buffer[1] != [[:space:]] ]] || return 1
+
+  words=( ${(z)buffer} )
+  (( ${#words} == 1 )) || return 1
+  token=${words[1]}
+  input_path=${(Q)token}
+  [[ -n $input_path && $input_path != -* &&
+     $input_path != *[[:cntrl:]]* ]] || return 1
+
+  # An exact alias, function, builtin, reserved word, or executable wins over a
+  # same-named directory, matching Zsh's normal command resolution.
+  if [[ $input_path != */* && $input_path != '~' ]]; then
+    whence -w -- "$input_path" >/dev/null 2>&1 && return 1
+  fi
+
+  if [[ $input_path == '~' ]]; then
+    resolved=$HOME
+  elif [[ $input_path == '~/'* ]]; then
+    resolved=$HOME
+    (( ${#input_path} > 2 )) && resolved+="/${input_path[3,-1]}"
+  elif [[ $input_path == '~'* ]]; then
+    return 1
+  else
+    resolved=$input_path
+  fi
+
+  # A final bare dot is a hidden-name prefix unless the user already typed a
+  # trailing slash. Treat `~/.` like native completion, not as `$HOME` itself.
+  if [[ -d $resolved && ( $input_path == */ || ${input_path:t} != . ) ]]; then
+    base=$resolved
+    insertion_prefix="${input_path%/}/"
+  else
+    base=${resolved:h}
+    _DIRECTORY_PICKER_PATH_QUERY=${input_path:t}
+    prefix_length=$(( ${#input_path} - ${#_DIRECTORY_PICKER_PATH_QUERY} ))
+    (( prefix_length > 0 )) &&
+      insertion_prefix=${input_path[1,prefix_length]}
+  fi
+
+  [[ -d $base && -r $base && -x $base ]] || return 1
+  _DIRECTORY_PICKER_LOCATION=$insertion_prefix
+
+  if [[ $_DIRECTORY_PICKER_PATH_QUERY == .* ]]; then
+    entries=("$base"/.*(N))
+  else
+    entries=("$base"/*(N))
+  fi
+  for entry in "${entries[@]}"; do
+    [[ -d $entry ]] || continue
+    name=${entry:t}
+    [[ $name != . && $name != .. && $name != *[[:cntrl:]]* ]] || continue
+    _DIRECTORY_PICKER_VALUES+=("${insertion_prefix}${name}/")
+    _DIRECTORY_PICKER_LABELS+=("${name}/")
+  done
+  (( ${#_DIRECTORY_PICKER_VALUES} )) || return 1
+
+  _directory_picker_collect '' 1
+  (( ${#_ZLE_PICKER_RESULTS} ))
+}
+
+# Move between already selected levels without recursively discovering paths.
+# A failed transition rebuilds the last usable level so an empty, unreadable,
+# or concurrently removed directory cannot strand the active picker.
+_directory_picker_transition() {
+  emulate -L zsh
+
+  local action=$1 selected_path=$2
+  local previous_input=$_DIRECTORY_PICKER_INPUT target=''
+  local notice='' selected_name=''
+  local -i transition_status=1
+  REPLY=''
+
+  case $action in
+    (descend)
+      [[ -n $selected_path ]] || return 1
+      target=$selected_path
+      ;;
+    (parent)
+      if (( ! ${#_DIRECTORY_PICKER_STACK} )); then
+        REPLY='already at the starting level'
+        return 1
+      fi
+      target=${_DIRECTORY_PICKER_STACK[-1]}
+      ;;
+    (*)
+      REPLY='unsupported directory-picker action'
+      return 2
+      ;;
+  esac
+
+  if _directory_picker_prepare "$target" ${#target} 1; then
+    if [[ $action == descend ]]; then
+      _DIRECTORY_PICKER_STACK+=("$previous_input")
+    else
+      _DIRECTORY_PICKER_STACK[-1]=()
+    fi
+    _DIRECTORY_PICKER_INPUT=$target
+    return 0
+  fi
+
+  if [[ $action == descend ]]; then
+    selected_name=${${selected_path%/}:t}
+    notice="no visible child directories in ${selected_name}/"
+  else
+    notice='the previous directory level is unavailable'
+  fi
+  _directory_picker_prepare "$previous_input" ${#previous_input} 1 ||
+    transition_status=2
+  REPLY=$notice
+  return $transition_status
+}
+
+_directory_picker_quote() {
+  emulate -L zsh
+
+  local input_path=$1 remainder=''
+  if [[ $input_path == '~/'* ]]; then
+    if (( ${#input_path} > 2 )); then
+      remainder=${input_path[3,-1]}
+      REPLY="~/${(q)remainder}"
+    else
+      REPLY='~/'
+    fi
+  else
+    REPLY=${(q)input_path}
+  fi
+}
+
+_directory_context_complete_widget() {
+  # Inspect AUTO_CD before `emulate` localizes the widget's option state; the
+  # parser itself establishes a clean Zsh environment after capturing it.
+  if ! _directory_picker_prepare "$BUFFER" "$CURSOR"; then
+    zle .expand-or-complete
+    return $?
+  fi
+  emulate -L zsh
+
+  local notice=''
+  local -i result_limit=10 transition_status=0
+
+  [[ ${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10} == <-> ]] &&
+    result_limit=${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10}
+  (( result_limit < 1 )) && result_limit=1
+  (( result_limit > 10 )) && result_limit=10
+
+  _DIRECTORY_PICKER_INPUT=$BUFFER
+  _DIRECTORY_PICKER_STACK=()
+  while true; do
+    _ZLE_PICKER_TITLE="Directories · ${_DIRECTORY_PICKER_LOCATION:-.}"
+    if [[ -n $_DIRECTORY_PICKER_PATH_QUERY ]]; then
+      _ZLE_PICKER_BROWSE_LABEL="matches for ${_DIRECTORY_PICKER_PATH_QUERY}"
+    else
+      _ZLE_PICKER_BROWSE_LABEL='child directories'
+    fi
+    [[ -n $notice ]] && _ZLE_PICKER_BROWSE_LABEL=$notice
+    _ZLE_PICKER_EMPTY_LABEL='no matching directories'
+    _ZLE_PICKER_FOOTER='tab/→ open · ⇧tab/← back · ↑↓ move · 0–9/⏎ insert · type filter · esc cancel'
+    _ZLE_PICKER_COLLECTOR='_directory_picker_collect'
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_COPY_ENABLED=0
+    _ZLE_PICKER_HIERARCHY_ENABLED=1
+
+    _zle_picker_loop '' $result_limit || break
+    if [[ $_ZLE_PICKER_ACTION == descend ||
+          $_ZLE_PICKER_ACTION == parent ]]; then
+      _directory_picker_transition "$_ZLE_PICKER_ACTION" \
+        "$_ZLE_PICKER_SELECTED_VALUE"
+      transition_status=$?
+      if (( transition_status == 0 )); then
+        notice=''
+        continue
+      elif (( transition_status == 1 )); then
+        notice=$REPLY
+        continue
+      fi
+      break
+    fi
+
+    _directory_picker_quote "$_ZLE_PICKER_SELECTED_VALUE"
+    BUFFER=$REPLY
+    CURSOR=${#BUFFER}
+    break
+  done
+  zle redisplay
+}
+
+zle -N directory-context-complete _directory_context_complete_widget
+bindkey '^I' directory-context-complete
 
 # Treat / as a word boundary so Option-Backspace edits paths naturally.
 WORDCHARS=${WORDCHARS//\//}

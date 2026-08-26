@@ -93,6 +93,128 @@ _test_editor_widgets_keep_implementation_private() {
 test_case 'editor widgets expose stable bindings but keep functions private' \
   _test_editor_widgets_keep_implementation_private
 
+_test_contextual_directory_picker_contract() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  command mkdir -p -- \
+    "$home/Developer" \
+    "$home/Documents" \
+    "$home/AI Projects/Child & Co" \
+    "$home/.config" \
+    "$home/git" || return
+  command ln -s -- "$home/Documents" "$home/Linked" || return
+
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.editor"
+    setopt AUTO_CD
+    builtin cd -- "$HOME" || exit
+
+    _directory_picker_prepare "~/D" 3
+    prepared=$?
+    _directory_picker_collect "" 10
+    print -r -- "visible:$prepared|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_ZLE_PICKER_LABELS}|${(j:,:)_ZLE_PICKER_RESULTS}|${(j:,:)_ZLE_PICKER_RESULT_INDEXES}"
+
+    _directory_picker_prepare "~/." 3
+    hidden=$?
+    print -r -- "hidden:$hidden|${(j:,:)_DIRECTORY_PICKER_LABELS}"
+
+    _directory_picker_quote "~/AI Projects/Child & Co/"
+    print -r -- "quoted:$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'visible:0|~/|Developer/,Documents/,Linked/|~/Developer/,~/Documents/,~/Linked/|1,2,3' \
+    'path prefix did not produce stable immediate-directory choices' || return
+  test_assert_contains "$output" 'hidden:0|.config/' \
+    'a dot prefix did not reveal hidden directories exclusively' || return
+  test_assert_contains "$output" 'quoted:~/AI\ Projects/Child\ \&\ Co/' \
+    'selected paths no longer preserve tilde expansion while escaping specials'
+}
+test_case 'contextual Tab picker prepares safe fuzzy directory choices' \
+  _test_contextual_directory_picker_contract
+
+_test_contextual_directory_picker_fallbacks() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  command mkdir -p -- "$home/Documents" "$home/git" || return
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.editor"
+    builtin cd -- "$HOME" || exit
+
+    _directory_picker_prepare "Doc" 3; autocd_disabled=$?
+    setopt AUTO_CD
+    _directory_picker_prepare "Doc" 3; partial=$?
+    _directory_picker_prepare "git" 3; command_name=$?
+    _directory_picker_prepare "git switch" 10; multiword=$?
+    _directory_picker_prepare "Doc" 2; midline=$?
+    _directory_picker_prepare "missing/child" 13; missing_parent=$?
+    tab_binding=$(bindkey "^I")
+    print -r -- "$autocd_disabled|$partial|$command_name|$multiword|$midline|$missing_parent|${widgets[directory-context-complete]}"
+    print -r -- "binding:$tab_binding"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    '1|0|1|1|1|1|user:_directory_context_complete_widget' \
+    'contextual Tab stopped preserving native completion boundaries' || return
+  test_assert_contains "$output" 'binding:"^I" directory-context-complete' \
+    'Tab is not bound to the contextual completion widget'
+}
+test_case 'contextual Tab picker delegates non-directory completion contexts' \
+  _test_contextual_directory_picker_fallbacks
+
+_test_contextual_directory_picker_hierarchy() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  command mkdir -p -- \
+    "$home/Developer/Remote/compozsh" \
+    "$home/Developer/Empty" || return
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.editor"
+    setopt AUTO_CD
+    builtin cd -- "$HOME" || exit
+
+    typeset -g _DIRECTORY_PICKER_INPUT="~/Dev"
+    typeset -ga _DIRECTORY_PICKER_STACK=()
+    input_length=${#_DIRECTORY_PICKER_INPUT}
+    _directory_picker_prepare "$_DIRECTORY_PICKER_INPUT" $input_length || exit
+
+    _directory_picker_transition descend "~/Developer/"
+    first_status=$?
+    print -r -- "first:$first_status|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_DIRECTORY_PICKER_LABELS}|$_DIRECTORY_PICKER_INPUT|${(j:,:)_DIRECTORY_PICKER_STACK}"
+
+    _directory_picker_transition descend "~/Developer/Remote/"
+    second_status=$?
+    print -r -- "second:$second_status|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_DIRECTORY_PICKER_LABELS}|$_DIRECTORY_PICKER_INPUT|${(j:,:)_DIRECTORY_PICKER_STACK}"
+
+    _directory_picker_transition parent ""
+    parent_status=$?
+    print -r -- "parent:$parent_status|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_DIRECTORY_PICKER_LABELS}|$_DIRECTORY_PICKER_INPUT|${(j:,:)_DIRECTORY_PICKER_STACK}"
+
+    _directory_picker_transition descend "~/Developer/Empty/"
+    empty_status=$?
+    empty_notice=$REPLY
+    print -r -- "empty:$empty_status|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_DIRECTORY_PICKER_LABELS}|$_DIRECTORY_PICKER_INPUT|${(j:,:)_DIRECTORY_PICKER_STACK}|$empty_notice"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'first:0|~/Developer/|Empty/,Remote/|~/Developer/|~/Dev' \
+    'drilling in did not expose only the selected directory children' || return
+  test_assert_contains "$output" \
+    'second:0|~/Developer/Remote/|compozsh/|~/Developer/Remote/|~/Dev,~/Developer/' \
+    'a second drill lost the accumulated path or parent stack' || return
+  test_assert_contains "$output" \
+    'parent:0|~/Developer/|Empty/,Remote/|~/Developer/|~/Dev' \
+    'moving back did not restore the previous directory level' || return
+  test_assert_contains "$output" \
+    'empty:1|~/Developer/|Empty/,Remote/|~/Developer/|~/Dev|no visible child directories in Empty/' \
+    'an empty child did not preserve its level with a useful explanation'
+}
+test_case 'contextual directory picker drills down and returns without recursion' \
+  _test_contextual_directory_picker_hierarchy
+
 _test_navigation_fuzzy_ranking() {
   test_make_temp_dir || return
   local output=''
