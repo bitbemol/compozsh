@@ -139,6 +139,33 @@ _test_git_branch_recency_contract() {
 test_case 'Git branch stack keeps current and recent branches in order' \
   _test_git_branch_recency_contract
 
+_test_git_branch_recency_tolerates_unvisited_branches() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" repository="$TEST_TMP_DIR/repository"
+  local output=''
+
+  command git init -q "$repository" || return
+  command git -C "$repository" config user.name 'Test User' || return
+  command git -C "$repository" config user.email test@example.invalid || return
+  test_write_file "$repository/README.md" 'fixture' || return
+  command git -C "$repository" add README.md || return
+  command git -C "$repository" commit -qm initial || return
+  command git -C "$repository" branch -M main || return
+  command git -C "$repository" branch never-checked-out || return
+  command git -C "$repository" switch -qc recently-used || return
+
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.navigation"
+    _git_recent_branches "$2"
+    result_status=$?
+    print -r -- "$result_status|${(j:|:)_GIT_RECENT_BRANCHES}"
+  ' "$TEST_REPO_ROOT" "$repository") || return
+  test_assert_equal '0|recently-used|main' "$output" \
+    'an unvisited local branch made successful recency inspection fail'
+}
+test_case 'Git branch stack tolerates local branches absent from the reflog' \
+  _test_git_branch_recency_tolerates_unvisited_branches
+
 _test_public_palettes_preserve_initializer_roles() {
   test_make_temp_dir || return
   local output=''

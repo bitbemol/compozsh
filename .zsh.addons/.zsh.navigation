@@ -305,6 +305,10 @@ _git_recent_branches() {
     (( ${#_GIT_RECENT_BRANCHES} == ${#local_branches} )) && break
   done < <(command git -C "$root" reflog show --format='%gs' \
     --grep-reflog='^checkout: moving from ' --max-count=200 HEAD 2>/dev/null)
+
+  # Local branches absent from the bounded checkout reflog are simply not
+  # recent; a partial recency list is still a successful inspection.
+  return 0
 }
 
 # Resolve and populate the branch-picker context behind one Git boundary.
