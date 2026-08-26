@@ -102,6 +102,8 @@ typeset -gi _ZLE_PICKER_COPY_ENABLED=0
 typeset -gi _ZLE_PICKER_HIERARCHY_ENABLED=0
 typeset -g _ZLE_PICKER_ACTION='select'
 typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
+typeset -g _ZLE_PICKER_BOOTSTRAP=''
+typeset -gi _ZLE_PICKER_RUN_LIMIT=10
 
 # Native fuzzy history search. The public result limit may be established by
 # the local initializer; the widget also caps it to the terminal height.
@@ -750,6 +752,43 @@ _zle_picker_loop() {
   fi
   (( accepted ))
 }
+
+# Public commands launch the same picker through a short-lived nested ZLE.
+# The editor owns this lifecycle so navigation and search peers can detect it
+# at runtime without depending on each other or duplicating terminal handling.
+_zle_picker_widget() {
+  _zle_picker_loop '' "${_ZLE_PICKER_RUN_LIMIT:-10}"
+}
+
+_zle_picker_line_init() {
+  emulate -L zsh
+
+  [[ $_ZLE_PICKER_BOOTSTRAP == compozsh-picker ]] || return 0
+  _ZLE_PICKER_BOOTSTRAP=''
+  zle compozsh-picker
+  zle .accept-line
+}
+
+_zle_picker_run() {
+  emulate -L zsh
+
+  local raw_limit=${1:-10} picker_buffer=''
+  [[ $raw_limit == <-> ]] || raw_limit=10
+  (( raw_limit < 1 )) && raw_limit=1
+  (( raw_limit > 20 )) && raw_limit=20
+
+  _ZLE_PICKER_RUN_LIMIT=$raw_limit
+  _ZLE_PICKER_BOOTSTRAP='compozsh-picker'
+  if ! vared picker_buffer; then
+    _ZLE_PICKER_BOOTSTRAP=''
+    return 2
+  fi
+  _ZLE_PICKER_BOOTSTRAP=''
+  (( _ZLE_PICKER_ACCEPTED )) && return 0
+  return 1
+}
+
+zle -N compozsh-picker _zle_picker_widget
 
 _history_fuzzy_search_widget() {
   emulate -L zsh

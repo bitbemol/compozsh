@@ -23,6 +23,8 @@ third-party plugins.
 - Prefix-based history search with Up/Down or `Ctrl-P`/`Ctrl-N`
 - A native fuzzy `Ctrl-R` history picker with ranked, order-independent
   fragments and deduplicated results
+- A bounded fuzzy `f` file finder with project, directory, home, and global
+  scopes plus safe path insertion and machine-readable output
 - Live native history autosuggestions with character, word, and full acceptance
 - `Ctrl-X Ctrl-E` to edit the current command in `$EDITOR`
 - Live native syntax highlighting for commands, arguments, operators, strings,
@@ -137,6 +139,7 @@ compozsh/
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.shell         shell options, history, and native tool colors
 │   ├── .zsh.editor        completion, directory/history pickers, and editing
+│   ├── .zsh.find          bounded project, filesystem, and Spotlight search
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory and Git branch navigation pickers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
@@ -163,6 +166,7 @@ peer owns one focused concern and can still be sourced independently:
 | --- | --- | --- |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion, contextual fuzzy directory completion, macOS-friendly bindings, the shared visual picker, fuzzy `Ctrl-R`, and history autosuggestions |
+| `.zsh.find` | Bounded fuzzy file search | `f` searches project files, explicit directory trees, or the macOS Spotlight index and safely returns a selected path |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
 | `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` Git/branch picker, recent stacks, numbered selection, and small navigation aliases |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
@@ -659,6 +663,86 @@ Change the smaller bound from the local initializer when desired:
 ZSH_DIRECTORY_PICKER_MAX_RESULTS=8
 ```
 
+## Fuzzy file finder
+
+Run `f` with any fragments remembered from a file or directory path. Inside a
+Git working tree, the default scope is the complete project; elsewhere it is
+the current directory:
+
+```sh
+f client network
+f --here configuration
+f --root ~/Developer compozsh
+f --home invoice
+f --global Xcode
+```
+
+The default project provider reads Git's tracked and untracked files while
+respecting ignore rules, then derives their containing directories. This makes
+large development repositories both complete and fast without traversing
+generated `.git`, build, or dependency data. `--here` and `--root` instead use
+a direct native-Zsh breadth-first walk, including matching hidden entries but
+never following symbolic-link directories. `--home` and `--global` consult the
+macOS Spotlight metadata index rather than crawling an entire machine.
+
+Every invocation requires an initial query, so `f` never performs an accidental
+unbounded scan. Separate query fragments may occur anywhere and in any order;
+each fragment may also use character-ordered abbreviation. For example,
+`f net cli` and `f srccl` can both find
+`Sources/Network/Client.swift`.
+
+After the one-time capture, filtering and resizing operate entirely on the
+bounded in-memory snapshot:
+
+```text
+Files · ~/Developer/project · 3 candidates for net cli · 3 shown
+Search ‹›
+[1] ● · Sources/Network/Client.swift
+[2]   ▸ Sources/Network/
+[3]   · Notes/Network client plan.md
+⌥W/^Y copy · 1–9 insert · ↑↓ move · type refine · ⏎ insert · esc cancel
+```
+
+The `·`, `▸`, and `↗` markers identify files, directories, and symbolic links.
+Use arrows or `Ctrl-P`/`Ctrl-N`, type to refine, or press a visible number for
+direct selection. `Enter` places the shell-quoted full path on the next editable
+command line; it never opens, executes, or changes into the result. Press
+`Option-W` or `Ctrl-Y` to copy the unquoted path when macOS `pbcopy` is
+available.
+
+Scope and output options are deliberately small:
+
+| Option | Behavior |
+| --- | --- |
+| no scope option | Search the surrounding Git project, otherwise `$PWD` |
+| `--here` | Directly search below `$PWD` |
+| `--root directory` | Directly search below an explicit directory |
+| `--home` | Search Spotlight's index below `$HOME` |
+| `--global` | Search the complete accessible Spotlight index |
+| `--list` | Print matching absolute paths, one per line |
+| `--print0` | Print NUL-delimited absolute paths for safe machine consumption |
+| `--help` | Print the command summary |
+
+Spotlight is fast and native to macOS, but it can omit excluded, unavailable,
+or not-yet-indexed locations. Use the default Git provider or `--root` when the
+filesystem itself must be inspected. On systems without `mdfind`, only the two
+Spotlight modes are unavailable; project and local search continue to work.
+
+Direct traversal inspects at most 20,000 entries, and every provider retains at
+most 2,000 initial matches. Reaching either limit marks the picker snapshot as
+partial instead of silently claiming completeness. The visible list still
+defaults to ten rows. These bounds may be adjusted in the local initializer:
+
+```zsh
+ZSH_FILE_SEARCH_MAX_RESULTS=10
+ZSH_FILE_SEARCH_MAX_VISITED=20000
+ZSH_FILE_SEARCH_MAX_CANDIDATES=2000
+```
+
+No provider reads file contents, follows directory links, executes project
+code, accesses the network, or writes a persistent cache. Standard Unix
+`find` remains completely untouched for scripts and advanced predicates.
+
 ## History autosuggestions
 
 As text is entered at the end of the command line, the unused suffix of the
@@ -723,7 +807,7 @@ If the editable command line already contains text, that text becomes the
 initial query. Press `Ctrl-U` inside the picker to clear it and browse recent
 commands instead.
 
-History, directory, and branch selectors share the same safe renderer. A stable
+History, file, directory, and branch selectors share the same safe renderer. A stable
 dedicated `Search ‹query›` row keeps user input separate from header metadata
 and prevents the layout from shifting after the first character. Long queries
 use the available row width and abbreviate visually while preserving the full

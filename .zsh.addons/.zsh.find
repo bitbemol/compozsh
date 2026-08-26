@@ -1,0 +1,628 @@
+# -----------------------------------------------------------------------------
+# Bounded fuzzy file search
+# -----------------------------------------------------------------------------
+
+# Search is lazy: sourcing this peer only defines state and functions. A public
+# `f` invocation captures one bounded snapshot, and picker refinement thereafter
+# performs no filesystem access or subprocess work.
+typeset -g ZSH_FILE_SEARCH_MAX_RESULTS=${ZSH_FILE_SEARCH_MAX_RESULTS:-10}
+typeset -g ZSH_FILE_SEARCH_MAX_VISITED=${ZSH_FILE_SEARCH_MAX_VISITED:-20000}
+typeset -g ZSH_FILE_SEARCH_MAX_CANDIDATES=${ZSH_FILE_SEARCH_MAX_CANDIDATES:-2000}
+typeset -ga _FILE_SEARCH_VALUES=()
+typeset -ga _FILE_SEARCH_LABELS=()
+typeset -ga _FILE_SEARCH_MATCH_TEXTS=()
+typeset -ga _FILE_SEARCH_RANKS=()
+typeset -ga _FILE_SEARCH_LITERAL_PATTERNS=()
+typeset -ga _FILE_SEARCH_FUZZY_PATTERNS=()
+typeset -gA _FILE_SEARCH_SEEN=()
+typeset -g _FILE_SEARCH_LITERAL_QUERY=''
+typeset -g _FILE_SEARCH_LITERAL_FILTER_PATTERN=''
+typeset -g _FILE_SEARCH_FILTER_PATTERN=''
+typeset -g _FILE_SEARCH_ROOT=''
+typeset -g _FILE_SEARCH_SOURCE=''
+typeset -gi _FILE_SEARCH_TRUNCATED=0
+typeset -gi _FILE_SEARCH_VISITED=0
+
+_file_search_usage() {
+  local destination=${1:-stderr}
+  local message='usage: f [--here | --home | --global | --root directory]'
+  message+=' [--list | --print0] query ...'
+  if [[ $destination == stdout ]]; then
+    print -r -- "$message"
+  else
+    print -u2 -r -- "$message"
+  fi
+}
+
+_file_search_escape_pattern() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local MATCH
+  REPLY=${1//(#m)[\][|()\\*?#<>~^]/\\$MATCH}
+}
+
+_file_search_compile_query() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 fragment='' character='' literal='' fuzzy='(#i)*'
+  local -a fragments=( ${=query} )
+  local -i index=0
+  typeset -ga _FILE_SEARCH_LITERAL_PATTERNS=()
+  typeset -ga _FILE_SEARCH_FUZZY_PATTERNS=()
+  _FILE_SEARCH_LITERAL_FILTER_PATTERN=''
+  _FILE_SEARCH_FILTER_PATTERN=''
+
+  _file_search_escape_pattern "$query"
+  _FILE_SEARCH_LITERAL_QUERY=$REPLY
+  for fragment in "${fragments[@]}"; do
+    _file_search_escape_pattern "$fragment"
+    literal=$REPLY
+    _FILE_SEARCH_LITERAL_PATTERNS+=("(#i)*${literal}*")
+    fuzzy='(#i)*'
+    for character in "${(s::)fragment}"; do
+      _file_search_escape_pattern "$character"
+      fuzzy+="${REPLY}*"
+    done
+    _FILE_SEARCH_FUZZY_PATTERNS+=("$fuzzy")
+  done
+
+  # `a~^b` is Zsh's native intersection (a excluding b's complement). One
+  # compiled comparison cheaply rejects nonmatches before any helper call.
+  if (( ${#_FILE_SEARCH_LITERAL_PATTERNS} )); then
+    _FILE_SEARCH_LITERAL_FILTER_PATTERN=${_FILE_SEARCH_LITERAL_PATTERNS[1]}
+    for (( index = 2; index <= ${#_FILE_SEARCH_LITERAL_PATTERNS}; ++index )); do
+      _FILE_SEARCH_LITERAL_FILTER_PATTERN+="~^${_FILE_SEARCH_LITERAL_PATTERNS[index]}"
+    done
+  fi
+  if (( ${#_FILE_SEARCH_FUZZY_PATTERNS} )); then
+    _FILE_SEARCH_FILTER_PATTERN=${_FILE_SEARCH_FUZZY_PATTERNS[1]}
+    for (( index = 2; index <= ${#_FILE_SEARCH_FUZZY_PATTERNS}; ++index )); do
+      _FILE_SEARCH_FILTER_PATTERN+="~^${_FILE_SEARCH_FUZZY_PATTERNS[index]}"
+    done
+  fi
+}
+
+# Return a stable relevance tier through REPLY: basename prefix, complete
+# literal path, unordered literal fragments, then character-ordered fragments.
+_file_search_match_rank() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local text=$1 basename=${1:t} pattern=''
+  local -i matched=1
+  REPLY=0
+
+  if [[ -n $_FILE_SEARCH_LITERAL_QUERY &&
+        $basename == (#i)${~_FILE_SEARCH_LITERAL_QUERY}* ]]; then
+    REPLY=1
+    return 0
+  fi
+  if [[ -n $_FILE_SEARCH_LITERAL_QUERY &&
+        $text == (#i)*${~_FILE_SEARCH_LITERAL_QUERY}* ]]; then
+    REPLY=2
+    return 0
+  fi
+
+  for pattern in "${_FILE_SEARCH_LITERAL_PATTERNS[@]}"; do
+    [[ $text == ${~pattern} ]] || {
+      matched=0
+      break
+    }
+  done
+  if (( matched && ${#_FILE_SEARCH_LITERAL_PATTERNS} )); then
+    REPLY=3
+    return 0
+  fi
+
+  matched=1
+  for pattern in "${_FILE_SEARCH_FUZZY_PATTERNS[@]}"; do
+    [[ $text == ${~pattern} ]] || {
+      matched=0
+      break
+    }
+  done
+  (( matched && ${#_FILE_SEARCH_FUZZY_PATTERNS} )) || return 1
+  REPLY=4
+}
+
+_file_search_reset() {
+  typeset -ga _FILE_SEARCH_VALUES=()
+  typeset -ga _FILE_SEARCH_LABELS=()
+  typeset -ga _FILE_SEARCH_MATCH_TEXTS=()
+  typeset -ga _FILE_SEARCH_RANKS=()
+  typeset -gA _FILE_SEARCH_SEEN=()
+  _FILE_SEARCH_TRUNCATED=0
+  _FILE_SEARCH_VISITED=0
+}
+
+_file_search_limit() {
+  local raw_value=$1 fallback=$2
+  if [[ $raw_value == <-> ]] && (( raw_value > 0 )); then
+    REPLY=$raw_value
+  else
+    REPLY=$fallback
+  fi
+}
+
+_file_search_consider() {
+  emulate -L zsh
+
+  local path=$1 display=$2 match_text=$3 label='' kind=''
+  local -i max_candidates=2000 rank=0
+  [[ -n $path && -z ${_FILE_SEARCH_SEEN[$path]-} ]] || return 1
+  [[ -f $path || -d $path || -L $path ]] || return 1
+
+  _file_search_match_rank "$match_text" || return 1
+  rank=$REPLY
+  _file_search_limit "${ZSH_FILE_SEARCH_MAX_CANDIDATES:-2000}" 2000
+  max_candidates=$REPLY
+  if (( ${#_FILE_SEARCH_VALUES} >= max_candidates )); then
+    _FILE_SEARCH_TRUNCATED=1
+    return 2
+  fi
+
+  if [[ -L $path ]]; then
+    kind='↗'
+  elif [[ -d $path ]]; then
+    kind='▸'
+    display=${display%/}/
+  else
+    kind='·'
+  fi
+  label="$kind $display"
+  _FILE_SEARCH_VALUES+=("$path")
+  _FILE_SEARCH_LABELS+=("$label")
+  _FILE_SEARCH_MATCH_TEXTS+=("$match_text")
+  _FILE_SEARCH_RANKS+=($rank)
+  _FILE_SEARCH_SEEN[$path]=1
+}
+
+_file_search_sort_matches() {
+  emulate -L zsh
+
+  local -a values=("${_FILE_SEARCH_VALUES[@]}")
+  local -a labels=("${_FILE_SEARCH_LABELS[@]}")
+  local -a texts=("${_FILE_SEARCH_MATCH_TEXTS[@]}")
+  local -a ranks=("${_FILE_SEARCH_RANKS[@]}")
+  local -i rank=0 index=0
+  typeset -ga _FILE_SEARCH_VALUES=()
+  typeset -ga _FILE_SEARCH_LABELS=()
+  typeset -ga _FILE_SEARCH_MATCH_TEXTS=()
+  typeset -ga _FILE_SEARCH_RANKS=()
+
+  for rank in 1 2 3 4; do
+    for (( index = 1; index <= ${#values}; ++index )); do
+      (( ranks[index] == rank )) || continue
+      _FILE_SEARCH_VALUES+=("${values[index]}")
+      _FILE_SEARCH_LABELS+=("${labels[index]}")
+      _FILE_SEARCH_MATCH_TEXTS+=("${texts[index]}")
+      _FILE_SEARCH_RANKS+=($rank)
+    done
+  done
+}
+
+_file_search_capture_git() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local root=${1:A} query=$2 git_binary=${commands[git]:-}
+  local relative='' path='' parent=''
+  local -i consider_status=0 stop=0
+  [[ -n $git_binary && -d $root ]] || return 2
+  command "$git_binary" -C "$root" rev-parse --is-inside-work-tree \
+    >/dev/null 2>&1 || return 2
+
+  _file_search_reset
+  _file_search_compile_query "$query"
+  _FILE_SEARCH_ROOT=$root
+  _FILE_SEARCH_SOURCE=git
+  while IFS= read -r -d '' relative; do
+    [[ -n $relative && $relative != /* ]] || continue
+    [[ $relative == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
+    path="$root/$relative"
+    _file_search_consider "$path" "$relative" "$relative"
+    consider_status=$?
+    (( consider_status == 2 )) && {
+      stop=1
+      break
+    }
+
+    if (( consider_status == 0 )); then
+      parent=${relative:h}
+      while [[ $parent != . && -n $parent ]]; do
+        _file_search_consider "$root/$parent" "$parent" "$parent"
+        consider_status=$?
+        (( consider_status == 2 )) && {
+          stop=1
+          break
+        }
+        parent=${parent:h}
+      done
+    fi
+    (( stop )) && break
+  done < <(command "$git_binary" -C "$root" ls-files -z \
+    --cached --others --exclude-standard 2>/dev/null)
+
+  _file_search_sort_matches
+  (( ${#_FILE_SEARCH_VALUES} ))
+}
+
+_file_search_capture_local() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local root=${1:A} query=$2 directory='' entry='' relative=''
+  local -a queue=()
+  local -a entries=()
+  local -i position=1 max_visited=20000 consider_status=0 stop=0
+  [[ -d $root && -r $root && -x $root ]] || return 2
+
+  _file_search_reset
+  _file_search_compile_query "$query"
+  _file_search_limit "${ZSH_FILE_SEARCH_MAX_VISITED:-20000}" 20000
+  max_visited=$REPLY
+  _FILE_SEARCH_ROOT=$root
+  _FILE_SEARCH_SOURCE=local
+  queue=("$root")
+
+  while (( position <= ${#queue} && !stop )); do
+    directory=${queue[position++]}
+    [[ -d $directory && -r $directory && -x $directory ]] || continue
+    entries=("$directory"/*(ND))
+    for entry in "${entries[@]}"; do
+      if (( _FILE_SEARCH_VISITED >= max_visited )); then
+        _FILE_SEARCH_TRUNCATED=1
+        stop=1
+        break
+      fi
+      (( ++_FILE_SEARCH_VISITED ))
+      relative=${entry#$root/}
+      [[ $relative == .git || $relative == .git/* ]] && continue
+
+      if [[ $relative == ${~_FILE_SEARCH_FILTER_PATTERN} ]]; then
+        _file_search_consider "$entry" "$relative" "$relative"
+        consider_status=$?
+        (( consider_status == 2 )) && {
+          stop=1
+          break
+        }
+      fi
+      [[ -d $entry && ! -L $entry ]] && queue+=("$entry")
+    done
+  done
+
+  _file_search_sort_matches
+  (( ${#_FILE_SEARCH_VALUES} ))
+}
+
+_file_search_spotlight_seed() {
+  emulate -L zsh
+
+  local query=$1 fragment='' seed=''
+  local -a fragments=( ${=query} )
+  for fragment in "${fragments[@]}"; do
+    (( ${#fragment} > ${#seed} )) && seed=$fragment
+  done
+  REPLY=$seed
+  [[ -n $seed ]]
+}
+
+_file_search_capture_spotlight() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local raw_root=$1 query=$2 binary=${3:-${commands[mdfind]:-}}
+  local root='' path='' resolved='' display=''
+  # `-name` consumes the seed as one argv value. Do not combine it with
+  # `-literal`: macOS mdfind applies that mode to raw query expressions and
+  # rejects the combination instead of producing filename results.
+  local -a command_args=(-0)
+  local -i consider_status=0
+  [[ -n $binary && -x $binary ]] || return 2
+
+  if [[ -n $raw_root ]]; then
+    root=${raw_root:A}
+    [[ -d $root ]] || return 2
+  fi
+  _file_search_spotlight_seed "$query" || return 2
+  local seed=$REPLY
+  [[ -n $root ]] && command_args+=(-onlyin "$root")
+  command_args+=(-name "$seed")
+
+  _file_search_reset
+  _file_search_compile_query "$query"
+  _FILE_SEARCH_ROOT=$root
+  _FILE_SEARCH_SOURCE=spotlight
+  while IFS= read -r -d '' path; do
+    [[ $path == /* && ( -e $path || -L $path ) ]] || continue
+    resolved=${path:A}
+    if [[ -n $root && $resolved != $root && $resolved != $root/* ]]; then
+      continue
+    fi
+    if [[ $path == $HOME ]]; then
+      display='~'
+    elif [[ $path == $HOME/* ]]; then
+      display="~${path#$HOME}"
+    else
+      display=$path
+    fi
+    [[ $display == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
+    _file_search_consider "$path" "$display" "$display"
+    consider_status=$?
+    (( consider_status == 2 )) && break
+  done < <(command "$binary" "${command_args[@]}" 2>/dev/null)
+
+  _file_search_sort_matches
+  (( ${#_FILE_SEARCH_VALUES} ))
+}
+
+_file_search_picker_append_matches() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local pattern=$1 raw_limit=$2 field=${3:-path}
+  local text='' candidate='' value=''
+  local -i limit=$raw_limit index=0
+  for (( index = 1; index <= ${#_FILE_SEARCH_VALUES}; ++index )); do
+    text=${_FILE_SEARCH_MATCH_TEXTS[index]}
+    candidate=$text
+    [[ $field == basename ]] && candidate=${text:t}
+    [[ $candidate == ${~pattern} ]] || continue
+    value=${_FILE_SEARCH_VALUES[index]}
+    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
+    _ZLE_PICKER_RESULTS+=("$value")
+    _ZLE_PICKER_LABELS+=("${_FILE_SEARCH_LABELS[index]}")
+    _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  done
+}
+
+_file_search_picker_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 raw_limit=$2
+  local -i limit=$raw_limit index=0
+  typeset -ga _ZLE_PICKER_RESULTS=()
+  typeset -ga _ZLE_PICKER_LABELS=()
+  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
+
+  if [[ -z $query ]]; then
+    for (( index = 1; index <= ${#_FILE_SEARCH_VALUES}; ++index )); do
+      _ZLE_PICKER_RESULTS+=("${_FILE_SEARCH_VALUES[index]}")
+      _ZLE_PICKER_LABELS+=("${_FILE_SEARCH_LABELS[index]}")
+      _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
+      (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+    done
+    return 0
+  fi
+
+  _file_search_compile_query "$query"
+  _file_search_picker_append_matches \
+    "(#i)${_FILE_SEARCH_LITERAL_QUERY}*" $limit basename
+  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  _file_search_picker_append_matches \
+    "(#i)*${_FILE_SEARCH_LITERAL_QUERY}*" $limit path
+  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  _file_search_picker_append_matches \
+    "$_FILE_SEARCH_LITERAL_FILTER_PATTERN" $limit path
+  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  _file_search_picker_append_matches \
+    "$_FILE_SEARCH_FILTER_PATTERN" $limit path
+}
+
+_file_search_quote() {
+  emulate -L zsh
+
+  local path=$1 remainder=''
+  if [[ $path == $HOME ]]; then
+    REPLY='~'
+  elif [[ $path == $HOME/* ]]; then
+    remainder=${path#$HOME/}
+    REPLY="~/${(q)remainder}"
+  else
+    REPLY=${(q)path}
+  fi
+}
+
+_file_search_copy() {
+  emulate -L zsh
+
+  local path=$1 binary=$2
+  [[ -n $binary && -x $binary ]] || return 1
+  print -rn -- "$path" | command "$binary" || return 1
+  print -r -- 'Copied path.'
+}
+
+_file_search_print() {
+  emulate -L zsh
+
+  local separator=$1 path=''
+  if [[ $separator == nul ]]; then
+    for path in "${_FILE_SEARCH_VALUES[@]}"; do
+      print -rn -- "$path"$'\0'
+    done
+  else
+    for path in "${_FILE_SEARCH_VALUES[@]}"; do
+      print -r -- "$path"
+    done
+  fi
+}
+
+_file_search_candidate_summary() {
+  local query=$1 noun=candidates
+  (( ${#_FILE_SEARCH_VALUES} == 1 )) && noun=candidate
+  REPLY="${#_FILE_SEARCH_VALUES} ${noun} for ${query}"
+  (( _FILE_SEARCH_TRUNCATED )) && REPLY+=' · partial'
+}
+
+unalias f 2>/dev/null
+f() {
+  emulate -L zsh
+
+  local scope=auto root='' query='' output_mode=picker argument=''
+  local git_root='' provider='' mdfind_binary=${commands[mdfind]:-}
+  local clipboard_binary=${commands[pbcopy]:-} selected=''
+  local -a query_parts=()
+  local -i scope_count=0 capture_status=0 picker_status=0
+
+  while (( $# )); do
+    argument=$1
+    shift
+    case $argument in
+      (--here)
+        scope=here
+        (( ++scope_count ))
+        ;;
+      (--home)
+        scope=home
+        (( ++scope_count ))
+        ;;
+      (--global)
+        scope=global
+        (( ++scope_count ))
+        ;;
+      (--root)
+        (( $# )) || {
+          _file_search_usage
+          return 2
+        }
+        root=$1
+        shift
+        scope=root
+        (( ++scope_count ))
+        ;;
+      (--list)
+        [[ $output_mode == picker ]] || {
+          _file_search_usage
+          return 2
+        }
+        output_mode=list
+        ;;
+      (--print0)
+        [[ $output_mode == picker ]] || {
+          _file_search_usage
+          return 2
+        }
+        output_mode=nul
+        ;;
+      (--help)
+        _file_search_usage stdout
+        return 0
+        ;;
+      (--)
+        query_parts+=("$@")
+        break
+        ;;
+      (-*)
+        _file_search_usage
+        return 2
+        ;;
+      (*)
+        query_parts+=("$argument")
+        ;;
+    esac
+  done
+
+  (( scope_count <= 1 && ${#query_parts} )) || {
+    _file_search_usage
+    return 2
+  }
+  query=${(j: :)query_parts}
+
+  case $scope in
+    (auto)
+      if [[ -n ${commands[git]:-} ]]; then
+        git_root=$(command git rev-parse --show-toplevel 2>/dev/null)
+      fi
+      if [[ -n $git_root && $git_root != *[[:cntrl:]]* && -d $git_root ]]; then
+        root=$git_root
+        provider=git
+      else
+        root=$PWD
+        provider=local
+      fi
+      ;;
+    (here)
+      root=$PWD
+      provider=local
+      ;;
+    (root)
+      [[ -d $root ]] || {
+        print -u2 -r -- "f: directory does not exist: $root"
+        return 2
+      }
+      root=${root:A}
+      provider=local
+      ;;
+    (home)
+      root=$HOME
+      provider=spotlight
+      ;;
+    (global)
+      root=''
+      provider=spotlight
+      ;;
+  esac
+
+  case $provider in
+    (git) _file_search_capture_git "$root" "$query" ;;
+    (local) _file_search_capture_local "$root" "$query" ;;
+    (spotlight)
+      [[ -n $mdfind_binary ]] || {
+        print -u2 -r -- 'f: Spotlight search is unavailable on this host'
+        return 2
+      }
+      _file_search_capture_spotlight "$root" "$query" "$mdfind_binary"
+      ;;
+  esac
+  capture_status=$?
+  if (( capture_status != 0 )); then
+    print -u2 -r -- "f: no matches for ${(qqq)query}"
+    return 1
+  fi
+
+  if [[ $output_mode == nul ]]; then
+    _file_search_print nul
+    return 0
+  elif [[ $output_mode == list || ! -t 0 || ! -t 1 || $TERM == dumb ]]; then
+    _file_search_print lines
+    return 0
+  fi
+  if (( ! ${+functions[_zle_picker_run]} ||
+        ! ${+functions[_zle_picker_loop]} )); then
+    _file_search_print lines
+    return 0
+  fi
+
+  _ZLE_PICKER_TITLE="Files · ${root:-Spotlight}"
+  _file_search_candidate_summary "$query"
+  _ZLE_PICKER_BROWSE_LABEL=$REPLY
+  _ZLE_PICKER_EMPTY_LABEL='no matching captured paths'
+  _ZLE_PICKER_COPY_ENABLED=0
+  if [[ -n $clipboard_binary ]]; then
+    _ZLE_PICKER_FOOTER='⌥W/^Y copy · 1–9 insert · ↑↓ move'
+    _ZLE_PICKER_FOOTER+=' · type refine · ⏎ insert · esc cancel'
+    _ZLE_PICKER_COPY_ENABLED=1
+  else
+    _ZLE_PICKER_FOOTER='1–9 insert · ↑↓ move · type refine · ⏎ insert · esc cancel'
+  fi
+  _ZLE_PICKER_COLLECTOR='_file_search_picker_collect'
+  _ZLE_PICKER_DIGIT_SELECT=1
+  _zle_picker_run "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}"
+  picker_status=$?
+  (( picker_status == 1 )) && return 0
+  (( picker_status == 0 )) || return $picker_status
+
+  selected=$_ZLE_PICKER_SELECTED_VALUE
+  if [[ $_ZLE_PICKER_ACTION == copy ]]; then
+    _file_search_copy "$selected" "$clipboard_binary"
+    return $?
+  fi
+  _file_search_quote "$selected"
+  print -zr -- "$REPLY"
+}
+
+:

@@ -14,7 +14,6 @@ typeset -g ZSH_NAVIGATION_PICKER_MAX_RESULTS=${ZSH_NAVIGATION_PICKER_MAX_RESULTS
 typeset -ga _NAVIGATION_PICKER_VALUES=()
 typeset -ga _NAVIGATION_PICKER_LABELS=()
 typeset -ga _NAVIGATION_PICKER_INDEXES=()
-typeset -g _ZLE_PICKER_BOOTSTRAP=''
 
 # Navigation remains usable without the prompt add-on. Keep these display
 # helpers private to this unit so peer add-on order never becomes a dependency.
@@ -109,44 +108,6 @@ _navigation_picker_collect() {
   done
   _navigation_picker_append_matches "$pattern" $limit
 }
-
-_navigation_picker_widget() {
-  _zle_picker_loop '' "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
-}
-
-# `vared` supplies a normal nested ZLE when a command launches a selector. The
-# guarded line-init hook runs the picker, then closes the otherwise empty editor
-# as soon as the selection or cancellation is complete.
-_zle_picker_line_init() {
-  emulate -L zsh
-
-  [[ $_ZLE_PICKER_BOOTSTRAP == navigation-picker ]] || return 0
-  _ZLE_PICKER_BOOTSTRAP=''
-  zle navigation-picker
-  zle .accept-line
-}
-
-_navigation_picker_run() {
-  emulate -L zsh
-
-  local picker_buffer=''
-  _ZLE_PICKER_BOOTSTRAP='navigation-picker'
-  if ! vared picker_buffer; then
-    _ZLE_PICKER_BOOTSTRAP=''
-    return 2
-  fi
-  _ZLE_PICKER_BOOTSTRAP=''
-  (( _ZLE_PICKER_ACCEPTED )) && return 0
-  return 1
-}
-
-autoload -Uz add-zle-hook-widget
-zle -N navigation-picker _navigation_picker_widget
-add-zle-hook-widget -d line-init _zle_autosuggest_reset 2>/dev/null
-add-zle-hook-widget -d line-init _zle_picker_line_init 2>/dev/null
-(( ${+functions[_zle_autosuggest_reset]} )) &&
-  add-zle-hook-widget line-init _zle_autosuggest_reset
-add-zle-hook-widget line-init _zle_picker_line_init
 
 # Print navigation stacks with fixed-width indexes so the selector and its
 # target remain visually obvious even when paths or branch names are long.
@@ -250,7 +211,7 @@ d() {
   _ZLE_PICKER_FOOTER='0–9 select · ↑↓ move · type filter · ⏎ cd · esc cancel'
   _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
-  _navigation_picker_run
+  _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
   picker_status=$?
   (( picker_status == 1 )) && return 0
   (( picker_status == 0 )) || return $picker_status
@@ -411,7 +372,7 @@ g() {
   fi
   _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
-  _navigation_picker_run
+  _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
   picker_status=$?
   (( picker_status == 1 )) && return 0
   (( picker_status == 0 )) || return $picker_status
