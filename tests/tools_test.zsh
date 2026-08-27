@@ -69,6 +69,8 @@ _test_prompt_refresh_invalidates_memory_only() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     typeset -gA _PROMPT_RUNTIME_VERSION_CACHE=(one value)
     typeset -gA _PROMPT_GIT_DIR_CACHE=(two value)
+    typeset -gi _GREP_SUPPORTS_COLOR=1
+    typeset -g _GREP_COLOR_BINARY=/usr/bin/grep
     source "$1/.zsh.addons/.zsh.tools"
     prompt-refresh
     print -r -- "${#_PROMPT_RUNTIME_VERSION_CACHE}|${#_PROMPT_GIT_DIR_CACHE}|$_GREP_SUPPORTS_COLOR|${#_GREP_COLOR_BINARY}"

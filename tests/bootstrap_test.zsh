@@ -109,6 +109,7 @@ print -r -- "options:${options[noclobber]},${options[sharehistory]},${options[au
 print -r -- "aliases:${aliases[ll]}|${aliases[la]}|${aliases[c]}|${aliases[..]}"
 print -r -- "styles:${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[argument]}|${ZSH_HIGHLIGHT_STYLES[operator]}|${ZSH_HIGHLIGHT_STYLES[autosuggestion]}"
 print -r -- "prompt-colors:${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[path]}|${ZSH_PROMPT_COLORS[git]}|${ZSH_PROMPT_COLORS[warning]}"
+print -r -- "output-colors:${ZSH_OUTPUT_COLORS[success]}|${ZSH_OUTPUT_COLORS[warning]}|${ZSH_OUTPUT_COLORS[error]}|${ZSH_OUTPUT_COLORS[match]}"
 print -r -- "hooks:${precmd_functions[*]}|${preexec_functions[*]}|${zle_line_init_functions[*]}|${zle_line_pre_redraw_functions[*]}"
 print -r -- "prompts:$PROMPT|$RPROMPT"
 print -r -- "public:${+functions[mkcd]},${+functions[git-discard-all]},${+functions[prompt-refresh]},${+functions[d]},${+functions[g]},${+functions[f]},${+functions[update_xcode_skills]}"

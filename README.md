@@ -31,7 +31,8 @@ third-party plugins.
   variables, comments, assignments, and redirections
 - Searchable, arrow-driven recent-directory and Git-branch selectors with
   numbered direct shortcuts
-- Terminal-only native colors for file listings, completion, and search matches
+- Terminal-only native colors for file listings, completion, and matches
+- A consistent semantic Git palette for status, diffs, branches, and remotes
 - Colored manual pages with highlighted headings, options, and references
 - A useful terminal tab title and a few small navigation aliases
 - An optional first-loaded `~/.zsh.addons/local/init.zsh` for machine setup
@@ -142,8 +143,9 @@ compozsh/
 │   ├── .zsh.find          bounded project, filesystem, and Spotlight search
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory and Git branch navigation pickers
+│   ├── .zsh.output        semantic palette and native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
-│   ├── .zsh.tools         small commands and terminal-aware output wrappers
+│   ├── .zsh.tools         small commands and safe Git cleanup
 │   └── .zsh.xcode         optional Xcode/agent-skill integration
 ├── templates/
 │   └── init.zsh           inert starter copied once for private initialization
@@ -169,8 +171,9 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.find` | Bounded fuzzy file search | `f` searches project files, explicit directory trees, or the macOS Spotlight index and safely returns a selected path |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
 | `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` Git/branch picker, recent stacks, numbered selection, and small navigation aliases |
+| `.zsh.output` | Semantic command-output colors | Terminal-aware native colors for Git, `grep`, and `man`, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
-| `.zsh.tools` | Focused commands and safe output wrappers | `mkcd`, `git-discard-all`, `prompt-refresh`, colored terminal `grep`, and colored `man` pages |
+| `.zsh.tools` | Focused utility commands | `mkcd`, guarded `git-discard-all`, and `prompt-refresh` |
 | `.zsh.xcode` | Optional Xcode integration | `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -880,28 +883,45 @@ individual default without editing the shared configuration.
 ## Colored command output
 
 Interactive output uses color only where the producing tool exposes reliable
-semantics. This keeps terminal output expressive without corrupting data sent
-through a pipe, command substitution, or file redirection.
+semantics. Compozsh supplies one semantic palette to those native engines; it
+never parses and repaints arbitrary command text. Pipes, substitutions, and
+redirected data therefore remain byte-compatible.
 
 | Output family | Behavior |
 | --- | --- |
 | `ls`, `ll`, and `la` | Native file-type colors for directories, links, executables, sockets, pipes, devices, privileged files, writable directories, and dataless files |
 | File completion | The same file-type families rendered with the 256-color syntax palette |
-| `grep` | Matching text is pink when stdout is a terminal |
-| Git, compilers, runtimes, and TUIs | Their own native color and terminal behavior is preserved |
-| Man pages | Scoped heading, reference, and search-match colors through `less` |
+| `grep` | Matching text uses the shared match color when stdout is a terminal |
+| Git porcelain | Native semantic colors for status, diffs, logs, branches, interactive prompts, advice, and remote success/warning/error messages used by commands such as `clone`, `fetch`, `pull`, and `push` |
+| `curl` | curl's own styled HTTP headers are preserved on terminals; response bodies are deliberately untouched |
+| Compilers, runtimes, and TUIs | Their own native color and terminal behavior is preserved |
+| Man pages | Scoped heading, reference, selection, and search-match colors through `less` |
 | JSON, CSV, logs, arbitrary tables, and binary data | Left unchanged because their meaning cannot be inferred safely from plain bytes |
 
 Long `ls` metadata such as permissions, owners, sizes, and timestamps remains
 neutral; filenames carry the file-type color. Parsing the human-readable column
 layout would break on spaces, locales, ACL markers, and unusual filenames.
+Likewise, a curl body may be JSON, HTML, source text, an image, or compressed
+data. Only curl can safely decide how to render its protocol metadata.
+
+The Git wrapper adds temporary `-c color.*` values only for known human-facing
+subcommands when stdout or stderr is a terminal. Git still performs the
+terminal detection, explicit options come last, and configuration inspection
+or plumbing commands receive the original argv. This explicitly disables color
+for one invocation:
+
+```sh
+git -c color.ui=never log
+```
 
 The automatic behavior is terminal-aware. These stay plain and safe:
 
 ```sh
 ls -la > files.txt
+git diff > change.patch
 matches=$(grep TODO README.md)
 grep TODO README.md | wc -l
+curl https://example.invalid/data > response.bin
 ```
 
 To intentionally preserve grep colors through a pager, request it explicitly:
@@ -910,9 +930,24 @@ To intentionally preserve grep colors through a pager, request it explicitly:
 grep --color=always TODO README.md | less -R
 ```
 
-The defaults remain customizable without changing the shared file. Set
-`LSCOLORS`, `GREP_COLOR`, or `GREP_COLORS` in the local initializer; unset
-`CLICOLOR` there to disable automatic `ls` colors on a particular machine.
+The public `ZSH_OUTPUT_COLORS` map keeps Git, grep, and manual-page emphasis
+consistent. Override only desired semantic roles in the local initializer
+before peers load:
+
+```zsh
+typeset -gA ZSH_OUTPUT_COLORS
+ZSH_OUTPUT_COLORS[success]=118
+ZSH_OUTPUT_COLORS[warning]=221
+ZSH_OUTPUT_COLORS[error]=203
+ZSH_OUTPUT_COLORS[match]=199
+```
+
+Available roles are `heading`, `accent`, `success`, `warning`, `error`,
+`info`, `muted`, `match`, and `text`; values are terminal color indexes
+from 0 through 255. Invalid local values fall back safely. Existing
+`GREP_COLOR`, `GREP_COLORS`, and `LESS_TERMCAP_*` values retain precedence.
+Set `LSCOLORS` separately for BSD `ls`, or unset `CLICOLOR` in the local
+initializer to disable automatic file-listing colors on a particular machine.
 
 ## Local user and machine settings
 

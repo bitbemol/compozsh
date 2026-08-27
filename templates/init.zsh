@@ -43,8 +43,9 @@
 # export EDITOR='vim'
 # HISTSIZE=75000
 # SAVEHIST=75000
-# typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_PROMPT_COLORS
+# typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_OUTPUT_COLORS ZSH_PROMPT_COLORS
 # ZSH_HIGHLIGHT_STYLES[command]='fg=118,bold'
+# ZSH_OUTPUT_COLORS[success]=118
 # ZSH_PROMPT_COLORS[identity]=110
 
 # Keep credentials out of shell files when possible. Prefer the system keychain

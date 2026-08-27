@@ -1,0 +1,264 @@
+# Native terminal-aware semantic output.
+
+# Public semantic palette for human-facing command output. The local
+# initializer may replace individual roles; this unit fills only missing
+# defaults and native producers decide when each color is appropriate.
+_output_apply_color_defaults() {
+  emulate -L zsh
+
+  local -A defaults=(
+    heading  75
+    accent   81
+    success  71
+    warning  221
+    error    203
+    info     111
+    muted    242
+    match    199
+    text     252
+  )
+  local role
+
+  typeset -gA ZSH_OUTPUT_COLORS
+  for role in ${(k)defaults}; do
+    (( ${+ZSH_OUTPUT_COLORS[$role]} )) ||
+      ZSH_OUTPUT_COLORS[$role]=${defaults[$role]}
+  done
+}
+_output_apply_color_defaults
+unfunction _output_apply_color_defaults
+
+# Return a validated 256-color index. A malformed local override falls back
+# instead of making an ordinary command fail inside Git's color parser.
+_output_color() {
+  emulate -L zsh
+
+  local value=${ZSH_OUTPUT_COLORS[$1]:-$2}
+  if [[ $value == <0-255> ]]; then
+    REPLY=$value
+  else
+    REPLY=$2
+  fi
+}
+
+# Build Git's native semantic color configuration from the shared output
+# palette. Values are separate argv elements; no shell source or output text is
+# constructed from them.
+_output_git_color_arguments() {
+  emulate -L zsh
+
+  local heading='' accent='' success='' warning='' error=''
+  local info='' muted='' match='' text=''
+
+  _output_color heading 75
+  heading=$REPLY
+  _output_color accent 81
+  accent=$REPLY
+  _output_color success 71
+  success=$REPLY
+  _output_color warning 221
+  warning=$REPLY
+  _output_color error 203
+  error=$REPLY
+  _output_color info 111
+  info=$REPLY
+  _output_color muted 242
+  muted=$REPLY
+  _output_color match 199
+  match=$REPLY
+  _output_color text 252
+  text=$REPLY
+
+  typeset -ga _OUTPUT_GIT_COLOR_CONFIG=(
+    'color.ui=auto'
+    "color.advice.hint=$muted"
+    "color.branch.current=bold $success"
+    "color.branch.local=$info"
+    "color.branch.remote=$accent"
+    "color.branch.upstream=$heading"
+    "color.branch.plain=$text"
+    "color.decorate.branch=$success"
+    "color.decorate.remoteBranch=$accent"
+    "color.decorate.tag=$warning"
+    "color.decorate.stash=$match"
+    "color.decorate.HEAD=bold $heading"
+    "color.diff.meta=$heading"
+    "color.diff.frag=bold $warning"
+    "color.diff.old=$error"
+    "color.diff.new=$success"
+    "color.diff.commit=bold $heading"
+    "color.diff.whitespace=reverse $error"
+    "color.grep.match=bold $match"
+    "color.grep.filename=$heading"
+    "color.grep.lineNumber=$muted"
+    "color.grep.column=$muted"
+    "color.grep.separator=$muted"
+    "color.grep.context=$text"
+    "color.interactive.prompt=bold $heading"
+    "color.status.header=bold $heading"
+    "color.status.added=bold $success"
+    "color.status.updated=bold $success"
+    "color.status.changed=bold $warning"
+    "color.status.untracked=bold $error"
+    "color.status.unmerged=bold $error"
+    "color.status.nobranch=bold $warning"
+    "color.status.localBranch=$success"
+    "color.status.remoteBranch=$accent"
+    "color.push.error=bold $error"
+    "color.remote.error=bold $error"
+    "color.remote.warning=bold $warning"
+    "color.remote.hint=$muted"
+    "color.remote.success=bold $success"
+    "color.transport.rejected=bold $error"
+  )
+}
+
+# Find the Git subcommand without interpreting its operands. Unknown global
+# options conservatively disable decoration rather than risk changing command
+# semantics.
+_output_git_subcommand() {
+  emulate -L zsh
+
+  local -a arguments=("$@")
+  local argument=''
+  local -i index=1
+
+  REPLY=''
+  while (( index <= ${#arguments} )); do
+    argument=${arguments[index]}
+    case $argument in
+      -C|-c|--config-env|--git-dir|--work-tree|--namespace|--super-prefix|--attr-source)
+        (( index += 2 ))
+        ;;
+      --*=*|-p|--paginate|-P|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks)
+        (( ++index ))
+        ;;
+      -*)
+        return 1
+        ;;
+      *)
+        REPLY=$argument
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+_output_git_subcommand_uses_color() {
+  case $1 in
+    add|am|annotate|apply|backfill|bisect|blame|branch|bundle|checkout|\
+    cherry-pick|clean|clone|commit|count-objects|describe|diff|diff-files|\
+    diff-index|diff-tree|difftool|fetch|format-patch|fsck|gc|grep|init|log|\
+    maintenance|merge|merge-tree|mergetool|mv|notes|pull|push|range-diff|\
+    rebase|reflog|remote|repack|replace|request-pull|reset|restore|revert|\
+    rerere|rm|shortlog|show|show-branch|sparse-checkout|stash|status|\
+    submodule|switch|tag|verify-commit|verify-tag|whatchanged|worktree)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+# Apply only Git's own color engine to human-facing commands. Non-terminal
+# calls, configuration inspection, and machine-oriented subcommands receive the
+# exact original argv. Explicit `git -c color.ui=...` arguments come later and
+# therefore retain final authority.
+unalias git 2>/dev/null
+git() {
+  emulate -L zsh
+
+  local subcommand=''
+  local configuration=''
+  local -a git_color_arguments=()
+
+  if [[ ! -t 1 && ! -t 2 ]]; then
+    command git "$@"
+    return
+  fi
+
+  _output_git_subcommand "$@" || {
+    command git "$@"
+    return
+  }
+  subcommand=$REPLY
+  _output_git_subcommand_uses_color "$subcommand" || {
+    command git "$@"
+    return
+  }
+
+  _output_git_color_arguments
+  for configuration in "${_OUTPUT_GIT_COLOR_CONFIG[@]}"; do
+    git_color_arguments+=(-c "$configuration")
+  done
+  command git "${git_color_arguments[@]}" "$@"
+}
+
+# Highlight matches only for interactive terminal output. Pipes, command
+# substitutions, and redirected files remain byte-for-byte plain unless the
+# caller explicitly requests --color=always. Capability detection runs only on
+# the first interactive use of each resolved grep executable and is cached in
+# memory for the shell's lifetime.
+typeset -gi _GREP_SUPPORTS_COLOR=-1
+typeset -g _GREP_COLOR_BINARY=''
+unalias grep 2>/dev/null
+grep() {
+  emulate -L zsh
+
+  local grep_binary=${commands[grep]:-}
+  if [[ $grep_binary != $_GREP_COLOR_BINARY ]]; then
+    _GREP_SUPPORTS_COLOR=-1
+    _GREP_COLOR_BINARY=$grep_binary
+  fi
+
+  if [[ -t 1 ]]; then
+    if (( _GREP_SUPPORTS_COLOR < 0 )); then
+      command grep --color=never -q -- '' /dev/null 2>/dev/null
+      if (( $? <= 1 )); then
+        _GREP_SUPPORTS_COLOR=1
+      else
+        _GREP_SUPPORTS_COLOR=0
+      fi
+    fi
+  fi
+
+  if [[ -t 1 ]] && (( _GREP_SUPPORTS_COLOR )); then
+    local match=''
+    _output_color match 199
+    match=$REPLY
+    local -x GREP_COLOR=${GREP_COLOR:-"1;38;5;$match"}
+    local -x GREP_COLORS=${GREP_COLORS:-"ms=1;38;5;$match:mc=1;38;5;$match"}
+    command grep --color=auto "$@"
+  else
+    command grep "$@"
+  fi
+}
+
+# Render the semantic emphasis already embedded in manual pages with the
+# shared output palette. The exported values are local to this invocation, so
+# ordinary `less` sessions keep their own appearance.
+man() {
+  emulate -L zsh
+
+  local heading='' warning='' match=''
+  _output_color heading 75
+  heading=$REPLY
+  _output_color warning 221
+  warning=$REPLY
+  _output_color match 199
+  match=$REPLY
+
+  local -x MANCOLOR=${MANCOLOR:-1}
+  local -x MANPAGER=${MANPAGER:-'less -sR'}
+  local -x LESS_TERMCAP_mb=${LESS_TERMCAP_mb:-$'\e[1;38;5;'${match}'m'}
+  local -x LESS_TERMCAP_md=${LESS_TERMCAP_md:-$'\e[1;38;5;'${heading}'m'}
+  local -x LESS_TERMCAP_me=${LESS_TERMCAP_me:-$'\e[0m'}
+  local -x LESS_TERMCAP_so=${LESS_TERMCAP_so:-$'\e[1;38;5;16;48;5;'${heading}'m'}
+  local -x LESS_TERMCAP_se=${LESS_TERMCAP_se:-$'\e[0m'}
+  local -x LESS_TERMCAP_us=${LESS_TERMCAP_us:-$'\e[4;38;5;'${warning}'m'}
+  local -x LESS_TERMCAP_ue=${LESS_TERMCAP_ue:-$'\e[0m'}
+
+  command man "$@"
+}
+
+:

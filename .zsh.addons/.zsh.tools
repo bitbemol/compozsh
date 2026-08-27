@@ -1,4 +1,4 @@
-# Small commands and terminal-aware output wrappers.
+# Small commands and safe Git cleanup.
 
 mkcd() {
   emulate -L zsh
@@ -117,65 +117,11 @@ prompt-refresh() {
     _PROMPT_RUNTIME_VERSION_CACHE=()
   (( ${+parameters[_PROMPT_GIT_DIR_CACHE]} )) &&
     _PROMPT_GIT_DIR_CACHE=()
-  _GREP_SUPPORTS_COLOR=-1
-  _GREP_COLOR_BINARY=''
-  rehash
-}
-
-# Highlight matches only for interactive terminal output. Pipes, command
-# substitutions, and redirected files remain byte-for-byte plain unless the
-# caller explicitly requests --color=always. Capability detection runs only on
-# the first interactive use of each resolved grep executable and is cached in
-# memory for the shell's lifetime.
-typeset -gi _GREP_SUPPORTS_COLOR=-1
-typeset -g _GREP_COLOR_BINARY=''
-unalias grep 2>/dev/null
-grep() {
-  emulate -L zsh
-
-  local grep_binary=${commands[grep]:-}
-  if [[ $grep_binary != $_GREP_COLOR_BINARY ]]; then
+  (( ${+parameters[_GREP_SUPPORTS_COLOR]} )) &&
     _GREP_SUPPORTS_COLOR=-1
-    _GREP_COLOR_BINARY=$grep_binary
-  fi
-
-  if [[ -t 1 ]]; then
-    if (( _GREP_SUPPORTS_COLOR < 0 )); then
-      command grep --color=never -q -- '' /dev/null 2>/dev/null
-      if (( $? <= 1 )); then
-        _GREP_SUPPORTS_COLOR=1
-      else
-        _GREP_SUPPORTS_COLOR=0
-      fi
-    fi
-  fi
-
-  if [[ -t 1 ]] && (( _GREP_SUPPORTS_COLOR )); then
-    local -x GREP_COLOR=${GREP_COLOR:-'1;38;5;199'}
-    local -x GREP_COLORS=${GREP_COLORS:-'ms=1;38;5;199:mc=1;38;5;199'}
-    command grep --color=auto "$@"
-  else
-    command grep "$@"
-  fi
-}
-
-# Render the semantic emphasis already embedded in manual pages with the same
-# palette as the prompt. The exported values are local to this invocation, so
-# ordinary `less` sessions keep their own appearance.
-man() {
-  emulate -L zsh
-
-  local -x MANCOLOR=${MANCOLOR:-1}
-  local -x MANPAGER=${MANPAGER:-'less -sR'}
-  local -x LESS_TERMCAP_mb=${LESS_TERMCAP_mb:-$'\e[1;38;5;199m'}
-  local -x LESS_TERMCAP_md=${LESS_TERMCAP_md:-$'\e[1;38;5;81m'}
-  local -x LESS_TERMCAP_me=${LESS_TERMCAP_me:-$'\e[0m'}
-  local -x LESS_TERMCAP_so=${LESS_TERMCAP_so:-$'\e[1;38;5;16;48;5;75m'}
-  local -x LESS_TERMCAP_se=${LESS_TERMCAP_se:-$'\e[0m'}
-  local -x LESS_TERMCAP_us=${LESS_TERMCAP_us:-$'\e[4;38;5;221m'}
-  local -x LESS_TERMCAP_ue=${LESS_TERMCAP_ue:-$'\e[0m'}
-
-  command man "$@"
+  (( ${+parameters[_GREP_COLOR_BINARY]} )) &&
+    _GREP_COLOR_BINARY=''
+  rehash
 }
 
 :
