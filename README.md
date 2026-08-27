@@ -707,7 +707,8 @@ Search ‹›
 ⌥W/^Y copy · 1–9 insert · ↑↓ move · type refine · ⏎ insert · esc cancel
 ```
 
-The `·`, `▸`, and `↗` markers identify files, directories, and symbolic links.
+The `●` cursor marks the currently selected row. The `·`, `▸`, and `↗` type
+markers identify regular files, directories, and symbolic links respectively.
 Use arrows or `Ctrl-P`/`Ctrl-N`, type to refine, or press a visible number for
 direct selection. `Enter` places the shell-quoted full path on the next editable
 command line; it never opens, executes, or changes into the result. Press
