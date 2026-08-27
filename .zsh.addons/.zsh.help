@@ -42,9 +42,29 @@ _compozsh_help_compozsh() {
     '  Prefixes and substrings rank before abbreviated matches. Type to refine;' \
     '  Arrows / Ctrl-P / Ctrl-N move; Enter shows help for the selected tool.' \
     '  Digits filter normally once the query is nonempty.' \
+    '  Numbers identify visible slots; 0 selects the tenth row when shown.' \
+    '  Arrows scroll through all matching tools and stop at either end.' \
+    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
+    '  Page keys act on the focused pane; refining starts at the first match.' \
     '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
     '  Up to 10 rows appear by default, limited by terminal height; set' \
     '  ZSH_TOOL_PICKER_MAX_RESULTS in your initializer to adjust it.' \
+    '' \
+    'Help inspector (Zsh 5.9 / macOS Terminal.app):' \
+    '  At 100 columns or wider, help appears beside the tool list. In a' \
+    '  narrower window, switch between the list and a full-width help view.' \
+    '  Right / Ctrl-F enters help; Left / Ctrl-B returns to the tool list.' \
+    '  Tab / Shift-Tab switches panes. In help, Up/Down or Ctrl-P/N scroll;' \
+    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta enabled).' \
+    '  Fn-Up/Down (Page Up/Down) also scroll by a page. Typing refines the' \
+    '  filter and returns to the list. Enter prints full help after closing.' \
+    '  Digits select only from the visible list with an empty filter.' \
+    '  The browser captures up to 64 trusted same-file help companions once' \
+    '  when opened, up to 32,768 characters each and 256 wrapped preview lines.' \
+    '  Truncation is labeled; Enter still shows the complete guide.' \
+    '  Scrolling and resizing use that in-memory snapshot; closing releases it.' \
+    '  Custom help providers must be static and side-effect-free, just as for' \
+    '  --help. Preview bounds are not a sandbox for user-defined shell code.' \
     '' \
     'Examples:' \
     '  compozsh          Explore, then type part of a tool name.' \
@@ -114,6 +134,34 @@ _compozsh_tool_print_captured() {
   print -r -- "Compozsh tools · ${#_COMPOZSH_TOOL_NAMES} loaded"
   for label in "${_COMPOZSH_TOOL_LABELS[@]}"; do
     print -r -- "$label"
+  done
+}
+
+# Capture trusted help companions once per browser invocation, outside ZLE.
+# The UI receives only text. Never call a public tool to probe documentation.
+_compozsh_tool_inspector_capture() {
+  emulate -L zsh
+  local name helper text
+  local -i captured=0
+  typeset -gA _ZLE_PICKER_INSPECT_TEXTS=()
+  for name in "${_COMPOZSH_TOOL_NAMES[@]}"; do
+    helper=${_COMPOZSH_TOOL_HELPERS[$name]-}
+    if [[ -z $helper ]]; then
+      _ZLE_PICKER_INSPECT_TEXTS[$name]="No Compozsh help is available for ${name}."$'\n'"Defined in: ${_COMPOZSH_TOOL_SOURCES[$name]}"
+    elif (( captured >= 64 )); then
+      _ZLE_PICKER_INSPECT_TEXTS[$name]='Preview limit reached. Press Enter for full help.'
+    else
+      (( ++captured ))
+      text=''
+      # read retains a short final read at EOF. A closed pipe bounds oversized
+      # output without storing the rest. Companions follow the static-help contract.
+      IFS= read -r -u 0 -k 32768 text < <("$helper" 2>/dev/null) || :
+      if (( ${#text} >= 32768 )); then
+        text+=$'\n[Preview truncated. Press Enter for full help.]'
+      fi
+      [[ -n $text ]] || text='No preview text returned. Press Enter for full help.'
+      _ZLE_PICKER_INSPECT_TEXTS[$name]=$text
+    fi
   done
 }
 
@@ -236,17 +284,25 @@ compozsh() {
   fi
 
   local selected=''
+  local _ZLE_PICKER_INSPECT_TITLE=Help _ZLE_PICKER_INSPECT_ACTION='print help'
   local -i picker_status=0
   _ZLE_PICKER_TITLE='Compozsh tools'
   _ZLE_PICKER_BROWSE_LABEL='loaded add-on functions'
   _ZLE_PICKER_EMPTY_LABEL='no matching tools'
-  _ZLE_PICKER_FOOTER='1–9 help · ↑↓ move · type filter · ⏎ help · esc cancel'
+  _ZLE_PICKER_FOOTER='0–9 help · ↑↓ move · type filter · ⏎ help · esc cancel'
   _ZLE_PICKER_COLLECTOR='_compozsh_tool_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
   _ZLE_PICKER_COPY_ENABLED=0
   _ZLE_PICKER_HIERARCHY_ENABLED=0
-  _zle_picker_run "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}"
-  picker_status=$?
+  {
+    if (( ${+functions[_zle_picker_inspect_render]} )); then
+      _compozsh_tool_inspector_capture
+    fi
+    _zle_picker_run "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}"
+    picker_status=$?
+  } always {
+    _ZLE_PICKER_INSPECT_TEXTS=()
+  }
   (( picker_status == 1 )) && return 0
   (( picker_status == 0 )) || return $picker_status
 

@@ -142,11 +142,11 @@ compozsh/
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.shell         shell options, history, and native tool colors
-│   ├── .zsh.editor        completion, directory/history pickers, and editing
-│   ├── .zsh.find          bounded project, filesystem, and Spotlight search
-│   ├── .zsh.help          live custom-tool discovery and documentation
+│   ├── .zsh.editor        completion, shared pickers/inspectors, and editing
+│   ├── .zsh.find          bounded file search and captured path details
+│   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
-│   ├── .zsh.navigation    directory and Git branch navigation pickers
+│   ├── .zsh.navigation    directory/branch pickers and captured branch details
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
@@ -181,11 +181,11 @@ peer owns one focused concern and can still be sourced independently:
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion and ZLE editing | Native completion, contextual fuzzy directory completion, macOS-friendly bindings, the shared visual picker, fuzzy `Ctrl-R`, and history autosuggestions |
-| `.zsh.find` | Bounded fuzzy file search | `f` searches project files, explicit directory trees, or the macOS Spotlight index and safely returns a selected path |
-| `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions and safely displays their available documentation |
+| `.zsh.editor` | Completion and ZLE editing | Native completion, contextual fuzzy directory completion, macOS-friendly bindings, shared scrolling pickers with optional text inspectors, fuzzy `Ctrl-R`, and history autosuggestions |
+| `.zsh.find` | Bounded fuzzy file search | `f` searches project files, explicit directory trees, or the macOS Spotlight index, presents filename-first results with folder context and captured path details, and safely returns a selected path |
+| `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
-| `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` Git/branch picker, recent stacks, numbered selection, and small navigation aliases |
+| `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` branch picker with commit/upstream details, recent stacks, numbered selection, and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
@@ -670,7 +670,7 @@ Directories · ~/ · matches for Dev · 2 shown
 Search ‹›
 [1] ● Developer/
 [2]   Devices/
-tab/→ open · ⇧tab/← back · ↑↓ move · 0–9/⏎ insert · type filter
+tab/→ open · ⇧tab/← back · ↑↓ move · ^V/⌥V page · 0–9/⏎ insert
 ```
 
 The fragment already typed stays as a required fuzzy match, while the picker
@@ -699,6 +699,9 @@ name all delegate to Zsh's original `expand-or-complete` widget. Outside the
 picker, `Shift-Tab` continues to use native reverse completion.
 
 At most ten rows are shown so every visible index remains a single direct key.
+Arrows scroll through all matching children at the current level, and page keys
+jump through the list. Right/Tab still opens a child; Left/Shift-Tab returns to
+the parent. Scrolling does not traverse other directory levels.
 Change the smaller bound from the local initializer when desired:
 
 ```zsh
@@ -745,15 +748,15 @@ each fragment may also use character-ordered abbreviation. For example,
 `Sources/Network/Client.swift`.
 
 After the one-time capture, filtering and resizing operate entirely on the
-bounded in-memory snapshot:
+bounded in-memory snapshot. The compact list view looks like this:
 
 ```text
-Files · ~/Developer/project · 3 candidates for net cli · 3 shown
+Files · Git · ~/Projects/example-app · 3 candidates for net cli · 3 shown
 Search ‹›
-[1] ● · Sources/Network/Client.swift
-[2]   ▸ Sources/Network/
-[3]   · Notes/Network client plan.md
-⌥W/^Y copy · 1–9 insert · ↑↓ move · type refine · ⏎ insert · esc cancel
+[1] ● · Client.swift             Sources/Network/
+[2]   ▸ Network/                 Sources/
+[3]   · Network client plan.md   Notes/
+→ path · ↑↓ select · ⏎ insert · ^Y copy · esc
 ```
 
 The `●` cursor marks the currently selected row. The `·`, `▸`, and `↗` type
@@ -763,6 +766,28 @@ direct selection. `Enter` places the shell-quoted full path on the next editable
 command line; it never opens, executes, or changes into the result. Press
 `Option-W` or `Ctrl-Y` to copy the unquoted path when macOS `pbcopy` is
 available.
+
+Results put the filename first and its parent folder in a quieter secondary
+column, so identically named files remain distinguishable. Long labels use
+middle ellipses that preserve useful endings such as extensions; very narrow
+rows hide the folder context. Copying and insertion always use the complete
+original path.
+
+At 100 columns or more, the results receive the larger left pane. The **Path**
+panel shows the captured file/directory/link type and the full path once,
+wrapped to its width. The shared header identifies the search source and scope;
+the footer describes the actions. Short details do not reserve extra empty rows,
+and a scroll position appears only when the preview needs scrolling.
+Press Right or `Ctrl-F` to focus it, then Up/Down to scroll;
+Left or `Ctrl-B` returns to the list. Tab switches
+panes. In narrower windows, the focused panel uses the full width. Typing
+returns to filtering, and digits select only with an empty query and list
+focus. Enter and clipboard shortcuts keep their usual actions in either pane.
+
+Details are built from the existing candidate snapshot, with no extra file
+reads, metadata probes, symlink resolution, or directory traversal. File
+contents are never previewed. Paths and types can become stale while the picker
+is open; rerun `f` to refresh the search.
 
 Scope and output options are deliberately small:
 
@@ -795,7 +820,13 @@ Direct traversal inspects at most 20,000 entries, and every provider retains at
 most 2,000 initial matches. Reaching either limit marks the picker snapshot as
 partial instead of silently claiming completeness. `--list` and `--print0`
 retain the same capture bounds. The visible list defaults to ten rows. These
-bounds may be adjusted in the local initializer:
+ten rows are a scrolling window: keep pressing Down to reach later captured
+matches, or use Ctrl-V to page down and Escape then `v` to page up. Option-V
+also pages up with Option-as-Meta enabled; Fn-Up/Down provide page keys.
+The list stops at its ends. Numbers identify visible slots; `[0]` selects the
+tenth row when shown. Refining the query returns to the first matching result.
+Search capture limits still apply: paging never starts another filesystem or
+Spotlight search. The bounds may be adjusted in the local initializer:
 
 ```zsh
 ZSH_FILE_SEARCH_MAX_RESULTS=10
@@ -902,6 +933,8 @@ corresponding shared picker role when the shared palette initializes.
 | `Ctrl-L` | Redraw a clean search screen |
 | `Down`, `Ctrl-N`, `Tab`, or `Ctrl-R` | Select the next result |
 | `Up`, `Ctrl-P`, or `Shift-Tab` | Select the previous result |
+| `Ctrl-V` / Escape then `v` | Page down / up; Option-V works with Option-as-Meta enabled |
+| `Fn-Down` / `Fn-Up` | Page down / up on Apple keyboards |
 | `Enter` | Put the selected command on the editable line |
 | `Esc` or `Ctrl-G` | Cancel and restore the original line |
 | `Ctrl-C` | Hard-abort the search and current editable line |
@@ -912,11 +945,26 @@ changed before pressing `Enter` again. Display rows make control characters
 visible, truncate to the current terminal width, and reduce automatically in a
 short terminal window.
 
-The picker uses Zsh's live `history` parameter and pattern engine; it does not
-launch a subprocess, maintain another history file, or build a disk index. It
+All pickers use the same scrolling viewport: `Ctrl-R` history, `d` directories,
+`g` branches, `f` files, the `compozsh` tool explorer, and contextual directory
+completion with Tab. Keep moving beyond the last visible row to reveal later
+matches; move up to return. The header shows the visible range
+and `more ↓` while additional matches may remain, then the exact total once
+matching is exhausted. Movement stops at the beginning and end. Changing the
+query resets to its first match. Page keys control whichever pane has focus,
+including the Help, Branch, and Path detail panels, in wide and narrow layouts.
+Number shortcuts refer to the rows currently displayed and update as you
+scroll; they never select hidden results. `Ctrl-R` keeps digits as search text.
+
+Matching grows a buffered prefix only when needed. Ordinary navigation and
+resize redraw the visible rows; closing the picker releases its result buffer.
+
+The picker captures Zsh's loaded `history` when opened and uses its native
+pattern engine, with no subprocess, extra history file, or disk index. It
 can search up to 50,000 entries retained across shell restarts and shows at most
-eight results by default. Matching considers the full loaded history; the
-result limit only bounds the picker display. Override that bounded value from
+eight rows at a time by default. Matching considers the full loaded history,
+and scrolling can reach later matches; the result limit only bounds the picker
+display. Override that bounded value from
 the local initializer if desired:
 
 ```zsh
@@ -1288,6 +1336,41 @@ Run the explorer with no arguments for the fuzzy picker:
 compozsh
 ```
 
+### Browse tools with the help inspector
+
+The explorer shows the selected tool's help beside its result list at widths
+of 100 columns or more. Narrower windows use a switchable full-width detail
+view. This interface uses native Zsh 5.9 and macOS Terminal.app capabilities;
+no additional application or UI package is required.
+
+| Key | Action |
+| --- | --- |
+| Up/Down or Ctrl-P/N | Select a tool, or scroll when the help pane has focus |
+| Right or Ctrl-F | Focus the help pane |
+| Left or Ctrl-B | Return to the tool list |
+| Tab or Shift-Tab | Switch panes |
+| Ctrl-V | Page down in the focused pane |
+| Escape, then `v` | Page up in the focused pane; Option-V also works with Option-as-Meta enabled |
+| Fn-Up/Down | Page up/down in the focused pane on Apple keyboards |
+| Type or paste | Refine the filter and return to the list |
+| Enter | Close the browser and print the selected tool's complete help |
+| Visible digit, with an empty filter and list focus | Show that tool's full help |
+| Escape or Ctrl-G | Cancel; Ctrl-C aborts |
+
+Search and selection survive switching panes and resizing. The focused help
+pane has a `▸` marker, a scroll position, and contextual keyboard hints. Help
+uses the shared semantic output palette when available; missing peers retain
+the ordinary picker and plain documentation paths.
+
+Help companions are captured once when opening the browser: at most 64
+providers, 32,768 characters per provider, and 256 wrapped preview lines.
+Truncated previews are labeled, and Enter still shows the complete guide.
+Scrolling, filtering, and resizing consume the in-memory snapshot without
+executing tools or rereading files. Closing the browser releases the snapshot.
+These bounds limit preview data; they do not sandbox a private help provider.
+As with `--help`, user-defined companions must return promptly and be static
+and side-effect-free. Functions lacking a same-file companion are never run.
+
 Use its noninteractive forms when you want copyable output or already know the
 command name:
 
@@ -1423,22 +1506,23 @@ Search ‹›
 [ 0] ● ~/Developer/current-project
 [ 1]   ~/Developer
 [ 2]   ~
-0–9 select · ↑↓ move · type filter · ⏎ cd · esc cancel
+0–9 select · ↑↓ move · ^V/⌥V page · ⏎ cd · esc cancel
 ```
 
 With an empty filter, press any visible digit from `0` through `9` to change
 directory immediately—no `Enter` required. You can also use the arrows or
 `Ctrl-P`/`Ctrl-N`, type to filter, and press `Enter`. Once filtering begins,
 digits become normal search text so names containing numbers remain searchable.
-Index `0` is the current directory. Run `d --list` when a static, copyable stack
-is more useful than the interactive selector.
+On the initial unfiltered screen, slot `0` is the current directory. Slot
+numbers update while scrolling; they are not native directory-stack indexes.
+Run `d --list` for a static, copyable list with the actual stack indexes.
 
 Zsh's native `~1`, `~2`, and other directory-stack expansions still work. They
 are shell syntax rather than a feature owned by this configuration; the visual
 selector is now the primary direct interface.
 
-Inside a Git working tree, run `g` without arguments for the equivalent branch
-selector:
+Inside a Git working tree, run `g` without arguments for the branch selector.
+Its compact list view looks like this:
 
 ```text
 Branches · current-project · recent checkouts · 3 shown
@@ -1446,13 +1530,28 @@ Search ‹›
 [ 0] ● feature/prompt-navigation
 [ 1]   main
 [ 2]   feature/runtime-line
-⌥W/^Y copy · 0–9 switch · ↑↓ move · type filter · ⏎ switch · esc cancel
+→ branch · ↑↓ select · ⏎ switch · ^Y copy · esc
 ```
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and every
 other argument-bearing form delegate directly to `git`. With an empty filter,
 press a visible digit to switch immediately; after typing a filter, digits are
 search text.
+
+The **Branch** panel shows the full name, current-branch indicator, latest
+commit ID and subject, and configured upstream. At 100 columns or more it sits
+beside the list; smaller windows use a full-width detail view. Right/`Ctrl-F`
+focuses details, Left/`Ctrl-B` returns to the list, and Tab switches panes.
+Up/Down scrolls focused details; typing returns to filtering. Enter still
+switches branches, and copying works from either pane. Immediate digit
+selection requires an empty query and focus on the visible list.
+
+An additional read-only Git batch captures these details before opening the
+picker. It reads at most 262,144 characters across up to 401 recent refs and
+shows at most 512 characters per commit subject. Unavailable or capped records
+show a notice while their branches remain selectable. No fetch is performed;
+upstream names describe local configuration, not server freshness. Rerun `g`
+to refresh the snapshot.
 
 Select a row and press `Option-W` or `Ctrl-Y` to copy its branch name without
 switching. Modified keys intentionally leave every printable character,
@@ -1474,7 +1573,9 @@ Both navigation selectors use captured in-memory labels while typing and
 resizing. Directory collection launches no process; branch discovery runs Git
 during the initial capture, with no further Git calls while filtering. The
 number of visible rows is bounded by
-the terminal height and defaults to ten. Override it locally if desired:
+the terminal height and defaults to ten. Arrows and page keys can reach every
+match in the captured list, with no extra Git commands or directory scans.
+Override the viewport size locally if desired:
 
 ```zsh
 ZSH_NAVIGATION_PICKER_MAX_RESULTS=12

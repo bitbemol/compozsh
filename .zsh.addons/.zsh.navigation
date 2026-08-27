@@ -199,12 +199,15 @@ _compozsh_help_d() {
     '  Literal prefixes and substrings rank before abbreviated matches.' \
     '  Arrows / Ctrl-P / Ctrl-N move; Enter changes to the selected directory.' \
     '  With an empty query, a visible digit 0-9 selects immediately; after' \
-    '  typing, digits are search text. Indexes retain their stack meanings.' \
+    '  typing, digits are search text. Numbers label the currently visible' \
+    '  slots, not fixed stack indexes; d --list shows native stack indexes.' \
     '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
     '  Native ~1, ~2, ... expansion still works and changes with the stack.' \
-    '  Up to 10 rows appear by default, limited by terminal height. Refine to' \
-    '  find other captured entries; set ZSH_NAVIGATION_PICKER_MAX_RESULTS in' \
-    '  your initializer to change the visible limit.' \
+    '  Up to 10 rows appear by default, limited by terminal height. Arrows' \
+    '  scroll through all captured matches and stop at either end.' \
+    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
+    '  Fn-Up/Down also pages. Refining starts at the first match. Set' \
+    '  ZSH_NAVIGATION_PICKER_MAX_RESULTS to change the visible limit.' \
     '  Missing or inaccessible directories fail through normal cd checks.' \
     '' \
     'Options and fallback:' \
@@ -251,7 +254,7 @@ d() {
   _ZLE_PICKER_TITLE='Directories'
   _ZLE_PICKER_BROWSE_LABEL='recent locations'
   _ZLE_PICKER_EMPTY_LABEL='no matching directories'
-  _ZLE_PICKER_FOOTER='0–9 select · ↑↓ move · type filter · ⏎ cd · esc cancel'
+  _ZLE_PICKER_FOOTER='0–9 select · ↑↓ move · ^V/⌥V page · ⏎ cd · esc cancel'
   _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
   _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
@@ -312,6 +315,43 @@ _git_recent_branches() {
 
   # Local branches absent from the bounded checkout reflog are simply not
   # recent; a partial recency list is still a successful inspection.
+  return 0
+}
+
+# Optional details use one bounded bulk read, never a Git call per selection.
+# NUL fields preserve tabs in commit subjects and empty upstreams. An incomplete
+# record (including a failed Git command) leaves the useful branch-only fallback.
+_git_branch_inspector_capture() {
+  emulate -L zsh
+  local root=$1 branch='' state='' data='' ref='' upstream='' oid='' subject='' text=''
+  local -a refs=()
+  typeset -gA _ZLE_PICKER_INSPECT_TEXTS=()
+  for branch in "${_GIT_RECENT_BRANCHES[@]}"; do
+    state='Recent local branch'
+    [[ $branch == "$_GIT_RECENT_CURRENT" ]] && state='Current branch'
+    _ZLE_PICKER_INSPECT_TEXTS[$branch]="${(V)branch}"$'\n'"$state"$'\n\nCommit details unavailable (read limit or Git error).'
+    refs+=("refs/heads/$branch")
+  done
+  (( ${#refs} )) || return 0
+  # 200 checkout transitions yield at most 401 distinct recent branches.
+  # The byte/character cap also bounds unusually large commit messages.
+  IFS= read -r -u 0 -k 262144 data < <(command git -C "$root" for-each-ref \
+    --count=401 --format='%(refname)%00%(upstream:short)%00%(objectname:short)%00%(subject)%00' \
+    "${refs[@]}" 2>/dev/null) || :
+  while IFS= read -r -d '' ref && IFS= read -r -d '' upstream &&
+        IFS= read -r -d '' oid && IFS= read -r -d '' subject; do
+    ref=${ref#$'\n'}
+    branch=${ref#refs/heads/}
+    (( ${+_ZLE_PICKER_INSPECT_TEXTS[$branch]} )) || continue
+    state='Recent local branch'
+    [[ $branch == "$_GIT_RECENT_CURRENT" ]] && state='Current branch'
+    (( ${#subject} > 512 )) && subject="${subject[1,512]}… [truncated]"
+    text="${(V)branch}"$'\n'"$state"
+    text+=$'\n\nLatest commit:\n  '"${(V)oid}"$'\n  '"${(V)subject}"
+    text+=$'\n\nUpstream:\n  '"${(V)upstream:-not configured}"
+    text+=$'\n\n  Enter switches to this branch.\n  Snapshot captured when g opened; no fetch.'
+    _ZLE_PICKER_INSPECT_TEXTS[$branch]=$text
+  done <<< "$data"
   return 0
 }
 
@@ -392,6 +432,11 @@ _compozsh_help_g() {
     '  and substring matches rank before abbreviated ones.' \
     '  Arrows / Ctrl-P / Ctrl-N move; Enter switches. With an empty query,' \
     '  a visible digit 0-9 switches immediately; otherwise digits filter.' \
+    '  Numbers label visible slots and update as the list scrolls.' \
+    '  Arrows scroll through all captured matches and stop at either end.' \
+    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
+    '  Fn-Up/Down also pages; page keys act on the focused pane.' \
+    '  Refining the query returns to the first match.' \
     '  Option-W / Ctrl-Y copies the branch name without switching when pbcopy' \
     '  is available. In SSH, copying targets the host running Zsh.' \
     '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
@@ -400,6 +445,19 @@ _compozsh_help_g() {
     '  Up to 10 rows appear by default, limited by terminal height. Set' \
     '  ZSH_NAVIGATION_PICKER_MAX_RESULTS in your initializer to adjust it.' \
     '  Filtering uses the captured recent list; rerun g to refresh it.' \
+    '' \
+    'Branch details:' \
+    '  At 100 columns or wider, the selected branch has a side panel showing' \
+    '  its full name, current-branch marker, tip commit, and upstream.' \
+    '  Right / Ctrl-F focuses details; Left / Ctrl-B returns to the list.' \
+    '  Tab switches panes; Up/Down scrolls the focused details. In narrower' \
+    '  windows, details use a full-width view. Typing returns to filtering.' \
+    '  Enter still switches; Ctrl-Y / Option-W still copies when available.' \
+    '  Digits select only with an empty query and focus on the visible list.' \
+    '  One extra read-only Git batch captures details when opening, capped at' \
+    '  262,144 characters and 401 refs. Subjects are limited to 512 characters.' \
+    '  Missing or capped metadata leaves the branch selectable with a notice.' \
+    '  The upstream is local configuration; no fetch or network access occurs.' \
     '' \
     'Git shorthand and fallback:' \
     '  With arguments, delegates directly to Git and preserves its status.' \
@@ -435,6 +493,7 @@ g() {
   fi
 
   local root='' repo='' branch='' clipboard_binary=${commands[pbcopy]:-}
+  local _ZLE_PICKER_INSPECT_TITLE=Branch _ZLE_PICKER_INSPECT_ACTION=switch
   local -i index=0 picker_status=0
   _git_branch_stack_load || return
   root=$REPLY
@@ -465,8 +524,13 @@ g() {
   fi
   _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
-  _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
-  picker_status=$?
+  {
+    (( ${+functions[_zle_picker_inspect_render]} )) && _git_branch_inspector_capture "$root"
+    _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
+    picker_status=$?
+  } always {
+    _ZLE_PICKER_INSPECT_TEXTS=()
+  }
   (( picker_status == 1 )) && return 0
   (( picker_status == 0 )) || return $picker_status
 

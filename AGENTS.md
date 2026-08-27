@@ -14,6 +14,9 @@ core promises are:
   background daemon.
 - macOS-first ergonomics with correct behavior in SSH sessions, multiplexers,
   and ordinary Unicode/color terminals.
+- Target stock macOS Terminal.app and Apple's supported Zsh for new terminal
+  UI. Do not require another emulator, enhanced terminal protocol, downloaded
+  UI library, or replacement shell. Existing fallbacks remain intact.
 - Fast startup and prompt redraws with no project-specific persistent cache or
   background state.
 - A minimal stable `.zshrc` bootstrap, one optional first-loaded machine
@@ -423,6 +426,18 @@ never optimize from a single timing sample.
 - Pickers with visible single-digit indexes may accept an indexed digit
   immediately while the query is empty. Only activate an index that is visibly
   rendered, and preserve digits as ordinary search text after filtering begins.
+- Keep the picker viewport separate from the ranked result prefix. Arrows and
+  page keys may extend that prefix from already captured in-memory candidates,
+  with no provider calls or filesystem traversal. Render only visible rows,
+  retain selection on resize, stop at either end, reset to the first match on
+  query changes, and release buffered results on exit. Visible digit labels are
+  viewport-local slots, never indexes into an unseen result. Distinguish search
+  capture limits from the visible row count and advertise remaining results.
+- Apply this shared viewport and focused-pane paging contract to every picker:
+  history, directory stack, branches, file search, tool discovery, and contextual
+  directory completion. New pickers must reuse it. Keep cross-feature coverage
+  for collectors extending beyond one screen and for detail panes paging without
+  changing the selected result; preserve each caller's action and capture bounds.
 - Keep picker input on a stable dedicated row, visually distinct from titles,
   counts, and other metadata. Long queries must remain complete internally and
   abbreviate safely for display, with non-color delimiters for accessibility.
@@ -430,6 +445,22 @@ never optimize from a single timing sample.
   require non-conflicting modified keys, appear in the footer only when their
   capability exists, and return an action for the caller to perform after ZLE
   cleanup rather than running external commands inside the input loop.
+- Optional picker inspectors consume bounded caller-supplied text snapshots.
+  Capture trusted same-source help companions or bounded tool metadata before
+  entering ZLE; never call tools or providers during selection, scrolling, or
+  resize. Reuse existing captured facts where possible. Release snapshots on
+  exit, visibly report preview limits, and preserve full-help access. These
+  limits are not a sandbox: private help providers obey the static-help contract.
+  The caller supplies the panel title and acceptance label; the shared editor
+  owns layout, focus, scrolling, and capability-aware copy hints. Preserve each
+  tool's information hierarchy: optional secondary labels and pane proportions
+  are presentation data; exact action values remain untouched. Keep shared
+  scope and actions in the header/footer and avoid repeated selection headings.
+  Preserve each tool's actual Enter/copy actions. Do not steal hierarchy-navigation
+  keys when adding inspectors to directory completion. File panels show captured path
+  facts only; content previews require a separate safety and performance design.
+  Preserve search and selection across pane focus and responsive layouts, and
+  keep numbered selection restricted to visibly rendered list rows.
 - Escape-sequence parsing must handle standalone Escape, application cursor
   mode, Shift-Tab, Option chords, forward Delete, and bracketed paste without
   leaking bytes into the command buffer.

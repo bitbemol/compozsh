@@ -67,6 +67,10 @@ _file_search_usage() {
       '  Arrows / Ctrl-P / Ctrl-N move; Enter inserts a shell-quoted path into' \
       '  the next editable prompt. Selection does not open or execute it.' \
       '  A visible digit selects immediately while the search field is empty.' \
+      '  Numbers identify visible slots; 0 selects the tenth row when shown.' \
+      '  Down scrolls beyond the visible rows; Up returns. Ends do not wrap.' \
+      '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
+      '  Fn-Up/Down also pages. Refining the query starts at the first match.' \
       '  Option-W / Ctrl-Y copies the absolute path when pbcopy is available.' \
       '  Escape / Ctrl-G cancels; Ctrl-U clears the refinement query.' \
       '  Symbols: ● selected row, · file, ▸ directory, ↗ symbolic link.' \
@@ -76,10 +80,26 @@ _file_search_usage() {
       '  an unavailable picker fall back to plain line output.' \
       '  --help      Show this guide without searching.' \
       '' \
+      'Path details:' \
+      '  Results show filenames first, with quieter parent-folder context.' \
+      '  Long labels use a middle ellipsis, keeping useful filename endings;' \
+      '  very narrow rows hide folder context. Actual paths stay complete.' \
+      '  At 100 columns or wider, results use the larger left pane. The right' \
+      '  pane shows the captured type and full path once, wrapped to fit.' \
+      '  The header identifies the search source and scope for all results.' \
+      '  Right / Ctrl-F focuses details; Left / Ctrl-B returns to the list.' \
+      '  Tab switches panes; Up/Down scrolls the focused details. Narrower' \
+      '  windows use a full-width detail view. Typing returns to filtering.' \
+      '  Enter still inserts; Ctrl-Y / Option-W still copies when available.' \
+      '  Digits select only with an empty query and focus on the visible list.' \
+      '  Details reuse captured facts without reading contents, resolving link' \
+      '  targets, or adding filesystem scans. Rerun f to refresh stale data.' \
+      '' \
       'Limits (defaults; every scope is bounded):' \
       '  20,000 inspected entries per direct filesystem walk.' \
       '  2,000 captured matches per invocation, including Git and Spotlight.' \
-      '  Up to 10 rows visible in the picker; refining searches the snapshot.' \
+      '  Up to 10 rows visible in the picker; scroll through all captured matches.' \
+      '  Paging filters the in-memory snapshot and never restarts a provider.' \
       '  The picker marks truncated snapshots as partial. --list and --print0' \
       '  use the same capture bounds; a search from ~ can cover only part of it.' \
       '  Adjust ZSH_FILE_SEARCH_MAX_VISITED, ZSH_FILE_SEARCH_MAX_CANDIDATES,' \
@@ -428,6 +448,20 @@ _file_search_capture_spotlight() {
   (( ${#_FILE_SEARCH_VALUES} ))
 }
 
+# Keep presentation labels separate from the exact path used for actions.
+_file_search_picker_add_result() {
+  emulate -L zsh
+  local -i index=$1
+  local value=${_FILE_SEARCH_VALUES[index]} label=${_FILE_SEARCH_LABELS[index]}
+  if (( ${+_ZLE_PICKER_CONTEXTS} )) && [[ -n ${_ZLE_PICKER_CONTEXTS[$value]-} ]]; then
+    label="${label%% *} ${value:t}"
+    [[ ${_FILE_SEARCH_LABELS[index]} == '▸ '* ]] && label+=/
+  fi
+  _ZLE_PICKER_RESULTS+=("$value")
+  _ZLE_PICKER_LABELS+=("$label")
+  _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
+}
+
 _file_search_picker_append_matches() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -442,9 +476,7 @@ _file_search_picker_append_matches() {
     [[ $candidate == ${~pattern} ]] || continue
     value=${_FILE_SEARCH_VALUES[index]}
     (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
-    _ZLE_PICKER_RESULTS+=("$value")
-    _ZLE_PICKER_LABELS+=("${_FILE_SEARCH_LABELS[index]}")
-    _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
+    _file_search_picker_add_result $index
     (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
   done
 }
@@ -461,9 +493,7 @@ _file_search_picker_collect() {
 
   if [[ -z $query ]]; then
     for (( index = 1; index <= ${#_FILE_SEARCH_VALUES}; ++index )); do
-      _ZLE_PICKER_RESULTS+=("${_FILE_SEARCH_VALUES[index]}")
-      _ZLE_PICKER_LABELS+=("${_FILE_SEARCH_LABELS[index]}")
-      _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
+      _file_search_picker_add_result $index
       (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
     done
     return 0
@@ -495,6 +525,34 @@ _file_search_quote() {
   else
     REPLY=${(q)path}
   fi
+}
+
+# Format only facts already captured by the search. In particular, do not stat,
+# resolve symlinks, read contents, or execute a result to populate its panel.
+_file_search_inspector_capture() {
+  emulate -L zsh
+  local value='' label='' kind='' parent=''
+  local -i index=0
+  typeset -gA _ZLE_PICKER_INSPECT_TEXTS=()
+  typeset -gA _ZLE_PICKER_CONTEXTS=()
+  for value in "${_FILE_SEARCH_VALUES[@]}"; do
+    (( ++index ))
+    label=${_FILE_SEARCH_LABELS[index]}
+    case $label in
+      ('▸ '*) kind=Directory ;;
+      ('↗ '*) kind='Symbolic link' ;;
+      (*) kind=File ;;
+    esac
+    parent=${label#* }
+    [[ $parent == / ]] || parent=${parent%/}
+    parent=${parent:h}
+    [[ $parent == / ]] || parent+=/
+    _ZLE_PICKER_CONTEXTS[$value]=$parent
+    # One complete path; type is the only extra per-result fact. Scope belongs
+    # to the picker header and actions to its footer, rather than every preview.
+    _ZLE_PICKER_INSPECT_TEXTS[$value]="$kind"$'\n\n  '"${(V)value}"
+  done
+  return 0
 }
 
 _file_search_copy() {
@@ -540,6 +598,9 @@ f() {
   local scope=auto root='' query='' output_mode=picker argument=''
   local git_root='' provider='' mdfind_binary=${commands[mdfind]:-}
   local clipboard_binary=${commands[pbcopy]:-} selected=''
+  local _ZLE_PICKER_INSPECT_TITLE=Path _ZLE_PICKER_INSPECT_ACTION=insert
+  local -i _ZLE_PICKER_INSPECT_LIST_PERCENT=60
+  local -A _ZLE_PICKER_CONTEXTS=()
   local -a query_parts=()
   local -i scope_count=0 capture_status=0 picker_status=0
 
@@ -668,22 +729,38 @@ f() {
     return 0
   fi
 
-  _ZLE_PICKER_TITLE="Files · ${root:-Spotlight}"
+  local display_root=$root source_label=''
+  if [[ $display_root == $HOME ]]; then
+    display_root='~'
+  elif [[ $display_root == $HOME/* ]]; then
+    display_root="~${display_root#$HOME}"
+  fi
+  case $provider in
+    (git) source_label=Git ;;
+    (local) source_label=Filesystem ;;
+    (*) source_label=Spotlight ;;
+  esac
+  _ZLE_PICKER_TITLE="Files · $source_label · ${display_root:-all indexed locations}"
   _file_search_candidate_summary "$query"
   _ZLE_PICKER_BROWSE_LABEL=$REPLY
   _ZLE_PICKER_EMPTY_LABEL='no matching captured paths'
   _ZLE_PICKER_COPY_ENABLED=0
   if [[ -n $clipboard_binary ]]; then
-    _ZLE_PICKER_FOOTER='⌥W/^Y copy · 1–9 insert · ↑↓ move'
+    _ZLE_PICKER_FOOTER='⌥W/^Y copy · 0–9 insert · ↑↓ move'
     _ZLE_PICKER_FOOTER+=' · type refine · ⏎ insert · esc cancel'
     _ZLE_PICKER_COPY_ENABLED=1
   else
-    _ZLE_PICKER_FOOTER='1–9 insert · ↑↓ move · type refine · ⏎ insert · esc cancel'
+    _ZLE_PICKER_FOOTER='0–9 insert · ↑↓ move · type refine · ⏎ insert · esc cancel'
   fi
   _ZLE_PICKER_COLLECTOR='_file_search_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
-  _zle_picker_run "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}"
-  picker_status=$?
+  {
+    (( ${+functions[_zle_picker_inspect_render]} )) && _file_search_inspector_capture
+    _zle_picker_run "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}"
+    picker_status=$?
+  } always {
+    _ZLE_PICKER_INSPECT_TEXTS=()
+  }
   (( picker_status == 1 )) && return 0
   (( picker_status == 0 )) || return $picker_status
 
