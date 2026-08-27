@@ -1,0 +1,157 @@
+// Optional website QA; Node + Playwright are development tools, not shell deps.
+// Start a local static server first. No real clipboard or shell commands used.
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { mkdir } from 'node:fs/promises';
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+const origin = process.env.SITE_URL || 'http://127.0.0.1:4173/';
+assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname),
+  'Browser QA must target localhost, never the deployed site');
+const screenshots = process.env.SITE_SCREENSHOTS;
+if (screenshots) await mkdir(screenshots, { recursive: true });
+const browser = await chromium.launch();
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const errors = [];
+  const requests = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('request', (request) => requests.push(request.url()));
+  await page.addInitScript(() => {
+    // A fake clipboard proves exactly what would be copied without changing it.
+    Object.defineProperty(navigator, 'clipboard', { value: {
+      writeText: async (value) => { document.documentElement.dataset.copied = value; },
+    }, configurable: true });
+  });
+  assert.equal((await page.goto(origin)).status(), 200);
+  await page.locator('.demo-tabs').waitFor({ state: 'visible' });
+  assert.equal(await page.title(), 'Compozsh — Your terminal. Composed for you.');
+  assert.deepEqual(await page.getByRole('tab').allTextContents(),
+    ['Context', 'History', 'Files', 'Navigate', 'Tools'],
+    'Showcase choices should be a small, recognizable set of tasks');
+  const documentProblems = await page.evaluate(() => {
+    const problems = [];
+    const ids = [...document.querySelectorAll('[id]')].map((element) => element.id);
+    if (new Set(ids).size !== ids.length) problems.push('duplicate IDs');
+    for (const link of document.querySelectorAll('a[href^="#"]')) {
+      const id = link.getAttribute('href').slice(1);
+      if (id && !document.getElementById(id)) problems.push(`missing anchor ${id}`);
+    }
+    if (document.querySelectorAll('h1').length !== 1) problems.push('expected one h1');
+    return problems;
+  });
+  assert.deepEqual(documentProblems, [], 'Semantic document structure must be valid');
+  assert.equal(await page.locator('.result-row').count(), 3);
+  await page.getByLabel('Search', { exact: false }).fill('-c swift');
+  assert.equal(await page.locator('.result-row').count(), 3);
+  await page.locator('#demo-query').press('ArrowDown');
+  await page.keyboard.press('Enter');
+  assert.match(await page.locator('#demo-output').innerText(), /swift test -c debug/);
+  await page.keyboard.type('x');
+  assert.equal(await page.locator('#demo-query').inputValue(), '-c swiftx',
+    'Typing after arrow selection must keep refining the query');
+  await page.locator('#demo-query').fill('<img src=x onerror=alert(1)>');
+  assert.equal(await page.locator('#match-count').innerText(), '0 matches');
+  assert.equal(await page.locator('#demo-results img').count(), 0);
+  await page.locator('#demo-query').fill('npm');
+  assert.equal(await page.locator('.result-row').count(), 1);
+  assert.match(await page.locator('.result-row').innerText(), /npm run test/,
+    'Refining must search sample items beyond the first five displayed');
+  await page.getByRole('tab', { name: 'Files', exact: true }).click();
+  assert.equal(await page.locator('#demo-command').innerText(), 'f net cli');
+  assert.equal(await page.locator('.result-row').count(), 3);
+  await page.getByRole('button', { name: 'Preview file Notes/Network client plan.md', exact: true }).click();
+  assert.match(await page.locator('#demo-output').innerText(), /'\/example\/Projects\/example-app\/Notes\/Network client plan.md'/);
+  assert.equal(await page.locator('html').getAttribute('data-copied'), null,
+    'Selecting a sample must not access the clipboard');
+  await page.getByLabel('Example', { exact: true }).selectOption('files-home');
+  assert.equal(await page.locator('#demo-command').innerText(), 'f --home budget');
+  await page.locator('#demo-query').fill('2026');
+  assert.equal(await page.locator('.result-row').count(), 2);
+  await page.getByRole('tab', { name: 'Navigate', exact: true }).click();
+  assert.equal(await page.locator('#demo-command').innerText(), 'd');
+  await page.getByLabel('Example', { exact: true }).selectOption('navigate-git');
+  await page.locator('#demo-query').fill('docs');
+  await page.locator('#demo-query').press('Enter');
+  assert.match(await page.locator('#demo-output').innerText(), /feature\/docs/);
+  await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+  assert.equal(await page.getByLabel('Example', { exact: true }).isVisible(), false,
+    'Specialized options should only appear inside relevant tasks');
+  await page.locator('#demo-query').focus();
+  await page.keyboard.press('2');
+  assert.match(await page.locator('#demo-output').innerText(), /usage: cpdir/);
+  await page.getByRole('tab', { name: 'Tools', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.getByRole('tab', { name: 'Context', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#demo-panel').evaluate((element) => element === document.activeElement), true,
+    'The static Context panel must be reachable from its tab');
+  await page.getByRole('tab', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: 'Copy preview command' }).click();
+  assert.equal(await page.locator('html').getAttribute('data-copied'), 'zsh "$repo_dir/install.zsh" --symlink --dry-run');
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = async () => { throw new Error('Denied'); };
+  });
+  await page.getByRole('button', { name: 'Copy install command' }).click();
+  assert.match(await page.locator('#copy-status').innerText(), /Select and copy.*manually/);
+  await page.getByText('Prefer a copy instead of a symlink?', { exact: true }).click();
+  assert.equal(await page.locator('details').filter({ hasText: 'Prefer a copy instead of a symlink?' }).getAttribute('open'), '');
+  await page.getByText('Prefer a copy instead of a symlink?', { exact: true }).click();
+  assert.equal(await page.locator('.more-features').getAttribute('open'), null);
+  await page.locator('.more-features summary').click();
+  assert.equal(await page.locator('.more-features dd').count(), 4);
+  await page.locator('.more-features summary').click();
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const heights = [];
+    for (const tab of ['Context', 'History', 'Files', 'Navigate', 'Tools']) {
+      await page.getByRole('tab', { name: tab, exact: true }).click();
+      heights.push((await page.locator('.terminal').boundingBox()).height);
+      const tabFits = await page.getByRole('tab', { name: tab, exact: true }).evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.left >= 0 && rect.right <= innerWidth && rect.width >= 44 && rect.height >= 44;
+      });
+      assert.ok(tabFits, `${tab} must stay visible and touch-sized at ${width}px`);
+      if (tab !== 'Context') {
+        assert.ok(await page.locator('#demo-results').evaluate((list) => {
+          const bounds = list.getBoundingClientRect();
+          return [...list.children].every((row) => {
+            const rect = row.getBoundingClientRect();
+            return rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1;
+          });
+        }), `Every numbered sample must be visible in ${tab} at ${width}px`);
+      }
+      const exampleControl = page.getByLabel('Example', { exact: true });
+      if (await exampleControl.isVisible()) {
+        assert.ok(await exampleControl.evaluate((select) => {
+          const context = document.createElement('canvas').getContext('2d');
+          context.font = getComputedStyle(select).font;
+          return [...select.options].every((option) =>
+            context.measureText(option.textContent).width + 40 <= select.clientWidth);
+        }), `Example labels must fit their control at ${width}px`);
+      }
+    }
+    assert.ok(Math.max(...heights) - Math.min(...heights) <= 1,
+      `Switching tasks should not move the terminal frame at ${width}px`);
+    await page.getByRole('tab', { name: 'Files', exact: true }).click();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const dimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: innerWidth }));
+    assert.ok(dimensions.scroll <= dimensions.viewport, `Horizontal overflow at ${width}px`);
+    if (screenshots) await page.screenshot({ path: `${screenshots}/site-${width}.png`, fullPage: true });
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior), 'auto');
+  assert.deepEqual(errors, [], 'Browser console must be clean');
+  assert.ok(requests.every((url) => url.startsWith(new URL(origin).origin)), 'No third-party asset or telemetry requests');
+
+  const noJS = await browser.newPage({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+  await noJS.goto(origin);
+  assert.equal(await noJS.locator('#install-command').innerText(), 'zsh "$repo_dir/install.zsh" --symlink');
+  assert.equal(await noJS.locator('.demo-tabs').isVisible(), false);
+  assert.equal(await noJS.locator('[data-copy]:visible').count(), 0);
+  await noJS.close();
+  console.log('PASS: task tabs, captured file scopes, branch previews, keyboard, unordered search, literal input, numeric selection, copy success/failure, disclosure, stable geometry, reduced motion, no-JS, local-only requests, and 4 responsive widths');
+} finally {
+  await browser.close();
+}

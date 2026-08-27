@@ -154,10 +154,20 @@ compozsh/
 ├── templates/
 │   └── init.zsh           inert starter copied once for private initialization
 ├── install.zsh            safe symlink/copy installer with preview and rollback
-├── tests/                  isolated native-Zsh regression suite
+├── docs/                  static showcase, independent of the shell
+│   ├── index.html         accessible page and installation guide
+│   ├── styles.css         responsive visual design
+│   ├── app.mjs            safe browser-only demo interactions
+│   ├── demo-data.mjs      synthetic task examples and preview outcomes
+│   ├── search.mjs         small pure demo-search algorithm
+│   └── README.md          local review and GitHub Pages configuration
+├── tests/                 isolated shell and optional website checks
 │   ├── run.zsh            dependency-free test runner
 │   ├── support.zsh        assertions and disposable-shell helpers
-│   └── *_test.zsh         focused behavioral specifications
+│   ├── *_test.zsh         focused behavioral specifications
+│   ├── site.test.mjs      optional Node tests for browser search
+│   ├── site-scenes.test.mjs  optional Node checks for demo fixtures
+│   └── site.browser.mjs   optional local browser interaction checks
 ├── LICENSE                GNU GPL version 3 or any later version
 ├── README.md              user-facing behavior and installation
 └── AGENTS.md              contributor and coding-agent contract
@@ -352,6 +362,30 @@ exec zsh
 The symlink installer is idempotent, so rerunning it is also safe. Keep
 repository peers unmodified; put machine setup in `local/init.zsh` and personal
 features in private `.zsh.<name>` peers instead.
+
+## Project website
+
+The optional showcase lives in `docs/`: plain HTML, CSS, and browser JavaScript,
+with no build step, framework, remote fonts, analytics, or shell dependency.
+It demonstrates Compozsh with synthetic data; it never executes shell commands.
+The README remains the authoritative source for complete product instructions.
+
+The terminal groups examples into **Context**, **History**, **Files**,
+**Navigate**, and **Tools**. Files includes project and home-index examples;
+Navigate includes directory and Git branch pickers. Choose an example, refine
+its sample results, and select a row for a preview. The feature guide below
+each task links to its complete documentation.
+
+To review it locally from the repository root, use any static server. If Python
+3 is available as a development tool:
+
+```sh
+python3 -m http.server 4173 --bind 127.0.0.1 --directory docs
+```
+
+Open `http://127.0.0.1:4173/`. No server is installed or started by Compozsh.
+See [website maintenance and GitHub Pages setup](docs/README.md) for browser
+checks, deployment settings, and the local-review-before-publishing rule.
 
 ## Testing
 

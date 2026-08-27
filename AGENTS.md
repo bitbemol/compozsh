@@ -128,6 +128,39 @@ Keep installation documentation correct for both supported layouts. A symlinked
 an adjacent copied `~/.zsh.addons`. Whenever repository structure changes,
 audit installation, updating, and uninstall instructions together.
 
+## Website boundary
+
+- `docs/` is the optional static GitHub Pages showcase, not a shell feature.
+  Use semantic HTML, CSS, and small native JavaScript modules. No framework,
+  build pipeline, runtime package installation, remote fonts, third-party
+  scripts, analytics, or coupling to `.zshrc` is needed.
+- Keep installation and safety copy synchronized with the README, which stays
+  authoritative. Use only synthetic terminal examples, never private history
+  or screenshots. Intentional official project URLs in website links and
+  metadata are permitted; other privacy rules still apply.
+- Demo interactions must be labeled simulations and operate on bounded static
+  data. Never execute commands or discover files on a visitor's machine. Copy
+  only the exact visible command, following an explicit click, with a readable
+  failure path. Do not copy an install-and-execute chain automatically.
+- Organize the showcase by recognizable tasks in one user-controlled terminal.
+  Reveal specialized examples within their task and secondary features on
+  request. Keep tab changes spatially stable; avoid autoplay and competing
+  demos. Shared interaction code should consume bounded sample data.
+- Write direct, affirmative product copy about actual capabilities. Avoid
+  formulaic contrasts such as “X, not Y,” negative slogans, and unsupported
+  superiority claims. Keep factual limitations and safety instructions clear.
+- Preserve semantic landmarks, keyboard navigation, visible focus, adequate
+  contrast, reduced-motion preferences, small-screen containment, and useful
+  content with JavaScript disabled. Use relative asset paths for project-site
+  hosting. Keep the restrictive Content Security Policy free of unsafe-inline
+  and unsafe-eval; treat it as defense in depth, not a security guarantee.
+- Use the native suite for the static boundary and Node's built-in test runner
+  for the small pure browser algorithms. Browser QA is an optional development
+  tool, never a Compozsh dependency. Test real interactions, failure states,
+  mobile widths, and no-JavaScript behavior before handoff.
+- Do not enable Pages, deploy, push, or create a hosting project without the
+  user's authorization. Get their local visual approval before first publish.
+
 ## Decision order
 
 When concerns conflict, prefer them in this order:
