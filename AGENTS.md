@@ -461,6 +461,14 @@ never optimize from a single timing sample.
   facts only; content previews require a separate safety and performance design.
   Preserve search and selection across pane focus and responsive layouts, and
   keep numbered selection restricted to visibly rendered list rows.
+- File search selection is type-aware: ordinary directories navigate; files
+  and symbolic links require an explicit action picker. Keep action dispatch
+  outside ZLE, recheck mutable filesystem facts, pass literal absolute paths
+  as arguments, and never execute a selected path as shell code. Opening an
+  application is an explicit user action, not a preview. Secondary pickers
+  reuse the shared engine and return to a caller-owned query/selection/viewport
+  bookmark without recapturing providers. Action labels are captured display
+  data; never call filesystem or application providers while rendering them.
 - Escape-sequence parsing must handle standalone Escape, application cursor
   mode, Shift-Tab, Option chords, forward Delete, and bracketed paste without
   leaking bytes into the command buffer.

@@ -203,6 +203,13 @@ _test_details_native_actions() {
           # Both selectors retain immediate empty-query digit selection.
           zpty -w -n details 1
         fi
+        if [[ $scenario == file-insert || $scenario == file-enter ]]; then
+          _details_read END-DETAIL-FRAME || exit 12
+          [[ $frame == *"FRAME:Action:"* ]] || exit 13
+          zpty -w -n details $'\''\e[200~insert\e[201~'\''
+          _details_read END-DETAIL-FRAME || exit 14
+          zpty -w -n details $'\''\r'\''
+        fi
         _details_read END-DETAIL-DONE || exit 7
         [[ $frame == *"DONE:0:"* ]] || { print -u2 -r -- "$scenario: $frame"; exit 8; }
       } always {

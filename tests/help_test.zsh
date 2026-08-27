@@ -88,6 +88,9 @@ _test_file_finder_help_explains_search() {
     'ZSH_FILE_SEARCH_MAX_RESULTS' 'shell-quoted' 'Option-W' 'Ctrl-Y'
     '--list' '--print0' 'NUL' 'one scope' 'f -- --draft'
     'f --root ~/Projects project-notes' 'f --global project-notes'
+    'file-action picker' 'Open with default app' 'Reveal in Finder'
+    'Insert path' 'Enter linked directory' 'same' 'selected row'
+    'broken link' 'only files you trust' 'after picker cleanup'
   )
   for fact in "${facts[@]}"; do
     test_assert_contains "$output" "$fact" "f --help omits guidance: $fact" || return

@@ -254,6 +254,13 @@ _test_picker_scroll_native() {
             zpty -w -n scrolling $'\''\r'\'' ;;
           (copy) zpty -w -n scrolling $'\''\x19'\'' ;;
         esac
+        if [[ $scenario != copy ]]; then
+          # File selection now opens actions; insertion remains explicit.
+          _scroll_read END-SCROLL-FRAME || exit 18
+          zpty -w -n scrolling $'\''\e[200~insert\e[201~'\''
+          _scroll_read END-SCROLL-FRAME || exit 19
+          zpty -w -n scrolling $'\''\r'\''
+        fi
         _scroll_read END-SCROLL-DONE || exit 9
       } always {
         zpty -d scrolling

@@ -24,7 +24,7 @@ third-party plugins.
 - A native fuzzy `Ctrl-R` history picker with ranked, order-independent
   fragments and deduplicated results
 - A bounded fuzzy `f` file finder with project, directory, home, and global
-  scopes plus safe path insertion and machine-readable output
+  scopes, direct directory navigation, explicit file actions, and machine-readable output
 - A live `compozsh` tool explorer that discovers public add-on functions,
   searches them fuzzily, and opens their safe self-documentation
 - Live native history autosuggestions with character, word, and full acceptance
@@ -143,7 +143,7 @@ compozsh/
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.shell         shell options, history, and native tool colors
 │   ├── .zsh.editor        completion, shared pickers/inspectors, and editing
-│   ├── .zsh.find          bounded file search and captured path details
+│   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory/branch pickers and captured branch details
@@ -182,7 +182,7 @@ peer owns one focused concern and can still be sourced independently:
 | --- | --- | --- |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion, contextual fuzzy directory completion, macOS-friendly bindings, shared scrolling pickers with optional text inspectors, fuzzy `Ctrl-R`, and history autosuggestions |
-| `.zsh.find` | Bounded fuzzy file search | `f` searches project files, explicit directory trees, or the macOS Spotlight index, presents filename-first results with folder context and captured path details, and safely returns a selected path |
+| `.zsh.find` | Bounded fuzzy file search and actions | `f` searches project files, explicit directory trees, or the macOS Spotlight index; shows filename-first results and path details; enters directories or offers explicit file actions |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
 | `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` branch picker with commit/upstream details, recent stacks, numbered selection, and small navigation aliases |
@@ -756,16 +756,39 @@ Search ‹›
 [1] ● · Client.swift             Sources/Network/
 [2]   ▸ Network/                 Sources/
 [3]   · Network client plan.md   Notes/
-→ path · ↑↓ select · ⏎ insert · ^Y copy · esc
+→ path · ↑↓ select · ⏎ file actions · ^Y copy · esc
 ```
 
 The `●` cursor marks the currently selected row. The `·`, `▸`, and `↗` type
 markers identify regular files, directories, and symbolic links respectively.
 Use arrows or `Ctrl-P`/`Ctrl-N`, type to refine, or press a visible number for
-direct selection. `Enter` places the shell-quoted full path on the next editable
-command line; it never opens, executes, or changes into the result. Press
-`Option-W` or `Ctrl-Y` to copy the unquoted path when macOS `pbcopy` is
-available.
+direct selection. `Enter` or a visible number changes into a selected directory.
+For a file or symbolic link, it opens a **File actions** picker. The footer
+names the selected result's action. Press `Option-W` or `Ctrl-Y` in the search
+results to copy the unquoted path when macOS `pbcopy` is available.
+
+The file-action picker uses the same arrows, number selection, filtering,
+responsive panels, and paging. Choose an action explicitly:
+
+| Action | Effect |
+| --- | --- |
+| Open with default app | Use the macOS default application; this may launch an application, so open only files you trust |
+| Reveal in Finder | Show the item with macOS `open -R` |
+| Copy path | Copy the absolute path without a trailing newline |
+| Insert path into command line | Put the shell-quoted path into the next editable prompt for composing a command |
+| Enter linked directory | Follow a selected directory symlink, only after this explicit choice |
+
+Escape or `Ctrl-G` returns to the same search, query, selection, and scroll
+position without rerunning the search provider. `Ctrl-C` aborts. Action-name
+filtering matches characters in order. Opening/revealing requires macOS `open`;
+copying requires `pbcopy`. Unavailable actions are omitted, and broken links
+have no Open action. With SSH, actions operate on the host running Zsh.
+
+Selecting a file never launches it automatically. Actions run after the picker
+closes, check relevant filesystem facts again, and report stale/unavailable
+targets or application errors. **Insert path** intentionally returns text to
+the shell: review and complete the command before running it, especially for
+executable paths. File-content previews are not part of this feature yet.
 
 Results put the filename first and its parent folder in a quieter secondary
 column, so identically named files remain distinguishable. Long labels use
@@ -782,7 +805,8 @@ Press Right or `Ctrl-F` to focus it, then Up/Down to scroll;
 Left or `Ctrl-B` returns to the list. Tab switches
 panes. In narrower windows, the focused panel uses the full width. Typing
 returns to filtering, and digits select only with an empty query and list
-focus. Enter and clipboard shortcuts keep their usual actions in either pane.
+focus. Enter keeps the selected item's type-aware action in either pane;
+clipboard shortcuts still copy the result path.
 
 Details are built from the existing candidate snapshot, with no extra file
 reads, metadata probes, symlink resolution, or directory traversal. File

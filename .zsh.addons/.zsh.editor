@@ -88,6 +88,7 @@ typeset -g _ZLE_PICKER_TITLE=''
 typeset -g _ZLE_PICKER_BROWSE_LABEL='items'
 typeset -g _ZLE_PICKER_EMPTY_LABEL='no matches'
 typeset -g _ZLE_PICKER_FOOTER=''
+typeset -g _ZLE_PICKER_CANCEL_LABEL=''
 typeset -g _ZLE_PICKER_COLLECTOR=''
 typeset -g _ZLE_PICKER_HEADER=''
 typeset -g _ZLE_PICKER_QUERY_ROW=''
@@ -97,6 +98,9 @@ typeset -g _ZLE_PICKER_POSTDISPLAY=''
 typeset -g _ZLE_PICKER_QUERY=''
 typeset -gi _ZLE_PICKER_SELECTED=0
 typeset -g _ZLE_PICKER_SELECTED_VALUE=''
+# A caller can return from a secondary picker using this accepted position.
+typeset -ga _ZLE_PICKER_BOOKMARK=()
+typeset -gA _ZLE_PICKER_ACCEPT_LABELS=()
 typeset -gi _ZLE_PICKER_ACTIVE=0
 typeset -gi _ZLE_PICKER_ACCEPTED=0
 typeset -gi _ZLE_PICKER_DIGIT_SELECT=0
@@ -482,7 +486,7 @@ _zle_picker_render() {
   local -i zero_based=0
   local shown_query='' shown_title='' shown_browse='' shown_empty=''
   local query_label='Search ' query_open='‹' query_close='›'
-  local label='' row='' footer='' result_index='' context='' value=''
+  local label='' row='' footer='' result_index='' context='' value='' accept_label=''
   typeset -ga _ZLE_PICKER_DISPLAY=()
   typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
   typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
@@ -646,24 +650,29 @@ _zle_picker_render() {
 
   footer=$_ZLE_PICKER_FOOTER
   row_width=$full_width
+  value=${_ZLE_PICKER_RESULTS[selected]-}
+  accept_label=${_ZLE_PICKER_ACCEPT_LABELS[$value]:-$_ZLE_PICKER_INSPECT_ACTION}
+  if (( !inspector && ${#_ZLE_PICKER_ACCEPT_LABELS} )); then
+    footer="⏎ ${(V)accept_label} · ${footer}"
+  fi
   if (( inspector )); then
     if (( _ZLE_PICKER_INSPECT_FOCUS )); then
       footer='← list · ↑↓ scroll'
     else
       footer="→ ${(VL)_ZLE_PICKER_INSPECT_TITLE} · ↑↓ select"
     fi
-    footer+=" · ⏎ ${(V)_ZLE_PICKER_INSPECT_ACTION}"
+    footer+=" · ⏎ ${(V)accept_label}"
     (( _ZLE_PICKER_COPY_ENABLED )) && footer+=' · ^Y copy'
     if (( columns >= 100 )); then
       footer+=' · ^V/⌥V page'
       if (( !_ZLE_PICKER_INSPECT_FOCUS )); then
         (( columns >= 140 )) && footer+=' · tab pane · type filter'
         if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE )) && [[ -z $query ]]; then
-          footer+=" · digit ${(V)_ZLE_PICKER_INSPECT_ACTION}"
+          footer+=" · digit ${(V)accept_label}"
         fi
       fi
     fi
-    footer+=' · esc'
+    footer+=" · esc${_ZLE_PICKER_CANCEL_LABEL:+ ${(V)_ZLE_PICKER_CANCEL_LABEL}}"
   fi
   (( ${#footer} > row_width )) && footer="${footer[1,$(( row_width - 1 ))]}…"
   _ZLE_PICKER_DISPLAY+=("${(r:$row_width:: :)footer}")
@@ -828,14 +837,18 @@ _zle_picker_loop() {
   local -i accepted=0 cancelled=0 aborted=0 copy_requested=0
   local -i collected=0 request_limit=0 wanted=0
   local -i read_columns=0 read_lines=0
+  local -i start_index=1 start_offset=0
   local -i saved_suspended=${_ZLE_AUTOSUGGEST_SUSPENDED:-0}
 
   [[ $raw_limit == <-> ]] && configured_limit=$raw_limit
   (( configured_limit < 1 )) && configured_limit=1
   (( configured_limit > 20 )) && configured_limit=20
   (( ${+functions[$collector]} )) || return 2
+  [[ ${3:-} == <-> ]] && (( $3 > 0 )) && start_index=$3
+  [[ ${4:-} == <-> ]] && start_offset=$4
 
   _ZLE_PICKER_SELECTED_VALUE=''
+  _ZLE_PICKER_BOOKMARK=()
   _ZLE_PICKER_ACCEPTED=0
   _ZLE_PICKER_ACTION='select'
   _ZLE_PICKER_ACTIVE=1
@@ -869,6 +882,13 @@ _zle_picker_loop() {
         request_limit=$(( limit + 1 ))
         selected=1
         _ZLE_PICKER_VIEW_OFFSET=0
+        if (( !collected && start_index )); then
+          selected=$start_index
+          _ZLE_PICKER_VIEW_OFFSET=$start_offset
+          (( request_limit < selected + 1 )) && request_limit=$(( selected + 1 ))
+          (( request_limit < start_offset + limit + 1 )) && request_limit=$(( start_offset + limit + 1 ))
+          start_index=0
+        fi
         collected=0
       elif (( _ZLE_PICKER_HAS_MORE && wanted > ${#_ZLE_PICKER_RESULTS} )); then
         (( request_limit *= 2 ))
@@ -1137,6 +1157,7 @@ _zle_picker_loop() {
     if (( accepted )); then
       _ZLE_PICKER_ACCEPTED=1
       _ZLE_PICKER_SELECTED_VALUE=${_ZLE_PICKER_RESULTS[selected]}
+      _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
       (( copy_requested )) && _ZLE_PICKER_ACTION='copy'
     fi
   } always {
@@ -1181,7 +1202,8 @@ _zle_picker_loop() {
 # The editor owns this lifecycle so navigation and search peers can detect it
 # at runtime without depending on each other or duplicating terminal handling.
 _zle_picker_widget() {
-  _zle_picker_loop '' "${_ZLE_PICKER_RUN_LIMIT:-10}"
+  _zle_picker_loop "${_zle_picker_start_query:-}" "${_ZLE_PICKER_RUN_LIMIT:-10}" \
+    "${_zle_picker_start_index:-1}" "${_zle_picker_start_offset:-0}"
 }
 
 _zle_picker_line_init() {
@@ -1197,6 +1219,8 @@ _zle_picker_run() {
   emulate -L zsh
 
   local raw_limit=${1:-10} picker_buffer=''
+  local _zle_picker_start_query=${2:-} _zle_picker_start_index=${3:-1}
+  local _zle_picker_start_offset=${4:-0}
   [[ $raw_limit == <-> ]] || raw_limit=10
   (( raw_limit < 1 )) && raw_limit=1
   (( raw_limit > 20 )) && raw_limit=20
