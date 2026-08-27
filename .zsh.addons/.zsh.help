@@ -12,7 +12,9 @@ typeset -gA _COMPOZSH_TOOL_HELPERS=()
 typeset -gA _COMPOZSH_TOOL_SOURCES=()
 
 _compozsh_help_compozsh() {
-  print -rl -- 'usage: compozsh [--list | help command]' \
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: compozsh [--list | help command]' \
     'Explore public functions loaded from Compozsh add-on directories.' \
     '' \
     'Modes:' \

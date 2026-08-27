@@ -194,7 +194,9 @@ _install_xcode_skills_for_agent() {
 # common local coding agents. No Xcode process or filesystem write occurs until
 # this function is explicitly invoked.
 _compozsh_help_update_xcode_skills() {
-  print -rl -- 'usage: update_xcode_skills' \
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: update_xcode_skills' \
     'Export Apple-authored Xcode skills to detected coding agents.' \
     '' \
     'Prerequisites and detection:' \

@@ -214,3 +214,121 @@ _test_all_tool_help_is_static_without_optional_tools() {
 }
 test_case 'all tool help remains plain, deterministic, and available without tools' \
   _test_all_tool_help_is_static_without_optional_tools
+
+_test_help_terminal_colors_and_plain_fallbacks() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    setopt EXTENDED_GLOB
+    source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/.zsh.help"
+    source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.xcode"
+    # Load output last: no help provider may depend on its source order.
+    typeset -gA ZSH_OUTPUT_COLORS=(heading 123 accent 124 info 125 warning 126)
+    source "$1/.zsh.addons/.zsh.output"
+    path=()
+    zmodload zsh/zpty || exit 10
+    _help_test_driver() {
+      local tool
+      for tool in mkcd cpdir git-discard-all prompt-refresh d g f \
+          update_xcode_skills compozsh; do
+        "$tool" --help || return
+      done
+      compozsh help f
+      print -r -- END-HELP-COLOR-TEST
+    }
+    _help_test_capture() {
+      local capture="" line=""
+      zpty help-color _help_test_driver || return
+      {
+        # Read bounded lines rather than repeatedly matching a growing guide.
+        while zpty -r help-color line; do
+          capture+=$line
+          [[ $line == *END-HELP-COLOR-TEST* ]] && break
+        done
+        [[ $capture == *END-HELP-COLOR-TEST* ]] || return 1
+        REPLY=${capture//$'\''\r'\''/}
+        REPLY=${REPLY%$'\''\n'\''}
+      } always {
+        zpty -d help-color
+      }
+    }
+    plain=$(_help_test_driver) || exit 11
+    [[ $plain != *$'\''\e'\''* ]] || exit 12
+    _help_test_capture || exit 13
+    colored=$REPLY
+    for tool in mkcd cpdir git-discard-all prompt-refresh d g f \
+        update_xcode_skills compozsh; do
+      [[ $colored == *$'\''\e[1;38;5;123m'\''"usage: $tool"* ]] || {
+        print -u2 -- "$tool help is missing the heading palette color"
+        exit 14
+      }
+    done
+    [[ $colored == *$'\''\e[38;5;124m--here'\''* &&
+       $colored == *$'\''\e[1;38;5;126mSafety and limitations:'\''* &&
+       $colored == *$'\''\e[38;5;125mf --here project-notes'\''* ]] || exit 15
+    stripped=${colored//$'\''\e'\''\[[0-9\;]#m/}
+    [[ $stripped == $plain ]] || {
+      print -u2 -- "styling changed help text, line breaks, or explorer output"
+      exit 16
+    }
+    # A supported terminal still emits exact plain bytes when redirected.
+    _help_test_driver > "$HOME/redirected"
+    [[ $(<"$HOME/redirected") == $plain ]] || exit 17
+    NO_COLOR=1
+    _help_test_capture || exit 18
+    [[ $REPLY == $plain ]] || exit 19
+    unset NO_COLOR
+    for TERM in dumb vt100; do
+      _help_test_capture || exit 20
+      [[ $REPLY == $plain ]] || exit 21
+    done
+    TERM=xterm-256color
+    unfunction _output_print_help
+    _help_test_capture || exit 22
+    [[ $REPLY == $plain ]] || exit 23
+    print -r -- terminal-colors-and-exact-plain-fallbacks
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal terminal-colors-and-exact-plain-fallbacks "$output"
+}
+test_case 'help uses semantic terminal colors with byte-identical plain fallbacks' \
+  _test_help_terminal_colors_and_plain_fallbacks
+
+_test_help_color_treats_text_and_overrides_as_data() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    setopt EXTENDED_GLOB PROMPT_SUBST
+    source "$1/.zsh.addons/.zsh.output"
+    path=()
+    _help_test_side_effect() { print -r -- executed > "$HOME/unexpected"; }
+    ZSH_OUTPUT_COLORS[heading]=$'\''$(_help_test_side_effect)'\''
+    ZSH_OUTPUT_COLORS[accent]=999999999999999999999999999999
+    _help_test_literal() {
+      _output_print_help "usage: literal" \
+        $'\''$(_help_test_side_effect) %F{red} \\n literal'\'' \
+        "  --flag  Explanation" ""
+      print -r -- END-LITERAL-HELP
+    }
+    plain=$(_help_test_literal)
+    zmodload zsh/zpty || exit 10
+    zpty literal-help _help_test_literal || exit 11
+    {
+      zpty -r literal-help colored "*END-LITERAL-HELP*" || exit 12
+    } always {
+      zpty -d literal-help
+    }
+    colored=${colored//$'\''\r'\''/}
+    colored=${colored%$'\''\n'\''}
+    [[ $colored == *$'\''\e[1;38;5;75musage: literal'\''* &&
+       $colored == *$'\''\e[38;5;81m--flag'\''* ]] || exit 13
+    stripped=${colored//$'\''\e'\''\[[0-9\;]#m/}
+    [[ $stripped == $plain && ! -e "$HOME/unexpected" ]] || exit 14
+    print -r -- help-text-and-palette-remain-inert
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal help-text-and-palette-remain-inert "$output"
+}
+test_case 'help colors validate palette overrides and never expand help text' \
+  _test_help_color_treats_text_and_overrides_as_data

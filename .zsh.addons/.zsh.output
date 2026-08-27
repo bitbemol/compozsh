@@ -41,6 +41,74 @@ _output_color() {
   fi
 }
 
+# Optional presentation for Compozsh-owned help, never a filter for arbitrary
+# command output. Providers pass complete plain lines and retain a print
+# fallback when this peer is disabled. Nothing here executes help text.
+_output_print_help() {
+  emulate -L zsh
+
+  if [[ ! -t 1 || -z $TERM || $TERM == dumb || -n ${NO_COLOR:-} ]] ||
+     ! zmodload -F zsh/terminfo p:terminfo 2>/dev/null ||
+     (( ${terminfo[colors]:-0} < 256 )); then
+    print -rl -- "$@"
+    return
+  fi
+
+  local REPLY heading='' accent='' info='' warning='' reset=$'\e[0m'
+  local line='' body='' prefix='' remainder='' style=''
+  local -i index=0 examples=0
+  local -a rendered=()
+  _output_color heading 75
+  heading=$'\e[1;38;5;'"${REPLY}m"
+  _output_color accent 81
+  accent=$'\e[38;5;'"${REPLY}m"
+  _output_color info 111
+  info=$'\e[38;5;'"${REPLY}m"
+  _output_color warning 221
+  warning=$'\e[1;38;5;'"${REPLY}m"
+
+  for line in "$@"; do
+    (( ++index ))
+    style=''
+    if [[ -z $line ]]; then
+      rendered+=('')
+      continue
+    elif (( index == 1 )); then
+      style=$heading
+    elif (( index == 2 )); then
+      style=$info
+    elif [[ $line != ' '* ]]; then
+      examples=0
+      [[ $line == 'Examples:' ]] && examples=1
+      case $line in
+        (Safety*|Limits*|*recovery:) style=$warning ;;
+        (*) style=$heading ;;
+      esac
+    elif [[ $line == '  '* ]]; then
+      body=${line#'  '}
+      if (( examples )) || [[ $body == --* && $body == *'  '* ]]; then
+        # Two spaces separate an option/example from its explanation. Keep
+        # indentation and spacing byte-for-byte and emphasize only the prefix.
+        prefix=${body%%  *}
+        remainder=${body#"$prefix"}
+        if (( examples )); then
+          style=$info
+        else
+          style=$accent
+        fi
+        rendered+=("  ${style}${prefix}${reset}${remainder}")
+        continue
+      fi
+    fi
+    if [[ -n $style ]]; then
+      rendered+=("${style}${line}${reset}")
+    else
+      rendered+=("$line")
+    fi
+  done
+  print -rl -- "${rendered[@]}"
+}
+
 # Build Git's native semantic color configuration from the shared output
 # palette. Values are separate argv elements; no shell source or output text is
 # constructed from them.

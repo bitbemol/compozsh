@@ -3,7 +3,9 @@
 _tools_print_help() {
   emulate -L zsh
 
-  print -rl -- "usage: $1" "${@:2}"
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" "usage: $1" "${@:2}"
 }
 
 _compozsh_help_mkcd() {

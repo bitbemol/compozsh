@@ -182,7 +182,9 @@ _directory_stack_print() {
 # copyable output. Native ~N expansion remains available as standard Zsh
 # syntax, but the selector's visible digits are the primary direct interface.
 _compozsh_help_d() {
-  print -rl -- 'usage: d [--list]' \
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: d [--list]' \
     'With no arguments, open the recent-directory picker.' \
     '' \
     'Where do the entries come from?' \
@@ -370,7 +372,9 @@ _git_branch_stack_print() {
 # Keep `g <arguments>` as the familiar Git shorthand. Its no-argument form,
 # which would otherwise only print Git's help, opens the recent-branch picker.
 _compozsh_help_g() {
-  print -rl -- 'usage: g [git-arguments ...]' \
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: g [git-arguments ...]' \
     'With no arguments, open the recent-branch picker.' \
     '' \
     'Which branches appear?' \

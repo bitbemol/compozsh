@@ -212,9 +212,9 @@ both copy-paste sprawl and speculative abstraction.
   it. The companion is a distributed capability marker used by the live
   `compozsh` explorer; do not duplicate its text, place it in another peer, or
   replace this convention with a central registry.
-- Keep public help deterministic, plain, and consistent:
-  - The first stdout line is `usage: command [arguments ...]`, using the
-    command's real name and syntax. Spell the prefix exactly as lowercase
+- Keep public help content deterministic and consistent:
+  - The first line in plain-text form is `usage: command [arguments ...]`, using
+    the command's real name and syntax. Spell the prefix exactly as lowercase
     `usage:`.
   - The second stdout line is a concise sentence explaining what the command
     does. Additional lines document supported options, modes, defaults, and
@@ -236,9 +236,26 @@ both copy-paste sprawl and speculative abstraction.
     behavior, default, key, limit, or failure policy changes. Keep ordinary
     usage errors concise instead of dumping the complete guide to stderr.
   - A help request returns status 0, writes no diagnostics to stderr, and
-    performs no filesystem reads or mutations, navigation, clipboard access,
-    tool or environment detection, network access, prompts, or other
-    operational work. Do not add colors, pagers, or terminal-dependent output.
+    performs no project/configuration reads, mutations, navigation, clipboard
+    access, operational tool detection, network access, or prompts. Never add
+    a pager. Presentation alone may inspect stdout, TERM, NO_COLOR, and native
+    terminfo capabilities; it must not launch subprocesses.
+  - Color help through the optional `_output_print_help` renderer owned by
+    `.zsh.output`, using validated `ZSH_OUTPUT_COLORS` roles. A same-source
+    help provider selects that capability at invocation time and otherwise
+    prints its identical plain lines. Do not introduce a required peer, a
+    loader phase, or duplicated palettes to style help. Keep the standalone
+    installer plain; help must not source add-ons to acquire styling.
+    Keep section headings unindented and body lines indented by two spaces;
+    separate option/example prefixes from explanations with at least two
+    spaces. Use `Examples:` for the example section. This small known format
+    lets the renderer emphasize structure without interpreting shell syntax.
+  - Emit help colors only to a supported 256-color terminal, and respect a
+    nonempty NO_COLOR. Pipes, redirects, substitutions, dumb/unsupported
+    terminals, and an unavailable renderer retain exact plain text. Keep all
+    whitespace, words, and examples unchanged by styling, reset every styled
+    span, and never prompt-expand, evaluate, or execute documentation text.
+    Cover colored output and plain fallbacks with native PTY regression tests.
   - Invalid Compozsh-owned invocations print the same usage line to stderr and
     return status 2. Operational failures retain their meaningful nonzero
     status and diagnostics rather than masquerading as usage errors.

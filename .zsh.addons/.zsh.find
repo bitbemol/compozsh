@@ -28,7 +28,9 @@ _file_search_usage() {
   local message='usage: f [--here | --home | --global | --root directory]'
   message+=' [--list | --print0] query ...'
   if [[ $destination == stdout ]]; then
-    print -rl -- "$message" \
+    local -a printer=(print -rl --)
+    (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+    "${printer[@]}" "$message" \
       'Fuzzily find files and directories using one or more query fragments.' \
       '' \
       'Where does f search by default? (automatic scope)' \

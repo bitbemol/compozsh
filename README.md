@@ -147,7 +147,7 @@ compozsh/
 │   ├── .zsh.help          live custom-tool discovery and documentation
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory and Git branch navigation pickers
-│   ├── .zsh.output        semantic palette and native output wrappers
+│   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
 │   └── .zsh.xcode         optional Xcode/agent-skill integration
@@ -186,7 +186,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions and safely displays their available documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
 | `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` Git/branch picker, recent stacks, numbered selection, and small navigation aliases |
-| `.zsh.output` | Semantic command-output colors | Terminal-aware native colors for Git, `grep`, and `man`, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
+| `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
 | `.zsh.xcode` | Optional Xcode integration | `update_xcode_skills` exports Apple-authored skills to detected coding agents |
@@ -957,6 +957,7 @@ redirected data therefore remain byte-compatible.
 | `curl` | curl's own styled HTTP headers are preserved on terminals; response bodies are deliberately untouched |
 | Compilers, runtimes, and TUIs | Their own native color and terminal behavior is preserved |
 | Man pages | Scoped heading, reference, selection, and search-match colors through `less` |
+| Compozsh help | Shared heading, option, example, and safety emphasis for known help text on 256-color terminals; exact plain output elsewhere |
 | JSON, CSV, logs, arbitrary tables, and binary data | Left unchanged because their meaning cannot be inferred safely from plain bytes |
 
 Long `ls` metadata such as permissions, owners, sizes, and timestamps remains
@@ -991,7 +992,7 @@ To intentionally preserve grep colors through a pager, request it explicitly:
 grep --color=always TODO README.md | less -R
 ```
 
-The public `ZSH_OUTPUT_COLORS` map keeps Git, grep, and manual-page emphasis
+The public `ZSH_OUTPUT_COLORS` map keeps Git, grep, manual-page, and help emphasis
 consistent. Override only desired semantic roles in the local initializer
 before peers load:
 
@@ -1153,7 +1154,9 @@ _postgres_tools_available() {
 }
 
 _compozsh_help_postgres-status() {
-  print -rl -- 'usage: postgres-status' \
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: postgres-status' \
     'List the PostgreSQL databases available to psql.' \
     '' \
     '  Requires psql on PATH and a reachable configured PostgreSQL server.' \
@@ -1234,19 +1237,43 @@ compozsh --help
 
 All Compozsh-owned help follows one stable contract:
 
-- The first line begins with lowercase `usage:` and shows the command's exact
-  invocation syntax.
+- The first line, ignoring color codes, begins with lowercase `usage:` and
+  shows the command's exact invocation syntax.
 - The second line explains what the command does in one concise sentence.
 - Further lines explain defaults, data sources, search scope and limits,
   options, keys, fallbacks, and practical examples where applicable. Commands
   that change state describe their targets, confirmation, and recovery limits.
-- Help is plain text on standard output, returns status `0`, and writes no
-  error diagnostics.
+- Help returns status `0` on standard output and writes no error diagnostics.
+  On supported 256-color terminals, the optional output peer adds semantic
+  emphasis. Pipes, redirects, command substitutions, unsupported terminals,
+  and a nonempty `NO_COLOR` retain identical plain text.
 - Asking for help never navigates, copies, scans, detects tools, changes files,
   prompts for input, uses the network, or requires optional dependencies.
 
 This makes `--help` safe to inspect anywhere, including a machine that does not
 have the command's optional tools installed.
+
+Usage and section headings use `ZSH_OUTPUT_COLORS[heading]`, option labels use
+`accent`, descriptions and example commands use `info`, and safety/limit or
+recovery headings use `warning`. Body text stays neutral. The same renderer
+styles direct help and `compozsh help <command>`; disabling `.zsh.output` leaves
+all guides usable as plain text. Help styling only checks terminal capabilities
+and runs no external commands. For example:
+
+```zsh
+g --help                   # Colored in a supported terminal.
+NO_COLOR=1 g --help        # Plain for this invocation.
+g --help > branch-help.txt # Plain, copyable documentation.
+```
+
+The standalone `zsh install.zsh --help` stays plain so displaying installation
+help never loads shell add-ons or private configuration.
+
+For your own tools, the optional printer pattern in the add-on example above
+uses the same colors. Keep headings unindented, body text indented by two
+spaces, and option/example labels separated from explanations by at least two
+spaces. Name the examples section `Examples:`. Existing plain-print providers
+continue working unchanged.
 
 Use the guides to answer questions such as “does this search the whole disk?”,
 “why is this branch missing?”, “does selection run the tool or just show help?”,
