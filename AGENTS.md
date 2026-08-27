@@ -169,6 +169,48 @@ both copy-paste sprawl and speculative abstraction.
 - Give every public add-on command a descriptive collision-resistant name and
   document it in `README.md`. Keep orchestration public only when users need to
   invoke it; prefix its detectors, renderers, installers, and state with `_`.
+- Treat self-documenting help as a hard public-interface contract. Every public
+  add-on function intended for direct terminal invocation must accept the exact
+  single argument `--help`, even when the command otherwise takes no options.
+  Handle it before dependency checks, environment detection, or operational
+  logic so help remains available on every supported machine.
+- Define that help once in a private `_compozsh_help_<command>` companion in the
+  same add-on file, and make the public command's `--help` branch delegate to
+  it. The companion is a distributed capability marker used by the live
+  `compozsh` explorer; do not duplicate its text, place it in another peer, or
+  replace this convention with a central registry.
+- Keep public help deterministic, plain, and consistent:
+  - The first stdout line is `usage: command [arguments ...]`, using the
+    command's real name and syntax. Spell the prefix exactly as lowercase
+    `usage:`.
+  - The second stdout line is a concise sentence explaining what the command
+    does. Additional lines document supported options, modes, defaults, and
+    important safety behavior when those exist; do not merely repeat syntax.
+  - A help request returns status 0, writes no diagnostics to stderr, and
+    performs no filesystem reads or mutations, navigation, clipboard access,
+    tool or environment detection, network access, prompts, or other
+    operational work. Do not add colors, pagers, or terminal-dependent output.
+  - Invalid Compozsh-owned invocations print the same usage line to stderr and
+    return status 2. Operational failures retain their meaningful nonzero
+    status and diagnostics rather than masquerading as usage errors.
+- Keep the complete direct-command help contract covered by the focused help
+  test. Add every new public command to its inventory in the same TDD unit of
+  work, and assert success, the canonical usage and description lines, empty
+  stderr, freedom from side effects, presence of the same-source companion, and
+  byte-identical direct/provider output. Keep the README command inventory in
+  sync with that test.
+- Keep tool discovery stateless and derived from Zsh's live `functions_source`
+  metadata only when `compozsh` runs. Restrict it to public command-like names
+  defined beneath a `.zsh.addons` tree. Never scan add-on files, snapshot the
+  loader, cache a catalog, require an end-of-load phase, or invoke an unknown
+  public function to probe its help behavior. A function without a same-source
+  companion remains discoverable as `no help` and must not be executed.
+- Public extension APIs called by other functions, such as
+  `prompt_add_project_segment`, document their signature in the README rather
+  than pretending to be CLI tools. A transparent wrapper around an existing
+  executable preserves that tool's own help; a wrapper that introduces a
+  distinct Compozsh mode, such as `g`, owns help for that mode and points users
+  to the underlying command's help.
 - Use `REPLY` for a helper's scalar result when that avoids a subshell. Use a
   clearly named typed global only when multiple results or shared widget state
   genuinely require it.

@@ -1,0 +1,223 @@
+# Live discovery and safe documentation for public add-on functions.
+
+# Discovery is intentionally regenerated only when requested. Zsh records the
+# defining source for every loaded function in memory, so this add-on neither
+# scans the filesystem nor depends on being sourced after any peer.
+typeset -g ZSH_TOOL_PICKER_MAX_RESULTS=${ZSH_TOOL_PICKER_MAX_RESULTS:-10}
+typeset -ga _COMPOZSH_TOOL_NAMES=()
+typeset -ga _COMPOZSH_TOOL_LABELS=()
+typeset -ga _COMPOZSH_TOOL_INDEXES=()
+typeset -ga _COMPOZSH_TOOL_SEARCH_TEXTS=()
+typeset -gA _COMPOZSH_TOOL_HELPERS=()
+typeset -gA _COMPOZSH_TOOL_SOURCES=()
+
+_compozsh_help_compozsh() {
+  print -r -- 'usage: compozsh [--list | help command]'
+  print -r -- 'Explore public functions loaded from Compozsh add-on directories.'
+  print -r -- 'With no arguments, open the fuzzy tool picker.'
+  print -r -- 'Use --list to print the live catalog or help command to show documentation.'
+}
+
+_compozsh_tool_sanitize() {
+  REPLY=${1//[[:cntrl:]]/?}
+}
+
+_compozsh_tool_source_label() {
+  local source=$1 label=${1##*/.zsh.addons/}
+  [[ $label != "$source" ]] || label=${source:t}
+  _compozsh_tool_sanitize "$label"
+}
+
+# A companion provider is both documentation and a capability marker. Requiring
+# it to share the command's source file keeps each add-on atomic and prevents a
+# stale or unrelated helper from authorizing execution on another function's
+# behalf. Operational functions themselves are never called during discovery.
+_compozsh_tool_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  if ! zmodload -F zsh/parameter p:functions_source 2>/dev/null; then
+    print -u2 -r -- 'compozsh: function-source metadata is unavailable'
+    return 1
+  fi
+
+  local name='' source='' helper='' source_label='' help_label='— no help'
+  local -i index=0
+  typeset -ga _COMPOZSH_TOOL_NAMES=()
+  typeset -ga _COMPOZSH_TOOL_LABELS=()
+  typeset -ga _COMPOZSH_TOOL_INDEXES=()
+  typeset -ga _COMPOZSH_TOOL_SEARCH_TEXTS=()
+  typeset -gA _COMPOZSH_TOOL_HELPERS=()
+  typeset -gA _COMPOZSH_TOOL_SOURCES=()
+
+  for name in ${(ok)functions_source}; do
+    [[ $name == [A-Za-z][A-Za-z0-9_-]# ]] || continue
+    [[ $name != _* && $name != TRAP[A-Z0-9]## ]] || continue
+    source=${functions_source[$name]-}
+    [[ $source == */.zsh.addons/* ]] || continue
+
+    _compozsh_tool_source_label "$source"
+    source_label=$REPLY
+    helper="_compozsh_help_${name}"
+    help_label='— no help'
+    if (( ${+functions[$helper]} )) &&
+       [[ ${functions_source[$helper]-} == "$source" ]]; then
+      _COMPOZSH_TOOL_HELPERS[$name]=$helper
+      help_label='✓ help'
+    fi
+
+    (( ++index ))
+    _COMPOZSH_TOOL_NAMES+=("$name")
+    _COMPOZSH_TOOL_LABELS+=("${name} · ${help_label} · ${source_label}")
+    _COMPOZSH_TOOL_INDEXES+=($index)
+    _COMPOZSH_TOOL_SEARCH_TEXTS+=("${name} ${source_label}")
+    _COMPOZSH_TOOL_SOURCES[$name]=$source_label
+  done
+}
+
+_compozsh_tool_print_captured() {
+  local label=''
+  print -r -- "Compozsh tools · ${#_COMPOZSH_TOOL_NAMES} loaded"
+  for label in "${_COMPOZSH_TOOL_LABELS[@]}"; do
+    print -r -- "$label"
+  done
+}
+
+_compozsh_tool_print() {
+  _compozsh_tool_capture || return
+  _compozsh_tool_print_captured
+}
+
+_compozsh_tool_show_help() {
+  emulate -L zsh
+
+  local name=$1 helper='' source=''
+  _compozsh_tool_capture || return
+  (( ${_COMPOZSH_TOOL_NAMES[(Ie)$name]} )) || {
+    _compozsh_tool_sanitize "$name"
+    print -u2 -r -- "compozsh: no loaded add-on function named ${REPLY}"
+    return 1
+  }
+
+  helper=${_COMPOZSH_TOOL_HELPERS[$name]-}
+  if [[ -n $helper ]]; then
+    "$helper"
+    return $?
+  fi
+
+  source=${_COMPOZSH_TOOL_SOURCES[$name]-unknown}
+  print -r -- "$name"
+  print -r -- "No Compozsh help is available for ${name}."
+  print -r -- "Defined in: ${source}"
+}
+
+_compozsh_tool_escape_pattern() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local MATCH
+  REPLY=${1//(#m)[\][|()\\*?#<>~^]/\\$MATCH}
+}
+
+_compozsh_tool_append_matches() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local pattern=$1 raw_limit=$2 value='' label='' search_text=''
+  local -i limit=$raw_limit index=0
+  for (( index = 1; index <= ${#_COMPOZSH_TOOL_NAMES}; ++index )); do
+    search_text=${_COMPOZSH_TOOL_SEARCH_TEXTS[index]}
+    [[ $search_text == ${~pattern} ]] || continue
+    value=${_COMPOZSH_TOOL_NAMES[index]}
+    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
+    label=${_COMPOZSH_TOOL_LABELS[index]}
+    _ZLE_PICKER_RESULTS+=("$value")
+    _ZLE_PICKER_LABELS+=("$label")
+    _ZLE_PICKER_RESULT_INDEXES+=("${_COMPOZSH_TOOL_INDEXES[index]}")
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  done
+}
+
+_compozsh_tool_picker_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 raw_limit=$2 literal='' pattern='(#i)*' character=''
+  local -i limit=$raw_limit index=0
+  typeset -ga _ZLE_PICKER_RESULTS=()
+  typeset -ga _ZLE_PICKER_LABELS=()
+  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
+
+  if [[ -z $query ]]; then
+    for (( index = 1; index <= ${#_COMPOZSH_TOOL_NAMES}; ++index )); do
+      _ZLE_PICKER_RESULTS+=("${_COMPOZSH_TOOL_NAMES[index]}")
+      _ZLE_PICKER_LABELS+=("${_COMPOZSH_TOOL_LABELS[index]}")
+      _ZLE_PICKER_RESULT_INDEXES+=("${_COMPOZSH_TOOL_INDEXES[index]}")
+      (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+    done
+    return 0
+  fi
+
+  _compozsh_tool_escape_pattern "$query"
+  literal=$REPLY
+  _compozsh_tool_append_matches "(#i)${literal}*" $limit
+  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  _compozsh_tool_append_matches "(#i)*${literal}*" $limit
+  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+
+  for character in "${(s::)query}"; do
+    _compozsh_tool_escape_pattern "$character"
+    pattern+="${REPLY}*"
+  done
+  _compozsh_tool_append_matches "$pattern" $limit
+}
+
+unalias compozsh 2>/dev/null
+compozsh() {
+  emulate -L zsh
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_compozsh
+    return 0
+  fi
+  if (( $# == 1 )) && [[ $1 == --list ]]; then
+    _compozsh_tool_print
+    return $?
+  fi
+  if (( $# == 2 )) && [[ $1 == help ]]; then
+    _compozsh_tool_show_help "$2"
+    return $?
+  fi
+  (( $# == 0 )) || {
+    print -u2 -r -- 'usage: compozsh [--list | help command]'
+    return 2
+  }
+
+  _compozsh_tool_capture || return
+  if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
+     (( ! ${+functions[_zle_picker_run]} ||
+        ! ${+functions[_zle_picker_loop]} )); then
+    _compozsh_tool_print_captured
+    return 0
+  fi
+
+  local selected=''
+  local -i picker_status=0
+  _ZLE_PICKER_TITLE='Compozsh tools'
+  _ZLE_PICKER_BROWSE_LABEL='loaded add-on functions'
+  _ZLE_PICKER_EMPTY_LABEL='no matching tools'
+  _ZLE_PICKER_FOOTER='1–9 help · ↑↓ move · type filter · ⏎ help · esc cancel'
+  _ZLE_PICKER_COLLECTOR='_compozsh_tool_picker_collect'
+  _ZLE_PICKER_DIGIT_SELECT=1
+  _ZLE_PICKER_COPY_ENABLED=0
+  _ZLE_PICKER_HIERARCHY_ENABLED=0
+  _zle_picker_run "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}"
+  picker_status=$?
+  (( picker_status == 1 )) && return 0
+  (( picker_status == 0 )) || return $picker_status
+
+  selected=$_ZLE_PICKER_SELECTED_VALUE
+  _compozsh_tool_show_help "$selected"
+}
+
+:

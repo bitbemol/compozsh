@@ -25,6 +25,8 @@ third-party plugins.
   fragments and deduplicated results
 - A bounded fuzzy `f` file finder with project, directory, home, and global
   scopes plus safe path insertion and machine-readable output
+- A live `compozsh` tool explorer that discovers public add-on functions,
+  searches them fuzzily, and opens their safe self-documentation
 - Live native history autosuggestions with character, word, and full acceptance
 - `Ctrl-X Ctrl-E` to edit the current command in `$EDITOR`
 - Live native syntax highlighting for commands, arguments, operators, strings,
@@ -142,6 +144,7 @@ compozsh/
 │   ├── .zsh.shell         shell options, history, and native tool colors
 │   ├── .zsh.editor        completion, directory/history pickers, and editing
 │   ├── .zsh.find          bounded project, filesystem, and Spotlight search
+│   ├── .zsh.help          live custom-tool discovery and documentation
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory and Git branch navigation pickers
 │   ├── .zsh.output        semantic palette and native output wrappers
@@ -170,6 +173,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion, contextual fuzzy directory completion, macOS-friendly bindings, the shared visual picker, fuzzy `Ctrl-R`, and history autosuggestions |
 | `.zsh.find` | Bounded fuzzy file search | `f` searches project files, explicit directory trees, or the macOS Spotlight index and safely returns a selected path |
+| `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions and safely displays their available documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
 | `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` Git/branch picker, recent stacks, numbered selection, and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware native colors for Git, `grep`, and `man`, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
@@ -1093,8 +1097,22 @@ _postgres_tools_available() {
   (( $+commands[psql] ))
 }
 
+_compozsh_help_postgres-status() {
+  print -r -- 'usage: postgres-status'
+  print -r -- 'List the PostgreSQL databases available to psql.'
+}
+
 postgres-status() {
   emulate -L zsh
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_postgres-status
+    return 0
+  fi
+  (( $# == 0 )) || {
+    print -u2 -r -- 'usage: postgres-status'
+    return 2
+  }
   _postgres_tools_available || {
     print -u2 -r -- 'postgres-status: psql is not installed'
     return 1
@@ -1133,6 +1151,88 @@ _install_xcode_skills_for_agent
 New add-ons should follow the same rule: choose a clear unprefixed name only
 for a command users are meant to run, document it here, and prefix supporting
 functions and state with `_`.
+
+### Self-documenting commands
+
+Every public add-on function intended to be run directly supports `--help`, so
+its current usage is discoverable without opening this README. The complete
+shipped add-on command surface is:
+
+```sh
+mkcd --help
+cpdir --help
+git-discard-all --help
+prompt-refresh --help
+d --help
+g --help
+f --help
+update_xcode_skills --help
+compozsh --help
+```
+
+All Compozsh-owned help follows one stable contract:
+
+- The first line begins with lowercase `usage:` and shows the command's exact
+  invocation syntax.
+- The second line explains what the command does in one concise sentence.
+- Further lines describe supported options, modes, defaults, and important
+  safety behavior when applicable.
+- Help is plain text on standard output, returns status `0`, and writes no
+  error diagnostics.
+- Asking for help never navigates, copies, scans, detects tools, changes files,
+  prompts for input, uses the network, or requires optional dependencies.
+
+This makes `--help` safe to inspect anywhere, including a machine that does not
+have the command's optional tools installed.
+
+Run the explorer with no arguments for the fuzzy picker:
+
+```sh
+compozsh
+```
+
+Use its noninteractive forms when you want copyable output or already know the
+command name:
+
+```sh
+compozsh --list
+compozsh help f
+```
+
+Set the maximum visible picker rows before peers load, normally in the private
+initializer:
+
+```zsh
+ZSH_TOOL_PICKER_MAX_RESULTS=12
+```
+
+The catalog is regenerated from Zsh's live in-memory function-source metadata
+every time it is requested. It does not scan files, maintain a registry, write a
+cache, or depend on add-on loading order. Public functions defined directly in
+`~/.zsh.addons/local/init.zsh` or any private `.zsh.<name>` peer appear
+automatically; removing or redefining one updates the next view immediately.
+Functions from external hooks outside an add-on tree and names beginning with
+`_` remain hidden.
+
+The explorer never invokes a public function to test whether it understands
+`--help`. Instead, a documented command owns a private companion named
+`_compozsh_help_<command>` in the same file. The public command calls that
+provider for `--help`, and the explorer calls the same provider directly. This
+keeps documentation DRY and makes exploration safe. A user function without a
+matching provider still appears as `no help`; selecting it reports its source
+without executing it.
+
+Add-on authors must give every new public command the same contract. Define its
+companion provider beside it and handle `--help` before detection or operational
+logic; the `.zsh.postgres` example above is the canonical starting shape.
+
+`g --help` documents Compozsh's branch-picker mode; use `git --help` for Git's
+own documentation.
+
+Programmatic extension functions such as `prompt_add_project_segment` are APIs,
+not terminal commands, and document their call signature where they are used.
+Transparent wrappers such as `grep` and `man` preserve the help behavior of the
+underlying system command.
 
 ### Export Apple-authored Xcode skills
 
