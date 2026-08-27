@@ -28,13 +28,71 @@ _file_search_usage() {
   local message='usage: f [--here | --home | --global | --root directory]'
   message+=' [--list | --print0] query ...'
   if [[ $destination == stdout ]]; then
-    print -r -- "$message"
-    print -r -- \
-      'Fuzzily find files and directories using one or more query fragments.'
-    print -r -- \
-      'Scopes: Git project/current directory, --here, --root, --home, or --global.'
-    print -r -- \
-      'Output: interactive picker, --list lines, or --print0 records.'
+    print -rl -- "$message" \
+      'Fuzzily find files and directories using one or more query fragments.' \
+      '' \
+      'Where does f search by default? (automatic scope)' \
+      '  Inside Git: search the whole working tree from the repository root,' \
+      '  even when called in a subfolder. Includes tracked and untracked files;' \
+      '  untracked files respect Git ignore rules. Matching containing' \
+      '  directories are derived from files; empty directories may be absent.' \
+      '  Elsewhere: search the current directory and descendants.' \
+      '  From ~, that starts below your home directory, subject to the limits.' \
+      '' \
+      'Choose a scope (at most one scope flag per invocation):' \
+      '  --here      Current directory and descendants, even inside Git.' \
+      '  --root DIR  DIR and descendants, regardless of your current directory.' \
+      '  --home      macOS Spotlight index below your home, from anywhere.' \
+      '  --global    Whole accessible Spotlight index, from anywhere.' \
+      '  --here and --root walk the filesystem, include hidden entries, and' \
+      '  do not follow directory symlinks. Unreadable directories are skipped.' \
+      '' \
+      'Matching and Spotlight coverage:' \
+      '  Matches paths, not file contents. Matching is case-insensitive.' \
+      '  Space-separated fragments may occur in any order; each fragment can' \
+      '  abbreviate characters in order: net cli or srccl can find Client.swift' \
+      '  under Sources/Network/. Quote shell-special characters in queries.' \
+      '  An initial query is required. Use -- before a query beginning with -.' \
+      '  Spotlight requires mdfind and seeds a filename lookup with the' \
+      '  longest query fragment. Use recognizable filename text: abbreviations' \
+      '  or directory-only fragments may miss indexed paths. Excluded,' \
+      '  unindexed, unavailable, or inaccessible locations can also be missed.' \
+      '  There is no exhaustive search-every-folder-until-found mode.' \
+      '' \
+      'Picker and output:' \
+      '  The initial query captures paths once. Typing refines only those' \
+      '  captured paths; rerun f with a different query or scope to widen it.' \
+      '  Arrows / Ctrl-P / Ctrl-N move; Enter inserts a shell-quoted path into' \
+      '  the next editable prompt. Selection does not open or execute it.' \
+      '  A visible digit selects immediately while the search field is empty.' \
+      '  Option-W / Ctrl-Y copies the absolute path when pbcopy is available.' \
+      '  Escape / Ctrl-G cancels; Ctrl-U clears the refinement query.' \
+      '  Symbols: ● selected row, · file, ▸ directory, ↗ symbolic link.' \
+      '  --list      Print all captured absolute paths, one per line.' \
+      '  --print0    Print NUL-separated absolute paths for safe scripting.' \
+      '  Choose at most one output flag. Pipes, redirects, dumb terminals, or' \
+      '  an unavailable picker fall back to plain line output.' \
+      '  --help      Show this guide without searching.' \
+      '' \
+      'Limits (defaults; every scope is bounded):' \
+      '  20,000 inspected entries per direct filesystem walk.' \
+      '  2,000 captured matches per invocation, including Git and Spotlight.' \
+      '  Up to 10 rows visible in the picker; refining searches the snapshot.' \
+      '  The picker marks truncated snapshots as partial. --list and --print0' \
+      '  use the same capture bounds; a search from ~ can cover only part of it.' \
+      '  Adjust ZSH_FILE_SEARCH_MAX_VISITED, ZSH_FILE_SEARCH_MAX_CANDIDATES,' \
+      '  and ZSH_FILE_SEARCH_MAX_RESULTS in ~/.zsh.addons/local/init.zsh.' \
+      '' \
+      'Examples:' \
+      '  f project-notes                       Automatic Git/current scope.' \
+      '  f --here project-notes                This folder and descendants.' \
+      '  f --root ~/Projects project-notes     Choose the starting directory.' \
+      '  f --home project-notes                Indexed search below home.' \
+      '  f --global project-notes              Mac-wide indexed search.' \
+      '  f net cli                            Unordered path fragments.' \
+      '  f -- --draft                         Search for a leading dash.' \
+      '  f --here --list notes                 Plain paths for inspection.' \
+      '  f --here --print0 notes               NUL-delimited paths.'
   else
     print -u2 -r -- "$message"
   fi

@@ -316,7 +316,7 @@ exec zsh
 | `--dry-run` | Validate and print the exact plan without changing the filesystem. |
 | `--clean` | Archive the active `.zshrc` and complete `.zsh.addons` tree, then install a fresh configuration. Nothing is deleted. |
 | `--yes` | Accept a previously reviewed plan without an interactive prompt; useful for a non-interactive terminal. |
-| `--help` | Show the command summary. |
+| `--help` | Show the installation, update, and recovery guide. |
 
 Choose exactly one of `--symlink` or `--copy`. When an interactive terminal is
 available, omitting both opens a small mode chooser. `--copy` marks the namespace
@@ -707,6 +707,10 @@ ZSH_DIRECTORY_PICKER_MAX_RESULTS=8
 
 ## Fuzzy file finder
 
+Run `f --help` for a self-contained guide to scopes, matching, examples, picker
+controls, output modes, and search limits. The same guide is available through
+`compozsh help f` and the tool explorer.
+
 Run `f` with any fragments remembered from a file or directory path. Inside a
 Git working tree, the default scope is the complete project; elsewhere it is
 the current directory:
@@ -719,10 +723,17 @@ f --home invoice
 f --global Xcode
 ```
 
-The default project provider reads Git's tracked and untracked files while
-respecting ignore rules, then derives their containing directories. This makes
-large development repositories both complete and fast without traversing
-generated `.git`, build, or dependency data. `--here` and `--root` instead use
+For example, `f project-notes` from `~` searches below your home within the
+filesystem traversal budget, assuming home is outside a Git working tree.
+From an ordinary subfolder, it searches that folder and descendants. Inside
+Git, automatic scope starts at the repository root even from a subfolder;
+`--here` explicitly keeps the search below the current directory. Use
+`f --root ~/Projects project-notes` to choose a starting directory from anywhere.
+
+The default project provider reads Git's tracked files and non-ignored untracked
+files, then derives their containing directories. Empty directories may be
+absent. Git supplies the paths without traversing ignored build or dependency
+trees, subject to the capture limit below. `--here` and `--root` instead use
 a direct native-Zsh breadth-first walk, including matching hidden entries but
 never following symbolic-link directories. `--home` and `--global` consult the
 macOS Spotlight metadata index rather than crawling an entire machine.
@@ -757,24 +768,34 @@ Scope and output options are deliberately small:
 
 | Option | Behavior |
 | --- | --- |
-| no scope option | Search the surrounding Git project, otherwise `$PWD` |
-| `--here` | Directly search below `$PWD` |
+| no scope option | Search from the surrounding Git repository root, otherwise below `$PWD` |
+| `--here` | Directly search below `$PWD`, even inside Git |
 | `--root directory` | Directly search below an explicit directory |
 | `--home` | Search Spotlight's index below `$HOME` |
 | `--global` | Search the complete accessible Spotlight index |
 | `--list` | Print matching absolute paths, one per line |
 | `--print0` | Print NUL-delimited absolute paths for safe machine consumption |
-| `--help` | Print the command summary |
+| `--help` | Print the full usage guide without searching |
+
+Choose at most one scope flag and one output flag. Put `--` before a query
+that begins with a dash, such as `f -- --draft`. Queries match paths rather
+than file contents, case-insensitively. Quote shell-special characters.
 
 Spotlight is fast and native to macOS, but it can omit excluded, unavailable,
-or not-yet-indexed locations. Use the default Git provider or `--root` when the
+or not-yet-indexed locations. Its initial filename lookup uses the longest
+query fragment, then applies fuzzy path filtering to the returned candidates.
+Use recognizable filename text: an abbreviation or a directory-only fragment
+may miss even indexed paths. Use the default Git provider or `--root` when the
 filesystem itself must be inspected. On systems without `mdfind`, only the two
 Spotlight modes are unavailable; project and local search continue to work.
+`--global` searches the accessible index across the Mac. Every scope remains
+bounded; there is no exhaustive crawl that keeps going until a match is found.
 
 Direct traversal inspects at most 20,000 entries, and every provider retains at
 most 2,000 initial matches. Reaching either limit marks the picker snapshot as
-partial instead of silently claiming completeness. The visible list still
-defaults to ten rows. These bounds may be adjusted in the local initializer:
+partial instead of silently claiming completeness. `--list` and `--print0`
+retain the same capture bounds. The visible list defaults to ten rows. These
+bounds may be adjusted in the local initializer:
 
 ```zsh
 ZSH_FILE_SEARCH_MAX_RESULTS=10
@@ -1132,8 +1153,15 @@ _postgres_tools_available() {
 }
 
 _compozsh_help_postgres-status() {
-  print -r -- 'usage: postgres-status'
-  print -r -- 'List the PostgreSQL databases available to psql.'
+  print -rl -- 'usage: postgres-status' \
+    'List the PostgreSQL databases available to psql.' \
+    '' \
+    '  Requires psql on PATH and a reachable configured PostgreSQL server.' \
+    '  Uses normal psql connection settings and may prompt to authenticate.' \
+    '  Takes no arguments; --help shows this guide without connecting.' \
+    '' \
+    'Examples:' \
+    '  postgres-status    Run psql --list with your current settings.'
 }
 
 postgres-status() {
@@ -1209,8 +1237,9 @@ All Compozsh-owned help follows one stable contract:
 - The first line begins with lowercase `usage:` and shows the command's exact
   invocation syntax.
 - The second line explains what the command does in one concise sentence.
-- Further lines describe supported options, modes, defaults, and important
-  safety behavior when applicable.
+- Further lines explain defaults, data sources, search scope and limits,
+  options, keys, fallbacks, and practical examples where applicable. Commands
+  that change state describe their targets, confirmation, and recovery limits.
 - Help is plain text on standard output, returns status `0`, and writes no
   error diagnostics.
 - Asking for help never navigates, copies, scans, detects tools, changes files,
@@ -1218,6 +1247,13 @@ All Compozsh-owned help follows one stable contract:
 
 This makes `--help` safe to inspect anywhere, including a machine that does not
 have the command's optional tools installed.
+
+Use the guides to answer questions such as “does this search the whole disk?”,
+“why is this branch missing?”, “does selection run the tool or just show help?”,
+and “what happens to my existing files?”. Simple utilities keep their guides
+short; search, navigation, installation, and export tools document their wider
+behavior. `zsh install.zsh --help` covers installation separately, including
+symlink/copy updates, private files, and recovery backups.
 
 Run the explorer with no arguments for the fuzzy picker:
 
@@ -1398,15 +1434,19 @@ built-in `pbcopy`; the hint and action disappear on hosts where it is missing.
 During SSH, this copies to the clipboard of the machine running Zsh, not
 automatically to the client Mac.
 
-The branch list comes from Git's checkout reflog, so it includes switches made
-through `git switch`, an IDE, or another terminal without maintaining a second
-history file. Deleted branches and detached commit IDs are omitted. Selection
-uses a normal `git switch`, so Git will still refuse unsafe switches when local
-changes conflict or a branch is already checked out in another worktree.
+The branch list starts with the current local branch, then uses up to 200
+matching checkout entries in Git's HEAD reflog. It includes switches recorded
+there through `git switch`, an IDE, or another terminal without maintaining a
+second history file. Deleted branches, detached commit IDs, remote-only refs,
+and local branches absent from that recent history are omitted. Use `g branch`
+to list every local branch, or `g branch -a` to include remote refs. Selection
+uses `git switch --no-guess`, so Git will still refuse unsafe switches when
+local changes conflict or a branch is already checked out in another worktree.
 
 Both navigation selectors use captured in-memory labels while typing and
-resizing. Directory collection launches no process; branch discovery invokes
-Git only once when the selector opens. The number of visible rows is bounded by
+resizing. Directory collection launches no process; branch discovery runs Git
+during the initial capture, with no further Git calls while filtering. The
+number of visible rows is bounded by
 the terminal height and defaults to ten. Override it locally if desired:
 
 ```zsh

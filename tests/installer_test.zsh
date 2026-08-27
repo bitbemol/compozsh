@@ -20,6 +20,27 @@ _test_run_installer() {
     "$home" "$zdotdir" "$@"
 }
 
+_test_installer_help_explains_lifecycle_without_installing() {
+  test_make_temp_dir || return
+  local output='' fact='' flag=''
+  for flag in --help -h; do
+    output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+      path=()
+      source "$1/install.zsh" "$2"
+    ' "$TEST_REPO_ROOT" "$flag" 2> "$TEST_TMP_DIR/help.err") || return
+    [[ ! -s "$TEST_TMP_DIR/help.err" ]] || test_fail 'installer help wrote stderr' || return
+    for fact in 'Install Compozsh' 'ZDOTDIR' '--symlink' '--copy' '--clean' \
+        '--dry-run' '--yes' 'local/init.zsh' '.zsh-backups' 'repository' \
+        'exec zsh' 'Examples:' 'tools'; do
+      test_assert_contains "$output" "$fact" "installer help omits guidance: $fact" || return
+    done
+  done
+  local -a installed=("$TEST_TMP_DIR/home"/*(ND))
+  test_assert_equal 0 "${#installed}" 'installer help wrote configuration files'
+}
+test_case 'installer help explains installation, updates, and recovery without writes' \
+  _test_installer_help_explains_lifecycle_without_installing
+
 _test_installer_fresh_symlink() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" active='' initializer='' output=''

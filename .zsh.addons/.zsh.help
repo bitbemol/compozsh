@@ -12,10 +12,42 @@ typeset -gA _COMPOZSH_TOOL_HELPERS=()
 typeset -gA _COMPOZSH_TOOL_SOURCES=()
 
 _compozsh_help_compozsh() {
-  print -r -- 'usage: compozsh [--list | help command]'
-  print -r -- 'Explore public functions loaded from Compozsh add-on directories.'
-  print -r -- 'With no arguments, open the fuzzy tool picker.'
-  print -r -- 'Use --list to print the live catalog or help command to show documentation.'
+  print -rl -- 'usage: compozsh [--list | help command]' \
+    'Explore public functions loaded from Compozsh add-on directories.' \
+    '' \
+    'Modes:' \
+    '  No arguments opens a fuzzy tool picker. Enter or a visible digit with' \
+    '  an empty query shows documentation; selection never runs the tool.' \
+    '  --list prints the live catalog with source and help availability.' \
+    '  help command shows help for an exact loaded name, without a picker.' \
+    '  --help shows this guide without discovering tools.' \
+    '  Pipes, redirects, dumb terminals, or a missing picker show the catalog.' \
+    '' \
+    'Discovery and missing help:' \
+    '  Uses loaded public functions defined beneath a .zsh.addons directory,' \
+    '  including your private peers and local/init.zsh. Aliases, executables,' \
+    '  underscore-prefixed helpers, and functions from other trees are omitted.' \
+    '  The catalog is rebuilt on each call from in-memory source metadata.' \
+    '  A file must be loaded before its functions appear; after editing your' \
+    '  configuration, start a fresh shell with exec zsh.' \
+    '  Help comes from _compozsh_help_<command> in the same file as the public' \
+    '  function. Without it, the tool is marked no help and only its source' \
+    '  is reported. Unknown names return an error. Transparent wrappers may' \
+    '  appear without Compozsh help; use their native documentation directly.' \
+    '' \
+    'Picker:' \
+    '  Searches names and source labels case-insensitively, in character order.' \
+    '  Prefixes and substrings rank before abbreviated matches. Type to refine;' \
+    '  Arrows / Ctrl-P / Ctrl-N move; Enter shows help for the selected tool.' \
+    '  Digits filter normally once the query is nonempty.' \
+    '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
+    '  Up to 10 rows appear by default, limited by terminal height; set' \
+    '  ZSH_TOOL_PICKER_MAX_RESULTS in your initializer to adjust it.' \
+    '' \
+    'Examples:' \
+    '  compozsh          Explore, then type part of a tool name.' \
+    '  compozsh --list   Inspect the loaded catalog.' \
+    '  compozsh help f   Read the file finder guide.'
 }
 
 _compozsh_tool_sanitize() {

@@ -219,6 +219,22 @@ both copy-paste sprawl and speculative abstraction.
   - The second stdout line is a concise sentence explaining what the command
     does. Additional lines document supported options, modes, defaults, and
     important safety behavior when those exist; do not merely repeat syntax.
+  - Make help a self-contained usage guide, proportional to the tool. Answer
+    where its data comes from, the no-option default, scope from home or a
+    subdirectory when relevant, what selection actually does, and why expected
+    results may be missing. Distinguish collection bounds from visible-row
+    limits, and snapshots from live discovery. State the actual matching rules;
+    do not imply every fuzzy selector supports unordered fragments.
+  - Document applicable prerequisites, missing-tool and noninteractive
+    fallbacks, modified keys, empty-query digit behavior, quoting, and output
+    formats. For commands that write, copy, switch, or discard, state exact
+    targets, confirmation policy, preservation boundaries, and failure/recovery
+    limitations. Include practical synthetic examples and relevant public
+    configuration knobs; omit irrelevant sections for simple tools.
+  - Keep scope and safety facts under focused regression tests, without
+    freezing entire paragraphs. Update help and README together when a
+    behavior, default, key, limit, or failure policy changes. Keep ordinary
+    usage errors concise instead of dumping the complete guide to stderr.
   - A help request returns status 0, writes no diagnostics to stderr, and
     performs no filesystem reads or mutations, navigation, clipboard access,
     tool or environment detection, network access, prompts, or other

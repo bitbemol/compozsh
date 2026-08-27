@@ -9,12 +9,52 @@ typeset -gr _INSTALLER_REPOSITORY=${0:A:h}
 
 _installer_usage() {
   print -r -- 'usage: zsh install.zsh (--symlink | --copy) [--clean] [--dry-run] [--yes]'
-  print -r -- ''
-  print -r -- '  --symlink  Link the active .zshrc to this repository (recommended).'
-  print -r -- '  --copy     Copy the bootstrap and shared add-ons into the Zsh config base.'
-  print -r -- '  --clean    Archive existing .zshrc and .zsh.addons, then start fresh.'
-  print -r -- '  --dry-run  Print the exact plan without changing files.'
-  print -r -- '  --yes      Accept the displayed plan without an interactive confirmation.'
+}
+
+_installer_help() {
+  _installer_usage
+  print -rl -- 'Install Compozsh while preserving or archiving existing shell configuration.' \
+    '' \
+    'Mode and options:' \
+    '  --symlink  Link the active .zshrc to this repository (recommended).' \
+    '  --copy     Copy .zshrc and shared peers into .zsh.addons/compozsh.' \
+    '  --clean    Archive existing .zshrc AND the entire private .zsh.addons,' \
+    '             then create fresh configuration. Old data stays in backup.' \
+    '  --dry-run  Inspect and print the plan without changing files.' \
+    '  --yes      Accept the plan without asking; review --dry-run first.' \
+    '  --help, -h Show this guide without inspecting or installing files.' \
+    '  Choose one mode. With neither, an interactive terminal offers a menu;' \
+    '  noninteractive use requires an explicit mode. Changes normally require' \
+    '  y/Y at [y/N]; unattended installation additionally requires --yes.' \
+    '' \
+    'Location and private files:' \
+    '  Run from the clone with zsh install.zsh, or pass the full script path' \
+    '  from another directory. Source files are resolved beside the script.' \
+    '  Destination is ${ZDOTDIR:-$HOME}; keep it separate from the repository.' \
+    '  You do not need to create, empty, or delete an existing .zshrc.' \
+    '  Normal installation preserves private add-ons and local/init.zsh.' \
+    '  It copies an inert starter to .zsh.addons/local/init.zsh only if absent.' \
+    '  A replaced .zshrc or managed copy is archived under .zsh-backups with' \
+    '  a timestamp. --clean archives the entire add-on tree, including init.' \
+    '  Normal mode refuses unmarked conflicts at .zsh.addons/compozsh.' \
+    '' \
+    'Updating and recovery:' \
+    '  Symlink mode requires the repository to stay at its installed path.' \
+    '  Update that clone with git pull, then run exec zsh in each terminal.' \
+    '  Copy mode keeps a snapshot; update the clone and rerun --copy to refresh.' \
+    '  Both modes leave private data separate from shipped configuration.' \
+    '  Failures attempt rollback; inspect diagnostics and retained backups.' \
+    '  The printed recovery path contains replaced state for manual recovery.' \
+    '  Installs only Compozsh configuration, never tools or package managers.' \
+    '  Other startup files such as .zprofile and .zshenv remain untouched.' \
+    '' \
+    'Examples:' \
+    '  Run these installer examples from the repository directory.' \
+    '  zsh install.zsh --symlink --dry-run   Preview a preserving installation.' \
+    '  zsh install.zsh --symlink             Install after confirmation.' \
+    '  zsh install.zsh --copy                Install or refresh a copied setup.' \
+    '  zsh install.zsh --symlink --clean --dry-run   Preview a fresh setup.' \
+    '  exec zsh                             Load the installed configuration.'
 }
 
 _installer_choose_mode() {
@@ -87,7 +127,7 @@ _installer_main() {
       --dry-run) dry_run=1 ;;
       --yes) assume_yes=1 ;;
       --help|-h)
-        _installer_usage
+        _installer_help
         return 0
         ;;
       *)
@@ -387,6 +427,6 @@ _installer_main() {
 
 _installer_main "$@"
 typeset -i _installer_status=$?
-unfunction _installer_usage _installer_choose_mode _installer_backup_path
+unfunction _installer_usage _installer_help _installer_choose_mode _installer_backup_path
 unfunction _installer_remove_tree _installer_main
 exit $_installer_status

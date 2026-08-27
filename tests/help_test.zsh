@@ -68,3 +68,149 @@ _test_public_commands_support_help() {
 }
 test_case 'every direct Compozsh command supports side-effect-free --help' \
   _test_public_commands_support_help
+
+_test_file_finder_help_explains_search() {
+  test_make_temp_dir || return
+  local output='' fact=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.find"
+    f --help
+  ' "$TEST_REPO_ROOT") || return
+
+  # Protect the answers users need, without snapshotting the whole document.
+  local -a facts=(
+    'Inside Git:' 'repository root' 'current directory and descendants'
+    'From ~' '--here' '--root DIR' '--home' '--global'
+    'Spotlight index' 'longest query fragment' 'unindexed'
+    'any order' 'file contents' 'initial query' 'captured paths'
+    '20,000' '2,000' '10 rows' 'partial'
+    'ZSH_FILE_SEARCH_MAX_VISITED' 'ZSH_FILE_SEARCH_MAX_CANDIDATES'
+    'ZSH_FILE_SEARCH_MAX_RESULTS' 'shell-quoted' 'Option-W' 'Ctrl-Y'
+    '--list' '--print0' 'NUL' 'one scope' 'f -- --draft'
+    'f --root ~/Projects project-notes' 'f --global project-notes'
+  )
+  for fact in "${facts[@]}"; do
+    test_assert_contains "$output" "$fact" "f --help omits guidance: $fact" || return
+  done
+}
+test_case 'file finder help explains scopes, discovery limits, and practical use' \
+  _test_file_finder_help_explains_search
+
+_test_file_finder_help_is_static_and_errors_stay_short() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.find"
+    builtin cd -- "$HOME" || exit
+    path=()
+    _FILE_SEARCH_VALUES=(/example/kept)
+    _FILE_SEARCH_ROOT=/example/original
+    _file_search_capture_git() { print -u2 -- unexpected-capture; return 99; }
+    _file_search_capture_local() { print -u2 -- unexpected-capture; return 99; }
+    _file_search_capture_spotlight() { print -u2 -- unexpected-capture; return 99; }
+    _file_search_copy() { print -u2 -- unexpected-copy; return 99; }
+    f --help > "$HOME/help.out" 2> "$HOME/help.err" || exit 10
+    help_text=$(<"$HOME/help.out")
+    [[ ! -s "$HOME/help.err" && $PWD == $HOME &&
+       $_FILE_SEARCH_VALUES[1] == /example/kept &&
+       $_FILE_SEARCH_ROOT == /example/original ]] || exit 11
+    ZSH_FILE_SEARCH_MAX_VISITED=1
+    ZSH_FILE_SEARCH_MAX_CANDIDATES=1
+    ZSH_FILE_SEARCH_MAX_RESULTS=1
+    TERM=dumb
+    [[ $(f --help) == "$help_text" ]] || exit 12
+    [[ $help_text == $(_compozsh_help_f) ]] || exit 13
+    f --home --here needle > "$HOME/invalid.out" 2> "$HOME/invalid.err"
+    [[ $? == 2 && ! -s "$HOME/invalid.out" ]] || exit 14
+    usage_text=$(<"$HOME/invalid.err")
+    [[ $usage_text == "${help_text[(f)1]}" ]] || exit 15
+    print -r -- static-help-and-short-errors
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'static-help-and-short-errors' "$output"
+}
+test_case 'file finder help stays static without tools and usage errors stay concise' \
+  _test_file_finder_help_is_static_and_errors_stay_short
+
+_test_tool_help_explains_real_boundaries() {
+  test_make_temp_dir || return
+  local output='' tool='' fact=''
+  local -a facts=()
+  for tool in mkcd cpdir git-discard-all prompt-refresh d g \
+      update_xcode_skills compozsh; do
+    output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+      source "$1/.zsh.addons/.zsh.tools"
+      source "$1/.zsh.addons/.zsh.navigation"
+      source "$1/.zsh.addons/.zsh.xcode"
+      source "$1/.zsh.addons/.zsh.help"
+      "$2" --help
+    ' "$TEST_REPO_ROOT" "$tool") || return
+    case $tool in
+      (mkcd) facts=('parent directories' 'existing directory' 'spaces' './--help' 'Examples:') ;;
+      (cpdir) facts=('logical' 'newline' 'shell-quoted' 'pbcopy' 'SSH' 'Examples:') ;;
+      (git-discard-all) facts=('repository root' 'HEAD' 'staged' 'untracked'
+        '[y/N]' 'ignored' 'submodule' 'rebase' 'rollback' 'stash' 'Examples:') ;;
+      (prompt-refresh) facts=('current shell' 'next use' 'exec zsh' 'reload' 'Examples:') ;;
+      (d) facts=('current shell' 'directory stack' 'filesystem' '~1'
+        'empty' 'Ctrl-P' 'Ctrl-U' 'character order' '--list'
+        'ZSH_NAVIGATION_PICKER_MAX_RESULTS' 'Examples:') ;;
+      (g) facts=('200' 'reflog' 'remote' 'g branch' 'character order'
+        'git switch --no-guess' 'worktree' 'pbcopy' 'Ctrl-Y' 'SSH'
+        'empty' 'Ctrl-U' 'noninteractive' 'Examples:') ;;
+      (update_xcode_skills) facts=('xcode-select' 'DEVELOPER_DIR' 'PATH'
+        '~/.agents/skills' '~/.claude/skills' '~/.gemini/config/skills'
+        '~/.kiro/skills' 'CodingAssistant/codex/skills/__xcode'
+        '.xcode-skill-export' 'conflicts' 'per skill' 'session' 'Examples:') ;;
+      (compozsh) facts=('loaded' '.zsh.addons' 'same file' 'no help'
+        'never runs' 'character order' 'empty' 'Ctrl-U' '--list'
+        'ZSH_TOOL_PICKER_MAX_RESULTS' 'Examples:') ;;
+    esac
+    for fact in "${facts[@]}"; do
+      test_assert_contains "$output" "$fact" "$tool --help omits guidance: $fact" || return
+    done
+  done
+}
+test_case 'tool help explains defaults, scope, examples, and safety boundaries' \
+  _test_tool_help_explains_real_boundaries
+
+_test_all_tool_help_is_static_without_optional_tools() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/.zsh.help"
+    source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.xcode"
+    builtin cd -- "$HOME" || exit
+    path=()
+    TERM=dumb
+    # Any accidental operational dispatch emits a diagnostic and fails.
+    for helper in _directory_stack_capture _git_branch_stack_load \
+        _detect_xcode_skill_vendor _compozsh_tool_capture; do
+      functions[$helper]="print -u2 -- unexpected-operation; return 99"
+    done
+    for tool in mkcd cpdir git-discard-all prompt-refresh d g f \
+        update_xcode_skills compozsh; do
+      "$tool" --help >| "$HOME/help.out" 2>| "$HOME/help.err" || exit 10
+      help_text=$(<"$HOME/help.out")
+      [[ ! -s "$HOME/help.err" && $PWD == $HOME ]] || exit 11
+      [[ $help_text != *$'\''\e'\''* ]] || exit 12
+      [[ $help_text == $("_compozsh_help_$tool") ]] || exit 13
+      TERM=xterm-256color
+      [[ $help_text == $("$tool" --help) ]] || exit 14
+      TERM=dumb
+      # g delegates argument-bearing calls to Git; all other tools own errors.
+      if [[ $tool != g ]]; then
+        "$tool" --invalid --invalid >| "$HOME/help.out" 2>| "$HOME/help.err"
+        [[ $? == 2 && ! -s "$HOME/help.out" ]] || exit 15
+        [[ $(<"$HOME/help.err") == "${help_text[(f)1]}" ]] || exit 16
+      fi
+    done
+    print -r -- static-help-without-tools
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal static-help-without-tools "$output"
+  local -a created=("$TEST_TMP_DIR/home"/*(ND))
+  test_assert_equal 2 "${#created}" 'help created files beyond test stdout/stderr'
+}
+test_case 'all tool help remains plain, deterministic, and available without tools' \
+  _test_all_tool_help_is_static_without_optional_tools

@@ -182,9 +182,39 @@ _directory_stack_print() {
 # copyable output. Native ~N expansion remains available as standard Zsh
 # syntax, but the selector's visible digits are the primary direct interface.
 _compozsh_help_d() {
-  print -r -- 'usage: d [--list]'
-  print -r -- 'With no arguments, open the recent-directory picker.'
-  print -r -- 'Use --list to print the directory stack without a picker.'
+  print -rl -- 'usage: d [--list]' \
+    'With no arguments, open the recent-directory picker.' \
+    '' \
+    'Where do the entries come from?' \
+    '  Captures the current shell directory stack, including $PWD at index 0.' \
+    '  It contains visited locations, not a search of the filesystem. Other' \
+    '  terminals have separate stacks; a new shell starts its own stack.' \
+    '  An empty history can therefore show just your current directory.' \
+    '  Use f query to find paths beyond the stack, or Tab for directory entry.' \
+    '' \
+    'Picker:' \
+    '  Type to filter captured paths case-insensitively, in character order.' \
+    '  Literal prefixes and substrings rank before abbreviated matches.' \
+    '  Arrows / Ctrl-P / Ctrl-N move; Enter changes to the selected directory.' \
+    '  With an empty query, a visible digit 0-9 selects immediately; after' \
+    '  typing, digits are search text. Indexes retain their stack meanings.' \
+    '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
+    '  Native ~1, ~2, ... expansion still works and changes with the stack.' \
+    '  Up to 10 rows appear by default, limited by terminal height. Refine to' \
+    '  find other captured entries; set ZSH_NAVIGATION_PICKER_MAX_RESULTS in' \
+    '  your initializer to change the visible limit.' \
+    '  Missing or inaccessible directories fail through normal cd checks.' \
+    '' \
+    'Options and fallback:' \
+    '  --list prints the stack without changing directories; long paths may' \
+    '  be abbreviated for display. Pipes, redirects, dumb terminals, or an' \
+    '  unavailable picker also use this display. This is a human-readable list.' \
+    '  --help shows this guide. No path or query argument is accepted.' \
+    '' \
+    'Examples:' \
+    '  d           Open the picker, then type a remembered path fragment.' \
+    '  d --list    Inspect the current stack.' \
+    '  cd ~1       Enter the directory currently at stack index 1.'
 }
 
 unalias d 2>/dev/null
@@ -340,10 +370,46 @@ _git_branch_stack_print() {
 # Keep `g <arguments>` as the familiar Git shorthand. Its no-argument form,
 # which would otherwise only print Git's help, opens the recent-branch picker.
 _compozsh_help_g() {
-  print -r -- 'usage: g [git-arguments ...]'
-  print -r -- 'With no arguments, open the recent-branch picker.'
-  print -r -- 'With arguments, delegate directly to Git.'
-  print -r -- 'Use git --help for Git itself.'
+  print -rl -- 'usage: g [git-arguments ...]' \
+    'With no arguments, open the recent-branch picker.' \
+    '' \
+    'Which branches appear?' \
+    '  Requires Git and a working tree. Starts with the current local branch,' \
+    '  then recent local checkouts from up to 200 matching HEAD reflog entries.' \
+    '  IDE and terminal switches recorded there count too. Deleted branches,' \
+    '  detached commit IDs, and remote-only branches are excluded.' \
+    '  A local branch absent from that recent history may not appear. Use' \
+    '  g branch to list all local branches; g branch -a also lists remote refs.' \
+    '  Detached HEAD has no current-branch row. No usable local history is an' \
+    '  error. The picker does not fetch branches or create a history file.' \
+    '' \
+    'Picker:' \
+    '  Type to filter case-insensitively, in character order; literal prefix' \
+    '  and substring matches rank before abbreviated ones.' \
+    '  Arrows / Ctrl-P / Ctrl-N move; Enter switches. With an empty query,' \
+    '  a visible digit 0-9 switches immediately; otherwise digits filter.' \
+    '  Option-W / Ctrl-Y copies the branch name without switching when pbcopy' \
+    '  is available. In SSH, copying targets the host running Zsh.' \
+    '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
+    '  Selection uses git switch --no-guess, with no forced discard or stash.' \
+    '  Git can refuse conflicting edits or a branch used by another worktree.' \
+    '  Up to 10 rows appear by default, limited by terminal height. Set' \
+    '  ZSH_NAVIGATION_PICKER_MAX_RESULTS in your initializer to adjust it.' \
+    '  Filtering uses the captured recent list; rerun g to refresh it.' \
+    '' \
+    'Git shorthand and fallback:' \
+    '  With arguments, delegates directly to Git and preserves its status.' \
+    '  g --help is this guide; use git --help for Git itself.' \
+    '  There is no Compozsh --list mode: g --list is passed to Git.' \
+    '  A noninteractive or dumb-terminal g with no arguments runs plain git.' \
+    '  If only the picker is unavailable, the recent stack is printed.' \
+    '' \
+    'Examples:' \
+    '  g                       Open recent branches; type to filter.' \
+    '  g status                Inspect working-tree changes.' \
+    '  g branch                List every local branch.' \
+    '  g switch feature/search Switch a known branch outside the recent list.' \
+    '  g switch --help         Read Git documentation for switch.'
 }
 
 unalias g 2>/dev/null

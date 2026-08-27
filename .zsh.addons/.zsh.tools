@@ -3,28 +3,91 @@
 _tools_print_help() {
   emulate -L zsh
 
-  print -r -- "usage: $1"
-  print -r -- "$2"
+  print -rl -- "usage: $1" "${@:2}"
 }
 
 _compozsh_help_mkcd() {
   _tools_print_help 'mkcd <directory>' \
-    'Create a directory and change into it.'
+    'Create a directory and change into it.' \
+    '' \
+    'Behavior:' \
+    '  Accepts exactly one path. Missing parent directories are created with' \
+    '  mkdir -p; an existing directory is entered without replacing it.' \
+    '  Quote paths containing spaces. Creation of relative paths starts at' \
+    '  your current directory; cd still honors normal CDPATH lookup. Prefix' \
+    '  with ./ to keep it local. Use ./--help for a directory named --help.' \
+    '  A creation failure prevents cd. If cd fails afterward, any directories' \
+    '  already created remain. Permissions and normal cd rules still apply.' \
+    '  --help shows this guide without creating or entering anything.' \
+    '' \
+    'Examples:' \
+    '  mkcd ~/Projects/example-app' \
+    '  mkcd "notes/draft ideas"' \
+    '  mkcd ./--help'
 }
 
 _compozsh_help_cpdir() {
   _tools_print_help 'cpdir' \
-    'Copy the exact current directory to the local macOS clipboard.'
+    'Copy the exact current directory to the local macOS clipboard.' \
+    '' \
+    'Behavior:' \
+    '  Copies the logical absolute path in $PWD, preserving symlink spelling' \
+    '  and spaces, without a trailing newline. The value is not shell-quoted;' \
+    '  quote or escape it appropriately when pasting into a shell command.' \
+    '  Replaces clipboard contents and prints a confirmation on success.' \
+    '  Requires pbcopy on PATH. Missing or failed clipboard access returns 1.' \
+    '  In SSH, pbcopy runs on the remote host; it does not transfer the path' \
+    '  to your client clipboard. No directory argument is accepted.' \
+    '  --help shows this guide without accessing the clipboard.' \
+    '' \
+    'Examples:' \
+    '  cpdir       Copy this directory, then paste in an editor or file dialog.'
 }
 
 _compozsh_help_git-discard-all() {
   _tools_print_help 'git-discard-all' \
-    'Preview and discard staged, unstaged, and untracked working-tree changes.'
+    'Preview and discard staged, unstaged, and untracked working-tree changes.' \
+    '' \
+    'Scope and confirmation:' \
+    '  Operates from the repository root even when called in a subfolder.' \
+    '  Restores tracked files and the index to HEAD, discarding both staged' \
+    '  and unstaged edits, then deletes untracked files and directories.' \
+    '  Prints Git status before asking [y/N]; only y or Y confirms.' \
+    '  Enter or any other answer cancels. No force/yes option is provided.' \
+    '  A clean working tree needs no confirmation and returns success.' \
+    '' \
+    'Safety and limitations:' \
+    '  Keeps ignored files, commits, stashes, nested repositories, and' \
+    '  submodule contents. Refuses a repository with no HEAD commit or an' \
+    '  active merge, rebase, cherry-pick, revert, or bisect operation.' \
+    '  Discarded work has no automatic backup or rollback. If a later step' \
+    '  fails, earlier changes can already have been applied; inspect status.' \
+    '  Remaining nested-repository/submodule changes are reported as failure.' \
+    '  Requires Git. Cancellation or failure returns nonzero.' \
+    '  --help shows this guide without inspecting or modifying a repository.' \
+    '' \
+    'Examples:' \
+    '  git-discard-all              Preview and confirm repository-wide loss.' \
+    '  git stash --include-untracked  Use instead to save work for later.'
 }
 
 _compozsh_help_prompt-refresh() {
   _tools_print_help 'prompt-refresh' \
-    'Clear in-memory prompt and tool caches, then refresh command lookup.'
+    'Clear in-memory prompt and tool caches, then refresh command lookup.' \
+    '' \
+    'Behavior:' \
+    '  Clears cached runtime versions, Git-directory information, and grep' \
+    '  color-capability detection in the current shell, then runs rehash.' \
+    '  Relevant caches are rebuilt on their next use. No tools are installed' \
+    '  or upgraded, and other terminal sessions are unchanged.' \
+    '  Use after installing/upgrading a tool or changing PATH in this shell.' \
+    '  This does not reload add-ons or your initializer. Use exec zsh to load' \
+    '  configuration changes into a fresh shell.' \
+    '  Takes no arguments; --help shows this guide without clearing caches.' \
+    '' \
+    'Examples:' \
+    '  prompt-refresh    Refresh lookup after a tool installation.' \
+    '  exec zsh          Reload configuration after editing your add-ons.'
 }
 
 mkcd() {

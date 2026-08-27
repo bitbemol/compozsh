@@ -194,8 +194,49 @@ _install_xcode_skills_for_agent() {
 # common local coding agents. No Xcode process or filesystem write occurs until
 # this function is explicitly invoked.
 _compozsh_help_update_xcode_skills() {
-  print -r -- 'usage: update_xcode_skills'
-  print -r -- 'Export Apple-authored Xcode skills to detected coding agents.'
+  print -rl -- 'usage: update_xcode_skills' \
+    'Export Apple-authored Xcode skills to detected coding agents.' \
+    '' \
+    'Prerequisites and detection:' \
+    '  Uses the Xcode selected for xcrun (xcode-select or DEVELOPER_DIR).' \
+    '  That Xcode must provide xcrun agent skills export. This command does' \
+    '  not install Xcode, coding agents, or other tools.' \
+    '  Detects supported CLIs on PATH and standard macOS app bundles in' \
+    '  /Applications or ~/Applications; apps are not launched.' \
+    '  Codex: codex, ChatGPT.app, or Codex.app; Claude: claude or Claude.app;' \
+    '  Gemini: gemini; Antigravity: agy, antigravity, or Antigravity.app;' \
+    '  Kiro: kiro-cli, kiro, or Kiro.app. Detection does not check sign-in or' \
+    '  guarantee skill support in every installed version or chat surface.' \
+    '' \
+    'Writes only for detected agents (paths are below HOME):' \
+    '  Codex / Gemini CLI: ~/.agents/skills' \
+    '  Claude Code:        ~/.claude/skills' \
+    '  Antigravity:        ~/.gemini/config/skills' \
+    '  Kiro:               ~/.kiro/skills' \
+    '  Codex in Xcode also uses:' \
+    '    ~/Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode' \
+    '  Exports once into a temporary directory, then installs real copies.' \
+    '  Missing agents get no new configuration directories. With no detected' \
+    '  agent or no compatible Xcode exporter, it fails before installing.' \
+    '' \
+    'Refresh and recovery:' \
+    '  Running this command writes immediately; there is no confirmation or' \
+    '  dry-run mode. Rerun after changing Xcode to refresh exported skills.' \
+    '  Only existing skills marked .xcode-skill-export are replaced. Personal' \
+    '  same-name directories, symlinks, and other conflicts are kept/reported.' \
+    '  Replacement is staged per skill; the whole multi-agent update is not' \
+    '  one transaction. A later failure can leave earlier skills updated.' \
+    '  Failed replacement attempts restore the previous copy; if recovery' \
+    '  fails, its retained backup path is printed. Review nonzero results.' \
+    '  Refresh replaces contents of matching exported skills; it does not' \
+    '  remove other skill directories absent from the new export.' \
+    '  Start a new agent session afterward. Gemini CLI can use /skills reload.' \
+    '  Exported guidance does not connect live Xcode tools or configure MCP.' \
+    '  No arguments are accepted; --help shows this guide without detection,' \
+    '  invoking Xcode, or writing files.' \
+    '' \
+    'Examples:' \
+    '  update_xcode_skills    Export from the currently selected Xcode.'
 }
 
 update_xcode_skills() {
