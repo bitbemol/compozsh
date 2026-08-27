@@ -7,6 +7,32 @@ mkcd() {
   command mkdir -p -- "$1" && builtin cd -- "$1"
 }
 
+# Copy the exact logical working directory to the local macOS clipboard.
+cpdir() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+
+  (( $# == 0 )) || {
+    print -u2 'usage: cpdir'
+    return 2
+  }
+
+  local clipboard_command=${commands[pbcopy]:-} display_path=''
+  [[ -n $clipboard_command ]] || {
+    print -u2 'cpdir: pbcopy is unavailable on this machine'
+    return 1
+  }
+
+  print -rn -- "$PWD" | "$clipboard_command" || {
+    print -u2 'cpdir: could not copy the current directory'
+    return 1
+  }
+
+  _tools_sanitize "$PWD"
+  display_path=$REPLY
+  print -r -- "Copied ${display_path} to the clipboard."
+}
+
 _tools_sanitize() {
   REPLY=${1//[[:cntrl:]]/?}
 }

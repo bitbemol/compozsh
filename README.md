@@ -35,6 +35,7 @@ third-party plugins.
 - A consistent semantic Git palette for status, diffs, branches, and remotes
 - Colored manual pages with highlighted headings, options, and references
 - A useful terminal tab title and a few small navigation aliases
+- `cpdir` to copy the current working directory without selecting terminal text
 - An optional first-loaded `~/.zsh.addons/local/init.zsh` for machine setup
 - Automatic loading of focused, order-independent `.zsh.addons/**/.zsh.<name>`
   files
@@ -173,7 +174,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` Git/branch picker, recent stacks, numbered selection, and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware native colors for Git, `grep`, and `man`, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
-| `.zsh.tools` | Focused utility commands | `mkcd`, guarded `git-discard-all`, and `prompt-refresh` |
+| `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
 | `.zsh.xcode` | Optional Xcode integration | `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -1465,6 +1466,23 @@ root path. `prompt_add_project_segment` safely escapes and colors the text befor
 placing it on the project line. Because the arrays preserve earlier values and
 the function runs only during prompt collection, this remains independent of
 peer traversal order.
+
+## Copy the current directory
+
+Run `cpdir` to place the exact current working-directory path on the macOS
+clipboard without selecting terminal text or copying the output of `pwd`:
+
+```sh
+cpdir
+```
+
+The copied value has no trailing newline, so it can be pasted directly into a
+command, editor, or file dialog. The terminal prints a short confirmation after
+the copy succeeds. Directory names containing spaces are preserved exactly.
+
+`cpdir` uses macOS's built-in `pbcopy` and fails with a clear diagnostic when
+that command is unavailable. In an SSH session it copies to the clipboard of
+the remote machine running Zsh, not automatically to the client Mac.
 
 ## Easy customization
 

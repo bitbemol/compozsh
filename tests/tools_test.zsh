@@ -10,6 +10,57 @@ _test_mkcd_contract() {
 test_case 'mkcd creates and enters exactly one requested directory' \
   _test_mkcd_contract
 
+_test_cpdir_contract() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" target="$TEST_TMP_DIR/path with spaces"
+  local output='' copied='' copied_size=''
+  command mkdir -p "$fake_bin" "$target" || return
+  test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh\nIFS= read -r -d \'\' value\nprint -rn -- "$value" >| "$HOME/clipboard"\n' || return
+  command chmod +x "$fake_bin/pbcopy" || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
+    PATH="$2"
+    rehash
+    source "$1/.zsh.addons/.zsh.tools"
+    builtin cd "$3" || exit
+    cpdir
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$target") || return
+  copied=$(<"$TEST_TMP_DIR/home/clipboard") || return
+  copied_size=$(command wc -c < "$TEST_TMP_DIR/home/clipboard") || return
+  copied_size=${copied_size//[[:space:]]/}
+
+  test_assert_equal "$target" "$copied" \
+    'cpdir did not copy the exact logical working directory' || return
+  test_assert_equal "${#target}" "$copied_size" \
+    'cpdir appended bytes such as a trailing newline' || return
+  test_assert_equal "Copied ${target} to the clipboard." "$output" \
+    'cpdir did not confirm the copied directory'
+}
+test_case 'cpdir copies the current directory without a trailing newline' \
+  _test_cpdir_contract
+
+_test_cpdir_missing_clipboard() {
+  test_make_temp_dir || return
+  local empty_bin="$TEST_TMP_DIR/empty-bin" output='' exit_status=0
+  command mkdir -p "$empty_bin" || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
+    PATH="$2"
+    rehash
+    source "$1/.zsh.addons/.zsh.tools"
+    cpdir
+  ' "$TEST_REPO_ROOT" "$empty_bin" 2>&1) || exit_status=$?
+
+  (( exit_status != 0 )) || {
+    test_fail 'cpdir succeeded without a clipboard command'
+    return
+  }
+  test_assert_contains "$output" 'pbcopy is unavailable' \
+    'cpdir omitted its missing-clipboard diagnostic'
+}
+test_case 'cpdir fails clearly when the macOS clipboard is unavailable' \
+  _test_cpdir_missing_clipboard
+
 _test_git_discard_all_scope() {
   test_make_temp_dir || return
   local repo="$TEST_TMP_DIR/repository" output=''

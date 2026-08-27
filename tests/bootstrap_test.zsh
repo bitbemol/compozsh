@@ -30,9 +30,9 @@ _test_public_surface_loads() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" \
-    'ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "${+functions[mkcd]}|${+functions[git-discard-all]}|${+functions[update_xcode_skills]}|${+functions[d]}|${+functions[g]}|${+functions[f]}"' \
+    'ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "${+functions[mkcd]}|${+functions[cpdir]}|${+functions[git-discard-all]}|${+functions[update_xcode_skills]}|${+functions[d]}|${+functions[g]}|${+functions[f]}"' \
     "$TEST_REPO_ROOT") || return
-  test_assert_equal '1|1|1|1|1|1' "$output" 'documented public commands are missing'
+  test_assert_equal '1|1|1|1|1|1|1' "$output" 'documented public commands are missing'
 }
 test_case 'bootstrap exposes the shipped public command surface' \
   _test_public_surface_loads
@@ -112,7 +112,7 @@ print -r -- "prompt-colors:${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[pa
 print -r -- "output-colors:${ZSH_OUTPUT_COLORS[success]}|${ZSH_OUTPUT_COLORS[warning]}|${ZSH_OUTPUT_COLORS[error]}|${ZSH_OUTPUT_COLORS[match]}"
 print -r -- "hooks:${precmd_functions[*]}|${preexec_functions[*]}|${zle_line_init_functions[*]}|${zle_line_pre_redraw_functions[*]}"
 print -r -- "prompts:$PROMPT|$RPROMPT"
-print -r -- "public:${+functions[mkcd]},${+functions[git-discard-all]},${+functions[prompt-refresh]},${+functions[d]},${+functions[g]},${+functions[f]},${+functions[update_xcode_skills]}"
+print -r -- "public:${+functions[mkcd]},${+functions[cpdir]},${+functions[git-discard-all]},${+functions[prompt-refresh]},${+functions[d]},${+functions[g]},${+functions[f]},${+functions[update_xcode_skills]}"
 bindkey "^R"
 bindkey "^F"
 bindkey "^[f"
