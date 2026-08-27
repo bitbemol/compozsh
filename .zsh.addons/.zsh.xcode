@@ -193,8 +193,18 @@ _install_xcode_skills_for_agent() {
 # Export Apple's portable Xcode skills once, then make them discoverable to the
 # common local coding agents. No Xcode process or filesystem write occurs until
 # this function is explicitly invoked.
+_compozsh_help_update_xcode_skills() {
+  print -r -- 'usage: update_xcode_skills'
+  print -r -- 'Export Apple-authored Xcode skills to detected coding agents.'
+}
+
 update_xcode_skills() {
   emulate -L zsh
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_update_xcode_skills
+    return 0
+  fi
 
   local agent_path='' xcode_version='' xcode_build='' stage_dir=''
   local shared_agent_name=''

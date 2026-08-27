@@ -1,8 +1,39 @@
 # Small commands and safe Git cleanup.
 
+_tools_print_help() {
+  emulate -L zsh
+
+  print -r -- "usage: $1"
+  print -r -- "$2"
+}
+
+_compozsh_help_mkcd() {
+  _tools_print_help 'mkcd <directory>' \
+    'Create a directory and change into it.'
+}
+
+_compozsh_help_cpdir() {
+  _tools_print_help 'cpdir' \
+    'Copy the exact current directory to the local macOS clipboard.'
+}
+
+_compozsh_help_git-discard-all() {
+  _tools_print_help 'git-discard-all' \
+    'Preview and discard staged, unstaged, and untracked working-tree changes.'
+}
+
+_compozsh_help_prompt-refresh() {
+  _tools_print_help 'prompt-refresh' \
+    'Clear in-memory prompt and tool caches, then refresh command lookup.'
+}
+
 mkcd() {
   emulate -L zsh
 
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_mkcd
+    return 0
+  fi
   (( $# == 1 )) || { print -u2 'usage: mkcd <directory>'; return 2; }
   command mkdir -p -- "$1" && builtin cd -- "$1"
 }
@@ -12,6 +43,10 @@ cpdir() {
   emulate -L zsh
   setopt PIPE_FAIL
 
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_cpdir
+    return 0
+  fi
   (( $# == 0 )) || {
     print -u2 'usage: cpdir'
     return 2
@@ -60,6 +95,10 @@ _tools_git_operation() {
 git-discard-all() {
   emulate -L zsh
 
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_git-discard-all
+    return 0
+  fi
   (( $# == 0 )) || {
     print -u2 'usage: git-discard-all'
     return 2
@@ -139,6 +178,16 @@ git-discard-all() {
 # Refresh cached executable versions and capabilities after installing or
 # upgrading a tool without starting a new shell. The next use rebuilds them.
 prompt-refresh() {
+  emulate -L zsh
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_prompt-refresh
+    return 0
+  fi
+  (( $# == 0 )) || {
+    print -u2 'usage: prompt-refresh'
+    return 2
+  }
   (( ${+parameters[_PROMPT_RUNTIME_VERSION_CACHE]} )) &&
     _PROMPT_RUNTIME_VERSION_CACHE=()
   (( ${+parameters[_PROMPT_GIT_DIR_CACHE]} )) &&

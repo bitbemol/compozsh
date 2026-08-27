@@ -181,9 +181,20 @@ _directory_stack_print() {
 # Open the visual selector with `d`; `d --list` keeps a printable view for
 # copyable output. Native ~N expansion remains available as standard Zsh
 # syntax, but the selector's visible digits are the primary direct interface.
+_compozsh_help_d() {
+  print -r -- 'usage: d [--list]'
+  print -r -- 'With no arguments, open the recent-directory picker.'
+  print -r -- 'Use --list to print the directory stack without a picker.'
+}
+
 unalias d 2>/dev/null
 d() {
   emulate -L zsh
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_d
+    return 0
+  fi
 
   (( $# <= 1 )) || {
     print -u2 'usage: d [--list]'
@@ -328,9 +339,21 @@ _git_branch_stack_print() {
 
 # Keep `g <arguments>` as the familiar Git shorthand. Its no-argument form,
 # which would otherwise only print Git's help, opens the recent-branch picker.
+_compozsh_help_g() {
+  print -r -- 'usage: g [git-arguments ...]'
+  print -r -- 'With no arguments, open the recent-branch picker.'
+  print -r -- 'With arguments, delegate directly to Git.'
+  print -r -- 'Use git --help for Git itself.'
+}
+
 unalias g 2>/dev/null
 g() {
   emulate -L zsh
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_g
+    return 0
+  fi
 
   (( $# == 0 )) || {
     command git "$@"

@@ -29,9 +29,19 @@ _file_search_usage() {
   message+=' [--list | --print0] query ...'
   if [[ $destination == stdout ]]; then
     print -r -- "$message"
+    print -r -- \
+      'Fuzzily find files and directories using one or more query fragments.'
+    print -r -- \
+      'Scopes: Git project/current directory, --here, --root, --home, or --global.'
+    print -r -- \
+      'Output: interactive picker, --list lines, or --print0 records.'
   else
     print -u2 -r -- "$message"
   fi
+}
+
+_compozsh_help_f() {
+  _file_search_usage stdout
 }
 
 _file_search_escape_pattern() {
@@ -462,6 +472,11 @@ unalias f 2>/dev/null
 f() {
   emulate -L zsh
 
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_f
+    return 0
+  fi
+
   local scope=auto root='' query='' output_mode=picker argument=''
   local git_root='' provider='' mdfind_binary=${commands[mdfind]:-}
   local clipboard_binary=${commands[pbcopy]:-} selected=''
@@ -507,10 +522,6 @@ f() {
           return 2
         }
         output_mode=nul
-        ;;
-      (--help)
-        _file_search_usage stdout
-        return 0
         ;;
       (--)
         query_parts+=("$@")
