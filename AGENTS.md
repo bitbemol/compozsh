@@ -83,6 +83,9 @@ private. Avoid inventing a privileged core tier through new terminology.
 | Operation / transition | An operation is a supported step; a transition is its change to interaction context or state. Use the five operation categories in [Context-preserving composition](#context-preserving-composition). |
 | Acceptance / action | Acceptance requests the visibly named primary operation. An action applies an explicit effect to a target, including insertion, copying, directory change or application launch. Acceptance can instead open another view. |
 | Renderer / paint | The renderer derives frame text and styles from view state. Painting applies that frame to the terminal through the shared ZLE machinery. |
+| Document workspace | A file navigator paired with a primary, independently scrollable reader, such as Git review. Distinct from a picker with secondary information. |
+| Source anchor | A semantic reading position independent of display rows: for Git review, the old/new file side and line number at the top of the reader. Used when changing context density. |
+| Disclosure | Revealing more detail about the same target without changing its task or scope. Reverse disclosure returns to the less detailed presentation using a source anchor; it is distinct from switching pane focus or navigating to another target. |
 | Effect boundary | The point where code reads external facts or changes observable state. Frame construction and filtering derive from captured inputs; painting, provider reads and final actions have their own lifecycle rules. |
 
 ### Conceptual structures and vocabulary maintenance
@@ -459,6 +462,11 @@ Loaded tool catalog → selected tool → its safe documentation
 
 These are optional routes, not required wizard steps. Retain direct selection,
 number keys, and shortcuts; an inspector must not become a mandatory stop.
+For nested disclosure, use coherent forward/reverse steps, retain the target
+and semantic reading position, and skip levels that reveal no additional
+information. Keep direct pane-focus shortcuts independent of disclosure.
+At a disclosure boundary, a repeated arrow is inert; it never switches files,
+changes scope, executes the target or wraps to another level.
 Offer forward actions only when their inputs and capabilities are available.
 Name the target: current folder, selected child, selected file, or selected
 branch. An abbreviated display label is never the underlying action value.
@@ -625,8 +633,8 @@ sources prove a particular column ratio or key assignment is optimal.
 | Status | Separate, quieter snapshot/result status; keep scope visible while filtering |
 | Context | One separate location/source row, abbreviated as needed and omitted only in very short windows |
 | Search/filter input | Dedicated, visibly delimited input; label the operation (`Filter folders`, `Search descendants`, `Filter results`); ordinary printable characters remain searchable |
-| Main body | Results are primary; recognizable names and quiet parent context, complete immutable action values |
-| Details | Secondary captured information; explicit focus and scroll, no provider calls during repaint |
+| Main body | Pickers prioritize results; document workspaces prioritize the selected document beside a stable navigator. Preserve exact values separately from labels |
+| Details / reader | Secondary information or a primary document, respectively; explicit focus and independent scroll, no provider calls during repaint |
 | Footer | Shared capability-derived hints; acceptance, Escape and keyboard-guide access get first priority |
 
 The following is the canonical **modal picker key map**. These are Compozsh
@@ -650,11 +658,13 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-E / Ctrl-B | Focus details/list, when available |
 | Tab / Shift-Tab | Switch list/details focus; in the browser, enter/go Back |
 | Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
-| Ctrl-X | Open filesystem options: actions, sources and views, when available |
+| Ctrl-X | Open **review** on Branches or **options** in filesystem views; inactive in document readers |
+| Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence |
+| Ctrl-R in a document workspace | Refresh the selected snapshot, keeping focus and source area |
 | Ctrl-T | Toggle hidden folders in the browser |
 
-The hierarchy and Ctrl-O contexts above are explicit exceptions, not permission
-for arbitrary tool-specific remapping. Keep the actual action visible in the
+The hierarchy, document disclosure/refresh and Ctrl-O contexts above are explicit
+exceptions, not permission for arbitrary tool-specific remapping. Keep the actual action visible in the
 footer/guide. Add new keys only after checking this map, normal shell editing,
 Terminal.app interception and control-byte collisions (for example Tab/Ctrl-I,
 Enter/Ctrl-M and flow-control keys). Prefer an existing action or menu over a
@@ -662,6 +672,9 @@ new binding. A key-map change must update this table, shared handler, hints,
 guide, public help, README and native PTY tests together. Keep contract coverage
 across history, Recents, branches, files, tool discovery and secondary menus.
 Collectors and tool providers must not implement their own key parsers or hints.
+Ctrl-R's refresh meaning is limited to document workspaces. Preserve prompt
+history search and the existing next-result alias in other pickers; an empty
+document selection or the keyboard guide must never trigger refresh.
 
 - Preserve spatial landmarks when results shrink. Blank space is acceptable;
   do not fill the screen with unrelated widgets, repeated paths or decoration.
@@ -675,8 +688,16 @@ Collectors and tool providers must not implement their own key parsers or hints.
   show half a key sequence to squeeze in optional actions. Tiny terminals may
   use compact Enter/Escape labels. All remaining keys are in the shared guide.
   Enter remains the primary file/link action-menu route. Keep the optional
-  `^X options` hint after acceptance, Escape and guide access, ahead of
-  convenience shortcuts: it exposes distinct folder/source operations.
+  context-specific Ctrl-X hint after acceptance, Escape and guide access, ahead of
+  convenience shortcuts: it exposes distinct context operations and review views.
+  Name its actual destination: `^X review` on Branches and `^X options` for
+  filesystem context menus. Document readers instead expose their available
+  arrow disclosure steps and `^R refresh`; omit Ctrl-X and keep it inert.
+  Derive these hints from the same capability state/transition rules used by
+  key dispatch. Do not offer expansion for single-level previews or notices.
+  Derive context-menu labels from the existing capability/kind in the shared
+  renderer; do not add per-tool key strings or
+  remap the shortcut. Keep the guide and public help aligned with that intent.
   Omit it inside secondary action menus where the capability is disabled.
   Do not require a modified shortcut for ordinary file Open/Reveal/Copy/Insert.
 - Ctrl-K opens the keyboard guide in the same session. It is scrollable
@@ -700,7 +721,8 @@ Collectors and tool providers must not implement their own key parsers or hints.
 - Keep task semantics explicit: history, the Tab directory browser and Recents
   insert; `g` switches branch; Files search inserts directories
   and offers explicit file/link actions;
-  `compozsh` prints help. Shared interaction must never turn insertion or a
+  `compozsh` prints help; Git review acceptance drills into files/diffs or
+  focuses reading. Shared interaction must never turn insertion or a
   preview into execution. Digits apply visible slots only with an empty filter
   and list focus; the history picker retains ordinary numeric input.
 - The directory browser is the deliberate hierarchy exception: Right/Tab
@@ -757,6 +779,108 @@ Collectors and tool providers must not implement their own key parsers or hints.
   unavailable capabilities, stale entries, guide dismissal, typed digits,
   pane focus and live resize with shared tests plus native PTY interaction.
   Measure complete warm collection/render/paint work and isolated startup.
+
+## Git review workspace boundary
+
+- `.zsh.git-review` owns bounded Git providers and review controllers. Its
+  source-time work is definitions only; navigation detects it at invocation.
+  No new public command, registration table, loader phase or key parser.
+  Disabling the peer preserves ordinary `g` switch/copy and Git delegation.
+- Ctrl-X on Branches selects **current working changes** or **selected branch
+  commits**. Distinguish their scopes explicitly. Commits open a file-and-diff
+  document workspace; working changes opens that workspace directly.
+  Resolve a branch tip once to a full hex object ID and retain first-parent
+  IDs for stable commit review. A root commit compares with the empty tree.
+  Disable replacement refs so captured IDs refer to literal objects.
+- Review is read-only. No stage/discard/commit/checkout, clipboard or app
+  action is dispatched from these views. The main branch picker retains its
+  original actions after terminal cleanup. Do not add mutation shortcuts
+  without a separately authorized design and behavioral tests.
+- Use the shared screen owner, collector, renderer, semantic palette, busy
+  painter and input loop. A fixed shallow view nesting scopes snapshots and
+  list bookmarks; no general workflow engine. Escape restores list query,
+  selection, viewport and focus. Resize never calls Git.
+- File selection is an explicit document-inspection operation: the shared
+  input loop paints a loading state and returns the exact selected row to its
+  controller. Only the controller may capture a diff, outside the input loop.
+  Refinement can select another file and request its diff; filtering the list
+  itself remains provider-free. Scrolling, focus and guide never capture.
+  Retain four raw file/context snapshots (at most 1 MiB) for this workspace,
+  with per-file reading offsets. A loading placeholder must not overwrite a
+  saved reading position. Release captures/bookmarks on workspace exit.
+  Right discloses file navigator → focused diff → full-file context; Left
+  reverses the sequence. At either boundary the arrow is inert. Untracked
+  previews and metadata/notices have one reading level. Ctrl-R refreshes the
+  selected snapshot, preserving focus; Ctrl-X has no reader action or menu.
+  Tab/Shift-Tab and Ctrl-E/B change only pane focus and preserve context mode;
+  Right from the navigator always enters focused diff. The shared loop returns
+  explicit disclosure/refresh requests; only the controller captures their data.
+  Start focused with three context lines around each hunk. Context mode remains
+  until another disclosure changes it; changing it preserves each file's source
+  anchor rather than reusing a visual offset from a differently sized document. The shared editor
+  maps wrapped rows to logical document lines; Git owns old/new coordinates.
+  Anchor the first visible code line, resolving a hunk header forward and a
+  trailing notice backward. Deletions use old-side coordinates; context and
+  additions use new-side coordinates. Collapse into omitted unchanged code
+  seeks the nearest retained same-side line; ties prefer earlier context.
+  Report a nearest-context adjustment, retain existing capture limits and their
+  notices, and reset to the notice when no code remains. Refresh follows the
+  same anchor rule. Same-mode selection preserves the visual position. Never
+  claim content tracking through concurrent edits. Test wrapped lines, gaps,
+  deleted/new files, truncation, cache visits and native mode-switch journeys.
+  Re-entry refreshes the file list.
+  Working-file lists and later diffs are
+  separate observations, not an atomic transaction. Failed reads must be
+  distinguished from successful empty snapshots. Preserve abort propagation.
+- Git invocations disable optional index writes, fsmonitor, hooks, lazy fetch
+  and network protocols, external diffs and textconv. Discover configured
+  clean/process filter names and override them to inert values per invocation;
+  disable required-filter enforcement too. Never change repository/global
+  configuration. Refuse a capped/failed filter-name discovery. Explain the
+  unfiltered comparison in help. These measures are not an OS sandbox.
+  References: [Git diff](https://git-scm.com/docs/git-diff),
+  [Git status](https://git-scm.com/docs/git-status),
+  [Git environment](https://git-scm.com/docs/git).
+- Parse NUL-delimited paths with literal pathspec semantics; validate full
+  commit IDs before treating them as revisions. Reject escaping paths and
+  special working files; do not follow replaced parents outside the worktree.
+  Selected untracked regular text files use the same numbered reader as
+  all-additions patches in both context modes. Prefix every source line so
+  header-like text stays inert. Modes share one snapshot/cache key; refresh
+  invalidates that same key. Read only on selection/refresh, without execution,
+  staging, Git filters, directory scans or caller-directory/hook changes.
+  Use native no-follow, nonblocking open and descriptor stat to reject symlink
+  and special-file replacements; pin and validate a physical parent in a
+  subshell. Bound bytes across short reads, preserve trailing newlines, and
+  distinguish read failures from empty files. A NUL in the captured prefix
+  yields a binary notice; do not claim universal binary detection. Keep
+  symlinks/grouped folders as notices, missing/unsafe/read failures unavailable,
+  and conflicts as notices. Test replacement races and mode/refresh reuse.
+  Reference: [Zsh system/stat modules](https://zsh.sourceforge.io/Doc/Release/Zsh-Modules.html).
+  Group untracked folders and exclude submodules. Renames
+  are add/delete pairs. Treat all Git strings as inert, sanitized display data.
+- Retain at most 256 KiB per capture, 1,000 change rows or 200 commits, with
+  visible partial-result notices. Counts describe captured data. A continuous
+  document has at most 10,000 logical / 20,000 wrapped lines, with notices.
+  Full-file context is opt-in and retains the same capture bounds.
+  These bounds do not promise a wall-clock timeout or bound Git's own
+  memory/CPU usage. Do not add background processes or persistent caches.
+- The shared document capability gives the navigator roughly one third of the
+  width (at most 42 cells), with the remainder for reading. Below 90 columns,
+  switch between full-width navigator and reader. Use available body height;
+  Tab/Shift-Tab switches focus, Enter/Ctrl-E reads, Ctrl-B focuses files, and
+  Up/Down and page keys scroll the focused pane independently. Reading never moves
+  to another file. Preserve per-file offsets; a pending frame shows no stale
+  content from the prior selection. Ordinary secondary inspectors keep their
+  list-first policy and 256 wrapped-line bound.
+  Git supplies continuous lines, old/new line numbers and semantic +/− roles;
+  the shared renderer sanitizes and wraps them, caching wrapping until the
+  selection or width changes. Never evaluate source code or terminal escapes.
+- Test actual g → options → changes/history → file reader → Back with real
+  ZLE, single alternate-screen ownership, guide/resize, retained bookmarks,
+  aborts and unavailable peers. Use disposable repositories for staged versus
+  unstaged rows, binary/unborn/merge commits, unusual paths, configured helper
+  suppression, immutable IDs, limits and unchanged index/configuration.
 
 ## Filesystem workspace boundary
 
@@ -931,7 +1055,8 @@ Collectors and tool providers must not implement their own key parsers or hints.
   facts only; content previews require a separate safety and performance design.
   Preserve search and selection across pane focus and responsive layouts, and
   keep numbered selection restricted to visibly rendered list rows.
-- Information panels are secondary to the result list. The shared editor owns
+- Information panels are secondary to the result list. Primary document
+  workspaces follow the separate Git review contract above. The shared editor owns
   one list-first width policy with a bounded reading column; do not restore
   per-tool proportions or give previews the remaining unbounded screen width.
   Keep passive previews compact beside short lists and visually quiet, while

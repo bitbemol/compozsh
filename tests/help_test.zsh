@@ -157,7 +157,10 @@ _test_tool_help_explains_real_boundaries() {
       (prompt-refresh) facts=('current shell' 'next use' 'exec zsh' 'reload' 'Examples:') ;;
       (g) facts=('200' 'reflog' 'remote' 'g branch' 'character order'
         'git switch --no-guess' 'worktree' 'pbcopy' 'Ctrl-Y' 'SSH'
-        'empty' 'Ctrl-U' 'noninteractive' 'Examples:') ;;
+        'empty' 'Ctrl-U' 'noninteractive' 'Examples:' 'Ctrl-X review' 'read-only'
+        'Right: files' 'Left reverses' 'Ctrl-R refreshes' 'one reading level'
+        'staged' 'unstaged' 'first parent' '256 KiB' 'filters' 'hunks'
+        'untracked regular text' 'NUL' 'Symlinks' 'new-file snapshot') ;;
       (update_xcode_skills) facts=('xcode-select' 'DEVELOPER_DIR' 'PATH'
         '~/.agents/skills' '~/.claude/skills' '~/.gemini/config/skills'
         '~/.kiro/skills' 'CodingAssistant/codex/skills/__xcode'

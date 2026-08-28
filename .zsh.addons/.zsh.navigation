@@ -347,7 +347,8 @@ _git_branch_stack_load() {
     print -u2 'g: could not inspect local branches'
     return 1
   }
-  (( ${#_GIT_RECENT_BRANCHES} )) || {
+  (( ${#_GIT_RECENT_BRANCHES} ||
+     (${+functions[_git_review_branch_choose]} && ${+functions[_zle_picker_loop]}) )) || {
     print -u2 'g: this repository has no local branch history yet'
     return 1
   }
@@ -403,8 +404,9 @@ _compozsh_help_g() {
     '  detached commit IDs, and remote-only branches are excluded.' \
     '  A local branch absent from that recent history may not appear. Use' \
     '  g branch to list all local branches; g branch -a also lists remote refs.' \
-    '  Detached HEAD has no current-branch row. No usable local history is an' \
-    '  error. The picker does not fetch branches or create a history file.' \
+    '  Detached HEAD has no current-branch row. With the review peer enabled,' \
+    '  an empty branch list still offers working changes through Ctrl-X.' \
+    '  The picker does not fetch branches or create a history file.' \
     '' \
     'Picker:' \
     '  Ctrl-K opens the shared keyboard guide; Escape or Enter' \
@@ -447,12 +449,67 @@ _compozsh_help_g() {
     '  Missing or capped metadata leaves the branch selectable with a notice.' \
     '  The upstream is local configuration; no fetch or network access occurs.' \
     '' \
+    'Read-only Git review:' \
+    '  Ctrl-X review opens the Git review chooser when .zsh.git-review is enabled.' \
+    '  Working changes belongs to the current checkout, even if you highlight' \
+    '  another branch. Staged and unstaged changes are separate rows.' \
+    '  Status codes: M modified, A added, D deleted, T file-type change.' \
+    '  Selected branch opens local commits, then a file-and-diff workspace.' \
+    '  The tip is resolved once; commits compare with their first parent.' \
+    '  Replacement refs are ignored so object IDs keep their literal meaning.' \
+    '  A narrow file navigator sits beside the selected continuous diff.' \
+    '  Selecting a file loads its diff automatically; Enter focuses reading.' \
+    '  Focused diff is the default: changes with three context lines per side,' \
+    '  old/new line numbers, and nearby hunks merged when their context meets.' \
+    '  Green + and red - mark additions/removals; context stays neutral.' \
+    '  Right: files -> focused diff -> full-file context. Left reverses the steps.' \
+    '  Tab / Shift-Tab switches panes directly; Ctrl-E/B focuses reader/list.' \
+    '  Direct pane focus preserves context mode; Right from files enters focused.' \
+    '  Up/Down and page keys scroll each pane independently. Typing filters files.' \
+    '  Reading never crosses into another file; each file remembers its position.' \
+    '  Below 90 columns the focused pane uses the full width.' \
+    '  Ctrl-R refreshes the selected snapshot, keeping focus and source area.' \
+    '  Ctrl-X is inactive here; it opens review only on the main branch screen.' \
+    '  Each workspace starts focused; context mode stays until disclosure changes.' \
+    '  Expansion keeps the current source area visible, including wrapped code.' \
+    '  Collapse from omitted unchanged code finds the nearest retained context;' \
+    '  ties prefer earlier context and the status reports the adjustment.' \
+    '  Removed lines anchor to old-file numbers; other code uses new-file numbers.' \
+    '  Refresh also seeks that source line. Concurrent edits are not content-tracked.' \
+    '  Limits clamp to retained code; failed/metadata-only reads start at the notice.' \
+    '  Escape goes Back, preserving filter, selection and list position.' \
+    '  Ctrl-K shows keys. Review does not stage, discard, commit or checkout.' \
+    '  File selection requests one bounded diff; four recent snapshots are reused.' \
+    '  Scrolling, guide and resize never read Git. A filter selecting a different' \
+    '  file can load that file. Return and re-enter to refresh the file list.' \
+    '  A later diff can reflect edits made since the file list was captured.' \
+    '' \
+    'Review coverage and limits:' \
+    '  Captures retain at most 256 KiB, 1,000 change rows or 200 commits.' \
+    '  Documents retain 10,000 logical / 20,000 wrapped lines, with notices.' \
+    '  All hunks remain in one reader; large-file limits are explicitly labeled.' \
+    '  Selected untracked regular text files show all their lines as additions,' \
+    '  within the same limits. Untracked files and metadata have one reading level:' \
+    '  Right reads, Left returns to files; no redundant context expansion.' \
+    '  Ctrl-R refreshes that same new-file snapshot.' \
+    '  No staging or execution occurs, even for executable source files.' \
+    '  Empty files show a notice. NUL bytes in the captured prefix omit content.' \
+    '  Symlinks are not followed; missing/special files report unavailable.' \
+    '  Binary diffs and conflicts show notices. Untracked folders stay grouped;' \
+    '  submodules are excluded and renames appear as add/delete pairs.' \
+    '  Review disables external diff/textconv, clean/process filters, fsmonitor,' \
+    '  optional index writes and Git network transport. Filtered files may' \
+    '  therefore differ from your usual configured diff. No settings change.' \
+    '  Bounds limit retained output, not elapsed time: large repositories or' \
+    '  slow storage can delay synchronous reads. Failed captures show a notice.' \
+    '' \
     'Git shorthand and fallback:' \
     '  With arguments, delegates directly to Git and preserves its status.' \
     '  g --help is this guide; use git --help for Git itself.' \
     '  There is no Compozsh --list mode: g --list is passed to Git.' \
     '  A noninteractive or dumb-terminal g with no arguments runs plain git.' \
     '  If only the picker is unavailable, the recent stack is printed.' \
+    '  Disabling only .zsh.git-review leaves switching/copying intact.' \
     '' \
     'Examples:' \
     '  g                       Open recent branches; type to filter.' \
@@ -503,7 +560,7 @@ g() {
   repo=${root:t}
   _ZLE_PICKER_TITLE=Branches
   _ZLE_PICKER_SUBTITLE=$repo
-  [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_SUBTITLE+=' · detached HEAD'
+  [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_SUBTITLE+=' · no current local branch'
   _ZLE_PICKER_BROWSE_LABEL='recent checkouts'
   _ZLE_PICKER_EMPTY_LABEL='no matching branches'
   _ZLE_PICKER_COPY_ENABLED=0
@@ -512,7 +569,11 @@ g() {
   _ZLE_PICKER_DIGIT_SELECT=1
   {
     (( ${+functions[_zle_picker_inspect_render]} )) && _git_branch_inspector_capture "$root"
-    _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
+    if (( ${+functions[_git_review_branch_choose]} )); then
+      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" '' 1 0 _git_review_branch_choose
+    else
+      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
+    fi
     picker_status=$?
   } always {
     _ZLE_PICKER_INSPECT_TEXTS=()

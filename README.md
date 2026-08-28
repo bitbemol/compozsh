@@ -12,6 +12,7 @@ third-party plugins.
 | Find a file below a folder | Path + Tab → Ctrl-F | Review the displayed source and scope, enter a discovery query, then press Enter |
 | Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
+| Review Git changes | `g` → Ctrl-X | Read working changes or selected-branch commits, drill into files and colored diffs |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
 | Discover your custom tools | `compozsh` | Explore loaded public functions and their safe help |
 
@@ -36,6 +37,8 @@ the filesystem workspace replaces the old `d` and `f` commands.
 - A compact Git summary with exact staged, modified, untracked, conflicted,
   stashed, ahead, and behind counts
 - Clear Git operation warnings for merges, rebases, cherry-picks, and bisects
+- Read-only Git review with staged/unstaged changes, local commit history,
+  a file navigator and independently scrollable, numbered diff reader
 - Command duration for commands that take at least two seconds
 - Active Python virtual environment and background-job indicators
 - Automatic runtime or toolchain detection for more than 35 project types,
@@ -171,6 +174,7 @@ compozsh/
 │   ├── .zsh.shell         shell options, history, and native tool colors
 │   ├── .zsh.editor        completion, temporary-screen pickers, and editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
+│   ├── .zsh.git-review    read-only working changes, commits, files and diffs
 │   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory/branch workspaces, details and copying
@@ -210,6 +214,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R snapshot refresh, untracked text previews and bounded on-selection snapshots |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
 | `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, copying and small navigation aliases |
@@ -1264,12 +1269,15 @@ shortcuts continue to belong to Terminal.app.
 | Ctrl-F | Search descendants in Browse; edit discovery query in Search results |
 | Ctrl-E / Ctrl-B | Focus details / list, when available |
 | Ctrl-O | Browse a selected recent location; inside the browser, preview a folder |
-| Ctrl-X | Open workspace options: actions, search sources and views |
+| Ctrl-X | Open **review** on Branches; **options** for filesystem actions/sources/views |
+| Right / Left in Git review | Progress files → focused diff → full-file context / reverse those steps |
+| Ctrl-R in Git review | Refresh the selected snapshot, preserving focus and source area |
 | Ctrl-T | Toggle hidden folders in the browser |
 
-This is the shared Compozsh picker key map. An unavailable action stays inactive;
-its shortcut is never reassigned to an unrelated feature in another tool. The
-footer and Ctrl-K guide show the actions available in the current view.
+This is the shared Compozsh picker key map. The footer and Ctrl-K guide show
+available actions. The documented Git-reader controls apply only within review:
+Ctrl-R still opens history at the prompt and advances results in other pickers.
+Ctrl-X is inactive in the reader; the arrow flow handles context disclosure.
 
 The directory browser has one explicit hierarchy convention: Right/Tab
 enters a folder and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list.
@@ -1929,7 +1937,7 @@ Search ‹›
 [ 0] ● feature/prompt-navigation
 [ 1]   main
 [ 2]   feature/runtime-line
-⏎ switch · Esc cancel · ^K keys · ^Y copy · ↑↓ move · Tab details
+⏎ switch · Esc cancel · ^K keys · ^X review · ^Y copy · ↑↓ move
 ```
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and every
@@ -1980,6 +1988,112 @@ Override the viewport size locally if desired:
 ```zsh
 ZSH_NAVIGATION_PICKER_MAX_RESULTS=12
 ```
+
+### Read-only Git review
+
+Run **`g` → Ctrl-X review** to choose a review context:
+
+| View | Scope | Enter does |
+| --- | --- | --- |
+| Working changes | The current checkout, independent of the highlighted branch | Focus the selected staged or unstaged diff |
+| Branch commits | Captured local history of the selected branch | List that commit's changed files |
+| Commit files | Selected commit versus its first parent, or the empty tree for a root commit | Focus the selected file's diff |
+
+Working changes and Commit files use a **two-pane review workspace**. A narrow
+file navigator sits on the left; the selected file's continuous diff occupies
+most of the width on the right. Selecting another file updates the reader
+directly. **Focused diff is the default**: changes with three unchanged lines
+before and after each hunk, with old/new line numbers. Nearby hunks can merge.
+**Green `+` lines** are additions, **red `-` lines** are removals, and unchanged
+code stays neutral. Addition/removal counts describe the retained diff.
+
+**Tab / Shift-Tab** switches panes; **Enter / Ctrl-E** focuses the diff and
+**Ctrl-B** returns to files. **Up/Down** and **Ctrl-V / Ctrl-D** scroll/page the
+focused pane independently. Reading stops at the end of that file; returning
+to a file restores its reading position. Typing filters captured file paths
+and change status. Empty-filter digits select visible slots and focus reading.
+Below **90 columns**, the focused pane occupies the full width.
+
+**Right** progressively discloses **files → focused diff → full-file context**.
+**Left** reverses those steps. At either end, another arrow leaves the view
+unchanged. Tab and Ctrl-E/B are direct pane-focus shortcuts and preserve the
+current context mode; Right from the file navigator always enters focused diff.
+The context mode stays until changed through disclosure; new workspaces start
+focused. This also works in the single-pane layout on narrower terminals.
+
+**Ctrl-R refreshes the selected snapshot**, preserving pane focus and the
+source area. **Ctrl-X** remains **review** on the main Branches screen and is
+inactive inside the reader. **Ctrl-K** shows the complete keyboard guide.
+
+Expanding keeps the current source area visible, using the first visible code
+line as its anchor (including wrapped continuations). Collapsing retains that
+line when it is still present. If you scrolled into unchanged code omitted by
+focused mode, it selects the **nearest retained context line**, preferring
+earlier context on an exact tie; the status reports that adjustment. Removed
+lines use old-file coordinates; additions and unchanged lines use new-file
+coordinates. Each visited file retains its own anchor across mode changes.
+Selecting the already-active mode leaves the reading position alone.
+
+**Untracked files** are files Git is not tracking yet. Selecting an individual
+regular text file previews its contents as numbered green additions—every line
+is new. New-file previews and metadata notices have a single reading level:
+Right enters the reader, Left returns to files. No extra expansion is offered.
+This does not stage or execute the file, even if it has
+executable permissions. Large previews retain the limits below.
+
+Refresh also seeks the current source line. Positions refer to line numbers,
+not content tracking across concurrent edits. Truncated captures seek the
+nearest available line with a limit notice; metadata-only or failed reads
+start at their notice. The viewport may clamp near the end of a document.
+
+**Escape goes Back** through files → commits → branches, retaining
+each list's filter, selection and viewport. The entire journey owns one
+alternate-screen session, including resize and loading states. Branch
+selection still switches and Ctrl-Y still copies on the main branch screen;
+review views have no staging, discard, commit, checkout or clipboard actions.
+
+Entering review captures the file list. Selecting a file requests a bounded
+diff outside the renderer; the four most recently read file/context snapshots
+are reused until the workspace closes. Selecting a file through filtering may
+load its diff too. Scrolling, focus, guide and resize reuse captured facts.
+Use Ctrl-R to refresh the selected snapshot, or leave/re-enter to refresh the file list.
+A working diff is a new observation: it can reflect edits made after its file
+list was captured. Commit browsing resolves the branch tip once and uses full
+object IDs thereafter, even if that branch moves. Nothing is fetched. An
+unborn repository can still review working changes through Ctrl-X.
+Replacement refs are ignored so review reads the literal captured objects.
+
+Coverage is deliberately bounded and labeled:
+
+- Each capture retains at most **256 KiB**, with up to **1,000 change rows**
+  or **200 commits**. A file with both staged and unstaged edits has two rows.
+  Status labels use `M` modified, `A` added, `D` deleted, and `T` type change.
+- Each document retains **10,000 logical lines**, with up to **20,000 wrapped
+  display lines**. All captured hunks share one scrollable reader. Limits are
+  labeled; choose focused diff or use ordinary Git for larger files.
+- At most four raw diff snapshots (up to **1 MiB** combined) are cached for the
+  current workspace, plus the selected document and small reading bookmarks.
+- Binary diffs and conflicts show notices. For untracked previews, a NUL byte
+  in the captured prefix produces a binary notice; this is a bounded content
+  check, not a universal file-format detector. Empty files have their own notice.
+  Symlinks are not followed, including parent-directory symlinks; missing,
+  special or unreadable files report unavailable. Untracked folders stay
+  grouped by Git and are not scanned for previews. Submodules are excluded;
+  renames appear as separate deletion/addition entries.
+- These are output/retention bounds, **not a time limit**. Large worktrees or
+  slow storage can delay a synchronous read. Busy and failure states are
+  explicit, and no background worker or persistent review cache is created.
+
+Review disables external diff and text-conversion commands, configured
+clean/process filters, filesystem-monitor hooks, optional index writes and
+Git network transport for its own calls. Repository configuration is untouched.
+Files that normally use filters can consequently look different from your
+configured command-line diff; review shows Git's unfiltered comparison. This
+is a defensive read-only workflow, not a sandbox for Git or the filesystem.
+
+The optional `.zsh.git-review` peer supplies these views. Disabling it leaves
+`g` switching and copying unchanged. **`g --help`** includes this workflow and
+its limits; `g <arguments>` continues to delegate to ordinary Git.
 
 ## Prompt legend
 

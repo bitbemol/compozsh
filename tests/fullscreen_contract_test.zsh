@@ -66,6 +66,49 @@ _test_files_primary_action_hints() {
 }
 test_case 'file results prioritize Enter and expose optional workspace controls at compact widths' _test_files_primary_action_hints
 
+_test_git_review_shortcut_label() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    _ZLE_PICKER_RESULTS=(main) _ZLE_PICKER_SELECTED=1
+    _ZLE_PICKER_INSPECT_ACTION=switch _ZLE_PICKER_WORKSPACE_ACTIONS=1
+    _ZLE_PICKER_OPTIONS_KIND=git
+    for width in 49 69 119 179; do
+      _zle_picker_footer $width ""
+      [[ $REPLY == *"^X review"* && $REPLY != *"^X options"* &&
+         $REPLY == *"Esc cancel"* && $REPLY == *"^K keys"* ]] || {
+        print -u2 -- "Branch hint must name review: $REPLY"; exit 1
+      }
+      (( ${(m)#REPLY} <= width )) || exit 2
+    done
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_SELECTED=0
+    _zle_picker_footer 119 ""
+    [[ $REPLY == *"^X review"* ]] || exit 3
+    # Review stays reachable in an unborn repo, but not without its peer.
+    _ZLE_PICKER_WORKSPACE_ACTIONS=0
+    _zle_picker_footer 119 ""
+    [[ $REPLY != *"^X"* ]] || exit 4
+    # Reader disclosure is direct; filesystem menus retain their own labels.
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_DOCUMENT=1
+    _ZLE_PICKER_DOCUMENT_REFRESH=1 _ZLE_PICKER_DOCUMENT_MODE=focused
+    _ZLE_PICKER_OPTIONS_KIND=git-document
+    _ZLE_PICKER_RESULTS=(1) _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_INSPECT_ACTION=read
+    _zle_picker_footer 119 ""
+    [[ $REPLY == *"→ read"* && $REPLY == *"^R refresh"* && $REPLY != *"^X"* ]] || exit 5
+    _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_OPTIONS_KIND=""
+    _zle_picker_footer 119 ""
+    [[ $REPLY == *"^X options"* && $REPLY != *"^X review"* ]] || exit 6
+    _ZLE_PICKER_WORKSPACE_ACTIONS=0
+    _zle_picker_footer 119 ""
+    [[ $REPLY != *"^X"* ]] || exit 7
+    print contextual
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal contextual "$output"
+}
+test_case 'Git branch shortcut names review while reader disclosure and filesystem options remain contextual' _test_git_review_shortcut_label
+
 _test_fullscreen_guide_contract() {
   test_make_temp_dir || return
   local output

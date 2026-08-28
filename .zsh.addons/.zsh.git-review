@@ -1,0 +1,657 @@
+# Read-only Git review. Source-time work is definitions only; navigation opts
+# into these views at runtime. Providers capture, collectors filter, and the
+# editor owns every key, frame and screen transition.
+typeset -ga _GIT_REVIEW_CONFIG=() _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=()
+typeset -ga _GIT_REVIEW_KINDS=() _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=()
+typeset -g _GIT_REVIEW_DATA='' _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
+typeset -gi _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DOCUMENT_HAS_CODE=0
+typeset -ga _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+
+_git_review_git() {
+  emulate -L zsh
+  local root=$1
+  shift
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
+  local -x GIT_ALLOW_PROTOCOL='' GIT_LITERAL_PATHSPECS=1
+  local -x GIT_GLOB_PATHSPECS=0 GIT_NOGLOB_PATHSPECS=0 GIT_ICASE_PATHSPECS=0
+  command git --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
+    -c core.untrackedCache=false -c core.hooksPath=/dev/null \
+    "${_GIT_REVIEW_CONFIG[@]}" "$@"
+}
+
+# Bound retained output, including one lookahead byte. The private trailing
+# NUL/status distinguishes successful empty output from failure. Closing the
+# read pipe stops oversized writers; it is not a wall-clock Git timeout.
+_git_review_capture() {
+  emulate -L zsh
+  local -x LC_ALL=C
+  local packet='' tail=''
+  _GIT_REVIEW_DATA='' _GIT_REVIEW_TRUNCATED=0
+  packet=$( { _git_review_git "$@" 2>/dev/null; print -rn -- $'\0'"$?"; } |
+    { local chunk=''; IFS= read -r -u 0 -k 262145 chunk || :; print -rn -- "$chunk"; } )
+  if (( ${#packet} > 262144 )); then
+    _GIT_REVIEW_DATA=${packet[1,262144]}
+    _GIT_REVIEW_TRUNCATED=1
+    return 0
+  fi
+  [[ $packet == *$'\0'* ]] || return 2
+  tail=${packet##*$'\0'}
+  _GIT_REVIEW_DATA=${packet%$'\0'*}
+  [[ $tail == 0 ]] && return 0
+  [[ $tail == 1 ]] && return 1
+  return 2
+}
+
+# --no-textconv alone does not disable clean/process filters used when Git
+# compares working files. Discover names without reading values into shell
+# syntax, then override every configured driver for this invocation only.
+_git_review_prepare() {
+  emulate -L zsh
+  local root=$1 key='' driver=''
+  local -A seen=()
+  local -i result=0
+  _GIT_REVIEW_CONFIG=()
+  _git_review_capture "$root" config --null --name-only --get-regexp '^filter\..*\.(clean|process|required)$'
+  result=$?
+  (( result <= 1 && !_GIT_REVIEW_TRUNCATED )) || return 2
+  while IFS= read -r -d '' key; do
+    driver=${${key#filter.}%.*}
+    [[ -n $driver && -z ${seen[$driver]-} ]] || continue
+    seen[$driver]=1
+    _GIT_REVIEW_CONFIG+=(-c "filter.${driver}.clean=" -c "filter.${driver}.process=" -c "filter.${driver}.required=false")
+  done <<< "$_GIT_REVIEW_DATA"
+  return 0
+}
+
+_git_review_reset() {
+  _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=() _GIT_REVIEW_KINDS=()
+  _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=()
+  _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
+}
+
+_git_review_changes_capture() {
+  emulate -L zsh
+  local root=$1 record='' name='' xy='' kind='' state=''
+  local -i staged=0 unstaged=0 untracked=0 conflicts=0 index=0
+  _git_review_reset
+  _git_review_capture "$root" status --porcelain=v1 -z --no-renames \
+    --untracked-files=normal --ignore-submodules=all || return 2
+  while IFS= read -r -d '' record; do
+    (( ${#record} >= 4 )) || continue
+    xy=${record[1,2]} name=${record[4,-1]}
+    if [[ $xy == '??' ]]; then
+      kind=untracked state='Untracked'
+      (( ++untracked ))
+    elif [[ $xy == *U* || $xy == AA || $xy == DD ]]; then
+      kind=conflict state="Conflict $xy"
+      (( ++conflicts ))
+    else
+      for index in 1 2; do
+        [[ $xy[index] == ' ' ]] && continue
+        (( ${#_GIT_REVIEW_PATHS} < 1000 )) || { _GIT_REVIEW_TRUNCATED=1; break 2; }
+        if (( index == 1 )); then
+          kind=staged state="Staged $xy[index]"
+          (( ++staged ))
+        else
+          kind=unstaged state="Unstaged $xy[index]"
+          (( ++unstaged ))
+        fi
+        _GIT_REVIEW_PATHS+=("$name") _GIT_REVIEW_KINDS+=("$kind")
+        _GIT_REVIEW_LABELS+=("$name") _GIT_REVIEW_CONTEXTS+=("$state")
+        _GIT_REVIEW_DETAILS+=("$state"$'\n'"$name"$'\n\nEnter reads this diff.\n\n  Read-only · no staging or discard\n  Git filters disabled for review')
+      done
+      (( ${#_GIT_REVIEW_PATHS} >= 1000 )) && { _GIT_REVIEW_TRUNCATED=1; break; }
+      continue
+    fi
+    _GIT_REVIEW_PATHS+=("$name") _GIT_REVIEW_KINDS+=("$kind")
+    _GIT_REVIEW_LABELS+=("$name") _GIT_REVIEW_CONTEXTS+=("$state")
+    if [[ $kind == untracked ]]; then
+      _GIT_REVIEW_DETAILS+=("$state"$'\n'"$name"$'\n\nSelected regular text files are shown as new content.\nFolders, links and binary files show notices.')
+    else
+      _GIT_REVIEW_DETAILS+=("$state"$'\n'"$name"$'\n\nEnter reads the conflict notice.\nConflict content is not opened.')
+    fi
+    (( ${#_GIT_REVIEW_PATHS} >= 1000 )) && { _GIT_REVIEW_TRUNCATED=1; break; }
+  done <<< "$_GIT_REVIEW_DATA"
+  _GIT_REVIEW_SUMMARY="$staged staged · $unstaged unstaged · $untracked untracked · $conflicts conflicts"
+  (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · partial snapshot'
+  _GIT_REVIEW_NOTICE='Renames appear as add/delete. Submodules are excluded; untracked folders are grouped.'
+  return 0
+}
+
+_git_review_valid_oid() {
+  [[ -n $1 && $1 != *[^[:xdigit:]]* ]] && (( ${#1} == 40 || ${#1} == 64 ))
+}
+
+_git_review_commits_capture() {
+  emulate -L zsh
+  local root=$1 oid=$2 hash='' short='' date='' subject='' parents=''
+  _git_review_reset
+  _git_review_valid_oid "$oid" || return 2
+  _git_review_capture "$root" log --max-count=201 --date-order \
+    --format='%H%x00%h%x00%cs%x00%s%x00%P%x00' "$oid" -- || return 2
+  while IFS= read -r -d '' hash && IFS= read -r -d '' short &&
+        IFS= read -r -d '' date && IFS= read -r -d '' subject &&
+        IFS= read -r -d '' parents; do
+    hash=${hash#$'\n'}
+    (( ${#_GIT_REVIEW_PATHS} < 200 )) || { _GIT_REVIEW_TRUNCATED=1; break; }
+    _GIT_REVIEW_PATHS+=("$hash") _GIT_REVIEW_KINDS+=(commit)
+    _GIT_REVIEW_LABELS+=("$short · ${subject[1,512]}") _GIT_REVIEW_CONTEXTS+=("$date")
+    _GIT_REVIEW_PARENTS+=("${parents%% *}")
+    _GIT_REVIEW_DETAILS+=("${subject[1,512]}"$'\n'"$date"$'\n\n  '"$hash"$'\n\nEnter lists changed files.\nMerge commits compare with their first parent.\nRead-only · captured local history')
+  done <<< "$_GIT_REVIEW_DATA"
+  _GIT_REVIEW_SUMMARY='local history · read-only'
+  (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · first 200 / byte limit'
+  return 0
+}
+
+_git_review_commit_files_capture() {
+  emulate -L zsh
+  local root=$1 oid=$2 parent=$3 record='' added='' removed='' name='' summary=''
+  local -a args=(diff)
+  _git_review_reset
+  _git_review_valid_oid "$oid" || return 2
+  [[ -z $parent ]] || _git_review_valid_oid "$parent" || return 2
+  [[ -n $parent ]] || args=(diff-tree --root --no-commit-id -r)
+  args+=(--numstat -z --no-renames --no-ext-diff --no-textconv --ignore-submodules=all)
+  [[ -n $parent ]] && args+=("$parent")
+  args+=("$oid" --)
+  _git_review_capture "$root" "${args[@]}" || return 2
+  while IFS= read -r -d '' record; do
+    [[ $record == *$'\t'*$'\t'* ]] || continue
+    added=${record%%$'\t'*} record=${record#*$'\t'}
+    removed=${record%%$'\t'*} name=${record#*$'\t'}
+    summary="+$added -$removed"
+    [[ $added == '-' ]] && summary=Binary
+    _GIT_REVIEW_PATHS+=("$name") _GIT_REVIEW_KINDS+=(commit)
+    _GIT_REVIEW_LABELS+=("$name") _GIT_REVIEW_CONTEXTS+=("$summary")
+    _GIT_REVIEW_DETAILS+=("$name"$'\n'"$summary"$'\n\nEnter reads the captured commit diff.\nRead-only · no checkout')
+    (( ${#_GIT_REVIEW_PATHS} >= 1000 )) && { _GIT_REVIEW_TRUNCATED=1; break; }
+  done <<< "$_GIT_REVIEW_DATA"
+  _GIT_REVIEW_SUMMARY="${oid[1,12]} · first-parent changes · read-only"
+  (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · partial snapshot'
+  return 0
+}
+
+# Read only the selected regular file, never Git filters or an executable.
+# Pin its physical parent in a subshell; relative no-follow open and descriptor
+# stat guard replacements without changing the caller directory or running hooks.
+_git_review_untracked_capture() {
+  emulate -L zsh
+  local -x LC_ALL=C
+  local absolute=$1 parent=${1:h} packet='' body=''
+  local -i line_count=0 missing_newline=0
+  local -a lines=()
+  _GIT_REVIEW_DATA='' _GIT_REVIEW_TRUNCATED=0
+  if [[ ${parent:A} != "$parent" ]]; then
+    _GIT_REVIEW_DATA='Unavailable: the file parent changed or contains a symbolic link.'
+    return 2
+  elif [[ -L $absolute ]]; then
+    _GIT_REVIEW_DATA='Symbolic link · untracked. The target is not followed or read.'
+    return 0
+  elif [[ -d $absolute ]]; then
+    _GIT_REVIEW_DATA='Untracked folder · grouped by Git. Select an individual regular file to preview its content; this view does not scan folders.'
+    return 0
+  elif [[ ! -f $absolute ]]; then
+    _GIT_REVIEW_DATA='Unavailable: the untracked path is missing or is not a regular file.'
+    return 2
+  fi
+  # The child appends a NUL to protect real trailing newlines from substitution.
+  packet=$(
+    zmodload -F zsh/system b:sysopen b:sysread || return 2
+    zmodload -F zsh/stat b:zstat || return 2
+    builtin cd -q -P -- "$parent" 2>/dev/null || return 2
+    [[ $PWD == "$parent" ]] || return 2
+    local -i fd=-1 result=0 total=0 amount=0
+    local chunk='' data=''
+    local -A facts=()
+    {
+      sysopen -r -o cloexec,nofollow,nonblock -u fd "./${absolute:t}" 2>/dev/null || return 2
+      zstat -H facts -f $fd 2>/dev/null || return 2
+      (( (facts[mode] & 8#170000) == 8#100000 )) || return 2
+      while (( total < 262145 )); do
+        sysread -i $fd -s $(( 262145 - total )) -c amount chunk
+        result=$?
+        (( result == 5 )) && break
+        (( result == 0 && amount > 0 )) || return 2
+        data+=$chunk
+        (( total += amount ))
+      done
+      print -rn -- "$data"$'\0'
+    } always {
+      (( fd >= 0 )) && exec {fd}<&-
+    }
+  ) || {
+    _GIT_REVIEW_DATA='Unavailable: the untracked file could not be read safely. Use Ctrl-R to refresh.'
+    return 2
+  }
+  body=${packet%$'\0'}
+  if [[ $body == *$'\0'* ]]; then
+    _GIT_REVIEW_DATA='Binary untracked file · a NUL byte was detected in the bounded capture. Content preview omitted.'
+    return 0
+  elif [[ -z $body ]]; then
+    _GIT_REVIEW_DATA='Empty untracked file · no content yet.'
+    return 0
+  fi
+  if (( ${#body} > 262144 )); then body=${body[1,262144]}; _GIT_REVIEW_TRUNCATED=1; fi
+  lines=("${(@f)body}")
+  if [[ $body == *$'\n' ]]; then lines[-1]=()
+  else missing_newline=1; fi
+  line_count=${#lines}
+  # Keep conversion work at the document bound even for newline-only input.
+  (( line_count > 10000 )) && lines=("${(@)lines[1,10000]}")
+  # A new file is an all-additions patch in both context modes. Prefix every
+  # source line so header-like content remains literal in the shared parser.
+  lines=("${(@)lines/#/+}")
+  _GIT_REVIEW_DATA="@@ -0,0 +1,$line_count @@"$'\n'"${(F)lines}"$'\n'
+  (( missing_newline && !_GIT_REVIEW_TRUNCATED && line_count <= 10000 )) && _GIT_REVIEW_DATA+=$'\\ No newline at end of file\n'
+  if (( ${#_GIT_REVIEW_DATA} > 262144 )); then
+    _GIT_REVIEW_DATA=${_GIT_REVIEW_DATA[1,262144]} _GIT_REVIEW_TRUNCATED=1
+  fi
+  return 0
+}
+
+_git_review_diff_capture() {
+  emulate -L zsh
+  local root=${1:A} kind=$2 name=$3 oid=${4:-} parent=${5:-} context=${6:-3}
+  local absolute="$root/$name"
+  local -a args=(diff)
+  _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DATA=''
+  # Providers supply relative Git paths; reject malformed direct callers too.
+  [[ -n $name && $name != /* && /$name/ != */../* && /$name/ != */./* ]] || return 2
+  case $kind in
+    (untracked)
+      # Git may report a grouped directory with a trailing slash.
+      _git_review_untracked_capture "${absolute%/}"
+      return $? ;;
+    (conflict)
+      _GIT_REVIEW_DATA="${(C)kind}"$'\n\n'"$name"$'\n\nNo content preview for this kind.\nUse your normal Git tools to resolve or add it explicitly.'
+      return 0 ;;
+    (staged) args+=(--cached) ;;
+    (unstaged)
+      # Do not follow a replaced parent into an unrelated tree or read a FIFO.
+      if [[ ${absolute:h:A} != "$root" && ${absolute:h:A} != $root/* ]] ||
+         { [[ -e $absolute && ! -f $absolute && ! -L $absolute ]]; }; then
+        _GIT_REVIEW_DATA='Unavailable: unsafe or special working-tree path.'
+        return 2
+      fi ;;
+    (commit)
+      _git_review_valid_oid "$oid" || return 2
+      [[ -z $parent ]] || _git_review_valid_oid "$parent" || return 2
+      if [[ -n $parent ]]; then args+=("$parent" "$oid")
+      else args=(show --format= --root "$oid"); fi ;;
+    (*) return 2 ;;
+  esac
+  args+=(--no-ext-diff --no-textconv --no-color --no-renames --ignore-submodules=all
+         --no-relative --default-prefix --word-diff=none --diff-algorithm=myers
+         "--unified=$context" --inter-hunk-context=0 -- "$name")
+  _git_review_capture "$root" "${args[@]}" || return 2
+  [[ -n $_GIT_REVIEW_DATA ]] || _GIT_REVIEW_DATA='No diff remains for this selection. The working tree may have changed.'
+  return 0
+}
+
+# One continuous document, with old/new line numbers. Presentation stays in
+# the shared renderer; Git headers and control bytes are never executable data.
+_git_review_document_parse() {
+  emulate -L zsh
+  local line='' role='' old_label='' new_label=''
+  local -a match=() mbegin=() mend=()
+  local -i old=0 new=0 added=0 removed=0 in_hunk=0 partial=0
+  _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+  _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+  for line in "${(@f)_GIT_REVIEW_DATA}"; do
+    [[ -z $line ]] && (( in_hunk )) && continue
+    role=text old_label='' new_label=''
+    if [[ $line == '@@ '* && $line =~ '^@@ -([0-9]+)(,[0-9]+)? \+([0-9]+)' ]]; then
+      old=$(( 10#$match[1] )) new=$(( 10#$match[3] ))
+      in_hunk=1 role=info
+    elif (( in_hunk )); then
+      case $line in
+        (+*) new_label=$new; (( ++new, ++added )); role=success ;;
+        (-*) old_label=$old; (( ++old, ++removed )); role=error ;;
+        (' '*) old_label=$old new_label=$new; (( ++old, ++new )) ;;
+      esac
+      line="${(l:6:: :)old_label} ${(l:6:: :)new_label} $line"
+    else
+      case $line in
+        ('diff --git '*|'index '*|'--- '*|'+++ '*) continue ;;
+        (Unavailable:*|Limits:*) role=warning ;;
+      esac
+    fi
+    _ZLE_PICKER_DOCUMENT_LINES+=("$line") _ZLE_PICKER_DOCUMENT_ROLES+=("$role")
+    _GIT_REVIEW_DOCUMENT_OLD+=(${old_label:-0}) _GIT_REVIEW_DOCUMENT_NEW+=(${new_label:-0})
+    if (( ${#_ZLE_PICKER_DOCUMENT_LINES} >= 10000 )); then partial=1; break; fi
+  done
+  _GIT_REVIEW_DOCUMENT_SUMMARY="+$added -$removed · read-only"
+  _GIT_REVIEW_DOCUMENT_HAS_CODE=$in_hunk
+  (( in_hunk )) || _GIT_REVIEW_DOCUMENT_SUMMARY='change metadata · read-only'
+  if (( _GIT_REVIEW_TRUNCATED )); then
+    partial=1
+    _ZLE_PICKER_DOCUMENT_LINES+=('Limits: partial preview at 256 KiB. Use your file or Git tools for all content.')
+    _ZLE_PICKER_DOCUMENT_ROLES+=(warning)
+    _GIT_REVIEW_DOCUMENT_OLD+=(0) _GIT_REVIEW_DOCUMENT_NEW+=(0)
+  elif (( partial )); then
+    _ZLE_PICKER_DOCUMENT_LINES+=('Limits: first 10,000 document lines. Use your file or Git tools for the remaining content.')
+    _ZLE_PICKER_DOCUMENT_ROLES+=(warning)
+    _GIT_REVIEW_DOCUMENT_OLD+=(0) _GIT_REVIEW_DOCUMENT_NEW+=(0)
+  fi
+  (( partial )) && _GIT_REVIEW_DOCUMENT_SUMMARY+=' · partial'
+  return 0
+}
+
+# A hunk header anchors to its following code; a trailing notice to prior code.
+# New-side coordinates cover context/additions, old-side coordinates removals.
+_git_review_document_anchor() {
+  emulate -L zsh
+  local -i row=$1 index=0 count=${#_GIT_REVIEW_DOCUMENT_NEW}
+  REPLY=''
+  (( row > 0 && count > 0 )) || return 0
+  (( row > count )) && row=$count
+  for (( index=row; index<=count; ++index )); do
+    if (( _GIT_REVIEW_DOCUMENT_NEW[index] )); then REPLY="new:$_GIT_REVIEW_DOCUMENT_NEW[index]"; return 0
+    elif (( _GIT_REVIEW_DOCUMENT_OLD[index] )); then REPLY="old:$_GIT_REVIEW_DOCUMENT_OLD[index]"; return 0; fi
+  done
+  for (( index=row-1; index>0; --index )); do
+    if (( _GIT_REVIEW_DOCUMENT_NEW[index] )); then REPLY="new:$_GIT_REVIEW_DOCUMENT_NEW[index]"; return 0
+    elif (( _GIT_REVIEW_DOCUMENT_OLD[index] )); then REPLY="old:$_GIT_REVIEW_DOCUMENT_OLD[index]"; return 0; fi
+  done
+  return 0
+}
+
+# Find the closest retained source line on the same side of the diff. Ordered
+# traversal with strict improvement makes exact ties prefer earlier context.
+_git_review_document_seek() {
+  emulate -L zsh
+  local anchor=$1
+  local -a coordinates=()
+  local -i target=0 index=0 distance=0 nearest=-1
+  REPLY=0
+  [[ ${anchor#*:} == <-> ]] || return 0
+  target=${anchor#*:}
+  case ${anchor%%:*} in
+    (old) coordinates=("${_GIT_REVIEW_DOCUMENT_OLD[@]}") ;;
+    (new) coordinates=("${_GIT_REVIEW_DOCUMENT_NEW[@]}") ;;
+    (*) return 0 ;;
+  esac
+  # Exact expansion targets are common. Native literal lookup avoids a Zsh
+  # loop over thousands of unchanged lines; gaps retain the nearest rule.
+  index=${coordinates[(ie)$target]}
+  if (( index <= ${#coordinates} )); then REPLY=$index; return 0; fi
+  for (( index=1; index<=${#coordinates}; ++index )); do
+    (( coordinates[index] )) || continue
+    distance=$(( coordinates[index] - target ))
+    (( distance < 0 )) && (( distance = -distance ))
+    if (( nearest < 0 || distance < nearest )); then
+      REPLY=$index nearest=$distance
+      (( distance )) || break
+    fi
+  done
+  return 0
+}
+
+# New files have identical content in both modes, including the refresh key.
+_git_review_document_cache_key() {
+  REPLY="$1:$2"
+  [[ ${_GIT_REVIEW_KINDS[$1]} == untracked ]] && REPLY="$1:new"
+  return 0
+}
+
+# At most four captured patches per workspace, plus small per-file bookmarks.
+# Loading is a controller operation after the input loop returns, never paint.
+_git_review_document_load() {
+  emulate -L zsh
+  local root=$1 index=$2 oid=$3 parent=$4 context=$5 cache_key='' stale=''
+  local name=${_GIT_REVIEW_PATHS[index]} kind=${_GIT_REVIEW_KINDS[index]}
+  local anchor='' previous=$_ZLE_PICKER_DOCUMENT_KEY
+  _git_review_document_cache_key "$index" "$context"
+  cache_key=$REPLY context=${REPLY#*:}
+  # The old document still owns these coordinates after the input loop or a
+  # pending-selection frame cleared the shared visual buffer.
+  if [[ -n $previous ]]; then
+    _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$previous]:-0}"
+    [[ -n $REPLY ]] && _git_document_anchors[$previous]=$REPLY
+  fi
+  if [[ -z ${_git_document_cache[$cache_key]+present} ]]; then
+    if ! _git_review_diff_capture "$root" "$kind" "$name" "$oid" "$parent" "$context"; then
+      [[ $kind == untracked && $_GIT_REVIEW_DATA == Unavailable:* ]] ||
+      _GIT_REVIEW_DATA='Unavailable: Git could not read this diff. Use Ctrl-R to refresh; Escape returns.'
+    fi
+    _git_document_cache[$cache_key]=$_GIT_REVIEW_DATA
+    _git_document_partial[$cache_key]=$_GIT_REVIEW_TRUNCATED
+  fi
+  _git_document_order=("${(@)_git_document_order:#$cache_key}" "$cache_key")
+  if (( ${#_git_document_order} > 4 )); then
+    stale=$_git_document_order[1]
+    unset "_git_document_cache[$stale]" "_git_document_partial[$stale]"
+    _git_document_order[1]=()
+  fi
+  _GIT_REVIEW_DATA=${_git_document_cache[$cache_key]}
+  _GIT_REVIEW_TRUNCATED=${_git_document_partial[$cache_key]}
+  _git_review_document_parse
+  _ZLE_PICKER_DOCUMENT_MODE=''
+  if [[ $kind != untracked ]] && (( _GIT_REVIEW_DOCUMENT_HAS_CODE )); then
+    [[ $context == 3 ]] && _ZLE_PICKER_DOCUMENT_MODE=focused || _ZLE_PICKER_DOCUMENT_MODE=full
+  fi
+  _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+  if [[ -n ${_git_document_contexts[$index]-} && ${_git_document_contexts[$index]} != "$context" ]]; then
+    anchor=${_git_document_anchors[$index]-}
+    _git_review_document_seek "$anchor"
+    _ZLE_PICKER_DOCUMENT_TARGET_ROW=$REPLY
+    _ZLE_PICKER_DOCUMENT_OFFSETS[$index]=0
+    if (( REPLY )); then
+      local coordinate=$_GIT_REVIEW_DOCUMENT_NEW[REPLY]
+      [[ $anchor == old:* ]] && coordinate=$_GIT_REVIEW_DOCUMENT_OLD[REPLY]
+      [[ $coordinate == ${anchor#*:} ]] || _GIT_REVIEW_DOCUMENT_SUMMARY+=' · nearest retained context'
+    fi
+  fi
+  _git_document_contexts[$index]=$context
+  _ZLE_PICKER_DOCUMENT_KEY=$index
+  _ZLE_PICKER_DOCUMENT_TITLE=$name
+  _ZLE_PICKER_BROWSE_LABEL="$_GIT_REVIEW_SUMMARY · $_GIT_REVIEW_DOCUMENT_SUMMARY"
+  _ZLE_PICKER_SUBTITLE="${root:t} · $kind · full-file context · captured on selection"
+  [[ $context == 3 ]] && _ZLE_PICKER_SUBTITLE="${root:t} · $kind · focused diff · 3 context lines · captured on selection"
+  [[ $kind == untracked ]] && _ZLE_PICKER_SUBTITLE="${root:t} · untracked · new-file preview · captured on selection"
+  return 0
+}
+
+# Adapt a view snapshot to the existing navigation ranker. Numeric IDs remain
+# independent of literal path values (one file may have two change rows).
+_git_review_rows() {
+  local -i index=0
+  _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_INDEXES=()
+  _NAVIGATION_PICKER_LABELS=("${_GIT_REVIEW_LABELS[@]}")
+  _NAVIGATION_PICKER_SEARCH_LABELS=()
+  _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
+  for (( index=1; index<=${#_GIT_REVIEW_LABELS}; ++index )); do
+    _NAVIGATION_PICKER_VALUES+=("$index") _NAVIGATION_PICKER_INDEXES+=("$index")
+    _NAVIGATION_PICKER_SEARCH_LABELS+=("${_GIT_REVIEW_LABELS[index]} ${_GIT_REVIEW_CONTEXTS[index]-}")
+    _ZLE_PICKER_CONTEXTS[$index]=${_GIT_REVIEW_CONTEXTS[index]-}
+    (( ${_ZLE_PICKER_DOCUMENT:-0} )) && _NAVIGATION_PICKER_LABELS[index]=${_GIT_REVIEW_PATHS[index]:t}
+    _ZLE_PICKER_INSPECT_TEXTS[$index]=${_GIT_REVIEW_DETAILS[index]-}
+  done
+}
+
+# Explicit captures share the existing busy painter. Review supplies its own
+# status words so no search-only instructions leak into a Git screen.
+_git_review_load() {
+  local _ZLE_PICKER_BUSY_LABEL='Reading Git…'
+  local -a _ZLE_PICKER_BUSY_LINES=('Reading a local Git snapshot' 'Read-only · no fetch, staging or checkout'
+    'Large repositories or mounted drives can delay synchronous reads.')
+  _zle_picker_capture 'Git review' "${root:t} · read-only" '' "$@"
+}
+
+# Scope file snapshots and reading bookmarks to this review workspace.
+_git_review_view() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local root=$1 kind=$2 target=${3:-} oid=${4:-} parent=${5:-}
+  local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
+  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=diff
+  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_QUERY_LABEL='Filter files'
+  local _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_BROWSE_LABEL=''
+  local _ZLE_PICKER_EMPTY_LABEL='no matching entries'
+  local _ZLE_PICKER_SEARCH_ACTION=''
+  local _ZLE_PICKER_INSPECT_FALLBACK='' _ZLE_PICKER_INSPECT_EXPAND_KEY=''
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _zle_picker_start_focus=0
+  local -i result=0 index=0 focus=0
+  local -i _ZLE_PICKER_DOCUMENT=0 context=3 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _ZLE_PICKER_DOCUMENT_REFRESH=0
+  local _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _GIT_REVIEW_DOCUMENT_SUMMARY='' _ZLE_PICKER_DOCUMENT_MODE=''
+  local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _git_document_order=()
+  local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _git_document_cache=() _git_document_partial=()
+  local -A _ZLE_PICKER_DOCUMENT_ROWS=() _git_document_contexts=() _git_document_anchors=()
+  local -a _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+  local -a _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=() _GIT_REVIEW_KINDS=()
+  local -a _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=()
+  local _GIT_REVIEW_DATA='' _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
+  local -i _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DOCUMENT_HAS_CODE=0
+  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+  local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_TRAIL=() bookmark=('' 1 0)
+  case $kind in
+    (working)
+      _git_review_load _git_review_changes_capture "$root"; result=$?
+      _ZLE_PICKER_TITLE='Working changes'
+      _ZLE_PICKER_SUBTITLE="${root:t} · current working tree · read-only" ;;
+    (commits)
+      _git_review_load _git_review_commits_capture "$root" "$oid"; result=$?
+      _ZLE_PICKER_TITLE='Branch commits' _ZLE_PICKER_QUERY_LABEL='Filter commits'
+      _ZLE_PICKER_SUBTITLE="${root:t} · $target · captured tip ${oid[1,12]}"
+      _ZLE_PICKER_INSPECT_ACTION=files ;;
+    (files)
+      _git_review_load _git_review_commit_files_capture "$root" "$oid" "$parent"; result=$?
+      _ZLE_PICKER_TITLE='Commit files' ;;
+    (*) return 2 ;;
+  esac
+  if [[ $kind == working || $kind == files ]]; then
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1
+    _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff
+  fi
+  _ZLE_PICKER_BROWSE_LABEL=$_GIT_REVIEW_SUMMARY
+  if (( !${#_GIT_REVIEW_LABELS} )); then
+    _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Escape returns to the previous view.' "$_GIT_REVIEW_NOTICE")
+  fi
+  if (( result )); then
+    _ZLE_PICKER_EMPTY_LINES=('Unavailable: Git could not capture this view.' 'No changes were made. Escape returns to the previous view.')
+    _ZLE_PICKER_BROWSE_LABEL='capture failed · read-only'
+    _git_review_reset
+  fi
+  _git_review_rows
+  while true; do
+    _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
+    _zle_picker_start_focus=$focus
+    _zle_picker_loop "${bookmark[1]}" 20 "${bookmark[2]}" "${bookmark[3]}"
+    result=$?
+    (( result == 0 )) || return $result
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    index=$_ZLE_PICKER_SELECTED_VALUE
+    if (( _ZLE_PICKER_DOCUMENT )); then
+      if (( index > 0 )); then
+        case $_ZLE_PICKER_ACTION in
+          (document-full|document-focused|document-refresh)
+            case $_ZLE_PICKER_ACTION in
+              (document-full) context=1000000000 ;;
+              (document-focused) context=3 ;;
+              (document-refresh)
+                _git_review_document_cache_key "$index" "$context"
+                unset "_git_document_cache[$REPLY]"
+                _git_document_contexts[$index]=refresh ;;
+            esac
+            _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" ;;
+          (*)
+            [[ $_ZLE_PICKER_ACTION == select ]] && focus=1
+            [[ $index == "$_ZLE_PICKER_DOCUMENT_KEY" ]] ||
+              _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" ;;
+        esac
+      fi
+      continue
+    fi
+    case $kind in
+      (commits) _git_review_view "$root" files '' "${_GIT_REVIEW_PATHS[index]}" "${_GIT_REVIEW_PARENTS[index]}" ;;
+    esac
+    result=$?
+    (( result > 1 )) && return $result
+  done
+}
+
+_git_review_options() {
+  local root=$1 branch=$2
+  local _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_SUBTITLE="${root:t} · choose a read-only view"
+  local _ZLE_PICKER_QUERY_LABEL='Filter views' _ZLE_PICKER_INSPECT_ACTION=open
+  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  local _ZLE_PICKER_INSPECT_TITLE=Scope _ZLE_PICKER_BROWSE_LABEL='read-only review'
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=1
+  local -a _NAVIGATION_PICKER_VALUES=(working) _NAVIGATION_PICKER_LABELS=('Working tree · Review working changes')
+  local -a _NAVIGATION_PICKER_INDEXES=(1) _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -A _ZLE_PICKER_INSPECT_TEXTS=(working $'Current working tree\nStaged, unstaged and untracked\n\nReviews the currently checked-out tree.\nRead-only · no fetch or writes') _ZLE_PICKER_CONTEXTS=()
+  [[ -n $branch ]] && {
+    _NAVIGATION_PICKER_VALUES+=(commits) _NAVIGATION_PICKER_LABELS+=("Selected branch · Commits in $branch")
+    _NAVIGATION_PICKER_INDEXES+=(2)
+    _ZLE_PICKER_INSPECT_TEXTS[commits]="$branch"$'\nLocal branch history\n\nCommits → files → diff\nNo checkout; selected tip is resolved once.'
+  }
+  _zle_picker_loop '' 10
+}
+
+# Called inside g's existing screen owner. Branch accept/copy returns unchanged
+# to navigation for post-cleanup dispatch; review never performs either action.
+_git_review_branch_choose() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=1 focus=0 result=0
+  local _ZLE_PICKER_OPTIONS_KIND=git selected='' choice='' oid=''
+  local -a bookmark=('' 1 0) _GIT_REVIEW_CONFIG=()
+  local -a _ZLE_PICKER_EMPTY_LINES=()
+  local _GIT_REVIEW_DATA=''
+  local -i _GIT_REVIEW_TRUNCATED=0 _zle_picker_start_focus=0
+  if (( !${#_NAVIGATION_PICKER_VALUES} )); then
+    _ZLE_PICKER_EMPTY_LINES=('No recent local branches'
+      'Ctrl-X reviews the current working tree, including before its first commit.')
+  fi
+  while true; do
+    _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_COPY_ENABLED=$(( ${#clipboard_binary} > 0 ))
+    _zle_picker_start_focus=$focus
+    _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}"
+    result=$?
+    (( result == 0 )) || return $result
+    [[ $_ZLE_PICKER_ACTION == actions ]] || return 0
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    _git_review_options "$root" "$selected"
+    result=$?
+    (( result == 1 )) && continue
+    (( result == 0 )) || return $result
+    choice=$_ZLE_PICKER_SELECTED_VALUE
+    if ! _git_review_prepare "$root"; then
+      _git_review_unavailable
+      result=$?
+      (( result > 1 )) && return $result
+      continue
+    fi
+    if [[ $choice == commits ]]; then
+      _git_review_capture "$root" rev-parse --verify --end-of-options "refs/heads/$selected^{commit}" || {
+        _git_review_unavailable
+        result=$?
+        (( result > 1 )) && return $result
+        continue
+      }
+      oid=${_GIT_REVIEW_DATA%$'\n'}
+      _git_review_view "$root" commits "$selected" "$oid"
+    else
+      _git_review_view "$root" working
+    fi
+    result=$?
+    (( result > 1 )) && return $result
+  done
+}
+
+_git_review_unavailable() {
+  local _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_BROWSE_LABEL='unavailable'
+  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+  local -a _ZLE_PICKER_EMPTY_LINES=('Unable to establish safe local Git inspection.' 'The branch or configuration may have changed. Escape returns.')
+  local -A _ZLE_PICKER_INSPECT_TEXTS=()
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  _zle_picker_loop '' 10
+}
+
+:
