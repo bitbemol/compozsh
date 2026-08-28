@@ -31,6 +31,9 @@ Option-Tab needs [Option as Meta](#option-as-meta-one-time-setup) in the active
 Terminal profile. Updating from 1.x? Read the [migration guide](#migration-from-d-and-f):
 the filesystem workspace replaces the old `d` and `f` commands.
 
+Using an AI chat alongside your shell? See the [native tab workflow](#chat-and-shell-in-native-terminal-tabs)
+for full-sized sessions in one Terminal window.
+
 ## What it includes
 
 - A compact two-line prompt that adds a project-runtime line only when relevant
@@ -764,6 +767,46 @@ gestures delivered as identical bytes. You can still reach Recents through
 **path + Tab → Ctrl-X → Go to · Recent directories** without Meta enabled.
 The rest of Compozsh, including path + Tab and Control-based picker commands,
 works without this preference.
+
+## Chat and shell in native Terminal tabs
+
+Keep an AI CLI chat running in one tab and use another for navigation, Git review,
+tests, and commands. Each tab fills the same Terminal window; switching tabs
+leaves the other session running. This workflow uses Terminal.app's built-in
+controls and needs no additional installation, Compozsh configuration, or
+automation permission.
+
+1. Start your usual AI CLI in the first tab.
+2. Press **Cmd-T** to open a second tab for your working shell.
+3. Press **Ctrl-Tab** to switch between them. With two tabs, it toggles directly
+   between chat and shell, including while the AI CLI or a Compozsh view is open.
+4. Optionally press **Ctrl-Cmd-F** to enter or leave full screen.
+
+| Key | Action and owner |
+| --- | --- |
+| `Cmd-T` | Terminal: open a new tab |
+| `Ctrl-Tab` / `Ctrl-Shift-Tab` | Terminal: select the next / previous tab |
+| `Ctrl-Cmd-F` | Terminal: enter / leave full screen |
+| `Option-Tab` at the prompt | Compozsh: open recent directories; requires [Option as Meta](#option-as-meta-one-time-setup) |
+| `Ctrl-R` at the prompt | Compozsh: search command history |
+
+Terminal owns tab switching, so these controls work while another program owns
+the shell's input. See Apple's [Terminal shortcuts](https://support.apple.com/guide/terminal/keyboard-shortcuts-trmlshtcts/mac).
+
+For optional refinements, open **Terminal → Settings → General**:
+
+- Choose **New tabs open with → Same Working Directory** to start a new tab in
+  the active tab's folder. Later directory changes remain independent.
+- Enable **Use ⌘-1 through ⌘-9 to switch tabs** for direct access to numbered
+  tabs, for example chat, shell, and tests. These are Terminal preferences;
+  Compozsh does not change them. See Apple's [General settings guide](https://support.apple.com/guide/terminal/change-general-settings-trmlstrtup/mac).
+
+Tabs have separate shell sessions, directory stacks, and scrollback. Compozsh
+still shares command history, and tabs working in the same repository share its
+files, index, and checked-out branch: coordinate edits and branch switches with
+any running AI or build. Switching tabs preserves running programs; closing a
+tab or quitting Terminal can terminate them. Tabs provide no detached-session
+or restart-persistence guarantee.
 
 ## Contextual directory completion
 
