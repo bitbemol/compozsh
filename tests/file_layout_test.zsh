@@ -45,7 +45,6 @@ _test_file_layout_widths() {
     _ZLE_PICKER_LABELS=("· report.md" "· report.md")
     _ZLE_PICKER_CONTEXTS=(/snapshot/docs/report.md docs/ /snapshot/tests/report.md tests/)
     _ZLE_PICKER_INSPECT_TEXTS=(/snapshot/docs/report.md $'\''File\n\n  /snapshot/docs/report.md'\'')
-    _ZLE_PICKER_INSPECT_LIST_PERCENT=60
     _ZLE_PICKER_INSPECT_TITLE=Path
     COLUMNS=102 LINES=30
     _zle_picker_render "" 1

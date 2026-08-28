@@ -24,9 +24,7 @@ _test_public_commands_support_help() {
       cpdir
       git-discard-all
       prompt-refresh
-      d
       g
-      f
       update_xcode_skills
       compozsh
     )
@@ -49,7 +47,7 @@ _test_public_commands_support_help() {
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
 
   local public_command='' output_line='' record=''
-  for public_command in mkcd cpdir git-discard-all prompt-refresh d g f \
+  for public_command in mkcd cpdir git-discard-all prompt-refresh g \
       update_xcode_skills compozsh; do
     record=''
     for output_line in ${(f)output}; do
@@ -73,27 +71,30 @@ _test_file_finder_help_explains_search() {
   test_make_temp_dir || return
   local output='' fact=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.find"
-    f --help
+    source "$1/.zsh.addons/.zsh.help"
+    compozsh --help
   ' "$TEST_REPO_ROOT") || return
 
   # Protect the answers users need, without snapshotting the whole document.
   local -a facts=(
-    'Inside Git:' 'repository root' 'current directory and descendants'
-    'From ~' '--here' '--root DIR' '--home' '--global'
-    'Spotlight index' 'longest query fragment' 'unindexed'
+    'path + Tab' 'repository root' 'current directory'
+    '~/ then Tab' 'Recents' 'Option-Tab' 'Option as Meta' 'directory stack'
+    'Spotlight index' 'longest query fragment' 'Unindexed'
     'any order' 'file contents' 'initial query' 'captured paths'
-    '20,000' '2,000' '10 rows' 'partial'
+    '20,000' '2,000' '10 rows' 'Partial'
     'ZSH_FILE_SEARCH_MAX_VISITED' 'ZSH_FILE_SEARCH_MAX_CANDIDATES'
     'ZSH_FILE_SEARCH_MAX_RESULTS' 'shell-quoted' 'Option-W' 'Ctrl-Y'
-    '--list' '--print0' 'NUL' 'one scope' 'f -- --draft'
-    'f --root ~/Projects project-notes' 'f --global project-notes'
     'file-action picker' 'Open with default app' 'Reveal in Finder'
+    'exact selected file, folder or link' 'Current folder operations'
+    'registered app' 'normally Finder for folders' 'containing folder'
+    'selects the exact item in Finder'
+    'Git within a worktree' 'home/root on macOS' 'Filesystem elsewhere'
+    'Searching' 'synchronous' 'failed source' 'No fallback scan'
     'Insert path' 'Enter linked directory' 'same' 'selected row'
-    'broken link' 'only files you trust' 'after picker cleanup'
+    'broken link' 'only items you trust' 'after picker cleanup'
   )
   for fact in "${facts[@]}"; do
-    test_assert_contains "$output" "$fact" "f --help omits guidance: $fact" || return
+    test_assert_contains "$output" "$fact" "compozsh --help omits guidance: $fact" || return
   done
 }
 test_case 'file finder help explains scopes, discovery limits, and practical use' \
@@ -104,6 +105,7 @@ _test_file_finder_help_is_static_and_errors_stay_short() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/.zsh.help"
     builtin cd -- "$HOME" || exit
     path=()
     _FILE_SEARCH_VALUES=(/example/kept)
@@ -112,7 +114,7 @@ _test_file_finder_help_is_static_and_errors_stay_short() {
     _file_search_capture_local() { print -u2 -- unexpected-capture; return 99; }
     _file_search_capture_spotlight() { print -u2 -- unexpected-capture; return 99; }
     _file_search_copy() { print -u2 -- unexpected-copy; return 99; }
-    f --help > "$HOME/help.out" 2> "$HOME/help.err" || exit 10
+    compozsh --help > "$HOME/help.out" 2> "$HOME/help.err" || exit 10
     help_text=$(<"$HOME/help.out")
     [[ ! -s "$HOME/help.err" && $PWD == $HOME &&
        $_FILE_SEARCH_VALUES[1] == /example/kept &&
@@ -121,9 +123,9 @@ _test_file_finder_help_is_static_and_errors_stay_short() {
     ZSH_FILE_SEARCH_MAX_CANDIDATES=1
     ZSH_FILE_SEARCH_MAX_RESULTS=1
     TERM=dumb
-    [[ $(f --help) == "$help_text" ]] || exit 12
-    [[ $help_text == $(_compozsh_help_f) ]] || exit 13
-    f --home --here needle > "$HOME/invalid.out" 2> "$HOME/invalid.err"
+    [[ $(compozsh --help) == "$help_text" ]] || exit 12
+    [[ $help_text == $(_compozsh_help_compozsh) ]] || exit 13
+    compozsh --invalid --invalid > "$HOME/invalid.out" 2> "$HOME/invalid.err"
     [[ $? == 2 && ! -s "$HOME/invalid.out" ]] || exit 14
     usage_text=$(<"$HOME/invalid.err")
     [[ $usage_text == "${help_text[(f)1]}" ]] || exit 15
@@ -138,7 +140,7 @@ _test_tool_help_explains_real_boundaries() {
   test_make_temp_dir || return
   local output='' tool='' fact=''
   local -a facts=()
-  for tool in mkcd cpdir git-discard-all prompt-refresh d g \
+  for tool in mkcd cpdir git-discard-all prompt-refresh g \
       update_xcode_skills compozsh; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home" '
       source "$1/.zsh.addons/.zsh.tools"
@@ -153,9 +155,6 @@ _test_tool_help_explains_real_boundaries() {
       (git-discard-all) facts=('repository root' 'HEAD' 'staged' 'untracked'
         '[y/N]' 'ignored' 'submodule' 'rebase' 'rollback' 'stash' 'Examples:') ;;
       (prompt-refresh) facts=('current shell' 'next use' 'exec zsh' 'reload' 'Examples:') ;;
-      (d) facts=('current shell' 'directory stack' 'filesystem' '~1'
-        'empty' 'Ctrl-P' 'Ctrl-U' 'character order' '--list'
-        'ZSH_NAVIGATION_PICKER_MAX_RESULTS' 'Examples:') ;;
       (g) facts=('200' 'reflog' 'remote' 'g branch' 'character order'
         'git switch --no-guess' 'worktree' 'pbcopy' 'Ctrl-Y' 'SSH'
         'empty' 'Ctrl-U' 'noninteractive' 'Examples:') ;;
@@ -192,7 +191,7 @@ _test_all_tool_help_is_static_without_optional_tools() {
         _detect_xcode_skill_vendor _compozsh_tool_capture; do
       functions[$helper]="print -u2 -- unexpected-operation; return 99"
     done
-    for tool in mkcd cpdir git-discard-all prompt-refresh d g f \
+    for tool in mkcd cpdir git-discard-all prompt-refresh g \
         update_xcode_skills compozsh; do
       "$tool" --help >| "$HOME/help.out" 2>| "$HOME/help.err" || exit 10
       help_text=$(<"$HOME/help.out")
@@ -235,11 +234,11 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     zmodload zsh/zpty || exit 10
     _help_test_driver() {
       local tool
-      for tool in mkcd cpdir git-discard-all prompt-refresh d g f \
+      for tool in mkcd cpdir git-discard-all prompt-refresh g \
           update_xcode_skills compozsh; do
         "$tool" --help || return
       done
-      compozsh help f
+      compozsh help g
       print -r -- END-HELP-COLOR-TEST
     }
     _help_test_capture() {
@@ -262,16 +261,16 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     [[ $plain != *$'\''\e'\''* ]] || exit 12
     _help_test_capture || exit 13
     colored=$REPLY
-    for tool in mkcd cpdir git-discard-all prompt-refresh d g f \
+    for tool in mkcd cpdir git-discard-all prompt-refresh g \
         update_xcode_skills compozsh; do
       [[ $colored == *$'\''\e[1;38;5;123m'\''"usage: $tool"* ]] || {
         print -u2 -- "$tool help is missing the heading palette color"
         exit 14
       }
     done
-    [[ $colored == *$'\''\e[38;5;124m--here'\''* &&
-       $colored == *$'\''\e[1;38;5;126mSafety and limitations:'\''* &&
-       $colored == *$'\''\e[38;5;125mf --here project-notes'\''* ]] || exit 15
+    [[ $colored == *$'\''\e[38;5;124m--list'\''* ]] || { print -u2 missing-option-color; exit 15; }
+    [[ $colored == *$'\''\e[1;38;5;126mSafety and limitations:'\''* ]] || { print -u2 missing-warning-color; exit 15; }
+    [[ $colored == *$'\''\e[38;5;125mcompozsh help g'\''* ]] || { print -u2 missing-example-color; exit 15; }
     stripped=${colored//$'\''\e'\''\[[0-9\;]#m/}
     [[ $stripped == $plain ]] || {
       print -u2 -- "styling changed help text, line breaks, or explorer output"

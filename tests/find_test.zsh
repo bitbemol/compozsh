@@ -172,45 +172,47 @@ _test_file_search_command_contract() {
   expected_quoted=${(q)selected_path}
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    f --list --root "$2" "final ready"
+    _file_search_capture "$2" "final ready" local
     list_status=$?
+    print -rl -- "${_FILE_SEARCH_VALUES[@]}"
     _file_search_quote "$2/AI Projects/Final & Ready.md"
     print -r -- "quoted:$REPLY"
-    f --root "$2"
+    _file_search_capture "$2" "" local
     print -r -- "missing-query:$?"
     print -r -- "public:${+functions[f]}"
   ' "$TEST_REPO_ROOT" "$root" 2>&1) || return
 
-  test_assert_contains "$output" "$root/AI Projects/Final & Ready.md" \
+  test_assert_contains "$output" "${root:A}/AI Projects/Final & Ready.md" \
     'list mode did not emit the complete selected path' || return
   test_assert_contains "$output" "quoted:$expected_quoted" \
     'selected path was not safely shell-quoted' || return
-  test_assert_contains "$output" 'usage: f ' \
-    'a missing query did not fail with usage guidance' || return
   test_assert_contains "$output" 'missing-query:2' \
     'a missing query did not retain the usage error status' || return
-  test_assert_contains "$output" 'public:1' \
-    'the finder command is not part of the public function surface'
+  test_assert_contains "$output" 'public:0' \
+    'the retired finder command returned to the public function surface'
 }
 test_case 'file finder lists safely and never executes a selected path' \
   _test_file_search_command_contract
 
-_test_file_search_nul_output_contract() {
+_test_file_search_path_fidelity() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" root="$TEST_TMP_DIR/root"
-  local output_file="$TEST_TMP_DIR/results.bin" output=''
+  local output='' filename=$'line\nbreak & notes.txt'
 
-  test_write_file "$root/line break.txt" 'result' || return
+  test_write_file "$root/$filename" 'result' || return
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    f --print0 --root "$2" "line break" >| "$3" || exit
-    command tail -c 1 "$3" | command od -An -tx1
-  ' "$TEST_REPO_ROOT" "$root" "$output_file") || return
-  test_assert_contains "$output" '00' \
-    'redirected --print0 output did not retain its NUL separator'
+    command git -C "$2" init -q || exit
+    for provider in local git; do
+      _file_search_capture "$2" "notes" "$provider" || exit
+      [[ ${#_FILE_SEARCH_VALUES} == 1 && $_FILE_SEARCH_VALUES[1] == "${2:A}/$3" ]] || exit 1
+    done
+    print literal
+  ' "$TEST_REPO_ROOT" "$root" "$filename") || return
+  test_assert_equal literal "$output" 'capture split a newline-bearing filename'
 }
-test_case 'file finder preserves NUL output through redirection' \
-  _test_file_search_nul_output_contract
+test_case 'filesystem and Git capture preserve newline-bearing paths as literal array values' \
+  _test_file_search_path_fidelity
 
 _test_editor_owns_command_picker_lifecycle() {
   test_make_temp_dir || return

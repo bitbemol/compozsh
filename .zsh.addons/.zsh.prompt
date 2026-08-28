@@ -1986,9 +1986,10 @@ TRAPWINCH() {
   zle || return $previous_status
   emulate -L zsh
 
-  if (( ${_ZLE_PICKER_ACTIVE:-0} )); then
-    _zle_picker_render "$_ZLE_PICKER_QUERY" $_ZLE_PICKER_SELECTED
-    _zle_picker_show
+  if (( (${_ZLE_PICKER_ACTIVE:-0} || ${_ZLE_PICKER_SCREEN_ACTIVE:-0}) && ${+functions[_zle_picker_redraw]} )); then
+    # ZLE parameters are read-only in traps; the editor owns the writable
+    # widget context as well as the cached picker layout and painting.
+    zle compozsh-picker-redraw
     return $previous_status
   fi
   _prompt_layout

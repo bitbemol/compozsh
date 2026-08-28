@@ -3,6 +3,33 @@
 A polished, self-contained Zsh setup with no frameworks, prompt themes, or
 third-party plugins.
 
+## Start with your next task
+
+| What you want to do | Entry point | What happens next |
+| --- | --- | --- |
+| Browse a known folder | Type `~/`, `./`, `/`, or another directory path, then press Tab | Right enters a child; Left goes back; Enter inserts an editable path |
+| Recall a visited folder | Option-Tab at the prompt | Filter this shell's native directory stack; Enter inserts its path, Ctrl-O browses it |
+| Find a file below a folder | Path + Tab → Ctrl-F | Review the displayed source and scope, enter a discovery query, then press Enter |
+| Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
+| Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
+| Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
+| Discover your custom tools | `compozsh` | Explore loaded public functions and their safe help |
+
+These tools share a responsive full-screen layout, visible action hints and a
+**Ctrl-K keyboard guide**. Escape returns or cancels. Inserting a directory
+does **not** change it immediately: review the visible path, then press Enter
+at the normal prompt. File actions are explicit and use the exact selected item.
+
+Ctrl-F defaults to scoped Git discovery within repositories, Spotlight at home
+or root on macOS, and bounded filesystem search elsewhere. It shows the source,
+scope and **Searching…** before capture; failed sources are reported separately
+from empty results and never silently replaced with a home-directory crawl.
+See [search coverage and limits](#filesystem-search-in-the-path-workspace).
+
+Option-Tab needs [Option as Meta](#option-as-meta-one-time-setup) in the active
+Terminal profile. Updating from 1.x? Read the [migration guide](#migration-from-d-and-f):
+the filesystem workspace replaces the old `d` and `f` commands.
+
 ## What it includes
 
 - A compact two-line prompt that adds a project-runtime line only when relevant
@@ -23,8 +50,8 @@ third-party plugins.
 - Prefix-based history search with Up/Down or `Ctrl-P`/`Ctrl-N`
 - A native fuzzy `Ctrl-R` history picker with ranked, order-independent
   fragments and deduplicated results
-- A bounded fuzzy `f` file finder with project, directory, home, and global
-  scopes, direct directory navigation, explicit file actions, and machine-readable output
+- One path + Tab filesystem workspace with Browse, explicit scoped Search,
+  separate Recents, and safe file actions
 - A live `compozsh` tool explorer that discovers public add-on functions,
   searches them fuzzily, and opens their safe self-documentation
 - Live native history autosuggestions with character, word, and full acceptance
@@ -142,11 +169,11 @@ compozsh/
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.shell         shell options, history, and native tool colors
-│   ├── .zsh.editor        completion, shared pickers/inspectors, and editing
+│   ├── .zsh.editor        completion, temporary-screen pickers, and editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
-│   ├── .zsh.navigation    directory/branch pickers and captured branch details
+│   ├── .zsh.navigation    directory/branch workspaces, details and copying
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
@@ -181,11 +208,11 @@ peer owns one focused concern and can still be sourced independently:
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion and ZLE editing | Native completion, contextual fuzzy directory completion, macOS-friendly bindings, shared scrolling pickers with optional text inspectors, fuzzy `Ctrl-R`, and history autosuggestions |
-| `.zsh.find` | Bounded fuzzy file search and actions | `f` searches project files, explicit directory trees, or the macOS Spotlight index; shows filename-first results and path details; enters directories or offers explicit file actions |
+| `.zsh.editor` | Completion and ZLE editing | Native completion; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
+| `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
-| `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments |
-| `.zsh.navigation` | Fast directory and Git movement | `d` directory picker, `g` branch picker with commit/upstream details, recent stacks, numbered selection, and small navigation aliases |
+| `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
+| `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, copying and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
@@ -307,6 +334,16 @@ Start a new shell after a successful installation:
 exec zsh
 ```
 
+### 4. Enable Option shortcuts in Terminal
+
+For direct **Option-Tab → Recents** and the other Meta-based shortcuts, enable
+**Terminal → Settings → Profiles → your active profile → Keyboard → Use Option
+as Meta key**. Where separate left/right choices are available, enabling **Left
+Option** is sufficient. Then hold that Option key and press Tab at the prompt.
+This is a manual, per-profile preference; the installer leaves it unchanged.
+See [Option as Meta: one-time setup](#option-as-meta-one-time-setup) for the
+meaning, text-entry tradeoffs, and troubleshooting.
+
 ### Modes and safety options
 
 | Option | Behavior |
@@ -422,6 +459,22 @@ Consequently, the suite does not read or modify the active `~/.zshrc`, private
 add-ons, or history. Destructive helper coverage creates its own disposable Git
 repository. A validated cleanup trap removes only the temporary directory made
 for that test.
+
+Interactive regressions use Zsh's bundled `zsh/zpty` module to send keys and
+real resize signals to an isolated terminal. Resize checks cover the painted
+display, search and selection state, existing highlights, and cleanup; a
+layout calculation alone does not establish that the redraw worked.
+The repaint regression also observes Zsh's automatic refresh before the resize
+handler, using a separate event pipe so test markers do not disturb the screen.
+Screen-lifecycle checks verify paired alternate-screen entry/exit, cleanup on
+selection, cancellation, Ctrl-C and failed input, and inline fallbacks. Full
+screen clears must occur only inside the owned alternate screen; no test allows
+scrollback erasure. Workspace checks cover anchored search/footer rows, visible
+match spans, and exact restoration of a multiline draft and shell prompt after
+a real resize. They also exercise redraws while the input reader has an empty
+field separator, so rendering cannot depend on the reader's temporary state.
+Terminal.app fullscreen/windowed transitions still need a manual visual check;
+a PTY does not reproduce the application's scrollback reflow.
 
 ### How pass and fail work
 
@@ -635,7 +688,7 @@ Home, End, or forward-Delete keys missing from compact Apple keyboards:
 | `Ctrl-B` / `Ctrl-F` | Move backward / forward one character |
 | `Option-B` / `Option-F` | Move backward / forward one word |
 | `Option-Left` / `Option-Right` | Move backward / forward one word |
-| `Ctrl-D` | Delete the character under the cursor |
+| `Ctrl-D` | Delete under the cursor; on an empty command line, send EOF (normally exits the shell) |
 | `Option-Backspace` / `Ctrl-W` | Delete the previous word |
 | `Option-D` | Delete the next word |
 | `Ctrl-U` | Delete the editable line |
@@ -644,53 +697,221 @@ Home, End, or forward-Delete keys missing from compact Apple keyboards:
 | `Ctrl-_` | Undo the last edit |
 | `Up` / `Down` or `Ctrl-P` / `Ctrl-N` | Search history using the typed prefix |
 | `Tab` | Open the directory picker for a lone `AUTO_CD` path; otherwise complete natively |
-| `Shift-Tab` | Complete backward in native menus; move upward inside a picker |
+| `Option-Tab` | Open Recents directly; selection inserts an editable path, cancellation preserves the draft/cursor (requires Option as Meta) |
+| `Shift-Tab` | Complete backward natively; switch panes in pickers, or go Back in the folder browser |
 | `Ctrl-R` | Open fuzzy history search |
 | `Ctrl-L` | Redraw a clean terminal screen |
 | `Ctrl-X Ctrl-E` | Edit the command in `$EDITOR` |
 
-Option-based shortcuts require the terminal to send Option as Meta. In Terminal,
-enable **Use Option as Meta key** in the active profile if they type accented or
-special characters instead. `Esc`, then `B` or `F`, is the terminal-independent
-equivalent. Home, End, and `Fn`/Globe-based key sequences remain supported as
-optional aliases when the terminal sends them.
+Home, End, and `Fn`/Globe-based key sequences remain supported as optional aliases
+when the terminal sends them.
 
 `Cmd-C`, `Cmd-V`, `Cmd-K`, and other Command-key shortcuts remain owned by the
 terminal application and macOS. They are intentionally not shadowed by Zsh;
 the shell generally never receives those key combinations.
+**Ctrl-Tab / Ctrl-Shift-Tab** also stay with Terminal's next/previous tab actions,
+as listed in Apple's [Terminal shortcuts](https://support.apple.com/guide/terminal/keyboard-shortcuts-trmlshtcts/mac).
+
+### Option as Meta: one-time setup
+
+**Meta is a modifier role**, like Control or Shift, used by terminal programs
+to distinguish extra shortcuts. Your keyboard does not need a key labeled
+Meta: Terminal can assign that role to **Option (⌥)**. Notation such as `M-b`
+means “hold Meta and press b.” Terminal-style Meta shortcuts commonly use an
+Escape-prefixed character sequence; see the [GNU keyboard notation guide](https://www.gnu.org/software/bash/manual/html_node/Introduction-and-Notation.html).
+
+Enable the setting for each Terminal profile you use:
+
+1. Open **Terminal → Settings → Profiles** and select the profile used by your
+   current window or tab.
+2. Open **Keyboard** and enable **Use Option as Meta key**.
+3. If your Terminal version offers separate left/right choices, **Left Option
+   alone is enough**. Right Option can retain normal character entry. If the
+   setting is a single checkbox, it may apply to both keys; follow that UI.
+4. At the ordinary prompt, hold the enabled Option key and press **Tab**.
+   **Recent directories** should open. Press Escape to return to your draft.
+
+This is a **per-profile** preference, not a system-wide keyboard remapping.
+Compozsh never changes it automatically. Apple's [Keyboard settings guide](https://support.apple.com/guide/terminal/change-profiles-keyboard-settings-trmlkbrd/mac)
+documents the preference and its profile scope.
+
+With Meta enabled, Option-Tab sends the `ESC TAB` sequence that Compozsh binds
+to Recents. You press **Option-Tab together**; the bytes are transport details.
+Standalone **Escape still cancels** a picker. Enabling Meta does not assign an
+action to every Option combination; the receiving shell or application decides
+which combinations it supports.
+
+**Text-entry tradeoff:** a Meta-enabled Option key can stop producing the
+alternate symbols or accents your keyboard layout normally assigns to it.
+Keeping the other Option key in its normal mode, where supported, preserves
+that access. This also affects other terminal programs using the same profile;
+ordinary Command shortcuts remain with macOS and Terminal.
+
+**No shell reload is needed for the Terminal preference itself.** Use `exec zsh`
+after installing or updating Compozsh's code so its bindings are loaded. That
+starts a fresh shell and resets its in-memory directory stack; Recents initially
+contains the current folder and grows as you navigate.
+
+If Option-Tab still completes like plain Tab, check the **active profile**, the
+Option key you enabled, and custom keyboard mappings. Zsh cannot distinguish
+gestures delivered as identical bytes. You can still reach Recents through
+**path + Tab → Ctrl-X → Go to · Recent directories** without Meta enabled.
+The rest of Compozsh, including path + Tab and Control-based picker commands,
+works without this preference.
 
 ## Contextual directory completion
+
+The filesystem workspace has three named views: **Browse** for a folder's
+children, **Search** for explicit discovery below that folder, and **Recents**
+for this shell's visited locations. Use **Ctrl-X** for its actions/view menu.
+A direct **Option-Tab** shortcut opens Recents from the ordinary prompt (with
+Option as Meta enabled).
+`g` stays separate because its scope and actions are Git-specific.
+
+The two entry points serve the same navigation task with different starting
+knowledge:
+
+| Starting point | Gesture | Source and primary result |
+| --- | --- | --- |
+| A known folder (path-led) | `~/`, `./`, or another directory path + Tab | Browse that folder; Enter inserts an editable path |
+| A remembered location (recall-led) | Option-Tab | Search this shell's directory stack; Enter inserts an editable path |
+
+Both resolve an exact location and can continue in the same browser. From
+Recents, **Ctrl-O** browses the selected folder; that folder can then scope a
+Search. Recents never broadens into a whole-disk search. The visible Enter label
+always names the next action, and Escape returns without applying it.
+
+Both entry points finish at the ordinary prompt with the selected, safely quoted
+path visible and the cursor at its end. Selection replaces the existing command
+draft; it does not change directory yet. Review or edit the path, then press
+**Enter at the prompt** to change directory through Zsh's `AUTO_CD`. Cancelling
+or copying instead keeps your original command, cursor and directory unchanged.
 
 When the editable line contains only an `AUTO_CD` directory path, `Tab` opens
 the same searchable picker used elsewhere in Compozsh:
 
 ```text
-❯ ~/Dev
-Directories · ~/ · matches for Dev · 2 shown
-Search ‹›
-[1] ● Developer/
-[2]   Devices/
-tab/→ open · ⇧tab/← back · ↑↓ move · ^V/⌥V page · 0–9/⏎ insert
+❯ ~/Projects/
+Compozsh / Directory browser              Enter: insert · Results
+Hidden: off · child directories · 3 files · 2 shown
+~ › Projects
+Filter folders ‹›
+[1] ● example-app/
+[2]   experiments/
+⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑↓ move
 ```
+
+This condensed example shows the navigator's title, breadcrumb and search.
+On a wide terminal, a quiet **Location** trail sits to the left of the main
+folder list, with a secondary **Preview** pane on the right. The trail appears
+from 120 columns; below that, the list and preview take priority. Below 100
+columns the list uses the full width and previews become a focused view.
+Shortcuts stay near the bottom; very short windows omit the breadcrumb.
+
+**A folder with no child directories can still contain files.** The browser
+shows its captured file count in the header. With no matching directories, the
+main body distinguishes **no child directories**, **no visible entries**, and
+**no directories match this filter**. It shows counts and up to eight
+non-directory names from the same level capture, with a remaining-count notice.
+These are informational: they have no selection numbers and cannot be inserted
+or executed by Enter. Ctrl-F opens scoped Search and its file actions. Hidden names
+follow the visibility setting; an empty visible scope does not mean the folder
+has no hidden entries. Counts and samples refresh on entering/re-entering a
+level or changing visibility; typing and resizing use the captured facts.
+
+| Browser key | What it does |
+| --- | --- |
+| Right / Tab | Enter the selected folder |
+| Left / Shift-Tab | Return to the preceding level, restoring selection and filter |
+| Ctrl-O | Preview the selected folder; with no selection, preview the current folder |
+| Ctrl-F | Search descendants of the displayed folder; Return submits the query |
+| Ctrl-E / Ctrl-B | Focus the preview / return to the folder list |
+| Ctrl-X | Open folder actions, including **use current folder** |
+| Ctrl-T | Toggle hidden folders |
+| Ctrl-Y | Copy the absolute path and close, if `pbcopy` is available |
+| Ctrl-K | Open the shared keyboard guide |
+
+Hold Control while pressing the letter; no sequential Escape chords or Meta
+setting are required. Escape cancels with a short terminal-sequence decoding
+allowance; Ctrl-G cancels immediately. Ordinary letters and punctuation remain
+search input. These shortcuts apply only while the picker is open.
+
+**Preview** reads only names and entry types from one explicitly requested
+folder. `▸` marks a directory, `·` another entry, and `↗` a symbolic link.
+It never reads file contents or traverses child symbolic links. Explicitly
+previewing a selected link to a folder follows that requested target.
+The sample stops at 40 entries in filesystem order, with a visible limit notice
+when more exist. Hidden names follow the browser toggle. Moving selection,
+filtering or resizing never loads a preview; press Ctrl-O again to refresh.
+Only the most recently requested preview is retained, until you change levels
+or close. A requested preview uses the available reading height; Ctrl-E and
+page keys let you read longer snapshots. Narrow windows focus it immediately.
+With no directory selected, the current-folder preview opens in the full main
+body at any width. Ctrl-B returns to the informational summary; Ctrl-E returns
+to that captured preview without scanning again.
+
+**Ctrl-X options** offers insertion, explicit directory changes, copying,
+opening with the default app, Finder reveal, scoped Search, and separate Recents
+in one searchable menu:
+
+| Group | Meaning |
+| --- | --- |
+| Selected folder | Actions on the highlighted folder, including insertion, directory change, copying, opening, and Finder reveal when available |
+| Selected file / Selected link | Search-result actions on the exact highlighted item: insertion, copying, opening, and Finder reveal; directory links offer an explicit Enter linked directory action |
+| Current folder | Actions on the opened folder, including insertion, directory change, Browse, and scoped Search; copying/opening/reveal target it when no item is selected |
+| Go to | Independent navigation to Recent directories, sourced from this shell's native stack |
+
+Rows stay together by group, and every row retains its group label when filtered
+or paged. Details show the exact path an action uses. With an empty filter,
+digits apply visible action rows directly; no extra group-selection step is needed.
+Unavailable capabilities are omitted. Search always uses the current folder.
+Escape closes the menu back to the same filter and selection. Apps launch only
+after you select an action and the picker screen is restored. **Open with
+default app** opens a folder in its registered app (normally Finder), or a file
+in its associated app. **Reveal in Finder** opens the containing folder and
+selects the exact item; it does not open that item.
 
 The fragment already typed stays as a required fuzzy match, while the picker
 query starts empty. A visible digit therefore inserts its row immediately; you
 can instead type another fuzzy filter or move with `Up`/`Down` and
 `Ctrl-P`/`Ctrl-N`. Press `Tab` or `Right Arrow` to open the selected directory
 inside the same picker. `Shift-Tab` or `Left Arrow` returns to the previous
-level reached during that picker session.
+level reached during that picker session. Back restores that level's filter,
+selected directory, and scroll position. The directory is identified by its
+path, so a newly added sibling cannot silently change the selection. If the
+selected path has disappeared, selection starts at the first remaining match.
+Back at the starting level keeps the current view and explains the boundary.
 
 A visible number or `Enter` inserts the selected full path and appends `/`; it
 does not change directory or execute anything. Press `Enter` once the picker
-closes to let Zsh's native `AUTO_CD` enter that path. Empty or unreadable
-children preserve the last usable level and show a visible explanation instead
-of silently closing the picker.
+closes to let Zsh's native `AUTO_CD` enter that path. Empty folders are usable
+levels: Ctrl-X → **current folder** selects them, or Left goes Back.
+Unreadable or removed children preserve the last usable level with a notice.
 
-Only immediate child directories are collected. Hidden children appear when
-the typed name begins with `.`, symbolic links to directories are included,
-and spaces or shell-special characters are escaped before insertion. No
-recursive scan, subprocess, network access, or persistent index is involved.
-Each drill-down performs exactly one shallow listing of that selected level.
+Press **Ctrl-T** to toggle hidden directories.
+A plain `.` still filters normally. Hidden directories start off unless the
+typed name begins with `.`, and the chosen visibility follows you through this
+navigator session. Toggling preserves the filter and selected path where it
+remains visible. An empty result view can be recovered by toggling again or
+clearing the filter; the original typed path fragment remains a required match.
+
+**Ctrl-Y** or **Option-W** (with Meta enabled) copies the selected **absolute
+path**, without shell escaping or a trailing newline, and closes the navigator.
+Your original editable command is preserved. Copy appears when `pbcopy` is
+available; SSH sessions use the clipboard of the machine running Zsh. A copy
+failure is reported without replacing the command line.
+
+Only immediate child directories are collected. Symbolic links to directories
+are included, and spaces or shell-special characters are escaped before
+insertion or drill-down. Drill-down, Back, and hidden-folder toggles capture only
+the requested level; a failed transition may recapture the previous level to
+recover. Filtering, selection movement, and resizing use the captured children.
+Browsing launches no subprocess and performs no
+recursive scan or network access. Folder enumeration can still wait on a slow
+or unavailable mounted filesystem. Explicit copying invokes `pbcopy`, and
+explicit Finder reveal invokes `open -R`, after the picker screen is restored.
+Captured children and navigation bookmarks are
+released on exit, with no persistent index or saved navigation history.
 
 The contextual behavior is deliberately narrow. Commands, options, multiple
 words such as `git switch`, file arguments, a cursor in the middle of the line,
@@ -708,149 +929,108 @@ Change the smaller bound from the local initializer when desired:
 ZSH_DIRECTORY_PICKER_MAX_RESULTS=8
 ```
 
-## Fuzzy file finder
+## Filesystem search in the path workspace
 
-Run `f --help` for a self-contained guide to scopes, matching, examples, picker
-controls, output modes, and search limits. The same guide is available through
-`compozsh help f` and the tool explorer.
+Open a folder with **path + Tab**, then press **Ctrl-F**. In **Search descendants**,
+enter the fragments you remember and press **Return** to capture results using
+the source shown above the query. **Escape** returns to the same browsing filter,
+selection, viewport and preview focus. The scope is the **displayed current
+folder**, never the highlighted child:
 
-Run `f` with any fragments remembered from a file or directory path. Inside a
-Git working tree, the default scope is the complete project; elsewhere it is
-the current directory:
-
-```sh
-f client network
-f --here configuration
-f --root ~/Developer compozsh
-f --home invoice
-f --global Xcode
-```
-
-For example, `f project-notes` from `~` searches below your home within the
-filesystem traversal budget, assuming home is outside a Git working tree.
-From an ordinary subfolder, it searches that folder and descendants. Inside
-Git, automatic scope starts at the repository root even from a subfolder;
-`--here` explicitly keeps the search below the current directory. Use
-`f --root ~/Projects project-notes` to choose a starting directory from anywhere.
-
-The default project provider reads Git's tracked files and non-ignored untracked
-files, then derives their containing directories. Empty directories may be
-absent. Git supplies the paths without traversing ignored build or dependency
-trees, subject to the capture limit below. `--here` and `--root` instead use
-a direct native-Zsh breadth-first walk, including matching hidden entries but
-never following symbolic-link directories. `--home` and `--global` consult the
-macOS Spotlight metadata index rather than crawling an entire machine.
-
-Every invocation requires an initial query, so `f` never performs an accidental
-unbounded scan. Separate query fragments may occur anywhere and in any order;
-each fragment may also use character-ordered abbreviation. For example,
-`f net cli` and `f srccl` can both find
-`Sources/Network/Client.swift`.
-
-After the one-time capture, filtering and resizing operate entirely on the
-bounded in-memory snapshot. The compact list view looks like this:
-
-```text
-Files · Git · ~/Projects/example-app · 3 candidates for net cli · 3 shown
-Search ‹›
-[1] ● · Client.swift             Sources/Network/
-[2]   ▸ Network/                 Sources/
-[3]   · Network client plan.md   Notes/
-→ path · ↑↓ select · ⏎ file actions · ^Y copy · esc
-```
-
-The `●` cursor marks the currently selected row. The `·`, `▸`, and `↗` type
-markers identify regular files, directories, and symbolic links respectively.
-Use arrows or `Ctrl-P`/`Ctrl-N`, type to refine, or press a visible number for
-direct selection. `Enter` or a visible number changes into a selected directory.
-For a file or symbolic link, it opens a **File actions** picker. The footer
-names the selected result's action. Press `Option-W` or `Ctrl-Y` in the search
-results to copy the unquoted path when macOS `pbcopy` is available.
-
-The file-action picker uses the same arrows, number selection, filtering,
-responsive panels, and paging. Choose an action explicitly:
-
-| Action | Effect |
+| Starting path | Scope |
 | --- | --- |
-| Open with default app | Use the macOS default application; this may launch an application, so open only files you trust |
-| Reveal in Finder | Show the item with macOS `open -R` |
-| Copy path | Copy the absolute path without a trailing newline |
-| Insert path into command line | Put the shell-quoted path into the next editable prompt for composing a command |
-| Enter linked directory | Follow a selected directory symlink, only after this explicit choice |
+| `./` + Tab | Current directory and descendants |
+| `~/` + Tab | Home and descendants |
+| `/` + Tab | Filesystem root; defaults to Spotlight for indexed Mac-wide discovery on macOS |
+| `~/Projects/` + Tab | That folder and descendants |
 
-Escape or `Ctrl-G` returns to the same search, query, selection, and scroll
-position without rerunning the search provider. `Ctrl-C` aborts. Action-name
-filtering matches characters in order. Opening/revealing requires macOS `open`;
-copying requires `pbcopy`. Unavailable actions are omitted, and broken links
-have no Open action. With SSH, actions operate on the host running Zsh.
+Opening any path only lists its immediate children. **Filter folders** narrows
+that captured level. **Search descendants** is a separate, explicit discovery
+step: typing, paging, moving selection, and resizing never start a deeper scan.
+Inside a Git repository, a subfolder remains the scope; it is not silently
+expanded to the repository root. Ctrl-F selects a default once on entry:
 
-Selecting a file never launches it automatically. Actions run after the picker
-closes, check relevant filesystem facts again, and report stale/unavailable
-targets or application errors. **Insert path** intentionally returns text to
-the shell: review and complete the command before running it, especially for
-executable paths. File-content previews are not part of this feature yet.
-
-Results put the filename first and its parent folder in a quieter secondary
-column, so identically named files remain distinguishable. Long labels use
-middle ellipses that preserve useful endings such as extensions; very narrow
-rows hide the folder context. Copying and insertion always use the complete
-original path.
-
-At 100 columns or more, the results receive the larger left pane. The **Path**
-panel shows the captured file/directory/link type and the full path once,
-wrapped to its width. The shared header identifies the search source and scope;
-the footer describes the actions. Short details do not reserve extra empty rows,
-and a scroll position appears only when the preview needs scrolling.
-Press Right or `Ctrl-F` to focus it, then Up/Down to scroll;
-Left or `Ctrl-B` returns to the list. Tab switches
-panes. In narrower windows, the focused panel uses the full width. Typing
-returns to filtering, and digits select only with an empty query and list
-focus. Enter keeps the selected item's type-aware action in either pane;
-clipboard shortcuts still copy the result path.
-
-Details are built from the existing candidate snapshot, with no extra file
-reads, metadata probes, symlink resolution, or directory traversal. File
-contents are never previewed. Paths and types can become stale while the picker
-is open; rerun `f` to refresh the search.
-
-Scope and output options are deliberately small:
-
-| Option | Behavior |
+| Displayed folder | Default source |
 | --- | --- |
-| no scope option | Search from the surrounding Git repository root, otherwise below `$PWD` |
-| `--here` | Directly search below `$PWD`, even inside Git |
-| `--root directory` | Directly search below an explicit directory |
-| `--home` | Search Spotlight's index below `$HOME` |
-| `--global` | Search the complete accessible Spotlight index |
-| `--list` | Print matching absolute paths, one per line |
-| `--print0` | Print NUL-delimited absolute paths for safe machine consumption |
-| `--help` | Print the full usage guide without searching |
+| Inside a Git worktree | Git, scoped to that folder (takes precedence) |
+| Exactly home (`~/`) or root (`/`) on macOS | Spotlight index |
+| Other folders, or home/root on other systems | Bounded filesystem walk |
 
-Choose at most one scope flag and one output flag. Put `--` before a query
-that begins with a dash, such as `f -- --draft`. Queries match paths rather
-than file contents, case-insensitively. Quote shell-special characters.
+**Ctrl-X** offers explicit source choices. The resolved source stays fixed when
+editing or retrying the query. A missing or failed Spotlight command never
+triggers a fallback filesystem walk. To search a home subfolder through Spotlight,
+choose **Search Spotlight index** in Ctrl-X.
 
-Spotlight is fast and native to macOS, but it can omit excluded, unavailable,
-or not-yet-indexed locations. Its initial filename lookup uses the longest
-query fragment, then applies fuzzy path filtering to the returned candidates.
-Use recognizable filename text: an abbreviation or a directory-only fragment
-may miss even indexed paths. Use the default Git provider or `--root` when the
-filesystem itself must be inspected. On systems without `mdfind`, only the two
-Spotlight modes are unavailable; project and local search continue to work.
-`--global` searches the accessible index across the Mac. Every scope remains
-bounded; there is no exhaustive crawl that keeps going until a match is found.
+| Search source in Ctrl-X | Coverage |
+| --- | --- |
+| Search filesystem | Bounded native breadth-first walk, including hidden entries; skips `.git`, unreadable folders, and traversal through directory symlinks |
+| Search Git files | Tracked and non-ignored untracked files below the current folder, plus matching containing directories; empty folders may be absent |
+| Search Spotlight index | macOS indexed paths below the current folder; seeds filenames with the longest query fragment |
 
-Direct traversal inspects at most 20,000 entries, and every provider retains at
-most 2,000 initial matches. Reaching either limit marks the picker snapshot as
-partial instead of silently claiming completeness. `--list` and `--print0`
-retain the same capture bounds. The visible list defaults to ten rows. These
-ten rows are a scrolling window: keep pressing Down to reach later captured
-matches, or use Ctrl-V to page down and Escape then `v` to page up. Option-V
-also pages up with Option-as-Meta enabled; Fn-Up/Down provide page keys.
-The list stops at its ends. Numbers identify visible slots; `[0]` selects the
-tenth row when shown. Refining the query returns to the first matching result.
-Search capture limits still apply: paging never starts another filesystem or
-Spotlight search. The bounds may be adjusted in the local initializer:
+Git and Spotlight entries appear when their commands are available. Git must
+also recognize the chosen folder as part of a working tree. An unavailable
+source or successful search with no matches stays inside the workspace with a
+distinct explanation. If a source fails after returning some matches, those
+remain usable with a failure and **partial** warning.
+Spotlight can miss excluded, unavailable, or unindexed paths, and abbreviated
+or directory-only seeds may miss even indexed files. Root scope is **not an
+exhaustive search-until-found guarantee**. Mounted filesystems can still block.
+
+**Searching…** is painted with the scope and query before capture starts.
+Capture is synchronous: blocked source reads can delay keyboard input and
+resize handling until they return. A first search can take longer while the OS
+loads index data or checks access; Compozsh cannot bypass macOS privacy controls.
+The waiting screen is a status, not a progress estimate. Results then use the
+current window size; filtering, paging, and repainting do not recapture.
+
+Matching is case-insensitive and operates on paths, not file contents.
+Space-separated fragments may appear in any order; each fragment may also
+abbreviate characters in order. For example, `net cli` can match
+`Sources/Network/Client.swift`. Query text is literal; shell quoting is not
+needed inside the workspace. Empty/whitespace-only search submissions do nothing.
+
+After capture, **Filter results** refines only those captured paths. **Ctrl-F**
+reopens the submitted query: edit it and press Return to capture again using
+the same folder and source, or Escape to keep the existing results and position.
+Use **Ctrl-X** to choose another source. The header preserves the source,
+scope, original query, candidate count, and any **partial** warning.
+
+Results show filenames first and quiet parent paths. `●` marks selection, `·`
+marks a file, `▸` a directory, and `↗` a symbolic link. Full paths remain intact
+for actions even when labels are abbreviated.
+
+- Enter or a visible digit inserts a directory path into the editable line.
+- For files and links, **Enter → choose an action** is the primary workflow:
+  open the shared **File actions** menu, then choose Open, Reveal, Copy or Insert.
+  No additional shortcut is needed for these actions.
+- **Ctrl-X options** is optional: it also exposes source choices and folder
+  operations. It opens grouped actions for the exact selected file, folder, or link;
+  folder results also offer Open with default app and Reveal in Finder here.
+- Ctrl-Y copies the literal absolute path and closes when `pbcopy` is available.
+- Escape from file actions restores the same query, selection, and scroll
+  position without recapturing. Ctrl-C aborts the entire workspace.
+
+| File action | Effect |
+| --- | --- |
+| Open with default app | Explicitly use macOS associations; this can launch an application, so open only trusted files |
+| Reveal in Finder | Open the containing folder and select the exact item using `open -R` |
+| Copy path | Copy its absolute path without a trailing newline |
+| Insert path into command line | Return a shell-quoted path to the editable prompt; review before running it |
+| Enter linked directory | Explicitly follow a directory symlink and change directory |
+
+Opening/revealing requires macOS `open`; copying requires `pbcopy`. Missing
+actions are omitted, and broken links have no Open action. Actions operate on
+the host running Zsh, after screen cleanup, and recheck mutable filesystem facts.
+Selection never executes a file. Content previews are not provided.
+
+The shared Path inspector displays captured type and full path; Ctrl-E/B or
+Tab switches focus. It is secondary and width-aware, with a 48-column cap.
+Resize and detail scrolling do not rediscover paths.
+
+Direct walks inspect at most **20,000 entries**; every provider retains at
+most **2,000 matches**. Partial results are labeled. Up to ten rows are visible
+at once; arrows and Ctrl-V/Ctrl-D reach later captured matches. Visible number
+slots are local to the viewport; numbers become query text after typing.
 
 ```zsh
 ZSH_FILE_SEARCH_MAX_RESULTS=10
@@ -858,9 +1038,39 @@ ZSH_FILE_SEARCH_MAX_VISITED=20000
 ZSH_FILE_SEARCH_MAX_CANDIDATES=2000
 ```
 
-No provider reads file contents, follows directory links, executes project
-code, accesses the network, or writes a persistent cache. Standard Unix
-`find` remains completely untouched for scripts and advanced predicates.
+### Migration from d and f
+
+This is a **breaking interface change in 2.0.0**. The shared configuration and
+private add-on layout stay the same; the filesystem entry points change:
+
+| Previous interface | Current workflow |
+| --- | --- |
+| `d` | Option-Tab at the ordinary prompt |
+| `d --list` | Native `dirs -v` |
+| `f query` | `./` + Tab → Ctrl-F → enter the query and submit |
+| `f --home query` | `~/` + Tab → Ctrl-F → enter the query and submit |
+| `f --root path query` | Open that path with Tab → Ctrl-F → enter the query and submit |
+| Explicit `f` search-source flags | Ctrl-X options in the workspace; choose the desired source |
+| `f --list` / `f --print0` | Native `find`, `git ls-files`, or `mdfind` for scripts |
+
+Selecting a directory now inserts its quoted path for review; submit it at the
+normal prompt to change directory. Escape is cancellation; use Control keys
+for in-view actions and Ctrl-K to check the current map. Ctrl-F starts/edits
+scoped search; Ctrl-E focuses details. Update private aliases or scripts that
+called the retired commands; the installer does not rewrite personal files.
+
+`d` and `f` have been removed. Recents is available through **Option-Tab**
+(Option as Meta) at the prompt and **Ctrl-X → Go to · Recent directories** inside the path
+workspace. Search scopes come from the path you open. `g` remains the separate
+Git workspace.
+
+The former `f --list` / `f --print0` scripting API is also removed. Use native
+`find`, `git ls-files`, or `mdfind` with their documented quoting and NUL-output
+options for scripting. `dirs -v` prints native stack indexes. Run `exec zsh`
+after updating to clear functions and bindings held by the old shell.
+
+`compozsh --help` includes the workspace reference; **Ctrl-K** shows the
+contextual keyboard guide inside every view.
 
 ## History autosuggestions
 
@@ -937,9 +1147,11 @@ and help rows use separate semantic colors that can be customized from
 ```zsh
 typeset -gA ZSH_HIGHLIGHT_STYLES
 ZSH_HIGHLIGHT_STYLES[picker-header]='fg=75,bold'
+ZSH_HIGHLIGHT_STYLES[picker-location]='fg=39'
 ZSH_HIGHLIGHT_STYLES[picker-query]='fg=16,bg=44,bold'
 ZSH_HIGHLIGHT_STYLES[picker-index]='fg=44,bold'
 ZSH_HIGHLIGHT_STYLES[picker-selected]='fg=16,bg=75,bold'
+ZSH_HIGHLIGHT_STYLES[picker-match]='fg=81,bold,underline'
 ZSH_HIGHLIGHT_STYLES[picker-text]='fg=252'
 ZSH_HIGHLIGHT_STYLES[picker-muted]='fg=242'
 ZSH_HIGHLIGHT_STYLES[picker-empty]='fg=203,bold'
@@ -957,7 +1169,7 @@ corresponding shared picker role when the shared palette initializes.
 | `Ctrl-L` | Redraw a clean search screen |
 | `Down`, `Ctrl-N`, `Tab`, or `Ctrl-R` | Select the next result |
 | `Up`, `Ctrl-P`, or `Shift-Tab` | Select the previous result |
-| `Ctrl-V` / Escape then `v` | Page down / up; Option-V works with Option-as-Meta enabled |
+| `Ctrl-V` / `Ctrl-D` | Page down / up; Option-V works with Option-as-Meta enabled |
 | `Fn-Down` / `Fn-Up` | Page down / up on Apple keyboards |
 | `Enter` | Put the selected command on the editable line |
 | `Esc` or `Ctrl-G` | Cancel and restore the original line |
@@ -969,8 +1181,8 @@ changed before pressing `Enter` again. Display rows make control characters
 visible, truncate to the current terminal width, and reduce automatically in a
 short terminal window.
 
-All pickers use the same scrolling viewport: `Ctrl-R` history, `d` directories,
-`g` branches, `f` files, the `compozsh` tool explorer, and contextual directory
+All pickers use the same scrolling viewport: `Ctrl-R` history, Recents,
+`g` branches, Files search, the `compozsh` tool explorer, and contextual directory
 completion with Tab. Keep moving beyond the last visible row to reveal later
 matches; move up to return. The header shows the visible range
 and `more ↓` while additional matches may remain, then the exact total once
@@ -982,6 +1194,119 @@ scroll; they never select hidden results. `Ctrl-R` keeps digits as search text.
 
 Matching grows a buffered prefix only when needed. Ordinary navigation and
 resize redraw the visible rows; closing the picker releases its result buffer.
+
+### A full-screen workspace for every picker
+
+In Terminal.app, each picker opens on the terminal's native **alternate screen**,
+the same separate display buffer used by tools such as `less`. Your previous
+terminal output is temporarily hidden and restored when the picker closes.
+This applies to history, directories, branches, files and their action menus,
+the tool explorer, and contextual directory completion.
+
+The directory browser keeps that screen open throughout navigation. Entering
+folders, going back, toggling hidden items, requesting a preview and returning
+from folder actions update the same workspace. Your shell reappears when the
+browsing session ends; copying, changing directory and opening Finder happen
+after its screen has been restored.
+
+A dedicated title bar identifies the tool: **Compozsh / Directory browser**,
+**Compozsh / Branches**, **Compozsh / History**, and so on. When space allows,
+the right side shows the selected item's Enter action and the focused view,
+such as `Enter: switch · Results` or `Enter: insert · Preview`. It shows
+`Keyboard guide` while the guide is open, and avoids advertising a selection
+action when nothing is selected.
+
+A quieter status row shows the captured source and result count, followed by
+the separate location/source row, dedicated search and a quiet divider.
+The title uses the existing first screen row, preserving result capacity.
+Narrow windows hide optional title metadata, then the Compozsh prefix, before
+abbreviating the tool name. The context row is omitted in very short windows.
+Results and details occupy the body, with shortcuts anchored near the bottom.
+Filtering down to one result keeps these landmarks in place. Your unfinished
+command and prompt are hidden while browsing, then restored when you leave;
+each tool keeps its existing accept and cancel behavior.
+
+Every tool uses the same shortcut bar. **Enter**, **Escape**, and **Ctrl-K for
+keys** have priority; other complete hints appear as space allows. The bar
+names the actual action (`cd`, `switch`, `insert`, or file actions), and only
+advertises copying or details when supported. It never cuts a shortcut in half.
+
+Press **Ctrl-K** to open the **keyboard guide**. Arrow keys or
+Ctrl-V / Ctrl-D scroll it. Ctrl-K, Escape, Ctrl-G or Enter closes the guide and restores
+the exact search, selection, scroll position and pane focus. Ctrl-C aborts the
+whole picker. Typing or pressing a number in the guide cannot apply a result.
+A plain `?` remains searchable. Primary shortcuts use Control and require no
+Terminal profile changes. Escape has a 20 ms allowance to distinguish a lone
+key from terminal sequences such as arrows and bracketed paste; it no longer
+waits half a second for a following letter. Ctrl-G has no decoding delay.
+Option-V, Option-W and Option-Backspace remain optional Meta alternatives for
+page-up, copy and word deletion. Fn-Up/Down also page when sent by the terminal.
+There is no need to type Escape followed by a letter for any picker action.
+
+These are **modal picker controls**: for example, Ctrl-K shows keys and Ctrl-D
+pages up here. After closing, normal shell editing is unchanged: Ctrl-K deletes
+to the end of the line and Ctrl-D retains Zsh's delete/EOF behavior. Command-key
+shortcuts continue to belong to Terminal.app.
+
+| Shared key | Behavior |
+| --- | --- |
+| Up/Down or Ctrl-P/N | Move results; scroll when details have focus |
+| Enter | Apply the action named in the footer |
+| Escape / Ctrl-G | Cancel, or go back from a secondary view |
+| Ctrl-C | Abort |
+| Ctrl-U / Ctrl-W | Clear the filter / delete its last word |
+| Ctrl-V / Ctrl-D | Page down / up in the focused view |
+| Tab / Shift-Tab | Switch list/details focus when a panel exists |
+| Ctrl-Y / Option-W | Copy the selected value and close, when available |
+| Ctrl-K | Open or close the keyboard guide |
+| Ctrl-L | Redraw |
+| Ctrl-F | Search descendants in Browse; edit discovery query in Search results |
+| Ctrl-E / Ctrl-B | Focus details / list, when available |
+| Ctrl-O | Browse a selected recent location; inside the browser, preview a folder |
+| Ctrl-X | Open workspace options: actions, search sources and views |
+| Ctrl-T | Toggle hidden folders in the browser |
+
+This is the shared Compozsh picker key map. An unavailable action stays inactive;
+its shortcut is never reassigned to an unrelated feature in another tool. The
+footer and Ctrl-K guide show the actions available in the current view.
+
+The directory browser has one explicit hierarchy convention: Right/Tab
+enters a folder and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list.
+Ctrl-F is available only in Browse and Search results; other pickers leave it
+inert. These modal controls do not change ordinary prompt editing or suggestions.
+Its guide shows previews, folder actions and hidden-folder controls.
+History selection always inserts an editable command;
+it never runs it. Other tools retain their documented primary actions.
+
+This design applies [recognition cues](https://www.nngroup.com/articles/recognition-and-recall/),
+[consistency](https://www.nngroup.com/articles/consistency-and-standards/) and
+[progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/).
+These are usability principles informing the layout, not proof that a particular
+terminal interface is neurologically optimal. Real keyboard tests and user
+feedback remain the acceptance criteria.
+
+Typed filter fragments receive visible emphasis in result rows, including
+ordered-character abbreviations. The selected row keeps its selection color
+and underlines those fragments. This is display-only: matching, ranking, full
+paths, and action values are unchanged. Only complete fragments visible in the
+rendered label can be emphasized; queries over 256 characters or 16 fragments
+still search normally but skip this extra decoration.
+
+The result list retains its existing row limits and number shortcuts: eight
+rows for history and ten for navigation by default, reduced in short windows.
+Information panels stay secondary and compact. Focusing a panel gives its
+captured text the available body height, making long help easier to read;
+returning to the list restores the compact preview. Capture limits are unchanged.
+
+Window and font-size changes repaint the temporary screen from the captured results,
+preserving the query and selection. Selection, cancellation, and Ctrl-C release
+that screen before any subsequent navigation, clipboard, file, or help action.
+The normal screen and scrollback are never cleared to remove picker frames.
+Terminals without paired alternate-screen capabilities retain the inline picker.
+`compozsh --list` retains its plain-output mode. See the filesystem migration
+section for the removal of `d` and `f`.
+
+### History search bounds
 
 The picker captures Zsh's loaded `history` when opened and uses its native
 pattern engine, with no subprocess, extra history file, or disk index. It
@@ -1300,9 +1625,7 @@ mkcd --help
 cpdir --help
 git-discard-all --help
 prompt-refresh --help
-d --help
 g --help
-f --help
 update_xcode_skills --help
 compozsh --help
 ```
@@ -1367,14 +1690,27 @@ of 100 columns or more. Narrower windows use a switchable full-width detail
 view. This interface uses native Zsh 5.9 and macOS Terminal.app capabilities;
 no additional application or UI package is required.
 
+All information panels—Help, Location, Branch, Path, and file-action descriptions—share
+one list-first layout. The list receives about two thirds of the usable width;
+details use the remaining third, capped at 48 columns. Extra width goes to the
+list. Below 100 columns, the list stays full-width until you focus details.
+
+Beside short lists, passive details use up to six rows with quieter headings.
+Focusing the panel uses the available body height on the owned full screen;
+the inline fallback allows up to twelve reading rows. Longer result lists retain
+their visible rows; passive details use that same
+height. Warnings keep their emphasis, and longer content remains scrollable.
+Moving focus keeps pane widths stable. Resizing preserves selection and uses
+the captured data without rerunning providers.
+
 | Key | Action |
 | --- | --- |
 | Up/Down or Ctrl-P/N | Select a tool, or scroll when the help pane has focus |
-| Right or Ctrl-F | Focus the help pane |
+| Right or Ctrl-E | Focus the help pane |
 | Left or Ctrl-B | Return to the tool list |
 | Tab or Shift-Tab | Switch panes |
 | Ctrl-V | Page down in the focused pane |
-| Escape, then `v` | Page up in the focused pane; Option-V also works with Option-as-Meta enabled |
+| Ctrl-D | Page up in the focused pane; Option-V also works with Option-as-Meta enabled |
 | Fn-Up/Down | Page up/down in the focused pane on Apple keyboards |
 | Type or paste | Refine the filter and return to the list |
 | Enter | Close the browser and print the selected tool's complete help |
@@ -1400,7 +1736,7 @@ command name:
 
 ```sh
 compozsh --list
-compozsh help f
+compozsh help g
 ```
 
 Set the maximum visible picker rows before peers load, normally in the private
@@ -1522,24 +1858,61 @@ when the same alias already exists:
 | `la` | `ls -A` |
 
 Zsh already remembers recently visited directories because this configuration
-enables its native directory stack. Run `d` to open a searchable selector:
+enables its native directory stack. At the prompt, hold **Option** and press
+**Tab** to open **Recents** directly, even with an unfinished command or the
+cursor in its middle. Enable Option as Meta in the active Terminal profile as
+described in [macOS keyboard shortcuts](#macos-keyboard-shortcuts). Inside path + Tab, use
+**Ctrl-X → Go to · Recent directories**. Recents is a
+separate view of visited locations; it is never mixed into a folder's children:
 
 ```text
-Directories · recent locations · 3 shown
+Recent directories · this shell · 3 shown
+Current: ~/Projects/example-app
 Search ‹›
-[ 0] ● ~/Developer/current-project
-[ 1]   ~/Developer
-[ 2]   ~
-0–9 select · ↑↓ move · ^V/⌥V page · ⏎ cd · esc cancel
+[ 0] ● example-app/       current · ~/Projects
+[ 1]   api/               previous · ~/Work
+[ 2]   api/               visited · ~/Personal
+⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑↓ move · Tab details
 ```
 
-With an empty filter, press any visible digit from `0` through `9` to change
-directory immediately—no `Enter` required. You can also use the arrows or
-`Ctrl-P`/`Ctrl-N`, type to filter, and press `Enter`. Once filtering begins,
+Folder names are primary, with quiet parent paths so identically named folders
+stay distinguishable. Filtering still searches the **complete captured path**,
+including parents. Current and previous-location cues help you regain context.
+The Location pane shows the full absolute path, native `~N` stack index, whether
+the entry is a directory or link, and its availability when the picker opened.
+Unavailable entries remain visible. Selection inserts their path; Zsh checks
+the destination when you submit it at the prompt.
+
+**Tab** or Right focuses details; Shift-Tab or Left returns to the list. **Ctrl-Y**
+(or Option-W) copies the literal absolute path without a trailing newline
+and closes the picker, without changing directory. It requires `pbcopy`; failures
+are reported. **Ctrl-K** opens the shared keyboard guide.
+
+The workspace checks type and availability for the first 200 visited entries
+when opened. Later entries remain searchable and show `Not checked` in details.
+Opening Recents never lists their children, reads project files, runs Git, or builds
+a second directory history. **Ctrl-O** explicitly opens the selected
+location in the same [folder browser](#contextual-directory-completion).
+Browse children with Right/Tab, preview with Ctrl-O, and use Enter/digits to
+insert a path. Ctrl-X offers explicit directory changes; **current folder** lets you use
+an empty location. In that browser, Escape returns to your unchanged recent-list
+filter and selection; browsing alone never changes the shell's directory.
+Copying, revealing or inserting a path closes without changing directory.
+Filtering, paging and resize use that snapshot; a new invocation refreshes it.
+Directory changes are revalidated by `cd`. With no previous locations, your
+current folder is still useful for details or copying. Private directories and
+bookmarks are not persisted by this UI.
+
+With an empty filter, press any visible digit from `0` through `9` to insert its
+quoted path directly. You can also use the arrows or `Ctrl-P`/`Ctrl-N`, type to
+filter, and press `Enter`. Both return to the normal prompt with that path
+visible, replacing any unfinished command. **Press Enter at the prompt to change
+directory**, just as with path + Tab. Escape or copying preserves your draft and
+cursor instead. Once filtering begins,
 digits become normal search text so names containing numbers remain searchable.
 On the initial unfiltered screen, slot `0` is the current directory. Slot
 numbers update while scrolling; they are not native directory-stack indexes.
-Run `d --list` for a static, copyable list with the actual stack indexes.
+Run `dirs -v` for a native list with actual stack indexes.
 
 Zsh's native `~1`, `~2`, and other directory-stack expansions still work. They
 are shell syntax rather than a feature owned by this configuration; the visual
@@ -1549,12 +1922,13 @@ Inside a Git working tree, run `g` without arguments for the branch selector.
 Its compact list view looks like this:
 
 ```text
-Branches · current-project · recent checkouts · 3 shown
+Branches · recent checkouts · 3 shown
+example-app
 Search ‹›
 [ 0] ● feature/prompt-navigation
 [ 1]   main
 [ 2]   feature/runtime-line
-→ branch · ↑↓ select · ⏎ switch · ^Y copy · esc
+⏎ switch · Esc cancel · ^K keys · ^Y copy · ↑↓ move · Tab details
 ```
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and every
@@ -1564,7 +1938,8 @@ search text.
 
 The **Branch** panel shows the full name, current-branch indicator, latest
 commit ID and subject, and configured upstream. At 100 columns or more it sits
-beside the list; smaller windows use a full-width detail view. Right/`Ctrl-F`
+beside a wider branch list, capped at 48 columns and compact until focused.
+Smaller windows use a switchable full-width detail view. Right/`Ctrl-E`
 focuses details, Left/`Ctrl-B` returns to the list, and Tab switches panes.
 Up/Down scrolls focused details; typing returns to filtering. Enter still
 switches branches, and copying works from either pane. Immediate digit

@@ -14,6 +14,7 @@ typeset -g ZSH_NAVIGATION_PICKER_MAX_RESULTS=${ZSH_NAVIGATION_PICKER_MAX_RESULTS
 typeset -ga _NAVIGATION_PICKER_VALUES=()
 typeset -ga _NAVIGATION_PICKER_LABELS=()
 typeset -ga _NAVIGATION_PICKER_INDEXES=()
+typeset -ga _NAVIGATION_PICKER_SEARCH_LABELS=()
 
 # Navigation remains usable without the prompt add-on. Keep these display
 # helpers private to this unit so peer add-on order never becomes a dependency.
@@ -63,7 +64,7 @@ _navigation_picker_append_matches() {
 
   for (( index = 1; index <= ${#_NAVIGATION_PICKER_VALUES}; ++index )); do
     label=${_NAVIGATION_PICKER_LABELS[index]}
-    [[ $label == ${~pattern} ]] || continue
+    [[ ${_NAVIGATION_PICKER_SEARCH_LABELS[index]:-$label} == ${~pattern} ]] || continue
     value=${_NAVIGATION_PICKER_VALUES[index]}
     (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
     _ZLE_PICKER_RESULTS+=("$value")
@@ -141,9 +142,10 @@ _directory_stack_capture() {
   local path='' display=''
   local -a entries=("$PWD" "${dirstack[@]}")
   local -i index=0
-  typeset -ga _NAVIGATION_PICKER_VALUES=()
-  typeset -ga _NAVIGATION_PICKER_LABELS=()
-  typeset -ga _NAVIGATION_PICKER_INDEXES=()
+  _NAVIGATION_PICKER_VALUES=()
+  _NAVIGATION_PICKER_LABELS=()
+  _NAVIGATION_PICKER_INDEXES=()
+  _NAVIGATION_PICKER_SEARCH_LABELS=()
 
   for path in "${entries[@]}"; do
     if [[ $path == $HOME || $path == $HOME/* ]]; then
@@ -158,111 +160,88 @@ _directory_stack_capture() {
   done
 }
 
-_directory_stack_print() {
+# A bounded snapshot of visited locations, not another filesystem browser.
+# Short names aid recognition; matching retains the complete original paths.
+_directory_stack_describe() {
   emulate -L zsh
-
-  local path='' marker=''
+  local value='' display='' name='' parent='' role='' availability='' kind=''
   local -i index=0
-
-  print -P '%F{blue}Directory stack%f'
-  for path in "${_NAVIGATION_PICKER_LABELS[@]}"; do
-    marker='recent'
-    (( index == 0 )) && marker='current'
-    _stack_print_entry $index "$marker" "$path"
+  _NAVIGATION_PICKER_SEARCH_LABELS=("${_NAVIGATION_PICKER_LABELS[@]}")
+  for value in "${_NAVIGATION_PICKER_VALUES[@]}"; do
     (( ++index ))
+    display=${_NAVIGATION_PICKER_SEARCH_LABELS[index]}
+    name=${display:t}
+    [[ $display == / ]] && name=/
+    [[ $display == '~' ]] && name='~'
+    [[ $name == / ]] || name+=/
+    parent=${display:h}
+    [[ $display == '~' ]] && parent=home
+    [[ $display == / ]] && parent='filesystem root'
+    role='visited'
+    (( index == 1 )) && role=current
+    (( index == 2 )) && role=previous
+    availability='Not checked'
+    kind='Stack entry · Not checked'
+    # A huge user-managed stack must not cause unbounded filesystem probes.
+    # Every path remains searchable; only the first 200 receive these facts.
+    if (( index <= 200 )); then
+      availability='Available'
+      [[ -d $value && -x $value ]] || availability='Unavailable'
+      kind=Directory
+      [[ -L $value ]] && kind='Linked directory'
+    fi
+    _NAVIGATION_PICKER_LABELS[index]=$name
+    _ZLE_PICKER_CONTEXTS[$value]="${role} · ${parent}"
+    [[ $availability == Unavailable ]] && _ZLE_PICKER_CONTEXTS[$value]="unavailable · ${parent}"
+    _ZLE_PICKER_INSPECT_TEXTS[$value]="${(C)role} location · ~${_NAVIGATION_PICKER_INDEXES[index]}"$'\n'"${kind}"
+    if [[ $availability == Unavailable ]]; then
+      _ZLE_PICKER_INSPECT_TEXTS[$value]+=$'\n\nUnavailable: checked when opened.'
+    fi
+    _ZLE_PICKER_INSPECT_TEXTS[$value]+=$'\n\n  '"${value}"
   done
-  if (( ${#_NAVIGATION_PICKER_VALUES} > 1 )); then
-    print -P '%F{240}Run %F{cyan}d%F{240} to jump interactively.%f'
-  else
-    print -P '%F{240}Previous directories will appear here as you move around.%f'
-  fi
 }
 
-# Open the visual selector with `d`; `d --list` keeps a printable view for
-# copyable output. Native ~N expansion remains available as standard Zsh
-# syntax, but the selector's visible digits are the primary direct interface.
-_compozsh_help_d() {
-  local -a printer=(print -rl --)
-  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: d [--list]' \
-    'With no arguments, open the recent-directory picker.' \
-    '' \
-    'Where do the entries come from?' \
-    '  Captures the current shell directory stack, including $PWD at index 0.' \
-    '  It contains visited locations, not a search of the filesystem. Other' \
-    '  terminals have separate stacks; a new shell starts its own stack.' \
-    '  An empty history can therefore show just your current directory.' \
-    '  Use f query to find paths beyond the stack, or Tab for directory entry.' \
-    '' \
-    'Picker:' \
-    '  Type to filter captured paths case-insensitively, in character order.' \
-    '  Literal prefixes and substrings rank before abbreviated matches.' \
-    '  Arrows / Ctrl-P / Ctrl-N move; Enter changes to the selected directory.' \
-    '  With an empty query, a visible digit 0-9 selects immediately; after' \
-    '  typing, digits are search text. Numbers label the currently visible' \
-    '  slots, not fixed stack indexes; d --list shows native stack indexes.' \
-    '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
-    '  Native ~1, ~2, ... expansion still works and changes with the stack.' \
-    '  Up to 10 rows appear by default, limited by terminal height. Arrows' \
-    '  scroll through all captured matches and stop at either end.' \
-    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
-    '  Fn-Up/Down also pages. Refining starts at the first match. Set' \
-    '  ZSH_NAVIGATION_PICKER_MAX_RESULTS to change the visible limit.' \
-    '  Missing or inaccessible directories fail through normal cd checks.' \
-    '' \
-    'Options and fallback:' \
-    '  --list prints the stack without changing directories; long paths may' \
-    '  be abbreviated for display. Pipes, redirects, dumb terminals, or an' \
-    '  unavailable picker also use this display. This is a human-readable list.' \
-    '  --help shows this guide. No path or query argument is accepted.' \
-    '' \
-    'Examples:' \
-    '  d           Open the picker, then type a remembered path fragment.' \
-    '  d --list    Inspect the current stack.' \
-    '  cd ~1       Enter the directory currently at stack index 1.'
-}
-
-unalias d 2>/dev/null
-d() {
+# Recents is an explicit workspace view, never injected into child listings.
+# Snapshot Zsh's native stack; it needs no separate directory history or scan.
+_directory_recents_choose() {
   emulate -L zsh
-
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_d
-    return 0
-  fi
-
-  (( $# <= 1 )) || {
-    print -u2 'usage: d [--list]'
-    return 2
-  }
-  [[ $# == 0 || $1 == --list ]] || {
-    print -u2 'usage: d [--list]'
-    return 2
-  }
-
-  local -i picker_status=0
+  local _ZLE_PICKER_TITLE='Recent directories' _ZLE_PICKER_SUBTITLE='This shell · native directory stack'
+  local _ZLE_PICKER_INSPECT_TITLE=Location _ZLE_PICKER_INSPECT_ACTION=${mode:-insert}
+  local _ZLE_PICKER_CANCEL_LABEL=back
+  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+  local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a bookmark=("${_FILES_RECENTS_BOOKMARK[@]}")
+  (( ${#bookmark} == 3 )) || bookmark=('' 1 0)
+  local -i result=0
   _directory_stack_capture
-  if (( $# )) || [[ ! -t 0 || ! -t 1 || $TERM == dumb ]]; then
-    _directory_stack_print
+  _directory_stack_describe
+  while true; do
+    _ZLE_PICKER_TITLE='Recent directories'
+    _ZLE_PICKER_BROWSE_LABEL='this shell'
+    _ZLE_PICKER_EMPTY_LABEL='no matching visited locations'
+    _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_HIERARCHY_ENABLED=0
+    _ZLE_PICKER_COPY_ENABLED=$(( ${#_directory_browser_clipboard} > 0 ))
+    _ZLE_PICKER_DIRECTORY_ACTIONS=2
+    _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}"
+    result=$?
+    (( result == 0 )) || return $result
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
+    _FILES_RECENTS_BOOKMARK=("${bookmark[@]}")
+    if [[ $_ZLE_PICKER_ACTION == actions ]]; then
+      _directory_browser_actions '' "$mode"
+      result=$?
+      (( result == 1 )) && continue
+      return $result
+    fi
+    # Keep the caller's acceptance intent: prompt entry inserts the same
+    # editable, quoted path as Browse. Only submission at the prompt runs it.
     return 0
-  fi
-  if (( ! ${+functions[_zle_picker_loop]} )); then
-    _directory_stack_print
-    return 0
-  fi
-
-  _ZLE_PICKER_TITLE='Directories'
-  _ZLE_PICKER_BROWSE_LABEL='recent locations'
-  _ZLE_PICKER_EMPTY_LABEL='no matching directories'
-  _ZLE_PICKER_FOOTER='0–9 select · ↑↓ move · ^V/⌥V page · ⏎ cd · esc cancel'
-  _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
-  _ZLE_PICKER_DIGIT_SELECT=1
-  _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
-  picker_status=$?
-  (( picker_status == 1 )) && return 0
-  (( picker_status == 0 )) || return $picker_status
-  [[ $_ZLE_PICKER_SELECTED_VALUE == $PWD ]] ||
-    builtin cd -- "$_ZLE_PICKER_SELECTED_VALUE"
+  done
 }
 
 # Build a most-recently-used list from Git's own checkout reflog. Keeping this
@@ -375,23 +354,23 @@ _git_branch_stack_load() {
   REPLY=$root
 }
 
-# Copy a ref name as inert stdin data. `pbcopy` is resolved by the caller so
+# Copy a path or ref as inert stdin data. `pbcopy` is resolved by the caller so
 # unsupported hosts never advertise or enter this action path.
-_git_copy_branch() {
+_navigation_copy() {
   emulate -L zsh
 
-  local branch=$1 clipboard_binary=$2 display=''
+  local value=$1 clipboard_binary=$2 noun=$3 owner=$4 display=''
   [[ -n $clipboard_binary && -x $clipboard_binary ]] || {
-    print -u2 'g: clipboard support is unavailable on this host'
+    print -u2 -r -- "$owner: clipboard support is unavailable on this host"
     return 1
   }
-  print -rn -- "$branch" | command "$clipboard_binary" || {
-    print -u2 'g: could not copy the selected branch'
+  print -rn -- "$value" | command "$clipboard_binary" || {
+    print -u2 -r -- "$owner: could not copy the selected $noun"
     return 1
   }
-  _navigation_sanitize "$branch"
+  _navigation_sanitize "$value"
   display=$REPLY
-  print -r -- "Copied branch ${display}."
+  print -r -- "Copied $noun ${display}."
 }
 
 _git_branch_stack_print() {
@@ -428,13 +407,19 @@ _compozsh_help_g() {
     '  error. The picker does not fetch branches or create a history file.' \
     '' \
     'Picker:' \
+    '  Ctrl-K opens the shared keyboard guide; Escape or Enter' \
+    '  returns to the same filter and selection. A plain ? filters normally.' \
+    '  Terminal.app uses a temporary alternate screen; closing restores' \
+    '  your previous terminal output. Unsupported terminals stay inline.' \
+    '  Search stays at the top, shortcuts at the bottom. Visible matches' \
+    '  are emphasized as you filter; row limits and number keys stay the same.' \
     '  Type to filter case-insensitively, in character order; literal prefix' \
     '  and substring matches rank before abbreviated ones.' \
     '  Arrows / Ctrl-P / Ctrl-N move; Enter switches. With an empty query,' \
     '  a visible digit 0-9 switches immediately; otherwise digits filter.' \
     '  Numbers label visible slots and update as the list scrolls.' \
     '  Arrows scroll through all captured matches and stop at either end.' \
-    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
+    '  Ctrl-V pages down; Ctrl-D pages up (Option-V with Meta).' \
     '  Fn-Up/Down also pages; page keys act on the focused pane.' \
     '  Refining the query returns to the first match.' \
     '  Option-W / Ctrl-Y copies the branch name without switching when pbcopy' \
@@ -449,7 +434,10 @@ _compozsh_help_g() {
     'Branch details:' \
     '  At 100 columns or wider, the selected branch has a side panel showing' \
     '  its full name, current-branch marker, tip commit, and upstream.' \
-    '  Right / Ctrl-F focuses details; Left / Ctrl-B returns to the list.' \
+    '  The list gets most of the width; details are capped at 48 columns' \
+    '  and stay compact until focused. Height adapts to the window and list.' \
+    '  Focused details can use the full body height of the temporary screen.' \
+    '  Right / Ctrl-E focuses details; Left / Ctrl-B returns to the list.' \
     '  Tab switches panes; Up/Down scrolls the focused details. In narrower' \
     '  windows, details use a full-width view. Typing returns to filtering.' \
     '  Enter still switches; Ctrl-Y / Option-W still copies when available.' \
@@ -494,6 +482,8 @@ g() {
 
   local root='' repo='' branch='' clipboard_binary=${commands[pbcopy]:-}
   local _ZLE_PICKER_INSPECT_TITLE=Branch _ZLE_PICKER_INSPECT_ACTION=switch
+  local _ZLE_PICKER_SUBTITLE='' _ZLE_PICKER_CANCEL_LABEL=''
+  local -a _NAVIGATION_PICKER_SEARCH_LABELS=()
   local -i index=0 picker_status=0
   _git_branch_stack_load || return
   root=$REPLY
@@ -511,17 +501,13 @@ g() {
   done
 
   repo=${root:t}
-  _ZLE_PICKER_TITLE="Branches · ${repo}"
-  [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_TITLE+=' · detached HEAD'
+  _ZLE_PICKER_TITLE=Branches
+  _ZLE_PICKER_SUBTITLE=$repo
+  [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_SUBTITLE+=' · detached HEAD'
   _ZLE_PICKER_BROWSE_LABEL='recent checkouts'
   _ZLE_PICKER_EMPTY_LABEL='no matching branches'
   _ZLE_PICKER_COPY_ENABLED=0
-  if [[ -n $clipboard_binary ]]; then
-    _ZLE_PICKER_FOOTER='⌥W/^Y copy · 0–9 switch · ↑↓ move · type filter · ⏎ switch · esc cancel'
-    _ZLE_PICKER_COPY_ENABLED=1
-  else
-    _ZLE_PICKER_FOOTER='0–9 switch · ↑↓ move · type filter · ⏎ switch · esc cancel'
-  fi
+  [[ -n $clipboard_binary ]] && _ZLE_PICKER_COPY_ENABLED=1
   _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
   {
@@ -536,7 +522,7 @@ g() {
 
   branch=$_ZLE_PICKER_SELECTED_VALUE
   if [[ $_ZLE_PICKER_ACTION == copy ]]; then
-    _git_copy_branch "$branch" "$clipboard_binary"
+    _navigation_copy "$branch" "$clipboard_binary" branch g
     return $?
   fi
   [[ $branch == "$_GIT_RECENT_CURRENT" ]] && return 0

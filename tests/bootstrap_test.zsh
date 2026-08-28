@@ -32,7 +32,7 @@ _test_public_surface_loads() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" \
     'ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "${+functions[mkcd]}|${+functions[cpdir]}|${+functions[git-discard-all]}|${+functions[update_xcode_skills]}|${+functions[d]}|${+functions[g]}|${+functions[f]}|${+functions[compozsh]}"' \
     "$TEST_REPO_ROOT") || return
-  test_assert_equal '1|1|1|1|1|1|1|1' "$output" \
+  test_assert_equal '1|1|1|1|0|1|0|1' "$output" \
     'documented public commands are missing'
 }
 test_case 'bootstrap exposes the shipped public command surface' \

@@ -25,6 +25,94 @@ core promises are:
 
 Do not weaken one of these promises merely to add broader feature coverage.
 
+## Domain glossary
+
+Use these canonical terms in designs, comments, tests, reviews and documentation.
+Definitions establish meaning; the later contracts specify behavior and limits.
+Qualify overloaded words such as source, state and session when ambiguity is
+possible. User-facing labels may use simpler language while preserving meaning.
+
+### Configuration boundaries
+
+| Term | Meaning in Compozsh |
+| --- | --- |
+| Bootstrap | The minimal `.zshrc` entry that loads the optional initializer and discovers peer add-ons. |
+| Initializer | The optional machine-local `local/init.zsh` file that establishes prerequisites before peers load. |
+| Peer / add-on | One focused `.zsh.<name>` unit, enabled by its filename and independently sourceable. These two terms are synonyms. |
+| Repository-managed configuration | Shared product files updated as a unit; personal edits belong in the machine-local space. “Immutable” describes this ownership convention, not enforced filesystem permissions. |
+| Machine-local configuration | The user's private initializer and peers beneath the configuration base. Updates preserve this customization space. |
+| Order independence | Loading the same enabled peers in any order converges on the same configured behavior under the same prerequisites. Runtime interaction steps can still have dependencies. |
+
+“Configuration base” retains its exact path definition in
+[Repository boundaries](#repository-boundaries). Use **peer** for the unit; qualify its ownership as shared or
+private. Avoid inventing a privileged core tier through new terminology.
+
+### Task and interaction boundaries
+
+| Term | Meaning in Compozsh |
+| --- | --- |
+| Context | The source, scope and user intent that give an operation meaning. |
+| Scope | The explicit boundary within which an operation works: a folder root, one repository, or the current shell's retained history. Scope does not guarantee exhaustive coverage. |
+| Source | The origin of task facts: filesystem entries, Git metadata, Spotlight's index, the native directory stack, or loaded function metadata. |
+| Tool | A user-facing task capability, reached through a command or widget; it can use several views and peer units. |
+| Task workspace | Related views composed around a task. A shared renderer or screen session can also host explicitly labeled navigation to a different task context. |
+| Entry point | The command or key gesture that establishes the initial context, such as path + Tab or the prompt shortcut for Recents. |
+| Path-led / concrete entry | Starts from an explicit known location, such as `~/Projects/` + Tab. The path establishes the initial folder scope. |
+| Recall-led / diffuse entry | Starts from remembered fragments within a named source, such as Option-Tab over the shell's directory stack. “Diffuse” describes the user's starting knowledge; source and coverage still have explicit boundaries. |
+| View | One presentation of a context with a defined purpose and applicable operations. Browse, Search and Recents are named views with distinct sources or intents. |
+| View state | The context, captured facts and current editing/navigation position needed to render and continue a view. It is temporary interaction state. |
+| Screen session | Ownership of the terminal display from entry through guaranteed restoration. One screen session may contain several views and input loops; distinguish it from the longer-lived shell session. |
+| Input loop | Key handling against the active view and captured data, returning operation requests to its caller. View changes can finish one loop and start another within the same screen session. |
+| Bookmark | Caller-owned return information such as query, selected value, viewport and focus. It is navigation state, not a persistent favorite. |
+| Capability | An operation currently supported by the context and available implementation/tools. Its presence controls affordances; execution still validates mutable facts. |
+
+### Facts, selection and effects
+
+| Term | Meaning in Compozsh |
+| --- | --- |
+| Provider | Code that obtains facts from a source, such as a bounded filesystem enumerator or a trusted help companion. |
+| Capture | An explicit acquisition of facts for subsequent interaction, subject to the provider's coverage and limits. |
+| Snapshot | Captured facts retained for reuse, including relevant scope and partial-result information. It records observations, without promising an atomic or permanently current view of the outside world. |
+| Candidate | One captured exact value with its display label and relevant facts, eligible for matching or selection. |
+| Collector | Picker code that filters, ranks or extends a result prefix from captured candidates. It performs no new provider discovery. |
+| Result | A candidate matching the current query/filter; it may be outside the visible viewport. |
+| Query / filter | Literal user input used for matching. Specify **discovery query** when submission triggers capture and **refinement filter** when it only narrows captured candidates. |
+| Viewport / visible row | The displayed slice of results / one presentation slot in that slice. A visible digit identifies a slot; the exact underlying value remains separate. |
+| Selection / target | Selection identifies the active candidate. A target is the exact value and necessary scope an operation will use, such as repository plus branch; it may instead be an explicitly named current folder. |
+| Target resolution | Turns a path or a selected recall result into an exact target for the next operation. It does not itself authorize insertion, directory change or execution; action dispatch validates mutable facts again. |
+| Operation / transition | An operation is a supported step; a transition is its change to interaction context or state. Use the five operation categories in [Context-preserving composition](#context-preserving-composition). |
+| Acceptance / action | Acceptance requests the visibly named primary operation. An action applies an explicit effect to a target, including insertion, copying, directory change or application launch. Acceptance can instead open another view. |
+| Renderer / paint | The renderer derives frame text and styles from view state. Painting applies that frame to the terminal through the shared ZLE machinery. |
+| Effect boundary | The point where code reads external facts or changes observable state. Frame construction and filtering derive from captured inputs; painting, provider reads and final actions have their own lifecycle rules. |
+
+### Conceptual structures and vocabulary maintenance
+
+Use these small descriptions to reason about a feature:
+
+```text
+Context: source + scope + intent
+Candidate: exact value + display label + captured facts
+View state: context + snapshot + query/filter + selection + viewport + focus
+Transition contract: input → operation → outcome; preserved context, effects, recovery
+```
+
+These describe relationships, not mandatory records, new types or serialization
+formats. Reuse existing scoped variables and helpers; omit irrelevant fields.
+“Stateless discovery” means deriving a catalog when requested without maintaining
+a second persistent registry. It does not prohibit temporary view state or the
+specifically allowed in-memory caches. “Pure” applies to deterministic calculation
+from inputs without external reads or observable effects, not to an entire shell
+or filesystem workflow.
+
+- Reuse an existing term when its meaning fits. Add a term only for a distinct
+  concept needed by implemented behavior or an explicitly adopted design rule.
+- Add or revise its definition in the same unit of work that introduces the
+  concept; include its boundary and a concrete example where useful.
+- Keep each definition canonical here and link to behavioral contracts instead
+  of copying them. Resolve conflicting terminology when touching related docs.
+- Keep proposed behavior distinguishable from shipped behavior. Definitions do
+  not authorize new features, blanket renames, API changes or extra abstractions.
+
 ## Modern-first compatibility policy
 
 The declared minimum Zsh version is a product boundary, not a suggestion:
@@ -328,6 +416,115 @@ Apply DRY and SOLID as practical design heuristics:
 - Remove temporary setup helpers after use when they are not part of the public
   interface.
 
+## Context-preserving composition
+
+Use the [Domain glossary](#domain-glossary) for context, scope, view state and transition terms.
+Design interactions around the user's current context and progressively more
+specific intent. A forward operation should consume the scope or selected value
+established by the preceding step. Sharing a screen or renderer does not make
+two tasks a natural sequence. Use this model for filesystem navigation, Git,
+history, tool discovery, and future features.
+
+### State and forward operations
+
+For each interaction, identify its data source, scope, captured facts, query,
+selected value, and intended action. These are design questions, not a mandatory
+state object or new API. Keep only the state the task actually needs, scoped to
+the current invocation using existing helpers and bookmarks.
+
+Distinguish these operations when designing a transition:
+
+| Operation | Relationship to the current context | Example |
+| --- | --- | --- |
+| Refine | Filters or selects within captured facts; retains source and scope | Filter captured paths, then select one file |
+| Discover | Explicitly captures more facts using the established scope | Search descendants of the displayed folder |
+| Inspect | Reads an applicable view of the scope or selected value | Inspect a branch or request a shallow folder preview |
+| Navigate | Chooses another scope or source; label the change explicitly | Open Recents, go to a parent folder, or choose another search provider |
+| Apply | Performs the visibly named action on the exact selected target | Insert a path, copy it, open a file, or switch a branch |
+
+The forward flow specializes intent; it need not shrink a mathematical set at
+every step. A descendant search may discover files absent from a child-directory
+listing while preserving the same folder boundary. Clearing a filter can show
+more captured results. Changing provider changes coverage even with the same
+root and query, so make that choice and its limits visible.
+
+Useful compositions include:
+
+```text
+Folder scope → scoped search → selected file → applicable file actions
+Shell directory stack → selected location → browse that folder → scoped search
+Repository → local branches → selected branch → inspect or explicitly switch
+Loaded tool catalog → selected tool → its safe documentation
+```
+
+These are optional routes, not required wizard steps. Retain direct selection,
+number keys, and shortcuts; an inspector must not become a mandatory stop.
+Offer forward actions only when their inputs and capabilities are available.
+Name the target: current folder, selected child, selected file, or selected
+branch. An abbreviated display label is never the underlying action value.
+
+### Contextual actions and independent entry points
+
+Path-led and recall-led entries are complementary ways to resolve a target in
+the same task domain. A known folder starts Browse directly; remembered
+fragments start Recents against its finite native-stack source. Once a target
+is resolved, reuse applicable operations such as Browse, scoped Search, copy or
+directory change. Entry strategy, discovery source and acceptance intent are
+separate concerns. Browse and Recents share default acceptance: insert the exact
+quoted path visibly in the ordinary prompt. Only subsequent prompt submission
+performs AUTO_CD; an entry strategy must not silently change this contract.
+
+Keep direct entry fast and preserve the draft/cursor until acceptance; cancellation
+and copying restore both, while path insertion replaces the draft. A related modifier gesture
+may pair concrete and recall-led entry when the terminal delivers distinct keys
+and has no conflicting assignment. For filesystem navigation that pair is Tab
+and Option-Tab. This is a product convention, not a universal macOS rule; follow
+the keyboard contract and document terminal/profile requirements. Do not infer
+global search or add a registry, new mode hierarchy or another public command
+from the abstract concept of a diffuse entry.
+
+Browse is a constrained lookup of a folder's children. Scoped Search composes
+with that folder context by making the discovery intent more specific.
+Recents derives from the current shell's directory stack; opening it does not
+refine that folder.
+Treat Recents as an independent navigation entry point. Its selected location
+can supply the folder context for Browse, or acceptance can insert its editable
+path. Preserve its direct prompt shortcut and native stack semantics.
+
+Keep contextual operations prominent. If another task is reachable from the
+same menu, group and label it as navigation (for example, **Go to**), separately
+from operations on the current folder or selection. Never mix recent locations
+into child/search results or make a global destination look like a local filter.
+Keep Git, command history, and tool discovery identifiable by their own source
+and purpose even though they share the interaction engine.
+
+Forward composition remains reversible until an action is applied. Secondary
+views return to the caller's query, selection, viewport and focus using existing
+bookmarks. Parent navigation, explicit scope changes, query editing and
+cancellation remain first-class operations. Back restores navigation context;
+it does not claim to undo a completed clipboard, filesystem or Git action.
+An unavailable operation preserves usable context and explains recovery; never
+silently widen scope, substitute a source, or execute a different action.
+
+### Implementation and review contract
+
+- Before changing a flow, state what the operation consumes, what it preserves,
+  what it produces, and whether it captures facts or applies a side effect.
+- Derive filtering, layout and rendering from captured inputs. Filesystem reads
+  and external actions are effectful boundaries; functional composition does
+  not make them pure or guarantee identical results after the world changes.
+- Keep the existing capture/render/action separation, shared session ownership,
+  performance bounds, literal targets and post-cleanup action dispatch. Reuse
+  these mechanisms instead of adding a state-machine framework, transition
+  registry, event bus, general workflow graph or extra loader phase.
+- UI operations have meaningful dependencies. This does not change the separate
+  rule that peer add-ons load in any order; runtime operations need not commute.
+- For behavior changes, use TDD to cover preserved scope/targets, explicit source
+  changes, Back/cancel restoration, unsupported capabilities and final-action
+  boundaries. Validate the complete keyboard journey, not just isolated screens.
+- Document implemented behavior in README/help. A design rule or illustrative
+  route must not be presented as an already implemented control or guarantee.
+
 ## Performance contract
 
 This file runs in every new interactive shell and parts of it run before every
@@ -405,6 +602,240 @@ never optimize from a single timing sample.
 - Wrappers such as `grep` and `man` must stay narrow in scope and delegate all
   unsupported behavior to the system command.
 
+## Full-screen interaction standard
+
+Every Compozsh full-screen tool shares one interaction system while retaining
+its own task context. Follow **Context-preserving composition** for transitions.
+Use the shared editor's renderer, input loop, guide and cleanup; callers supply
+captured content, capabilities and the meaning of acceptance. Never fork a
+renderer, key parser or hand-written shortcut bar for an individual tool.
+
+The design draws on cognitive psychology and HCI guidance, not a claim of
+neuroscientific validation. In particular, use [recognition cues](https://www.nngroup.com/articles/recognition-and-recall/),
+[consistent conventions](https://www.nngroup.com/articles/consistency-and-standards/),
+[progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/)
+and Apple's [focus guidance](https://developer.apple.com/design/human-interface-guidelines/focus-and-selection).
+These motivate the following product decisions; validate the actual terminal
+experience through behavior tests and user feedback rather than claiming the
+sources prove a particular column ratio or key assignment is optimal.
+
+| Region | Contract |
+| --- | --- |
+| Title bar | Stable tool identity (`Compozsh / Tool name`); optional right-aligned Enter action and focused view from captured state |
+| Status | Separate, quieter snapshot/result status; keep scope visible while filtering |
+| Context | One separate location/source row, abbreviated as needed and omitted only in very short windows |
+| Search/filter input | Dedicated, visibly delimited input; label the operation (`Filter folders`, `Search descendants`, `Filter results`); ordinary printable characters remain searchable |
+| Main body | Results are primary; recognizable names and quiet parent context, complete immutable action values |
+| Details | Secondary captured information; explicit focus and scroll, no provider calls during repaint |
+| Footer | Shared capability-derived hints; acceptance, Escape and keyboard-guide access get first priority |
+
+The following is the canonical **modal picker key map**. These are Compozsh
+controls, not claims about macOS-wide shortcut standards. Use the same key for
+the same action in every tool. A missing capability leaves its key inert and
+omits its hint; never repurpose that key for an unrelated per-tool action.
+
+| Key | Shared meaning |
+| --- | --- |
+| Escape / Ctrl-G | Cancel or return from a secondary view |
+| Ctrl-C | Abort the interaction |
+| Enter | Apply the visibly named primary action |
+| Ctrl-K | Open/close the keyboard guide |
+| Up/Down, Ctrl-P/N | Move results or scroll the focused view |
+| Ctrl-V / Ctrl-D | Page down/up in the focused view |
+| Ctrl-U / Ctrl-W | Clear the query / delete its last word |
+| Backspace | Delete the last query character |
+| Ctrl-Y | Copy the selected value and close, when available |
+| Ctrl-L | Redraw |
+| Ctrl-F | Start descendant discovery in Browse; edit discovery query in Search results |
+| Ctrl-E / Ctrl-B | Focus details/list, when available |
+| Tab / Shift-Tab | Switch list/details focus; in the browser, enter/go Back |
+| Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
+| Ctrl-X | Open filesystem options: actions, sources and views, when available |
+| Ctrl-T | Toggle hidden folders in the browser |
+
+The hierarchy and Ctrl-O contexts above are explicit exceptions, not permission
+for arbitrary tool-specific remapping. Keep the actual action visible in the
+footer/guide. Add new keys only after checking this map, normal shell editing,
+Terminal.app interception and control-byte collisions (for example Tab/Ctrl-I,
+Enter/Ctrl-M and flow-control keys). Prefer an existing action or menu over a
+new binding. A key-map change must update this table, shared handler, hints,
+guide, public help, README and native PTY tests together. Keep contract coverage
+across history, Recents, branches, files, tool discovery and secondary menus.
+Collectors and tool providers must not implement their own key parsers or hints.
+
+- Preserve spatial landmarks when results shrink. Blank space is acceptable;
+  do not fill the screen with unrelated widgets, repeated paths or decoration.
+- Full-screen titles use the existing first screen row, without reducing result
+  capacity. Hide optional metadata, then branding, before truncating tool identity.
+  Reuse semantic header/muted colors. Derive action labels from the shared
+  capability state (including per-result actions), show keyboard-guide mode,
+  and never imply an actionable selection when there is none. Keep title/status
+  generation provider-free; inline fallback retains its compact combined header.
+- Add only whole shortcut hints that fit. Never truncate the Escape route or
+  show half a key sequence to squeeze in optional actions. Tiny terminals may
+  use compact Enter/Escape labels. All remaining keys are in the shared guide.
+  Enter remains the primary file/link action-menu route. Keep the optional
+  `^X options` hint after acceptance, Escape and guide access, ahead of
+  convenience shortcuts: it exposes distinct folder/source operations.
+  Omit it inside secondary action menus where the capability is disabled.
+  Do not require a modified shortcut for ordinary file Open/Reveal/Copy/Insert.
+- Ctrl-K opens the keyboard guide in the same session. It is scrollable
+  and capability-aware. Ctrl-K, Escape, Ctrl-G or Enter returns to the identical query,
+  selection, viewport and detail focus; Ctrl-C aborts the session. Text, digits
+  and copy keys cannot edit the filter or apply a result while the guide is open.
+- Shared keys: arrows/Ctrl-P/N move, Enter applies the displayed action,
+  Escape/Ctrl-G cancels or returns from a secondary view, Ctrl-C aborts,
+  Ctrl-U clears, Ctrl-W/Option-Delete deletes a word, Ctrl-V/Ctrl-D pages down/up,
+  Ctrl-Y/Option-W copies when supported, and Tab/Shift-Tab switches detail focus.
+  Command shortcuts remain owned by Terminal.app. Primary picker actions must
+  work with Control and no profile changes. Escape is cancellation, not a
+  human command prefix: allow only a short transport window (currently 20 ms)
+  for terminal sequences, never a human-sized chord delay. Ctrl-G has no
+  decoding delay. Keep suffix reads bounded and preserve arrows, Shift-Tab,
+  forward Delete and bracketed paste. Optional Option-V/W/Delete Meta aliases
+  must not increase Escape latency; they depend on Terminal's Meta setting.
+  Modal shortcuts must not rebind normal ZLE editing outside the picker.
+  Test the requested read allowance deterministically; measure actual Escape
+  latency separately from correctness assertions to avoid scheduler-sensitive tests.
+- Keep task semantics explicit: history, the Tab directory browser and Recents
+  insert; `g` switches branch; Files search inserts directories
+  and offers explicit file/link actions;
+  `compozsh` prints help. Shared interaction must never turn insertion or a
+  preview into execution. Digits apply visible slots only with an empty filter
+  and list focus; the history picker retains ordinary numeric input.
+- The directory browser is the deliberate hierarchy exception: Right/Tab
+  enters and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list. Its guide
+  and footer must use those actual keys. Ctrl-T toggles hidden folders.
+  Ctrl-O loads a preview, Ctrl-X opens workspace options, and Ctrl-O in Recents
+  opens its selected location for browsing. Plain punctuation and letters filter.
+- Folder workspaces compose a captured ancestor trail with the shared list and
+  inspector. The trail collapses first (below 120 columns), then the passive
+  inspector (below 100). Keep full-width footer hints and selected-row colors
+  scoped to the actual list, not the trail. Do not introduce a second renderer.
+- Folder previews are explicit shallow name/type snapshots, at most 40 entries
+  plus one lookahead, stopped before sorting with native glob qualifiers.
+  Describe filesystem-order samples and truncation truthfully. Never read file
+  contents, follow child links to enumerate descendants, or load previews from
+  movement/filter/resize. Retain only the last requested snapshot per level.
+  Explicitly loaded snapshots may use available inspector height; narrow screens
+  open them focused. Mounted filesystem calls can still block; do not claim a
+  wall-clock bound. Folder enumeration remains outside the active picker loop.
+- Empty folders remain navigable; the actions menu offers the current folder.
+  No selected child means preview targets the current folder, including when
+  a filter hides all directories. Distinguish no child directories, no visible
+  entries and a filter with no matches; an empty list is not itself an error.
+  Reuse the existing shallow level enumeration for directory/file/other counts
+  and at most eight informational non-directory names. Hidden scope and omitted
+  names must be clear. Never create fake selectable file rows in a directory
+  browser. Escape/Control shortcuts and informational empty-state rows belong
+  to the shared renderer/input loop; fallback inspector context is caller-owned
+  and must not leak into a secondary action menu or the next tool.
+  An explicitly requested current-folder preview has no selected list to share
+  space with: open it focused in the full main body, at any width. Ctrl-B restores
+  the summary and Ctrl-E returns to the same captured preview. Do not duplicate
+  a passive preview beside the same empty-state file sample.
+  Copy/insert/reveal run only after cleanup. Reveal requires explicit selection
+  and a usable system `open`; pass a literal absolute argument and recheck the
+  item. Browse, Search and Recents insert paths by default.
+  Folder changes and file actions are explicit. Preserve drafts on copy/cd and
+  preserve per-view bookmarks when returning.
+- Copy closes after restoring the terminal and leaves unrelated shell state
+  alone. Availability hints derive from captured capabilities, with a checked
+  failure path if a tool disappears or fails. Never launch applications merely
+  to fill a panel.
+- For Recents, keep the native stack as the source of truth. Show short names with
+  parent context and current/previous cues; match full captured paths. Check
+  availability once for at most the first 200 entries when opening, explicitly
+  label later metadata as not checked while retaining those paths in search,
+  keep missing entries identifiable, and let
+  Zsh validate again when the inserted path is submitted at the prompt.
+  Explicit browsing is a separate user action;
+  ordinary recent-list rendering never enumerates children. Never recursively inspect visited folders,
+  invent visit timestamps or persist a second history. Native `dirs -v` retains
+  stack indexes; picker digits are visible slots, and details may show `~N`.
+- Cover empty/one/many results, duplicate names, long/control-character paths,
+  unavailable capabilities, stale entries, guide dismissal, typed digits,
+  pane focus and live resize with shared tests plus native PTY interaction.
+  Measure complete warm collection/render/paint work and isolated startup.
+
+## Filesystem workspace boundary
+
+- Path + Tab establishes the folder context for Browse and scoped Search.
+  Recents is a separate navigation entry that can supply a folder to Browse;
+  sharing the session does not make it a specialization of that folder.
+  Keep `d` and `f` retired; do not reintroduce aliases, compatibility parsers,
+  or duplicate file interfaces.
+- Browse shows the opened folder's children. Recents is explicitly labeled
+  and uses only this shell's stack; never inject it into child listings.
+- Ctrl-F in Browse opens **Search descendants** for the displayed folder.
+  Resolve the default source once on entry: Git within a worktree (same
+  subfolder scope), otherwise Spotlight for exactly home/root on macOS,
+  otherwise bounded filesystem. Show the source before submission; explicit
+  Ctrl-X choices bypass default selection. Missing/failed Spotlight must never
+  trigger a filesystem fallback. Never target the highlighted child.
+  Return submits a nonempty query;
+  typing, redraw and resize cannot discover. Label memory-only input **Filter
+  folders** in Browse and **Filter results** after discovery. Ctrl-F in results
+  edits the submitted query using the same source/root; cancel retains the
+  snapshot. Back to Browse restores filter, selection, viewport and preview
+  focus in the same screen session. Ctrl-X retains explicit source choices.
+  Secondary menus/query entry and unrelated tools must suppress this capability;
+  Ctrl-E/B owns detail/list focus throughout the shared modal UI. Keep normal
+  prompt editing and autosuggestion bindings unchanged. Test actual key bytes,
+  cancellation, scope and capture counts alongside shared hint/guide contracts.
+- Option-Tab at the ordinary prompt opens Recents. Enter and visible digits use
+  the same insertion dispatcher as path + Tab: replace the draft with the exact
+  quoted path, place the cursor at its end, and repaint it visibly after screen
+  cleanup. Selection must not change PWD or the stack. Submission at the normal
+  prompt performs AUTO_CD. Cancellation and copy preserve the existing draft,
+  cursor and directory. Test empty/nonempty drafts, Enter/digits, quoting and
+  actual post-cleanup terminal painting, not just BUFFER values.
+  Bind native Meta-Tab (`ESC TAB`) with ZLE; require Terminal's
+  Option-as-Meta setting and document it. Leave Ctrl-Tab with Terminal's tab
+  switching, Ctrl-D with native delete/EOF and Ctrl-X Ctrl-E with command editing.
+  Do not reintroduce the Ctrl-X Ctrl-D entry or a double-Tab timing recognizer.
+  Ordinary Tab completion and modal Tab/Escape semantics stay unchanged.
+- Ctrl-X inside the workspace opens its shared options menu. Mode changes
+  and secondary actions retain one screen session. Do not recursively start
+  editors or build an extensible mode registry for three known views.
+  Group the flat searchable menu by **Selected folder** (or **Selected file** /
+  **Selected link** for search results), **Current folder**, and **Go to**,
+  with contextual operations first and independent destinations
+  last. Keep the group in every action label so filtering and paging preserve
+  its meaning. Omit unavailable capabilities and empty groups; group labels
+  never become selectable results or consume numeric shortcuts on their own.
+  Details identify each action's exact path. Scoped Search belongs to Current
+  folder; Recents belongs to Go to and retains the native stack as its source.
+  Preserve the selected search result and its captured type when opening the
+  menu; never substitute the search root or a parent for item actions. Open
+  uses the exact path with `open --`; Reveal uses `open -R --` to select that
+  item in Finder. Files and folders use their registered app; directory links
+  require an explicit follow action for shell navigation. Dispatch after screen
+  cleanup, recheck mutable path facts, and omit Open for broken links. Test
+  literal launcher arguments with PATH-shadowed spies and real keyboard flows.
+- Search requires a source, the displayed folder as root, and explicit nonempty
+  query submission. No automatic root/home crawl; no search on keystrokes.
+  Git search from a subfolder stays within it. Display provider and partial
+  limits; Spotlight coverage is not equivalent to a filesystem walk.
+- Paint a scoped **Searching…** frame before synchronous capture, using the
+  shared renderer and existing screen session. No fake percentage, empty-result
+  count, or interactive key promises during blocked reads. Resize handling may
+  be deferred until a provider returns; repaint at current dimensions afterward.
+  Preserve provider exit outcomes independently of UI navigation status:
+  successful empty results, failure/unavailability, and partial output differ.
+  Do not disguise a failed index as no matches or start a fallback crawl.
+  Test first/repeated submissions with FIFO-gated, PATH-shadowed providers,
+  real PTY resizing, exact scope, no eager capture, and clean restoration.
+  Do not flush system caches or read protected/private files to test latency.
+- Query entry uses the shared picker input/renderer with an explicit submit
+  capability, not a parallel key reader. Secondary menus disable workspace
+  actions. Unavailable peers omit their capabilities without source ordering.
+- Search providers and Recents remain private capabilities in focused peers.
+  The editor coordinates views at runtime and owns final screen cleanup.
+- Document filesystem keys/scopes in README and `compozsh --help`; Ctrl-K
+  provides the in-view guide. Native scripting tools replace the removed
+  `f --list`/`--print0` API; do not leave dead printing/argument-parsing paths.
+
 ## Keyboard and ZLE behavior
 
 - Use the Emacs keymap as the macOS terminal baseline. Favor familiar Control
@@ -416,7 +847,7 @@ never optimize from a single timing sample.
   not requirements.
 - Use terminfo capabilities plus common normal/application cursor sequences so
   behavior survives Terminal, iTerm2, SSH, and multiplexers.
-- Do not steal a standard editing key for unrelated behavior. A wrapped key may
+- Outside a modal picker, do not steal a standard editing key for unrelated behavior. A wrapped key may
   add contextual behavior only when its fallback exactly preserves the native
   widget's meaning.
 - Interactive pickers should consistently support arrows and `Ctrl-P/N`, Enter
@@ -438,9 +869,48 @@ never optimize from a single timing sample.
   directory completion. New pickers must reuse it. Keep cross-feature coverage
   for collectors extending beyond one screen and for detail panes paging without
   changing the selected result; preserve each caller's action and capture bounds.
+- The shared editor owns a paired native alternate-screen session for every
+  picker when terminal output and both terminfo capabilities are available.
+  Keep the inline fallback for unsupported terminals. Screen ownership is
+  separate from an individual input loop: directory hierarchy changes, previews
+  and folder-action menus share one session and one nested ZLE when needed.
+  Keep the previous frame visible between views; never restore the shell or
+  clear the screen for an ordinary transition. Explicit level/preview capture
+  stays outside the input loop, with resize guarded during that handoff.
+  Enter once, restore in always-cleanup on every exit, and perform final caller
+  actions after restoration. Test the emitted enter/leave controls across a
+  complete journey, including cancellation, capture/read failures and abort.
+  Full-screen resize clears are allowed only inside the owned alternate screen;
+  never clear the main screen or erase scrollback to hide stale picker frames.
+  Preserve the original edit state, use a registered ZLE widget for resize,
+  and keep ordinary selection redraws incremental. Cover the emitted control
+  stream, input failures, interrupts, and fallbacks with isolated native tests.
+- In the owned screen, keep title/search at the top and shortcuts anchored near
+  the bottom, independent of result count or detail focus. Hide the original
+  prompt and multiline draft during the modal session and restore their exact
+  editing state on exit. Keep a spare terminal row to avoid scrolling the frame.
+  Workspace padding must preserve alignment of all parallel row metadata.
+  Compact inline fallbacks retain their existing layout.
+- Optional location/breadcrumb rows are captured caller data, sanitized and
+  fitted by the shared renderer. Keep title, location, and filter distinct and
+  use one height budget for collection, panels, and footer anchoring; very short
+  windows may omit the location. Do not create a parallel navigator renderer.
 - Keep picker input on a stable dedicated row, visually distinct from titles,
   counts, and other metadata. Long queries must remain complete internally and
   abbreviate safely for display, with non-color delimiters for accessibility.
+- Match emphasis is bounded presentation work on visible result text only.
+  Preserve ranking, complete query values, and action values; never evaluate
+  user fragments as patterns or code. Reuse the semantic picker palette and
+  preserve selected-row contrast. Test literal metacharacters, Unicode, partial
+  fragments, and redraws during the input reader's temporary empty `IFS`.
+- Contextual directory completion preserves Right/Tab for drill-down and
+  Left/Shift-Tab for Back. Keep visibility toggles on modified keys so ordinary
+  punctuation remains searchable. Back restores query and viewport and resolves
+  selection by literal path in the newly captured parent, with a safe fallback
+  if it disappeared. Scope snapshots, visibility, and bookmarks to that picker
+  invocation. Read only the explicitly entered, previewed or refreshed level; filtering and
+  resizing cannot scan descendants. Clipboard actions run after picker cleanup,
+  copy literal absolute paths, and preserve the original editable command.
 - Keep printable characters available to picker filtering. Secondary actions
   require non-conflicting modified keys, appear in the footer only when their
   capability exists, and return an action for the caller to perform after ZLE
@@ -453,16 +923,25 @@ never optimize from a single timing sample.
   limits are not a sandbox: private help providers obey the static-help contract.
   The caller supplies the panel title and acceptance label; the shared editor
   owns layout, focus, scrolling, and capability-aware copy hints. Preserve each
-  tool's information hierarchy: optional secondary labels and pane proportions
-  are presentation data; exact action values remain untouched. Keep shared
+  tool's information hierarchy: optional secondary labels are presentation
+  data; exact action values remain untouched. Keep shared
   scope and actions in the header/footer and avoid repeated selection headings.
   Preserve each tool's actual Enter/copy actions. Do not steal hierarchy-navigation
   keys when adding inspectors to directory completion. File panels show captured path
   facts only; content previews require a separate safety and performance design.
   Preserve search and selection across pane focus and responsive layouts, and
   keep numbered selection restricted to visibly rendered list rows.
-- File search selection is type-aware: ordinary directories navigate; files
-  and symbolic links require an explicit action picker. Keep action dispatch
+- Information panels are secondary to the result list. The shared editor owns
+  one list-first width policy with a bounded reading column; do not restore
+  per-tool proportions or give previews the remaining unbounded screen width.
+  Keep passive previews compact beside short lists and visually quiet, while
+  preserving warning emphasis. Explicit focus may use the available body height
+  in the owned screen, without increasing the caller's capture limits.
+  Respect both terminal dimensions, preserve visible list capacity, and retain
+  the narrow-window focus switch. Test all inspector callers and real resize
+  signals; changing layout must not rerun providers or lose the selected value.
+- File search selection is type-aware: ordinary directories insert an editable
+  path; files and symbolic links require an explicit action picker. Keep action dispatch
   outside ZLE, recheck mutable filesystem facts, pass literal absolute paths
   as arguments, and never execute a selected path as shell code. Opening an
   application is an explicit user action, not a preview. Secondary pickers
@@ -577,6 +1056,13 @@ framework inside the repository. Test architectural invariants such as
 standalone sourcing and order convergence directly. Complement automation with
 a real PTY/ZLE check for key sequences, resize behavior, colors, cursor motion,
 and terminal cleanup that a child-shell test cannot establish.
+For resize regressions, verify the painted editor display and preserved caller
+state, and reject runtime diagnostics. Calculated layout values or a frame
+marker alone cannot prove that a redraw succeeded.
+For screen-cleanup regressions, send test synchronization over a separate
+channel; printing markers inside the terminal changes the cursor and can mask
+the fault. Include automatic pre-handler refreshes in resize coverage and
+record Terminal.app's manual fullscreen/windowed acceptance result separately.
 
 ## Change workflow
 

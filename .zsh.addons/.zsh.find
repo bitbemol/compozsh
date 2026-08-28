@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 
 # Search is lazy: sourcing this peer only defines state and functions. A public
-# `f` invocation captures one bounded snapshot, and picker refinement thereafter
+# workspace search captures one bounded snapshot, and picker refinement thereafter
 # performs no filesystem access or subprocess work.
 typeset -g ZSH_FILE_SEARCH_MAX_RESULTS=${ZSH_FILE_SEARCH_MAX_RESULTS:-10}
 typeset -g ZSH_FILE_SEARCH_MAX_VISITED=${ZSH_FILE_SEARCH_MAX_VISITED:-20000}
@@ -23,126 +23,6 @@ typeset -g _FILE_SEARCH_SOURCE=''
 typeset -gi _FILE_SEARCH_TRUNCATED=0
 typeset -gi _FILE_SEARCH_VISITED=0
 
-_file_search_usage() {
-  local destination=${1:-stderr}
-  local message='usage: f [--here | --home | --global | --root directory]'
-  message+=' [--list | --print0] query ...'
-  if [[ $destination == stdout ]]; then
-    local -a printer=(print -rl --)
-    (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-    "${printer[@]}" "$message" \
-      'Fuzzily find files and directories using one or more query fragments.' \
-      '' \
-      'Where does f search by default? (automatic scope)' \
-      '  Inside Git: search the whole working tree from the repository root,' \
-      '  even when called in a subfolder. Includes tracked and untracked files;' \
-      '  untracked files respect Git ignore rules. Matching containing' \
-      '  directories are derived from files; empty directories may be absent.' \
-      '  Elsewhere: search the current directory and descendants.' \
-      '  From ~, that starts below your home directory, subject to the limits.' \
-      '' \
-      'Choose a scope (at most one scope flag per invocation):' \
-      '  --here      Current directory and descendants, even inside Git.' \
-      '  --root DIR  DIR and descendants, regardless of your current directory.' \
-      '  --home      macOS Spotlight index below your home, from anywhere.' \
-      '  --global    Whole accessible Spotlight index, from anywhere.' \
-      '  --here and --root walk the filesystem, include hidden entries, and' \
-      '  do not follow directory symlinks. Unreadable directories are skipped.' \
-      '' \
-      'Matching and Spotlight coverage:' \
-      '  Matches paths, not file contents. Matching is case-insensitive.' \
-      '  Space-separated fragments may occur in any order; each fragment can' \
-      '  abbreviate characters in order: net cli or srccl can find Client.swift' \
-      '  under Sources/Network/. Quote shell-special characters in queries.' \
-      '  An initial query is required. Use -- before a query beginning with -.' \
-      '  Spotlight requires mdfind and seeds a filename lookup with the' \
-      '  longest query fragment. Use recognizable filename text: abbreviations' \
-      '  or directory-only fragments may miss indexed paths. Excluded,' \
-      '  unindexed, unavailable, or inaccessible locations can also be missed.' \
-      '  There is no exhaustive search-every-folder-until-found mode.' \
-      '' \
-      'Picker and output:' \
-      '  The initial query captures paths once. Typing refines only those' \
-      '  captured paths; rerun f with a different query or scope to widen it.' \
-      '  Arrows / Ctrl-P / Ctrl-N move. Enter changes into a directory;' \
-      '  a file or symbolic link opens a separate file-action picker.' \
-      '  A visible digit selects immediately while the search field is empty.' \
-      '  Numbers identify visible slots; 0 selects the tenth row when shown.' \
-      '  Down scrolls beyond the visible rows; Up returns. Ends do not wrap.' \
-      '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
-      '  Fn-Up/Down also pages. Refining the query starts at the first match.' \
-      '  Option-W / Ctrl-Y copies the absolute path when pbcopy is available.' \
-      '  Escape / Ctrl-G cancels; Ctrl-U clears the refinement query.' \
-      '  Symbols: ● selected row, · file, ▸ directory, ↗ symbolic link.' \
-      '  --list      Print all captured absolute paths, one per line.' \
-      '  --print0    Print NUL-separated absolute paths for safe scripting.' \
-      '  Choose at most one output flag. Pipes, redirects, dumb terminals, or' \
-      '  an unavailable picker fall back to plain line output.' \
-      '  --help      Show this guide without searching.' \
-      '' \
-      'File actions:' \
-      '  Choose with arrows and Enter, an empty-query digit, or type an' \
-      '  action name in character order. Escape / Ctrl-G returns to the same' \
-      '  search, query, and selected row; Ctrl-C aborts both views.' \
-      '  Open with default app: explicitly opens using macOS associations.' \
-      '  This may launch an application. Open only files you trust.' \
-      '  Reveal in Finder: shows the item using macOS open -R.' \
-      '  Copy path: copies the absolute path without a trailing newline.' \
-      '  Insert path: puts a shell-quoted path into the next editable prompt' \
-      '  for composing a command. Review it before running; an executable' \
-      '  path alone can run if you press Enter again in the normal shell.' \
-      '  Opening/revealing requires macOS open; copying requires pbcopy.' \
-      '  Unavailable actions are omitted. In SSH, actions run on that host.' \
-      '  Links always get an explicit action menu. A directory link offers' \
-      '  Enter linked directory; a broken link has no Open action.' \
-      '  Actions recheck relevant filesystem facts after picker cleanup;' \
-      '  changed or unavailable targets report an error. Selection itself' \
-      '  never launches a file. No file-content preview is provided yet.' \
-      '' \
-      'Path details:' \
-      '  Results show filenames first, with quieter parent-folder context.' \
-      '  Long labels use a middle ellipsis, keeping useful filename endings;' \
-      '  very narrow rows hide folder context. Actual paths stay complete.' \
-      '  At 100 columns or wider, results use the larger left pane. The right' \
-      '  pane shows the captured type and full path once, wrapped to fit.' \
-      '  The header identifies the search source and scope for all results.' \
-      '  Right / Ctrl-F focuses details; Left / Ctrl-B returns to the list.' \
-      '  Tab switches panes; Up/Down scrolls the focused details. Narrower' \
-      '  windows use a full-width detail view. Typing returns to filtering.' \
-      '  Enter keeps its type-aware action; the footer names that action.' \
-      '  Ctrl-Y / Option-W copies from the search results when available.' \
-      '  Digits select only with an empty query and focus on the visible list.' \
-      '  Details reuse captured facts without reading contents, resolving link' \
-      '  targets, or adding filesystem scans. Rerun f to refresh stale data.' \
-      '' \
-      'Limits (defaults; every scope is bounded):' \
-      '  20,000 inspected entries per direct filesystem walk.' \
-      '  2,000 captured matches per invocation, including Git and Spotlight.' \
-      '  Up to 10 rows visible in the picker; scroll through all captured matches.' \
-      '  Paging filters the in-memory snapshot and never restarts a provider.' \
-      '  The picker marks truncated snapshots as partial. --list and --print0' \
-      '  use the same capture bounds; a search from ~ can cover only part of it.' \
-      '  Adjust ZSH_FILE_SEARCH_MAX_VISITED, ZSH_FILE_SEARCH_MAX_CANDIDATES,' \
-      '  and ZSH_FILE_SEARCH_MAX_RESULTS in ~/.zsh.addons/local/init.zsh.' \
-      '' \
-      'Examples:' \
-      '  f project-notes                       Automatic Git/current scope.' \
-      '  f --here project-notes                This folder and descendants.' \
-      '  f --root ~/Projects project-notes     Choose the starting directory.' \
-      '  f --home project-notes                Indexed search below home.' \
-      '  f --global project-notes              Mac-wide indexed search.' \
-      '  f net cli                            Unordered path fragments.' \
-      '  f -- --draft                         Search for a leading dash.' \
-      '  f --here --list notes                 Plain paths for inspection.' \
-      '  f --here --print0 notes               NUL-delimited paths.'
-  else
-    print -u2 -r -- "$message"
-  fi
-}
-
-_compozsh_help_f() {
-  _file_search_usage stdout
-}
 
 _file_search_escape_pattern() {
   emulate -L zsh
@@ -319,7 +199,8 @@ _file_search_capture_git() {
 
   local root=${1:A} query=$2 git_binary=${commands[git]:-}
   local relative='' path='' parent=''
-  local -i consider_status=0 stop=0
+  local -i consider_status=0 stop=0 source_status=2
+  local completion=''
   [[ -n $git_binary && -d $root ]] || return 2
   command "$git_binary" -C "$root" rev-parse --is-inside-work-tree \
     >/dev/null 2>&1 || return 2
@@ -329,6 +210,11 @@ _file_search_capture_git() {
   _FILE_SEARCH_ROOT=$root
   _FILE_SEARCH_SOURCE=git
   while IFS= read -r -d '' relative; do
+    if [[ -z $relative ]]; then
+      IFS= read -r -d '' completion
+      [[ $completion == 0 ]] && source_status=0
+      break
+    fi
     [[ -n $relative && $relative != /* ]] || continue
     [[ $relative == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
     path="$root/$relative"
@@ -353,9 +239,15 @@ _file_search_capture_git() {
     fi
     (( stop )) && break
   done < <(command "$git_binary" -C "$root" ls-files -z \
-    --cached --others --exclude-standard 2>/dev/null)
+    --cached --others --exclude-standard 2>/dev/null
+    # Empty paths cannot occur: terminate the NUL stream with its exit status.
+    print -rn -- $'\0'"$?"$'\0' 2>/dev/null)
 
   _file_search_sort_matches
+  if (( !stop && source_status )); then
+    (( ${#_FILE_SEARCH_VALUES} )) && _FILE_SEARCH_TRUNCATED=1
+    return 2
+  fi
   (( ${#_FILE_SEARCH_VALUES} ))
 }
 
@@ -429,7 +321,8 @@ _file_search_capture_spotlight() {
   # `-literal`: macOS mdfind applies that mode to raw query expressions and
   # rejects the combination instead of producing filename results.
   local -a command_args=(-0)
-  local -i consider_status=0
+  local -i consider_status=0 stop=0 source_status=2
+  local completion=''
   [[ -n $binary && -x $binary ]] || return 2
 
   if [[ -n $raw_root ]]; then
@@ -446,6 +339,11 @@ _file_search_capture_spotlight() {
   _FILE_SEARCH_ROOT=$root
   _FILE_SEARCH_SOURCE=spotlight
   while IFS= read -r -d '' path; do
+    if [[ -z $path ]]; then
+      IFS= read -r -d '' completion
+      [[ $completion == 0 ]] && source_status=0
+      break
+    fi
     [[ $path == /* && ( -e $path || -L $path ) ]] || continue
     resolved=${path:A}
     if [[ -n $root && $resolved != $root && $resolved != $root/* ]]; then
@@ -461,10 +359,15 @@ _file_search_capture_spotlight() {
     [[ $display == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
     _file_search_consider "$path" "$display" "$display"
     consider_status=$?
-    (( consider_status == 2 )) && break
-  done < <(command "$binary" "${command_args[@]}" 2>/dev/null)
+    (( consider_status == 2 )) && { stop=1; break; }
+  done < <(command "$binary" "${command_args[@]}" 2>/dev/null
+    print -rn -- $'\0'"$?"$'\0' 2>/dev/null)
 
   _file_search_sort_matches
+  if (( !stop && source_status )); then
+    (( ${#_FILE_SEARCH_VALUES} )) && _FILE_SEARCH_TRUNCATED=1
+    return 2
+  fi
   (( ${#_FILE_SEARCH_VALUES} ))
 }
 
@@ -614,12 +517,15 @@ _file_search_actions_collect() {
 
 _file_search_actions() {
   emulate -L zsh
+  local _ZLE_PICKER_SEARCH_ACTION='' _ZLE_PICKER_QUERY_LABEL='Filter actions'
+  local -i _zle_picker_start_focus=0
   local selected=$1 clipboard_binary=$2 open_binary=$3 kind=File
   local -a _file_action_values=() _file_action_labels=()
   local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   local _ZLE_PICKER_INSPECT_TITLE=Action _ZLE_PICKER_INSPECT_ACTION=apply
   local _ZLE_PICKER_CANCEL_LABEL=back
-  local -i _ZLE_PICKER_INSPECT_LIST_PERCENT=50
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_DIRECTORY_ACTIONS=0
+  local _ZLE_PICKER_SUBTITLE=${selected:t}
   local action='' detail='' display_path=${(V)selected}
 
   if [[ -L $selected ]]; then
@@ -653,15 +559,18 @@ _file_search_actions() {
     esac
     _ZLE_PICKER_INSPECT_TEXTS[$action]="$kind"$'\n\n'"$detail"$'\n\n  '"$display_path"
   done
-  _ZLE_PICKER_TITLE="File actions · ${selected:t}"
+  _ZLE_PICKER_TITLE='File actions'
   _ZLE_PICKER_BROWSE_LABEL=$kind
   _ZLE_PICKER_EMPTY_LABEL='no matching actions'
-  _ZLE_PICKER_FOOTER='0–9 apply · ↑↓ move · type filter · ⏎ apply · esc back'
   _ZLE_PICKER_COLLECTOR=_file_search_actions_collect
   _ZLE_PICKER_DIGIT_SELECT=1
   _ZLE_PICKER_COPY_ENABLED=0
   _ZLE_PICKER_HIERARCHY_ENABLED=0
-  _zle_picker_run 10
+  if (( ${_ZLE_PICKER_SESSION:-0} )); then
+    _zle_picker_loop '' 10
+  else
+    _zle_picker_run 10
+  fi
 }
 
 # All paths come from the captured search. Check mutable filesystem facts again
@@ -680,12 +589,12 @@ _file_search_apply() {
             ( $action == directory && ! -L $selected || $action == enter-link && -L $selected ) ]]; then
         builtin cd -- "$selected"
       else
-        print -u2 -r -- 'f: selected directory changed or is unavailable; search again'
+        print -u2 -r -- 'Files: selected directory changed or is unavailable; search again'
         return 1
       fi ;;
     (open|reveal)
       [[ -n $open_binary && -x $open_binary ]] || {
-        print -u2 -r -- 'f: macOS opening is unavailable'
+        print -u2 -r -- 'Files: macOS opening is unavailable'
         return 1
       }
       if [[ $action == open && ( -f $selected || -d $selected ) ]]; then
@@ -693,27 +602,13 @@ _file_search_apply() {
       elif [[ $action == reveal && ( -e $selected || -L $selected ) ]]; then
         command "$open_binary" -R -- "$selected"
       else
-        print -u2 -r -- 'f: selected item changed or is unavailable; search again'
+        print -u2 -r -- 'Files: selected item changed or is unavailable; search again'
         return 1
       fi ;;
     (*) return 2 ;;
   esac
 }
 
-_file_search_print() {
-  emulate -L zsh
-
-  local separator=$1 path=''
-  if [[ $separator == nul ]]; then
-    for path in "${_FILE_SEARCH_VALUES[@]}"; do
-      print -rn -- "$path"$'\0'
-    done
-  else
-    for path in "${_FILE_SEARCH_VALUES[@]}"; do
-      print -r -- "$path"
-    done
-  fi
-}
 
 _file_search_candidate_summary() {
   local query=$1 noun=candidates
@@ -722,212 +617,146 @@ _file_search_candidate_summary() {
   (( _FILE_SEARCH_TRUNCATED )) && REPLY+=' · partial'
 }
 
-unalias f 2>/dev/null
-f() {
+# Explicit workspace capture. The opened folder is always the scope, including
+# a subfolder of a repository; never silently widen it to the Git root.
+_file_search_capture() {
   emulate -L zsh
-
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_f
-    return 0
-  fi
-
-  local scope=auto root='' query='' output_mode=picker argument=''
-  local git_root='' provider='' mdfind_binary=${commands[mdfind]:-}
-  local clipboard_binary=${commands[pbcopy]:-} selected=''
-  local open_binary='' selection_kind='' search_title='' action=''
-  [[ $OSTYPE == darwin* ]] && open_binary=${commands[open]:-}
-  local _ZLE_PICKER_INSPECT_TITLE=Path _ZLE_PICKER_INSPECT_ACTION=select
-  local -i _ZLE_PICKER_INSPECT_LIST_PERCENT=60
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -a bookmark=('' 1 0) _ZLE_PICKER_BOOKMARK=()
-  local -a query_parts=()
-  local -i scope_count=0 capture_status=0 picker_status=0
-
-  while (( $# )); do
-    argument=$1
-    shift
-    case $argument in
-      (--here)
-        scope=here
-        (( ++scope_count ))
-        ;;
-      (--home)
-        scope=home
-        (( ++scope_count ))
-        ;;
-      (--global)
-        scope=global
-        (( ++scope_count ))
-        ;;
-      (--root)
-        (( $# )) || {
-          _file_search_usage
-          return 2
-        }
-        root=$1
-        shift
-        scope=root
-        (( ++scope_count ))
-        ;;
-      (--list)
-        [[ $output_mode == picker ]] || {
-          _file_search_usage
-          return 2
-        }
-        output_mode=list
-        ;;
-      (--print0)
-        [[ $output_mode == picker ]] || {
-          _file_search_usage
-          return 2
-        }
-        output_mode=nul
-        ;;
-      (--)
-        query_parts+=("$@")
-        break
-        ;;
-      (-*)
-        _file_search_usage
-        return 2
-        ;;
-      (*)
-        query_parts+=("$argument")
-        ;;
-    esac
-  done
-
-  (( scope_count <= 1 && ${#query_parts} )) || {
-    _file_search_usage
-    return 2
-  }
-  query=${(j: :)query_parts}
-
-  case $scope in
-    (auto)
-      if [[ -n ${commands[git]:-} ]]; then
-        git_root=$(command git rev-parse --show-toplevel 2>/dev/null)
-      fi
-      if [[ -n $git_root && $git_root != *[[:cntrl:]]* && -d $git_root ]]; then
-        root=$git_root
-        provider=git
-      else
-        root=$PWD
-        provider=local
-      fi
-      ;;
-    (here)
-      root=$PWD
-      provider=local
-      ;;
-    (root)
-      [[ -d $root ]] || {
-        print -u2 -r -- "f: directory does not exist: $root"
-        return 2
-      }
-      root=${root:A}
-      provider=local
-      ;;
-    (home)
-      root=$HOME
-      provider=spotlight
-      ;;
-    (global)
-      root=''
-      provider=spotlight
-      ;;
-  esac
-
+  local root=$1 query=$2 provider=$3
+  _file_search_reset
+  [[ -d $root && -n ${query//[[:space:]]/} ]] || return 2
   case $provider in
-    (git) _file_search_capture_git "$root" "$query" ;;
     (local) _file_search_capture_local "$root" "$query" ;;
-    (spotlight)
-      [[ -n $mdfind_binary ]] || {
-        print -u2 -r -- 'f: Spotlight search is unavailable on this host'
-        return 2
-      }
-      _file_search_capture_spotlight "$root" "$query" "$mdfind_binary"
-      ;;
+    (git) _file_search_capture_git "$root" "$query" ;;
+    (spotlight) _file_search_capture_spotlight "$root" "$query" ;;
+    (*) return 2 ;;
   esac
-  capture_status=$?
-  if (( capture_status != 0 )); then
-    print -u2 -r -- "f: no matches for ${(qqq)query}"
-    return 1
-  fi
+}
 
-  if [[ $output_mode == nul ]]; then
-    _file_search_print nul
-    return 0
-  elif [[ $output_mode == list || ! -t 0 || ! -t 1 || $TERM == dumb ]]; then
-    _file_search_print lines
-    return 0
+# Resolve once on explicit Search entry, never on startup or keystrokes. Broad
+# macOS scopes stay index-backed even when mdfind is unavailable: the user may
+# choose a walk explicitly, but a missing/failed index must not trigger one.
+_file_search_default_provider() {
+  emulate -L zsh
+  local root=$1 git_binary=${commands[git]:-}
+  if [[ -n $git_binary &&
+        $(command "$git_binary" -C "$root" rev-parse --is-inside-work-tree 2>/dev/null) == true ]]; then
+    REPLY=git
+  elif [[ $OSTYPE == darwin* && ( ${root:A} == ${HOME:A} || ${root:A} == / ) ]]; then
+    REPLY=spotlight
+  else
+    REPLY=local
   fi
-  if (( ! ${+functions[_zle_picker_run]} ||
-        ! ${+functions[_zle_picker_loop]} )); then
-    _file_search_print lines
-    return 0
-  fi
+}
 
-  local display_root=$root source_label=''
-  if [[ $display_root == $HOME ]]; then
-    display_root='~'
-  elif [[ $display_root == $HOME/* ]]; then
-    display_root="~${display_root#$HOME}"
+# Called only inside the filesystem workspace's owned screen. Query submission
+# captures once; refinement and paging operate solely on that snapshot.
+_file_search_choose() {
+  emulate -L zsh
+  local root=$1 query=${2:-} provider=${3:-auto} selected='' action='' kind=''
+  if [[ $provider == auto ]]; then
+    _file_search_default_provider "$root"
+    provider=$REPLY
   fi
-  case $provider in
-    (git) source_label=Git ;;
-    (local) source_label=Filesystem ;;
-    (*) source_label=Spotlight ;;
-  esac
-  search_title="Files · $source_label · ${display_root:-all indexed locations}"
-  _file_search_candidate_summary "$query"
-  local summary=$REPLY
-  {
-    _file_search_inspector_capture
-    while true; do
-      _ZLE_PICKER_TITLE=$search_title
-      _ZLE_PICKER_BROWSE_LABEL=$summary
-      _ZLE_PICKER_EMPTY_LABEL='no matching captured paths'
-      _ZLE_PICKER_FOOTER='0–9 select · ↑↓ move · type refine · esc cancel'
-      _ZLE_PICKER_COPY_ENABLED=0
-      if [[ -n $clipboard_binary ]]; then
-        _ZLE_PICKER_FOOTER='⌥W/^Y copy · '"$_ZLE_PICKER_FOOTER"
-        _ZLE_PICKER_COPY_ENABLED=1
+  local -i result=0 capture_status=0 refresh=1 _zle_picker_start_focus=0 return_focus=0
+  local -a bookmark=('' 1 0)
+  local _ZLE_PICKER_QUERY_LABEL='Filter results' _ZLE_PICKER_SEARCH_ACTION="search-$provider"
+  local summary=''
+  local _ZLE_PICKER_TITLE=Files _ZLE_PICKER_SUBTITLE="$provider · $root"
+  local _ZLE_PICKER_INSPECT_TITLE=Path _ZLE_PICKER_INSPECT_ACTION=insert
+  local _ZLE_PICKER_CANCEL_LABEL=back
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _FILE_SEARCH_VALUES=() _FILE_SEARCH_LABELS=() _FILE_SEARCH_MATCH_TEXTS=() _FILE_SEARCH_RANKS=()
+  local -a _FILE_SEARCH_LITERAL_PATTERNS=() _FILE_SEARCH_FUZZY_PATTERNS=()
+  local -A _FILE_SEARCH_SEEN=()
+  local _FILE_SEARCH_ROOT='' _FILE_SEARCH_SOURCE=''
+  local _FILE_SEARCH_LITERAL_QUERY='' _FILE_SEARCH_LITERAL_FILTER_PATTERN='' _FILE_SEARCH_FILTER_PATTERN=''
+  local -i _FILE_SEARCH_TRUNCATED=0 _FILE_SEARCH_VISITED=0
+  if [[ -z $query ]]; then
+    _zle_picker_read_query 'Search descendants' "$provider · $root" || return $?
+    query=$_ZLE_PICKER_SELECTED_VALUE
+  fi
+  while true; do
+    if (( refresh )); then
+      if (( ${+functions[_zle_picker_capture]} )); then
+        _zle_picker_capture Files "$provider · $root" "$query" \
+          _file_search_capture "$root" "$query" "$provider"
+      else
+        _file_search_capture "$root" "$query" "$provider"
       fi
-      _ZLE_PICKER_COLLECTOR='_file_search_picker_collect'
-      _ZLE_PICKER_DIGIT_SELECT=1
-      _ZLE_PICKER_HIERARCHY_ENABLED=0
-      _zle_picker_run "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}" "${bookmark[@]}"
-      picker_status=$?
-      (( picker_status == 1 )) && return 0
-      (( picker_status == 0 )) || return $picker_status
-
-      selected=$_ZLE_PICKER_SELECTED_VALUE
-      bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
-      if [[ $_ZLE_PICKER_ACTION == copy ]]; then
-        _file_search_apply copy "$selected" "$clipboard_binary" "$open_binary"
-        return $?
-      fi
-      selection_kind=${_FILE_SEARCH_LABELS[${_FILE_SEARCH_VALUES[(Ie)$selected]}]}
-      if [[ $selection_kind == '▸ '* ]]; then
-        _file_search_apply directory "$selected" "$clipboard_binary" "$open_binary"
-        return $?
-      fi
-      [[ -f $selected || -L $selected ]] || {
-        print -u2 -r -- 'f: selected file changed or is unavailable; search again'
-        return 1
-      }
-      _file_search_actions "$selected" "$clipboard_binary" "$open_binary"
-      picker_status=$?
-      (( picker_status == 1 )) && continue
-      (( picker_status == 0 )) || return $picker_status
-      action=$_ZLE_PICKER_SELECTED_VALUE
-      _file_search_apply "$action" "$selected" "$clipboard_binary" "$open_binary"
-      return $?
-    done
-  } always {
-    _ZLE_PICKER_INSPECT_TEXTS=()
-  }
+      capture_status=$?
+      _file_search_candidate_summary "$query"
+      summary=$REPLY
+      (( capture_status == 2 )) && summary="Source failed or unavailable · $summary"
+      _file_search_inspector_capture
+      for selected in "${_FILE_SEARCH_VALUES[@]}"; do
+        [[ ${_ZLE_PICKER_ACCEPT_LABELS[$selected]} == 'enter directory' ]] &&
+          _ZLE_PICKER_ACCEPT_LABELS[$selected]=insert
+      done
+      bookmark=('' 1 0)
+      _zle_picker_start_focus=0
+      refresh=0
+    fi
+    _ZLE_PICKER_TITLE=Files
+    _ZLE_PICKER_BROWSE_LABEL=$summary
+    _ZLE_PICKER_EMPTY_LABEL='no matching captured paths'
+    _ZLE_PICKER_EMPTY_LINES=('No matching captured paths'
+      'Ctrl-F edits the search; Ctrl-X chooses a source or another view.'
+      'Search covers filenames/paths, not file contents.'
+      'Spotlight may omit unindexed paths; filesystem walks are bounded.')
+    (( capture_status == 2 )) && _ZLE_PICKER_EMPTY_LINES=(
+      'The search source failed or is unavailable'
+      'Check source availability and folder permissions; Ctrl-F retries.'
+      'Ctrl-X lets you choose another source explicitly. No fallback scan ran.')
+    _ZLE_PICKER_COLLECTOR=_file_search_picker_collect
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_HIERARCHY_ENABLED=0
+    _ZLE_PICKER_DIRECTORY_ACTIONS=0
+    _ZLE_PICKER_COPY_ENABLED=$(( ${#_directory_browser_clipboard} > 0 ))
+    _zle_picker_loop "${bookmark[1]}" "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}"
+    result=$?
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
+    return_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
+    _zle_picker_start_focus=$return_focus
+    if [[ $_ZLE_PICKER_ACTION == "search-$provider" ]]; then
+      _zle_picker_read_query 'Search descendants' "$provider · $root" "$query"
+      result=$?
+      (( result == 1 )) && continue
+      (( result == 0 )) || return $result
+      query=$_ZLE_PICKER_SELECTED_VALUE
+      refresh=1
+      continue
+    fi
+    if [[ $_ZLE_PICKER_ACTION == actions ]]; then
+      # Keep the selected object distinct from the search scope. Its captured
+      # type controls menu intent; dispatch still rechecks mutable paths.
+      kind=${_FILE_SEARCH_LABELS[${_FILE_SEARCH_VALUES[(Ie)$selected]}]}
+      case $kind in
+        ('▸ '*) kind=directory ;;
+        ('↗ '*) kind=link ;;
+        (*) kind=file ;;
+      esac
+      _directory_browser_actions "$selected" "$mode" "$kind"
+      result=$?
+      (( result == 1 )) && continue
+      return $result
+    fi
+    [[ $_ZLE_PICKER_ACTION == copy ]] && return 0
+    kind=${_FILE_SEARCH_LABELS[${_FILE_SEARCH_VALUES[(Ie)$selected]}]}
+    [[ $kind == '▸ '* ]] && { _ZLE_PICKER_ACTION=insert; return 0; }
+    [[ -f $selected || -L $selected ]] || return 4
+    _file_search_actions "$selected" "$_directory_browser_clipboard" "$_directory_browser_open"
+    result=$?
+    (( result == 1 )) && continue
+    (( result == 0 )) || return $result
+    action=$_ZLE_PICKER_SELECTED_VALUE
+    _ZLE_PICKER_ACTION=$action
+    _ZLE_PICKER_SELECTED_VALUE=$selected
+    return 0
+  done
 }
 
 :

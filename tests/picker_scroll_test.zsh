@@ -155,6 +155,7 @@ _test_picker_scroll_native() {
     export LC_ALL=en_US.UTF-8
     path=("$3" "${path[@]}")
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/tests/support.zsh"
     source "$1/.zsh.addons/.zsh.editor"
     builtin cd "$2"
     source "$1/.zsh.addons/.zsh.prompt"
@@ -166,6 +167,8 @@ _test_picker_scroll_native() {
     functions[_scroll_show_original]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _scroll_show_original
+      # Synchronize paging only after capture; waiting-state coverage is separate.
+      (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
       print -r -- "FRAME:$_ZLE_PICKER_SELECTED:$_ZLE_PICKER_VIEW_OFFSET:$captures:$collections:TTY=$tty_device:END-SCROLL-FRAME"
     }
     _scroll_driver() {
@@ -173,13 +176,13 @@ _test_picker_scroll_native() {
       local -i captures=0 collections=0
       local actual="" expected=""
       local tty_device=$(command tty)
-      f --here row
+      test_search_session row
       case $scenario in
         (end) expected="${PWD:A}/row-25" ;;
         (digit) expected="${PWD:A}/row-02" ;;
         (filter) expected="${PWD:A}/row-25" ;;
         (copy|arrows|zero|pane) expected="${PWD:A}/row-11" ;;
-        (resize) expected="${PWD:A}/row-06" ;;
+        (resize) expected="${PWD:A}/row-07" ;;
         (pageup) expected="${PWD:A}/row-01" ;;
       esac
       if [[ $scenario == copy ]]; then
@@ -198,6 +201,10 @@ _test_picker_scroll_native() {
       local last_frame=""
       while zpty -r scrolling frame; do
         last_frame=$frame
+        if [[ $frame == *"read-only variable"* ]]; then
+          print -u2 -r -- "unexpected picker diagnostics: ${(V)frame}"
+          return 1
+        fi
         [[ $frame == *"$1"* ]] && return 0
       done
       zpty -t scrolling
@@ -240,10 +247,12 @@ _test_picker_scroll_native() {
             [[ $device == /dev/ttys<-> || $device == /dev/pts/<-> ]] || exit 14
             command stty rows 12 cols 70 < "$device" || exit 15
             _scroll_read END-SCROLL-FRAME || exit 16
-            [[ $frame == *"FRAME:11:5:1:2:"* ]] || exit 17
+            # The persistent scope row reserves one body row: at 12 lines,
+            # five results remain visible and the first slot becomes row 7.
+            [[ $frame == *"FRAME:11:6:1:2:"* ]] || exit 17
             zpty -w -n scrolling 1 ;;
           (pageup)
-            zpty -w -n scrolling $'\''\ev'\''
+            zpty -w -n scrolling $'\''\x04'\''
             _scroll_read END-SCROLL-FRAME || exit 10
             [[ $frame == *"FRAME:1:0:1:"* ]] || exit 11
             zpty -w -n scrolling $'\''\r'\'' ;;

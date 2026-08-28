@@ -17,6 +17,7 @@ _test_file_actions_native() {
     path=("$3" "${path[@]}")
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/tests/support.zsh"
     builtin cd "${2:A}"
     zmodload zsh/zpty
     functions[_actions_capture_original]=$functions[_file_search_capture_local]
@@ -24,6 +25,9 @@ _test_file_actions_native() {
     functions[_actions_show_original]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _actions_show_original
+      # The waiting frame is not an actionable result. Its lifecycle is
+      # covered separately by search_capture_test; synchronize on ready views.
+      (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
       print -r -- "FRAME:$_ZLE_PICKER_TITLE:$_ZLE_PICKER_QUERY:$_ZLE_PICKER_SELECTED:$_ZLE_PICKER_VIEW_OFFSET:$captures:END-ACTION-FRAME"
     }
     _actions_driver() {
@@ -32,18 +36,22 @@ _test_file_actions_native() {
       local -i captures=0
       local original=$PWD actual="" expected="$PWD/note & final.txt"
       case $scenario in
-        (directory|directory-digit) f --here folder ;;
-        (linked-directory) f --here link-dir ;;
-        (resume) f --here row ;;
-        (link) f --here link-note ;;
-        (*) f --here "note & final" ;;
+        (directory|directory-digit) test_search_session folder ;;
+        (linked-directory) test_search_session link-dir ;;
+        (resume) test_search_session row ;;
+        (link) test_search_session link-note ;;
+        (*) test_search_session "note & final" ;;
       esac
       case $scenario in
-        (directory|directory-digit|linked-directory)
+        (linked-directory)
           [[ $PWD -ef "$original/folder" && ${dirstack[1]} -ef "$original" ]] || {
             print -u2 -r -- "expected directory navigation with the previous location in the stack"
             return 1
           } ;;
+        (directory|directory-digit)
+          IFS= read -r -z actual || return 1
+          _file_search_quote "$original/folder"
+          [[ $PWD == "$original" && $actual == "$REPLY" ]] || return 1 ;;
         (copy) [[ $(<"$HOME/copied") == "$expected" ]] || return 2 ;;
         (open) [[ $(<"$HOME/opened") == "--"$'\''\n'\''"$expected" ]] || return 3 ;;
         (reveal) [[ $(<"$HOME/opened") == "-R"$'\''\n'\''"--"$'\''\n'\''"$expected" ]] || return 4 ;;
@@ -128,6 +136,7 @@ _test_file_actions_boundaries() {
   command chmod +x "$TEST_TMP_DIR/bin/open" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/tests/support.zsh"
     root=${2:A}
     selected="$root/"'"'"'-note $(never-run); [x].txt'"'"'
     initial=$PWD

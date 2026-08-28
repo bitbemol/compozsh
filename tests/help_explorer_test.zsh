@@ -109,9 +109,7 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
       cpdir
       git-discard-all
       prompt-refresh
-      d
       g
-      f
       update_xcode_skills
       compozsh
     )
@@ -130,7 +128,7 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
   ' "$TEST_REPO_ROOT") || return
 
   local public_command=''
-  for public_command in mkcd cpdir git-discard-all prompt-refresh d g f \
+  for public_command in mkcd cpdir git-discard-all prompt-refresh g \
       update_xcode_skills compozsh; do
     test_assert_contains "$output" "$public_command|1|0|0|same|same-source" \
       "$public_command does not share one canonical help provider" || return

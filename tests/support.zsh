@@ -82,3 +82,18 @@ test_run_noninteractive() {
   shift 2
   test_run_zsh "$home" -df "$script" "$@"
 }
+
+# Native picker tests can start with a known query, bypassing only mode/query
+# entry (covered by files_workspace_test). Keep real shared ZLE and actions.
+test_search_session() {
+  local test_search_query=$1 mode=insert
+  local _directory_browser_clipboard=${commands[pbcopy]:-}
+  local _directory_browser_open=${commands[open]:-}
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  _test_search_choose() { _file_search_choose "$PWD" "$test_search_query" local; }
+  _zle_picker_run 10 '' 1 0 _test_search_choose
+  local result=$?
+  (( result == 1 )) && return 0
+  (( result == 0 )) || return $result
+  _file_search_apply "$_ZLE_PICKER_ACTION" "$_ZLE_PICKER_SELECTED_VALUE" "$_directory_browser_clipboard" "$_directory_browser_open"
+}

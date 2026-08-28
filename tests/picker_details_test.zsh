@@ -102,6 +102,7 @@ _test_path_details_snapshot() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/tests/support.zsh"
     _FILE_SEARCH_ROOT=/snapshot
     _FILE_SEARCH_SOURCE=local
     _FILE_SEARCH_VALUES=("/snapshot/notes file" "/snapshot/directory" "/snapshot/link")
@@ -141,20 +142,23 @@ _test_details_native_actions() {
     path=("$3" "${path[@]}")
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/tests/support.zsh"
     source "$1/.zsh.addons/.zsh.editor"
     builtin cd "$2"
     zmodload zsh/zpty
     functions[_details_original_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _details_original_show
+      # Synchronize actions only after capture; waiting-state coverage is separate.
+      (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
       print -r -- "FRAME:$_ZLE_PICKER_INSPECT_TITLE:$_ZLE_PICKER_INSPECT_FOCUS:${_ZLE_PICKER_DISPLAY[-1]}:END-DETAIL-FRAME"
     }
     _details_driver() {
       COLUMNS=120 LINES=30
       local passed=0 inserted="" copied="" expected_path="${PWD:A}/note one"
-      if [[ $scenario == branch-* ]]; then g; else f --here note; fi
+      if [[ $scenario == branch-* ]]; then g; else test_search_session note; fi
       (( ${#_ZLE_PICKER_INSPECT_TEXTS} == 0 && !_ZLE_PICKER_INSPECT_FOCUS &&
-         ${#_ZLE_PICKER_CONTEXTS} == 0 && _ZLE_PICKER_INSPECT_LIST_PERCENT == 33 )) || passed=1
+         ${#_ZLE_PICKER_CONTEXTS} == 0 )) || passed=1
       case $scenario in
         (branch-copy)
           copied=$(<"$HOME/copied")
@@ -175,11 +179,16 @@ _test_details_native_actions() {
     }
     _details_read() {
       while zpty -r details frame; do
+        trace+=$frame
         [[ $frame == *"$1"* ]] && return 0
       done
       return 1
     }
+    local trace="" remaining="" before="" screen=""
+    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local -i sessions=0 expected_sessions=0
     for scenario in branch-copy branch-switch branch-enter file-copy file-insert file-enter file-cancel; do
+      trace=""
       zpty details _details_driver || exit 1
       {
         _details_read END-DETAIL-FRAME || exit 2
@@ -212,6 +221,21 @@ _test_details_native_actions() {
         fi
         _details_read END-DETAIL-DONE || exit 7
         [[ $frame == *"DONE:0:"* ]] || { print -u2 -r -- "$scenario: $frame"; exit 8; }
+        # Search and file actions share one screen, restored before dispatch.
+        remaining=$trace sessions=0 expected_sessions=1
+        while [[ $remaining == *"$enter"* ]]; do
+          before=${remaining%%"$enter"*}
+          remaining=${remaining#*"$enter"}
+          [[ $before != *$'\''\e[2J'\''* && $before != *"$leave"* &&
+             $remaining == *"$leave"* ]] || exit 15
+          screen=${remaining%%"$leave"*}
+          [[ $screen != *"$enter"* ]] || exit 16
+          remaining=${remaining#*"$leave"}
+          (( ++sessions ))
+        done
+        (( sessions == expected_sessions )) || exit 17
+        [[ $remaining != *"$leave"* && $remaining != *$'\''\e[2J'\''* &&
+           $trace != *$'\''\e[3J'\''* ]] || exit 18
       } always {
         zpty -d details
       }

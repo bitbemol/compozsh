@@ -93,6 +93,29 @@ _test_editor_widgets_keep_implementation_private() {
 test_case 'editor widgets expose stable bindings but keep functions private' \
   _test_editor_widgets_keep_implementation_private
 
+_test_editor_styles_without_highlighting_peer() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    # An undeclared palette treats a role subscript as arithmetic, including
+    # this dynamically scoped query. Standalone fallback must remain literal.
+    query="two words"
+    _zle_picker_style picker-query fg=44
+    print -r -- "$REPLY"
+    ZSH_HIGHLIGHT_STYLES[picker-query]=fg=75
+    source "$1/.zsh.addons/.zsh.editor"
+    _zle_picker_style picker-query fg=44
+    print -r -- "$REPLY"
+  ' "$TEST_REPO_ROOT" 2>&1) || {
+    test_fail "standalone picker styles failed: $output"
+    return 1
+  }
+  test_assert_equal $'fg=44\nfg=75' "$output"
+}
+test_case 'editor style fallback works without the highlighting peer and preserves overrides' \
+  _test_editor_styles_without_highlighting_peer
+
 _test_contextual_directory_picker_contract() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" output=''
@@ -209,8 +232,8 @@ _test_contextual_directory_picker_hierarchy() {
     'parent:0|~/Developer/|Empty/,Remote/|~/Developer/|~/Dev' \
     'moving back did not restore the previous directory level' || return
   test_assert_contains "$output" \
-    'empty:1|~/Developer/|Empty/,Remote/|~/Developer/|~/Dev|no visible child directories in Empty/' \
-    'an empty child did not preserve its level with a useful explanation'
+    'empty:0|~/Developer/Empty/||~/Developer/Empty/|~/Dev,~/Developer/|' \
+    'an empty child must be a usable level with Back and current-folder actions'
 }
 test_case 'contextual directory picker drills down and returns without recursion' \
   _test_contextual_directory_picker_hierarchy

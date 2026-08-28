@@ -20,7 +20,7 @@ _compozsh_help_compozsh() {
     'Modes:' \
     '  No arguments opens a fuzzy tool picker. Enter or a visible digit with' \
     '  an empty query shows documentation; selection never runs the tool.' \
-    '  --list prints the live catalog with source and help availability.' \
+    '  --list  Print the live catalog with source and help availability.' \
     '  help command shows help for an exact loaded name, without a picker.' \
     '  --help shows this guide without discovering tools.' \
     '  Pipes, redirects, dumb terminals, or a missing picker show the catalog.' \
@@ -38,24 +38,33 @@ _compozsh_help_compozsh() {
     '  appear without Compozsh help; use their native documentation directly.' \
     '' \
     'Picker:' \
+    '  Ctrl-K opens the shared keyboard guide; Escape or Enter' \
+    '  returns to the same filter and selection. A plain ? filters normally.' \
+    '  Terminal.app uses a temporary alternate screen; closing restores' \
+    '  your previous terminal output. Unsupported terminals stay inline.' \
+    '  Search stays at the top, shortcuts at the bottom. Visible matches' \
+    '  are emphasized as you filter; row limits and number keys stay the same.' \
     '  Searches names and source labels case-insensitively, in character order.' \
     '  Prefixes and substrings rank before abbreviated matches. Type to refine;' \
     '  Arrows / Ctrl-P / Ctrl-N move; Enter shows help for the selected tool.' \
     '  Digits filter normally once the query is nonempty.' \
     '  Numbers identify visible slots; 0 selects the tenth row when shown.' \
     '  Arrows scroll through all matching tools and stop at either end.' \
-    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta).' \
+    '  Ctrl-V pages down; Ctrl-D pages up (Option-V with Meta).' \
     '  Page keys act on the focused pane; refining starts at the first match.' \
     '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
     '  Up to 10 rows appear by default, limited by terminal height; set' \
     '  ZSH_TOOL_PICKER_MAX_RESULTS in your initializer to adjust it.' \
     '' \
     'Help inspector (Zsh 5.9 / macOS Terminal.app):' \
-    '  At 100 columns or wider, help appears beside the tool list. In a' \
-    '  narrower window, switch between the list and a full-width help view.' \
-    '  Right / Ctrl-F enters help; Left / Ctrl-B returns to the tool list.' \
+    '  At 100 columns or wider, the list gets most of the width. Help uses' \
+    '  a secondary pane capped at 48 columns, compact until focused.' \
+    '  Focused help can use the full body height of the temporary screen.' \
+    '  Height adapts to the window and visible results. In narrower windows,' \
+    '  switch between the list and a full-width help view.' \
+    '  Right / Ctrl-E enters help; Left / Ctrl-B returns to the tool list.' \
     '  Tab / Shift-Tab switches panes. In help, Up/Down or Ctrl-P/N scroll;' \
-    '  Ctrl-V pages down; Escape then v pages up (Option-V with Meta enabled).' \
+    '  Ctrl-V pages down; Ctrl-D pages up (Option-V with Meta enabled).' \
     '  Fn-Up/Down (Page Up/Down) also scroll by a page. Typing refines the' \
     '  filter and returns to the list. Enter prints full help after closing.' \
     '  Digits select only from the visible list with an empty filter.' \
@@ -66,10 +75,82 @@ _compozsh_help_compozsh() {
     '  Custom help providers must be static and side-effect-free, just as for' \
     '  --help. Preview bounds are not a sandbox for user-defined shell code.' \
     '' \
+    'Filesystem workspace (path + Tab):' \
+    '  Type ~/ then Tab for home, ./ then Tab for the current directory, or' \
+    '  / then Tab for root. An arbitrary folder path sets that exact scope.' \
+    '  Browse lists child directories. Enter inserts a shell-quoted path;' \
+    '  Right/Tab enters a folder, Left/Shift-Tab goes Back. Ctrl-T toggles' \
+    '  hidden folders, Ctrl-O previews names, Ctrl-X opens workspace options.' \
+    '  Filter folders refines only that captured level. Ctrl-F opens Search' \
+    '  descendants of the displayed folder. Defaults: Git within a worktree,' \
+    '  Spotlight for home/root on macOS, Filesystem elsewhere. The source' \
+    '  is shown before submission; Ctrl-X can choose another explicitly.' \
+    '  Type fragments, then Return to search. Escape restores your browsing' \
+    '  filter, selection, viewport and focus; typing never starts discovery.' \
+    '  Ctrl-E focuses details/preview; Ctrl-B returns to the list.' \
+    '  That menu groups Selected folder and Current folder actions first,' \
+    '  then Go to for independent navigation to Recent directories.' \
+    '  Each filtered/paged row keeps its group; details show its exact target.' \
+    '  Option-Tab at the ordinary prompt opens Recent directories directly,' \
+    '  including with an unfinished command. Enable Use Option as Meta key' \
+    '  in Terminal Settings > Profiles > your profile > Keyboard.' \
+    '  Hold Option and press Tab; Ctrl-Tab stays with Terminal tab navigation.' \
+    '  Path + Tab starts from a known folder; Option-Tab starts from recall.' \
+    '  Recents is the current shell directory stack, including the current' \
+    '  folder. It is separate from children and never searches the filesystem.' \
+    '  Both entry points insert a visible quoted path when you select a row.' \
+    '  This replaces the command draft and puts the cursor at the end.' \
+    '  Review it, then Enter at the prompt changes directory via AUTO_CD.' \
+    '  Escape or copy preserves the original command, cursor and directory.' \
+    '  Native dirs -v and ~1, ~2, ... remain available. Stacks are per shell.' \
+    '  Ctrl-O browses a recent folder. Ctrl-X switches workspace views.' \
+    '  Ctrl-X offers explicit Search filesystem / Git / Spotlight sources:' \
+    '  enter an initial query and press Return. Even inside Git, a subfolder' \
+    '  stays the scope; the search never widens to the repository root.' \
+    '  Space-separated fragments match in any order, case-insensitively;' \
+    '  each fragment may abbreviate characters in order. Matches paths,' \
+    '  not file contents. Example: net cli. Query text is always literal.' \
+    '  Git includes tracked/untracked files, honors untracked ignore rules,' \
+    '  and derives containing directories; empty directories may be absent.' \
+    '  Filesystem walks include hidden entries and skip .git metadata;' \
+    '  they skip unreadable directories and never follow directory links.' \
+    '  Spotlight index uses the longest query fragment as a filename seed.' \
+    '  Unindexed, excluded or inaccessible paths may be absent; this is not' \
+    '  an exhaustive whole-disk search. Sources require Git / mdfind where used.' \
+    '  Initial capture: 20,000 inspected walk entries, 2,000 matches per source.' \
+    '  Partial captures are labeled partial; 10 rows are visible by default.' \
+    '  Filter results refines captured paths. Ctrl-F edits the discovery query;' \
+    '  Return captures again in the same scope/source; Escape keeps results.' \
+    '  Ctrl-X chooses another source. Retries keep the resolved source.' \
+    '  Searching appears before capture, with the chosen scope and query.' \
+    '  Capture is synchronous: blocked reads can delay keys and resize.' \
+    '  A failed source is distinct from no matches; partial output is marked.' \
+    '  No fallback scan runs if Spotlight is missing or fails. Use Ctrl-X' \
+    '  to choose a filesystem walk explicitly if index coverage is limited.' \
+    '  Paging and resizing use memory only. Mounted drives can still be slow.' \
+    '  Configure ZSH_FILE_SEARCH_MAX_VISITED, ZSH_FILE_SEARCH_MAX_CANDIDATES,' \
+    '  and ZSH_FILE_SEARCH_MAX_RESULTS in your initializer.' \
+    '  Search Enter inserts directories; files/links open a file-action picker.' \
+    '  For files, Enter then choose an action is the primary workflow;' \
+    '  no extra shortcut is needed to open, reveal, copy or insert the path.' \
+    '  The optional Ctrl-X options menu also includes folder/source controls.' \
+    '  Ctrl-X also offers actions for the exact selected file, folder or link,' \
+    '  separate from Current folder operations such as scoped Search.' \
+    '  Open with default app and Reveal in Finder require macOS open.' \
+    '  Open uses the registered app (normally Finder for folders). Reveal' \
+    '  opens the containing folder and selects the exact item in Finder.' \
+    '  Copy path uses Ctrl-Y (optional Option-W) and requires pbcopy.' \
+    '  Insert path keeps it editable; Enter linked directory is explicit.' \
+    '  A broken link has no Open action. Open only items you trust: a default' \
+    '  application may launch. Actions run after picker cleanup; paths are' \
+    '  rechecked. Returning restores the same query and selected row.' \
+    '  Ctrl-K shows keys; Escape goes back/cancels, Ctrl-C aborts.' \
+    '  d and f are retired. For scripts use native find / git ls-files / mdfind.' \
+    '' \
     'Examples:' \
     '  compozsh          Explore, then type part of a tool name.' \
     '  compozsh --list   Inspect the loaded catalog.' \
-    '  compozsh help f   Read the file finder guide.'
+    '  compozsh help g   Read the Git workspace guide.'
 }
 
 _compozsh_tool_sanitize() {
@@ -285,11 +366,11 @@ compozsh() {
 
   local selected=''
   local _ZLE_PICKER_INSPECT_TITLE=Help _ZLE_PICKER_INSPECT_ACTION='print help'
+  local _ZLE_PICKER_SUBTITLE='Commands from your loaded add-ons' _ZLE_PICKER_CANCEL_LABEL=''
   local -i picker_status=0
-  _ZLE_PICKER_TITLE='Compozsh tools'
+  _ZLE_PICKER_TITLE='Tool explorer'
   _ZLE_PICKER_BROWSE_LABEL='loaded add-on functions'
   _ZLE_PICKER_EMPTY_LABEL='no matching tools'
-  _ZLE_PICKER_FOOTER='0–9 help · ↑↓ move · type filter · ⏎ help · esc cancel'
   _ZLE_PICKER_COLLECTOR='_compozsh_tool_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=1
   _ZLE_PICKER_COPY_ENABLED=0

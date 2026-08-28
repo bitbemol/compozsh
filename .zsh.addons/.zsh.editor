@@ -74,6 +74,9 @@ _bind_zle_keys reverse-menu-complete \
   "${terminfo[kcbt]:-}" $'\e[Z'
 _bind_zle_keys edit-command-line '^X^E'
 
+# Keep keyed fallback lookups safe when the optional highlighting peer is absent.
+typeset -gA ZSH_HIGHLIGHT_STYLES
+
 # Shared state for the native history and navigation pickers. Collection stays
 # feature-specific; rendering, input, resize, and cleanup use this one contract.
 typeset -ga _ZLE_PICKER_RESULTS=()
@@ -85,12 +88,21 @@ typeset -ga _ZLE_PICKER_DISPLAY=()
 typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
 typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
 typeset -g _ZLE_PICKER_TITLE=''
+# Optional caller-owned location, separate from the title and editable filter.
+typeset -g _ZLE_PICKER_SUBTITLE=''
+typeset -g _ZLE_PICKER_SUBTITLE_ROW=''
 typeset -g _ZLE_PICKER_BROWSE_LABEL='items'
 typeset -g _ZLE_PICKER_EMPTY_LABEL='no matches'
-typeset -g _ZLE_PICKER_FOOTER=''
+# Optional informational rows; never added to the selectable result array.
+typeset -ga _ZLE_PICKER_EMPTY_LINES=()
+typeset -gi _ZLE_PICKER_GUIDE_ACTIVE=0
+typeset -gi _ZLE_PICKER_GUIDE_OFFSET=0
+typeset -gi _ZLE_PICKER_GUIDE_PAGE=1
 typeset -g _ZLE_PICKER_CANCEL_LABEL=''
 typeset -g _ZLE_PICKER_COLLECTOR=''
 typeset -g _ZLE_PICKER_HEADER=''
+typeset -g _ZLE_PICKER_TITLEBAR=''
+typeset -gi _ZLE_PICKER_TITLEBAR_META_START=-1
 typeset -g _ZLE_PICKER_QUERY_ROW=''
 typeset -gi _ZLE_PICKER_QUERY_START=0
 typeset -gi _ZLE_PICKER_QUERY_END=0
@@ -100,12 +112,17 @@ typeset -gi _ZLE_PICKER_SELECTED=0
 typeset -g _ZLE_PICKER_SELECTED_VALUE=''
 # A caller can return from a secondary picker using this accepted position.
 typeset -ga _ZLE_PICKER_BOOKMARK=()
+typeset -gi _ZLE_PICKER_BOOKMARK_FOCUS=0
 typeset -gA _ZLE_PICKER_ACCEPT_LABELS=()
 typeset -gi _ZLE_PICKER_ACTIVE=0
 typeset -gi _ZLE_PICKER_ACCEPTED=0
 typeset -gi _ZLE_PICKER_DIGIT_SELECT=0
 typeset -gi _ZLE_PICKER_COPY_ENABLED=0
 typeset -gi _ZLE_PICKER_HIERARCHY_ENABLED=0
+# Optional folder-workspace capabilities: 1 browser, 2 recent locations.
+typeset -gi _ZLE_PICKER_DIRECTORY_ACTIONS=0
+typeset -ga _ZLE_PICKER_TRAIL=()
+typeset -ga _ZLE_PICKER_DISPLAY_PREFIX_ENDS=()
 typeset -g _ZLE_PICKER_ACTION='select'
 typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
 typeset -gi _ZLE_PICKER_VISIBLE_COUNT=0
@@ -118,19 +135,23 @@ typeset -gi _ZLE_PICKER_RUN_LIMIT=10
 
 # Optional, caller-owned snapshot. Rendering and input never invoke providers.
 typeset -gA _ZLE_PICKER_INSPECT_TEXTS=()
+# Optional snapshot key used when the caller has context but no selected row.
+typeset -g _ZLE_PICKER_INSPECT_FALLBACK=''
 typeset -g _ZLE_PICKER_INSPECT_TITLE=Details
 typeset -g _ZLE_PICKER_INSPECT_ACTION=select
-typeset -gi _ZLE_PICKER_INSPECT_LIST_PERCENT=33
 typeset -gi _ZLE_PICKER_INSPECT_FOCUS=0
 typeset -gi _ZLE_PICKER_INSPECT_OFFSET=0
 typeset -gi _ZLE_PICKER_INSPECT_WIDTH=0
 typeset -gi _ZLE_PICKER_INSPECT_PAGE=1
 typeset -g _ZLE_PICKER_INSPECT_KEY=''
+# A caller may request more reading room for one explicitly loaded snapshot.
+typeset -g _ZLE_PICKER_INSPECT_EXPAND_KEY=''
 typeset -ga _ZLE_PICKER_INSPECT_LINES=()
 typeset -ga _ZLE_PICKER_INSPECT_ROLES=()
 typeset -ga _ZLE_PICKER_DISPLAY_LEFT_ENDS=()
 typeset -ga _ZLE_PICKER_DISPLAY_RIGHT_ROLES=()
 typeset -ga _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=()
+typeset -ga _ZLE_PICKER_DISPLAY_MATCH_STARTS=()
 
 # Native prompt truncation understands terminal cell widths. Literal percent
 # signs are escaped; prompt substitution is disabled by emulate.
@@ -187,7 +208,7 @@ _zle_picker_inspect_prepare() {
     elif [[ $line != ' '* && -n $line ]]; then
       role=heading
       case $line in
-        (Safety*|Limits*|*recovery:) role=warning ;;
+        (Safety*|Limits*|Unavailable:*|*recovery:) role=warning ;;
       esac
     fi
     (( ++first ))
@@ -221,15 +242,26 @@ _zle_picker_inspect_prepare() {
 _zle_picker_inspect_render() {
   emulate -L zsh
   local -i selected=$1 width=$2 left_width=$3
-  local name=${_ZLE_PICKER_RESULTS[selected]-} left='' right='' title='' role=''
-  local -i rows=${#_ZLE_PICKER_DISPLAY} height=12 index=0 line_index=0 right_width=$width
-  local -a display=() styles=() indexes=() left_ends=() right_roles=() context_starts=()
+  local name=${_ZLE_PICKER_RESULTS[selected]:-$_ZLE_PICKER_INSPECT_FALLBACK} left='' right='' title='' role=''
+  local -i rows=${#_ZLE_PICKER_DISPLAY} height=6 index=0 line_index=0 right_width=$width
+  local -a display=() styles=() indexes=() left_ends=() right_roles=() context_starts=() match_starts=()
+  _zle_picker_body_height
+  local -i body_height=$REPLY
   (( left_width )) && right_width=$(( width - left_width - 3 ))
   _zle_picker_inspect_prepare "$name" $right_width
+  # Passive details stay compact beside short lists. Deliberate focus grants
+  # more reading room; terminal height still bounds the shared display.
+  (( _ZLE_PICKER_INSPECT_FOCUS )) && height=12
+  if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 8 )) &&
+     { (( _ZLE_PICKER_INSPECT_FOCUS )) || [[ -n $name && $name == "$_ZLE_PICKER_INSPECT_EXPAND_KEY" ]]; }; then
+    height=$body_height
+  else
+    (( LINES > 0 && height > LINES / 2 )) && height=$(( LINES / 2 ))
+  fi
   (( ${#_ZLE_PICKER_INSPECT_LINES} + 1 < height )) && height=$(( ${#_ZLE_PICKER_INSPECT_LINES} + 1 ))
-  (( LINES > 0 && height > LINES - 6 )) && height=$(( LINES - 6 ))
-  (( height < 2 )) && height=2
   (( rows - 1 > height )) && height=$(( rows - 1 ))
+  (( LINES > 0 && height > body_height )) && height=$body_height
+  (( height < 2 )) && height=2
   _ZLE_PICKER_INSPECT_PAGE=$(( height - 1 ))
   local -i max_offset=$(( ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE ))
   (( max_offset < 0 )) && max_offset=0
@@ -252,6 +284,10 @@ _zle_picker_inspect_render() {
       right=${_ZLE_PICKER_INSPECT_LINES[line_index]-}
       role=${_ZLE_PICKER_INSPECT_ROLES[line_index]:-text}
     fi
+    if (( !_ZLE_PICKER_INSPECT_FOCUS )) && [[ $role == heading ]]; then
+      role=info
+      (( index == 1 )) && role=muted
+    fi
     _zle_picker_fit "$right" $right_width
     right=$REPLY
     if (( left_width )); then
@@ -264,12 +300,14 @@ _zle_picker_inspect_render() {
       styles+=("${_ZLE_PICKER_DISPLAY_STYLES[index]:-picker-text}")
       indexes+=("${_ZLE_PICKER_DISPLAY_INDEX_ENDS[index]:-0}")
       context_starts+=("${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index]:-0}")
+      match_starts+=("${_ZLE_PICKER_DISPLAY_MATCH_STARTS[index]:--1}")
     else
       display+=("$right")
       left_ends+=(0)
       styles+=(picker-text)
       indexes+=(0)
       context_starts+=(0)
+      match_starts+=(-1)
       _ZLE_PICKER_INDEXES_VISIBLE=0
     fi
     right_roles+=("$role")
@@ -280,12 +318,14 @@ _zle_picker_inspect_render() {
   left_ends+=(-1)
   right_roles+=('')
   context_starts+=(0)
+  match_starts+=(-1)
   _ZLE_PICKER_DISPLAY=("${display[@]}")
   _ZLE_PICKER_DISPLAY_STYLES=("${styles[@]}")
   _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${indexes[@]}")
   _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${left_ends[@]}")
   _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${right_roles[@]}")
   _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${context_starts[@]}")
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${match_starts[@]}")
 }
 
 # Native fuzzy history search. The public result limit may be established by
@@ -294,6 +334,15 @@ typeset -g ZSH_HISTORY_SEARCH_MAX_RESULTS=${ZSH_HISTORY_SEARCH_MAX_RESULTS:-8}
 typeset -ga _HISTORY_SEARCH_RESULTS=()
 typeset -g ZSH_DIRECTORY_PICKER_MAX_RESULTS=${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10}
 typeset -ga _DIRECTORY_PICKER_VALUES=()
+# Counts are directories/files/other entries in the captured visibility scope.
+# Keep only eight non-directory names for the informational empty-list view.
+typeset -ga _DIRECTORY_PICKER_CONTENT_COUNTS=(0 0 0)
+typeset -ga _DIRECTORY_PICKER_FILE_SAMPLE=()
+typeset -gi _DIRECTORY_PICKER_SHOW_HIDDEN=-1
+typeset -ga _DIRECTORY_PICKER_QUERIES=()
+typeset -ga _DIRECTORY_PICKER_SELECTIONS=()
+typeset -ga _DIRECTORY_PICKER_OFFSETS=()
+typeset -ga _DIRECTORY_PICKER_RESUME=('' 1 0)
 typeset -ga _DIRECTORY_PICKER_LABELS=()
 typeset -ga _DIRECTORY_PICKER_STACK=()
 typeset -g _DIRECTORY_PICKER_PATH_QUERY=''
@@ -354,6 +403,112 @@ _zle_picker_style() {
   else
     REPLY=${ZSH_HIGHLIGHT_STYLES[$role]:-$fallback}
   fi
+}
+
+# Zero-based character ranges within visible text, never executable patterns.
+# Emphasis is bounded independently of searching; long queries still match in
+# the collectors. The caller declares reply locally to retain these ranges.
+_zle_picker_match_spans() {
+  emulate -L zsh
+  local text=${1:l} query=${2:l} fragment='' before='' remaining='' character=''
+  local IFS=$' \t\n'
+  local -a fragments=( ${=query} ) spans=()
+  local -i position=0 next=0 start=-1 last=-1
+  reply=()
+  (( ${#query} && ${#query} <= 256 && ${#fragments} <= 16 )) || return 0
+  for fragment in "${fragments[@]}"; do
+    if [[ $text == *"$fragment"* ]]; then
+      before=${text%%"$fragment"*}
+      reply+=("${#before} $(( ${#before} + ${#fragment} ))")
+      continue
+    fi
+    spans=() next=1 start=-1 last=-1 position=0 remaining=$text
+    # Native prefix matching skips gaps without a shell iteration per column.
+    for character in "${(s::)fragment}"; do
+      [[ $remaining == *"$character"* ]] || break
+      before=${remaining%%"$character"*}
+      (( position += ${#before} + 1 ))
+      remaining=${remaining#*"$character"}
+      if (( start >= 0 && position != last + 1 )); then
+        spans+=("$start $last")
+        start=-1
+      fi
+      (( start < 0 )) && start=$(( position - 1 ))
+      last=$position
+      (( ++next > ${#fragment} )) && break
+    done
+    if (( next > ${#fragment} )); then
+      spans+=("$start $last")
+      reply+=("${spans[@]}")
+    fi
+  done
+}
+
+# One shared height budget keeps collection, layout, and footer anchoring in
+# agreement when a caller provides a location row. Tiny windows omit that row.
+_zle_picker_body_height() {
+  REPLY=$(( LINES - 6 - (${#_ZLE_PICKER_SUBTITLE} > 0 && LINES >= 10) ))
+  (( REPLY < 1 )) && REPLY=1
+  return 0
+}
+
+# Stable chrome belongs to the owned screen only. Empty rows are represented
+# by newlines, keeping padding cheap and leaving ZLE in charge of painting.
+_zle_picker_workspace() {
+  emulate -L zsh
+  (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 8 )) || return 0
+  _zle_picker_body_height
+  local -i gap=$(( REPLY - (${#_ZLE_PICKER_DISPLAY} - 1) )) width=$(( COLUMNS - 1 ))
+  local separator=''
+  local -a padding=()
+  # Inline rows need no pane metadata. Supply it before inserting spacer rows
+  # so every parallel array continues to describe the same physical row.
+  if (( !${#_ZLE_PICKER_DISPLAY_LEFT_ENDS} )); then
+    _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
+    _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${_ZLE_PICKER_DISPLAY[@]/*/}")
+  fi
+  (( gap < 0 )) && gap=0
+  (( width < 1 )) && width=1
+  separator=${(l:$width::─:)separator}
+  repeat $gap; do padding+=(''); done
+  _ZLE_PICKER_DISPLAY=("$separator" "${_ZLE_PICKER_DISPLAY[@][1,-2]}" "${padding[@]}" "${_ZLE_PICKER_DISPLAY[-1]}")
+  _ZLE_PICKER_DISPLAY_STYLES=(picker-muted "${_ZLE_PICKER_DISPLAY_STYLES[@][1,-2]}" "${padding[@]}" picker-muted)
+  _ZLE_PICKER_DISPLAY_INDEX_ENDS=(0 "${_ZLE_PICKER_DISPLAY_INDEX_ENDS[@][1,-2]}" "${padding[@]}" 0)
+  _ZLE_PICKER_DISPLAY_LEFT_ENDS=(-1 "${_ZLE_PICKER_DISPLAY_LEFT_ENDS[@][1,-2]}" "${padding[@]}" -1)
+  _ZLE_PICKER_DISPLAY_RIGHT_ROLES=('' "${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[@][1,-2]}" "${padding[@]}" '')
+  _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=(0 "${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[@][1,-2]}" "${padding[@]}" 0)
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=(-1 "${_ZLE_PICKER_DISPLAY_MATCH_STARTS[@][1,-2]}" "${padding[@]}" -1)
+}
+
+# A quiet captured location trail precedes the existing list/details layout.
+# It disappears first on narrow screens; all action indexes still address the
+# central list. This composes rows, never starts another terminal renderer.
+_zle_picker_trail_render() {
+  emulate -L zsh
+  local -i width=$1 index=0 prefix_end=0 first=1 trail_index=0
+  local left='' row=''
+  _ZLE_PICKER_DISPLAY_PREFIX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+  (( width )) || return 0
+  # Retain the nearest ancestors if the trail is taller than the body.
+  first=$(( ${#_ZLE_PICKER_TRAIL} - (${#_ZLE_PICKER_DISPLAY} - 3) ))
+  (( first < 2 )) && first=2
+  for (( index=2; index<${#_ZLE_PICKER_DISPLAY}; ++index )); do
+    trail_index=$(( first + index - 3 ))
+    left=${_ZLE_PICKER_TRAIL[trail_index]-}
+    (( index == 2 )) && left=${_ZLE_PICKER_TRAIL[1]}
+    row=${_ZLE_PICKER_DISPLAY[index]}
+    [[ -n $left || -n $row ]] || continue
+    _zle_picker_fit "${(V)left}" $width
+    left="$REPLY │ " prefix_end=${#left}
+    _zle_picker_fit "$row" $(( COLUMNS - width - 4 ))
+    _ZLE_PICKER_DISPLAY[index]="$left$REPLY"
+    _ZLE_PICKER_DISPLAY_PREFIX_ENDS[index]=$prefix_end
+    (( _ZLE_PICKER_DISPLAY_LEFT_ENDS[index] >= 0 )) && (( _ZLE_PICKER_DISPLAY_LEFT_ENDS[index] += prefix_end ))
+    (( _ZLE_PICKER_DISPLAY_INDEX_ENDS[index] )) && (( _ZLE_PICKER_DISPLAY_INDEX_ENDS[index] += prefix_end ))
+    (( _ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index] )) && (( _ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index] += prefix_end ))
+    (( _ZLE_PICKER_DISPLAY_MATCH_STARTS[index] >= 0 )) && (( _ZLE_PICKER_DISPLAY_MATCH_STARTS[index] += prefix_end ))
+  done
+  return 0
 }
 
 # Append newest-first matches for one native Zsh pattern, optionally requiring
@@ -470,22 +625,215 @@ _history_search_collect() {
     "${fuzzy_patterns[@]}"
 }
 
+# Dedicated identity for the owned screen. Use the existing first blank row;
+# status, location, search and result capacity keep their established positions.
+# Optional metadata never displaces the tool name or makes provider calls.
+_zle_picker_titlebar() {
+  emulate -L zsh
+  local -i width=$1 title_width=0
+  local title=${(V)${_ZLE_PICKER_TITLE:-Picker}} meta='' focus=Results
+  local value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} action=''
+  _ZLE_PICKER_TITLEBAR_META_START=-1
+  (( _ZLE_PICKER_INSPECT_FOCUS )) && focus=${(V)_ZLE_PICKER_INSPECT_TITLE}
+  if (( ${_ZLE_PICKER_BUSY:-0} )); then
+    meta='Searching…'
+  elif (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    meta='Keyboard guide'
+  elif [[ -n $value ]]; then
+    action=${_ZLE_PICKER_ACCEPT_LABELS[$value]:-$_ZLE_PICKER_INSPECT_ACTION}
+    meta="Enter: ${(V)action} · $focus"
+  elif (( _ZLE_PICKER_INSPECT_FOCUS )); then
+    meta=$focus
+  else
+    meta='No selection'
+  fi
+  (( ${(m)#title} + 11 <= width )) && title="Compozsh / $title"
+  if (( ${(m)#title} + ${(m)#meta} + 2 <= width )); then
+    title_width=$(( width - ${(m)#meta} ))
+    title=${(mr:$title_width:: :)title}
+    _ZLE_PICKER_TITLEBAR_META_START=${#title}
+    _ZLE_PICKER_TITLEBAR="$title$meta"
+  else
+    _zle_picker_fit "$title" $width
+    _ZLE_PICKER_TITLEBAR=$REPLY
+  fi
+}
+
 # Build a fixed-width list shared by history and navigation selectors. Labels
 # are made visible before display so control bytes can never become terminal
 # instructions. Result values remain untouched for the eventual action.
+# Shared chrome is built from capabilities, never caller-written key strings.
+# Keep the action, escape route and keyboard guide before optional hints. Add
+# only whole hints so a narrow screen cannot conceal half a key sequence.
+_zle_picker_footer() {
+  emulate -L zsh
+  local -i width=$1
+  local query=$2 value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
+  local action=${_ZLE_PICKER_ACCEPT_LABELS[$value]:-$_ZLE_PICKER_INSPECT_ACTION}
+  local cancel=${_ZLE_PICKER_CANCEL_LABEL:-cancel} hint=''
+  local -a hints=()
+  if (( ${_ZLE_PICKER_BUSY:-0} )); then
+    _zle_picker_fit 'Waiting for the search source…' $width
+    return 0
+  fi
+  action=${(V)action} cancel=${(V)cancel}
+  if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    REPLY='Esc back'
+    hints=('↑↓ scroll' '^V/^D page' '^K keys')
+  else
+    REPLY="⏎ ${action} · Esc ${cancel}"
+    (( ${(m)#REPLY} > width )) && REPLY='⏎ apply · Esc'
+    hints=('^K keys')
+    # Options is the entry to otherwise hidden folder/source operations.
+    # Keep its compact hint ahead of convenience shortcuts on small screens.
+    (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )) && hints+=('^X options')
+    [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]] && hints+=('^F search')
+    if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
+      hints+=('^O preview')
+    elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 )); then
+      hints+=('^O browse')
+    fi
+    (( _ZLE_PICKER_COPY_ENABLED )) && hints+=('^Y copy')
+    if (( _ZLE_PICKER_INSPECT_FOCUS )); then
+      hints+=('↑↓ scroll')
+      (( _ZLE_PICKER_HIERARCHY_ENABLED )) && hints+=('^B list') || hints+=('Tab list')
+    else
+      hints+=('↑↓ move')
+    fi
+    if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+      hints+=('→ open / ← back' '^T hidden')
+      (( ${#_ZLE_PICKER_INSPECT_TEXTS} && !_ZLE_PICKER_INSPECT_FOCUS )) && hints+=('^E details')
+    elif (( ${#_ZLE_PICKER_INSPECT_TEXTS} && !_ZLE_PICKER_INSPECT_FOCUS )); then
+      hints+=('Tab details')
+    fi
+    if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE && !_ZLE_PICKER_INSPECT_FOCUS )) && [[ -z $query ]]; then
+      hints+=("0–9 ${action}")
+    fi
+    hints+=('^V/^D page')
+    if (( !_ZLE_PICKER_INSPECT_FOCUS )); then
+      (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && hints+=('type query') || hints+=('type filter')
+      hints+=('^U clear')
+    fi
+  fi
+  for hint in "${hints[@]}"; do
+    (( ${(m)#REPLY} + ${(m)#hint} + 3 <= width )) && REPLY+=" · ${hint}"
+  done
+  if (( ${(m)#REPLY} > width )); then
+    REPLY='⏎ · Esc'
+    (( ${(m)#REPLY} > width )) && REPLY=${REPLY[1,$width]}
+  fi
+  return 0
+}
+
+# The keyboard guide is another view of this session, not a nested picker.
+# Selection, filter, focus and viewport are untouched; no provider is called.
+_zle_picker_guide_render() {
+  emulate -L zsh
+  local -i width=$1 height=0 max_offset=0 index=0
+  local row='' role=''
+  local -a lines=(
+    'Type                 Filter results; punctuation stays searchable'
+    '↑ / ↓ or Ctrl-P/N    Move selection; stop at either end'
+    'Enter                Apply the action shown in the footer'
+    'Escape / Ctrl-G      Cancel; go back from a secondary view'
+    'Ctrl-C               Abort the picker'
+    'Ctrl-U               Clear filter'
+    'Backspace            Delete one character'
+    'Ctrl-W               Delete the last word'
+    'Ctrl-V / Ctrl-D      Page down / up in the focused pane'
+    'Ctrl-L               Redraw'
+    'Ctrl-K               Show or close this keyboard guide'
+  )
+  (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) &&
+    lines[1]='Type                 Enter discovery fragments; Return starts search'
+  (( _ZLE_PICKER_DIGIT_SELECT )) && lines+=(
+    '0–9                  Apply a visible slot only with an empty filter')
+  (( _ZLE_PICKER_COPY_ENABLED )) && lines+=(
+    'Ctrl-Y               Copy the selection and close the picker')
+  [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]] && lines+=(
+    'Ctrl-F               Search descendants of the displayed folder'
+    'Return               Submit discovery query; typing never starts a scan')
+  if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
+    lines+=('Ctrl-O               Preview selected folder, or current if none'
+            'Ctrl-X               Options: folder actions, including current folder'
+            'Ctrl-E / Ctrl-B      Focus preview / return to folder list')
+  elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 )); then
+    lines+=('Ctrl-O               Browse inside the selected recent location')
+  fi
+  (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )) && lines+=(
+    'Ctrl-X               Options: actions, sources, Browse and Recents'
+    'Action groups        Selected folder / Current folder / Go to'
+    'Go to                Independent navigation to this shell Recents'
+    'Browse               Children of the displayed folder; Enter inserts'
+    'Search               Submit fragments to search below this folder'
+    'Recents              Enter inserts a path; submit at the prompt to cd'
+    'Sources              Filesystem walk, Git files, or Spotlight index'
+    'Limits               Walk: 20,000 entries; captured matches: 2,000'
+    'Coverage             Git ignores untracked ignored files and empty dirs'
+    'Spotlight            Filename seed; unindexed/excluded paths may be absent'
+    'Refinement           Typing filters captured paths; discovery is explicit'
+    'Source choice        Ctrl-X selects Filesystem, Git files, or Spotlight')
+  if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+    lines+=('Right / Tab          Enter selected folder'
+            'Left / Shift-Tab     Go back, restoring filter and selection'
+            'Ctrl-T               Toggle hidden folders')
+  elif (( ${#_ZLE_PICKER_INSPECT_TEXTS} )); then
+    lines+=('Tab / Shift-Tab      Switch between list and details'
+            'Right / Ctrl-E       Focus details'
+            'Left / Ctrl-B        Focus list')
+  fi
+  lines+=('Control shortcuts apply only inside this picker.'
+          'Escape cancels; it is not a command prefix.'
+          'Fn-Up/Down also page; optional Meta keys: Option-V pages up,'
+          'Option-Delete deletes a word; Option-W copies where available.')
+  _zle_picker_body_height
+  height=$REPLY
+  (( height < 2 )) && height=2
+  _ZLE_PICKER_GUIDE_PAGE=$(( height - 1 ))
+  max_offset=$(( ${#lines} - _ZLE_PICKER_GUIDE_PAGE ))
+  (( max_offset < 0 )) && max_offset=0
+  (( _ZLE_PICKER_GUIDE_OFFSET > max_offset )) && _ZLE_PICKER_GUIDE_OFFSET=$max_offset
+  (( _ZLE_PICKER_GUIDE_OFFSET < 0 )) && _ZLE_PICKER_GUIDE_OFFSET=0
+  _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_DISPLAY_STYLES=()
+  for (( index=0; index<height; ++index )); do
+    if (( index == 0 )); then
+      row="Keyboard guide · $(( _ZLE_PICKER_GUIDE_OFFSET + 1 ))/${#lines}"
+      role=picker-header
+    else
+      row=${lines[index + _ZLE_PICKER_GUIDE_OFFSET]-}
+      role=picker-text
+    fi
+    _zle_picker_fit "$row" $width
+    _ZLE_PICKER_DISPLAY+=("$REPLY")
+    _ZLE_PICKER_DISPLAY_STYLES+=("$role")
+  done
+  _zle_picker_footer $width ""
+  _ZLE_PICKER_DISPLAY+=("${(mr:$width:: :)REPLY}")
+  _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
+  _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+  _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
+  _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${_ZLE_PICKER_DISPLAY[@]/*/}")
+  _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
+  _ZLE_PICKER_INDEXES_VISIBLE=0
+  _zle_picker_workspace
+}
+
 _zle_picker_render() {
   emulate -L zsh
 
   local query=$1
   local -i selected=$2 columns=${COLUMNS:-80} row_width content_width
+  _zle_picker_body_height
+  local -i body_height=$REPLY
   local -i query_width=0
-  local -i context_width=0 context_start=0 name_width=0 list_percent=33
+  local -i context_width=0 context_start=0 name_width=0 detail_width=0
   local -i full_width=0 left_width=0 inspector=${#_ZLE_PICKER_INSPECT_TEXTS}
   local -i index=0 count=${#_ZLE_PICKER_RESULTS} index_width=2 index_end=0
   local -i total=$count view_limit=$_ZLE_PICKER_VIEW_LIMIT first=1 last=0 position=0
-  local -i zero_based=0
+  local -i zero_based=0 trail_width=0
   local shown_query='' shown_title='' shown_browse='' shown_empty=''
-  local query_label='Search ' query_open='‹' query_close='›'
+  local query_label="${(V)${_ZLE_PICKER_QUERY_LABEL:-Search}} " query_open='‹' query_close='›'
   local label='' row='' footer='' result_index='' context='' value='' accept_label=''
   typeset -ga _ZLE_PICKER_DISPLAY=()
   typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
@@ -493,7 +841,10 @@ _zle_picker_render() {
   _ZLE_PICKER_DISPLAY_LEFT_ENDS=()
   _ZLE_PICKER_DISPLAY_RIGHT_ROLES=()
   _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=()
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=()
+  _ZLE_PICKER_DISPLAY_PREFIX_ENDS=()
   _ZLE_PICKER_QUERY_ROW=''
+  _ZLE_PICKER_SUBTITLE_ROW=''
   _ZLE_PICKER_QUERY_START=0
   _ZLE_PICKER_QUERY_END=0
   _ZLE_PICKER_INDEXES_VISIBLE=0
@@ -502,7 +853,7 @@ _zle_picker_render() {
   (( columns < 4 )) && columns=4
   (( view_limit < 1 )) && view_limit=1
   (( view_limit > 20 )) && view_limit=20
-  (( LINES > 6 && view_limit > LINES - 6 )) && view_limit=$(( LINES - 6 ))
+  (( LINES > 6 && view_limit > body_height )) && view_limit=$body_height
   (( selected > total )) && selected=$total
   (( selected < 1 && total )) && selected=1
   (( total == 0 )) && selected=0
@@ -518,6 +869,7 @@ _zle_picker_render() {
   (( last > total )) && last=$total
   count=$(( last - first + 1 ))
   _ZLE_PICKER_SELECTED=$selected
+  _ZLE_PICKER_QUERY=$query
   _ZLE_PICKER_VISIBLE_COUNT=$count
   row_width=$(( columns - 1 ))
   full_width=$row_width
@@ -526,12 +878,17 @@ _zle_picker_render() {
   shown_browse=${(V)_ZLE_PICKER_BROWSE_LABEL}
   shown_empty=${(V)_ZLE_PICKER_EMPTY_LABEL}
 
-  if [[ -n $shown_query ]]; then
-    _ZLE_PICKER_HEADER=$shown_title
+  _ZLE_PICKER_TITLEBAR=''
+  _ZLE_PICKER_TITLEBAR_META_START=-1
+  if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} )); then
+    _zle_picker_titlebar $row_width
+    _ZLE_PICKER_HEADER=$shown_browse
   else
     _ZLE_PICKER_HEADER="${shown_title} · ${shown_browse}"
   fi
-  if (( _ZLE_PICKER_HAS_MORE )); then
+  if (( ${_ZLE_PICKER_BUSY:-0} )); then
+    : # Capture has no result count yet.
+  elif (( _ZLE_PICKER_HAS_MORE )); then
     _ZLE_PICKER_HEADER+=" · ${first}–${last} · more ↓"
   elif (( total > count )); then
     _ZLE_PICKER_HEADER+=" · ${first}–${last} of ${total}"
@@ -543,10 +900,15 @@ _zle_picker_render() {
     _ZLE_PICKER_HEADER=$REPLY
   fi
 
+  if [[ -n $_ZLE_PICKER_SUBTITLE ]] && (( LINES >= 10 )); then
+    _zle_picker_abbreviate "${(V)_ZLE_PICKER_SUBTITLE}" $row_width
+    _ZLE_PICKER_SUBTITLE_ROW=$REPLY
+  fi
+
   # A stable dedicated row prevents layout shifts and lets long input use the
   # terminal width. Abbreviation preserves both ends, favoring newly typed text;
   # the complete query remains untouched for matching.
-  query_width=$(( row_width - ${#query_label} - ${#query_open} - ${#query_close} ))
+  query_width=$(( row_width - ${(m)#query_label} - ${#query_open} - ${#query_close} ))
   if (( query_width > 0 )); then
     _zle_picker_abbreviate "$shown_query" $query_width
     shown_query=$REPLY
@@ -562,25 +924,46 @@ _zle_picker_render() {
     _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
   fi
 
-  if (( inspector && columns >= 100 )); then
-    if [[ $_ZLE_PICKER_INSPECT_LIST_PERCENT == <-> ]] &&
-       (( _ZLE_PICKER_INSPECT_LIST_PERCENT >= 20 && _ZLE_PICKER_INSPECT_LIST_PERCENT <= 70 )); then
-      list_percent=$_ZLE_PICKER_INSPECT_LIST_PERCENT
-    fi
-    left_width=$(( row_width * list_percent / 100 ))
-    (( list_percent == 33 && left_width > 42 )) && left_width=42
+  if (( ${#_ZLE_PICKER_TRAIL} && columns >= 120 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 10 && !_ZLE_PICKER_INSPECT_FOCUS )); then
+    trail_width=$(( columns / 7 ))
+    (( trail_width > 24 )) && trail_width=24
+    (( row_width -= trail_width + 3 ))
+    full_width=$row_width
+  fi
+  # An explicitly focused fallback has no selected row to sit beside. Give
+  # that context the workspace; list focus restores the informational summary.
+  if (( !count )) && [[ -n $_ZLE_PICKER_INSPECT_FALLBACK ]]; then
+    (( _ZLE_PICKER_INSPECT_FOCUS )) || inspector=0
+  fi
+  if (( inspector && columns >= 100 && (count || !_ZLE_PICKER_INSPECT_FOCUS) )); then
+    # Keep results primary in every tool. The information pane gets one third
+    # of the usable width, capped at a readable 48 cells on large terminals.
+    detail_width=$(( (row_width - 3) / 3 ))
+    (( detail_width > 48 )) && detail_width=48
+    left_width=$(( row_width - 3 - detail_width ))
     row_width=$left_width
   fi
   [[ ${_ZLE_PICKER_RESULT_INDEXES[1]-} == 0 && -z $query ]] && zero_based=1
   (( count && row_width >= index_width + 7 )) && _ZLE_PICKER_INDEXES_VISIBLE=1
 
   if (( count == 0 )); then
-    row="[--]   ${shown_empty}"
-    (( ${#row} > row_width )) && row="${row[1,$(( row_width - 1 ))]}…"
-    _ZLE_PICKER_DISPLAY+=("${(r:$row_width:: :)row}")
-    _ZLE_PICKER_DISPLAY_STYLES+=(picker-empty)
-    _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
-    _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
+    if (( ${#_ZLE_PICKER_EMPTY_LINES} )); then
+      # Captured empty-state context uses the main body without fake rows,
+      # digit shortcuts, path actions, or provider calls during rendering.
+      for row in "${_ZLE_PICKER_EMPTY_LINES[@][1,$body_height]}"; do
+        _zle_picker_fit "${(V)row}" $row_width
+        _ZLE_PICKER_DISPLAY+=("$REPLY")
+        (( ++index == 1 )) && _ZLE_PICKER_DISPLAY_STYLES+=(picker-header) ||
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-text)
+      done
+    else
+      _zle_picker_fit "[--]   ${shown_empty}" $row_width
+      _ZLE_PICKER_DISPLAY+=("$REPLY")
+      _ZLE_PICKER_DISPLAY_STYLES+=(picker-empty)
+    fi
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+    _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+    _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
   else
     for label in "${_ZLE_PICKER_LABELS[@][$first,$last]}"; do
       (( ++index ))
@@ -645,41 +1028,22 @@ _zle_picker_render() {
       _ZLE_PICKER_DISPLAY+=("${(mr:$row_width:: :)row}")
       _ZLE_PICKER_DISPLAY_INDEX_ENDS+=($index_end)
       _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=($context_start)
+      _ZLE_PICKER_DISPLAY_MATCH_STARTS+=($(( _ZLE_PICKER_INDEXES_VISIBLE ? index_width + 5 : 2 )))
     done
   fi
 
-  footer=$_ZLE_PICKER_FOOTER
+  (( _ZLE_PICKER_GUIDE_ACTIVE )) && { _zle_picker_guide_render $(( columns - 1 )); return; }
   row_width=$full_width
-  value=${_ZLE_PICKER_RESULTS[selected]-}
-  accept_label=${_ZLE_PICKER_ACCEPT_LABELS[$value]:-$_ZLE_PICKER_INSPECT_ACTION}
-  if (( !inspector && ${#_ZLE_PICKER_ACCEPT_LABELS} )); then
-    footer="⏎ ${(V)accept_label} · ${footer}"
-  fi
-  if (( inspector )); then
-    if (( _ZLE_PICKER_INSPECT_FOCUS )); then
-      footer='← list · ↑↓ scroll'
-    else
-      footer="→ ${(VL)_ZLE_PICKER_INSPECT_TITLE} · ↑↓ select"
-    fi
-    footer+=" · ⏎ ${(V)accept_label}"
-    (( _ZLE_PICKER_COPY_ENABLED )) && footer+=' · ^Y copy'
-    if (( columns >= 100 )); then
-      footer+=' · ^V/⌥V page'
-      if (( !_ZLE_PICKER_INSPECT_FOCUS )); then
-        (( columns >= 140 )) && footer+=' · tab pane · type filter'
-        if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE )) && [[ -z $query ]]; then
-          footer+=" · digit ${(V)accept_label}"
-        fi
-      fi
-    fi
-    footer+=" · esc${_ZLE_PICKER_CANCEL_LABEL:+ ${(V)_ZLE_PICKER_CANCEL_LABEL}}"
-  fi
-  (( ${#footer} > row_width )) && footer="${footer[1,$(( row_width - 1 ))]}…"
-  _ZLE_PICKER_DISPLAY+=("${(r:$row_width:: :)footer}")
+  _zle_picker_footer $(( columns - 1 )) "$query"
+  footer=$REPLY
+  _ZLE_PICKER_DISPLAY+=("${(mr:$(( columns - 1 )):: :)footer}")
   _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
   _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
   _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
   (( inspector )) && _zle_picker_inspect_render $selected $full_width $left_width
+  _zle_picker_workspace
+  _zle_picker_trail_render $trail_width
   return 0
 }
 
@@ -688,19 +1052,47 @@ _zle_picker_render() {
 _zle_picker_show() {
   emulate -L zsh
 
+  local previous_postdisplay=$POSTDISPLAY
   local row='' style_key='' style='' index_style='' query_style=''
   local -i index=0 index_end=0 left_end=0 row_end=0 right_start=0 context_start=0
   local role='' color=''
+  local match_style='' span=''
+  local -a reply=() bounds=()
+  local -i match_start=0 match_end=0
   local -i offset=$(( ${#PREDISPLAY} + ${#BUFFER} + 1 )) end=0
 
   region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
-  POSTDISPLAY=$'\n'"$_ZLE_PICKER_HEADER"
+  POSTDISPLAY=''
+  if (( _ZLE_PICKER_SCREEN_ACTIVE )) && [[ -n $_ZLE_PICKER_TITLEBAR ]]; then
+    POSTDISPLAY=$_ZLE_PICKER_TITLEBAR
+    _zle_picker_style picker-header 'fg=75,bold'
+    end=$(( offset - 1 + ${#_ZLE_PICKER_TITLEBAR} ))
+    region_highlight+=("P$(( offset - 1 )) ${end} ${REPLY} memo=my-zsh-picker")
+    if (( _ZLE_PICKER_TITLEBAR_META_START >= 0 )); then
+      _zle_picker_style picker-muted 'fg=242'
+      region_highlight+=("P$(( offset - 1 + _ZLE_PICKER_TITLEBAR_META_START )) ${end} none,${REPLY} memo=my-zsh-picker")
+    fi
+    (( offset = end + 1 ))
+  fi
+  POSTDISPLAY+=$'\n'"$_ZLE_PICKER_HEADER"
 
-  _zle_picker_style picker-header 'fg=75,bold'
+  if (( _ZLE_PICKER_SCREEN_ACTIVE )); then
+    _zle_picker_style picker-muted 'fg=242'
+  else
+    _zle_picker_style picker-header 'fg=75,bold'
+  fi
   style=$REPLY
   end=$(( offset + ${#_ZLE_PICKER_HEADER} ))
   region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
   (( offset = end + 1 ))
+
+  if [[ -n $_ZLE_PICKER_SUBTITLE_ROW ]]; then
+    POSTDISPLAY+=$'\n'"$_ZLE_PICKER_SUBTITLE_ROW"
+    _zle_picker_style picker-location 'fg=39'
+    end=$(( offset + ${#_ZLE_PICKER_SUBTITLE_ROW} ))
+    region_highlight+=("P${offset} ${end} ${REPLY} memo=my-zsh-picker")
+    (( offset = end + 1 ))
+  fi
 
   POSTDISPLAY+=$'\n'"$_ZLE_PICKER_QUERY_ROW"
   _zle_picker_style picker-muted 'fg=242'
@@ -718,11 +1110,15 @@ _zle_picker_show() {
 
   for (( index = 1; index <= ${#_ZLE_PICKER_DISPLAY}; ++index )); do
     row=${_ZLE_PICKER_DISPLAY[index]}
+    POSTDISPLAY+=$'\n'"$row"
+    if [[ -z $row ]]; then
+      (( ++offset ))
+      continue
+    fi
     style_key=${_ZLE_PICKER_DISPLAY_STYLES[index]}
     _zle_picker_style "$style_key" 'fg=252'
     style=$REPLY
     index_end=${_ZLE_PICKER_DISPLAY_INDEX_ENDS[index]}
-    POSTDISPLAY+=$'\n'"$row"
     end=$(( offset + ${#row} ))
     row_end=$end
     left_end=${_ZLE_PICKER_DISPLAY_LEFT_ENDS[index]:--1}
@@ -738,6 +1134,7 @@ _zle_picker_show() {
       case $role in
         (heading) color=75 ;;
         (info) color=111 ;;
+        (muted) color=242 ;;
         (warning) color=221 ;;
         (*) color=252 ;;
       esac
@@ -761,11 +1158,54 @@ _zle_picker_show() {
       _zle_picker_style picker-muted 'fg=242'
       region_highlight+=("P$(( offset + context_start )) ${end} ${REPLY} memo=my-zsh-picker")
     fi
+    match_start=${_ZLE_PICKER_DISPLAY_MATCH_STARTS[index]:--1}
+    match_end=$(( end - offset ))
+    if [[ -n $_ZLE_PICKER_QUERY ]] && (( match_start >= 0 && match_start < match_end )); then
+      _zle_picker_match_spans "${row[$(( match_start + 1 )),$match_end]}" "$_ZLE_PICKER_QUERY"
+      if (( ${#reply} )); then
+        if [[ $style_key == picker-selected ]]; then
+          match_style="${style},underline"
+        else
+          _zle_picker_style picker-match 'fg=81,bold,underline'
+          match_style=$REPLY
+        fi
+        for span in "${reply[@]}"; do
+          bounds=( "${(@s: :)span}" )
+          region_highlight+=("P$(( offset + match_start + bounds[1] )) $(( offset + match_start + bounds[2] )) ${match_style} memo=my-zsh-picker")
+        done
+      fi
+    fi
+    if (( ${_ZLE_PICKER_DISPLAY_PREFIX_ENDS[index]:-0} )); then
+      _zle_picker_style picker-muted 'fg=242'
+      region_highlight+=("P${offset} $(( offset + _ZLE_PICKER_DISPLAY_PREFIX_ENDS[index] )) none,${REPLY} memo=my-zsh-picker")
+    fi
     (( offset = row_end + 1 ))
   done
 
   _ZLE_PICKER_POSTDISPLAY=$POSTDISPLAY
-  zle -R
+  {
+    zle -R
+  } always {
+    # Zsh 5.9 refreshes before TRAPWINCH. Leave the painted frame on screen,
+    # but do not leave its width-dependent text in the next automatic refresh:
+    # shrinking the window would wrap/scroll it before our resize widget runs.
+    # The widget paints a fresh frame from the captured results. Restoring these
+    # parameters alone emits nothing and preserves the caller's editor state.
+    POSTDISPLAY=$previous_postdisplay
+    region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+  }
+}
+
+# A signal trap sees read-only ZLE parameters. Enter this registered widget
+# before changing POSTDISPLAY or region_highlight during a live resize.
+_zle_picker_redraw() {
+  emulate -L zsh
+  (( _ZLE_PICKER_ACTIVE || ${_ZLE_PICKER_BUSY:-0} )) || return 0
+  # Terminal.app reflows existing cells before SIGWINCH. The picker owns this
+  # temporary screen, so discard its old geometry without touching scrollback.
+  (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} )) && zle .clear-screen
+  _zle_picker_render "$_ZLE_PICKER_QUERY" $_ZLE_PICKER_SELECTED
+  _zle_picker_show
 }
 
 # ZLE enables bracketed paste in modern terminals. Consume its complete closing
@@ -808,7 +1248,9 @@ _history_search_picker_collect() {
 _zle_picker_step() {
   local -i delta=$1 selected=$2 count=$3
   REPLY=$selected
-  if (( _ZLE_PICKER_INSPECT_FOCUS )); then
+  if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    (( _ZLE_PICKER_GUIDE_OFFSET += delta ))
+  elif (( _ZLE_PICKER_INSPECT_FOCUS )); then
     (( _ZLE_PICKER_INSPECT_OFFSET += delta ))
   elif (( count )); then
     REPLY=$(( selected + delta ))
@@ -823,7 +1265,67 @@ _zle_picker_step() {
 _zle_picker_page() {
   local -i page_size=$_ZLE_PICKER_VISIBLE_COUNT
   (( _ZLE_PICKER_INSPECT_FOCUS )) && page_size=$_ZLE_PICKER_INSPECT_PAGE
+  (( _ZLE_PICKER_GUIDE_ACTIVE )) && page_size=$_ZLE_PICKER_GUIDE_PAGE
   _zle_picker_step $(( $1 * page_size )) $2 $3
+}
+
+# Own the display for one interaction, which may contain several picker views.
+# Callers return a choice; filesystem/application actions run after restoration.
+_zle_picker_screen_session() {
+  emulate -L zsh
+  local -i _ZLE_PICKER_SESSION=1 _ZLE_PICKER_SCREEN_ACTIVE=0 result=0
+  local saved_postdisplay=$POSTDISPLAY saved_buffer=$BUFFER saved_predisplay=$PREDISPLAY
+  local saved_prompt=$PROMPT saved_rprompt=$RPROMPT
+  local PROMPT=$PROMPT RPROMPT=$RPROMPT screen_exit=''
+  local -i saved_cursor=$CURSOR saved_mark=$MARK
+  local -i saved_suspended=${_ZLE_AUTOSUGGEST_SUSPENDED:-0}
+  local -a saved_highlights=()
+
+  if (( ! ${+functions[TRAPWINCH]} )); then
+    setopt LOCAL_TRAPS
+    TRAPWINCH() { zle compozsh-picker-redraw }
+  fi
+  _ZLE_AUTOSUGGEST_SUSPENDED=1
+  region_highlight=("${(@)region_highlight:#*memo=my-zsh-autosuggestion}")
+  if [[ -n ${_ZLE_AUTOSUGGEST_DISPLAY:-} && $POSTDISPLAY == "$_ZLE_AUTOSUGGEST_DISPLAY" ]]; then
+    saved_postdisplay=''
+    POSTDISPLAY=''
+  fi
+  _ZLE_AUTOSUGGEST_SUFFIX='' _ZLE_AUTOSUGGEST_DISPLAY=''
+  {
+    if [[ -t 1 && -n ${terminfo[smcup]} && -n ${terminfo[rmcup]} ]]; then
+      saved_highlights=("${region_highlight[@]}")
+      screen_exit=$terminfo[rmcup]
+      print -rn -- "$terminfo[smcup]"
+      _ZLE_PICKER_SCREEN_ACTIVE=1
+      BUFFER='' CURSOR=0 PREDISPLAY='' POSTDISPLAY=''
+      PROMPT='' RPROMPT='' region_highlight=()
+      zle reset-prompt
+      zle .clear-screen
+    fi
+    "$@"
+    result=$?
+  } always {
+    _ZLE_PICKER_ACTIVE=0
+    _ZLE_AUTOSUGGEST_SUSPENDED=$saved_suspended
+    region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+    POSTDISPLAY=$saved_postdisplay
+    if (( _ZLE_PICKER_SCREEN_ACTIVE )); then
+      BUFFER=$saved_buffer CURSOR=$saved_cursor MARK=$saved_mark
+      PREDISPLAY=$saved_predisplay
+      PROMPT=$saved_prompt RPROMPT=$saved_rprompt
+      region_highlight=("${saved_highlights[@]}")
+      zle reset-prompt
+    fi
+    zle -R -c
+    if (( _ZLE_PICKER_SCREEN_ACTIVE )); then
+      print -rn -- "$screen_exit"
+      _ZLE_PICKER_SCREEN_ACTIVE=0
+      zle .redisplay
+      zle -R -c
+    fi
+  }
+  return $result
 }
 
 _zle_picker_loop() {
@@ -832,13 +1334,11 @@ _zle_picker_loop() {
 
   local query=$1 raw_limit=$2 key='' sequence='' suffix='' collected_query=''
   local collector=$_ZLE_PICKER_COLLECTOR
-  local saved_postdisplay=$POSTDISPLAY
   local -i configured_limit=8 limit=8 selected=1 count=0 direct_position=0
   local -i accepted=0 cancelled=0 aborted=0 copy_requested=0
   local -i collected=0 request_limit=0 wanted=0
   local -i read_columns=0 read_lines=0
   local -i start_index=1 start_offset=0
-  local -i saved_suspended=${_ZLE_AUTOSUGGEST_SUSPENDED:-0}
 
   [[ $raw_limit == <-> ]] && configured_limit=$raw_limit
   (( configured_limit < 1 )) && configured_limit=1
@@ -847,31 +1347,31 @@ _zle_picker_loop() {
   [[ ${3:-} == <-> ]] && (( $3 > 0 )) && start_index=$3
   [[ ${4:-} == <-> ]] && start_offset=$4
 
+  if (( !${_ZLE_PICKER_SESSION:-0} )); then
+    _zle_picker_screen_session _zle_picker_loop "$@"
+    return $?
+  fi
+
   _ZLE_PICKER_SELECTED_VALUE=''
   _ZLE_PICKER_BOOKMARK=()
+  _ZLE_PICKER_BOOKMARK_FOCUS=0
   _ZLE_PICKER_ACCEPTED=0
   _ZLE_PICKER_ACTION='select'
+  _ZLE_PICKER_GUIDE_ACTIVE=0
+  _ZLE_PICKER_GUIDE_OFFSET=0
   _ZLE_PICKER_ACTIVE=1
   _ZLE_PICKER_VIEW_LIMIT=$configured_limit
   _ZLE_PICKER_VIEW_OFFSET=0
   _ZLE_PICKER_HAS_MORE=0
-  _ZLE_PICKER_INSPECT_FOCUS=0
+  _ZLE_PICKER_INSPECT_FOCUS=${_zle_picker_start_focus:-0}
   _ZLE_PICKER_INSPECT_OFFSET=0
   _ZLE_PICKER_INSPECT_KEY=''
   _ZLE_PICKER_INSPECT_WIDTH=0
-  _ZLE_AUTOSUGGEST_SUSPENDED=1
-  region_highlight=("${(@)region_highlight:#*memo=my-zsh-autosuggestion}")
-  if [[ -n ${_ZLE_AUTOSUGGEST_DISPLAY:-} &&
-        $POSTDISPLAY == "$_ZLE_AUTOSUGGEST_DISPLAY" ]]; then
-    saved_postdisplay=''
-    POSTDISPLAY=''
-  fi
-  _ZLE_AUTOSUGGEST_SUFFIX=''
-  _ZLE_AUTOSUGGEST_DISPLAY=''
   {
     while (( !accepted && !cancelled && !aborted )); do
       limit=$configured_limit
-      (( LINES > 0 && limit > LINES - 6 )) && limit=$(( LINES - 6 ))
+      _zle_picker_body_height
+      (( LINES > 0 && limit > REPLY )) && limit=$REPLY
       (( limit < 1 )) && limit=1
       # Retain a ranked prefix for this query. Grow it geometrically only when
       # the viewport reaches its edge; providers remain captured outside ZLE.
@@ -927,20 +1427,72 @@ _zle_picker_loop() {
       selected=$_ZLE_PICKER_SELECTED
       count=${#_ZLE_PICKER_RESULTS}
 
+      # A guide never applies a result or edits the hidden filter. Only its
+      # scrolling, dismissal and whole-session abort keys remain active.
+      if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+        case $key in
+          ($'\r'|$'\n'|$'\x07'|$'\x0b') _ZLE_PICKER_GUIDE_ACTIVE=0; continue ;;
+          ($'\e'|$'\x03'|$'\x0c'|$'\x10'|$'\x0e'|$'\x16'|$'\x04') ;;
+          (*) zle beep; continue ;;
+        esac
+      fi
       case $key in
-        ($'\x06'|$'\x02')
-          if (( ${#_ZLE_PICKER_INSPECT_TEXTS} )); then
-            [[ $key == $'\x06' ]] && _ZLE_PICKER_INSPECT_FOCUS=1 || _ZLE_PICKER_INSPECT_FOCUS=0
+        ($'\x0b')
+          _ZLE_PICKER_GUIDE_ACTIVE=1
+          _ZLE_PICKER_GUIDE_OFFSET=0
+          ;;
+        ($'\x0f')
+          if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
+            _ZLE_PICKER_ACTION=preview
+            accepted=1
+          elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 && count )); then
+            _ZLE_PICKER_ACTION=browse
+            accepted=1
           else
             zle beep
           fi
           ;;
-        ($'\x16')
-          _zle_picker_page 1 $selected $count
+        ($'\x18')
+          if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )); then
+            _ZLE_PICKER_ACTION=actions
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x14')
+          if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+            _ZLE_PICKER_ACTION=toggle-hidden
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x06')
+          if [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]]; then
+            _ZLE_PICKER_ACTION=$_ZLE_PICKER_SEARCH_ACTION
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x05'|$'\x02')
+          if (( ${#_ZLE_PICKER_INSPECT_TEXTS} )); then
+            [[ $key == $'\x05' ]] && _ZLE_PICKER_INSPECT_FOCUS=1 || _ZLE_PICKER_INSPECT_FOCUS=0
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x16'|$'\x04')
+          [[ $key == $'\x16' ]] && _zle_picker_page 1 $selected $count ||
+            _zle_picker_page -1 $selected $count
           selected=$REPLY
           ;;
         ($'\r'|$'\n')
-          if (( count )); then
+          if (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${query//[[:space:]]/} ]]; then
+            _ZLE_PICKER_ACTION=query
+            accepted=1
+          elif (( count )); then
             accepted=1
           else
             zle beep
@@ -984,7 +1536,7 @@ _zle_picker_loop() {
           zle clear-screen
           ;;
         ($'\x12'|$'\x0e'|$'\t')
-          if (( ${#_ZLE_PICKER_INSPECT_TEXTS} )) && [[ $key == $'\t' ]]; then
+          if (( ${#_ZLE_PICKER_INSPECT_TEXTS} && !_ZLE_PICKER_HIERARCHY_ENABLED )) && [[ $key == $'\t' ]]; then
             (( _ZLE_PICKER_INSPECT_FOCUS = !_ZLE_PICKER_INSPECT_FOCUS ))
           elif (( _ZLE_PICKER_HIERARCHY_ENABLED )) && [[ $key == $'\t' ]]; then
             if (( count )); then
@@ -1004,8 +1556,18 @@ _zle_picker_loop() {
           ;;
         ($'\e')
           sequence=''
-          if ! IFS= read -r -t 0.1 -k 1 sequence; then
-            cancelled=1
+          # Only allow transport time for arrows, paste and optional Meta keys.
+          # No human Escape-then-letter commands: cancellation stays responsive.
+          if ! IFS= read -r -t 0.02 -k 1 sequence; then
+            if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+              _ZLE_PICKER_GUIDE_ACTIVE=0
+            else
+              cancelled=1
+            fi
+            continue
+          fi
+          if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != (v|'['|O) ]]; then
+            zle beep
             continue
           fi
           case $sequence in
@@ -1034,13 +1596,17 @@ _zle_picker_loop() {
                 continue
               fi
               sequence+=$suffix
+              if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != ('[A'|'OA'|'[B'|'OB'|'[5'|'[6'|'[2') ]]; then
+                zle beep
+                continue
+              fi
               case $sequence in
                 ('[A'|'OA')
                   _zle_picker_step -1 $selected $count
                   selected=$REPLY
                   ;;
                 ('[Z')
-                  if (( ${#_ZLE_PICKER_INSPECT_TEXTS} )); then
+                  if (( ${#_ZLE_PICKER_INSPECT_TEXTS} && !_ZLE_PICKER_HIERARCHY_ENABLED )); then
                     (( _ZLE_PICKER_INSPECT_FOCUS = !_ZLE_PICKER_INSPECT_FOCUS ))
                   elif (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
                     _ZLE_PICKER_ACTION='parent'
@@ -1051,7 +1617,7 @@ _zle_picker_loop() {
                   fi
                   ;;
                 ('[C'|'OC')
-                  if (( ${#_ZLE_PICKER_INSPECT_TEXTS} )); then
+                  if (( ${#_ZLE_PICKER_INSPECT_TEXTS} && !_ZLE_PICKER_HIERARCHY_ENABLED )); then
                     _ZLE_PICKER_INSPECT_FOCUS=1
                   elif (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
                     if (( count )); then
@@ -1065,7 +1631,7 @@ _zle_picker_loop() {
                   fi
                   ;;
                 ('[D'|'OD')
-                  if (( ${#_ZLE_PICKER_INSPECT_TEXTS} )); then
+                  if (( ${#_ZLE_PICKER_INSPECT_TEXTS} && !_ZLE_PICKER_HIERARCHY_ENABLED )); then
                     _ZLE_PICKER_INSPECT_FOCUS=0
                   elif (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
                     _ZLE_PICKER_ACTION='parent'
@@ -1104,9 +1670,13 @@ _zle_picker_loop() {
                   suffix=''
                   if IFS= read -r -t 0.1 -k 3 suffix && [[ $suffix == '00~' ]] &&
                      _zle_picker_read_bracketed_paste; then
-                    _ZLE_PICKER_INSPECT_FOCUS=0
-                    query+=$REPLY
-                    selected=1
+                    # Consume the whole paste even in the guide: its payload
+                    # may contain Enter, digits or Escape, never action keys.
+                    if (( !_ZLE_PICKER_GUIDE_ACTIVE )); then
+                      _ZLE_PICKER_INSPECT_FOCUS=0
+                      query+=$REPLY
+                      selected=1
+                    fi
                   else
                     cancelled=1
                   fi
@@ -1156,24 +1726,30 @@ _zle_picker_loop() {
 
     if (( accepted )); then
       _ZLE_PICKER_ACCEPTED=1
-      _ZLE_PICKER_SELECTED_VALUE=${_ZLE_PICKER_RESULTS[selected]}
+      _ZLE_PICKER_SELECTED_VALUE=${_ZLE_PICKER_RESULTS[selected]-}
+      [[ $_ZLE_PICKER_ACTION == query ]] && _ZLE_PICKER_SELECTED_VALUE=$query
       _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
+      _ZLE_PICKER_BOOKMARK_FOCUS=$_ZLE_PICKER_INSPECT_FOCUS
       (( copy_requested )) && _ZLE_PICKER_ACTION='copy'
     fi
   } always {
     _ZLE_PICKER_ACTIVE=0
-    _ZLE_AUTOSUGGEST_SUSPENDED=$saved_suspended
     region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
-    POSTDISPLAY=$saved_postdisplay
     _ZLE_PICKER_POSTDISPLAY=''
     _ZLE_PICKER_QUERY=''
+    _ZLE_PICKER_GUIDE_ACTIVE=0
+    _ZLE_PICKER_GUIDE_OFFSET=0
     _ZLE_PICKER_QUERY_ROW=''
+    _ZLE_PICKER_TITLEBAR=''
+    _ZLE_PICKER_TITLEBAR_META_START=-1
+    _ZLE_PICKER_SUBTITLE_ROW=''
     _ZLE_PICKER_QUERY_START=0
     _ZLE_PICKER_QUERY_END=0
     _ZLE_PICKER_SELECTED=0
     _ZLE_PICKER_DIGIT_SELECT=0
     _ZLE_PICKER_COPY_ENABLED=0
     _ZLE_PICKER_HIERARCHY_ENABLED=0
+    _ZLE_PICKER_DIRECTORY_ACTIONS=0
     _ZLE_PICKER_INDEXES_VISIBLE=0
     _ZLE_PICKER_VIEW_LIMIT=20
     _ZLE_PICKER_VIEW_OFFSET=0
@@ -1188,7 +1764,6 @@ _zle_picker_loop() {
     _ZLE_PICKER_INSPECT_WIDTH=0
     _ZLE_PICKER_INSPECT_LINES=()
     _ZLE_PICKER_INSPECT_ROLES=()
-    zle -R -c
   }
 
   if (( aborted )); then
@@ -1202,8 +1777,13 @@ _zle_picker_loop() {
 # The editor owns this lifecycle so navigation and search peers can detect it
 # at runtime without depending on each other or duplicating terminal handling.
 _zle_picker_widget() {
-  _zle_picker_loop "${_zle_picker_start_query:-}" "${_ZLE_PICKER_RUN_LIMIT:-10}" \
-    "${_zle_picker_start_index:-1}" "${_zle_picker_start_offset:-0}"
+  if [[ -n ${_zle_picker_session_callback:-} ]]; then
+    _zle_picker_screen_session "$_zle_picker_session_callback"
+    _zle_picker_session_status=$?
+  else
+    _zle_picker_loop "${_zle_picker_start_query:-}" "${_ZLE_PICKER_RUN_LIMIT:-10}" \
+      "${_zle_picker_start_index:-1}" "${_zle_picker_start_offset:-0}"
+  fi
 }
 
 _zle_picker_line_init() {
@@ -1221,6 +1801,10 @@ _zle_picker_run() {
   local raw_limit=${1:-10} picker_buffer=''
   local _zle_picker_start_query=${2:-} _zle_picker_start_index=${3:-1}
   local _zle_picker_start_offset=${4:-0}
+  # Optional internal controller for several views in one nested editor.
+  # Scoped here so it cannot leak into a final cd/chpwd or application action.
+  local _zle_picker_session_callback=${5:-}
+  local -i _zle_picker_session_status=1
   [[ $raw_limit == <-> ]] || raw_limit=10
   (( raw_limit < 1 )) && raw_limit=1
   (( raw_limit > 20 )) && raw_limit=20
@@ -1232,23 +1816,26 @@ _zle_picker_run() {
     return 2
   fi
   _ZLE_PICKER_BOOTSTRAP=''
+  [[ -n ${_zle_picker_session_callback:-} ]] && return $_zle_picker_session_status
   (( _ZLE_PICKER_ACCEPTED )) && return 0
   return 1
 }
 
 zle -N compozsh-picker _zle_picker_widget
+zle -N compozsh-picker-redraw _zle_picker_redraw
 
 _history_fuzzy_search_widget() {
   emulate -L zsh
 
   local original_buffer=$BUFFER
+  local _ZLE_PICKER_INSPECT_ACTION=insert _ZLE_PICKER_CANCEL_LABEL=''
+  local _ZLE_PICKER_SUBTITLE='Commands from this shell history'
   # Capture once: direct reads of the special history parameter become costly
   # deep in a large history. Native associative lookups keep paging predictable.
   local -A _history_search_source=( "${(@kv)history}" )
   _ZLE_PICKER_TITLE='History'
   _ZLE_PICKER_BROWSE_LABEL='recent commands'
   _ZLE_PICKER_EMPTY_LABEL='no matches'
-  _ZLE_PICKER_FOOTER='↑↓ move · ^V/⌥V page · type refine · ⏎ insert · esc · ^U clear'
   _ZLE_PICKER_COLLECTOR='_history_search_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=0
 
@@ -1361,6 +1948,7 @@ _directory_picker_collect() {
 _directory_picker_prepare() {
   local autocd_enabled=${options[autocd]:-off}
   local internal_navigation=${3:-0}
+  local allow_empty=${4:-0}
   emulate -L zsh
   setopt EXTENDED_GLOB
 
@@ -1368,8 +1956,10 @@ _directory_picker_prepare() {
   local base='' insertion_prefix='' entry='' name=''
   local -i cursor=0 prefix_length=0
   local -a words=() entries=()
-  typeset -ga _DIRECTORY_PICKER_VALUES=()
-  typeset -ga _DIRECTORY_PICKER_LABELS=()
+  _DIRECTORY_PICKER_VALUES=()
+  _DIRECTORY_PICKER_LABELS=()
+  _DIRECTORY_PICKER_CONTENT_COUNTS=(0 0 0)
+  _DIRECTORY_PICKER_FILE_SAMPLE=()
   _DIRECTORY_PICKER_PATH_QUERY=''
   _DIRECTORY_PICKER_LOCATION=''
 
@@ -1419,22 +2009,67 @@ _directory_picker_prepare() {
   [[ -d $base && -r $base && -x $base ]] || return 1
   _DIRECTORY_PICKER_LOCATION=$insertion_prefix
 
-  if [[ $_DIRECTORY_PICKER_PATH_QUERY == .* ]]; then
+  if (( ${_DIRECTORY_PICKER_SHOW_HIDDEN:--1} == 1 )); then
+    entries=("$base"/*(ND))
+  elif (( ${_DIRECTORY_PICKER_SHOW_HIDDEN:--1} < 0 )) && [[ $_DIRECTORY_PICKER_PATH_QUERY == .* ]]; then
     entries=("$base"/.*(N))
   else
     entries=("$base"/*(N))
   fi
   for entry in "${entries[@]}"; do
-    [[ -d $entry ]] || continue
-    name=${entry:t}
-    [[ $name != . && $name != .. && $name != *[[:cntrl:]]* ]] || continue
-    _DIRECTORY_PICKER_VALUES+=("${insertion_prefix}${name}/")
-    _DIRECTORY_PICKER_LABELS+=("${name}/")
+    if [[ -d $entry ]]; then
+      name=${entry:t}
+      [[ $name != . && $name != .. ]] || continue
+      (( ++_DIRECTORY_PICKER_CONTENT_COUNTS[1] ))
+      [[ $name != *[[:cntrl:]]* ]] || continue
+      _DIRECTORY_PICKER_VALUES+=("${insertion_prefix}${name}/")
+      _DIRECTORY_PICKER_LABELS+=("${name}/")
+    else
+      if [[ -f $entry ]]; then
+        (( ++_DIRECTORY_PICKER_CONTENT_COUNTS[2] ))
+      else
+        (( ++_DIRECTORY_PICKER_CONTENT_COUNTS[3] ))
+      fi
+      if (( ${#_DIRECTORY_PICKER_FILE_SAMPLE} < 8 )); then
+        name=${entry:t}
+        [[ -L $entry ]] && _DIRECTORY_PICKER_FILE_SAMPLE+=("  ↗ $name") ||
+          _DIRECTORY_PICKER_FILE_SAMPLE+=("  · $name")
+      fi
+    fi
   done
+  (( allow_empty )) && return 0
   (( ${#_DIRECTORY_PICKER_VALUES} )) || return 1
 
   _directory_picker_collect '' 1
   (( ${#_ZLE_PICKER_RESULTS} ))
+}
+
+# Breadcrumbs are presentation only: split on real path separators, retain
+# literal component text, and let the shared renderer sanitize and fit it.
+_directory_picker_breadcrumb() {
+  local location=${1%/}
+  [[ -n $location ]] || { REPLY=/; return; }
+  REPLY=${location//\// › }
+}
+
+# Reconcile the selected value with the freshly captured level. An ordinal can
+# change when a sibling is created; a missing selection falls back to row one.
+_directory_picker_restore() {
+  emulate -L zsh
+  local query=$1 selected=$2
+  local -i offset=${3:-0} index=0 limit=$(( offset + 11 ))
+  if (( ${_DIRECTORY_PICKER_VALUES[(Ie)$selected]} )); then
+    # Start with the previously visible prefix. Usually this is one page;
+    # only a moved selection needs more ranking of already captured children.
+    while true; do
+      _directory_picker_collect "$query" $limit
+      index=${_ZLE_PICKER_RESULTS[(Ie)$selected]}
+      (( index || ${#_ZLE_PICKER_RESULTS} < limit || limit >= ${#_DIRECTORY_PICKER_VALUES} )) && break
+      (( limit *= 2 ))
+    done
+  fi
+  (( index )) || { index=1; offset=0; }
+  _DIRECTORY_PICKER_RESUME=("$query" "$index" "$offset")
 }
 
 # Move between already selected levels without recursively discovering paths.
@@ -1446,20 +2081,31 @@ _directory_picker_transition() {
   local action=$1 selected_path=$2
   local previous_input=$_DIRECTORY_PICKER_INPUT target=''
   local notice='' selected_name=''
-  local -i transition_status=1
+  local query=${_ZLE_PICKER_BOOKMARK[1]-}
+  local -i offset=${_ZLE_PICKER_BOOKMARK[3]:-0} transition_status=1
+  local -i previous_hidden=${_DIRECTORY_PICKER_SHOW_HIDDEN:--1} allow_empty=0
   REPLY=''
 
   case $action in
     (descend)
       [[ -n $selected_path ]] || return 1
-      target=$selected_path
+      _directory_picker_quote "$selected_path"
+      target=$REPLY
+      allow_empty=1
       ;;
     (parent)
       if (( ! ${#_DIRECTORY_PICKER_STACK} )); then
+        _directory_picker_restore "$query" "$selected_path" $offset
         REPLY='already at the starting level'
         return 1
       fi
       target=${_DIRECTORY_PICKER_STACK[-1]}
+      allow_empty=1
+      ;;
+    (toggle-hidden)
+      target=$previous_input
+      _DIRECTORY_PICKER_SHOW_HIDDEN=$(( previous_hidden != 1 ))
+      allow_empty=1
       ;;
     (*)
       REPLY='unsupported directory-picker action'
@@ -1467,16 +2113,29 @@ _directory_picker_transition() {
       ;;
   esac
 
-  if _directory_picker_prepare "$target" ${#target} 1; then
+  if _directory_picker_prepare "$target" ${#target} 1 $allow_empty; then
     if [[ $action == descend ]]; then
       _DIRECTORY_PICKER_STACK+=("$previous_input")
-    else
+      _DIRECTORY_PICKER_QUERIES+=("$query")
+      _DIRECTORY_PICKER_SELECTIONS+=("$selected_path")
+      _DIRECTORY_PICKER_OFFSETS+=($offset)
+      _DIRECTORY_PICKER_RESUME=('' 1 0)
+    elif [[ $action == parent ]]; then
+      _directory_picker_restore "${_DIRECTORY_PICKER_QUERIES[-1]-}" \
+        "${_DIRECTORY_PICKER_SELECTIONS[-1]-}" "${_DIRECTORY_PICKER_OFFSETS[-1]:-0}"
       _DIRECTORY_PICKER_STACK[-1]=()
+      _DIRECTORY_PICKER_QUERIES[-1]=()
+      _DIRECTORY_PICKER_SELECTIONS[-1]=()
+      _DIRECTORY_PICKER_OFFSETS[-1]=()
+    else
+      _directory_picker_restore "$query" "$selected_path" $offset
     fi
     _DIRECTORY_PICKER_INPUT=$target
+    REPLY=''
     return 0
   fi
 
+  _DIRECTORY_PICKER_SHOW_HIDDEN=$previous_hidden
   if [[ $action == descend ]]; then
     selected_name=${${selected_path%/}:t}
     notice="no visible child directories in ${selected_name}/"
@@ -1485,6 +2144,7 @@ _directory_picker_transition() {
   fi
   _directory_picker_prepare "$previous_input" ${#previous_input} 1 ||
     transition_status=2
+  _directory_picker_restore "$query" "$selected_path" $offset
   REPLY=$notice
   return $transition_status
 }
@@ -1505,61 +2165,585 @@ _directory_picker_quote() {
   fi
 }
 
-_directory_context_complete_widget() {
+# Expand only our literal home spelling, never shell source or named dirs.
+_directory_browser_absolute() {
+  local value=${1:-.}
+  [[ $value == '~/'* ]] && value="$HOME/${value[3,-1]}"
+  [[ $value == '~' ]] && value=$HOME
+  [[ $value == /* ]] || value="$PWD/$value"
+  REPLY=${value:a}
+}
+
+# Explicit Ctrl-O snapshot. Y stops enumeration at 41 directory entries before
+# sorting; the first 40 filesystem-order names are a sample, never a count of
+# the whole folder. No file content is opened and no descendant is traversed.
+_directory_browser_preview() {
+  emulate -L zsh
+  local value=$1 entry='' name='' kind=''
+  local -a entries=() lines=('Contents snapshot' 'One level · names only' '')
+  local -i count=0
+  _directory_browser_absolute "$value"
+  value=$REPLY
+  if [[ ! -d $value || ! -r $value || ! -x $value ]]; then
+    REPLY=$'Contents snapshot\n\nUnavailable: cannot read this folder.'
+    return 0
+  fi
+  if (( _DIRECTORY_PICKER_SHOW_HIDDEN == 1 )); then
+    entries=("$value"/*(NDY41))
+  else
+    entries=("$value"/*(NY41))
+  fi
+  for entry in "${entries[@][1,40]}"; do
+    name=${entry:t} kind='·'
+    if [[ -L $entry ]]; then
+      kind='↗'
+    elif [[ -d $entry ]]; then
+      kind='▸' name+=/
+    fi
+    lines+=("  $kind ${(V)name}")
+    (( ++count ))
+  done
+  (( count )) || lines+=('  No visible entries.')
+  (( ${#entries} > 40 )) && lines+=('' 'Limits: first 40 entries; use → to browse.')
+  REPLY=${(F)lines}
+}
+
+# The right pane changes from captured text only. Highlight movement and
+# filtering never call the filesystem preview provider.
+_directory_browser_collect() {
+  _directory_picker_collect "$@"
+  local value='' name='' summary='' label=''
+  local -i index=0 remaining=0
+  _ZLE_PICKER_EMPTY_LINES=()
+  _ZLE_PICKER_INSPECT_FALLBACK=''
+  _ZLE_PICKER_INSPECT_TEXTS=()
+  if (( !${#_ZLE_PICKER_RESULTS} )); then
+    local -a nouns=(directory file 'other entry') plurals=(directories files 'other entries')
+    for index in 1 2 3; do
+      (( index == 3 && !_DIRECTORY_PICKER_CONTENT_COUNTS[index] )) && continue
+      label=$nouns[index]
+      (( _DIRECTORY_PICKER_CONTENT_COUNTS[index] == 1 )) || label=$plurals[index]
+      [[ -n $summary ]] && summary+=' · '
+      summary+="${_DIRECTORY_PICKER_CONTENT_COUNTS[index]} $label"
+    done
+    if [[ -n $1 || -n $_DIRECTORY_PICKER_PATH_QUERY ]]; then
+      label='No directories match this filter'
+    elif (( _DIRECTORY_PICKER_CONTENT_COUNTS[1] )); then
+      label='No selectable directories'
+    elif (( _DIRECTORY_PICKER_CONTENT_COUNTS[2] + _DIRECTORY_PICKER_CONTENT_COUNTS[3] )); then
+      label='No child directories'
+    else
+      label='No visible entries'
+    fi
+    _ZLE_PICKER_EMPTY_LINES=("$label" "Visible contents · $summary" '')
+    if (( ${#_DIRECTORY_PICKER_FILE_SAMPLE} )); then
+      label='Files here · names only'
+      (( _DIRECTORY_PICKER_CONTENT_COUNTS[3] )) && label='Files / other entries here · names only'
+      _ZLE_PICKER_EMPTY_LINES+=("$label" "${_DIRECTORY_PICKER_FILE_SAMPLE[@]}")
+      remaining=$(( _DIRECTORY_PICKER_CONTENT_COUNTS[2] + _DIRECTORY_PICKER_CONTENT_COUNTS[3] - ${#_DIRECTORY_PICKER_FILE_SAMPLE} ))
+      (( remaining )) && _ZLE_PICKER_EMPTY_LINES+=("  … $remaining more")
+      _ZLE_PICKER_EMPTY_LINES+=('')
+    fi
+    if [[ -n $1 ]]; then
+      _ZLE_PICKER_EMPTY_LINES+=('Clear Search with Ctrl-U to see directories.')
+    elif [[ -n $_DIRECTORY_PICKER_PATH_QUERY ]]; then
+      _ZLE_PICKER_EMPTY_LINES+=('The typed path prefix also filters directories.')
+    fi
+    _ZLE_PICKER_EMPTY_LINES+=('Ctrl-O previews this folder · Ctrl-X actions')
+    value=${_DIRECTORY_PICKER_LOCATION:-./}
+    if [[ $value == "$_directory_browser_preview_value" ]]; then
+      _ZLE_PICKER_INSPECT_FALLBACK=$value
+      _ZLE_PICKER_INSPECT_TEXTS[$value]=$_directory_browser_preview_text
+    fi
+  fi
+  for value in "${_ZLE_PICKER_RESULTS[@]}"; do
+    name=${${value%/}:t}
+    if [[ $value == "$_directory_browser_preview_value" ]]; then
+      _ZLE_PICKER_INSPECT_TEXTS[$value]=$_directory_browser_preview_text
+    else
+      _ZLE_PICKER_INSPECT_TEXTS[$value]="${(V)name}/"$'\nFolder\n\n  Ctrl-O  Preview contents\n  → / Tab Enter folder\n  Ctrl-X  Folder actions'
+    fi
+  done
+}
+
+_directory_browser_pick() {
+  local limit=$1
+  shift
+  _zle_picker_loop "${1:-}" "$limit" "${2:-1}" "${3:-0}"
+}
+
+_directory_browser_actions_collect() {
+  local query=$1 value='' label=''
+  local -i limit=$2 index=0
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  for value in "${_directory_action_values[@]}"; do
+    (( ++index ))
+    label=${_directory_action_labels[index]}
+    _directory_picker_label_matches "$label" "$query" || continue
+    _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
+    _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
+  done
+  return 0
+}
+
+_directory_browser_actions() {
+  emulate -L zsh
+  local _ZLE_PICKER_SEARCH_ACTION='' _ZLE_PICKER_QUERY_LABEL='Filter actions'
+  local -i _zle_picker_start_focus=0
+  local target=$1 mode=$2 current=${_DIRECTORY_PICKER_LOCATION:-./} target_kind=${3:-directory}
+  local selected_group='Selected folder' target_path=''
+  local primary_label='Insert path' action='' group='' action_target=''
+  local -i index=0
+  [[ $mode == cd ]] && primary_label='Change directory'
+  local _ZLE_PICKER_TITLE='Folder actions' _ZLE_PICKER_SUBTITLE="Current: $current"
+  if [[ -n $target && $target_kind != directory ]]; then
+    _ZLE_PICKER_TITLE='Path actions'
+    selected_group='Selected file'
+    [[ $target_kind == link ]] && selected_group='Selected link'
+  fi
+  local _ZLE_PICKER_BROWSE_LABEL='Grouped by target · Go to changes context' _ZLE_PICKER_EMPTY_LABEL='no matching actions'
+  local _ZLE_PICKER_INSPECT_ACTION=apply _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_INSPECT_TITLE=Action
+  local _ZLE_PICKER_COLLECTOR=_directory_browser_actions_collect
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
+  local -i _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  local -a _ZLE_PICKER_TRAIL=() _directory_action_values=() _directory_action_labels=()
+  local -a _ZLE_PICKER_EMPTY_LINES=()
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  # Keep each group contiguous. Prefixes travel with filtered/paged rows; they
+  # are ordinary captured labels, never fake selectable section headings.
+  if [[ -n $target ]]; then
+    _ZLE_PICKER_SUBTITLE+=" · Selected: $target"
+    if [[ $target_kind == directory ]]; then
+      _directory_action_values+=(select) _directory_action_labels+=("$primary_label")
+      if [[ $mode != insert ]]; then
+        _directory_action_values+=(insert) _directory_action_labels+=('Insert path into command line')
+      else
+        _directory_action_values+=(cd) _directory_action_labels+=('Change directory')
+      fi
+    else
+      _directory_action_values+=(insert) _directory_action_labels+=('Insert path into command line')
+      if [[ $target_kind == link ]]; then
+        _directory_browser_absolute "$target"
+        target_path=$REPLY
+        if [[ -d $target_path ]] && (( ${+functions[_file_search_apply]} )); then
+          _directory_action_values+=(enter-link) _directory_action_labels+=('Enter linked directory')
+        fi
+      fi
+    fi
+    if [[ -n $_directory_browser_clipboard ]]; then
+      _directory_action_values+=(copy) _directory_action_labels+=('Copy absolute path')
+    fi
+    if [[ -n $_directory_browser_open ]]; then
+      if (( ${+functions[_file_search_apply]} )) &&
+         [[ $target_kind != link || -f $target_path || -d $target_path ]]; then
+        _directory_action_values+=(open) _directory_action_labels+=('Open with default app')
+      fi
+      _directory_action_values+=(reveal) _directory_action_labels+=('Reveal in Finder')
+    fi
+  fi
+  _directory_action_values+=(current) _directory_action_labels+=("$primary_label")
+  if [[ $mode == insert ]]; then
+    _directory_action_values+=(current-cd) _directory_action_labels+=('Change directory')
+  fi
+  if [[ -z $target ]]; then
+    target=$current
+    if [[ $mode != insert ]]; then
+      _directory_action_values+=(insert) _directory_action_labels+=('Insert path into command line')
+    fi
+    if [[ -n $_directory_browser_clipboard ]]; then
+      _directory_action_values+=(copy) _directory_action_labels+=('Copy absolute path')
+    fi
+    if [[ -n $_directory_browser_open ]]; then
+      if (( ${+functions[_file_search_apply]} )); then
+        _directory_action_values+=(open) _directory_action_labels+=('Open with default app')
+      fi
+      _directory_action_values+=(reveal) _directory_action_labels+=('Reveal in Finder')
+    fi
+  fi
+  if (( ${_FILES_WORKSPACE:-0} )); then
+    _directory_action_values+=(view-browse) _directory_action_labels+=('Browse children')
+    if (( ${+functions[_file_search_choose]} )); then
+      _directory_action_values+=(search-local) _directory_action_labels+=('Search filesystem below this folder')
+      if (( ${+commands[git]} )); then
+        _directory_action_values+=(search-git) _directory_action_labels+=('Search Git files below this folder')
+      fi
+      if [[ $OSTYPE == darwin* ]] && (( ${+commands[mdfind]} )); then
+        _directory_action_values+=(search-spotlight) _directory_action_labels+=('Search Spotlight index below this folder')
+      fi
+    fi
+    if (( ${+functions[_directory_recents_choose]} )); then
+      _directory_action_values+=(view-recents) _directory_action_labels+=('Recent directories (this shell)')
+    fi
+  fi
+  for action in "${_directory_action_values[@]}"; do
+    (( ++index ))
+    group='Current folder' action_target=$current
+    case $action in
+      (view-recents) group='Go to' ;;
+      (select|insert|cd|copy|open|reveal|enter-link)
+        [[ -n $1 ]] && { group=$selected_group; action_target=$target; } ;;
+    esac
+    _ZLE_PICKER_INSPECT_TEXTS[$action]="$group"$'\n\n'"$action_target"
+    case $action in
+      (open) _ZLE_PICKER_INSPECT_TEXTS[$action]+=$'\n\nOpen with the registered macOS app. This may launch an app; open only items you trust.' ;;
+      (reveal) _ZLE_PICKER_INSPECT_TEXTS[$action]+=$'\n\nSelect this exact item in Finder.' ;;
+      (enter-link) _ZLE_PICKER_INSPECT_TEXTS[$action]+=$'\n\nFollow this symbolic link and change directory.' ;;
+    esac
+    if [[ $action == view-recents ]]; then
+      _ZLE_PICKER_INSPECT_TEXTS[$action]=$'Go to\n\nVisited locations from this shell directory stack.\nChoosing this view does not change directory.'
+    fi
+    _directory_action_labels[index]="$group · ${_directory_action_labels[index]}"
+  done
+  _directory_browser_pick 10 || return $?
+  _ZLE_PICKER_ACTION=$_ZLE_PICKER_SELECTED_VALUE
+  [[ $_ZLE_PICKER_ACTION == current ]] && target=$current
+  [[ $_ZLE_PICKER_ACTION == current ]] && _ZLE_PICKER_ACTION=select
+  if [[ $_ZLE_PICKER_ACTION == current-cd ]]; then
+    target=$current
+    _ZLE_PICKER_ACTION=cd
+  fi
+  _ZLE_PICKER_SELECTED_VALUE=$target
+}
+
+# Called by path Tab or the Recents widget. Capture between input loops while the
+# shared screen remains owned, then dispatch the final action after cleanup.
+_directory_browser_session() {
+  local entry=$1 mode=$2 runner=$3
+  local _FILES_ORIGIN=${4:-browse} _FILES_VIEW=${4:-browse}
+  local -a _FILES_RECENTS_BOOKMARK=('' 1 0)
+  local -i _FILES_WORKSPACE=1 _ZLE_PICKER_WORKSPACE_ACTIONS=1
+  # Per-invocation state never becomes a persistent directory index or a
+  # dependency for another picker. -1 preserves native dot-prefix discovery.
+  local -i _DIRECTORY_PICKER_SHOW_HIDDEN=-1
+  local -a _DIRECTORY_PICKER_QUERIES=() _DIRECTORY_PICKER_SELECTIONS=() _DIRECTORY_PICKER_OFFSETS=()
+  local -a _DIRECTORY_PICKER_RESUME=('' 1 0)
+  local -a _DIRECTORY_PICKER_VALUES=() _DIRECTORY_PICKER_LABELS=() _DIRECTORY_PICKER_STACK=()
+  local -a _DIRECTORY_PICKER_CONTENT_COUNTS=(0 0 0) _DIRECTORY_PICKER_FILE_SAMPLE=()
+  local _DIRECTORY_PICKER_INPUT='' _DIRECTORY_PICKER_LOCATION='' _DIRECTORY_PICKER_PATH_QUERY=''
+  local _ZLE_PICKER_SUBTITLE='' _ZLE_PICKER_INSPECT_ACTION=$mode _ZLE_PICKER_CANCEL_LABEL=''
+  local _ZLE_PICKER_INSPECT_TITLE='Preview'
+  local _ZLE_PICKER_INSPECT_EXPAND_KEY=''
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   # Inspect AUTO_CD before `emulate` localizes the widget's option state; the
   # parser itself establishes a clean Zsh environment after capturing it.
-  if ! _directory_picker_prepare "$BUFFER" "$CURSOR"; then
-    zle .expand-or-complete
-    return $?
+  local -i internal=0
+  [[ $runner == command ]] && internal=1
+  if [[ $_FILES_ORIGIN != recents ]] && ! _directory_picker_prepare "$entry" ${#entry} $internal 1; then
+    return 3
   fi
   emulate -L zsh
 
-  local notice=''
-  local -i result_limit=10 transition_status=0
+  local _directory_browser_clipboard=${commands[pbcopy]:-} selected_path=''
+  local _directory_browser_open=''
+  local -i result=0
+  [[ $OSTYPE == darwin* ]] && _directory_browser_open=${commands[open]:-}
+  local -i result_limit=10
 
   [[ ${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10} == <-> ]] &&
     result_limit=${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10}
   (( result_limit < 1 )) && result_limit=1
   (( result_limit > 10 )) && result_limit=10
 
-  _DIRECTORY_PICKER_INPUT=$BUFFER
+  _DIRECTORY_PICKER_INPUT=$entry
   _DIRECTORY_PICKER_STACK=()
+  [[ $_DIRECTORY_PICKER_PATH_QUERY == .* ]] && _DIRECTORY_PICKER_SHOW_HIDDEN=1 || _DIRECTORY_PICKER_SHOW_HIDDEN=0
+  if [[ $runner == widget ]]; then
+    _zle_picker_screen_session _files_workspace_choose
+  else
+    # One nested line editor for the complete journey, including action menus.
+    _zle_picker_run $result_limit '' 1 0 _files_workspace_choose
+  fi
+  result=$?
+  (( result == 0 )) || return $result
+
+  _directory_browser_absolute "$_ZLE_PICKER_SELECTED_VALUE"
+  selected_path=$REPLY
+  case $_ZLE_PICKER_ACTION in
+    (cd)
+      builtin cd -- "$selected_path"
+      result=$?
+      [[ $runner == widget ]] && zle reset-prompt
+      return $result ;;
+    (open|enter-link)
+      (( ${+functions[_file_search_apply]} )) || return 4
+      _file_search_apply "$_ZLE_PICKER_ACTION" "$selected_path" "$_directory_browser_clipboard" "$_directory_browser_open"
+      result=$?
+      [[ $runner == widget && $_ZLE_PICKER_ACTION == enter-link ]] && zle reset-prompt
+      return $result ;;
+    (copy)
+      [[ -x $_directory_browser_clipboard ]] &&
+        print -rn -- "$selected_path" | command "$_directory_browser_clipboard" || return 4
+      [[ $runner == widget ]] && zle -M 'Copied path.'
+      return 0 ;;
+    (reveal)
+      [[ -x $_directory_browser_open && ( -e $selected_path || -L $selected_path ) ]] || return 4
+      command "$_directory_browser_open" -R -- "$selected_path"
+      return $? ;;
+    (insert|select)
+      if [[ $mode == cd && $_ZLE_PICKER_ACTION == select ]]; then
+        builtin cd -- "$selected_path"
+        return $?
+      fi
+      _directory_picker_quote "$_ZLE_PICKER_SELECTED_VALUE"
+      if [[ $runner == widget ]]; then
+        BUFFER=$REPLY CURSOR=${#REPLY}
+      else
+        print -zr -- "$REPLY"
+      fi
+      return 0 ;;
+  esac
+}
+
+# Uses the invoking browser's scoped snapshots and bookmarks. Every view runs
+# in the same ZLE/screen session; only the chosen final action leaves it.
+_directory_browser_choose() {
+  local notice='' location='' component='' indent='' file_label=''
+  local _ZLE_PICKER_QUERY_LABEL='Filter folders' _ZLE_PICKER_SEARCH_ACTION=''
+  (( ${+functions[_file_search_choose]} )) && _ZLE_PICKER_SEARCH_ACTION=search-auto
+  local _directory_browser_preview_value='' _directory_browser_preview_text=''
+  local -a components=() bookmark=()
+  local -i result=0 transition_status=0 _zle_picker_start_focus=0 return_focus=0
   while true; do
-    _ZLE_PICKER_TITLE="Directories · ${_DIRECTORY_PICKER_LOCATION:-.}"
+    _ZLE_PICKER_TITLE='Directory browser'
+    _directory_browser_absolute "${_DIRECTORY_PICKER_LOCATION:-.}"
+    location=$REPLY
+    [[ $location == "$HOME" || $location == "$HOME/"* ]] && location="~${location#$HOME}"
+    _directory_picker_breadcrumb "$location"
+    _ZLE_PICKER_SUBTITLE=$REPLY
     if [[ -n $_DIRECTORY_PICKER_PATH_QUERY ]]; then
       _ZLE_PICKER_BROWSE_LABEL="matches for ${_DIRECTORY_PICKER_PATH_QUERY}"
     else
       _ZLE_PICKER_BROWSE_LABEL='child directories'
     fi
     [[ -n $notice ]] && _ZLE_PICKER_BROWSE_LABEL=$notice
+    if (( _DIRECTORY_PICKER_SHOW_HIDDEN )); then
+      _ZLE_PICKER_BROWSE_LABEL='Hidden: on · '"$_ZLE_PICKER_BROWSE_LABEL"
+    else
+      _ZLE_PICKER_BROWSE_LABEL='Hidden: off · '"$_ZLE_PICKER_BROWSE_LABEL"
+    fi
+    # File facts came from the same level capture as the directory candidates.
+    file_label=files
+    (( _DIRECTORY_PICKER_CONTENT_COUNTS[2] == 1 )) && file_label=file
+    _ZLE_PICKER_BROWSE_LABEL+=" · ${_DIRECTORY_PICKER_CONTENT_COUNTS[2]} $file_label"
     _ZLE_PICKER_EMPTY_LABEL='no matching directories'
-    _ZLE_PICKER_FOOTER='tab/→ open · ⇧tab/← back · ↑↓ move · ^V/⌥V page · 0–9/⏎ insert · esc'
-    _ZLE_PICKER_COLLECTOR='_directory_picker_collect'
+    _ZLE_PICKER_COLLECTOR='_directory_browser_collect'
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_COPY_ENABLED=0
+    if [[ -n $_directory_browser_clipboard ]]; then
+      _ZLE_PICKER_COPY_ENABLED=1
+    fi
     _ZLE_PICKER_HIERARCHY_ENABLED=1
+    _ZLE_PICKER_DIRECTORY_ACTIONS=1
+    _ZLE_PICKER_TRAIL=(Location)
+    components=("${(@s:/:)location}")
+    indent=''
+    for component in "${components[@]}"; do
+      [[ -n $component ]] || component=/
+      _ZLE_PICKER_TRAIL+=("$indent$component")
+      (( ${#indent} < 6 )) && indent+='  '
+    done
 
-    _zle_picker_loop '' $result_limit || break
+    _directory_browser_pick $result_limit "${_DIRECTORY_PICKER_RESUME[@]}"
+    result=$?
+    return_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
+    _zle_picker_start_focus=0
+    (( result == 0 )) || return $result
+    _DIRECTORY_PICKER_RESUME=("${_ZLE_PICKER_BOOKMARK[@]}")
+    if [[ $_ZLE_PICKER_ACTION == preview ]]; then
+      _directory_browser_preview_value=${_ZLE_PICKER_SELECTED_VALUE:-${_DIRECTORY_PICKER_LOCATION:-./}}
+      _ZLE_PICKER_INSPECT_EXPAND_KEY=$_directory_browser_preview_value
+      _directory_browser_preview "$_directory_browser_preview_value"
+      _directory_browser_preview_text=$REPLY
+      # Narrow windows and empty lists have no useful side-by-side reading
+      # context: open the captured preview directly in the main workspace.
+      # The input loop resets focus at entry; use its optional start focus.
+      _zle_picker_start_focus=$(( COLUMNS < 100 || !${#_ZLE_PICKER_SELECTED_VALUE} ))
+      continue
+    elif [[ $_ZLE_PICKER_ACTION == actions ]]; then
+      bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
+      _DIRECTORY_PICKER_RESUME=("${bookmark[@]}")
+      _directory_browser_actions "$_ZLE_PICKER_SELECTED_VALUE" "$mode"
+      result=$?
+      if (( result == 1 )); then
+        _DIRECTORY_PICKER_RESUME=("${bookmark[@]}")
+        _zle_picker_start_focus=$return_focus
+        continue
+      fi
+      (( result == 0 )) || return $result
+    fi
+    if [[ $_ZLE_PICKER_ACTION == search-* ]]; then
+      # Discovery specializes the displayed folder, not its highlighted child.
+      # Keep this view alive so Back retains its captured preview and bookmark.
+      (( ${+functions[_file_search_choose]} )) || return 4
+      _directory_browser_absolute "${_DIRECTORY_PICKER_LOCATION:-./}"
+      _file_search_choose "$REPLY" '' "${_ZLE_PICKER_ACTION#search-}"
+      result=$?
+      if (( result == 1 )); then
+        _zle_picker_start_focus=$return_focus
+        continue
+      fi
+      return $result
+    fi
     if [[ $_ZLE_PICKER_ACTION == descend ||
-          $_ZLE_PICKER_ACTION == parent ]]; then
+          $_ZLE_PICKER_ACTION == parent || $_ZLE_PICKER_ACTION == toggle-hidden ]]; then
       _directory_picker_transition "$_ZLE_PICKER_ACTION" \
         "$_ZLE_PICKER_SELECTED_VALUE"
       transition_status=$?
       if (( transition_status == 0 )); then
         notice=''
+        _directory_browser_preview_value='' _directory_browser_preview_text=''
+        _ZLE_PICKER_INSPECT_EXPAND_KEY=''
         continue
       elif (( transition_status == 1 )); then
         notice=$REPLY
         continue
       fi
-      break
+      return 1
     fi
 
-    _directory_picker_quote "$_ZLE_PICKER_SELECTED_VALUE"
-    BUFFER=$REPLY
-    CURSOR=${#BUFFER}
-    break
+    return 0
   done
+}
+
+# A small explicit view switch, not a registration/lifecycle framework. Optional
+# providers are detected at invocation; no mode performs work during sourcing.
+_files_workspace_choose() {
+  local -i result=0
+  local root='' target=''
+  while true; do
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1
+    case $_FILES_VIEW in
+      (browse)
+        if [[ -z $_DIRECTORY_PICKER_LOCATION ]]; then
+          _directory_picker_prepare "$_DIRECTORY_PICKER_INPUT" ${#_DIRECTORY_PICKER_INPUT} 1 1 || return 4
+        fi
+        _directory_browser_choose ;;
+      (recents)
+        (( ${+functions[_directory_recents_choose]} )) || return 4
+        _directory_recents_choose ;;
+      (search-*)
+        (( ${+functions[_file_search_choose]} )) || return 4
+        _directory_browser_absolute "${_DIRECTORY_PICKER_LOCATION:-./}"
+        root=$REPLY
+        _file_search_choose "$root" '' "${_FILES_VIEW#search-}" ;;
+    esac
+    result=$?
+    if (( result == 1 )) && [[ $_FILES_VIEW != $_FILES_ORIGIN ]]; then
+      _FILES_VIEW=$_FILES_ORIGIN
+      continue
+    fi
+    (( result == 0 )) || return $result
+    case $_ZLE_PICKER_ACTION in
+      (view-recents) _FILES_VIEW=recents ;;
+      (view-browse) _FILES_VIEW=browse ;;
+      (search-*) _FILES_VIEW=$_ZLE_PICKER_ACTION ;;
+      (browse)
+        target="${_ZLE_PICKER_SELECTED_VALUE%/}/"
+        _directory_picker_quote "$target"
+        target=$REPLY
+        _directory_picker_prepare "$target" ${#target} 1 1 || return 4
+        _DIRECTORY_PICKER_INPUT=$target
+        _DIRECTORY_PICKER_STACK=() _DIRECTORY_PICKER_QUERIES=()
+        _DIRECTORY_PICKER_SELECTIONS=() _DIRECTORY_PICKER_OFFSETS=()
+        _DIRECTORY_PICKER_RESUME=('' 1 0)
+        _FILES_VIEW=browse ;;
+      (*) return 0 ;;
+    esac
+  done
+}
+
+# Paint once before a synchronous capture, keeping cached status resizeable.
+# No extra input loop, timer, worker or screen session. Provider work remains
+# outside the active picker; caller-owned cleanup also covers interruptions.
+_zle_picker_capture() {
+  emulate -L zsh
+  if ! zle; then
+    shift 3
+    "$@"
+    return $?
+  fi
+  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY=$3
+  shift 3
+  local _ZLE_PICKER_QUERY_LABEL=Query _ZLE_PICKER_BROWSE_LABEL='Searching…'
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -i _ZLE_PICKER_BUSY=1 _ZLE_PICKER_ACTIVE=0 _ZLE_PICKER_GUIDE_ACTIVE=0
+  local -i _ZLE_PICKER_SELECTED=0 _ZLE_PICKER_INSPECT_FOCUS=0
+  local -i _ZLE_PICKER_VIEW_OFFSET=0 _ZLE_PICKER_VIEW_LIMIT=10 _ZLE_PICKER_HAS_MORE=0
+  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+    'Waiting for the selected source to return results'
+    'The scope and query above remain unchanged.'
+    'Search is synchronous; protected folders or mounted drives may delay it.')
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  _zle_picker_render "$_ZLE_PICKER_QUERY" 0
+  _zle_picker_show || return $?
+  "$@"
+}
+
+# Query entry uses the same editor and renderer. Enter submits literal text;
+# movement, typing and resize cannot trigger discovery.
+_zle_picker_query_collect() {
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+}
+
+_zle_picker_read_query() {
+  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2
+  local _ZLE_PICKER_QUERY_LABEL='Search descendants' _ZLE_PICKER_SEARCH_ACTION=''
+  local -i _zle_picker_start_focus=0
+  local _ZLE_PICKER_INSPECT_ACTION=search _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_BROWSE_LABEL='Enter fragments, then press Return to search'
+  local _ZLE_PICKER_COLLECTOR=_zle_picker_query_collect
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
+  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+    'Search descendants of the displayed folder'
+    'Space-separated fragments may match in any order, case-insensitively.'
+    'Each fragment may abbreviate characters in order. Example: net cli'
+    'Spotlight seeds filenames with the longest fragment; use recognizable text.'
+    'Filesystem: 20,000 inspected entries; all sources: 2,000 captured matches.'
+    'Unreadable/unindexed locations may be absent. Mounted drives may be slow.'
+    'After capture, Filter results refines that snapshot. Ctrl-F edits the search.'
+    'Ctrl-X in Browse or results chooses another discovery source.')
+  _zle_picker_loop "${3:-}" 10
+}
+
+_files_recents_widget() {
+  if (( ! ${+functions[_directory_recents_choose]} )); then
+    zle -M 'Recents unavailable: enable the navigation add-on.'
+    return 1
+  fi
+  _directory_browser_session ./ insert widget recents
+  local result=$?
+  (( result > 1 )) && zle -M 'Files: the requested action could not be completed.'
+  zle redisplay
+}
+
+zle -N files-recents _files_recents_widget
+# Pair path-led Tab with recall-led Option-Tab (Meta-Tab on the wire).
+# Terminal.app needs Option as Meta; Ctrl-Tab belongs to its tab navigation.
+# This is a prompt binding only: modal Tab and Escape keep their own meanings.
+bindkey '^[^I' files-recents
+
+_directory_context_complete_widget() {
+  # Preserve native completion for every context except a complete AUTO_CD
+  # word. The session's own parser rejects ambiguous or executable input.
+  (( CURSOR == ${#BUFFER} )) || { zle .expand-or-complete; return; }
+  _directory_browser_session "$BUFFER" insert widget
+  local result=$?
+  if (( result == 3 )); then
+    zle .expand-or-complete
+  elif (( result > 1 )); then
+    zle -M 'Directory browser: the requested action could not be completed.'
+  fi
   zle redisplay
 }
 
