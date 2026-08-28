@@ -407,11 +407,12 @@ with no build step, framework, remote fonts, analytics, or shell dependency.
 It demonstrates Compozsh with synthetic data; it never executes shell commands.
 The README remains the authoritative source for complete product instructions.
 
-The terminal groups examples into **Context**, **History**, **Files**,
-**Navigate**, and **Tools**. Files includes project and home-index examples;
-Navigate includes directory and Git branch pickers. Choose an example, refine
-its sample results, and select a row for a preview. The feature guide below
-each task links to its complete documentation.
+The terminal groups examples into **Context**, **History**, **Files**, **Git**,
+and **Tools**. Files includes Browse, Recents, scoped Git search and home-index
+examples. Choose an example, refine its sample results, and select a file to
+preview its action menu. All outcomes are simulations; sample actions never
+open applications or access your clipboard. The feature guide below each task
+links to its complete documentation.
 
 To review it locally from the repository root, use any static server. If Python
 3 is available as a development tool:

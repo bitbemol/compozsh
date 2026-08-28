@@ -12,8 +12,8 @@ real features; they are not a shell emulator or an exact copy of Zsh's ranker.
 
 ## Showcase structure and voice
 
-One terminal contains five task tabs: Context, History, Files, Navigate, and
-Tools. The Files and Navigate tabs reveal an **Example** selector for their
+One terminal contains five task tabs: Context, History, Files, Git, and
+Tools. The Files tab reveals an **Example** selector for its
 specialized scenarios. Each scenario has a benefit, short explanation, useful
 starting hint, and a link to the corresponding product documentation.
 Secondary features live in an expandable section below the hero.
@@ -32,7 +32,25 @@ outcomes. `app.mjs` shares rendering, search, and keyboard behavior across them.
 The browser shows at most five choices and refines across the entire small
 sample. These are illustrative fixtures, not Compozsh's actual search limits.
 File search starts with a captured sample and an empty refinement field, as
-the real `f` picker does. Spotlight examples acknowledge index incompleteness.
+the workspace Search view does. Path + Tab opens Browse, Ctrl-F explicitly
+opens descendant Search, and Return submits discovery with the displayed source:
+Git within a worktree, Spotlight for home/root on macOS, bounded filesystem
+elsewhere. Ctrl-X can choose a source explicitly; the demos name their sources.
+The Files tab groups Browse, Recents, project search and home search. Git has
+its own tab, alongside Context, History and Tools. File selections open a
+four-action simulation; Escape restores the exact prior filter and selection.
+Those actions describe outcomes only: they never open an app, navigate the
+visitor's filesystem, or access the clipboard. The demo's explicit install
+Copy buttons are the only clipboard users. Keep the simulation visibly labeled;
+it previews captured examples rather than emulating Zsh or discovery timing.
+
+Keep full-screen identity, source/scope and input visually separate. The entry
+row teaches the real key sequence; the demo footer describes browser controls.
+Website Escape clears its sample filter or returns from its action menu, while
+the product's Escape cancels/returns. All task tabs retain the same frame size.
+
+Spotlight examples acknowledge index incompleteness. Keep entry-point copy
+aligned with the README; the retired `d` and `f` commands are not entry points.
 
 Use direct, affirmative copy about real capabilities. Avoid “X, not Y”
 comparisons, negative slogans, and unsupported superiority claims. Preserve

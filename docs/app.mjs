@@ -1,5 +1,5 @@
 import { findMatches } from './search.mjs';
-import { scenes } from './demo-data.mjs';
+import { scenes, fileActions } from './demo-data.mjs';
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const panel = document.querySelector('#demo-panel');
 const query = document.querySelector('#demo-query');
@@ -9,6 +9,7 @@ const example = document.querySelector('#demo-example');
 let scene = scenes.history;
 let matches = [];
 let selected = 0;
+let bookmark = null;
 
 function highlight(index) {
   selected = index;
@@ -23,6 +24,16 @@ function preview(index) {
   const match = matches[index];
   if (!match) return;
   highlight(index);
+  if (scene.mode === 'files' && match.kind === 'file') {
+    bookmark = { scene, query: query.value, selected };
+    scene = { ...scene, title: 'File actions', scope: match.label,
+      input: 'Filter actions', query: '', items: fileActions(match),
+      hint: 'Choose an action to preview its outcome. Escape returns to your results.',
+    };
+    showScene();
+    query.focus();
+    return;
+  }
   output.textContent = match.preview;
 }
 
@@ -69,18 +80,27 @@ function renderResults() {
   highlight(0);
 }
 
-function selectScene(id) {
-  scene = scenes[id];
+function showScene() {
   document.querySelector('#picker-demo').hidden = scene.mode === 'prompt';
   document.querySelector('#context-demo').hidden = scene.mode !== 'prompt';
+  document.querySelector('.shell-prompt').hidden = scene.mode !== 'prompt';
   document.querySelector('#demo-command').textContent = scene.command;
-  document.querySelector('#picker-title').textContent = scene.title;
+  document.querySelector('#picker-title').textContent = `Compozsh / ${scene.title}`;
+  document.querySelector('#demo-scope').textContent = scene.scope ?? '';
+  document.querySelector('#demo-input-label').textContent = scene.input ?? 'Search';
+  document.querySelector('#demo-back-hint').textContent = bookmark ? 'Esc back' : 'Esc clear';
   document.querySelector('#demo-benefit').textContent = scene.benefit;
   document.querySelector('#demo-description').textContent = scene.description;
   document.querySelector('#demo-docs').href = scene.docs;
   query.value = scene.query;
   output.textContent = scene.hint;
   if (scene.mode !== 'prompt') renderResults();
+}
+
+function selectScene(id) {
+  bookmark = null;
+  scene = scenes[id];
+  showScene();
 }
 
 function selectMode(mode) {
@@ -135,6 +155,17 @@ document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
     event.preventDefault();
     preview(selected);
   } else if (event.key === 'Escape') {
+    if (bookmark) {
+      const previous = bookmark;
+      bookmark = null;
+      scene = previous.scene;
+      showScene();
+      query.value = previous.query;
+      renderResults();
+      highlight(previous.selected);
+      query.focus();
+      return;
+    }
     query.value = '';
     renderResults();
     output.textContent = 'Search cleared. Browser preview only.';
@@ -167,4 +198,4 @@ for (const button of document.querySelectorAll('[data-copy]')) {
 
 query.disabled = false;
 document.querySelector('.demo-tabs').hidden = false;
-selectMode('history');
+selectMode('files');

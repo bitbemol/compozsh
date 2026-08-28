@@ -28,7 +28,7 @@ try {
   await page.locator('.demo-tabs').waitFor({ state: 'visible' });
   assert.equal(await page.title(), 'Compozsh — Your terminal. Composed for you.');
   assert.deepEqual(await page.getByRole('tab').allTextContents(),
-    ['Context', 'History', 'Files', 'Navigate', 'Tools'],
+    ['Context', 'History', 'Files', 'Git', 'Tools'],
     'Showcase choices should be a small, recognizable set of tasks');
   const documentProblems = await page.evaluate(() => {
     const problems = [];
@@ -42,6 +42,11 @@ try {
     return problems;
   });
   assert.deepEqual(documentProblems, [], 'Semantic document structure must be valid');
+  assert.equal(await page.getByRole('tab', { name: 'Files', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab');
+  assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / Directory browser');
+  assert.equal(await page.locator('.shell-prompt').isVisible(), false);
+  await page.getByRole('tab', { name: 'History', exact: true }).click();
   assert.equal(await page.locator('.result-row').count(), 3);
   await page.getByLabel('Search', { exact: false }).fill('-c swift');
   assert.equal(await page.locator('.result-row').count(), 3);
@@ -59,19 +64,31 @@ try {
   assert.match(await page.locator('.result-row').innerText(), /npm run test/,
     'Refining must search sample items beyond the first five displayed');
   await page.getByRole('tab', { name: 'Files', exact: true }).click();
-  assert.equal(await page.locator('#demo-command').innerText(), 'f net cli');
+  await page.getByLabel('Example', { exact: true }).selectOption('files-project');
+  assert.equal(await page.locator('#demo-command').innerText(), './ + Tab → Ctrl-F');
+  assert.match(await page.locator('#demo-scope').innerText(), /Git/);
   assert.equal(await page.locator('.result-row').count(), 3);
+  await page.locator('#demo-query').fill('plan');
   await page.getByRole('button', { name: 'Preview file Notes/Network client plan.md', exact: true }).click();
-  assert.match(await page.locator('#demo-output').innerText(), /'\/example\/Projects\/example-app\/Notes\/Network client plan.md'/);
+  assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / File actions');
+  assert.equal(await page.locator('.result-row').count(), 4);
+  await page.getByRole('button', { name: 'Preview Reveal in Finder', exact: true }).click();
+  assert.match(await page.locator('#demo-output').innerText(), /Finder selects this exact item/);
+  assert.match(await page.locator('#demo-output').innerText(), /Notes\/Network client plan.md/);
+  await page.getByRole('button', { name: 'Preview Copy path', exact: true }).click();
   assert.equal(await page.locator('html').getAttribute('data-copied'), null,
     'Selecting a sample must not access the clipboard');
+  await page.locator('#demo-query').press('Escape');
+  assert.equal(await page.locator('#demo-query').inputValue(), 'plan');
+  assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / Files');
+  assert.equal(await page.locator('.result-row').count(), 1);
   await page.getByLabel('Example', { exact: true }).selectOption('files-home');
-  assert.equal(await page.locator('#demo-command').innerText(), 'f --home budget');
+  assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab → Ctrl-F');
   await page.locator('#demo-query').fill('2026');
   assert.equal(await page.locator('.result-row').count(), 2);
-  await page.getByRole('tab', { name: 'Navigate', exact: true }).click();
-  assert.equal(await page.locator('#demo-command').innerText(), 'd');
-  await page.getByLabel('Example', { exact: true }).selectOption('navigate-git');
+  await page.getByLabel('Example', { exact: true }).selectOption('files-recents');
+  assert.equal(await page.locator('#demo-command').innerText(), 'Option-Tab');
+  await page.getByRole('tab', { name: 'Git', exact: true }).click();
   await page.locator('#demo-query').fill('docs');
   await page.locator('#demo-query').press('Enter');
   assert.match(await page.locator('#demo-output').innerText(), /feature\/docs/);
@@ -105,7 +122,7 @@ try {
   for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
     const heights = [];
-    for (const tab of ['Context', 'History', 'Files', 'Navigate', 'Tools']) {
+    for (const tab of ['Context', 'History', 'Files', 'Git', 'Tools']) {
       await page.getByRole('tab', { name: tab, exact: true }).click();
       heights.push((await page.locator('.terminal').boundingBox()).height);
       const tabFits = await page.getByRole('tab', { name: tab, exact: true }).evaluate((element) => {
@@ -132,6 +149,23 @@ try {
         }), `Example labels must fit their control at ${width}px`);
       }
     }
+    // All filesystem examples and the secondary action menu must fit too.
+    await page.getByRole('tab', { name: 'Files', exact: true }).click();
+    for (const id of ['files-browse', 'files-recents', 'files-project', 'files-home']) {
+      await page.getByLabel('Example', { exact: true }).selectOption(id);
+      assert.ok(await page.locator('#demo-results').evaluate(list => {
+        const bounds = list.getBoundingClientRect();
+        return [...list.children].every(row => row.getBoundingClientRect().bottom <= bounds.bottom + 1);
+      }), `${id} results fit at ${width}px`);
+    }
+    await page.getByLabel('Example', { exact: true }).selectOption('files-project');
+    await page.locator('#demo-query').fill('plan');
+    await page.locator('#demo-query').press('Enter');
+    assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / File actions');
+    assert.ok(await page.locator('#demo-results').evaluate(list => {
+      const bounds = list.getBoundingClientRect();
+      return [...list.children].every(row => row.getBoundingClientRect().bottom <= bounds.bottom + 1);
+    }), `File actions fit at ${width}px`);
     assert.ok(Math.max(...heights) - Math.min(...heights) <= 1,
       `Switching tasks should not move the terminal frame at ${width}px`);
     await page.getByRole('tab', { name: 'Files', exact: true }).click();

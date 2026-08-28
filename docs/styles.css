@@ -58,7 +58,11 @@
   .principles-strip strong { font-weight: 500; color: var(--ink); }
   .site-footer { display: flex; justify-content: space-between; padding-block: 30px; font-size: 13px; }
   .features, .installation { display: grid; grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr); gap: 80px; padding-block: 103px; }
-  .section-heading h2, .architecture h2, .closing h2 { font-size: clamp(34px, 3.6vw, 48px); line-height: 1.13; font-weight: 500; letter-spacing: -.045em; margin-top: 25px; }
+  .section-heading h2, .architecture h2, .closing h2, .workspace-note h2 { font-size: clamp(34px, 3.6vw, 48px); line-height: 1.13; font-weight: 500; letter-spacing: -.045em; margin-top: 25px; }
+  .workspace-note { display: grid; grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr); gap: 80px; padding-block: 0 80px; }
+  .workspace-note > div:last-child { border-top: 1px solid var(--line); padding-top: 22px; color: var(--muted); font-size: 14px; }
+  .workspace-note p + p { margin-top: 16px; }
+  .workspace-note .text-link { display: inline-block; margin-top: 18px; }
   h2 em { font-family: Georgia, 'Times New Roman', serif; color: var(--accent); font-weight: 400; }
   .section-heading > p:last-of-type { color: var(--muted); font-size: 15px; max-width: 320px; margin-top: 22px; }
   .feature-list { border-top: 1px solid var(--line); }
@@ -156,6 +160,8 @@
   .demo-tabs [aria-selected="true"] { color: var(--cyan); border-color: var(--cyan); }
   .terminal-body { display: flex; flex-direction: column; height: 488px; padding: 24px 25px 21px; }
   .shell-prompt { flex-shrink: 0; line-height: 1.9; white-space: nowrap; overflow: hidden; }
+  .demo-entry { display: flex; gap: 12px; align-items: baseline; color: var(--term-muted); font-size: 10px; }
+  .demo-entry > :first-child { font-size: 8px; letter-spacing: .08em; }
   .tree, .subtle { color: #849497; }
   .identity { color: #afcbc7; }
   .path { color: var(--cyan); }
@@ -167,11 +173,13 @@
   #demo-example-control label { font-size: 9px; color: var(--term-muted); }
   #demo-example { min-height: 44px; min-width: 0; max-width: 100%; flex: 1; color-scheme: dark; color: var(--term-text); background: var(--terminal); border: 1px solid #46575b; border-radius: 3px; padding: 6px; font-size: 11px; }
   #picker-demo { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-  .picker-heading { display: flex; gap: 14px; margin-top: 10px; margin-bottom: 5px; color: var(--blue); font-weight: 600; }
+  .picker-heading { display: flex; flex-wrap: wrap; gap: 0 14px; margin-top: 10px; margin-bottom: 5px; color: var(--blue); font-weight: 600; }
+  .demo-scope { color: var(--term-muted); font-size: 10px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #match-count { color: var(--term-muted); font-weight: 400; font-size: 10px; align-self: center; }
   .search-line { display: flex; align-items: center; gap: 7px; padding-bottom: 10px; }
   .search-line label { color: var(--term-muted); white-space: nowrap; }
   .search-line label span, .search-close { color: var(--cyan); font-weight: 700; }
+  #demo-input-label { color: var(--term-muted); font-weight: 400; font-size: 10px; }
   .search-line input { min-width: 0; width: 100%; flex: 1; padding: 3px 0; color: var(--cyan); caret-color: var(--cyan); background: none; border: 0; border-bottom: 1px solid #46575b; border-radius: 0; font-size: 12px; }
   .search-line input:focus { outline-offset: 3px; }
   .result-list { flex: 1; min-height: 0; overflow-y: auto; }
@@ -215,7 +223,7 @@
     .principles-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px; }
     .site-header nav { gap: 22px; }
     .site-header nav a:first-child { display: none; }
-    .features, .installation, .architecture-grid { grid-template-columns: minmax(0, 1fr); gap: 35px; }
+    .features, .installation, .architecture-grid, .workspace-note { grid-template-columns: minmax(0, 1fr); gap: 35px; }
     .features, .installation { padding-block: 65px; }
     .section-heading > p:last-of-type, .architecture-copy > p:last-of-type { max-width: 440px; }
     .section-heading h2, .architecture h2 { font-size: 42px; }
