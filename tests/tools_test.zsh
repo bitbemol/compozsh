@@ -39,6 +39,77 @@ _test_cpdir_contract() {
 test_case 'cpdir copies the current directory without a trailing newline' \
   _test_cpdir_contract
 
+_test_cpdir_path_color() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output=''
+  test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh\n(( ${CLIPBOARD_STATUS:-0} )) && exit "$CLIPBOARD_STATUS"\nIFS= read -r -d \'\' value\nprint -rn -- "$value" >| "$HOME/clipboard"\n' || return
+  command chmod +x "$fake_bin/pbcopy" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" /usr/bin /bin)
+    source "$1/.zsh.addons/.zsh.tools"
+    # The palette is a runtime input; it can be loaded after this peer.
+    typeset -A ZSH_PROMPT_COLORS=(path 123)
+    local leaf=$'\''literal %F{red} $(cpdir_probe)\n\e'\''
+    command mkdir -p "$HOME/$leaf"
+    builtin cd -- "$HOME/$leaf" || exit 1
+    cpdir_probe() { print executed > "$HOME/unexpected"; }
+    local display=${PWD//[[:cntrl:]]/?}
+    local plain="Copied $display to the clipboard."
+    local colored="Copied "$'\''\e[38;5;123m'\''"$display"$'\''\e[39m'\''" to the clipboard."
+    _cpdir_color_driver() {
+      cpdir
+      print -r -- "STATUS:$?:END-CPDIR"
+    }
+    zmodload zsh/zpty || exit 2
+    _cpdir_color_capture() {
+      local frame=""
+      zpty cpdir-color _cpdir_color_driver || return
+      {
+        zpty -r cpdir-color frame "*END-CPDIR*" || return
+        REPLY=${frame//$'\''\r'\''/}
+        REPLY=${REPLY%$'\''\n'\''}
+      } always { zpty -d cpdir-color; }
+    }
+    _cpdir_color_capture || exit 3
+    [[ $REPLY == "$colored"$'\''\n'\''STATUS:0:END-CPDIR ]] || {
+      print -u2 -- "cpdir must color only the sanitized path with the path palette"
+      exit 4
+    }
+    [[ $(<"$HOME/clipboard") == "$PWD" ]] || exit 5
+    local bytes=$(command wc -c < "$HOME/clipboard")
+    (( bytes == ${#PWD} )) || exit 6
+    # Redirection, pipes and substitutions keep exact plain output.
+    [[ $(_cpdir_color_driver) == "$plain"$'\''\n'\''STATUS:0:END-CPDIR ]] || exit 7
+    _cpdir_color_driver > "$HOME/confirmation"
+    [[ $(<"$HOME/confirmation") == "$plain"$'\''\n'\''STATUS:0:END-CPDIR ]] || exit 8
+    [[ $(_cpdir_color_driver | /bin/cat) == "$plain"$'\''\n'\''STATUS:0:END-CPDIR ]] || exit 9
+    local scenario=""
+    for scenario in no-color dumb limited invalid missing; do
+      TERM=xterm-256color
+      unset NO_COLOR
+      ZSH_PROMPT_COLORS[path]=123
+      case $scenario in
+        (no-color) NO_COLOR=1 ;;
+        (dumb) TERM=dumb ;;
+        (limited) TERM=vt100 ;;
+        (invalid) ZSH_PROMPT_COLORS[path]='\''$(cpdir_probe)'\'' ;;
+        (missing) unset ZSH_PROMPT_COLORS ;;
+      esac
+      _cpdir_color_capture || exit 10
+      [[ $REPLY == "$plain"$'\''\n'\''STATUS:0:END-CPDIR ]] || exit 11
+    done
+    [[ ! -e "$HOME/unexpected" ]] || exit 12
+    typeset -A ZSH_PROMPT_COLORS=(path 123)
+    export CLIPBOARD_STATUS=17
+    _cpdir_color_capture || exit 13
+    [[ $REPLY == "cpdir: could not copy the current directory"$'\''\n'\''STATUS:1:END-CPDIR ]] || exit 14
+    print path-color
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+  test_assert_equal path-color "$output"
+}
+test_case 'cpdir colors only its displayed path and preserves clipboard plain-output and failure contracts' \
+  _test_cpdir_path_color
+
 _test_cpdir_missing_clipboard() {
   test_make_temp_dir || return
   local empty_bin="$TEST_TMP_DIR/empty-bin" output='' exit_status=0

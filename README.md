@@ -1807,6 +1807,11 @@ The copied value has no trailing newline, so it can be pasted directly into a
 command, editor, or file dialog. The terminal prints a short confirmation after
 the copy succeeds. Directory names containing spaces are preserved exactly.
 
+Only the displayed path is colored, using `ZSH_PROMPT_COLORS[path]`; the
+surrounding sentence stays neutral. `NO_COLOR`, redirects, unsupported terminals,
+or an unavailable/invalid path palette keep the confirmation plain. Clipboard
+contents always remain the exact path, with no styling bytes.
+
 `cpdir` uses macOS's built-in `pbcopy` and fails with a clear diagnostic when
 that command is unavailable. In an SSH session it copies to the clipboard of
 the remote machine running Zsh, not automatically to the client Mac.

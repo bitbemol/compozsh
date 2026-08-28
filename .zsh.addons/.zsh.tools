@@ -37,6 +37,8 @@ _compozsh_help_cpdir() {
     '  and spaces, without a trailing newline. The value is not shell-quoted;' \
     '  quote or escape it appropriately when pasting into a shell command.' \
     '  Replaces clipboard contents and prints a confirmation on success.' \
+    '  The confirmation uses the prompt path color on supported terminals.' \
+    '  NO_COLOR, redirected output, or a missing palette keeps it plain.' \
     '  Requires pbcopy on PATH. Missing or failed clipboard access returns 1.' \
     '  In SSH, pbcopy runs on the remote host; it does not transfer the path' \
     '  to your client clipboard. No directory argument is accepted.' \
@@ -130,6 +132,17 @@ cpdir() {
 
   _tools_sanitize "$PWD"
   display_path=$REPLY
+  # Resolve the shared path role at invocation, independent of peer load order.
+  # Raw SGR around sanitized text avoids evaluating path data as prompt syntax.
+  local path_color=''
+  [[ ${(t)ZSH_PROMPT_COLORS} == association* ]] &&
+    path_color=${ZSH_PROMPT_COLORS[path]:-}
+  if [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} &&
+        $path_color == <0-255> ]] &&
+     zmodload -F zsh/terminfo p:terminfo 2>/dev/null &&
+     (( ${terminfo[colors]:-0} >= 256 )); then
+    display_path=$'\e[38;5;'"${path_color}m${display_path}"$'\e[39m'
+  fi
   print -r -- "Copied ${display_path} to the clipboard."
 }
 
