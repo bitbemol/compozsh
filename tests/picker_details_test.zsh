@@ -22,8 +22,8 @@ _test_details_labels() {
     done
     COLUMNS=120
     _zle_picker_render "" 1
-    [[ ${_ZLE_PICKER_DISPLAY[1]#*│} == *"Branch"* &&
-       ${_ZLE_PICKER_DISPLAY[1]#*│} != *main* ]] || exit 4
+    detail=${_ZLE_PICKER_DISPLAY[1]#*[│┃]}
+    [[ $detail == *"Branch"* && $detail != *main* ]] || exit 4
     _ZLE_PICKER_COPY_ENABLED=0
     _zle_picker_render "" 1
     [[ ${_ZLE_PICKER_DISPLAY[-1]} != *"copy"* ]] || exit 5

@@ -319,9 +319,9 @@ _test_public_palettes_preserve_initializer_roles() {
     typeset -gA ZSH_PROMPT_COLORS=(identity 124)
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.highlighting"
-    print -r -- "${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[argument]}|${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[path]}"
+    print -r -- "${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[argument]}|${ZSH_HIGHLIGHT_STYLES[picker-selected-inactive]}|${ZSH_HIGHLIGHT_STYLES[picker-focus]}|${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[path]}"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal 'fg=123,bold|fg=252|124|80' "$output" \
+  test_assert_equal 'fg=123,bold|fg=252|fg=252,bg=238|fg=75,bold|124|80' "$output" \
     'palette defaults replaced an explicit initializer role'
 }
 test_case 'palette owners fill missing roles without replacing local inputs' \

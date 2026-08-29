@@ -159,8 +159,12 @@ _test_tool_help_explains_real_boundaries() {
         'git switch --no-guess' 'worktree' 'pbcopy' 'Ctrl-Y' 'SSH'
         'empty' 'Ctrl-U' 'noninteractive' 'Examples:' 'Ctrl-X review' 'read-only'
         'Right: files' 'Left reverses' 'Ctrl-R refreshes' 'one reading level'
+        'file list and selected diff' 'no results' 'manual' 'first match'
+        'previous snapshot' 'captured commit ID'
         'staged' 'unstaged' 'first parent' '256 KiB' 'filters' 'hunks'
-        'untracked regular text' 'NUL' 'Symlinks' 'new-file snapshot') ;;
+        'untracked regular text' 'NUL' 'Symlinks' 'new-file snapshot'
+        'inside new directories' 'Ignored files remain excluded'
+        'Nested repositories stay separate') ;;
       (update_xcode_skills) facts=('xcode-select' 'DEVELOPER_DIR' 'PATH'
         '~/.agents/skills' '~/.claude/skills' '~/.gemini/config/skills'
         '~/.kiro/skills' 'CodingAssistant/codex/skills/__xcode'

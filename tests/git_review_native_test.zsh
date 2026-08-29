@@ -22,7 +22,8 @@ _test_git_review_native() {
     print -r -- staged >> file
     git add file
     print -r -- unstaged >> file
-    print -r -- review-new-content > new.txt
+    mkdir new-dir
+    print -r -- review-new-content > new-dir/new.txt
     local index_before=$(git hash-object --no-filters .git/index)
     zmodload zsh/zpty
     zmodload zsh/zselect
@@ -36,6 +37,12 @@ _test_git_review_native() {
       if (( _ZLE_PICKER_DOCUMENT && ${#_ZLE_PICKER_RESULTS} )); then
         [[ ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]} == "$_ZLE_PICKER_DOCUMENT_KEY" ]] || return 0
         if [[ ${_GIT_REVIEW_KINDS[$_ZLE_PICKER_DOCUMENT_KEY]} == untracked ]]; then
+          if [[ $scenario == journey ]]; then
+            [[ $_ZLE_PICKER_DOCUMENT_TITLE == new-dir/new.txt &&
+               $_ZLE_PICKER_CONTEXTS[$_ZLE_PICKER_DOCUMENT_KEY] == New &&
+               $_NAVIGATION_PICKER_LABELS[$_ZLE_PICKER_DOCUMENT_KEY] == new-dir/new.txt ]] ||
+              print -r -u $efd BAD-NEW-PATH
+          fi
           [[ ${(F)_ZLE_PICKER_DOCUMENT_LINES} == *"+review-new-content"* &&
              $_ZLE_PICKER_DOCUMENT_ROLES[2] == success && $_GIT_REVIEW_DOCUMENT_NEW[2] == 1 ]] ||
             print -r -u $efd BAD-NEW-PREVIEW
@@ -169,7 +176,8 @@ _test_git_review_native() {
       [[ $doc_event == *\|3\|* ]] || exit 82
       captures=$(<"$HOME/captures")
       _review_test_key $'\''\x12'\'' "FRAME|Working changes|unstaged|1|1|70|16" || exit 83
-      [[ $(<"$HOME/captures") == "$captures"$'\''\ncapture'\'' ]] || exit 84
+      # Refresh rechecks filter safety, captures the list and the selected diff.
+      [[ $(<"$HOME/captures") == "$captures"$'\''\ncapture\ncapture\ncapture'\'' ]] || exit 84
       _review_test_key $'\''\e'\'' "FRAME|Branches||2|0|70|16" || exit 18
       _review_test_key $'\''\x18'\'' "FRAME|Git review||1|0|70|16" || exit 19
       _review_test_key 2 "FRAME|Branch commits||1|0|70|16" || exit 20
@@ -204,6 +212,11 @@ _test_git_review_native() {
           _review_test_key $'\''\x18'\'' "FRAME|Git review||1|0|120|30" || exit 32
           _review_test_key $'\''\r'\'' "FRAME|Working changes||0|0|120|30" || exit 33
           _review_test_key $'\''\x12'\'' "FRAME|Working changes||0|0|120|30" || exit 85
+          print -r -- review-new-content > "$HOME/unborn/new.txt"
+          _review_test_key $'\''\x12'\'' "FRAME|Working changes||1|0|120|30" || exit 88
+          [[ $doc_event == DOC\|1\|* ]] || exit 89
+          command rm -- "$HOME/unborn/new.txt"
+          _review_test_key $'\''\x12'\'' "FRAME|Working changes||0|0|120|30" || exit 90
           _review_test_key $'\''\e[C'\'' "FRAME|Working changes||0|0|120|30" || exit 86
           _review_test_key $'\''\e[D'\'' "FRAME|Working changes||0|0|120|30" || exit 87
           _review_test_key $'\''\e'\'' "FRAME|Branches||0|0|120|30" || exit 34

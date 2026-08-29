@@ -80,6 +80,18 @@ _test_picker_keyboard_escape() {
             _keys_expect "FRAME|0||2" || exit 4
             zpty -w -n keys $'\''\eOA'\''
             _keys_expect "FRAME|0||1" || exit 5
+            # Terminal.app emits xterm Meta cursor sequences when Option is
+            # configured as Meta. They page without replacing Fn-Up/Down.
+            zpty -w -n keys $'\''\e[1;3B'\''
+            _keys_expect "FRAME|0||2" || exit 14
+            zpty -w -n keys $'\''\e[1;3A'\''
+            _keys_expect "FRAME|0||1" || exit 15
+            # Terminal.app may encode Option as a leading Meta Escape before
+            # the ordinary cursor sequence: ESC ESC [ A/B.
+            zpty -w -n keys $'\''\e\e[B'\''
+            _keys_expect "FRAME|0||2" || exit 16
+            zpty -w -n keys $'\''\e\e[A'\''
+            _keys_expect "FRAME|0||1" || exit 17
             zpty -w -n keys $'\''\x16'\''
             _keys_expect "FRAME|0||2" || exit 11
             zpty -w -n keys $'\''\ev'\''
@@ -157,7 +169,7 @@ _test_picker_keyboard_shared_contract() {
       _ZLE_PICKER_GUIDE_ACTIVE=0
       _zle_picker_footer 199 ""
       footer=$REPLY
-      for token in "Esc cancel" "^K keys" "^V/^D page"; do
+      for token in "Esc cancel" "^K keys" "Fn/⌥ ↑↓ page"; do
         [[ $footer == *"$token"* ]] || exit 1
       done
       _ZLE_PICKER_GUIDE_ACTIVE=1 _ZLE_PICKER_GUIDE_OFFSET=0
@@ -172,6 +184,7 @@ _test_picker_keyboard_shared_contract() {
       for token in Ctrl-K Ctrl-D Ctrl-V Ctrl-U Ctrl-W Ctrl-C Ctrl-L; do
         [[ $guide == *"$token"* ]] || exit 2
       done
+      [[ $guide == *"Option-Up/Down"* && $guide == *"one-line overlap"* ]] || exit 11
       if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
         [[ $footer == *"^O preview"* && $footer == *"^X options"* && $footer == *"^T hidden"* &&
            $guide == *Ctrl-O* && $guide == *Ctrl-X* && $guide == *Ctrl-T* ]] || exit 3

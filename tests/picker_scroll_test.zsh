@@ -123,7 +123,7 @@ _test_picker_scroll_focused_panels() {
         viewport=$_ZLE_PICKER_VIEW_OFFSET
         _ZLE_PICKER_INSPECT_FOCUS=1
         _zle_picker_page 1 11 25
-        (( REPLY == 11 && _ZLE_PICKER_INSPECT_OFFSET == _ZLE_PICKER_INSPECT_PAGE )) || exit 1
+        (( REPLY == 11 && _ZLE_PICKER_INSPECT_OFFSET == _ZLE_PICKER_INSPECT_PAGE - 1 )) || exit 1
         _zle_picker_render "" 11
         (( _ZLE_PICKER_VIEW_OFFSET == viewport && _ZLE_PICKER_SELECTED == 11 )) || exit 2
         _zle_picker_page 100 11 25

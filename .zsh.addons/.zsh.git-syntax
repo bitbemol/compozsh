@@ -1,0 +1,125 @@
+# Optional source-token provider for captured Git documents. No startup probe.
+# The helper is shipped data, deliberately outside the .zsh.<name> load pattern.
+typeset -g _GIT_SYNTAX_SCRIPT=${${(%):-%N}:A:h}/support/git-syntax.vim
+typeset -g _GIT_SYNTAX_DATA='' _GIT_SYNTAX_NOTE=''
+typeset -gA _ZLE_PICKER_DOCUMENT_SYNTAX=()
+
+# Run in a subshell so coprocess descriptors and job bookkeeping are isolated.
+# Source stays in pipes; Vim never opens a repository file. A hard deadline
+# bounds syntax scripts as well as startup. Always close, kill and reap the
+# owned child, including on interruption; never reuse the user's coprocess.
+# Use a real pipe for stdin: Zsh 5.9 here-strings create temporary files.
+# The finite print writer exits on EOF/broken pipe when the reader is closed.
+_git_syntax_worker() (
+  emulate -L zsh
+  zmodload zsh/system || return 1
+  zmodload zsh/datetime || return 1
+  local input=$1 chunk='' data=''
+  local -i fd=-1 child=0 count=0 result=1
+  local -F deadline=$(( EPOCHREALTIME + 0.30 )) remaining=0
+  trap 'return 130' INT
+  trap 'return 143' TERM
+  trap 'return 129' HUP
+  {
+    coproc { exec /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=en_US.UTF-8 \
+      /usr/bin/vim -Nu NONE -U NONE -i NONE -n -es --noplugin \
+      --cmd 'set nomodeline noexrc noswapfile noundofile' \
+      -S "$_GIT_SYNTAX_SCRIPT" < <(print -rn -- "$input" 2>/dev/null) 2>/dev/null
+    }
+    child=$!
+    exec {fd}<&p
+    while (( ${#data} < 131072 )); do
+      remaining=$(( deadline - EPOCHREALTIME ))
+      (( remaining > 0 )) || return 1
+      sysread -i $fd -s $(( 131072 - ${#data} < 8192 ? 131072 - ${#data} : 8192 )) -t $remaining -c count chunk
+      result=$?
+      data+=$chunk
+      if (( result )); then
+        (( result == 5 )) || return 1
+        [[ $data == *$'\ndone\n' ]] || return 1
+        print -rn -- "$data"
+        return 0
+      fi
+    done
+    return 1
+  } always {
+    (( fd >= 0 )) && exec {fd}<&-
+    if (( child > 0 )); then
+      kill -KILL $child 2>/dev/null
+      wait $child 2>/dev/null
+    fi
+  }
+)
+
+# Only audited OS grammars are enabled. Extensions are data, never Ex commands
+# or paths to source. Fragments reset at gaps and old/new sides stay separate.
+_git_syntax_capture() {
+  emulate -L zsh
+  local name=${1:t} language='' label='' line='' input='' unicode_probe='é'
+  local -i row=0 old=0 new=0 result=0 unicode_characters=$(( ${#unicode_probe} == 1 ))
+  _GIT_SYNTAX_DATA='' _GIT_SYNTAX_NOTE='plain syntax · unsupported type'
+  case $name in
+    (*.swift) language=swift label=Swift ;;
+    (*.zsh|.zshrc|.zsh.*) language=zsh label=Zsh ;;
+    (*.sh) language=sh label=Shell ;;
+    (*.json) language=json label=JSON ;;
+    (*.py) language=python label=Python ;;
+    (*) return 0 ;;
+  esac
+  _GIT_SYNTAX_NOTE='plain syntax · system Vim unavailable'
+  [[ -x /usr/bin/vim && -r $_GIT_SYNTAX_SCRIPT ]] || return 0
+  _GIT_SYNTAX_NOTE='plain syntax · size limit'
+  input="$language"$'\n'
+  for (( row=1; row<=${#_ZLE_PICKER_DOCUMENT_LINES}; ++row )); do
+    old=${_GIT_REVIEW_DOCUMENT_OLD[row]:-0} new=${_GIT_REVIEW_DOCUMENT_NEW[row]:-0}
+    (( old || new )) || continue
+    line=${_ZLE_PICKER_DOCUMENT_LINES[row][16,-1]}
+    (( ${#line} <= 2048 && row <= 3000 )) || return 0
+    input+="$row"$'\t'"$old"$'\t'"$new"$'\t'"$line"$'\n'
+    (( ${#input} <= 65536 )) || return 0
+  done
+  # Byte limits also apply in multibyte locales; never truncate code for color.
+  local LC_ALL=C
+  (( ${#input} <= 65536 )) || return 0
+  if (( !unicode_characters )) && [[ $input == *[^$'\001'-$'\177']* ]]; then
+    _GIT_SYNTAX_NOTE='plain syntax · UTF-8 locale required'
+    return 0
+  fi
+  _GIT_SYNTAX_NOTE='plain syntax · unavailable or time limit'
+  _GIT_SYNTAX_DATA=$(_git_syntax_worker "$input")
+  result=$?
+  if (( result )); then
+    _GIT_SYNTAX_DATA=''
+    case $result in (129|130|143) return $result ;; esac
+    return 0
+  fi
+  _GIT_SYNTAX_NOTE="$label syntax · fragments"
+  return 0
+}
+
+# Validate the entire versioned protocol before publishing any styles. Offsets
+# are zero-based Unicode characters in the raw source, excluding the gutter.
+_git_syntax_apply() {
+  emulate -L zsh
+  local record='' role=''
+  local -a records=("${(@f)1}") fields=() match=() mbegin=() mend=()
+  local -A spans=() ends=()
+  local -i row=0 start=0 end=0 length=0
+  _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  (( ${#1} <= 131072 )) || return 1
+  (( ${#records} >= 2 && ${#records} <= 4098 )) || return 1
+  [[ $records[1] == compozsh-syntax-1 && $records[-1] == done ]] || return 1
+  for record in "${records[@][2,-2]}"; do
+    [[ $record =~ '^([1-9][0-9]{0,3}) (0|[1-9][0-9]{0,4}) ([1-9][0-9]{0,4}) (keyword|string|number|comment|type|function|variable)$' ]] || return 1
+    fields=( ${=record} )
+    row=$fields[1] start=$fields[2] end=$fields[3] role=$fields[4]
+    (( row <= ${#_ZLE_PICKER_DOCUMENT_LINES} )) || return 1
+    (( ${_GIT_REVIEW_DOCUMENT_OLD[row]:-0} || ${_GIT_REVIEW_DOCUMENT_NEW[row]:-0} )) || return 1
+    length=$(( ${#_ZLE_PICKER_DOCUMENT_LINES[row]} - 15 ))
+    (( start >= ${ends[$row]:-0} && start < end && end <= length )) || return 1
+    ends[$row]=$end
+    spans[$row]+="$(( start + 15 )):$(( end + 15 )):$role "
+  done
+  _ZLE_PICKER_DOCUMENT_SYNTAX=("${(@kv)spans}")
+  return 0
+}

@@ -642,7 +642,7 @@ sources prove a particular column ratio or key assignment is optimal.
 | Context | One separate location/source row, abbreviated as needed and omitted only in very short windows |
 | Search/filter input | Dedicated, visibly delimited input; label the operation (`Filter folders`, `Search descendants`, `Filter results`); ordinary printable characters remain searchable |
 | Main body | Pickers prioritize results; document workspaces prioritize the selected document beside a stable navigator. Preserve exact values separately from labels |
-| Details / reader | Secondary information or a primary document, respectively; explicit focus and independent scroll, no provider calls during repaint |
+| Details / reader | Secondary information or a primary document, respectively; explicit focus and independent scroll, no provider calls during repaint. In a document workspace, distinguish selected content from keyboard focus |
 | Footer | Shared capability-derived hints; acceptance, Escape and keyboard-guide access get first priority |
 
 The following is the canonical **modal picker key map**. These are Compozsh
@@ -657,7 +657,7 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Enter | Apply the visibly named primary action |
 | Ctrl-K | Open/close the keyboard guide |
 | Up/Down, Ctrl-P/N | Move results or scroll the focused view |
-| Ctrl-V / Ctrl-D | Page down/up in the focused view |
+| Fn/Option-Up/Down, Ctrl-V/Ctrl-D | Page up/down in the focused view; reader pages retain one overlapping line |
 | Ctrl-U / Ctrl-W | Clear the query / delete its last word |
 | Backspace | Delete the last query character |
 | Ctrl-Y | Copy the selected value and close, when available |
@@ -668,7 +668,7 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
 | Ctrl-X | Open **review** on Branches or **options** in filesystem views; inactive in document readers |
 | Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence |
-| Ctrl-R in a document workspace | Refresh the selected snapshot, keeping focus and source area |
+| Ctrl-R in a document workspace | Refresh the file list and selected diff, retaining available selection/focus/source area |
 | Ctrl-T | Toggle hidden folders in the browser |
 
 The hierarchy, document disclosure/refresh and Ctrl-O contexts above are explicit
@@ -681,11 +681,20 @@ guide, public help, README and native PTY tests together. Keep contract coverage
 across history, Recents, branches, files, tool discovery and secondary menus.
 Collectors and tool providers must not implement their own key parsers or hints.
 Ctrl-R's refresh meaning is limited to document workspaces. Preserve prompt
-history search and the existing next-result alias in other pickers; an empty
-document selection or the keyboard guide must never trigger refresh.
+history search and the existing next-result alias in other pickers. Refresh is
+available with empty/filtered-out document lists, allowing new changes to be
+discovered. The keyboard guide must never trigger refresh.
 
 - Preserve spatial landmarks when results shrink. Blank space is acceptable;
   do not fill the screen with unrelated widgets, repeated paths or decoration.
+- Treat selection and pane focus as separate state in every split-pane tool.
+  List focus uses the normal high-emphasis selected row. Detail/reader focus
+  retains that selection with a subdued background and marks the active pane
+  with the semantic focus rail plus its `▸` heading. Keep the rail on the shared
+  divider so it consumes no body columns and cannot compete with diff rows.
+  A focused single-pane detail/reader uses its heading alone; never draw an orphaned
+  divider or a full-pane box. Use `picker-selected-inactive` and `picker-focus`
+  palette roles rather than embedding terminal escapes or tool-specific colors.
 - Full-screen titles use the existing first screen row, without reducing result
   capacity. Hide optional metadata, then branding, before truncating tool identity.
   Reuse semantic header/muted colors. Derive action labels from the shared
@@ -714,15 +723,20 @@ document selection or the keyboard guide must never trigger refresh.
   and copy keys cannot edit the filter or apply a result while the guide is open.
 - Shared keys: arrows/Ctrl-P/N move, Enter applies the displayed action,
   Escape/Ctrl-G cancels or returns from a secondary view, Ctrl-C aborts,
-  Ctrl-U clears, Ctrl-W/Option-Delete deletes a word, Ctrl-V/Ctrl-D pages down/up,
+  Ctrl-U clears, Ctrl-W/Option-Delete deletes a word, Fn/Option-Up/Down and
+  Ctrl-V/Ctrl-D page up/down,
   Ctrl-Y/Option-W copies when supported, and Tab/Shift-Tab switches detail focus.
   Command shortcuts remain owned by Terminal.app. Primary picker actions must
   work with Control and no profile changes. Escape is cancellation, not a
   human command prefix: allow only a short transport window (currently 20 ms)
   for terminal sequences, never a human-sized chord delay. Ctrl-G has no
   decoding delay. Keep suffix reads bounded and preserve arrows, Shift-Tab,
-  forward Delete and bracketed paste. Optional Option-V/W/Delete Meta aliases
-  must not increase Escape latency; they depend on Terminal's Meta setting.
+  forward Delete and bracketed paste. Optional Option-Up/Down and
+  Option-V/W/Delete Meta aliases must not increase Escape latency; they depend
+  on Terminal's Meta setting. Decode and test both xterm modified arrows
+  (`ESC [ 1 ; 3 A/B`) and Terminal.app Meta-prefixed arrows
+  (`ESC ESC [ A/B`) as the same Option-Up/Down paging gesture. A second Escape
+  may extend transport only when followed by a cursor introducer.
   Modal shortcuts must not rebind normal ZLE editing outside the picker.
   Test the requested read allowance deterministically; measure actual Escape
   latency separately from correctness assertions to avoid scheduler-sensitive tests.
@@ -794,6 +808,44 @@ document selection or the keyboard guide must never trigger refresh.
   source-time work is definitions only; navigation detects it at invocation.
   No new public command, registration table, loader phase or key parser.
   Disabling the peer preserves ordinary `g` switch/copy and Git delegation.
+- `.zsh.git-syntax` is an optional, order-independent token provider over the
+  selected captured document. It has no public command or startup probe.
+  `support/git-syntax.vim` is a shipped adapter asset, not a shell add-on; both
+  installation modes must include it. Keep this boundary independent of Vim
+  user settings and of the shell's command-line syntax classifier.
+- Code syntax is lexical snapshot metadata. Analyze old/new sides separately
+  and reset at omitted source gaps; label fragments honestly. Never fetch
+  additional Git objects/files just to color a focused diff. Retain original
+  document text and source anchors verbatim. Unsupported/missing/failed/limited
+  syntax falls back visibly to the same readable diff, never a blank document.
+- The syntax child uses only `/usr/bin/vim`, an empty environment with explicit
+  PATH/UTF-8 locale, disabled vimrc/gvimrc/viminfo/modelines/plugins/swap/undo,
+  and a system-only runtime path. Enable only reviewed OS syntax definitions:
+  initially Swift, Zsh, shell, JSON and Python. No filetype detection, repository
+  paths, source execution, user runtime scripts, HTML export or ANSI extraction.
+  Feed captured source via a real stdin pipe: Zsh 5.9 here-strings create
+  temporary files, so `<<<` is not a no-disk transport. Return a versioned, fully validated protocol
+  of numeric character spans and fixed semantic roles. No source temp files.
+  Treat this as configuration hardening, never an OS security sandbox.
+  Reference: [Zsh 5.9 here-string implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/exec.c#L4383-L4406).
+- Bound syntax independently: 64 KiB input, 3,000 document rows, 2,048 source
+  characters per line, 4,096 spans, 128 KiB output, 300 ms subprocess deadline.
+  The deadline covers Vim, not Git or rendering. Always close descriptors and
+  kill/reap the owned child; preserve interrupt status through the controller.
+  Keep coprocess/job state isolated from the user's shell. No child on startup,
+  redraw, scrolling, resizing or a cached snapshot revisit. Cache tokens with
+  the same four raw snapshot keys, invalidate together on refresh, and release
+  on workspace exit. Measure capture, validation and render costs separately.
+- Diff backgrounds and lexical foregrounds are distinct layers. Green/red
+  backgrounds identify additions/removals, with +/- for non-color recognition.
+  `ZSH_HIGHLIGHT_STYLES[review-*]` owns shared customizable colors; token spans
+  preserve their row background, while navigator selection stays independent.
+  Map raw character spans through tab/control sanitization and cell-aware
+  wrapping before native ZLE highlighting. Do not embed escapes in document
+  text. Test Unicode, wraps, empty tokens, missing grammar, size/time limits,
+  cancellation, hostile config/modelines, cache/refresh and native ZLE cleanup.
+  Apple's OS updates may change grammar coverage; do not promise automatic
+  support for every language or make a beta Vim version a requirement.
 - Ctrl-X on Branches selects **current working changes** or **selected branch
   commits**. Distinguish their scopes explicitly. Commits open a file-and-diff
   document workspace; working changes opens that workspace directly.
@@ -819,7 +871,7 @@ document selection or the keyboard guide must never trigger refresh.
   Right discloses file navigator → focused diff → full-file context; Left
   reverses the sequence. At either boundary the arrow is inert. Untracked
   previews and metadata/notices have one reading level. Ctrl-R refreshes the
-  selected snapshot, preserving focus; Ctrl-X has no reader action or menu.
+  file workspace; Ctrl-X has no reader action or menu.
   Tab/Shift-Tab and Ctrl-E/B change only pane focus and preserve context mode;
   Right from the navigator always enters focused diff. The shared loop returns
   explicit disclosure/refresh requests; only the controller captures their data.
@@ -836,7 +888,22 @@ document selection or the keyboard guide must never trigger refresh.
   same anchor rule. Same-mode selection preserves the visual position. Never
   claim content tracking through concurrent edits. Test wrapped lines, gaps,
   deleted/new files, truncation, cache visits and native mode-switch journeys.
-  Re-entry refreshes the file list.
+  Refresh rechecks Git filter-safety configuration, recaptures the file list,
+  and reloads only the selected diff eagerly, outside the input loop. Keep the
+  filter and identify the selection by literal path AND change kind, then find
+  its new filtered rank; numeric IDs are valid only within one observation.
+  Retain pane focus, context mode and source anchor for a surviving selection.
+  If it leaves the filtered results, visibly explain and focus the first match
+  in the file list, in focused mode. Empty lists remain refreshable.
+  Invalidate every raw/token/context cache and other-file reading bookmark on
+  successful refresh; never let cached full context resurrect an older diff.
+  On list/configuration failure, retain the previous observation with a retry
+  status; propagate cancellation. Failed safety preparation must block uncached
+  diff reads until retry, while allowing already captured documents. Keep newly
+  validated filter overrides even if the following list read fails.
+  Commit-file refresh retains immutable IDs.
+  Advertise manual snapshots and Ctrl-R in shared chrome/help. No background
+  watcher or polling; reopening branch history discovers new commits.
   Working-file lists and later diffs are
   separate observations, not an atomic transaction. Failed reads must be
   distinguished from successful empty snapshots. Preserve abort propagation.
@@ -862,10 +929,22 @@ document selection or the keyboard guide must never trigger refresh.
   subshell. Bound bytes across short reads, preserve trailing newlines, and
   distinguish read failures from empty files. A NUL in the captured prefix
   yields a binary notice; do not claim universal binary detection. Keep
-  symlinks/grouped folders as notices, missing/unsafe/read failures unavailable,
+  symlinks/folder entries as notices, missing/unsafe/read failures unavailable,
   and conflicts as notices. Test replacement races and mode/refresh reuse.
   Reference: [Zsh system/stat modules](https://zsh.sourceforge.io/Doc/Release/Zsh-Modules.html).
-  Group untracked folders and exclude submodules. Renames
+  Use Git status with `--untracked-files=all` so new-directory files are
+  individually selectable. At the navigator boundary, keep nested relative
+  paths as primary row labels and adapt their metadata to the complete compact
+  word `New`; never combine state and folder into one truncation-prone field.
+  Keep canonical `Untracked` wording and exact relative paths in captured facts,
+  filtering, details and document context; presentation must not weaken or
+  replace the source fact. Git owns enumeration;
+  honor ignore rules and retain byte/row limits. Do not introduce a second
+  recursive walker or perform enumeration on movement/redraw. Git may still
+  report nested repositories as folders; keep them as separate-repository
+  notices. Directory replacement races also remain notices, never scans.
+  Measure added capture cost and document that large untracked trees may be
+  slower; retained-output bounds do not cap traversal time. Exclude submodules. Renames
   are add/delete pairs. Treat all Git strings as inert, sanitized display data.
 - Retain at most 256 KiB per capture, 1,000 change rows or 200 commits, with
   visible partial-result notices. Counts describe captured data. A continuous
@@ -975,8 +1054,9 @@ document selection or the keyboard guide must never trigger refresh.
 - Command-key shortcuts belong to macOS and the terminal application; do not
   pretend Zsh can bind them portably.
 - Apple keyboards without physical Home, End, or forward-Delete keys must have
-  first-class Control/Option alternatives. Physical/Fn sequences are aliases,
-  not requirements.
+  first-class Control/Option alternatives. Fn-Up/Down remains the native Apple
+  page gesture; Option-Up/Down is the matching Meta alias inside pickers, and
+  Ctrl-V/Ctrl-D remains the profile-independent fallback.
 - Use terminfo capabilities plus common normal/application cursor sequences so
   behavior survives Terminal, iTerm2, SSH, and multiplexers.
 - Outside a modal picker, do not steal a standard editing key for unrelated behavior. A wrapped key may

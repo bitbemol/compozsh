@@ -29,6 +29,9 @@ _test_panel_layout_hierarchy() {
         [[ ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[1]} == muted &&
            ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[2]} == info &&
            ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[5]} == warning ]] || exit 3
+        [[ ${_ZLE_PICKER_DISPLAY_STYLES[(i)picker-selected]} -le ${#_ZLE_PICKER_DISPLAY_STYLES} &&
+           ${(F)_ZLE_PICKER_DISPLAY} == *" │ "* &&
+           ${(F)_ZLE_PICKER_DISPLAY} != *" ┃ "* ]] || exit 7
         compact_page=$_ZLE_PICKER_INSPECT_PAGE
         _ZLE_PICKER_INSPECT_FOCUS=1
         _zle_picker_render "" 1
@@ -36,6 +39,8 @@ _test_panel_layout_hierarchy() {
            _ZLE_PICKER_INSPECT_PAGE > compact_page &&
            ${#_ZLE_PICKER_DISPLAY} <= 13 )) || exit 4
         [[ ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[1]} == heading ]] || exit 5
+        [[ ${_ZLE_PICKER_DISPLAY_STYLES[(i)picker-selected-inactive]} -le ${#_ZLE_PICKER_DISPLAY_STYLES} &&
+           ${(F)_ZLE_PICKER_DISPLAY} == *" ┃ "* ]] || exit 8
         for row in "${_ZLE_PICKER_DISPLAY[@]}"; do
           (( ${(m)#row} < COLUMNS )) || exit 6
         done
@@ -59,20 +64,24 @@ _test_panel_layout_small_windows() {
     for COLUMNS in 120 99 60 30; do
       for LINES in 30 18 10 8; do
         for _ZLE_PICKER_INSPECT_FOCUS in 0 1; do
+          _ZLE_PICKER_INSPECT_OFFSET=0
           _zle_picker_render "" 2
           (( _ZLE_PICKER_SELECTED == 2 &&
              ${#_ZLE_PICKER_DISPLAY} <= LINES - 5 )) || exit 1
           if (( COLUMNS < 100 )); then
-            [[ ${(j: :)_ZLE_PICKER_DISPLAY} != *"│"* ]] || exit 2
+            [[ ${(j: :)_ZLE_PICKER_DISPLAY} != *"│"* &&
+               ${(j: :)_ZLE_PICKER_DISPLAY} != *"┃"* ]] || exit 2
             if (( _ZLE_PICKER_INSPECT_FOCUS )); then
               (( !_ZLE_PICKER_INDEXES_VISIBLE )) || exit 3
             else
               (( ${#_ZLE_PICKER_DISPLAY} <= 4 )) || exit 4
             fi
           fi
+          expected_page_stride=$_ZLE_PICKER_INSPECT_PAGE
+          (( expected_page_stride > 1 )) && (( --expected_page_stride ))
           _zle_picker_page 1 2 3
           if (( _ZLE_PICKER_INSPECT_FOCUS )); then
-            (( REPLY == 2 && _ZLE_PICKER_INSPECT_OFFSET > 0 )) || exit 5
+            (( REPLY == 2 && _ZLE_PICKER_INSPECT_OFFSET == expected_page_stride )) || exit 5
           fi
         done
       done

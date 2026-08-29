@@ -75,12 +75,13 @@ _git_review_changes_capture() {
   local -i staged=0 unstaged=0 untracked=0 conflicts=0 index=0
   _git_review_reset
   _git_review_capture "$root" status --porcelain=v1 -z --no-renames \
-    --untracked-files=normal --ignore-submodules=all || return 2
+    --untracked-files=all --ignore-submodules=all || return 2
   while IFS= read -r -d '' record; do
     (( ${#record} >= 4 )) || continue
     xy=${record[1,2]} name=${record[4,-1]}
     if [[ $xy == '??' ]]; then
       kind=untracked state='Untracked'
+      [[ $name == */* && $name != */ ]] && state+=" · ${name:h}/"
       (( ++untracked ))
     elif [[ $xy == *U* || $xy == AA || $xy == DD ]]; then
       kind=conflict state="Conflict $xy"
@@ -114,7 +115,7 @@ _git_review_changes_capture() {
   done <<< "$_GIT_REVIEW_DATA"
   _GIT_REVIEW_SUMMARY="$staged staged · $unstaged unstaged · $untracked untracked · $conflicts conflicts"
   (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · partial snapshot'
-  _GIT_REVIEW_NOTICE='Renames appear as add/delete. Submodules are excluded; untracked folders are grouped.'
+  _GIT_REVIEW_NOTICE='Renames appear as add/delete. Submodules and ignored files are excluded; untracked files are listed individually.'
   return 0
 }
 
@@ -189,7 +190,7 @@ _git_review_untracked_capture() {
     _GIT_REVIEW_DATA='Symbolic link · untracked. The target is not followed or read.'
     return 0
   elif [[ -d $absolute ]]; then
-    _GIT_REVIEW_DATA='Untracked folder · grouped by Git. Select an individual regular file to preview its content; this view does not scan folders.'
+    _GIT_REVIEW_DATA='Untracked folder · no file content to preview. Git may retain a nested repository as a folder; review that repository separately. Use Ctrl-R if this path changed.'
     return 0
   elif [[ ! -f $absolute ]]; then
     _GIT_REVIEW_DATA='Unavailable: the untracked path is missing or is not a regular file.'
@@ -260,7 +261,7 @@ _git_review_diff_capture() {
   [[ -n $name && $name != /* && /$name/ != */../* && /$name/ != */./* ]] || return 2
   case $kind in
     (untracked)
-      # Git may report a grouped directory with a trailing slash.
+      # Git can still report a nested repository with a trailing slash.
       _git_review_untracked_capture "${absolute%/}"
       return $? ;;
     (conflict)
@@ -402,6 +403,11 @@ _git_review_document_load() {
   local root=$1 index=$2 oid=$3 parent=$4 context=$5 cache_key='' stale=''
   local name=${_GIT_REVIEW_PATHS[index]} kind=${_GIT_REVIEW_KINDS[index]}
   local anchor='' previous=$_ZLE_PICKER_DOCUMENT_KEY
+  local -i captured=0
+  # Direct/standalone callers may omit the optional syntax cache owner.
+  if (( !${+_git_document_syntax_cache} )); then
+    local -A _git_document_syntax_cache=() _git_document_syntax_notes=()
+  fi
   _git_review_document_cache_key "$index" "$context"
   cache_key=$REPLY context=${REPLY#*:}
   # The old document still owns these coordinates after the input loop or a
@@ -411,7 +417,11 @@ _git_review_document_load() {
     [[ -n $REPLY ]] && _git_document_anchors[$previous]=$REPLY
   fi
   if [[ -z ${_git_document_cache[$cache_key]+present} ]]; then
-    if ! _git_review_diff_capture "$root" "$kind" "$name" "$oid" "$parent" "$context"; then
+    captured=1
+    if (( ${_git_review_reads_blocked:-0} )); then
+      _GIT_REVIEW_DATA='Unavailable: Git safety configuration could not be refreshed. Use Ctrl-R to retry.'
+      _GIT_REVIEW_TRUNCATED=0
+    elif ! _git_review_diff_capture "$root" "$kind" "$name" "$oid" "$parent" "$context"; then
       [[ $kind == untracked && $_GIT_REVIEW_DATA == Unavailable:* ]] ||
       _GIT_REVIEW_DATA='Unavailable: Git could not read this diff. Use Ctrl-R to refresh; Escape returns.'
     fi
@@ -421,12 +431,26 @@ _git_review_document_load() {
   _git_document_order=("${(@)_git_document_order:#$cache_key}" "$cache_key")
   if (( ${#_git_document_order} > 4 )); then
     stale=$_git_document_order[1]
-    unset "_git_document_cache[$stale]" "_git_document_partial[$stale]"
+    unset "_git_document_cache[$stale]" "_git_document_partial[$stale]" \
+      "_git_document_syntax_cache[$stale]" "_git_document_syntax_notes[$stale]"
     _git_document_order[1]=()
   fi
   _GIT_REVIEW_DATA=${_git_document_cache[$cache_key]}
   _GIT_REVIEW_TRUNCATED=${_git_document_partial[$cache_key]}
   _git_review_document_parse
+  _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  if (( ${+functions[_git_syntax_capture]} && ${+functions[_git_syntax_apply]} && _GIT_REVIEW_DOCUMENT_HAS_CODE )); then
+    if (( captured )) || [[ -z ${_git_document_syntax_cache[$cache_key]+present} ]]; then
+      local _GIT_SYNTAX_DATA='' _GIT_SYNTAX_NOTE=''
+      _git_syntax_capture "$name" || return $?
+      _git_document_syntax_cache[$cache_key]=$_GIT_SYNTAX_DATA
+      _git_document_syntax_notes[$cache_key]=$_GIT_SYNTAX_NOTE
+    fi
+    if [[ -n ${_git_document_syntax_cache[$cache_key]} ]] &&
+       ! _git_syntax_apply "${_git_document_syntax_cache[$cache_key]}"; then
+      _git_document_syntax_notes[$cache_key]='plain syntax · invalid token data'
+    fi
+  fi
   _ZLE_PICKER_DOCUMENT_MODE=''
   if [[ $kind != untracked ]] && (( _GIT_REVIEW_DOCUMENT_HAS_CODE )); then
     [[ $context == 3 ]] && _ZLE_PICKER_DOCUMENT_MODE=focused || _ZLE_PICKER_DOCUMENT_MODE=full
@@ -447,9 +471,11 @@ _git_review_document_load() {
   _ZLE_PICKER_DOCUMENT_KEY=$index
   _ZLE_PICKER_DOCUMENT_TITLE=$name
   _ZLE_PICKER_BROWSE_LABEL="$_GIT_REVIEW_SUMMARY · $_GIT_REVIEW_DOCUMENT_SUMMARY"
+  [[ -n ${_git_review_refresh_status:-} ]] && _ZLE_PICKER_BROWSE_LABEL+=" · $_git_review_refresh_status"
   _ZLE_PICKER_SUBTITLE="${root:t} · $kind · full-file context · captured on selection"
   [[ $context == 3 ]] && _ZLE_PICKER_SUBTITLE="${root:t} · $kind · focused diff · 3 context lines · captured on selection"
   [[ $kind == untracked ]] && _ZLE_PICKER_SUBTITLE="${root:t} · untracked · new-file preview · captured on selection"
+  [[ -n ${_git_document_syntax_notes[$cache_key]-} ]] && _ZLE_PICKER_SUBTITLE+=" · ${_git_document_syntax_notes[$cache_key]}"
   return 0
 }
 
@@ -457,6 +483,7 @@ _git_review_document_load() {
 # independent of literal path values (one file may have two change rows).
 _git_review_rows() {
   local -i index=0
+  local context='' path=''
   _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_INDEXES=()
   _NAVIGATION_PICKER_LABELS=("${_GIT_REVIEW_LABELS[@]}")
   _NAVIGATION_PICKER_SEARCH_LABELS=()
@@ -464,8 +491,23 @@ _git_review_rows() {
   for (( index=1; index<=${#_GIT_REVIEW_LABELS}; ++index )); do
     _NAVIGATION_PICKER_VALUES+=("$index") _NAVIGATION_PICKER_INDEXES+=("$index")
     _NAVIGATION_PICKER_SEARCH_LABELS+=("${_GIT_REVIEW_LABELS[index]} ${_GIT_REVIEW_CONTEXTS[index]-}")
-    _ZLE_PICKER_CONTEXTS[$index]=${_GIT_REVIEW_CONTEXTS[index]-}
-    (( ${_ZLE_PICKER_DOCUMENT:-0} )) && _NAVIGATION_PICKER_LABELS[index]=${_GIT_REVIEW_PATHS[index]:t}
+    context=${_GIT_REVIEW_CONTEXTS[index]-}
+    if [[ ${_GIT_REVIEW_KINDS[index]-} == untracked ]]; then
+      # Keep identity and state in separate columns. Nested new files retain
+      # their relative path as the primary label; the narrow metadata column
+      # gets one complete human word. Canonical Git wording remains in facts,
+      # search and details.
+      context='New'
+    fi
+    _ZLE_PICKER_CONTEXTS[$index]=$context
+    if (( ${_ZLE_PICKER_DOCUMENT:-0} )); then
+      path=${_GIT_REVIEW_PATHS[index]}
+      if [[ ${_GIT_REVIEW_KINDS[index]-} == untracked && $path == */* && $path != */ ]]; then
+        _NAVIGATION_PICKER_LABELS[index]=$path
+      else
+        _NAVIGATION_PICKER_LABELS[index]=${path:t}
+      fi
+    fi
     _ZLE_PICKER_INSPECT_TEXTS[$index]=${_GIT_REVIEW_DETAILS[index]-}
   done
 }
@@ -477,6 +519,93 @@ _git_review_load() {
   local -a _ZLE_PICKER_BUSY_LINES=('Reading a local Git snapshot' 'Read-only · no fetch, staging or checkout'
     'Large repositories or mounted drives can delay synchronous reads.')
   _zle_picker_capture 'Git review' "${root:t} · read-only" '' "$@"
+}
+
+# Only capture facts inside the busy painter: it temporarily shadows UI state.
+_git_review_recapture() {
+  _git_review_reads_blocked=1
+  _git_review_prepare "$1" || return $?
+  _git_review_reads_blocked=0
+  if [[ $2 == working ]]; then
+    _git_review_changes_capture "$1"
+  else
+    _git_review_commit_files_capture "$1" "$3" "$4"
+  fi
+}
+
+# Explicit whole-workspace refresh, owned by _git_review_view. Keep the old
+# observation on a failed list read. Numeric IDs can change, so successful
+# refresh retires every raw/token cache and rebinds only the active source anchor
+# by literal path AND change kind. bookmark/focus/context belong to the caller.
+_git_review_refresh() {
+  emulate -L zsh
+  local root=$1 view_kind=$2 oid=$3 parent=$4 selected=$5
+  local name=${_GIT_REVIEW_PATHS[selected]-} change_kind=${_GIT_REVIEW_KINDS[selected]-} anchor=''
+  local summary=$_GIT_REVIEW_SUMMARY notice=$_GIT_REVIEW_NOTICE
+  local -a saved_paths=("${_GIT_REVIEW_PATHS[@]}") saved_kinds=("${_GIT_REVIEW_KINDS[@]}")
+  local -a saved_labels=("${_GIT_REVIEW_LABELS[@]}") saved_contexts=("${_GIT_REVIEW_CONTEXTS[@]}")
+  local -a saved_details=("${_GIT_REVIEW_DETAILS[@]}") saved_parents=("${_GIT_REVIEW_PARENTS[@]}")
+  local -a saved_config=("${_GIT_REVIEW_CONFIG[@]}")
+  local -i result=0 match=0 rank=0 row=0
+  if [[ -n $selected && $selected == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+    _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$selected]:-0}"
+    anchor=$REPLY
+  fi
+  # Configuration may have changed while an AI or editor was working too.
+  _git_review_load _git_review_recapture "$root" "$view_kind" "$oid" "$parent"; result=$?
+  if (( result )); then
+    _GIT_REVIEW_PATHS=("${saved_paths[@]}") _GIT_REVIEW_KINDS=("${saved_kinds[@]}")
+    _GIT_REVIEW_LABELS=("${saved_labels[@]}") _GIT_REVIEW_CONTEXTS=("${saved_contexts[@]}")
+    _GIT_REVIEW_DETAILS=("${saved_details[@]}") _GIT_REVIEW_PARENTS=("${saved_parents[@]}")
+    # A successful preparation remains current even if the later list read
+    # failed. Failed preparation permits cached reading only, until retry.
+    (( _git_review_reads_blocked )) && _GIT_REVIEW_CONFIG=("${saved_config[@]}")
+    _GIT_REVIEW_SUMMARY=$summary _GIT_REVIEW_NOTICE=$notice
+    (( result == 129 || result == 130 || result == 143 )) && return $result
+    _git_review_refresh_status='refresh failed · previous snapshot · Ctrl-R retry'
+    _ZLE_PICKER_BROWSE_LABEL="$_GIT_REVIEW_SUMMARY · $_git_review_refresh_status"
+    return 0
+  fi
+
+  _git_document_cache=() _git_document_partial=() _git_document_order=()
+  _git_document_syntax_cache=() _git_document_syntax_notes=()
+  _git_document_contexts=() _git_document_anchors=()
+  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+  _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
+  _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+  _GIT_REVIEW_DOCUMENT_HAS_CODE=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _GIT_REVIEW_DOCUMENT_SUMMARY=''
+  _git_review_refresh_status='refreshed · Ctrl-R updates snapshot'
+  _ZLE_PICKER_SUBTITLE="${root:t} · read-only snapshot"
+  _ZLE_PICKER_EMPTY_LINES=()
+  if (( !${#_GIT_REVIEW_PATHS} )); then
+    _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Ctrl-R refreshes; Escape returns.' "$_GIT_REVIEW_NOTICE")
+  fi
+  for (( row=1; row<=${#_GIT_REVIEW_PATHS}; ++row )); do
+    if [[ ${_GIT_REVIEW_PATHS[row]} == "$name" && ${_GIT_REVIEW_KINDS[row]} == "$change_kind" ]]; then
+      match=$row
+      break
+    fi
+  done
+  _git_review_rows
+  # Re-rank the bounded captured list using the unchanged filter. A status
+  # change may also remove a surviving path/kind from this query's results.
+  _navigation_picker_collect "${bookmark[1]}" 1000
+  (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
+  if (( rank )); then
+    bookmark[2]=$rank
+    _git_document_contexts[$match]=refresh
+    _git_document_anchors[$match]=$anchor
+  else
+    bookmark[2]=1 bookmark[3]=0 focus=0 context=3
+    match=${_ZLE_PICKER_RESULTS[1]:-0}
+    [[ -n $name ]] && _git_review_refresh_status+=' · previous selection no longer in results'
+  fi
+  _ZLE_PICKER_BROWSE_LABEL="$_GIT_REVIEW_SUMMARY · $_git_review_refresh_status"
+  if (( match )); then
+    _git_review_document_load "$root" "$match" "$oid" "$parent" "$context" || return $?
+  fi
+  return 0
 }
 
 # Scope file snapshots and reading bookmarks to this review workspace.
@@ -492,11 +621,13 @@ _git_review_view() {
   local _ZLE_PICKER_SEARCH_ACTION=''
   local _ZLE_PICKER_INSPECT_FALLBACK='' _ZLE_PICKER_INSPECT_EXPAND_KEY=''
   local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _zle_picker_start_focus=0
-  local -i result=0 index=0 focus=0
+  local -i result=0 index=0 focus=0 _git_review_reads_blocked=0
   local -i _ZLE_PICKER_DOCUMENT=0 context=3 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _ZLE_PICKER_DOCUMENT_REFRESH=0
   local _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _GIT_REVIEW_DOCUMENT_SUMMARY='' _ZLE_PICKER_DOCUMENT_MODE=''
+  local _git_review_refresh_status=''
   local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _git_document_order=()
   local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _git_document_cache=() _git_document_partial=()
+  local -A _ZLE_PICKER_DOCUMENT_SYNTAX=() _git_document_syntax_cache=() _git_document_syntax_notes=()
   local -A _ZLE_PICKER_DOCUMENT_ROWS=() _git_document_contexts=() _git_document_anchors=()
   local -a _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
   local -a _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=() _GIT_REVIEW_KINDS=()
@@ -525,10 +656,12 @@ _git_review_view() {
   if [[ $kind == working || $kind == files ]]; then
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1
     _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff
+    _git_review_refresh_status='snapshot · Ctrl-R refresh'
   fi
   _ZLE_PICKER_BROWSE_LABEL=$_GIT_REVIEW_SUMMARY
   if (( !${#_GIT_REVIEW_LABELS} )); then
     _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Escape returns to the previous view.' "$_GIT_REVIEW_NOTICE")
+    (( _ZLE_PICKER_DOCUMENT_REFRESH )) && _ZLE_PICKER_EMPTY_LINES[2]='Ctrl-R refreshes; Escape returns.'
   fi
   if (( result )); then
     _ZLE_PICKER_EMPTY_LINES=('Unavailable: Git could not capture this view.' 'No changes were made. Escape returns to the previous view.')
@@ -545,22 +678,22 @@ _git_review_view() {
     bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     index=$_ZLE_PICKER_SELECTED_VALUE
     if (( _ZLE_PICKER_DOCUMENT )); then
+      if [[ $_ZLE_PICKER_ACTION == document-refresh ]]; then
+        _git_review_refresh "$root" "$kind" "$oid" "$parent" "$index" || return $?
+        continue
+      fi
       if (( index > 0 )); then
         case $_ZLE_PICKER_ACTION in
-          (document-full|document-focused|document-refresh)
+          (document-full|document-focused)
             case $_ZLE_PICKER_ACTION in
               (document-full) context=1000000000 ;;
               (document-focused) context=3 ;;
-              (document-refresh)
-                _git_review_document_cache_key "$index" "$context"
-                unset "_git_document_cache[$REPLY]"
-                _git_document_contexts[$index]=refresh ;;
             esac
-            _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" ;;
+            _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" || return $? ;;
           (*)
             [[ $_ZLE_PICKER_ACTION == select ]] && focus=1
             [[ $index == "$_ZLE_PICKER_DOCUMENT_KEY" ]] ||
-              _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" ;;
+              _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" || return $? ;;
         esac
       fi
       continue

@@ -29,7 +29,7 @@ _test_picker_workspace_layout() {
           (( _ZLE_PICKER_VISIBLE_COUNT <= 10 &&
              _ZLE_PICKER_VISIBLE_COUNT <= LINES - 6 )) || exit 3
           for metadata in _ZLE_PICKER_DISPLAY_STYLES _ZLE_PICKER_DISPLAY_INDEX_ENDS \
-            _ZLE_PICKER_DISPLAY_LEFT_ENDS _ZLE_PICKER_DISPLAY_RIGHT_ROLES \
+            _ZLE_PICKER_DISPLAY_LEFT_ENDS _ZLE_PICKER_DISPLAY_RIGHT_ROLES _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX \
             _ZLE_PICKER_DISPLAY_CONTEXT_STARTS _ZLE_PICKER_DISPLAY_MATCH_STARTS; do
             (( ${#${(@P)metadata}} == ${#_ZLE_PICKER_DISPLAY} )) || {
               print -u2 -- "misaligned row metadata: $metadata"

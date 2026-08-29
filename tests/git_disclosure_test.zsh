@@ -42,7 +42,7 @@ _test_git_disclosure_transitions() {
     done
     _ZLE_PICKER_RESULTS=() _ZLE_PICKER_SELECTED=0
     _zle_picker_footer 179 ""
-    [[ $REPLY != *"^R"* && $REPLY != *"→"* && $REPLY != *"←"* ]] || exit 8
+    [[ $REPLY == *"^R refresh"* && $REPLY != *"→"* && $REPLY != *"←"* ]] || exit 8
     _ZLE_PICKER_SCREEN_ACTIVE=1 LINES=60
     _zle_picker_guide_render 119
     [[ ${(F)_ZLE_PICKER_DISPLAY} == *"Files → focused diff → full-file context"* &&
@@ -54,6 +54,44 @@ _test_git_disclosure_transitions() {
   test_assert_equal disclosure "$output"
 }
 test_case 'Git disclosure arrows and hints agree at every reading boundary' _test_git_disclosure_transitions
+
+_test_git_document_focus_visibility() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
+    _ZLE_PICKER_RESULTS=(README.md AGENTS.md)
+    _ZLE_PICKER_LABELS=(README.md AGENTS.md)
+    _ZLE_PICKER_RESULT_INDEXES=(1 2)
+    _ZLE_PICKER_CONTEXTS=("Unstaged M" "Unstaged M")
+    _ZLE_PICKER_INSPECT_TEXTS=(README.md snapshot)
+    _ZLE_PICKER_DOCUMENT_KEY=README.md
+    _ZLE_PICKER_DOCUMENT_TITLE=README.md
+    _ZLE_PICKER_DOCUMENT_LINES=("@@ -1 +1 @@" "-old" "+new")
+    _ZLE_PICKER_DOCUMENT_ROLES=(info error success)
+    _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_VIEW_START=1
+    _ZLE_PICKER_VIEW_LIMIT=12 COLUMNS=120 LINES=30
+
+    _ZLE_PICKER_INSPECT_FOCUS=0
+    _zle_picker_render "" 1
+    [[ ${_ZLE_PICKER_DISPLAY_STYLES[(i)picker-selected]} -le ${#_ZLE_PICKER_DISPLAY_STYLES} ]] || exit 1
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *" │ "* && ${(F)_ZLE_PICKER_DISPLAY} != *" ┃ "* ]] || exit 2
+
+    _ZLE_PICKER_INSPECT_FOCUS=1
+    _zle_picker_render "" 1
+    [[ ${_ZLE_PICKER_DISPLAY_STYLES[(i)picker-selected-inactive]} -le ${#_ZLE_PICKER_DISPLAY_STYLES} ]] || exit 3
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *" ┃ "* && ${(F)_ZLE_PICKER_DISPLAY} == *"▸ README.md"* ]] || exit 4
+
+    COLUMNS=70
+    _zle_picker_render "" 1
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"▸ README.md"* ]] || exit 5
+    [[ ${(F)_ZLE_PICKER_DISPLAY} != *" │ "* && ${(F)_ZLE_PICKER_DISPLAY} != *" ┃ "* ]] || exit 6
+    print focus-visible
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal focus-visible "$output"
+}
+test_case 'Git document panes distinguish selected content from keyboard focus' _test_git_document_focus_visibility
 
 _test_git_disclosure_capabilities() {
   test_make_temp_dir || return

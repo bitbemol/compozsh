@@ -50,7 +50,7 @@ _compozsh_help_compozsh() {
     '  Digits filter normally once the query is nonempty.' \
     '  Numbers identify visible slots; 0 selects the tenth row when shown.' \
     '  Arrows scroll through all matching tools and stop at either end.' \
-    '  Ctrl-V pages down; Ctrl-D pages up (Option-V with Meta).' \
+    '  Fn-Up/Down or Option-Up/Down page with one-line overlap; Ctrl-V/D also page.' \
     '  Page keys act on the focused pane; refining starts at the first match.' \
     '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
     '  Up to 10 rows appear by default, limited by terminal height; set' \
@@ -64,8 +64,8 @@ _compozsh_help_compozsh() {
     '  switch between the list and a full-width help view.' \
     '  Right / Ctrl-E enters help; Left / Ctrl-B returns to the tool list.' \
     '  Tab / Shift-Tab switches panes. In help, Up/Down or Ctrl-P/N scroll;' \
-    '  Ctrl-V pages down; Ctrl-D pages up (Option-V with Meta enabled).' \
-    '  Fn-Up/Down (Page Up/Down) also scroll by a page. Typing refines the' \
+    '  Fn-Up/Down or Option-Up/Down page with one-line overlap.' \
+    '  Ctrl-V pages down; Ctrl-D pages up without Option-as-Meta. Typing refines the' \
     '  filter and returns to the list. Enter prints full help after closing.' \
     '  Digits select only from the visible list with an empty filter.' \
     '  The browser captures up to 64 trusted same-file help companions once' \

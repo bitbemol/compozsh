@@ -421,8 +421,8 @@ _compozsh_help_g() {
     '  a visible digit 0-9 switches immediately; otherwise digits filter.' \
     '  Numbers label visible slots and update as the list scrolls.' \
     '  Arrows scroll through all captured matches and stop at either end.' \
-    '  Ctrl-V pages down; Ctrl-D pages up (Option-V with Meta).' \
-    '  Fn-Up/Down also pages; page keys act on the focused pane.' \
+    '  Fn-Up/Down or Option-Up/Down page the focused pane with one-line overlap.' \
+    '  Ctrl-V pages down; Ctrl-D pages up without Option-as-Meta.' \
     '  Refining the query returns to the first match.' \
     '  Option-W / Ctrl-Y copies the branch name without switching when pbcopy' \
     '  is available. In SSH, copying targets the host running Zsh.' \
@@ -461,14 +461,29 @@ _compozsh_help_g() {
     '  Selecting a file loads its diff automatically; Enter focuses reading.' \
     '  Focused diff is the default: changes with three context lines per side,' \
     '  old/new line numbers, and nearby hunks merged when their context meets.' \
-    '  Green + and red - mark additions/removals; context stays neutral.' \
+    '  Green/red row backgrounds and +/- mark additions/removals.' \
+    '  Optional .zsh.git-syntax adds code colors from system Vim; no setup needed.' \
+    '  Prototype languages: Swift, Zsh, shell, JSON and Python. Status reports' \
+    '  coverage or plain fallback. This is captured-fragment lexical highlighting:' \
+    '  omitted multiline context can affect colors; full context can help.' \
+    '  Vim uses only system definitions, with user config/plugins/modelines off.' \
+    '  Source stays in pipes; scroll/resize never run Vim. Syntax is bounded to' \
+    '  64 KiB input, 3,000 rows, 2,048 characters/line, 4,096 tokens, 300 ms child.' \
+    '  Syntax limits retain readable diff text and backgrounds; Git limits below' \
+    '  are separate. Refresh replaces both diff and syntax snapshots.' \
     '  Right: files -> focused diff -> full-file context. Left reverses the steps.' \
     '  Tab / Shift-Tab switches panes directly; Ctrl-E/B focuses reader/list.' \
     '  Direct pane focus preserves context mode; Right from files enters focused.' \
     '  Up/Down and page keys scroll each pane independently. Typing filters files.' \
     '  Reading never crosses into another file; each file remembers its position.' \
     '  Below 90 columns the focused pane uses the full width.' \
-    '  Ctrl-R refreshes the selected snapshot, keeping focus and source area.' \
+    '  Ctrl-R refreshes the file list and selected diff, even with no results.' \
+    '  Use it while an AI/editor changes files; updates are manual, not polled.' \
+    '  It retains the filter, exact file/change kind, focus and source area when' \
+    '  available. New/removed files appear; all cached diff/syntax views expire.' \
+    '  If the selection disappears, focus returns to files at the first match.' \
+    '  Failed list refresh keeps the previous snapshot and offers Ctrl-R retry.' \
+    '  Failed safety-configuration refresh blocks uncached reads until retry.' \
     '  Ctrl-X is inactive here; it opens review only on the main branch screen.' \
     '  Each workspace starts focused; context mode stays until disclosure changes.' \
     '  Expansion keeps the current source area visible, including wrapped code.' \
@@ -481,7 +496,10 @@ _compozsh_help_g() {
     '  Ctrl-K shows keys. Review does not stage, discard, commit or checkout.' \
     '  File selection requests one bounded diff; four recent snapshots are reused.' \
     '  Scrolling, guide and resize never read Git. A filter selecting a different' \
-    '  file can load that file. Return and re-enter to refresh the file list.' \
+    '  file can load that file. Refresh reloads only the selected diff eagerly;' \
+    '  other files load on selection, with their old reading bookmarks cleared.' \
+    '  Commit-file refresh retains the captured commit ID; reopen branch history' \
+    '  to discover new commits. Working-file lists and diffs are separate reads.' \
     '  A later diff can reflect edits made since the file list was captured.' \
     '' \
     'Review coverage and limits:' \
@@ -495,7 +513,10 @@ _compozsh_help_g() {
     '  No staging or execution occurs, even for executable source files.' \
     '  Empty files show a notice. NUL bytes in the captured prefix omit content.' \
     '  Symlinks are not followed; missing/special files report unavailable.' \
-    '  Binary diffs and conflicts show notices. Untracked folders stay grouped;' \
+    '  Untracked files inside new directories appear individually, with parent' \
+    '  folder labels; filter by their full paths. Ignored files remain excluded.' \
+    '  Git enumerates on entry/refresh; huge untracked trees can take longer.' \
+    '  Binary diffs and conflicts show notices. Nested repositories stay separate;' \
     '  submodules are excluded and renames appear as add/delete pairs.' \
     '  Review disables external diff/textconv, clean/process filters, fsmonitor,' \
     '  optional index writes and Git network transport. Filtered files may' \

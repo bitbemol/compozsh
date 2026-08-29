@@ -182,13 +182,16 @@ compozsh/
 │   ├── .zsh.editor        completion, temporary-screen pickers, and editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.git-review    read-only working changes, commits, files and diffs
+│   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory/branch workspaces, details and copying
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
-│   └── .zsh.xcode         optional Xcode/agent-skill integration
+│   ├── .zsh.xcode         optional Xcode/agent-skill integration
+│   └── support/
+│       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
 ├── templates/
 │   └── init.zsh           inert starter copied once for private initialization
 ├── install.zsh            safe symlink/copy installer with preview and rollback
@@ -221,7 +224,8 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R snapshot refresh, untracked text previews and bounded on-selection snapshots |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and bounded on-selection previews |
+| `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies lexical tokens for supported Git review files; bounded capture, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
 | `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, copying and small navigation aliases |
@@ -784,6 +788,11 @@ documents the preference and its profile scope.
 
 With Meta enabled, Option-Tab sends the `ESC TAB` sequence that Compozsh binds
 to Recents. You press **Option-Tab together**; the bytes are transport details.
+Inside a Compozsh full-screen tool, **Option-Up/Down** similarly pages the
+focused pane. It complements the always-supported **Fn-Up/Down** page gesture.
+Terminal.app versions and profiles may encode that gesture as either an xterm
+modified-arrow sequence or a Meta prefix followed by an ordinary arrow;
+Compozsh accepts both forms without exposing their bytes as filter text.
 Standalone **Escape still cancels** a picker. Enabling Meta does not assign an
 action to every Option combination; the receiving shell or application decides
 which combinations it supports.
@@ -1116,7 +1125,7 @@ Resize and detail scrolling do not rediscover paths.
 
 Direct walks inspect at most **20,000 entries**; every provider retains at
 most **2,000 matches**. Partial results are labeled. Up to ten rows are visible
-at once; arrows and Ctrl-V/Ctrl-D reach later captured matches. Visible number
+at once; arrows and the shared page keys reach later captured matches. Visible number
 slots are local to the viewport; numbers become query text after typing.
 
 ```zsh
@@ -1238,6 +1247,8 @@ ZSH_HIGHLIGHT_STYLES[picker-location]='fg=39'
 ZSH_HIGHLIGHT_STYLES[picker-query]='fg=16,bg=44,bold'
 ZSH_HIGHLIGHT_STYLES[picker-index]='fg=44,bold'
 ZSH_HIGHLIGHT_STYLES[picker-selected]='fg=16,bg=75,bold'
+ZSH_HIGHLIGHT_STYLES[picker-selected-inactive]='fg=252,bg=238'
+ZSH_HIGHLIGHT_STYLES[picker-focus]='fg=75,bold'
 ZSH_HIGHLIGHT_STYLES[picker-match]='fg=81,bold,underline'
 ZSH_HIGHLIGHT_STYLES[picker-text]='fg=252'
 ZSH_HIGHLIGHT_STYLES[picker-muted]='fg=242'
@@ -1256,8 +1267,9 @@ corresponding shared picker role when the shared palette initializes.
 | `Ctrl-L` | Redraw a clean search screen |
 | `Down`, `Ctrl-N`, `Tab`, or `Ctrl-R` | Select the next result |
 | `Up`, `Ctrl-P`, or `Shift-Tab` | Select the previous result |
-| `Ctrl-V` / `Ctrl-D` | Page down / up; Option-V works with Option-as-Meta enabled |
 | `Fn-Down` / `Fn-Up` | Page down / up on Apple keyboards |
+| `Option-Down` / `Option-Up` | Page down / up with Option-as-Meta enabled |
+| `Ctrl-V` / `Ctrl-D` | Page down / up without requiring Option-as-Meta |
 | `Enter` | Put the selected command on the editable line |
 | `Esc` or `Ctrl-G` | Cancel and restore the original line |
 | `Ctrl-C` | Hard-abort the search and current editable line |
@@ -1276,6 +1288,9 @@ and `more ↓` while additional matches may remain, then the exact total once
 matching is exhausted. Movement stops at the beginning and end. Changing the
 query resets to its first match. Page keys control whichever pane has focus,
 including the Help, Branch, and Path detail panels, in wide and narrow layouts.
+Focused readers derive their page distance from the currently visible pane
+height and retain one overlapping line as a reading landmark. Resizing Terminal
+or changing its font therefore changes the next page distance automatically.
 Number shortcuts refer to the rows currently displayed and update as you
 scroll; they never select hidden results. `Ctrl-R` keeps digits as search text.
 
@@ -1318,16 +1333,17 @@ keys** have priority; other complete hints appear as space allows. The bar
 names the actual action (`cd`, `switch`, `insert`, or file actions), and only
 advertises copying or details when supported. It never cuts a shortcut in half.
 
-Press **Ctrl-K** to open the **keyboard guide**. Arrow keys or
-Ctrl-V / Ctrl-D scroll it. Ctrl-K, Escape, Ctrl-G or Enter closes the guide and restores
+Press **Ctrl-K** to open the **keyboard guide**. Arrow keys scroll line by line;
+Fn/Option-Up/Down or Ctrl-V/Ctrl-D scroll by a page. Ctrl-K, Escape, Ctrl-G or Enter closes the guide and restores
 the exact search, selection, scroll position and pane focus. Ctrl-C aborts the
 whole picker. Typing or pressing a number in the guide cannot apply a result.
 A plain `?` remains searchable. Primary shortcuts use Control and require no
 Terminal profile changes. Escape has a 20 ms allowance to distinguish a lone
 key from terminal sequences such as arrows and bracketed paste; it no longer
 waits half a second for a following letter. Ctrl-G has no decoding delay.
-Option-V, Option-W and Option-Backspace remain optional Meta alternatives for
-page-up, copy and word deletion. Fn-Up/Down also page when sent by the terminal.
+Option-Up/Down, Option-V, Option-W and Option-Backspace remain optional Meta
+alternatives for paging, page-up, copy and word deletion. Fn-Up/Down also page
+when sent by the terminal.
 There is no need to type Escape followed by a letter for any picker action.
 
 These are **modal picker controls**: for example, Ctrl-K shows keys and Ctrl-D
@@ -1342,7 +1358,8 @@ shortcuts continue to belong to Terminal.app.
 | Escape / Ctrl-G | Cancel, or go back from a secondary view |
 | Ctrl-C | Abort |
 | Ctrl-U / Ctrl-W | Clear the filter / delete its last word |
-| Ctrl-V / Ctrl-D | Page down / up in the focused view |
+| Fn-Up/Down or Option-Up/Down | Page up/down in the focused view; Option requires Meta |
+| Ctrl-V / Ctrl-D | Page down / up without requiring Option-as-Meta |
 | Tab / Shift-Tab | Switch list/details focus when a panel exists |
 | Ctrl-Y / Option-W | Copy the selected value and close, when available |
 | Ctrl-K | Open or close the keyboard guide |
@@ -1790,8 +1807,13 @@ Focusing the panel uses the available body height on the owned full screen;
 the inline fallback allows up to twelve reading rows. Longer result lists retain
 their visible rows; passive details use that same
 height. Warnings keep their emphasis, and longer content remains scrollable.
-Moving focus keeps pane widths stable. Resizing preserves selection and uses
-the captured data without rerunning providers.
+Moving focus keeps pane widths stable. Every split panel uses the same focus
+language: list focus keeps the selected row bright blue; detail focus subdues
+that row and marks the active panel with a cyan `┃` rail plus its `▸` heading.
+The selected item therefore remains visible while the emphasis identifies
+which pane receives movement and page keys. Single-pane narrow layouts use the
+focused heading without drawing a divider. Resizing preserves selection and
+uses the captured data without rerunning providers.
 
 | Key | Action |
 | --- | --- |
@@ -1799,16 +1821,16 @@ the captured data without rerunning providers.
 | Right or Ctrl-E | Focus the help pane |
 | Left or Ctrl-B | Return to the tool list |
 | Tab or Shift-Tab | Switch panes |
-| Ctrl-V | Page down in the focused pane |
-| Ctrl-D | Page up in the focused pane; Option-V also works with Option-as-Meta enabled |
 | Fn-Up/Down | Page up/down in the focused pane on Apple keyboards |
+| Option-Up/Down | Page up/down with Option-as-Meta enabled |
+| Ctrl-V / Ctrl-D | Page down/up without requiring Option-as-Meta |
 | Type or paste | Refine the filter and return to the list |
 | Enter | Close the browser and print the selected tool's complete help |
 | Visible digit, with an empty filter and list focus | Show that tool's full help |
 | Escape or Ctrl-G | Cancel; Ctrl-C aborts |
 
 Search and selection survive switching panes and resizing. The focused help
-pane has a `▸` marker, a scroll position, and contextual keyboard hints. Help
+pane has the shared focus rail and `▸` marker, a scroll position, and contextual keyboard hints. Help
 uses the shared semantic output palette when available; missing peers retain
 the ordinary picker and plain documentation paths.
 
@@ -2083,14 +2105,62 @@ Run **`g` → Ctrl-X review** to choose a review context:
 Working changes and Commit files use a **two-pane review workspace**. A narrow
 file navigator sits on the left; the selected file's continuous diff occupies
 most of the width on the right. Selecting another file updates the reader
-directly. **Focused diff is the default**: changes with three unchanged lines
+directly. Focus is visible independently from selection: the active file list
+uses its bright blue selected row; while reading, that row becomes subdued and
+a cyan `┃` rail plus `▸` heading marks the active document. This preserves the
+selected-file landmark without implying that arrow keys still move the list.
+Below 90 columns the focused document owns the full width, so its heading is
+the focus cue and no pane divider is drawn. **Focused diff is the default**:
+changes with three unchanged lines
 before and after each hunk, with old/new line numbers. Nearby hunks can merge.
-**Green `+` lines** are additions, **red `-` lines** are removals, and unchanged
-code stays neutral. Addition/removal counts describe the retained diff.
+**Green row backgrounds and `+`** mark additions; **red backgrounds and `-`**
+mark removals. Syntax colors remain on the code itself. Unchanged rows keep
+the terminal background. Addition/removal counts describe the retained diff.
+
+The optional `.zsh.git-syntax` peer adds **prototype code highlighting** using
+Apple's `/usr/bin/vim`. Initial coverage is Swift, Zsh (`.zshrc`, `.zsh.*`,
+`*.zsh`), shell (`*.sh`), JSON and Python. Nothing is installed, and your Vim
+configuration is not needed. The selected file's status reports syntax coverage
+or a plain fallback. Navigation and reading work the same in either case.
+
+This is lexical highlighting of the **captured source fragments**, not IDE
+semantic analysis. Old and new sides are analyzed separately, with fresh
+lexical context at gaps between hunks. A focused hunk starting inside an omitted
+multiline string/comment can be colored imperfectly; full-file context provides
+the captured preceding source when available. Apple controls which Vim version
+and syntax definitions ship with each macOS release. OS updates may improve
+coverage; they do not automatically enable additional languages here.
+
+Token capture happens once per retained file/context snapshot, outside input
+and rendering. Scrolling, resizing and revisiting that snapshot launch no Vim
+process. Syntax has its own **64 KiB input**, **3,000 document-row**,
+**2,048-character source-line**, **4,096-token** and **300 ms subprocess** limits.
+Exceeding a limit, an unsupported file type or unavailable Vim leaves the full
+retained diff readable with its row backgrounds; code is never truncated just
+to color it. Rendering/metadata work and Git capture have separate costs.
+Unicode syntax requires a UTF-8 shell locale; other locales keep a plain
+fallback for non-ASCII source so character offsets remain safe.
+
+Vim receives captured text through a pipe, never a repository file. The adapter
+disables user configuration, modelines, plugins, swap and Vim history; it loads
+an allowlist of system syntax definitions. No source snapshots are written to
+temporary files. Only validated numeric token spans return to the shared ZLE
+renderer. This is configuration hardening, not an OS sandbox. Both installer
+modes include the adapter automatically; disabling `.zsh.git-syntax` keeps
+ordinary diff review available.
+
+Review colors live in `ZSH_HIGHLIGHT_STYLES`: `review-added`, `review-removed`,
+`review-keyword`, `review-string`, `review-number`, `review-comment`, `review-type`,
+`review-function` and `review-variable`. Set overrides in your private initializer.
+Keep foreground roles legible against both diff backgrounds; the blue file-list
+selection remains independent. Token foregrounds inherit their diff-row style.
 
 **Tab / Shift-Tab** switches panes; **Enter / Ctrl-E** focuses the diff and
-**Ctrl-B** returns to files. **Up/Down** and **Ctrl-V / Ctrl-D** scroll/page the
-focused pane independently. Reading stops at the end of that file; returning
+**Ctrl-B** returns to files. **Up/Down** scrolls line by line; **Fn-Up/Down** or
+**Option-Up/Down** pages the focused pane, with **Ctrl-V / Ctrl-D** as Control
+alternatives. The page stride follows the current reader height and retains one
+overlapping source line, so resizing or changing font size updates it
+automatically. Reading stops at the end of that file; returning
 to a file restores its reading position. Typing filters captured file paths
 and change status. Empty-filter digits select visible slots and focus reading.
 Below **90 columns**, the focused pane occupies the full width.
@@ -2102,8 +2172,10 @@ current context mode; Right from the file navigator always enters focused diff.
 The context mode stays until changed through disclosure; new workspaces start
 focused. This also works in the single-pane layout on narrower terminals.
 
-**Ctrl-R refreshes the selected snapshot**, preserving pane focus and the
-source area. **Ctrl-X** remains **review** on the main Branches screen and is
+**Ctrl-R refreshes the file list and selected diff**, preserving your filter,
+exact file/change kind, pane focus and source area when still available.
+It also works with an empty list or a filter that currently has no matches.
+**Ctrl-X** remains **review** on the main Branches screen and is
 inactive inside the reader. **Ctrl-K** shows the complete keyboard guide.
 
 Expanding keeps the current source area visible, using the first visible code
@@ -2117,7 +2189,16 @@ Selecting the already-active mode leaves the reading position alone.
 
 **Untracked files** are files Git is not tracking yet. Selecting an individual
 regular text file previews its contents as numbered green additions—every line
-is new. New-file previews and metadata notices have a single reading level:
+is new. Files inside new directories appear individually too. Their full
+relative path is the primary navigator label and a separate compact **New**
+column states what happened: `parent/folder/file.ext   New`. The renderer may
+middle-abbreviate the path when space is tight, while the reader header retains
+it exactly. The review subtitle and detail context keep Git's precise
+**Untracked** term, and filtering matches the full relative path. This prevents
+the state and folder from collapsing into one ambiguous truncated token.
+Ignored files remain excluded. Git owns this enumeration at entry/refresh;
+movement and redraw never scan directories. New-file previews and metadata
+notices have a single reading level:
 Right enters the reader, Left returns to files. No extra expansion is offered.
 This does not stage or execute the file, even if it has
 executable permissions. Large previews retain the limits below.
@@ -2135,9 +2216,25 @@ review views have no staging, discard, commit, checkout or clipboard actions.
 
 Entering review captures the file list. Selecting a file requests a bounded
 diff outside the renderer; the four most recently read file/context snapshots
-are reused until the workspace closes. Selecting a file through filtering may
+are reused until refresh or workspace exit. Selecting a file through filtering may
 load its diff too. Scrolling, focus, guide and resize reuse captured facts.
-Use Ctrl-R to refresh the selected snapshot, or leave/re-enter to refresh the file list.
+To follow edits from an AI or another editor, keep **Working changes** open and
+press **Ctrl-R** whenever you want the latest observation. New and removed
+changes update the navigator; only the selected diff is loaded immediately.
+Other files are captured when selected. Refresh clears all cached diff/syntax
+views and other files' reading bookmarks, so changing context mode cannot bring
+back an older snapshot. Updates are manual; there is no background watcher or
+automatic movement while you read.
+
+If the selected path/change kind is no longer among the filtered results, the
+status explains the change and focus returns to the file list at its first
+match (or an empty state). Your filter is retained; **Ctrl-U** clears it.
+A failed file-list refresh retains the previous snapshot with a visible retry
+message. **Ctrl-R** retries; **Ctrl-L** only redraws existing data.
+If Git's safety configuration cannot be refreshed, cached documents remain
+readable and new captures wait for a successful retry.
+Commit-file refresh keeps the captured commit ID; reopen branch history to see
+new commits.
 A working diff is a new observation: it can reflect edits made after its file
 list was captured. Commit browsing resolves the branch tip once and uses full
 object IDs thereafter, even if that branch moves. Nothing is fetched. An
@@ -2153,17 +2250,21 @@ Coverage is deliberately bounded and labeled:
   display lines**. All captured hunks share one scrollable reader. Limits are
   labeled; choose focused diff or use ordinary Git for larger files.
 - At most four raw diff snapshots (up to **1 MiB** combined) are cached for the
-  current workspace, plus the selected document and small reading bookmarks.
+  current workspace, plus bounded syntax metadata, the selected document and
+  small reading bookmarks. Refresh replaces both diff and token snapshots.
 - Binary diffs and conflicts show notices. For untracked previews, a NUL byte
   in the captured prefix produces a binary notice; this is a bounded content
   check, not a universal file-format detector. Empty files have their own notice.
   Symlinks are not followed, including parent-directory symlinks; missing,
-  special or unreadable files report unavailable. Untracked folders stay
-  grouped by Git and are not scanned for previews. Submodules are excluded;
+  special or unreadable files report unavailable. A nested Git repository may
+  still appear as a folder notice; review it from its own repository instead.
+  Submodules are excluded;
   renames appear as separate deletion/addition entries.
-- These are output/retention bounds, **not a time limit**. Large worktrees or
-  slow storage can delay a synchronous read. Busy and failure states are
-  explicit, and no background worker or persistent review cache is created.
+- Git's bounds above limit output/retention, **not elapsed time**. Large worktrees or
+  slow storage can delay a synchronous read. Listing individual files in large
+  untracked trees does more work than grouped-folder status. Busy and failure states are
+  explicit. Syntax uses a short-lived, deadline-bound child; there is no resident
+  worker or persistent review cache.
 
 Review disables external diff and text-conversion commands, configured
 clean/process filters, filesystem-monitor hooks, optional index writes and
