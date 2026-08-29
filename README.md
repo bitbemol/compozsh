@@ -74,6 +74,8 @@ for full-sized sessions in one Terminal window.
 - An optional first-loaded `~/.zsh.addons/local/init.zsh` for machine setup
 - Automatic loading of focused, order-independent `.zsh.addons/**/.zsh.<name>`
   files
+- A native Xcode workspace for choosing schemes and destinations, then building,
+  testing, analyzing, cleaning, or launching an app in Simulator
 - An Xcode add-on that exports Apple-authored skills for common coding agents
 
 The [`.zshrc`](.zshrc) file is only a tiny bootstrap. Every shared feature lives
@@ -189,7 +191,7 @@ compozsh/
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
-│   ├── .zsh.xcode         optional Xcode/agent-skill integration
+│   ├── .zsh.xcode         native Xcode workspace and agent-skill integration
 │   └── support/
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
 ├── templates/
@@ -232,7 +234,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
-| `.zsh.xcode` | Optional Xcode integration | `update_xcode_skills` exports Apple-authored skills to detected coding agents |
+| `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -264,7 +266,8 @@ creating, renaming, or removing one.
   are deliberately unsupported
 - Git, for cloning and the repository-aware prompt, navigation, and tools
 - A terminal with Unicode and color support; no patched font is required
-- Xcode 27 or newer, only for the optional Apple skill exporter
+- Full Xcode, only for the optional native Xcode workspace; Xcode 27 or newer
+  is required for the separate Apple skill exporter
 
 Check the installed versions with:
 
@@ -1733,6 +1736,7 @@ cpdir --help
 git-discard-all --help
 prompt-refresh --help
 g --help
+xcode --help
 update_xcode_skills --help
 compozsh --help
 ```
@@ -1885,6 +1889,58 @@ Programmatic extension functions such as `prompt_add_project_segment` are APIs,
 not terminal commands, and document their call signature where they are used.
 Transparent wrappers such as `grep` and `man` preserve the help behavior of the
 underlying system command.
+
+### Native Xcode workspace
+
+Run this anywhere inside an Xcode project:
+
+```sh
+xcode
+```
+
+Compozsh walks upward to the nearest directory containing a literal
+`.xcworkspace` or `.xcodeproj`; it does not recursively search the repository.
+When both exist at that scope, the workspace is offered first. The full-screen
+dashboard then uses Xcode to discover shared schemes and concrete destinations.
+Choose either setting directly, then apply **Build**, **Test**, **Analyze**, or
+**Clean**. Selecting a Simulator also exposes **Build & Run**, which builds the
+scheme, boots that exact simulator, installs the app, and launches its bundle.
+Physical-device launching remains in Xcode.
+
+The dashboard coordinates the first-party tools already installed with Xcode:
+`xcodebuild`, `xcrun`, `simctl`, `open`, and `plutil`. Its filtering, focus,
+resize behavior, guide, and temporary-screen cleanup are the same shared
+Compozsh interaction system used by the other full-screen tools. No additional
+package, daemon, project file, or registration step is introduced.
+Apple documents the underlying surface in the
+[Xcode command-line tool reference](https://developer.apple.com/documentation/xcode/xcode-command-line-tool-reference)
+and its guidance for
+[running and interpreting tests](https://developer.apple.com/documentation/xcode/running-tests-and-interpreting-results).
+
+Opening the workspace performs read-only Xcode discovery. Captured scheme and
+destination output is size-bounded. Discovery and actions disable automatic
+package resolution and package updates and require versions from
+`Package.resolved`; Compozsh does not enable provisioning updates or bypass
+package-plugin or macro validation. Xcode can still inspect project and package
+metadata during discovery.
+
+Build-related choices are explicit execution boundaries. A project can contain
+build scripts, package plugins, macros, tests, and application code, so review
+an unfamiliar repository before applying an action. The full-screen dashboard
+closes before the selected action starts, leaving Xcode’s native output in the
+normal terminal.
+
+Arguments keep direct access to the underlying CLI and preserve its status:
+
+```sh
+xcode -version
+xcode -showBuildSettings -scheme App
+```
+
+In a noninteractive or dumb terminal, bare `xcode` runs a safe `xcodebuild -list`
+for the nearest container. Full Xcode must be selected through
+`xcode-select`; the standalone Command Line Tools package does not provide this
+workspace’s complete build and Simulator surface.
 
 ### Export Apple-authored Xcode skills
 

@@ -11,6 +11,570 @@
 # Codex-in-Xcode destination may then be removable; keep the multi-agent export
 # only if it still provides value outside Xcode.
 
+# The same peer also exposes a first-party Xcode workspace. Discovery is
+# bounded to literal containers on the upward path; Xcode supplies schemes,
+# destinations, builds and tests. Compozsh only coordinates the interaction.
+typeset -g ZSH_XCODE_CAPTURE_MAX_BYTES=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}
+typeset -ga _XCODE_CONTAINERS=() _XCODE_CONTAINER_KINDS=()
+typeset -ga _XCODE_SCHEMES=()
+typeset -ga _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
+typeset -ga _XCODE_DESTINATION_NAMES=() _XCODE_COMMAND=()
+typeset -g _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+
+_xcode_container_discover() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB NULL_GLOB
+
+  local current=${1:-$PWD} entry=''
+  local -a workspaces=() projects=()
+  typeset -ga _XCODE_CONTAINERS=() _XCODE_CONTAINER_KINDS=()
+
+  current=${current:a}
+  [[ -d $current ]] || current=${current:h}
+  while [[ $current == /* ]]; do
+    workspaces=("$current"/*.xcworkspace(N/))
+    projects=("$current"/*.xcodeproj(N/))
+    for entry in "${workspaces[@]}"; do
+      [[ ! -L $entry ]] || continue
+      _XCODE_CONTAINERS+=("$entry")
+      _XCODE_CONTAINER_KINDS+=(workspace)
+    done
+    for entry in "${projects[@]}"; do
+      [[ ! -L $entry ]] || continue
+      _XCODE_CONTAINERS+=("$entry")
+      _XCODE_CONTAINER_KINDS+=(project)
+    done
+    (( ${#_XCODE_CONTAINERS} )) && return 0
+    [[ $current == / ]] && break
+    current=${current:h}
+  done
+  return 1
+}
+
+_xcode_container_arguments() {
+  emulate -L zsh
+  typeset -ga _XCODE_CONTAINER_ARGUMENTS=()
+  case $1 in
+    (workspace) _XCODE_CONTAINER_ARGUMENTS=(-workspace "$2") ;;
+    (project) _XCODE_CONTAINER_ARGUMENTS=(-project "$2") ;;
+    (*) return 2 ;;
+  esac
+}
+
+_xcode_safe_arguments() {
+  typeset -ga _XCODE_SAFE_ARGUMENTS=(
+    -disableAutomaticPackageResolution
+    -onlyUsePackageVersionsFromResolvedFile
+    -skipPackageUpdates
+  )
+}
+
+# Capture first-party command output into a size-bounded invocation directory.
+# No partial output is parsed; diagnostics are retained separately and both
+# files are removed before returning.
+_xcode_capture_command() {
+  emulate -L zsh
+
+  local temp_root=${TMPDIR:-/tmp} capture_dir='' stdout_file='' stderr_file=''
+  local raw_size='' output='' diagnostic=''
+  local -i command_status=0 max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}
+  _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+  [[ $max_bytes == <-> ]] || max_bytes=262144
+  (( max_bytes < 4096 )) && max_bytes=4096
+
+  capture_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode.XXXXXX") || {
+    _XCODE_CAPTURE_ERROR='cannot create a bounded capture directory'
+    return 1
+  }
+  stdout_file="$capture_dir/stdout"
+  stderr_file="$capture_dir/stderr"
+  {
+    command "$@" >| "$stdout_file" 2>| "$stderr_file"
+    command_status=$?
+    raw_size=$(command wc -c < "$stdout_file" 2>/dev/null)
+    raw_size=${raw_size//[[:space:]]/}
+    [[ $raw_size == <-> ]] || raw_size=0
+    if (( raw_size > max_bytes )); then
+      command_status=1
+      diagnostic="output exceeded the ${max_bytes}-byte capture limit"
+    elif (( command_status == 0 )); then
+      output=$(<"$stdout_file")
+    else
+      diagnostic=$(command head -c 8192 -- "$stderr_file" 2>/dev/null)
+      [[ -n $diagnostic ]] || diagnostic='xcodebuild returned a nonzero status'
+    fi
+  } always {
+    if [[ -n $capture_dir && ${capture_dir:t} == compozsh-xcode.* &&
+          ${capture_dir:h:A} == ${temp_root:A} ]]; then
+      command rm -rf -- "$capture_dir"
+    fi
+  }
+  _XCODE_CAPTURE=$output
+  _XCODE_CAPTURE_ERROR=$diagnostic
+  return $command_status
+}
+
+_xcode_json_raw() {
+  emulate -L zsh
+  local json=$1 key=$2
+  (( $+commands[plutil] )) || return 1
+  REPLY=$(print -rn -- "$json" |
+    command /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null) || return
+}
+
+_xcode_schemes_capture() {
+  emulate -L zsh
+  local kind=$1 container=$2 json='' count='' scheme='' key=''
+  local -i index=0
+  typeset -ga _XCODE_SCHEMES=()
+  (( $+commands[xcodebuild] )) || {
+    _XCODE_CAPTURE_ERROR='xcodebuild is unavailable; select full Xcode with xcode-select'
+    return 1
+  }
+  _xcode_container_arguments "$kind" "$container" || return
+  _xcode_safe_arguments
+  _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}"
+    "${_XCODE_SAFE_ARGUMENTS[@]}" -list -json)
+  _xcode_capture_command "${_XCODE_COMMAND[@]}" || return
+  json=$_XCODE_CAPTURE
+  key="$kind.schemes"
+  _xcode_json_raw "$json" "$key" || {
+    _XCODE_CAPTURE_ERROR='Xcode returned no readable scheme list'
+    return 1
+  }
+  count=$REPLY
+  [[ $count == <-> ]] || return 1
+  (( count > 50 )) && count=50
+  for (( index = 0; index < count; ++index )); do
+    _xcode_json_raw "$json" "$key.$index" || continue
+    scheme=$REPLY
+    [[ -n $scheme && ${#scheme} -le 256 && $scheme != *[[:cntrl:]]* ]] || continue
+    _XCODE_SCHEMES+=("$scheme")
+  done
+  (( ${#_XCODE_SCHEMES} )) || {
+    _XCODE_CAPTURE_ERROR='Xcode reported no shared schemes for this container'
+    return 1
+  }
+}
+
+_xcode_destination_platform_is_supported() {
+  case $1 in
+    (macOS|iOS|'iOS Simulator'|tvOS|'tvOS Simulator'|watchOS|'watchOS Simulator'|visionOS|'visionOS Simulator'|DriverKit) return 0 ;;
+    (*) return 1 ;;
+  esac
+}
+
+_xcode_destinations_parse() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local data=$1 line='' body='' part='' key='' value=''
+  local platform='' identifier='' name='' os='' destination_error=''
+  local -a parts=()
+  local -A seen=()
+  typeset -ga _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
+  typeset -ga _XCODE_DESTINATION_NAMES=()
+
+  for line in ${(f)data}; do
+    [[ $line == *'{'*'}'* ]] || continue
+    body=${line#*\{}
+    body=${body%\}*}
+    parts=("${(@s:,:)body}")
+    platform='' identifier='' name='' os='' destination_error=''
+    for part in "${parts[@]}"; do
+      part=${part##[[:space:]]#}
+      part=${part%%[[:space:]]#}
+      key=${part%%:*}
+      value=${part#*:}
+      key=${key##[[:space:]]#}
+      key=${key%%[[:space:]]#}
+      value=${value##[[:space:]]#}
+      value=${value%%[[:space:]]#}
+      case $key in
+        (platform) platform=$value ;;
+        (id) identifier=$value ;;
+        (name) name=$value ;;
+        (OS) os=$value ;;
+        (error) destination_error=$value ;;
+      esac
+    done
+    [[ -z $destination_error ]] || continue
+    _xcode_destination_platform_is_supported "$platform" || continue
+    [[ $identifier == [[:alnum:]][[:alnum:].-]# &&
+       -n $name && ${#name} -le 200 && $name != *[[:cntrl:]]* ]] || continue
+    (( ${+seen[$identifier]} )) && continue
+    seen[$identifier]=1
+    [[ -n $os ]] && name+=" · ${platform% Simulator} ${(V)os}"
+    _XCODE_DESTINATION_IDS+=("$identifier")
+    _XCODE_DESTINATION_PLATFORMS+=("$platform")
+    _XCODE_DESTINATION_NAMES+=("$name")
+    (( ${#_XCODE_DESTINATION_IDS} >= 100 )) && break
+  done
+  (( ${#_XCODE_DESTINATION_IDS} ))
+}
+
+_xcode_destinations_capture() {
+  emulate -L zsh
+  local kind=$1 container=$2 scheme=$3
+  _xcode_container_arguments "$kind" "$container" || return
+  _xcode_safe_arguments
+  _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" -scheme "$scheme"
+    "${_XCODE_SAFE_ARGUMENTS[@]}" -showdestinations)
+  _xcode_capture_command "${_XCODE_COMMAND[@]}" || return
+  _xcode_destinations_parse "$_XCODE_CAPTURE" || {
+    _XCODE_CAPTURE_ERROR='Xcode reported no concrete destinations with stable identifiers'
+    return 1
+  }
+}
+
+_xcode_action_command() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5 action=$6
+  typeset -ga _XCODE_COMMAND=()
+  case $action in
+    (build|test|analyze|clean) ;;
+    (*) return 2 ;;
+  esac
+  [[ -n $scheme && $scheme != *[[:cntrl:]]* ]] || return 2
+  _xcode_destination_platform_is_supported "$platform" || return 2
+  [[ $identifier == [[:alnum:]][[:alnum:].-]# ]] || return 2
+  _xcode_container_arguments "$kind" "$container" || return
+  _xcode_safe_arguments
+  _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" -scheme "$scheme"
+    -destination "platform=$platform,id=$identifier"
+    "${_XCODE_SAFE_ARGUMENTS[@]}" -hideShellScriptEnvironment "$action")
+}
+
+_xcode_build_settings_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5
+  local json='' extension='' build_dir='' product='' bundle_id=''
+  local -i index=0
+  typeset -g _XCODE_APP_PATH='' _XCODE_BUNDLE_ID=''
+  _xcode_container_arguments "$kind" "$container" || return
+  _xcode_safe_arguments
+  _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" -scheme "$scheme"
+    -destination "platform=$platform,id=$identifier"
+    "${_XCODE_SAFE_ARGUMENTS[@]}" -showBuildSettings -json)
+  _xcode_capture_command "${_XCODE_COMMAND[@]}" || return
+  json=$_XCODE_CAPTURE
+  # The root is an array. Probe a bounded number of target dictionaries;
+  # plutil intentionally has no empty-key extraction for the root count.
+  for (( index = 0; index < 100; ++index )); do
+    _xcode_json_raw "$json" "$index.buildSettings" || break
+    _xcode_json_raw "$json" "$index.buildSettings.WRAPPER_EXTENSION" || continue
+    extension=$REPLY
+    [[ $extension == app ]] || continue
+    _xcode_json_raw "$json" "$index.buildSettings.TARGET_BUILD_DIR" || continue
+    build_dir=$REPLY
+    _xcode_json_raw "$json" "$index.buildSettings.FULL_PRODUCT_NAME" || continue
+    product=$REPLY
+    _xcode_json_raw "$json" "$index.buildSettings.PRODUCT_BUNDLE_IDENTIFIER" || continue
+    bundle_id=$REPLY
+    [[ $build_dir == /* && -n $product && $product != */* &&
+       $bundle_id == [[:alnum:]][[:alnum:].-]# ]] || continue
+    _XCODE_APP_PATH="$build_dir/$product"
+    _XCODE_BUNDLE_ID=$bundle_id
+    [[ -d $_XCODE_APP_PATH && ! -L $_XCODE_APP_PATH ]] && return 0
+  done
+  _XCODE_CAPTURE_ERROR='the selected scheme produced no installable application bundle'
+  return 1
+}
+
+_xcode_run_simulator() {
+  emulate -L zsh
+  local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5
+  [[ $platform == *Simulator ]] || {
+    print -u2 -r -- 'xcode: Run requires a concrete Simulator destination'
+    return 2
+  }
+  _xcode_action_command "$kind" "$container" "$scheme" "$platform" "$identifier" build || return
+  command "${_XCODE_COMMAND[@]}" || return
+  _xcode_build_settings_capture "$kind" "$container" "$scheme" "$platform" "$identifier" || {
+    print -u2 -r -- "xcode: ${_XCODE_CAPTURE_ERROR:-cannot resolve the built application}"
+    return 1
+  }
+  (( $+commands[xcrun] )) || {
+    print -u2 -r -- 'xcode: xcrun is unavailable'
+    return 1
+  }
+  command xcrun simctl boot "$identifier" >/dev/null 2>&1 || true
+  command xcrun simctl bootstatus "$identifier" -b || return
+  (( $+commands[open] )) && command open -a Simulator >/dev/null 2>&1
+  command xcrun simctl install "$identifier" "$_XCODE_APP_PATH" || return
+  command xcrun simctl launch "$identifier" "$_XCODE_BUNDLE_ID"
+}
+
+# Workspace menus own a small source array but reuse the editor's renderer,
+# screen lifecycle, focus language, filtering and resize behavior.
+_xcode_picker_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern='(#i)*' character=''
+  local -i limit=$raw_limit index=0 result_index=0
+  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  [[ $limit == <-> ]] || limit=10
+  if [[ -n $query ]]; then
+    for character in "${(s::)query}"; do
+      (( ${+functions[_zle_picker_escape_pattern]} )) || return 1
+      _zle_picker_escape_pattern "$character"
+      pattern+="${REPLY}*"
+    done
+  fi
+  for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
+    value=${_XCODE_PICKER_VALUES[index]}
+    label=${_XCODE_PICKER_LABELS[index]}
+    searchable="${label} ${_XCODE_PICKER_SEARCH[index]-}"
+    [[ -z $query || $searchable == ${~pattern} ]] || continue
+    _ZLE_PICKER_RESULTS+=("$value")
+    _ZLE_PICKER_LABELS+=("$label")
+    result_index=${#_ZLE_PICKER_RESULTS}
+    (( result_index == 10 )) && result_index=0
+    _ZLE_PICKER_RESULT_INDEXES+=($result_index)
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
+  done
+}
+
+_xcode_choose() {
+  emulate -L zsh
+  local title=$1 subtitle=$2 query_label=$3
+  local _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
+  local _ZLE_PICKER_QUERY_LABEL=$query_label _ZLE_PICKER_INSPECT_TITLE=Details
+  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_BROWSE_LABEL='read-only selection'
+  local _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_DIGIT_SELECT=1
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -i index=0
+  for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
+    _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
+    _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=choose
+  done
+  _zle_picker_loop '' 20
+}
+
+_xcode_workspace_controller() {
+  emulate -L zsh
+  local kind=${_XCODE_CONTAINER_KINDS[1]} container=${_XCODE_CONTAINERS[1]}
+  local scheme='' platform='' identifier='' destination='' selected=''
+  local -i result=0 index=0 container_index=1 scheme_index=1 destination_index=1
+  local -a _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=()
+  local -a _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
+
+  if (( ${#_XCODE_CONTAINERS} > 1 )); then
+    _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
+    for (( index = 1; index <= ${#_XCODE_CONTAINERS}; ++index )); do
+      _XCODE_PICKER_VALUES+=("$index")
+      _XCODE_PICKER_LABELS+=("${_XCODE_CONTAINERS[index]:t} · ${_XCODE_CONTAINER_KINDS[index]}")
+      _XCODE_PICKER_SEARCH+=("${_XCODE_CONTAINERS[index]}")
+      _XCODE_PICKER_DETAILS+=("${_XCODE_CONTAINERS[index]}"$'\n\nNearest literal Xcode container · read-only selection')
+    done
+    _xcode_choose 'Xcode / Container' 'Nearest project scope' 'Filter containers'
+    result=$?
+    (( result == 0 )) || return $result
+    container_index=$_ZLE_PICKER_SELECTED_VALUE
+    kind=${_XCODE_CONTAINER_KINDS[container_index]}
+    container=${_XCODE_CONTAINERS[container_index]}
+  fi
+
+  _xcode_schemes_capture "$kind" "$container" || {
+    _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
+    return 4
+  }
+  scheme=${_XCODE_SCHEMES[1]}
+  _xcode_destinations_capture "$kind" "$container" "$scheme" || {
+    _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
+    return 4
+  }
+  platform=${_XCODE_DESTINATION_PLATFORMS[1]}
+  identifier=${_XCODE_DESTINATION_IDS[1]}
+  destination=${_XCODE_DESTINATION_NAMES[1]}
+
+  while true; do
+    _XCODE_PICKER_VALUES=(scheme destination build test analyze clean)
+    _XCODE_PICKER_LABELS=(
+      "Scheme · $scheme"
+      "Destination · $destination"
+      'Build · Compile the selected scheme'
+      'Test · Run the selected scheme tests'
+      'Analyze · Run Xcode static analysis'
+      'Clean · Remove selected-scheme build products')
+    _XCODE_PICKER_SEARCH=(scheme destination build test analyze clean)
+    _XCODE_PICKER_DETAILS=(
+      "$scheme"$'\n\nChoose one of Xcode’s shared schemes.'
+      "$destination"$'\n'"$platform · $identifier"$'\n\nChoose an exact destination reported by Xcode.'
+      'Build'$'\n\nRuns xcodebuild after this full-screen workspace closes. Project build scripts, package plugins and macros may execute.'
+      'Test'$'\n\nBuilds and runs tests on the selected destination after this workspace closes.'
+      'Analyze'$'\n\nRuns Xcode static analysis after this workspace closes.'
+      'Clean'$'\n\nRemoves build products for this scheme and destination after this workspace closes.')
+    if [[ $platform == *Simulator ]]; then
+      _XCODE_PICKER_VALUES+=(run)
+      _XCODE_PICKER_LABELS+=('Build & Run · Launch in the selected Simulator')
+      _XCODE_PICKER_SEARCH+=(simulator launch run)
+      _XCODE_PICKER_DETAILS+=('Build & Run'$'\n\nBuilds, boots the selected Simulator, installs the app and launches it. No physical-device launch.')
+    fi
+    _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions'
+    result=$?
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    case $selected in
+      (scheme)
+        _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
+        for (( index = 1; index <= ${#_XCODE_SCHEMES}; ++index )); do
+          _XCODE_PICKER_VALUES+=("$index") _XCODE_PICKER_LABELS+=("${_XCODE_SCHEMES[index]}")
+          _XCODE_PICKER_SEARCH+=("${_XCODE_SCHEMES[index]}")
+          _XCODE_PICKER_DETAILS+=("${_XCODE_SCHEMES[index]}"$'\n\nShared scheme reported by Xcode.')
+        done
+        _xcode_choose 'Xcode / Scheme' "${container:t}" 'Filter schemes'
+        result=$?
+        (( result == 1 )) && continue
+        (( result == 0 )) || return $result
+        scheme_index=$_ZLE_PICKER_SELECTED_VALUE
+        scheme=${_XCODE_SCHEMES[scheme_index]}
+        _xcode_destinations_capture "$kind" "$container" "$scheme" || {
+          _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
+          return 4
+        }
+        destination_index=1
+        platform=${_XCODE_DESTINATION_PLATFORMS[1]}
+        identifier=${_XCODE_DESTINATION_IDS[1]}
+        destination=${_XCODE_DESTINATION_NAMES[1]} ;;
+      (destination)
+        _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
+        for (( index = 1; index <= ${#_XCODE_DESTINATION_IDS}; ++index )); do
+          _XCODE_PICKER_VALUES+=("$index")
+          _XCODE_PICKER_LABELS+=("${_XCODE_DESTINATION_NAMES[index]} · ${_XCODE_DESTINATION_PLATFORMS[index]}")
+          _XCODE_PICKER_SEARCH+=("${_XCODE_DESTINATION_NAMES[index]} ${_XCODE_DESTINATION_PLATFORMS[index]}")
+          _XCODE_PICKER_DETAILS+=("${_XCODE_DESTINATION_NAMES[index]}"$'\n'"${_XCODE_DESTINATION_PLATFORMS[index]} · ${_XCODE_DESTINATION_IDS[index]}"$'\n\nExact destination reported by Xcode.')
+        done
+        _xcode_choose 'Xcode / Destination' "$scheme" 'Filter destinations'
+        result=$?
+        (( result == 1 )) && continue
+        (( result == 0 )) || return $result
+        destination_index=$_ZLE_PICKER_SELECTED_VALUE
+        platform=${_XCODE_DESTINATION_PLATFORMS[destination_index]}
+        identifier=${_XCODE_DESTINATION_IDS[destination_index]}
+        destination=${_XCODE_DESTINATION_NAMES[destination_index]} ;;
+      (build|test|analyze|clean|run)
+        _XCODE_REQUEST=$selected
+        _XCODE_SELECTED_KIND=$kind _XCODE_SELECTED_CONTAINER=$container
+        _XCODE_SELECTED_SCHEME=$scheme _XCODE_SELECTED_PLATFORM=$platform
+        _XCODE_SELECTED_ID=$identifier _XCODE_SELECTED_DESTINATION=$destination
+        return 0 ;;
+    esac
+  done
+}
+
+_compozsh_help_xcode() {
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: xcode [xcodebuild-arguments ...]' \
+    'Open a native Xcode action workspace, or delegate arguments to xcodebuild.' \
+    '' \
+    'Workspace discovery:' \
+    '  With no arguments, finds the nearest directory on the upward path that' \
+    '  contains a literal .xcworkspace or .xcodeproj. It never scans descendants.' \
+    '  A workspace is offered before a project at the same nearest scope.' \
+    '  Xcode supplies shared schemes and concrete destinations; selections are' \
+    '  read-only discovery and remain inside one responsive full-screen workspace.' \
+    '' \
+    'Actions:' \
+    '  Choose a scheme and destination, then Build, Test, Analyze, or Clean.' \
+    '  A concrete Simulator destination also offers Build & Run: it builds,' \
+    '  boots Simulator, installs the resulting app, and launches its bundle.' \
+    '  Physical-device launch and signing configuration are outside this UI.' \
+    '  The screen closes before xcodebuild or Simulator performs the action.' \
+    '' \
+    'Safety and reproducibility:' \
+    '  Discovery/output captures are bounded; automatic package resolution and' \
+    '  package updates are disabled; resolved package versions are required.' \
+    '  Compozsh never enables provisioning updates and never skips package plugin' \
+    '  or macro validation. Xcode may still inspect project/package metadata.' \
+    '  Build, Test, Analyze, Clean, and Run are explicit execution boundaries:' \
+    '  project build scripts, package plugins, macros, tests, and app code may run.' \
+    '  Review unfamiliar repositories before selecting an action.' \
+    '' \
+    'Direct xcodebuild access and fallback:' \
+    '  Any arguments delegate directly to xcodebuild and preserve its status.' \
+    '  In a noninteractive/dumb terminal, no arguments run a safe xcodebuild -list' \
+    '  for the nearest container. Full Xcode must be selected with xcode-select.' \
+    '' \
+    'Examples:' \
+    '  xcode                              Open the native action workspace.' \
+    '  xcode -version                     Ask xcodebuild for its version.' \
+    '  xcode -showBuildSettings -scheme App  Delegate an advanced query.'
+}
+
+unalias xcode 2>/dev/null
+xcode() {
+  emulate -L zsh
+  local kind='' container='' request='' picker_status=0
+  local _XCODE_REQUEST='' _XCODE_WORKSPACE_ERROR=''
+  local _XCODE_SELECTED_KIND='' _XCODE_SELECTED_CONTAINER=''
+  local _XCODE_SELECTED_SCHEME='' _XCODE_SELECTED_PLATFORM=''
+  local _XCODE_SELECTED_ID='' _XCODE_SELECTED_DESTINATION=''
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_xcode
+    return 0
+  fi
+  {
+    (( $# == 0 )) || {
+      command xcodebuild "$@"
+      return $?
+    }
+    (( $+commands[xcodebuild] )) || {
+      print -u2 -r -- 'xcode: xcodebuild is unavailable; select full Xcode with xcode-select'
+      return 1
+    }
+    _xcode_container_discover "$PWD" || {
+      print -u2 -r -- 'xcode: no .xcworkspace or .xcodeproj found on the upward path'
+      return 1
+    }
+    kind=${_XCODE_CONTAINER_KINDS[1]}
+    container=${_XCODE_CONTAINERS[1]}
+    if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
+        (( ! ${+functions[_zle_picker_run]} )); then
+      _xcode_container_arguments "$kind" "$container" || return
+      _xcode_safe_arguments
+      command xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" \
+        "${_XCODE_SAFE_ARGUMENTS[@]}" -list
+      return $?
+    fi
+
+    _zle_picker_run 20 '' 1 0 _xcode_workspace_controller
+    picker_status=$?
+    (( picker_status == 1 )) && return 0
+    if (( picker_status != 0 )); then
+      [[ -n $_XCODE_WORKSPACE_ERROR ]] && print -u2 -r -- "xcode: $_XCODE_WORKSPACE_ERROR"
+      return $picker_status
+    fi
+    request=$_XCODE_REQUEST
+    case $request in
+      (build|test|analyze|clean)
+        _xcode_action_command "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
+          "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" \
+          "$_XCODE_SELECTED_ID" "$request" || return
+        print -r -- "Xcode ${request}: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        command "${_XCODE_COMMAND[@]}" ;;
+      (run)
+        print -r -- "Xcode run: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        _xcode_run_simulator "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
+          "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" "$_XCODE_SELECTED_ID" ;;
+      (*) return 0 ;;
+    esac
+  } always {
+    _XCODE_CONTAINERS=() _XCODE_CONTAINER_KINDS=() _XCODE_SCHEMES=()
+    _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
+    _XCODE_DESTINATION_NAMES=() _XCODE_COMMAND=()
+    _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+    unset _XCODE_CONTAINER_ARGUMENTS _XCODE_SAFE_ARGUMENTS
+    unset _XCODE_APP_PATH _XCODE_BUNDLE_ID
+  }
+}
+
 # Detect coding-agent surfaces that can discover local Agent Skills. A CLI on
 # PATH or its standard macOS application bundle is sufficient; merely having a
 # vendor's consumer web or chat application is not.

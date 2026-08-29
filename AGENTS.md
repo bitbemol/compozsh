@@ -84,6 +84,7 @@ private. Avoid inventing a privileged core tier through new terminology.
 | Acceptance / action | Acceptance requests the visibly named primary operation. An action applies an explicit effect to a target, including insertion, copying, directory change or application launch. Acceptance can instead open another view. |
 | Renderer / paint | The renderer derives frame text and styles from view state. Painting applies that frame to the terminal through the shared ZLE machinery. |
 | Document workspace | A file navigator paired with a primary, independently scrollable reader, such as Git review. Distinct from a picker with secondary information. |
+| Action workspace | A task workspace that composes captured configuration choices into one explicit post-cleanup action, such as Xcode scheme + destination + Build. It is not a live console or a general workflow engine. |
 | Source anchor | A semantic reading position independent of display rows: for Git review, the old/new file side and line number at the top of the reader. Used when changing context density. |
 | Disclosure | Revealing more detail about the same target without changing its task or scope. Reverse disclosure returns to the less detailed presentation using a source anchor; it is distinct from switching pane focus or navigating to another target. |
 | Effect boundary | The point where code reads external facts or changes observable state. Frame construction and filtering derive from captured inputs; painting, provider reads and final actions have their own lifecycle rules. |
@@ -1046,6 +1047,54 @@ discovered. The keyboard guide must never trigger refresh.
 - Document filesystem keys/scopes in README and `compozsh --help`; Ctrl-K
   provides the in-view guide. Native scripting tools replace the removed
   `f --list`/`--print0` API; do not leave dead printing/argument-parsing paths.
+
+## Xcode workspace boundary
+
+- `.zsh.xcode` owns both the native Xcode action workspace and Apple skill export.
+  Source-time behavior remains definitions only: never probe Xcode, enumerate
+  projects, start Simulator, export skills, or write files while loading the
+  peer. Keep `xcode` and `update_xcode_skills` as separate public operations
+  with independent help providers and tests.
+- Bare `xcode` discovers only literal `.xcworkspace` and `.xcodeproj`
+  directories while walking upward from PWD. Stop at the nearest scope, offer
+  workspaces before projects there, reject symlink containers, and never scan
+  descendants. With arguments, delegate directly to `xcodebuild` and preserve
+  its status. A dumb/noninteractive bare call may print the nearest container's
+  safe native list; it must not open the modal workspace.
+- Xcode owns scheme, destination, build, test and settings semantics. Request
+  machine-readable JSON where the CLI provides it and parse it with the system
+  `plutil`; accept the documented destination listing only after validating a
+  fixed platform vocabulary and literal stable identifier. Bound every retained
+  provider capture (currently 256 KiB), diagnostic and item count. No repaint,
+  filtering, focus, scrolling or resize may invoke an Xcode provider.
+- Use the shared full-screen renderer, screen owner, input loop, guide, focus
+  language and temporary-screen cleanup. The dashboard is one shallow
+  controller over Container → Scheme → Destination → Action, with configuration
+  choices returning to the action dashboard. Do not add a renderer, key parser,
+  background watcher, workflow framework, persistent project state or new
+  shortcut. Dispatch every action only after the screen is restored.
+- Discovery is read-only coordination, though Xcode may inspect project and
+  package metadata. Always disable automatic package resolution and package
+  updates and require versions from `Package.resolved`. Never silently enable
+  provisioning updates or skip package-plugin/macro validation. Keep these
+  policy arguments centralized and cover their exact presence/absence in tests.
+- Build, Test, Analyze, Clean and Simulator Run are explicit code-execution
+  boundaries. Project build scripts, package plugins, macros, tests and app code
+  may execute. State this in the dashboard, README and `xcode --help`; never run
+  an action merely to populate details. Native Xcode output belongs in the
+  restored terminal, not a captured pseudo-console.
+- Simulator Run initially supports only an exact simulator destination. Build
+  first, derive one installable `.app` and validated bundle identifier from
+  bounded `xcodebuild -showBuildSettings -json`, then use `xcrun simctl` to boot,
+  install and launch it; opening Apple's Simulator app is part of that explicit
+  action. Do not claim physical-device launch, alter signing, choose a generic
+  destination or infer a product from recursive filesystem search.
+- Test discovery order, spaces in literal paths, bounded/failed JSON, hostile
+  destination text, no-scheme/no-destination states, argument delegation,
+  noninteractive fallback, cancellation, resize cleanup, exact action arrays
+  and simulator dispatch with PATH-shadowed first-party command spies. Real
+  Xcode/Simulator checks are optional host integration tests and must not read
+  private project data or mutate a user's active project.
 
 ## Keyboard and ZLE behavior
 
