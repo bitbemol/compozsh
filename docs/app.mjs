@@ -6,6 +6,9 @@ const query = document.querySelector('#demo-query');
 const results = document.querySelector('#demo-results');
 const output = document.querySelector('#demo-output');
 const example = document.querySelector('#demo-example');
+const review = document.querySelector('#git-review-demo');
+const reviewFiles = document.querySelector('#review-files');
+const reviewLines = document.querySelector('#review-lines');
 let scene = scenes.history;
 let matches = [];
 let selected = 0;
@@ -80,8 +83,82 @@ function renderResults() {
   highlight(0);
 }
 
+function appendReviewText(parent, line) {
+  if (line.segments) {
+    for (const segment of line.segments) {
+      const token = document.createElement('span');
+      token.className = `syntax-${segment.token}`;
+      token.textContent = segment.text;
+      parent.append(token);
+    }
+    return;
+  }
+  parent.textContent = line.text;
+}
+
+function selectReviewFile(index, focusReader = false) {
+  selected = Math.max(0, Math.min(index, scene.items.length - 1));
+  const item = scene.items[selected];
+  for (const [rowIndex, row] of [...reviewFiles.children].entries()) {
+    row.classList.toggle('selected', rowIndex === selected);
+    row.setAttribute('aria-selected', String(rowIndex === selected));
+    row.tabIndex = rowIndex === selected ? 0 : -1;
+  }
+  document.querySelector('#review-file-title').textContent = `${item.label} · ${item.status}`;
+  reviewLines.replaceChildren();
+  for (const line of item.preview) {
+    const row = document.createElement('div');
+    row.className = `review-line ${line.kind}`;
+    const oldNumber = document.createElement('span');
+    oldNumber.textContent = line.old;
+    const newNumber = document.createElement('span');
+    newNumber.textContent = line.next;
+    const marker = document.createElement('span');
+    marker.textContent = line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ' ';
+    const code = document.createElement('code');
+    appendReviewText(code, line);
+    row.append(oldNumber, newNumber, marker, code);
+    reviewLines.append(row);
+  }
+  if (focusReader) reviewLines.focus();
+}
+
+function renderReview() {
+  selected = 0;
+  reviewFiles.replaceChildren();
+  document.querySelector('#review-file-count').textContent = String(scene.items.length);
+  for (const [index, item] of scene.items.entries()) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'review-file-row';
+    row.setAttribute('role', 'option');
+    const name = document.createElement('span');
+    name.textContent = item.label;
+    const status = document.createElement('span');
+    status.textContent = item.status;
+    row.append(name, status);
+    row.addEventListener('focus', () => selectReviewFile(index));
+    row.addEventListener('click', () => selectReviewFile(index));
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const next = (index + (event.key === 'ArrowDown' ? 1 : scene.items.length - 1)) % scene.items.length;
+        selectReviewFile(next);
+        reviewFiles.children[next].focus();
+      } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
+        event.preventDefault();
+        selectReviewFile(index, true);
+      }
+    });
+    reviewFiles.append(row);
+  }
+  selectReviewFile(0);
+}
+
 function showScene() {
-  document.querySelector('#picker-demo').hidden = scene.mode === 'prompt';
+  const isReview = scene.layout === 'review';
+  document.querySelector('#picker-demo').hidden = scene.mode === 'prompt' || isReview;
+  review.hidden = !isReview;
   document.querySelector('#context-demo').hidden = scene.mode !== 'prompt';
   document.querySelector('.shell-prompt').hidden = scene.mode !== 'prompt';
   document.querySelector('#demo-command').textContent = scene.command;
@@ -94,7 +171,8 @@ function showScene() {
   document.querySelector('#demo-docs').href = scene.docs;
   query.value = scene.query;
   output.textContent = scene.hint;
-  if (scene.mode !== 'prompt') renderResults();
+  if (isReview) renderReview();
+  else if (scene.mode !== 'prompt') renderResults();
 }
 
 function selectScene(id) {

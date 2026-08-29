@@ -30,6 +30,18 @@ test('filesystem examples share one task and teach scoped Control-F discovery', 
   assert.equal(scenes['navigate-git'].mode, 'git');
 });
 
+test('Git examples include a bounded two-pane working-changes review', () => {
+  const review = scenes['git-review'];
+  assert.equal(review.mode, 'git');
+  assert.equal(review.layout, 'review');
+  assert.equal(review.command, 'g → Ctrl-X');
+  assert.match(review.scope, /Working changes/);
+  assert.ok(review.items.length >= 3);
+  assert.ok(review.items.every(item => item.label && item.status && item.preview));
+  assert.ok(review.items.some(item => item.preview.some(line => line.kind === 'added')));
+  assert.ok(review.items.some(item => item.preview.some(line => line.kind === 'removed')));
+});
+
 test('file actions preserve the exact sample target and only describe outcomes', () => {
   const item = scenes['files-project'].items.at(-1);
   const actions = fileActions(item);

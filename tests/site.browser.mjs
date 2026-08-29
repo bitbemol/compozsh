@@ -92,6 +92,12 @@ try {
   await page.locator('#demo-query').fill('docs');
   await page.locator('#demo-query').press('Enter');
   assert.match(await page.locator('#demo-output').innerText(), /feature\/docs/);
+  await page.getByLabel('Example', { exact: true }).selectOption('git-review');
+  assert.equal(await page.locator('#git-review-demo').isVisible(), true);
+  assert.ok(await page.locator('.review-file-row').count() >= 3);
+  assert.ok(await page.locator('.review-line.added').count() >= 1);
+  assert.ok(await page.locator('.review-line.removed').count() >= 1);
+  assert.match(await page.locator('.review-file-row.selected').innerText(), /README\.md/);
   await page.getByRole('tab', { name: 'Tools', exact: true }).click();
   assert.equal(await page.getByLabel('Example', { exact: true }).isVisible(), false,
     'Specialized options should only appear inside relevant tasks');
@@ -166,6 +172,23 @@ try {
       const bounds = list.getBoundingClientRect();
       return [...list.children].every(row => row.getBoundingClientRect().bottom <= bounds.bottom + 1);
     }), `File actions fit at ${width}px`);
+    await page.getByRole('tab', { name: 'Git', exact: true }).click();
+    await page.getByLabel('Example', { exact: true }).selectOption('git-review');
+    const reviewGeometry = await page.locator('.review-workspace').evaluate(workspace => {
+      const bounds = workspace.getBoundingClientRect();
+      const files = document.querySelector('#review-files').getBoundingClientRect();
+      const reader = document.querySelector('.review-reader').getBoundingClientRect();
+      return {
+        contained: files.left >= bounds.left - 1 && files.right <= bounds.right + 1 &&
+          reader.left >= bounds.left - 1 && reader.right <= bounds.right + 1,
+        readable: reader.width >= Math.min(180, bounds.width),
+      };
+    });
+    assert.ok(reviewGeometry.contained && reviewGeometry.readable,
+      `Git review panes must reflow inside the terminal at ${width}px`);
+    if (screenshots && width === 1440) {
+      await page.locator('.terminal').screenshot({ path: `${screenshots}/git-review-terminal.png` });
+    }
     assert.ok(Math.max(...heights) - Math.min(...heights) <= 1,
       `Switching tasks should not move the terminal frame at ${width}px`);
     await page.getByRole('tab', { name: 'Files', exact: true }).click();

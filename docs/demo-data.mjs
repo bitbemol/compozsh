@@ -83,7 +83,7 @@ export const scenes = {
     ],
   },
   'navigate-git': {
-    mode: 'git', command: 'g', title: 'Branches', query: '',
+    mode: 'git', label: 'Switch branches', command: 'g', title: 'Branches', query: '',
     scope: 'example-app · recent local checkouts', input: 'Filter branches',
     benefit: 'Pick up on another branch.',
     description: 'Inspect recent local branches, tip commits and upstreams in a responsive workspace. Enter switches; Ctrl-Y copies the branch name.',
@@ -92,6 +92,48 @@ export const scenes = {
     items: ['main', 'feature/docs', 'feature/search', 'fix/prompt'].map((label) => ({
       label, preview: `Branch: ${label}\nTip: a1b2c3d · Refine example layout\nUpstream: origin/${label}\nIn Zsh, Enter switches. Browser preview only.`,
     })),
+  },
+  'git-review': {
+    mode: 'git', label: 'Review changes', layout: 'review', command: 'g → Ctrl-X',
+    title: 'Working changes', query: '', scope: 'Working changes · read-only snapshot',
+    input: 'Filter files', benefit: 'Review the change. Keep your flow.',
+    description: 'A focused file navigator and independently scrollable reader bring working changes into one native workspace. Ctrl-R refreshes the snapshot while you review AI or editor work.',
+    hint: 'In Zsh: → focuses the diff; → again reveals full-file context; Ctrl-R refreshes.',
+    docs: `${readme}read-only-git-review`,
+    items: [
+      {
+        label: 'README.md', status: 'Unstaged M', preview: [
+          { old: '2171', next: '2171', kind: 'context', text: 'The selected file stays anchored while the reader moves.' },
+          { old: '2172', next: '', kind: 'removed', text: 'Ctrl-R refreshes the selected snapshot.' },
+          { old: '', next: '2172', kind: 'added', text: 'Ctrl-R refreshes the file list and selected diff.' },
+          { old: '', next: '2173', kind: 'added', text: 'Focus and source position remain visible.' },
+          { old: '2173', next: '2174', kind: 'context', text: 'Arrow disclosure keeps the same selected file.' },
+        ],
+      },
+      {
+        label: '.zsh.addons/.zsh.git-review', status: 'Unstaged M', preview: [
+          { old: '812', next: '812', kind: 'context', segments: [
+            { text: 'local', token: 'keyword' }, { text: ' selected_path=$1', token: 'text' },
+          ] },
+          { old: '813', next: '', kind: 'removed', text: '_git_review_capture "$selected_path"' },
+          { old: '', next: '813', kind: 'added', segments: [
+            { text: '_git_review_refresh', token: 'function' }, { text: ' "$selected_path"', token: 'string' },
+          ] },
+          { old: '814', next: '814', kind: 'context', segments: [
+            { text: 'return', token: 'keyword' }, { text: ' $?', token: 'variable' },
+          ] },
+        ],
+      },
+      {
+        label: 'tests/git_refresh_test.zsh', status: 'New', preview: [
+          { old: '', next: '1', kind: 'added', text: '# Refresh retains the selected path and reading anchor.' },
+          { old: '', next: '2', kind: 'added', segments: [
+            { text: 'test_case', token: 'function' }, { text: " 'Git workspace refreshes safely'", token: 'string' },
+          ] },
+          { old: '', next: '3', kind: 'added', text: '  _test_git_refresh_workspace' },
+        ],
+      },
+    ],
   },
   tools: {
     mode: 'tools', command: 'compozsh', title: 'Compozsh tools', query: '',
