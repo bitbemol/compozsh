@@ -123,9 +123,11 @@ The declared minimum Zsh version is a product boundary, not a suggestion:
 - Treat the Zsh version included with the latest generally available macOS as
   the compatibility ceiling. Never require Homebrew, MacPorts, or a
   user-compiled replacement shell merely to run Compozsh.
-- Review the declared minimum and newly available native features with each
-  major macOS release. Do not adopt upstream-only Zsh behavior until Apple
-  ships it in a generally available macOS release.
+- Review the declared minimum and newly available native features after macOS
+  major updates and relevant point releases. Use the repository-scoped
+  `compozsh-platform-review` skill for this evidence-gathering pass. Do not
+  adopt upstream-only Zsh behavior until Apple ships it in a generally
+  available macOS release.
 - Do not add compatibility branches, polyfills, or lowest-common-denominator
   syntax for Zsh releases older than the declared minimum.
 - Prefer a newer native mechanism only when it concretely improves correctness,
@@ -171,6 +173,12 @@ configuration base.
   runner free of third-party dependencies.
 - `AGENTS.md` defines engineering conventions. Update it when an intentional
   architectural rule changes, not for ordinary implementation details.
+- `.agents/skills/compozsh-platform-review/` is the repository-scoped,
+  read-only platform audit. Keep its trigger description narrow, its inventory
+  deterministic and free of personal data, and its recommendations separated
+  from implementation authority. Update it when the native-platform contract,
+  audit evidence lanes, compatibility gates, or report workflow changes. Do
+  not commit generated platform snapshots automatically.
 - `LICENSE` is the canonical, unmodified GNU GPL version 3 text. The repository
   is distributed under `GPL-3.0-or-later`; keep the README declaration and SPDX
   identifier synchronized with it. Do not add contradictory licensing terms or

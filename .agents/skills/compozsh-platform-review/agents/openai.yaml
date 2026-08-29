@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compozsh Platform Review"
+  short_description: "Audit new native macOS opportunities"
+  default_prompt: "Use $compozsh-platform-review to audit this updated Mac for safe first-party Compozsh improvements."

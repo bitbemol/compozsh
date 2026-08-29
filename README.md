@@ -172,6 +172,10 @@ Repository layout:
 
 ```text
 compozsh/
+├── .agents/skills/        repository-scoped agent workflows
+│   └── compozsh-platform-review/
+│       ├── SKILL.md       first-party macOS modernization audit
+│       └── scripts/       privacy-safe native platform inventory
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.shell         shell options, history, and native tool colors
@@ -282,6 +286,40 @@ This is modern-first, not novelty-first. A newer mechanism must provide a
 concrete benefit and pass the same correctness, safety, and performance checks
 as any other change. Minimum-version increases are documented as breaking
 changes so users can make an informed upgrade.
+
+### Review a new macOS release
+
+The repository ships a `compozsh-platform-review` agent skill for deliberate
+reviews after macOS major, minor, or patch updates. Codex discovers it from the
+repository's `.agents/skills` directory when a task is opened anywhere inside
+the clone. Invoke it manually after updating:
+
+```text
+$compozsh-platform-review Audit this Mac after the macOS update and recommend evidence-backed Compozsh improvements.
+```
+
+The audit compares Apple's bundled Zsh, Terminal.app, and default command-line
+tools with the current product. It separates locally observed capabilities,
+official release documentation, and inferred opportunities; then evaluates
+correctness, security, performance, UI ergonomics, code deletion and
+architectural simplification. The default result is a read-only recommendation
+report. It does not update software, change preferences, edit Compozsh, or
+recommend third-party dependencies.
+
+An exact before/after inventory is optional. Before upgrading, save one outside
+the repository:
+
+```sh
+/bin/zsh .agents/skills/compozsh-platform-review/scripts/snapshot-platform.zsh \
+  --output "$HOME/Documents/compozsh-platform-before.tsv"
+```
+
+After upgrading, include that file in the skill request. Without a baseline the
+skill still uses the current system, primary release sources, local man pages,
+isolated probes and measured prototypes, while disclosing the missing exact
+comparison. Snapshots omit personal paths, names, host data, preferences and
+hardware identifiers. The structure follows the current
+[OpenAI skill guidance](https://learn.chatgpt.com/docs/build-skills).
 
 ## Installation
 
