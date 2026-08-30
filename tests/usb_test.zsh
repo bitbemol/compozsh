@@ -680,9 +680,9 @@ _test_usb_compare_treats_cmp_as_authoritative() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
     _usb_unmount() { return 0; }
-    typeset -ga statuses=()
+    typeset -ga statuses=() calls=()
     _usb_cmp_run() {
-      print -r -- "cmp:$*"
+      calls+=("$*")
       local rc=${statuses[1]:-0}
       shift statuses
       return $rc
@@ -692,15 +692,12 @@ _test_usb_compare_treats_cmp_as_authoritative() {
     _usb_compare_written_image /images/linux.iso disk7 20000
     print -r -- "full:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
 
-    statuses=(1 0 0)
+    calls=() statuses=(1 0 0)
     _usb_compare_written_image /images/linux.iso disk7 20000
     print -r -- "metadata:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+    print -r -- "metadata-calls:${(j:|:)calls}"
 
     statuses=(1 1)
-    _usb_compare_written_image /images/linux.iso disk7 20000
-    print -r -- "boot:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-
-    statuses=(1 0 1)
     _usb_compare_written_image /images/linux.iso disk7 20000
     print -r -- "payload:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
 
@@ -711,17 +708,73 @@ _test_usb_compare_treats_cmp_as_authoritative() {
 
   test_assert_contains "$output" 'full:0|full|' \
     'an exact full-image comparison was not retained as the strongest result' || return
-  test_assert_contains "$output" 'metadata:0|payload-and-boot-code|metadata-diff' \
-    'documented partition-metadata changes were not distinguished from full equality' || return
-  test_assert_contains "$output" 'boot:1||mismatch' \
-    'a changed boot-code region was accepted as harmless metadata' || return
+  test_assert_contains "$output" 'metadata:0|boot-and-stable-payload|metadata-diff' \
+    'the documented mutable 17,408-byte prefix caused a false USB failure' || return
+  test_assert_contains "$output" 'metadata-calls:-n 20000 /dev/rdisk7 /images/linux.iso|-n 440 /dev/rdisk7 /images/linux.iso|-n 2592 -i 17408 /dev/rdisk7 /images/linux.iso' \
+    'the fallback did not compare the complete stable payload after the documented prefix' || return
+  [[ $output != *'-n 446 '* ]] || {
+    test_fail 'verification treated the mutable MBR disk signature as boot code'
+    return
+  }
   test_assert_contains "$output" 'payload:1||mismatch' \
     'a changed installer payload was accepted' || return
   test_assert_contains "$output" 'read:2||drive-read-failed' \
     'an operational compare failure was mislabeled as a data mismatch'
 }
-test_case 'USB verification uses full cmp with a qualified metadata fallback' \
+test_case 'USB verification follows the documented 17,408-byte metadata boundary' \
   _test_usb_compare_treats_cmp_as_authoritative
+
+_test_usb_compare_uses_real_byte_boundaries() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
+  local output=''
+  test_write_file "$source_image" "${(l:20000::a:)}" || return
+  command /bin/cp "$source_image" "$target_image" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source_image=$2 target_image=$3
+    _usb_cmp_run() {
+      local -a arguments=("$@")
+      local -i index=0
+      for (( index = 1; index <= ${#arguments}; ++index )); do
+        [[ ${arguments[index]} == /dev/rdisk7 ]] && arguments[index]=$target_image
+      done
+      command /usr/bin/cmp "${arguments[@]}"
+    }
+    mutate_byte() {
+      print -rn -- X | command /bin/dd of="$target_image" bs=1 seek="$1" conv=notrunc 2>/dev/null
+    }
+    reset_target() { command /bin/cp "$source_image" "$target_image"; }
+
+    _usb_compare_written_image "$source_image" disk7 20000
+    print -r -- "exact:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target; mutate_byte 440
+    _usb_compare_written_image "$source_image" disk7 20000
+    print -r -- "signature:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target; mutate_byte 500
+    _usb_compare_written_image "$source_image" disk7 20000
+    print -r -- "partition:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target; mutate_byte 439
+    _usb_compare_written_image "$source_image" disk7 20000
+    print -r -- "boot:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target; mutate_byte 17408
+    _usb_compare_written_image "$source_image" disk7 20000
+    print -r -- "payload:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image") || return
+
+  test_assert_contains "$output" 'exact:0|full|' \
+    'real cmp did not accept an exact image-sized copy' || return
+  test_assert_contains "$output" 'signature:0|boot-and-stable-payload|metadata-diff' \
+    'mutable MBR disk-signature bytes caused a false USB failure' || return
+  test_assert_contains "$output" 'partition:0|boot-and-stable-payload|metadata-diff' \
+    'mutable partition metadata caused a false USB failure' || return
+  test_assert_contains "$output" 'boot:1||mismatch' \
+    'real cmp accepted corruption in the preserved 440-byte boot-code region' || return
+  test_assert_contains "$output" 'payload:1||mismatch' \
+    'real cmp accepted corruption at the stable-payload boundary'
+}
+test_case 'USB verification proves real boot, metadata, and payload byte boundaries' \
+  _test_usb_compare_uses_real_byte_boundaries
 
 _test_usb_diagnostic_hashes_cannot_contradict_cmp_success() {
   test_make_temp_dir || return
@@ -1455,7 +1508,16 @@ _test_usb_failure_screen_separates_image_and_drive_evidence() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    _usb_result_choose() { print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"; }
+    _usb_choose() {
+      local specification="" role=""
+      local -a roles=()
+      for specification in "${_USB_PICKER_HIGHLIGHTS[@]}"; do
+        [[ -n $specification ]] && role=${specification##*:} || role=""
+        roles+=("$role")
+      done
+      print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"
+      print -r -- "roles:${(j:|:)roles}|semantic:${6:-0}"
+    }
     _USB_RESULT_OUTCOME=failed
     _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
     _USB_RESULT_ERROR="The image was written, but the finished USB could not be read completely for verification."
@@ -1472,12 +1534,25 @@ _test_usb_failure_screen_separates_image_and_drive_evidence() {
     _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM=${(l:64::b:)}
     _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=${(l:64::c:)}
     _usb_result_screen 1
+
+    _USB_RESULT_EXPECTED_CHECKSUM=${(l:64::d:)}
+    _USB_RESULT_IMAGE_CHECKSUM=$_USB_RESULT_EXPECTED_CHECKSUM
+    _USB_RESULT_CHECKSUM_VALIDATED=1 _USB_RESULT_VERIFY_REASON=mismatch
+    _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM="" _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=""
+    _USB_RESULT_ERROR="The finished USB stable payload differs from the selected image."
+    _usb_result_screen 1
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · Could not read the finished drive' \
     'a verified image and unreadable USB were collapsed into a checksum mismatch' || return
   test_assert_contains "$output" 'Image integrity · Not verified · no checksum provided|USB verification · FAILED · confirmed byte mismatch' \
-    'no-checksum image state and a true USB mismatch were not reported independently'
+    'no-checksum image state and a true USB mismatch were not reported independently' || return
+  test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · FAILED · stable payload differs' \
+    'a verified ISO and a USB payload mismatch fell through to a generic incomplete state' || return
+  test_assert_contains "$output" 'roles:|picker-error|picker-success|picker-error|picker-success|semantic:1' \
+    'the failure result screen did not distinguish failure, verified image, and safe eject semantically' || return
+  [[ $output != *'mismatch|USB verification · Could not complete'* ]] ||
+    test_fail 'a confirmed mismatch was presented as an incomplete verification'
 }
 test_case 'USB result screen separates image integrity from USB fidelity' \
   _test_usb_failure_screen_separates_image_and_drive_evidence

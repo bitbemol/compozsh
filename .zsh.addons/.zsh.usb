@@ -1503,10 +1503,10 @@ _usb_compare_written_image() {
     (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
   esac
 
-  # macOS can rewrite partition-geometry metadata. Never blanket-ignore the
-  # prefix: preserve the 446-byte boot-code region, then verify every payload
-  # byte after the bounded 34-sector metadata area.
-  _usb_cmp_run -n 446 "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  # Preserve the real 440-byte MBR boot-code area. Bytes 440..17407 contain the
+  # MBR disk signature/reserved fields plus partition/GPT geometry that macOS
+  # may adapt to the physical device. Then verify every stable payload byte.
+  _usb_cmp_run -n 440 "/dev/r${identifier}" "$image" >/dev/null 2>&1
   compare_status=$?
   case $compare_status in
     (0) ;;
@@ -1518,7 +1518,7 @@ _usb_compare_written_image() {
   compare_status=$?
   case $compare_status in
     (0)
-      _USB_PAYLOAD_VERIFY_SCOPE=payload-and-boot-code
+      _USB_PAYLOAD_VERIFY_SCOPE=boot-and-stable-payload
       _USB_PAYLOAD_VERIFY_ERROR=metadata-diff
       return 0 ;;
     (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
@@ -1747,7 +1747,7 @@ _usb_execute() {
       _USB_RESULT_OUTCOME=failed
       case $_USB_RESULT_VERIFY_REASON in
         (mismatch)
-          _USB_RESULT_ERROR='The finished USB payload differs from the selected image.' ;;
+          _USB_RESULT_ERROR='The finished USB stable payload differs from the selected image.' ;;
         (drive-read-failed)
           _USB_RESULT_ERROR='The image was written, but the finished USB could not be read completely for verification.' ;;
         (image-read-failed)
@@ -1780,7 +1780,7 @@ _usb_execute() {
 
 _usb_result_choose() {
   emulate -L zsh
-  _usb_choose "$1" "$2" 'Done'
+  _usb_choose "$1" "$2" 'Done' 0 0 1
 }
 
 _usb_result_screen() {
@@ -1788,6 +1788,7 @@ _usb_result_screen() {
   local result_status=${1:-1} size_label='' duration_label=''
   local verification_label='' eject_label=''
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
+  local -a _USB_PICKER_HIGHLIGHTS=()
   local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
   if (( result_status == 0 )) && [[ $_USB_RESULT_OUTCOME == complete ]]; then
     _usb_human_size $_USB_RESULT_BYTES
@@ -1796,8 +1797,8 @@ _usb_result_screen() {
     duration_label=$REPLY
     if (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == full ]]; then
       verification_label='USB verification · Full image byte-for-byte matched'
-    elif (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == payload-and-boot-code ]]; then
-      verification_label='USB verification · Boot code and payload matched · partition metadata differs'
+    elif (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == boot-and-stable-payload ]]; then
+      verification_label='USB verification · Boot code and stable payload matched · disk metadata differs'
     elif (( _USB_RESULT_VERIFIED )); then
       verification_label='USB verification · Selected image bytes matched'
     else
@@ -1809,20 +1810,32 @@ _usb_result_screen() {
       '[ Done ]'
       "Flash complete · $size_label written"
       "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}")
+    _USB_PICKER_HIGHLIGHTS=(
+      "0:${#_USB_PICKER_LABELS[1]}:picker-success"
+      "0:${#_USB_PICKER_LABELS[2]}:picker-success"
+      '')
     _USB_PICKER_SEARCH=(done complete time)
     _USB_PICKER_DETAILS=('' '' '')
     _USB_PICKER_VALUES+=(image-checksum)
     if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
       _USB_PICKER_LABELS+=("Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
+      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-success")
       _USB_PICKER_SEARCH+=('image integrity checksum matched')
       _USB_PICKER_DETAILS+=("Provided checksum matched"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
     else
       _USB_PICKER_LABELS+=('Image integrity · Not verified · no checksum provided')
+      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
       _USB_PICKER_SEARCH+=('image integrity not verified no checksum')
       _USB_PICKER_DETAILS+=('No checksum was provided. USB verification establishes fidelity to this local image, but does not establish the local image’s origin.')
     fi
     _USB_PICKER_VALUES+=(verify eject)
     _USB_PICKER_LABELS+=("$verification_label" "$eject_label")
+    if (( _USB_RESULT_VERIFIED )); then
+      _USB_PICKER_HIGHLIGHTS+=("0:${#verification_label}:picker-success")
+    else
+      _USB_PICKER_HIGHLIGHTS+=('')
+    fi
+    _USB_PICKER_HIGHLIGHTS+=("0:${#eject_label}:picker-success")
     _USB_PICKER_SEARCH+=(verified safe)
     if [[ -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
       _USB_PICKER_DETAILS+=("Finished-drive payload checksum"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM"$'\n\n''Matches the selected image after excluding the mutable 17,408-byte prefix.' '')
@@ -1842,30 +1855,39 @@ _usb_result_screen() {
     _USB_PICKER_LABELS=(
       '[ Done ]'
       "Flash failed · ${_USB_RESULT_ERROR:-The operation did not complete.}")
+    _USB_PICKER_HIGHLIGHTS=(
+      ''
+      "0:${#_USB_PICKER_LABELS[2]}:picker-error")
     _USB_PICKER_SEARCH=(done failed)
     _USB_PICKER_DETAILS=('' '')
     _USB_PICKER_VALUES+=(image-integrity)
     if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
       _USB_PICKER_LABELS+=("Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
+      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-success")
       _USB_PICKER_SEARCH+=('image integrity checksum verified matched')
       _USB_PICKER_DETAILS+=("Provided checksum matched before writing"$'\n\n'"Expected"$'\n'"$_USB_RESULT_EXPECTED_CHECKSUM"$'\n\n'"Actual"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
     elif [[ -n $_USB_RESULT_EXPECTED_CHECKSUM ]]; then
       _USB_PICKER_LABELS+=("Image integrity · FAILED · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM did not match")
+      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
       _USB_PICKER_SEARCH+=('image integrity checksum failed expected actual')
       _USB_PICKER_DETAILS+=("Expected"$'\n'"$_USB_RESULT_EXPECTED_CHECKSUM"$'\n\n'"Actual"$'\n'"${_USB_RESULT_IMAGE_CHECKSUM:-unavailable}")
     else
       _USB_PICKER_LABELS+=('Image integrity · Not verified · no checksum provided')
+      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
       _USB_PICKER_SEARCH+=('image integrity not verified no checksum')
       _USB_PICKER_DETAILS+=('The selected local image had no provided checksum. Finished-drive comparison can validate the copy, but cannot establish the image’s origin.')
     fi
     if [[ $_USB_RESULT_VERIFY_REASON == mismatch && -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
       _USB_PICKER_VALUES+=(payload-checksum)
       _USB_PICKER_LABELS+=("USB verification · FAILED · confirmed byte mismatch")
+      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
       _USB_PICKER_SEARCH+=('payload checksum mismatch')
       _USB_PICKER_DETAILS+=("Image payload"$'\n'"$_USB_RESULT_IMAGE_PAYLOAD_CHECKSUM"$'\n\n'"Finished-drive payload"$'\n'"$_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM")
     elif [[ -n $_USB_RESULT_VERIFY_REASON ]]; then
       _USB_PICKER_VALUES+=(verification-error)
       case $_USB_RESULT_VERIFY_REASON in
+        (mismatch)
+          _USB_PICKER_LABELS+=('USB verification · FAILED · stable payload differs') ;;
         (drive-read-failed)
           _USB_PICKER_LABELS+=('USB verification · Could not read the finished drive') ;;
         (image-read-failed)
@@ -1879,11 +1901,19 @@ _usb_result_screen() {
         (*)
           _USB_PICKER_LABELS+=('USB verification · Could not complete') ;;
       esac
+      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
       _USB_PICKER_SEARCH+=('usb verification read error recovery')
       _USB_PICKER_DETAILS+=("Verification reason"$'\n'"$_USB_RESULT_VERIFY_REASON"$'\n\n'"${_USB_RESULT_ERROR:-No additional diagnostic was retained.}")
     fi
     _USB_PICKER_VALUES+=(eject)
     _USB_PICKER_LABELS+=("$eject_label")
+    if (( _USB_RESULT_EJECTED )); then
+      _USB_PICKER_HIGHLIGHTS+=("0:${#eject_label}:picker-success")
+    elif (( _USB_RESULT_STARTED )); then
+      _USB_PICKER_HIGHLIGHTS+=("0:${#eject_label}:picker-error")
+    else
+      _USB_PICKER_HIGHLIGHTS+=('')
+    fi
     _USB_PICKER_SEARCH+=(recovery)
     _USB_PICKER_DETAILS+=('')
     _usb_result_choose 'Flash USB · Couldn’t complete' 'Image  ›  Drive  ›  FAILED'
@@ -2056,12 +2086,13 @@ _compozsh_help_flash-usb() {
     '' \
     'Verification boundary:' \
     '  Native cmp first checks every image byte, including boot metadata. If that' \
-    '  full comparison differs, a qualified fallback requires the first 446 boot-' \
-    '  code bytes and every byte after the first 17,408 bytes (34 sectors) of' \
-    '  partition metadata to' \
-    '  match. Only that bounded middle area may differ because macOS can rewrite' \
-    '  physical-disk geometry; the final screen states that partition metadata' \
-    '  differs instead of claiming full-image equality. With SHA-256 or SHA-512,' \
+    '  full comparison differs, the macOS fallback preserves the first 440 bytes' \
+    '  of MBR boot code, allows only disk-signature and partition/GPT metadata' \
+    '  within the bounded first 17,408 bytes (through byte 17,407) to differ,' \
+    '  and requires every later image' \
+    '  byte to match. The final screen states that boot code and stable payload' \
+    '  matched instead of claiming full-image' \
+    '  equality. With SHA-256 or SHA-512,' \
     '  payload digests are retained as supporting evidence, while cmp remains the' \
     '  authoritative exact-length result. Read errors are never called mismatches.' \
     '' \

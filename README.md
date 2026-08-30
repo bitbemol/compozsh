@@ -2033,14 +2033,16 @@ notifications so subprocess messages do not overwrite the frame.
 
 Read-back always uses Apple’s `cmp` as the authoritative exact-length check and
 first compares the complete image, including boot metadata. If macOS has changed
-partition geometry, a qualified fallback requires the first 446 bytes of boot
-code and every byte after the 17,408-byte partition-metadata area to match. The
-final screen then says that boot code and payload matched while partition
-metadata differs; it does not claim full-image equality. With SHA-256 or
-SHA-512, the same algorithm also derives payload digests from the source and
-finished drive as supporting evidence. Missing paths, short reads, permission
-failures, and native comparison errors are reported as read/verification errors,
-never as data mismatches.
+partition geometry, the macOS fallback still requires the real MBR boot-code
+area at bytes 0–439 to match. It allows only the MBR disk signature, reserved
+fields, partition table, and GPT metadata from bytes 440 through 17,407 to
+differ, then requires every remaining image byte to match. The final screen says
+that boot code and stable payload matched while bounded disk metadata differs;
+it does not claim full-image equality. A supplied publisher checksum still
+validates every byte of the source image before and after writing. SHA-256 or
+SHA-512 payload digests are retained as supporting evidence. Missing paths,
+short reads, permission failures, and native comparison errors are reported as
+read/verification errors, never as data mismatches.
 
 The target is ejected after success, and an eject is attempted after write or
 verification failure. A final screen remains until **Done** and reports bytes
