@@ -192,7 +192,12 @@ _usb_windows_installer_detect() {
       command /bin/rmdir "$mount_point" 2>/dev/null || cleanup_status=1
     fi
   }
-  (( attach_status == 0 && cleanup_status == 0 )) || return 2
+  # Inspection is optional for an ISO that can still be written as a raw disk
+  # image. A mount refusal therefore means "not identified as Windows". Once
+  # hdiutil did attach a device, however, failed cleanup is a hard stop because
+  # the probe no longer owns a known-clean temporary state.
+  (( cleanup_status == 0 )) || return 2
+  (( attach_status == 0 )) || return 1
   return $detected
 }
 

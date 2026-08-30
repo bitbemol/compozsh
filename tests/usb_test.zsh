@@ -71,6 +71,23 @@ _test_usb_windows_detection_is_structural_and_always_detaches() {
 test_case 'USB Windows detection uses setup markers and always detaches its probe' \
   _test_usb_windows_detection_is_structural_and_always_detaches
 
+_test_usb_unmountable_iso_remains_raw_flashable() {
+  test_make_temp_dir || return
+  local iso="$TEST_TMP_DIR/linux-hybrid.iso" output=''
+  test_write_file "$iso" "${(l:20000::l:)}" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_hdiutil_attach_readonly() { return 1; }
+    _usb_media_kind_capture "$2"
+    print -r -- "status:$?|kind:$REPLY|error:$_USB_MEDIA_ERROR"
+  ' "$TEST_REPO_ROOT" "$iso") || return
+
+  test_assert_contains "$output" 'status:0|kind:raw-image|error:' \
+    'an ISO that macOS cannot mount was blocked instead of remaining raw-flashable'
+}
+test_case 'USB classifier keeps an unmountable hybrid ISO eligible for raw flashing' \
+  _test_usb_unmountable_iso_remains_raw_flashable
+
 _test_usb_capture_accepts_full_macos_installer_apps() {
   test_make_temp_dir || return
   local installer="$TEST_TMP_DIR/Install macOS Tahoe.app" output=''
