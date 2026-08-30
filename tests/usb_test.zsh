@@ -521,11 +521,11 @@ _test_usb_plist_capture_uses_whole_disk_facts() {
     _usb_disk_list_read() { _USB_PLIST=$list_plist; }
     _usb_disk_ids_capture || exit 2
     print -r -- "ids:${(j:,:)_USB_DISK_IDS}"
-    info_plist="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>DeviceIdentifier</key><string>disk7</string><key>ParentWholeDisk</key><string>disk7</string><key>TotalSize</key><integer>64000000000</integer><key>MediaName</key><string>External SSD</string><key>BusProtocol</key><string>Thunderbolt</string><key>Internal</key><false/><key>VirtualOrPhysical</key><string>Physical</string><key>WholeDisk</key><true/><key>WritableMedia</key><true/><key>DeviceTreePath</key><string>IOService:/fixture</string></dict></plist>"
+    info_plist="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>DeviceIdentifier</key><string>disk7</string><key>ParentWholeDisk</key><string>disk7</string><key>TotalSize</key><integer>64000000000</integer><key>DeviceBlockSize</key><integer>4096</integer><key>MediaName</key><string>External SSD</string><key>BusProtocol</key><string>Thunderbolt</string><key>Internal</key><false/><key>VirtualOrPhysical</key><string>Physical</string><key>WholeDisk</key><true/><key>WritableMedia</key><true/><key>DeviceTreePath</key><string>IOService:/fixture</string></dict></plist>"
     _usb_disk_info_read() { _USB_PLIST=$info_plist; }
     _usb_disk_info_capture disk7 || exit 3
     _usb_info_is_eligible || exit 4
-    print -r -- "info:${_USB_INFO_ID}|${_USB_INFO_SIZE}|${_USB_INFO_NAME}|${_USB_INFO_PROTOCOL}|${_USB_INFO_FINGERPRINT}"
+    print -r -- "info:${_USB_INFO_ID}|${_USB_INFO_SIZE}|${_USB_INFO_BLOCK_SIZE}|${_USB_INFO_NAME}|${_USB_INFO_PROTOCOL}|${_USB_INFO_FINGERPRINT}"
     _usb_image_filesystem_device_capture() { _USB_IMAGE_DEVICE=/dev/disk7s2; }
     _usb_image_source_disk_capture /images/linux.iso || exit 5
     print -r -- "source:${_USB_IMAGE_SOURCE_DISK}"
@@ -534,7 +534,7 @@ _test_usb_plist_capture_uses_whole_disk_facts() {
   test_assert_contains "$output" 'ids:disk7,disk9' \
     'diskutil list plist did not exclude partition slices' || return
   test_assert_contains "$output" \
-    'info:disk7|64000000000|External SSD|Thunderbolt|disk7|64000000000|External SSD|Thunderbolt|IOService:/fixture' \
+    'info:disk7|64000000000|4096|External SSD|Thunderbolt|disk7|64000000000|External SSD|Thunderbolt|IOService:/fixture' \
     'diskutil info plist did not retain external physical disk identity' || return
   test_assert_contains "$output" 'source:disk7' \
     'selected image filesystem did not resolve to its parent whole disk'
@@ -1865,13 +1865,13 @@ _test_usb_execution_preserves_failures_and_ejects() {
     _usb_eject() { trace+=(eject); return ${eject_status:-0}; }
 
     verify_status=9
-    _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100000 flash-verify >/dev/null 2>&1
+    _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100352 flash-verify >/dev/null 2>&1
     print -r -- "verify-status:$?|${(j:,:)trace}"
     trace=() verify_status=0 write_status=7
-    _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100000 flash-verify >/dev/null 2>&1
+    _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100352 flash-verify >/dev/null 2>&1
     print -r -- "write-status:$?|${(j:,:)trace}|$_USB_RESULT_ERROR"
     trace=() write_status=0
-    _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100000 flash-verify disk7 >/dev/null 2>&1
+    _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100352 flash-verify disk7 >/dev/null 2>&1
     print -r -- "source-status:$?|${(j:,:)trace}"
   ' "$TEST_REPO_ROOT") || return
 
@@ -2113,7 +2113,7 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
     _usb_raw_write_script_capture || exit
     script=$REPLY
     command /bin/zsh -fc "$script" compozsh-write-test \
-      "$2" "$3" 16 31 1 2>| "$6"
+      "$2" "$3" 16 31 1 1 2>| "$6"
     session_status=$?
     command /bin/dd if="$3" of="$7" bs=512 count=16 status=none || exit
     command /bin/dd if="$3" of="$8" bs=512 skip=16 count=15 status=none || exit
@@ -2124,11 +2124,19 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
     middle_status=$?
     command /usr/bin/cmp -s "$5" "$9"
     tail_status=$?
+    command /bin/zsh -fc "$script" compozsh-write-mismatch \
+      "$2" "$3" 16 15 1 1 512 2>/dev/null
+    mismatch_status=$?
+    command /bin/zsh -fc "$script" compozsh-write-source-size \
+      "$2" "$3" 15 0 0 1 512 2>/dev/null
+    source_status=$?
     size=$(command /usr/bin/stat -f "%z" "$3") || exit
     diagnostic=$(<"$6")
     diagnostic=${diagnostic//$'\r'/$'\n'}
     print -r -- "status:$session_status|size:$size|prefix:$prefix_status|middle:$middle_status|tail:$tail_status"
     print -r -- "diagnostic:${(j:|:)${(f)diagnostic}}"
+    print -r -- "named-read:$([[ $script == *'\''if="$device"'\''* ]] && print yes || print no)"
+    print -r -- "mismatch:$mismatch_status|source:$source_status"
   ' "$TEST_REPO_ROOT" "$source_image" "$target_image" \
     "$expected_middle" "$expected_tail" "$TEST_TMP_DIR/session-stderr" \
     "$TEST_TMP_DIR/prefix" "$TEST_TMP_DIR/middle" "$TEST_TMP_DIR/tail") || return
@@ -2136,21 +2144,241 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
   test_assert_contains "$output" \
     'status:0|size:16384|prefix:0|middle:0|tail:0' \
     'the real single-descriptor writer changed bytes outside the captured image and physical-tail ranges' || return
-  test_assert_contains "$output" 'compozsh-write-stage:image' \
+  test_assert_contains "$output" \
+    'compozsh-write-stage:image' \
     'the real raw session did not identify the image-write stage' || return
-  test_assert_contains "$output" 'compozsh-write-stage:tail' \
+  test_assert_contains "$output" \
+    'compozsh-write-stage:tail' \
     'the real raw session did not identify the physical-tail cleanup stage' || return
-  [[ $output == *'compozsh-write-stage:image'*'compozsh-write-stage:tail'* ]] || {
-    test_fail 'the physical tail was modified before the captured image completed'
+  test_assert_contains "$output" \
+    'compozsh-write-stage:verify' \
+    'the real raw session did not verify before releasing its device descriptor' || return
+  test_assert_contains "$output" \
+    'compozsh-write-verified' \
+    'the real raw session did not publish exact pre-mount verification evidence' || return
+  test_assert_contains "$output" \
+    'compozsh-write-tail-verified' \
+    'the real raw session did not read back its physical-tail cleanup' || return
+  [[ $output == *'compozsh-write-stage:image'*'compozsh-write-stage:tail'*'compozsh-write-stage:verify'*'compozsh-write-verified'* ]] || {
+    test_fail 'the single raw session did not preserve image, tail, and verification order'
     return
   }
   [[ $output != *'Operation not permitted'* ]] || {
     test_fail 'the raw session tried to reopen an inherited descriptor through /dev/fd'
     return
   }
+  test_assert_contains "$output" 'named-read:yes' \
+    'Apple dd was not given the named raw device required for uncached read-back' || return
+  test_assert_contains "$output" 'mismatch:5|source:7' \
+    'the native verifier did not distinguish a byte mismatch from invalid source evidence'
 }
 test_case 'USB raw session writes exact byte ranges through one held descriptor' \
   _test_usb_raw_session_writes_exact_offsets_through_one_descriptor
+
+_test_usb_execution_uses_atomic_premount_verification() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga trace=()
+    _usb_progress_stage() { trace+=("stage:$1"); }
+    _usb_authorize() { return 0; }
+    _usb_authorization_valid() { return 0; }
+    _usb_image_revalidate() { trace+=(image-revalidate); return 0; }
+    _usb_target_revalidate() { trace+=(target-revalidate); return 0; }
+    _usb_unmount() { trace+=(unmount); return 0; }
+    _usb_write_image() {
+      trace+=(atomic-write-verify)
+      _USB_WRITE_BYTES_OBSERVED=$3
+      _USB_WRITE_VERIFIED=1
+      _USB_WRITE_VERIFY_SECONDS=3
+      return 0
+    }
+    _usb_verify_payload() { trace+=(late-verify); return 0; }
+    _usb_eject() { trace+=(eject); return 0; }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      8388608 flash-verify "" 1 >/dev/null 2>&1
+    print -r -- "status:$?|${(j:,:)trace}|verified:$_USB_RESULT_VERIFIED|scope:$_USB_RESULT_VERIFY_SCOPE|seconds:$_USB_RESULT_VERIFY_SECONDS"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'atomic-write-verify,unmount,image-revalidate' \
+    'the raw session did not finish verification before its descriptor was released' || return
+  [[ $output != *'late-verify'* ]] || {
+    test_fail 'execution reread media after macOS could auto-mount and modify it'
+    return
+  }
+  test_assert_contains "$output" \
+    'verified:1|scope:full|seconds:3' \
+    'the completion result discarded exact pre-mount verification evidence'
+}
+test_case 'USB execution uses atomic pre-mount verification evidence' \
+  _test_usb_execution_uses_atomic_premount_verification
+
+_test_usb_atomic_failure_retains_semantic_reason() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_progress_stage() { return 0; }
+    _usb_authorize() { return 0; }
+    _usb_authorization_valid() { return 0; }
+    _usb_image_revalidate() { return 0; }
+    _usb_target_revalidate() { _USB_INFO_BLOCK_SIZE=512; return 0; }
+    _usb_unmount() { return 0; }
+    _usb_write_image() {
+      _USB_WRITE_STAGE=verify
+      _USB_WRITE_BYTES_OBSERVED=$3
+      return 5
+    }
+    _usb_eject() { return 0; }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      8388608 flash-verify "" 1 >/dev/null 2>&1
+    result_status=$?
+    _usb_result_choose() { print -r -- "rows:${(j:|:)_USB_PICKER_LABELS}"; }
+    _usb_result_screen "$result_status"
+    print -r -- "status:$result_status|reason:$_USB_RESULT_VERIFY_REASON"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'status:5|reason:mismatch' \
+    'atomic mismatch lost its machine-readable verification reason' || return
+  test_assert_contains "$output" \
+    'USB verification · FAILED · installer or boot bytes differ' \
+    'atomic mismatch omitted the semantic verification failure row'
+}
+test_case 'USB atomic failure retains its semantic verification reason' \
+  _test_usb_atomic_failure_retains_semantic_reason
+
+_test_usb_atomic_verification_distinguishes_short_reads() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-short-verify" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _usb_progress_stage() { return 0; }
+    _usb_raw_write_session_run() {
+      print -u2 -r -- "compozsh-write-stage:image"
+      print -u2 -r -- "8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\r"
+      print -u2 -r -- "compozsh-write-stage:verify"
+      print -u2 -r -- "4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r"
+      return 5
+    }
+    _usb_write_image /images/linux.iso disk7 8388608 8388608 1
+    print -r -- "status:$?|write:$_USB_WRITE_BYTES_OBSERVED|read:$_USB_WRITE_VERIFY_BYTES_OBSERVED|verified:$_USB_WRITE_VERIFIED"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" \
+    'status:6|write:8388608|read:4194304|verified:0' \
+    'a short raw-device read was mislabeled as a byte mismatch'
+}
+test_case 'USB atomic verification distinguishes short reads from mismatches' \
+  _test_usb_atomic_verification_distinguishes_short_reads
+
+_test_usb_write_respects_target_logical_block_size() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-block-size" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _usb_progress_stage() { return 0; }
+    _usb_raw_write_session_run() {
+      print -r -- "args:$*"
+      print -u2 -r -- "compozsh-write-stage:image"
+      print -u2 -r -- "8192 bytes transferred in 1.0 secs (8192 bytes/sec)\r"
+    }
+    _usb_write_image /images/linux.iso disk7 8192 32768 0 4096
+    print -r -- "aligned:$?"
+    _usb_write_image /images/linux.iso disk7 10240 32768 0 4096
+    print -r -- "unaligned:$?"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" \
+    'args:/images/linux.iso disk7 16 24 40 0 4096' \
+    'physical-tail cleanup was not rounded to complete 4 KiB logical blocks' || return
+  test_assert_contains "$output" 'aligned:0' \
+    'a block-aligned image was rejected for a 4 KiB target' || return
+  test_assert_contains "$output" 'unaligned:2' \
+    'an image ending inside a 4 KiB logical block reached the raw writer'
+}
+test_case 'USB raw writer respects target logical block size' \
+  _test_usb_write_respects_target_logical_block_size
+
+_test_usb_atomic_progress_separates_write_and_verify() {
+  test_make_temp_dir || return
+  local progress_file="$TEST_TMP_DIR/atomic-progress" output=''
+  test_write_file "$progress_file" $'compozsh-write-stage:image\n8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\rcompozsh-write-stage:tail\ncompozsh-write-stage:verify\n4194304 bytes transferred in 2.0 secs (2097152 bytes/sec)\r8388608 bytes transferred in 4.0 secs (2097152 bytes/sec)\rcompozsh-write-tail-verified\ncompozsh-write-verified\n' || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_dd_progress_read "$2" 8388608 0
+    print -r -- "stage:$_USB_WRITE_STAGE|write:$_USB_WRITE_BYTES_OBSERVED|verify:$_USB_WRITE_VERIFY_BYTES_OBSERVED|verified:$_USB_WRITE_VERIFIED|detail:$REPLY"
+  ' "$TEST_REPO_ROOT" "$progress_file") || return
+
+  test_assert_contains "$output" \
+    'stage:verify|write:8388608|verify:8388608|verified:1|detail:8.0 MiB of 8.0 MiB' \
+    'atomic write and verification progress records were conflated'
+}
+test_case 'USB atomic progress separates write and verification evidence' \
+  _test_usb_atomic_progress_separates_write_and_verify
+
+_test_usb_atomic_progress_is_incrementally_bounded() {
+  test_make_temp_dir || return
+  local progress_file="$TEST_TMP_DIR/long-atomic-progress" output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    print -r -- "compozsh-write-stage:image" >| "$2" || exit
+    command /bin/dd if=/dev/zero bs=600000 count=1 status=none |
+      command /usr/bin/tr "\0" "\n" >> "$2" || exit
+    print -r -- "8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)" >> "$2" || exit
+    _usb_dd_progress_read "$2" 8388608 0
+    command /bin/dd if=/dev/zero bs=600000 count=1 status=none |
+      command /usr/bin/tr "\0" "\n" >> "$2" || exit
+    print -r -- "compozsh-write-stage:verify" >> "$2" || exit
+    print -r -- "8388608 bytes transferred in 2.0 secs (4194304 bytes/sec)" >> "$2" || exit
+    print -r -- "compozsh-write-verified" >> "$2" || exit
+    _usb_dd_progress_read "$2" 8388608 0
+    size=$(command /usr/bin/stat -f "%z" "$2") || exit
+    print -r -- "size:$size|offset:$_USB_WRITE_PROGRESS_OFFSET|write:$_USB_WRITE_BYTES_OBSERVED|verify:$_USB_WRITE_VERIFY_BYTES_OBSERVED|verified:$_USB_WRITE_VERIFIED|error:$_USB_WRITE_ERROR"
+  ' "$TEST_REPO_ROOT" "$progress_file") || return
+
+  test_assert_contains "$output" \
+    'offset:1200' \
+    'long native progress was repeatedly reparsed instead of consumed incrementally' || return
+  test_assert_contains "$output" \
+    'write:8388608|verify:8388608|verified:1|error:' \
+    'a valid combined progress stream beyond 1 MiB produced a false failure'
+}
+test_case 'USB atomic progress remains bounded beyond one MiB' \
+  _test_usb_atomic_progress_is_incrementally_bounded
+
+_test_usb_execution_rejects_unaligned_target_before_unmount() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga trace=()
+    _usb_progress_stage() { return 0; }
+    _usb_authorize() { trace+=(authorize); return 0; }
+    _usb_image_revalidate() { trace+=(image); return 0; }
+    _usb_target_revalidate() {
+      trace+=(target)
+      _USB_INFO_BLOCK_SIZE=4096
+      return 0
+    }
+    _usb_unmount() { trace+=(unmount); return 0; }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      10240 flash-verify "" 1 "" "" 32768 >/dev/null 2>&1
+    print -r -- "status:$?|trace:${(j:,:)trace}|started:$_USB_RESULT_STARTED|error:$_USB_RESULT_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'status:1|trace:image,target|started:0|' \
+    'a 4 KiB-unaligned image reached the destructive unmount boundary' || return
+  test_assert_contains "$output" '4096-byte logical blocks; nothing was written' \
+    'the alignment refusal did not explain the safe recovery state'
+}
+test_case 'USB execution refuses unaligned media before unmounting' \
+  _test_usb_execution_rejects_unaligned_target_before_unmount
 
 _test_usb_write_retains_a_bounded_native_failure() {
   test_make_temp_dir || return

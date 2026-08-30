@@ -2036,18 +2036,22 @@ the shared warning color so the target-bound confirmation is easy to spot.
 plain prompt.
 
 The raw handler uses Apple’s `diskutil unmountDisk` and `/bin/dd` against the raw
-`/dev/rdiskN` device. Input is bounded to the image’s captured 512-byte sector
-count, aggregated into 4 MiB output blocks, and completed with direct I/O plus
-an explicit filesystem sync. The target is unmounted again immediately after
-`dd`, before the source identity and provided checksum are rechecked, reducing
-the time in which macOS can auto-mount and modify a new filesystem. This
-`unmountDisk` call does not reserve the disk against a mount already in progress.
-The final `dd` byte count must
-equal the captured image size; early EOF, growth, or any incomplete transfer is
-a failure. Before writing, Compozsh zeroes up to 33 final sectors outside the
-image extent so a stale whole-disk backup GPT from the target's previous layout
-cannot conflict with the flashed image. The raw handler does not pre-format the
-target.
+`/dev/rdiskN` device. One privileged raw-device session remains open across the
+image write, filesystem sync, physical-tail cleanup, and verification. Input is
+bounded to the image’s captured 512-byte sector count and aggregated into 4 MiB
+output blocks. The final `dd` byte count must equal the captured image size;
+early EOF, growth, or any incomplete transfer is a failure. The target’s native
+logical block size is captured before unmounting and checked again afterward.
+An image or target size that cannot be written in complete logical blocks is
+refused before any target data changes.
+
+Before writing, Compozsh zeroes a logical-block-aligned range covering at least
+the final 33 sectors outside the image extent so a stale whole-disk backup GPT
+from the target's previous layout cannot conflict with the flashed image. Before
+the held session closes, Apple `dd` reopens the named raw device with uncached
+input, compares every image byte, and reads the cleared physical tail back as
+zero. Only complete write, read, comparison, and tail-cleanup evidence can
+produce success. The raw handler does not pre-format the target.
 The Step 3 screen remains visible through validation, unmount, writing,
 verification, and eject. Apple `dd status=progress` supplies transferred bytes
 once per second. Compozsh reads Apple’s live `bytes (…) transferred` records,
@@ -2057,36 +2061,27 @@ it removes the query row and bottom footer, keeps the active stage, image,
 target, progress, and disconnect warning together near the top, and uses
 semantic heading, success, information, and warning colors. The progress bar
 grows on wide terminals while remaining bounded and readable.
-Verification uses the same determinate status surface. Its uncached raw `dd`
-reader publishes the current comparison pass, bytes read, total bytes,
-percentage, and elapsed time while `cmp` remains the authoritative equality
-check. Large ranges use aligned 4 MiB reads instead of millions of 512-byte
-operations; small structural probes remain sector-precise. `shasum` emits only
-its completed digest during the separate source-integrity check.
+Verification uses the same determinate status surface inside that uninterrupted
+raw-device session. Its uncached raw `dd` reader publishes bytes read, total
+bytes, percentage, and elapsed time while `cmp` remains the authoritative
+equality check. Large ranges use aligned 4 MiB reads. The progress log is
+consumed incrementally, so long writes and readbacks remain bounded without
+discarding earlier stage context. `shasum` emits only its completed digest
+during the separate source-integrity check.
 Native subprocess status output is captured or silenced while this view owns
 the terminal, and the temporary write worker disables interactive job
 notifications so subprocess messages do not overwrite the frame.
 
-Read-back uses uncached exact raw-device reads with Apple’s `dd` and `cmp`, first
-comparing the complete image including boot metadata. A hybrid GPT may remain
-fully source-bounded inside the image extent or use a coherent backup header
-relocated to the physical final LBA. The fallback validates the applicable
-primary and backup headers, CRCs, reciprocal LBAs, disk GUID, bounded entry
-geometry, and matching partition arrays. GPT permits relocated backup entries
-to end anywhere before their header; adjacency is not assumed. A source-bounded
-layout also requires the cleared physical tail to remain zero. The fallback
-still requires MBR boot bytes 0–439, reserved bytes and partition records
-444–509, the signature at 510–511, and every compared installer byte to match;
-only the independent four-byte MBR disk identifier may differ. A non-GPT image
-receives no metadata exemption: any complete-image difference fails. The final
-screen reports **Boot bytes and installer payload matched** for that narrower
-GPT proof instead of claiming full-image equality.
-A supplied trusted checksum validates every byte of the source image before and
-after writing. If macOS wins the unmount race and changes filesystem bytes, or
-if the device write is faulty, verification fails closed rather than excluding
-broad filesystem metadata. A mismatch alone does not determine which caused it.
-Missing paths, short reads, permission failures, and native comparison errors
-are reported as read/verification errors, never as data mismatches.
+Read-back compares the complete image, including boot and filesystem metadata,
+before the held raw session releases the device. No filesystem-metadata bytes
+are exempted. A supplied trusted checksum validates every byte of the source
+image before and after writing; the raw comparison independently proves target
+fidelity to that source. Short device reads, source-read errors, byte mismatches,
+tail-cleanup mismatches, and incomplete success evidence remain distinct
+failures. After verified evidence exists and the raw session closes, macOS may
+legitimately mount and update filesystem bookkeeping before the final unmount
+and eject; that later mount-time state does not invalidate the captured
+pre-mount equality proof.
 
 The target is ejected after success, and an eject is attempted after write or
 verification failure. A final screen remains until **Done** and reports bytes

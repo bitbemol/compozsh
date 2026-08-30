@@ -179,7 +179,8 @@ _test_tool_help_explains_real_boundaries() {
         'Step 3' 'bold error red' 'bold success green' 'ERASE diskN' 'mismatch'
         'writes nothing' 'warning color' 'NO_COLOR' 'sudo' '/dev/rdiskN' '4 MiB'
         'determinate progress' 'dedicated status view' 'no query or bottom footer' 'disconnect warning' 'semantic heading' 'current comparison pass' 'aligned 4 MiB reads' 'final screen' 'average'
-        'raw handler does not pre-format' 'validates both source' 'target primary and backup headers' 'checksum' 'createinstallmedia'
+        'raw handler does not pre-format' 'held write session' 'every image byte'
+        'physical-tail cleanup' 'short reads' 'pre-mount proof' 'checksum' 'createinstallmedia'
         'Windows setup media is refused' 'Apple code signature'
         'cannot roll back' 'Examples:') ;;
       (xcode) facts=('nearest' 'workspace' 'project' 'scheme' 'destination'

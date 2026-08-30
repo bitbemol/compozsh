@@ -30,8 +30,13 @@ typeset -gi _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
 typeset -gi _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
 typeset -gi _USB_RESULT_SOURCE_VALIDATED=0
 typeset -gi _USB_WRITE_BYTES_OBSERVED=0
+typeset -gi _USB_WRITE_VERIFY_BYTES_OBSERVED=0 _USB_WRITE_VERIFY_SECONDS=0
+typeset -gi _USB_WRITE_VERIFIED=0 _USB_WRITE_TAIL_VERIFIED=0
+typeset -gi _USB_WRITE_PROGRESS_OFFSET=0
+typeset -g _USB_WRITE_PROGRESS_STAGE='' _USB_WRITE_PROGRESS_REMAINDER=''
 typeset -gi _USB_SELECTED_DISK_SIZE=0
-typeset -gi _USB_INFO_SIZE=0 _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
+typeset -gi _USB_INFO_SIZE=0 _USB_INFO_BLOCK_SIZE=512
+typeset -gi _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
 typeset -gi _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
 typeset -gi _USB_PLIST_MAX_BYTES=1048576
 typeset -gi _USB_IMAGE_MAX_PER_FOLDER=200
@@ -946,7 +951,8 @@ _usb_disk_info_capture() {
   local device_tree=''
   _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL=''
   _USB_INFO_FINGERPRINT=''
-  _USB_INFO_SIZE=0 _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
+  _USB_INFO_SIZE=0 _USB_INFO_BLOCK_SIZE=512
+  _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
   _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
   [[ $requested == disk<-> ]] || return 2
   _usb_disk_info_read "$requested" || return
@@ -956,6 +962,8 @@ _usb_disk_info_capture() {
   _USB_INFO_ID=$REPLY
   _usb_plist_optional "$plist" TotalSize 0
   _USB_INFO_SIZE=$REPLY
+  _usb_plist_optional "$plist" DeviceBlockSize 512
+  _USB_INFO_BLOCK_SIZE=$REPLY
   _usb_plist_optional "$plist" MediaName
   _USB_INFO_NAME=$REPLY
   [[ -n $_USB_INFO_NAME ]] || {
@@ -983,7 +991,9 @@ _usb_disk_info_capture() {
   _usb_plist_optional "$plist" DeviceTreePath
   device_tree=$REPLY
 
-  [[ $_USB_INFO_ID == "$requested" && $_USB_INFO_SIZE == <-> ]] || return 1
+  [[ $_USB_INFO_ID == "$requested" && $_USB_INFO_SIZE == <-> &&
+     $_USB_INFO_BLOCK_SIZE == <-> ]] || return 1
+  (( _USB_INFO_BLOCK_SIZE >= 512 && _USB_INFO_BLOCK_SIZE % 512 == 0 )) || return 1
   [[ -n $_USB_INFO_NAME && ${#_USB_INFO_NAME} -le 256 &&
      $_USB_INFO_NAME != *[[:cntrl:]]* ]] || return 1
   [[ -n $_USB_INFO_PROTOCOL && ${#_USB_INFO_PROTOCOL} -le 64 &&
@@ -1717,8 +1727,11 @@ _usb_progress_stage() {
 _usb_dd_progress_read() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local progress_file=$1 total=$2 started=$3 raw='' line='' byte_text=''
-  local -i raw_size=0 bytes=0 percent=0 elapsed=$(( SECONDS - started )) bar_width=32
+  local progress_file=$1 total=$2 started=$3 raw='' chunk='' line='' byte_text=''
+  local complete='' parse_stage=$_USB_WRITE_PROGRESS_STAGE
+  local -i progress_fd=-1 chunk_size=0 new_size=0 raw_size=0
+  local -i bytes=0 write_bytes=0 verify_bytes=0
+  local -i percent=0 elapsed=$(( SECONDS - started )) bar_width=32
   local done_label='' total_label=''
   bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
   (( bar_width < 24 )) && bar_width=24
@@ -1728,10 +1741,47 @@ _usb_dd_progress_read() {
   REPLY='Preparing the first write block…'
   [[ -f $progress_file && $total == <-> ]] || return 0
   raw_size=$(command /usr/bin/stat -f '%z' "$progress_file" 2>/dev/null) || return 0
-  (( raw_size > 0 && raw_size <= 1048576 )) || return 0
-  raw=$(<"$progress_file")
+  (( raw_size >= _USB_WRITE_PROGRESS_OFFSET )) || {
+    _USB_WRITE_ERROR='the bounded progress stream changed unexpectedly'
+    return 0
+  }
+  new_size=$(( raw_size - _USB_WRITE_PROGRESS_OFFSET ))
+  if (( new_size > 0 )); then
+    (( new_size <= 1048576 )) || {
+      _USB_WRITE_ERROR='the native writer produced too much unparsed status output'
+      return 0
+    }
+    zmodload zsh/system 2>/dev/null || return 0
+    exec {progress_fd}< "$progress_file" || return 0
+    {
+      sysseek -u "$progress_fd" "$_USB_WRITE_PROGRESS_OFFSET" || return 0
+      while (( new_size > 0 )); do
+        chunk_size=$(( new_size < 65536 ? new_size : 65536 ))
+        sysread -i "$progress_fd" -s "$chunk_size" -c chunk_size chunk || break
+        (( chunk_size > 0 )) || break
+        raw+=$chunk
+        (( _USB_WRITE_PROGRESS_OFFSET += chunk_size ))
+        (( new_size -= chunk_size ))
+      done
+    } always {
+      exec {progress_fd}<&-
+    }
+  else
+    [[ -n $_USB_WRITE_PROGRESS_REMAINDER ]] || raw=$'\n'
+  fi
+  raw=$_USB_WRITE_PROGRESS_REMAINDER$raw
   raw=${raw//$'\r'/$'\n'}
-  for line in "${(f)raw}"; do
+  if [[ $raw != *$'\n'* ]]; then
+    _USB_WRITE_PROGRESS_REMAINDER=$raw
+    return 0
+  fi
+  _USB_WRITE_PROGRESS_REMAINDER=${raw##*$'\n'}
+  if [[ -n $_USB_WRITE_PROGRESS_REMAINDER ]]; then
+    complete=${raw[1,$(( ${#raw} - ${#_USB_WRITE_PROGRESS_REMAINDER} ))]}
+  else
+    complete=$raw
+  fi
+  for line in "${(f)complete}"; do
     line=${line##[[:space:]]#}
     # Apple dd uses two native status shapes. Periodic status=progress records
     # include human-readable units between "bytes" and "transferred", while
@@ -1739,12 +1789,26 @@ _usb_dd_progress_read() {
     # interpreting any other stderr line as progress.
     if [[ $line == <->' bytes '*transferred* ]]; then
       byte_text=${line%% *}
-      [[ $byte_text == <-> ]] && bytes=$byte_text
+      if [[ $byte_text == <-> ]]; then
+        if [[ $parse_stage == verify ]]; then
+          verify_bytes=$byte_text
+        else
+          write_bytes=$byte_text
+        fi
+      fi
       continue
     fi
     case $line in
       (compozsh-write-stage:*)
-        _USB_WRITE_STAGE=${line#compozsh-write-stage:}
+        parse_stage=${line#compozsh-write-stage:}
+        _USB_WRITE_PROGRESS_STAGE=$parse_stage
+        _USB_WRITE_STAGE=$parse_stage
+        continue ;;
+      (compozsh-write-verified)
+        _USB_WRITE_VERIFIED=1
+        continue ;;
+      (compozsh-write-tail-verified)
+        _USB_WRITE_TAIL_VERIFIED=1
         continue ;;
       (''|*' records in'|*' records out') continue ;;
     esac
@@ -1752,7 +1816,15 @@ _usb_dd_progress_read() {
       _USB_WRITE_ERROR=$line
     fi
   done
-  (( bytes > _USB_WRITE_BYTES_OBSERVED )) && _USB_WRITE_BYTES_OBSERVED=$bytes
+  (( write_bytes > _USB_WRITE_BYTES_OBSERVED )) &&
+    _USB_WRITE_BYTES_OBSERVED=$write_bytes
+  (( verify_bytes > _USB_WRITE_VERIFY_BYTES_OBSERVED )) &&
+    _USB_WRITE_VERIFY_BYTES_OBSERVED=$verify_bytes
+  if [[ $_USB_WRITE_STAGE == verify ]]; then
+    bytes=$_USB_WRITE_VERIFY_BYTES_OBSERVED
+  else
+    bytes=$_USB_WRITE_BYTES_OBSERVED
+  fi
   (( bytes > total )) && bytes=$total
   (( total > 0 )) && percent=$(( bytes * 100 / total ))
   _usb_progress_bar $percent $bar_width
@@ -1785,43 +1857,101 @@ _usb_raw_write_script_capture() {
   emulate -L zsh
   REPLY='emulate -LR zsh
 zmodload zsh/system || exit
-local image=$1 device=$2 sector_count=$3 tail_seek=$4 tail_count=$5
-local -i tail_byte_offset=0
+local image=$1 device=$2 sector_count=$3 tail_seek=$4 tail_count=$5 verify=${6:-0}
+local block_size=${7:-512} image_stat_size=""
+local -a verify_status=()
+local -i tail_byte_offset=0 tail_bytes=0 tail_blocks=0 tail_block_seek=0
+local -i image_bytes=0 block_sectors=0
 [[ -f $image && ! -L $image ]] || exit 2
 [[ (-c $device || -f $device) && ! -L $device ]] || exit 2
-[[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> ]] || exit 2
+[[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> &&
+   $verify == [01] && $block_size == <-> ]] || exit 2
 (( sector_count > 0 && tail_seek >= 0 && tail_count >= 0 )) || exit 2
+(( block_size >= 512 && block_size % 512 == 0 )) || exit 2
+block_sectors=$(( block_size / 512 ))
+image_bytes=$(( sector_count * 512 ))
+(( image_bytes % block_size == 0 && tail_seek % block_sectors == 0 &&
+   tail_count % block_sectors == 0 )) || exit 2
+image_stat_size=$(command /usr/bin/stat -f "%z" "$image" 2>/dev/null) || exit 7
+[[ $image_stat_size == "$image_bytes" ]] || exit 7
 print -u2 -r -- compozsh-write-stage:open
 if [[ -c $device ]]; then
-  exec 9> "$device" || exit 1
+  if (( verify )); then
+    exec 9<> "$device" || exit 1
+  else
+    exec 9> "$device" || exit 1
+  fi
 else
   exec 9<> "$device" || exit 1
 fi
 print -u2 -r -- compozsh-write-stage:image
 command /bin/dd if="$image" ibs=512 obs=4m count="$sector_count" \
-  conv=notrunc,fsync oflag=direct status=progress >&9 || exit
+  conv=notrunc,fsync status=progress >&9 || exit
 if (( tail_count > 0 )); then
   print -u2 -r -- compozsh-write-stage:tail
   tail_byte_offset=$(( tail_seek * 512 ))
+  tail_bytes=$(( tail_count * 512 ))
+  tail_blocks=$(( tail_bytes / block_size ))
+  tail_block_seek=$(( tail_byte_offset / block_size ))
   sysseek -u 9 "$tail_byte_offset" || exit
-  command /bin/dd if=/dev/zero bs=512 count="$tail_count" \
-    conv=notrunc,fsync oflag=direct status=none >&9 || exit
+  command /bin/dd if=/dev/zero bs="$block_size" count="$tail_blocks" \
+    conv=notrunc,fsync status=none >&9 || exit
+fi
+if (( verify )); then
+  print -u2 -r -- compozsh-write-stage:verify
+  image_stat_size=$(command /usr/bin/stat -f "%z" "$image" 2>/dev/null) || exit 7
+  [[ $image_stat_size == "$image_bytes" ]] || exit 7
+  command /bin/dd if="$device" ibs=512 obs=4m count="$sector_count" \
+    iflag=direct status=progress |
+    (
+      local -i compare_status=0
+      command /usr/bin/cmp -s -n "$image_bytes" - "$image"
+      compare_status=$?
+      # cmp exits at the first difference. Drain the bounded reader so it never
+      # receives SIGPIPE and its own raw-device status remains authoritative.
+      command /bin/cat >/dev/null
+      exit $compare_status
+    )
+  verify_status=("${pipestatus[@]}")
+  (( verify_status[1] == 0 )) || exit 6
+  (( verify_status[2] == 1 )) && exit 5
+  (( verify_status[2] == 0 )) || exit 7
+  if (( tail_count > 0 )); then
+    command /bin/dd if="$device" bs="$block_size" skip="$tail_block_seek" \
+      count="$tail_blocks" iflag=direct status=none |
+      (
+        local -i compare_status=0
+        command /usr/bin/cmp -s -n "$tail_bytes" - /dev/zero
+        compare_status=$?
+        command /bin/cat >/dev/null
+        exit $compare_status
+      )
+    verify_status=("${pipestatus[@]}")
+    (( verify_status[1] == 0 )) || exit 6
+    (( verify_status[2] == 1 )) && exit 8
+    (( verify_status[2] == 0 )) || exit 7
+    print -u2 -r -- compozsh-write-tail-verified
+  fi
+  print -u2 -r -- compozsh-write-verified
 fi'
 }
 
 _usb_raw_write_session_run() {
   emulate -L zsh
   local image=$1 identifier=$2 sector_count=$3 tail_seek=$4 tail_count=$5
+  local verify=${6:-0}
+  local block_size=${7:-512}
   [[ -f $image && ! -L $image && $identifier == disk<-> ]] || return 2
-  [[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> ]] || return 2
+  [[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> &&
+     $verify == [01] && $block_size == <-> ]] || return 2
   (( sector_count > 0 && tail_seek >= 0 && tail_count >= 0 )) || return 2
   # Keep one privileged descriptor open from the first image byte through
-  # physical-tail cleanup so Disk Arbitration cannot remount stale partitions
-  # between separate raw-device writers.
+  # physical-tail cleanup and read-back. No raw-device close occurs inside
+  # that session before verification evidence is captured.
   _usb_raw_write_script_capture
   command /usr/bin/sudo -n /bin/zsh -fc "$REPLY" compozsh-raw-write \
     "$image" "/dev/r${identifier}" "$sector_count" \
-    "$tail_seek" "$tail_count"
+    "$tail_seek" "$tail_count" "$verify" "$block_size"
 }
 
 _usb_write_image() {
@@ -1829,29 +1959,48 @@ _usb_write_image() {
   setopt NO_BG_NICE
   unsetopt MONITOR NOTIFY
   local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
+  local verify=${5:-0} progress_title='Writing image'
+  local block_size=${6:-512}
   local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
   local -i worker=0 command_status=1 started=$SECONDS sector_count=0
+  local -i verify_started=0
   local -i target_sectors=0 trailing_sectors=0 tail_count=0 tail_seek=0
-  _USB_WRITE_BYTES_OBSERVED=0 _USB_WRITE_ERROR='' _USB_WRITE_STAGE=''
-  [[ $image_size == <-> && $target_size == <-> ]] || return 2
-  (( image_size > 0 && image_size % 512 == 0 )) || return 2
-  (( target_size >= image_size && target_size % 512 == 0 )) || return 2
+  local -i block_sectors=0 tail_clear_sectors=0
+  _USB_WRITE_BYTES_OBSERVED=0 _USB_WRITE_VERIFY_BYTES_OBSERVED=0
+  _USB_WRITE_VERIFY_SECONDS=0 _USB_WRITE_VERIFIED=0
+  _USB_WRITE_TAIL_VERIFIED=0
+  _USB_WRITE_PROGRESS_OFFSET=0 _USB_WRITE_PROGRESS_STAGE=''
+  _USB_WRITE_PROGRESS_REMAINDER=''
+  _USB_WRITE_ERROR='' _USB_WRITE_STAGE=''
+  [[ $image_size == <-> && $target_size == <-> && $verify == [01] &&
+     $block_size == <-> ]] || return 2
+  (( block_size >= 512 && block_size % 512 == 0 )) || return 2
+  (( image_size > 0 && image_size % block_size == 0 )) || return 2
+  (( target_size >= image_size && target_size % block_size == 0 )) || return 2
+  block_sectors=$(( block_size / 512 ))
   sector_count=$(( image_size / 512 ))
   target_sectors=$(( target_size / 512 ))
   trailing_sectors=$(( target_sectors - sector_count ))
   if (( trailing_sectors > 0 )); then
-    tail_count=$(( trailing_sectors < 33 ? trailing_sectors : 33 ))
+    tail_clear_sectors=$(( (33 + block_sectors - 1) / block_sectors * block_sectors ))
+    tail_count=$(( trailing_sectors < tail_clear_sectors ? trailing_sectors : tail_clear_sectors ))
     tail_seek=$(( target_sectors - tail_count ))
   fi
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
   {
     _usb_raw_write_session_run "$image" "$identifier" "$sector_count" \
-      "$tail_seek" "$tail_count" 2>| "$progress_file" &
+      "$tail_seek" "$tail_count" "$verify" "$block_size" 2>| "$progress_file" &
     worker=$!
     while builtin kill -0 $worker 2>/dev/null; do
       _usb_dd_progress_read "$progress_file" "$image_size" $started
       progress_text=$REPLY
-      _usb_progress_stage 'Writing image' \
+      if [[ $_USB_WRITE_STAGE == verify ]]; then
+        (( verify_started )) || verify_started=$SECONDS
+        progress_title='Verifying USB against image'
+      else
+        progress_title='Writing image'
+      fi
+      _usb_progress_stage "$progress_title" \
         progress "$_USB_PROGRESS_BAR" info "$progress_text" \
         warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
       command /bin/sleep 0.25
@@ -1859,10 +2008,24 @@ _usb_write_image() {
     wait $worker
     command_status=$?
     _usb_dd_progress_read "$progress_file" "$image_size" $started
+    if [[ $_USB_WRITE_STAGE == verify ]]; then
+      (( verify_started )) || verify_started=$SECONDS
+      _USB_WRITE_VERIFY_SECONDS=$(( SECONDS - verify_started ))
+    fi
     if (( command_status == 0 && _USB_WRITE_BYTES_OBSERVED != image_size )); then
       command_status=3
     fi
-    if (( command_status != 0 )) && [[ $_USB_WRITE_STAGE == tail ]]; then
+    if (( verify && _USB_WRITE_STAGE == verify &&
+          _USB_WRITE_VERIFY_BYTES_OBSERVED != image_size )); then
+      command_status=6
+    elif (( command_status == 0 && verify && tail_count > 0 &&
+            !_USB_WRITE_TAIL_VERIFIED )); then
+      command_status=8
+    elif (( command_status == 0 && verify && !_USB_WRITE_VERIFIED )); then
+      command_status=9
+    fi
+    if (( command_status != 0 && command_status != 5 && command_status != 6 &&
+          command_status != 7 )) && [[ $_USB_WRITE_STAGE == tail ]]; then
       command_status=4
     fi
   } always {
@@ -2872,6 +3035,8 @@ _usb_execute() {
   local checksum_algorithm=${9:-} expected_checksum=${10:-}
   local target_size=${11:-$image_size}
   local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
+  local -i verify_during_write=0
+  local -i target_block_size=512
   _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
   _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
   _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
@@ -2885,6 +3050,7 @@ _usb_execute() {
     (flash-verify|flash-only) ;;
     (*) return 2 ;;
   esac
+  [[ $request == flash-verify ]] && verify_during_write=1
   if [[ -n $expected_checksum ]]; then
     case $checksum_algorithm in
       (256) (( ${#expected_checksum} == 64 )) ;;
@@ -2934,6 +3100,13 @@ _usb_execute() {
     _USB_RESULT_ERROR='The external drive changed or is no longer eligible; nothing was written.'
     return 1
   }
+  target_block_size=${_USB_INFO_BLOCK_SIZE:-512}
+  if (( target_block_size < 512 || target_block_size % 512 != 0 ||
+        image_size % target_block_size != 0 || target_size % target_block_size != 0 )); then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR="The image or target size is not aligned to this drive's $target_block_size-byte logical blocks; nothing was written."
+    return 1
+  fi
   if ! _usb_authorization_valid >/dev/null 2>&1; then
     _usb_progress_stage 'Authorization required for writing' \
       info 'Re-enter the administrator password before the external drive is unmounted or changed.' \
@@ -2957,16 +3130,29 @@ _usb_execute() {
     _usb_eject "$identifier" >/dev/null 2>&1 && _USB_RESULT_EJECTED=1
     return 1
   }
+  if (( ${_USB_INFO_BLOCK_SIZE:-512} != target_block_size )); then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The external drive block geometry changed after unmounting; nothing was written.'
+    _usb_eject "$identifier" >/dev/null 2>&1 && _USB_RESULT_EJECTED=1
+    return 1
+  fi
   _USB_RESULT_STARTED=1
   _usb_progress_stage 'Writing image' \
     info 'Starting Apple dd with 4 MiB blocks.' \
     warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
   stage_started=$SECONDS
-  _usb_write_image "$image" "$identifier" "$image_size" "$target_size"
+  _usb_write_image "$image" "$identifier" "$image_size" "$target_size" \
+    "$verify_during_write" "$target_block_size"
   action_status=$?
   _USB_RESULT_WRITE_SECONDS=$(( SECONDS - stage_started ))
   if (( action_status == 0 )); then
     _USB_RESULT_BYTES=$image_size
+    if (( verify_during_write && _USB_WRITE_VERIFIED )); then
+      _USB_RESULT_VERIFIED=1
+      _USB_RESULT_VERIFY_SCOPE=full
+      _USB_RESULT_VERIFY_REASON=''
+      _USB_RESULT_VERIFY_SECONDS=$_USB_WRITE_VERIFY_SECONDS
+    fi
     _usb_human_size $(( image_size / (_USB_RESULT_WRITE_SECONDS > 0 ? _USB_RESULT_WRITE_SECONDS : 1) ))
     _USB_RESULT_RATE="$REPLY/s"
   else
@@ -2975,6 +3161,21 @@ _usb_execute() {
       _USB_RESULT_ERROR="Writing stopped after ${_USB_WRITE_BYTES_OBSERVED:-0} of $image_size bytes; the USB contains an incomplete image and must not be used."
     elif (( action_status == 4 )); then
       _USB_RESULT_ERROR='The image write completed, but old physical-tail partition metadata could not be cleared safely; the USB must not be used.'
+    elif (( action_status == 5 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
+      _USB_RESULT_VERIFY_REASON=mismatch
+      _USB_RESULT_ERROR='The USB bytes differed from the selected image during pre-mount verification; the drive must not be used.'
+    elif (( action_status == 6 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
+      _USB_RESULT_VERIFY_REASON=drive-read-failed
+      _USB_RESULT_ERROR='The image was written, but the USB could not be read completely before macOS mounted it; the drive was not verified.'
+    elif (( action_status == 7 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
+      _USB_RESULT_VERIFY_REASON=image-read-failed
+      _USB_RESULT_ERROR='The image was written, but its source could not be reread completely during pre-mount verification; the drive was not verified.'
+    elif (( action_status == 8 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
+      _USB_RESULT_VERIFY_REASON=stale-tail-gpt
+      _USB_RESULT_ERROR='The image bytes matched, but the cleared physical-tail metadata did not read back as zero; the drive must not be used.'
+    elif (( action_status == 9 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
+      _USB_RESULT_VERIFY_REASON=incomplete-evidence
+      _USB_RESULT_ERROR='Pre-mount verification ended without complete success evidence; the drive was not verified.'
     elif [[ -n $_USB_WRITE_ERROR ]]; then
       _USB_RESULT_ERROR="Writing failed: $_USB_WRITE_ERROR. The USB may contain an incomplete image and must not be used."
     else
@@ -3010,7 +3211,8 @@ _usb_execute() {
       _USB_RESULT_ERROR="The image SHA-$checksum_algorithm changed during writing; the USB must not be used."
     fi
   fi
-  if (( action_status == 0 )) && [[ $request == flash-verify ]] &&
+  if (( action_status == 0 && !_USB_RESULT_VERIFIED )) &&
+      [[ $request == flash-verify ]] &&
       ! _usb_authorization_valid >/dev/null 2>&1; then
     _usb_progress_stage 'Authorization required for verification' \
       info 'The write completed. Re-enter the administrator password to read the finished drive.' \
@@ -3021,7 +3223,8 @@ _usb_execute() {
       _USB_RESULT_ERROR='Administrator authorization expired before USB verification; the write completed but was not verified.'
     }
   fi
-  if (( action_status == 0 )) && [[ $request == flash-verify ]]; then
+  if (( action_status == 0 && !_USB_RESULT_VERIFIED )) &&
+      [[ $request == flash-verify ]]; then
     _usb_progress_stage 'Verifying USB against image' \
       info 'Reading uncached raw bytes: full image first, then validated boot and installer ranges.' \
       warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
@@ -3449,18 +3652,24 @@ _compozsh_help_flash-usb() {
     '  Compozsh then requests sudo, revalidates the image and target identity,' \
     '  unmounts the whole disk, revalidates the target again, and' \
     '  writes through /dev/rdiskN with Apple’s dd using 512-byte input sectors' \
-    '  aggregated into 4 MiB output blocks. The captured sector count bounds the' \
-    '  read. Before that write, up to 33 final sectors outside the image extent' \
-    '  are zeroed so an old whole-disk backup GPT cannot conflict with the new' \
-    '  raw-image layout. The final transferred-byte count must equal the captured size.' \
+    '  aggregated into 4 MiB output blocks. One privileged raw-device session' \
+    '  remains open through write, fsync, physical-tail cleanup, and verification.' \
+    '  The captured sector count bounds the read. The target logical block size' \
+    '  is validated before unmount; incompatible image alignment writes nothing.' \
+    '  A logical-block-aligned range covering at least 33 final sectors outside' \
+    '  the image extent is zeroed and read back so old whole-disk backup GPT data' \
+    '  cannot conflict with the new raw-image layout. The final transferred-byte' \
+    '  count must equal the captured size.' \
     '  Apple dd supplies exact bytes once per second for a determinate progress' \
     '  bar. Step 3 uses a dedicated status view with no query or bottom footer:' \
     '  the active stage, image, target, progress, and disconnect warning remain' \
     '  together near the top with semantic heading, success, and warning colors.' \
-    '  Verification also reports its current comparison pass, bytes read, total,' \
-    '  percentage, and elapsed time. Large raw ranges use aligned 4 MiB reads;' \
-    '  small structural probes remain sector-precise. Validation, unmount,' \
-    '  verification, and eject remain named stages.' \
+    '  Before that session closes, verification reopens the named raw device for' \
+    '  uncached input and reports the current comparison pass, bytes read, total,' \
+    '  percentage, and elapsed time; aligned 4 MiB reads prove every image byte;' \
+    '  the cleared physical tail must independently read back zero.' \
+    '  Progress is consumed incrementally during long operations. Validation,' \
+    '  unmount, verification, and eject remain named stages.' \
     '  The raw handler does not pre-format the target.' \
     '  Full macOS installer applications use a separate handler. It validates' \
     '  the Apple code signature, revalidates the installer and target, prepares' \
@@ -3468,8 +3677,8 @@ _compozsh_help_flash-usb() {
     '  installer’s createinstallmedia tool with live native progress. Apple’s' \
     '  tool performs the bootable-media creation; the result is then ejected.' \
     '  The source identity is checked again after writing; a provided full-image' \
-    '  digest is also recalculated. If sudo expires during a long write, a named' \
-    '  authorization stage appears before noninteractive read-back commands.' \
+    '  digest is also recalculated. The held raw session performs verification' \
+    '  under the authorization retained for writing.' \
     '  Flash only skips the read-back comparison. Both actions eject afterward;' \
     '  an eject is also attempted after a write or verification failure.' \
     '  A final screen remains until Done and reports bytes, duration, average' \
@@ -3477,24 +3686,13 @@ _compozsh_help_flash-usb() {
     '  and whether the drive is safe to remove.' \
     '' \
     'Verification boundary:' \
-    '  Uncached raw reads first compare every image byte, including boot metadata.' \
-    '  A hybrid GPT may remain fully source-bounded inside the image extent or use' \
-    '  a coherent backup header relocated to the physical final LBA. The fallback' \
-    '  validates both source and applicable target primary and backup headers,' \
-    '  their CRCs, reciprocal' \
-    '  LBAs, disk GUID, bounded entry geometry, and matching partition arrays.' \
-    '  Relocated backup entries may end anywhere before their header as GPT permits.' \
-    '  Source-bounded layouts additionally require the cleared physical tail to' \
-    '  remain zero. MBR boot bytes 0–439, reserved bytes and partition records' \
-    '  444–509, the signature at 510–511, and every compared installer byte must' \
-    '  match; only the independent four-byte MBR disk identifier may differ.' \
-    '  A non-GPT image receives no metadata exemption: any full-image difference' \
-    '  fails. The final screen reports the narrower GPT proof without claiming' \
-    '  full-image equality. The immediate post-write unmount reduces auto-mount' \
-    '  exposure, but stock macOS CLI tools cannot reserve the disk against a mount' \
-    '  already in progress. Any resulting filesystem-byte difference fails closed;' \
-    '  a mismatch alone does not prove whether media, writing, or mounting caused it.' \
-    '  Read errors are never called mismatches.' \
+    '  Uncached raw reads compare every image byte, including boot and filesystem' \
+    '  metadata, before the held write session releases the raw device. No metadata' \
+    '  byte is exempted. The physical-tail cleanup is independently read back.' \
+    '  Device short reads, source-read errors, byte mismatches, tail mismatches,' \
+    '  and incomplete success evidence remain distinct failures.' \
+    '  macOS may update filesystem bookkeeping after verified evidence exists and' \
+    '  the held session closes; the result describes the captured pre-mount proof.' \
     '' \
     'Requirements and recovery:' \
     '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
