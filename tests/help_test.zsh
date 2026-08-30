@@ -176,7 +176,8 @@ _test_tool_help_explains_real_boundaries() {
         'external physical' 'internal' 'virtual' 'read-only' 'partition-slice'
         'Thunderbolt' '1 MiB' '4,096' '64 whole' 'Step 2 Ctrl-R'
         'physically plugged' 'Ctrl-R cannot reactivate' 'unplug and reconnect'
-        'Step 3' 'ERASE diskN' 'mismatch' 'writes nothing' 'warning color' 'NO_COLOR' 'sudo' '/dev/rdiskN' '4 MiB'
+        'Step 3' 'bold error red' 'bold success green' 'ERASE diskN' 'mismatch'
+        'writes nothing' 'warning color' 'NO_COLOR' 'sudo' '/dev/rdiskN' '4 MiB'
         'determinate progress' 'dedicated status view' 'no query or bottom footer' 'disconnect warning' 'semantic heading' 'final screen' 'average'
         'No pre-format' '17,408 bytes' 'checksum' 'createinstallmedia'
         'cannot roll back' 'Examples:') ;;

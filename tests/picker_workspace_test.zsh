@@ -104,13 +104,29 @@ _test_picker_workspace_semantic_label_highlights() {
     print -r -- "selected-architecture:$REPLY"
     _zle_picker_label_highlight_style picker-size 1 "fg=16,bg=75,bold"
     print -r -- "selected-size:$REPLY"
+    _zle_picker_label_highlight_style picker-error 0
+    print -r -- "error:$REPLY"
+    _zle_picker_label_highlight_style picker-error 1 "fg=16,bg=75,bold"
+    print -r -- "selected-error:$REPLY"
+    _zle_picker_label_highlight_style picker-success 0
+    print -r -- "success:$REPLY"
+    _zle_picker_label_highlight_style picker-success 1 "fg=16,bg=75,bold"
+    print -r -- "selected-success:$REPLY"
   ' "$TEST_REPO_ROOT") || return
   test_assert_contains "$output" 'spans:18:23:picker-architecture 26:33:picker-size' \
     'semantic label spans did not follow the visible result-row prefix' || return
   test_assert_contains "$output" 'selected-architecture:bg=75,bold,fg=231,bold' \
     'architecture styling replaced the selected-row background' || return
   test_assert_contains "$output" 'selected-size:bg=75,bold,fg=229,bold' \
-    'size styling did not remain visually distinct on the selected row'
+    'size styling did not remain visually distinct on the selected row' || return
+  test_assert_contains "$output" 'error:fg=203,bold' \
+    'semantic error styling did not use the established red palette fallback' || return
+  test_assert_contains "$output" 'selected-error:bg=75,bold,fg=224,bold' \
+    'selected semantic error styling erased selection or warning contrast' || return
+  test_assert_contains "$output" 'success:fg=71,bold' \
+    'semantic success styling did not use the established green palette fallback' || return
+  test_assert_contains "$output" 'selected-success:bg=75,bold,fg=120,bold' \
+    'selected semantic success styling erased selection or success contrast'
 }
 test_case 'picker workspace colors semantic label spans without embedding terminal escapes' \
   _test_picker_workspace_semantic_label_highlights

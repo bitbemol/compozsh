@@ -636,11 +636,15 @@ _zle_picker_label_highlight_style() {
   case $role in
     (picker-architecture) fallback='fg=117,bold' ;;
     (picker-size) fallback='fg=221' ;;
+    (picker-error) fallback='fg=203,bold' ;;
+    (picker-success) fallback='fg=71,bold' ;;
   esac
   if (( selected )); then
     case $role in
       (picker-architecture) fallback='fg=231,bold' ;;
       (picker-size) fallback='fg=229,bold' ;;
+      (picker-error) fallback='fg=224,bold' ;;
+      (picker-success) fallback='fg=120,bold' ;;
     esac
     _zle_picker_style "$selected_role" "$fallback"
     role_attributes=( "${(@s:,:)REPLY}" )

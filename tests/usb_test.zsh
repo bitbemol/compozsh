@@ -433,6 +433,8 @@ _test_usb_workspace_requires_explicit_image_target_action() {
     _usb_choose() {
       (( ++call ))
       print -r -- "view${call}:${(j:,:)_USB_PICKER_VALUES}|${(j:,:)_USB_PICKER_LABELS}"
+      (( call == 3 || call == 5 )) &&
+        print -r -- "integrity-style:${_USB_PICKER_HIGHLIGHTS[2]-}|semantic:${6:-0}"
       case $call in
         1) _ZLE_PICKER_SELECTED_VALUE=image:1 ;;
         2) _ZLE_PICKER_SELECTED_VALUE=1 ;;
@@ -451,6 +453,10 @@ _test_usb_workspace_requires_explicit_image_target_action() {
   test_assert_contains "$output" 'view2:1' 'Target view did not establish an exact disk' || return
   test_assert_contains "$output" 'view3:flash-verify,checksum,image,target,flash-only' \
     'Action view did not make verification the default explicit action' || return
+  test_assert_contains "$output" 'integrity-style:0:' \
+    'the no-checksum integrity state did not cover its complete visible row' || return
+  test_assert_contains "$output" ':picker-error|semantic:1' \
+    'the no-checksum integrity state did not request the shared red error role' || return
   test_assert_contains "$output" 'view4:1' 'target refresh did not show its new captured snapshot' || return
   test_assert_contains "$output" 'view5:flash-verify,checksum,image,target,flash-only' \
     'cancelling target refresh did not restore the prior action workspace' || return
@@ -523,6 +529,7 @@ _test_usb_workspace_retains_optional_checksum() {
         (3) _ZLE_PICKER_SELECTED_VALUE=checksum ;;
         (4)
           print -r -- "review:${(j:|:)_USB_PICKER_LABELS}"
+          print -r -- "integrity-style:${_USB_PICKER_HIGHLIGHTS[2]-}|semantic:${6:-0}"
           _ZLE_PICKER_SELECTED_VALUE=flash-verify ;;
         (*) return 2 ;;
       esac
@@ -539,6 +546,10 @@ _test_usb_workspace_retains_optional_checksum() {
     'Step 3 did not visibly hash the local image after checksum entry' || return
   test_assert_contains "$output" 'review:[ Start flash & verify · SHA-256 ]|Image integrity · Verified · SHA-256 matched|Remove image checksum' \
     'Step 3 did not retain a visible verified image-integrity state' || return
+  test_assert_contains "$output" 'integrity-style:0:' \
+    'the verified integrity state did not cover its complete visible row' || return
+  test_assert_contains "$output" ':picker-success|semantic:1' \
+    'the verified integrity state did not request the shared green success role' || return
   test_assert_contains "$output" "selected:256|${(l:64::d:)}" \
     'the selected checksum did not cross the action boundary'
 }

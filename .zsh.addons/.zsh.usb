@@ -1004,6 +1004,7 @@ _usb_workspace_controller() {
   local image_query='' image_initial_value='' refresh_path=''
   local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
   local checksum_state=not-provided checksum_actual='' integrity_label='' integrity_detail=''
+  local integrity_role=''
   local _USB_CHECKSUM_ALGORITHM=''
   local -i image_index=1 disk_index=1 result=0 index=0 refresh_index=0
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
@@ -1085,7 +1086,8 @@ _usb_workspace_controller() {
     disk=${_USB_DISK_IDS[disk_index]}
 
     while true; do
-      _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+      _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
+      _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
       _USB_PICKER_VALUES+=(flash-verify)
       if [[ -n $checksum && $checksum_state == matched ]]; then
         _USB_PICKER_LABELS+=("[ Start flash & verify · SHA-$checksum_algorithm ]")
@@ -1094,33 +1096,41 @@ _usb_workspace_controller() {
       else
         _USB_PICKER_LABELS+=('[ Start flash & verify ]')
       fi
+      _USB_PICKER_HIGHLIGHTS+=('')
       _USB_PICKER_SEARCH+=('write verify checksum')
       _USB_PICKER_DETAILS+=(
         'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares the full image first with a qualified macOS metadata fallback, and ejects.")
       _USB_PICKER_VALUES+=(checksum)
       case $checksum_state in
         (matched)
+          integrity_role=picker-success
           integrity_label="Image integrity · Verified · SHA-$checksum_algorithm matched"
           integrity_detail="Verified local image"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"$checksum_actual"$'\n\n''The complete local image matches the supplied checksum.' ;;
         (mismatch)
+          integrity_role=picker-error
           integrity_label="Image integrity · FAILED · SHA-$checksum_algorithm mismatch"
           integrity_detail="Local image checksum mismatch"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"${checksum_actual:-unavailable}"$'\n\n''The drive cannot be flashed until the checksum is corrected, removed, or a valid image is selected.' ;;
         (changed)
+          integrity_role=picker-error
           integrity_label='Image integrity · FAILED · image changed during validation'
           integrity_detail='The selected image no longer matches its captured size or filesystem identity. Choose the image again before flashing.' ;;
         (error)
+          integrity_role=picker-error
           integrity_label="Image integrity · Could not calculate SHA-$checksum_algorithm"
           integrity_detail='The selected image could not be read completely. Nothing can be written until the integrity check succeeds or the checksum is explicitly removed.' ;;
         (*)
+          integrity_role=picker-error
           integrity_label='Image integrity · Not verified · no checksum provided'
           integrity_detail='No checksum was supplied. Flash & verify will still compare the finished drive with the selected local image, but the local image’s origin is not established.' ;;
       esac
       _USB_PICKER_LABELS+=("$integrity_label")
+      _USB_PICKER_HIGHLIGHTS+=("0:${#integrity_label}:$integrity_role")
       _USB_PICKER_DETAILS+=("$integrity_detail")
       _USB_PICKER_SEARCH+=('checksum sha256 sha512 integrity')
       if [[ -n $checksum ]]; then
         _USB_PICKER_VALUES+=(remove-checksum)
         _USB_PICKER_LABELS+=('Remove image checksum')
+        _USB_PICKER_HIGHLIGHTS+=('')
         _USB_PICKER_SEARCH+=('remove checksum')
         _USB_PICKER_DETAILS+=('Remove checksum'$'\n\n''Continue without publisher-checksum validation. Flash & verify will still perform the native payload comparison.')
       fi
@@ -1129,6 +1139,7 @@ _usb_workspace_controller() {
         "Change image · ${image:t}"
         "Change drive · ${_USB_DISK_LABELS[disk_index]}"
         'Flash without verification')
+      _USB_PICKER_HIGHLIGHTS+=('' '' '')
       _USB_PICKER_SEARCH+=(image target write)
       _USB_PICKER_DETAILS+=(
         "${_USB_IMAGE_DETAILS[image_index]}"
@@ -1137,7 +1148,8 @@ _usb_workspace_controller() {
       _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
       architecture_label=$REPLY
       _usb_choose 'Flash USB · Step 3 of 3' \
-        "Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk" 'Filter choices'
+        "Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk" \
+        'Filter choices' 0 0 1
       result=$?
       (( result == 1 )) && break
       (( result == 0 )) || return $result
@@ -2015,6 +2027,8 @@ _compozsh_help_flash-usb() {
     '  integrity check cannot start flashing. With no checksum, Step 3 says the' \
     '  image is not verified. Selecting another image clears' \
     '  the checksum so it cannot silently carry across image context.' \
+    '  The complete integrity row uses the shared bold error red when unverified' \
+    '  or failed, and the shared bold success green after a checksum matches.' \
     '  An exact typed' \
     '  ERASE diskN confirmation is required. A mismatch reports the exact' \
     '  expected phrase and writes nothing.' \

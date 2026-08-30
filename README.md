@@ -1985,7 +1985,11 @@ field accepts one SHA-256 or SHA-512 digest as bare hexadecimal, standard
 the complete local image and shows **Verified**, **mismatch**, or a read error;
 a failed integrity check cannot start flashing. Without a checksum it says
 **Image integrity · Not verified · no checksum provided**. It keeps the selected
-image, drive, and checksum state visible and lets each choice be changed before the effect.
+image, drive, and checksum state visible and lets each choice be changed before
+the effect. The complete integrity row uses the shared semantic palette: bold
+red when the image is unverified or validation failed, and bold green after a
+supplied checksum matches. Selection retains its blue background while keeping
+the safety state visually distinct.
 Selecting another image clears the digest so a checksum cannot silently carry
 into a different image context. Compozsh then restores the ordinary terminal,
 shows the exact image, target, and checksum state, and requires the text
