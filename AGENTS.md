@@ -172,6 +172,10 @@ configuration base.
 - `tests/` is the native-Zsh regression suite. Keep test files focused by
   behavior, use `tests/support.zsh` for the minimal shared harness, and keep the
   runner free of third-party dependencies.
+- `investigations/` preserves bounded engineering evidence behind performance
+  and architecture decisions. Keep durable product rules concise in this file
+  and link to the relevant investigation. Treat measured timings as observations
+  from their recorded environment, never universal compatibility thresholds.
 - `AGENTS.md` defines engineering conventions. Update it when an intentional
   architectural rule changes, not for ordinary implementation details.
 - `.agents/skills/compozsh-platform-review/` is the repository-scoped,
@@ -824,19 +828,44 @@ discovered. The keyboard guide must never trigger refresh.
   and a system-only runtime path. Enable only reviewed OS syntax definitions:
   initially Swift, Zsh, shell, JSON and Python. No filetype detection, repository
   paths, source execution, user runtime scripts, HTML export or ANSI extraction.
-  Feed captured source via a real stdin pipe: Zsh 5.9 here-strings create
-  temporary files, so `<<<` is not a no-disk transport. Return a versioned, fully validated protocol
-  of numeric character spans and fixed semantic roles. No source temp files.
+  Feed captured source through private mode-600 FIFOs: Zsh 5.9 here-strings
+  create temporary files, so `<<<` is not a no-disk transport. Return a
+  versioned, request-ID-framed and fully validated protocol of numeric
+  character spans and fixed semantic roles. No source temp files.
   Treat this as configuration hardening, never an OS security sandbox.
   Reference: [Zsh 5.9 here-string implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/exec.c#L4383-L4406).
 - Bound syntax independently: 64 KiB input, 3,000 document rows, 2,048 source
-  characters per line, 4,096 spans, 128 KiB output, 300 ms subprocess deadline.
-  The deadline covers Vim, not Git or rendering. Always close descriptors and
-  kill/reap the owned child; preserve interrupt status through the controller.
-  Keep coprocess/job state isolated from the user's shell. No child on startup,
-  redraw, scrolling, resizing or a cached snapshot revisit. Cache tokens with
-  the same four raw snapshot keys, invalidate together on refresh, and release
-  on workspace exit. Measure capture, validation and render costs separately.
+  characters per line, 4,096 spans and 128 KiB output. The child has an 800 ms
+  analysis guard and its asynchronous parent request has a one-second liveness
+  deadline. These are failure bounds for Vim, not keyboard, Git or rendering
+  budgets; the input loop never waits for either deadline. A document workspace
+  starts exactly one system-Vim child on entry, retains at most one nofile
+  buffer per allowlisted language, and reuses it only for that screen session.
+  Never create a daemon, persistent cache, neighboring-file prediction or a
+  queue of Vim processes. Always close descriptors and kill/reap the owned
+  child; keep job state isolated from the user's shell.
+  Syntax acquisition is passive and pane-focus independent. After layout
+  publishes the exact source viewport, an input-idle callback schedules that
+  bounded viewport plus two source-row guard lines on each side. Provider
+  startup, request completion and response parsing never block the input loop.
+  Assign each request a monotonically increasing generation; permit exactly one
+  in-flight request, keep no process queue, and let only the generation that
+  still matches the current document and viewport publish. Discard stale
+  responses before they touch caches or render state, then schedule the latest
+  desired viewport. While supported source is pending, preserve its source-row
+  geometry behind an explicit stable loading surface; never paint plain code
+  and fill its colors later. Validate the complete response before installing
+  it. A missing, invalid or timed-out response retires that child request
+  without poisoning other documents or the whole screen session. Retry the
+  current settled viewport once; only a second transient failure for the same
+  captured document window becomes an explicit plain fallback. Deterministic
+  unsupported, size and locale outcomes may become plain immediately. Include
+  the capture-snapshot epoch in publication identity so a refresh cannot accept
+  an older response after numeric indexes are reused.
+  Cache one bounded syntax window with each of the four raw snapshot keys,
+  invalidate it with its snapshot on refresh, and release descriptors, FIFOs,
+  child, buffers and caches on workspace exit. Measure resident request,
+  validation, render and paint costs separately.
 - Diff backgrounds and lexical foregrounds are distinct layers. Green/red
   backgrounds identify additions/removals, with +/- for non-color recognition.
   `ZSH_HIGHLIGHT_STYLES[review-*]` owns shared customizable colors; token spans
@@ -861,11 +890,26 @@ discovered. The keyboard guide must never trigger refresh.
   painter and input loop. A fixed shallow view nesting scopes snapshots and
   list bookmarks; no general workflow engine. Escape restores list query,
   selection, viewport and focus. Resize never calls Git.
-- File selection is an explicit document-inspection operation: the shared
-  input loop paints a loading state and returns the exact selected row to its
-  controller. Only the controller may capture a diff, outside the input loop.
+- File selection and document inspection have separate service paths. The
+  shared input loop applies and paints every complete navigation sequence
+  immediately; when selection outruns the loaded document, the reader shows a
+  stable loading surface with matching geometry. Reset a short preview-settlement
+  window after each further navigation key, then return exactly the latest exact
+  target to the controller after input is quiet. Only the controller may capture
+  and parse that target's diff outside the input loop. This is coalescing of
+  expensive preview work, not input debouncing: never flush, discard or infer
+  release of repeated terminal keys. Every complete sequence is user intent,
+  and Terminal.app supplies no key-up event. Keep the list-only selection/paint
+  path comfortably below the observed repeat cadence. Optional provider work
+  belongs in a latest-request-wins input-idle operation, never behind an extra
+  focus step merely to hide latency. Test a buffered native-PTY arrow burst and
+  assert that it loads only its initial and final documents, then that the next
+  independent key applies to the final selection with no unread movement tail.
+  Evidence and portability
+  notes: [Git review key-repeat latency](investigations/git-review-key-repeat-latency.md).
   Refinement can select another file and request its diff; filtering the list
-  itself remains provider-free. Scrolling, focus and guide never capture.
+  itself remains provider-free. Scrolling, resize and guide never capture Git;
+  scrolling may update the syntax viewport request without blocking input.
   Retain four raw file/context snapshots (at most 1 MiB) for this workspace,
   with per-file reading offsets. A loading placeholder must not overwrite a
   saved reading position. Release captures/bookmarks on workspace exit.

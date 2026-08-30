@@ -229,8 +229,8 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and bounded on-selection previews |
-| `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies lexical tokens for supported Git review files; bounded capture, plain fallback and no new shortcut or configuration requirement |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and single-frame bounded previews |
+| `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
 | `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, copying and small navigation aliases |
@@ -2341,8 +2341,10 @@ the terminal background. Addition/removal counts describe the retained diff.
 The optional `.zsh.git-syntax` peer adds **prototype code highlighting** using
 Apple's `/usr/bin/vim`. Initial coverage is Swift, Zsh (`.zshrc`, `.zsh.*`,
 `*.zsh`), shell (`*.sh`), JSON and Python. Nothing is installed, and your Vim
-configuration is not needed. The selected file's status reports syntax coverage
-or a plain fallback. Navigation and reading work the same in either case.
+configuration is not needed. Highlighting is passive in both panes: selecting a
+supported file is enough, with no focus step or shortcut. The selected file's
+status reports syntax coverage or a plain fallback. Navigation and reading work
+the same in either case.
 
 This is lexical highlighting of the **captured source fragments**, not IDE
 semantic analysis. Old and new sides are analyzed separately, with fresh
@@ -2352,17 +2354,45 @@ the captured preceding source when available. Apple controls which Vim version
 and syntax definitions ship with each macOS release. OS updates may improve
 coverage; they do not automatically enable additional languages here.
 
-Token capture happens once per retained file/context snapshot, outside input
-and rendering. Scrolling, resizing and revisiting that snapshot launch no Vim
-process. Syntax has its own **64 KiB input**, **3,000 document-row**,
-**2,048-character source-line**, **4,096-token** and **300 ms subprocess** limits.
+Entering a file-and-diff workspace starts one private system-Vim process. It is
+reused only while that review screen is open and is killed and reaped as soon
+as the screen exits—there is no daemon or persistent syntax service. Vim keeps
+one scratch buffer per supported language, so grammar setup is reused instead
+of repeated for every selected file.
+
+File-list navigation and preview loading are separate. Every Up/Down sequence
+moves and paints the selected row immediately. While arrows continue arriving,
+the reader keeps a stable loading surface; after a short quiet interval,
+Compozsh captures only the newest selected file. No input is flushed or treated
+as accidental repeat. This prevents a sequence of intermediate Git reads from
+continuing after you release the key.
+
+After layout determines the exact reader viewport, Compozsh schedules the
+visible rows plus two source-row guard lines above and below without waiting in
+the keyboard loop. Exactly one syntax request may be in flight. If selection or
+page navigation moves again, the completed older result is discarded and only the
+latest document, snapshot and viewport may publish. Supported source keeps its
+row geometry
+behind a stable **Preparing highlighted preview…** surface until validated tokens
+are ready, so file changes and **Option/Fn-Up/Down** page moves never expose a
+plain intermediate frame. Every complete arrow sequence remains user input;
+Compozsh does not flush or guess at Terminal's input queue.
+
+Completed viewport metadata is cached with its retained file/context snapshot.
+Revisiting a covered region performs no new syntax request; resizing merely
+changes the next bounded viewport. Syntax has its own **64 KiB input**, **3,000
+document-row**, **2,048-character source-line**, **4,096-token** and **128 KiB
+response** limits. Vim analysis has an 800 ms child guard and the asynchronous
+request has a one-second liveness deadline; neither blocks keyboard input.
 Exceeding a limit, an unsupported file type or unavailable Vim leaves the full
 retained diff readable with its row backgrounds; code is never truncated just
-to color it. Rendering/metadata work and Git capture have separate costs.
+to color it. A transient provider failure retries the current settled viewport
+once and never disables highlighting for unrelated files or the whole review.
+Rendering/metadata work and Git capture have separate costs.
 Unicode syntax requires a UTF-8 shell locale; other locales keep a plain
 fallback for non-ASCII source so character offsets remain safe.
 
-Vim receives captured text through a pipe, never a repository file. The adapter
+Vim receives captured text through private FIFOs, never a repository file. The adapter
 disables user configuration, modelines, plugins, swap and Vim history; it loads
 an allowlist of system syntax definitions. No source snapshots are written to
 temporary files. Only validated numeric token spans return to the shared ZLE
@@ -2436,9 +2466,12 @@ selection still switches and Ctrl-Y still copies on the main branch screen;
 review views have no staging, discard, commit, checkout or clipboard actions.
 
 Entering review captures the file list. Selecting a file requests a bounded
-diff outside the renderer; the four most recently read file/context snapshots
-are reused until refresh or workspace exit. Selecting a file through filtering may
-load its diff too. Scrolling, focus, guide and resize reuse captured facts.
+diff outside the renderer and then paints one frame containing the matching
+selection and document; the four most recently read file/context snapshots are
+reused until refresh or workspace exit. Selecting a file through filtering may
+load its diff too. Optional syntax arrives independently for the visible region,
+whether the file list or reader owns keyboard focus. Scrolling can request the
+next overlapping syntax window; guide and resize reuse captured Git facts.
 To follow edits from an AI or another editor, keep **Working changes** open and
 press **Ctrl-R** whenever you want the latest observation. New and removed
 changes update the navigator; only the selected diff is loaded immediately.
@@ -2484,8 +2517,8 @@ Coverage is deliberately bounded and labeled:
 - Git's bounds above limit output/retention, **not elapsed time**. Large worktrees or
   slow storage can delay a synchronous read. Listing individual files in large
   untracked trees does more work than grouped-folder status. Busy and failure states are
-  explicit. Syntax uses a short-lived, deadline-bound child; there is no resident
-  worker or persistent review cache.
+  explicit. Syntax uses one deadline-bound child resident only for the current
+  Git review screen; there is no daemon or persistent review cache.
 
 Review disables external diff and text-conversion commands, configured
 clean/process filters, filesystem-monitor hooks, optional index writes and

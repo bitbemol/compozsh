@@ -1,80 +1,298 @@
 # Optional source-token provider for captured Git documents. No startup probe.
 # The helper is shipped data, deliberately outside the .zsh.<name> load pattern.
 typeset -g _GIT_SYNTAX_SCRIPT=${${(%):-%N}:A:h}/support/git-syntax.vim
-typeset -g _GIT_SYNTAX_DATA='' _GIT_SYNTAX_NOTE=''
+typeset -g _GIT_SYNTAX_DATA='' _GIT_SYNTAX_INPUT='' _GIT_SYNTAX_NOTE=''
+typeset -g _GIT_SYNTAX_SUCCESS_NOTE=''
 typeset -gA _ZLE_PICKER_DOCUMENT_SYNTAX=()
 
-# Run in a subshell so coprocess descriptors and job bookkeeping are isolated.
-# Source stays in pipes; Vim never opens a repository file. A hard deadline
-# bounds syntax scripts as well as startup. Always close, kill and reap the
-# owned child, including on interruption; never reuse the user's coprocess.
-# Use a real pipe for stdin: Zsh 5.9 here-strings create temporary files.
-# The finite print writer exits on EOF/broken pipe when the reader is closed.
-_git_syntax_worker() (
+# A document workspace owns exactly one system-Vim process for its screen
+# session. These helpers intentionally use dynamically scoped state declared by
+# the caller: no process, FIFO, descriptor or cache survives leaving Git review.
+# The parent validates a framed response before publishing token metadata, and
+# every wait has a hard deadline so a broken grammar cannot stall navigation.
+_git_syntax_session_stop() {
   emulate -L zsh
+  if (( ${_git_syntax_session_fd:--1} >= 0 )); then
+    exec {_git_syntax_session_fd}<&-
+    _git_syntax_session_fd=-1
+  fi
+  if (( ${_git_syntax_session_pid:-0} > 0 )); then
+    kill -KILL $_git_syntax_session_pid 2>/dev/null
+    wait $_git_syntax_session_pid 2>/dev/null
+    _git_syntax_session_pid=0
+  fi
+  [[ -n ${_git_syntax_session_request_fifo:-} ]] &&
+    command rm -f -- "$_git_syntax_session_request_fifo"
+  [[ -n ${_git_syntax_session_response_fifo:-} ]] &&
+    command rm -f -- "$_git_syntax_session_response_fifo"
+  [[ -n ${_git_syntax_session_dir:-} ]] &&
+    command rmdir -- "$_git_syntax_session_dir" 2>/dev/null
+  _git_syntax_session_dir=''
+  _git_syntax_session_request_fifo=''
+  _git_syntax_session_response_fifo=''
+  _git_syntax_session_buffer=''
+  _git_syntax_session_ready=0
+  _git_syntax_session_active_id=0
+  _git_syntax_session_deadline=0
+  return 0
+}
+
+_git_syntax_session_start() {
+  emulate -L zsh
+  unsetopt BG_NICE
   zmodload zsh/system || return 1
   zmodload zsh/datetime || return 1
-  local input=$1 chunk='' data=''
-  local -i fd=-1 child=0 count=0 result=1
-  local -F deadline=$(( EPOCHREALTIME + 0.30 )) remaining=0
-  trap 'return 130' INT
-  trap 'return 143' TERM
-  trap 'return 129' HUP
-  {
-    coproc { exec /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=en_US.UTF-8 \
-      /usr/bin/vim -Nu NONE -U NONE -i NONE -n -es --noplugin \
-      --cmd 'set nomodeline noexrc noswapfile noundofile' \
-      -S "$_GIT_SYNTAX_SCRIPT" < <(print -rn -- "$input" 2>/dev/null) 2>/dev/null
-    }
-    child=$!
-    exec {fd}<&p
-    while (( ${#data} < 131072 )); do
-      remaining=$(( deadline - EPOCHREALTIME ))
-      (( remaining > 0 )) || return 1
-      sysread -i $fd -s $(( 131072 - ${#data} < 8192 ? 131072 - ${#data} : 8192 )) -t $remaining -c count chunk
-      result=$?
-      data+=$chunk
-      if (( result )); then
-        (( result == 5 )) || return 1
-        [[ $data == *$'\ndone\n' ]] || return 1
-        print -rn -- "$data"
-        return 0
-      fi
-    done
+  if (( ${_git_syntax_session_pid:-0} > 0 )) &&
+     kill -0 $_git_syntax_session_pid 2>/dev/null; then
+    return 0
+  fi
+  _git_syntax_session_stop
+  [[ -x /usr/bin/vim && -r $_GIT_SYNTAX_SCRIPT ]] || return 1
+  _git_syntax_session_dir=$(command mktemp -d "${TMPDIR:-/tmp}/compozsh-syntax.XXXXXXXX") || return 1
+  command chmod 700 "$_git_syntax_session_dir" || {
+    _git_syntax_session_stop
     return 1
-  } always {
-    (( fd >= 0 )) && exec {fd}<&-
-    if (( child > 0 )); then
-      kill -KILL $child 2>/dev/null
-      wait $child 2>/dev/null
-    fi
   }
-)
+  _git_syntax_session_request_fifo="$_git_syntax_session_dir/request.fifo"
+  _git_syntax_session_response_fifo="$_git_syntax_session_dir/response.fifo"
+  command mkfifo -m 600 -- "$_git_syntax_session_request_fifo" "$_git_syntax_session_response_fifo" || {
+    _git_syntax_session_stop
+    return 1
+  }
+  exec {_git_syntax_session_fd}<>"$_git_syntax_session_response_fifo" || {
+    _git_syntax_session_stop
+    return 1
+  }
+  /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=en_US.UTF-8 \
+    COMPOZSH_GIT_SYNTAX_REQUEST="$_git_syntax_session_request_fifo" \
+    COMPOZSH_GIT_SYNTAX_RESPONSE="$_git_syntax_session_response_fifo" \
+    /usr/bin/vim -Nu NONE -U NONE -i NONE -n -es --noplugin \
+    --cmd 'set nomodeline noexrc noswapfile noundofile' \
+    -S "$_GIT_SYNTAX_SCRIPT" </dev/null >/dev/null 2>/dev/null &
+  _git_syntax_session_pid=$!
+  _git_syntax_session_buffer=''
+  _git_syntax_session_ready=0
+  _git_syntax_session_generation=0
+  _git_syntax_session_active_id=0
+  # This deadline is only a liveness bound for the asynchronous child. It does
+  # not delay keyboard handling: the picker polls without waiting. Keep enough
+  # margin for a cold system-Vim startup and temporary machine contention so a
+  # valid provider is not misclassified as unavailable on a single slow poll.
+  _git_syntax_session_deadline=$(( EPOCHREALTIME + 1.00 ))
+  return 0
+}
+
+# Submit one request only when Vim has announced that it is ready. The caller
+# owns selection generations and may replace its desired target while this
+# request runs; no request waits for another request or creates a process queue.
+_git_syntax_session_request() {
+  emulate -L zsh
+  local LC_ALL=C
+  zmodload zsh/system || return 1
+  zmodload zsh/datetime || return 1
+  zmodload zsh/zselect || return 1
+  local input=$1 packet=''
+  local -i request_id=0 request_fd=-1 written=0 write_status=0 attempts=0
+  _GIT_SYNTAX_DATA=''
+  _git_syntax_session_start || return 1
+  (( !_git_syntax_session_active_id && _git_syntax_session_ready )) || return 2
+  (( request_id = ++_git_syntax_session_generation ))
+  packet="compozsh-request-1:$request_id"$'\n'"$input"
+
+  # A normal `> fifo` opens its writer synchronously. If Vim exits in the tiny
+  # interval after announcing readiness but before opening its next read, that
+  # open can block the picker forever. Open and write nonblocking instead. A
+  # temporarily absent live reader is retried by a later idle tick; a partial
+  # packet is never reused because its framing would no longer be trustworthy.
+  if ! sysopen -w -o cloexec,nonblock -u request_fd "$_git_syntax_session_request_fifo" 2>/dev/null; then
+    if (( _git_syntax_session_pid > 0 )) && kill -0 $_git_syntax_session_pid 2>/dev/null; then
+      return 2
+    fi
+    _git_syntax_session_stop
+    return 1
+  fi
+  while [[ -n $packet ]] && (( attempts++ < 64 )); do
+    written=0
+    syswrite -o $request_fd -c written "$packet"
+    write_status=$?
+    (( written > 0 )) && packet=${packet[written + 1,-1]}
+    [[ -z $packet ]] && break
+    # Never wait for pipe capacity on the keyboard path. An immediately
+    # writable descriptor may accept the remainder; otherwise abandon the
+    # child and let the next settled viewport start a clean framed session.
+    (( write_status == 0 )) || zselect -w $request_fd -t 0 2>/dev/null || break
+  done
+  exec {request_fd}>&-
+  if [[ -n $packet ]]; then
+    _git_syntax_session_stop
+    return 1
+  fi
+
+  # Publish active-request state only after the complete frame has reached the
+  # child. This prevents a failed open/write from leaving a phantom request
+  # that can neither complete nor be safely superseded.
+  _git_syntax_session_ready=0
+  _git_syntax_session_active_id=$request_id
+  _git_syntax_session_deadline=$(( EPOCHREALTIME + 1.00 ))
+  REPLY=$request_id
+  return 0
+}
+
+# Poll without delaying keyboard handling. Return 0 for one complete valid
+# response, 1 while the current request is still running, 2 while idle/ready,
+# and 3 after a failed or expired request. REPLY identifies the completed
+# generation; callers must still reject it when a newer selection now wins.
+_git_syntax_session_poll() {
+  emulate -L zsh
+  zmodload zsh/system || return 3
+  zmodload zsh/datetime || return 3
+  zmodload zsh/zselect || return 3
+  local chunk='' prefix='' suffix='' packet='' ready_marker=$'compozsh-ready-1\n'
+  local -i count=0 result=0 request_id=${_git_syntax_session_active_id:-0}
+  _GIT_SYNTAX_DATA=''
+  while zselect -r $_git_syntax_session_fd -t 0 2>/dev/null; do
+    chunk=''
+    sysread -i $_git_syntax_session_fd -s 8192 -c count chunk
+    result=$?
+    (( result == 0 )) || break
+    _git_syntax_session_buffer+=$chunk
+    (( ${#_git_syntax_session_buffer} <= 131328 )) || {
+      _git_syntax_session_stop
+      REPLY=$request_id
+      return 3
+    }
+  done
+
+  # Vim emits readiness after every response. It may arrive in a later read,
+  # so idle polls consume it independently from the completed packet.
+  if (( !request_id )); then
+    (( _git_syntax_session_pid > 0 )) || return 2
+    # A ready resident has no deadline: it is intentionally waiting for the
+    # next settled viewport. Without this guard, the cleared zero deadline was
+    # interpreted as expired on the first quiescent poll and the healthy child
+    # was synchronously killed from the UI callback.
+    (( _git_syntax_session_ready )) && return 2
+    if [[ $_git_syntax_session_buffer == "$ready_marker"* ]]; then
+      _git_syntax_session_buffer=${_git_syntax_session_buffer#"$ready_marker"}
+      _git_syntax_session_ready=1
+      _git_syntax_session_deadline=0
+      return 2
+    fi
+    if (( EPOCHREALTIME >= _git_syntax_session_deadline )) ||
+       ! kill -0 $_git_syntax_session_pid 2>/dev/null; then
+      _git_syntax_session_stop
+      return 3
+    fi
+    return 1
+  fi
+
+  prefix="compozsh-response-1:$request_id"$'\n'
+  suffix="compozsh-response-end-1:$request_id"$'\n'
+  if [[ $_git_syntax_session_buffer == *"$suffix"* ]]; then
+    [[ $_git_syntax_session_buffer == "$prefix"*"$suffix"* ]] || {
+      _git_syntax_session_stop
+      REPLY=$request_id
+      return 3
+    }
+    packet=${_git_syntax_session_buffer%%"$suffix"*}
+    _git_syntax_session_buffer=${_git_syntax_session_buffer#*"$suffix"}
+    _git_syntax_session_active_id=0
+    _git_syntax_session_deadline=$(( EPOCHREALTIME + 1.00 ))
+    if [[ $_git_syntax_session_buffer == "$ready_marker"* ]]; then
+      _git_syntax_session_buffer=${_git_syntax_session_buffer#"$ready_marker"}
+      _git_syntax_session_ready=1
+      _git_syntax_session_deadline=0
+    fi
+    _GIT_SYNTAX_DATA=${packet#"$prefix"}
+    REPLY=$request_id
+    [[ $_GIT_SYNTAX_DATA == $'compozsh-syntax-1\n'*$'done\n' ]] && return 0
+    _GIT_SYNTAX_DATA=''
+    return 3
+  fi
+
+  if (( EPOCHREALTIME >= _git_syntax_session_deadline )); then
+    _git_syntax_session_stop
+    REPLY=$request_id
+    return 3
+  fi
+  (( _git_syntax_session_pid > 0 )) && kill -0 $_git_syntax_session_pid 2>/dev/null || {
+    _git_syntax_session_stop
+    REPLY=$request_id
+    return 3
+  }
+  return 1
+}
+
+# Standalone callers retain a synchronous convenience API, implemented on top
+# of the same request/poll lifecycle. Interactive Git review never calls this
+# wrapper; its input loop polls and discards stale generations asynchronously.
+_git_syntax_session_capture() {
+  emulate -L zsh
+  zmodload zsh/zselect || return 1
+  local -i request_id=0 result=0
+  _git_syntax_session_start || return 1
+  while (( !_git_syntax_session_ready )); do
+    _git_syntax_session_poll
+    result=$?
+    case $result in
+      (2) (( _git_syntax_session_ready )) && break ;;
+      (3) return 1 ;;
+    esac
+    zselect -r $_git_syntax_session_fd -t 1 2>/dev/null
+  done
+  _git_syntax_session_request "$1" || return 1
+  request_id=$REPLY
+  while true; do
+    _git_syntax_session_poll
+    result=$?
+    case $result in
+      (0) [[ $REPLY == $request_id ]] && return 0; return 1 ;;
+      (1|2) zselect -r $_git_syntax_session_fd -t 1 2>/dev/null ;;
+      (*) return 1 ;;
+    esac
+  done
+}
 
 # Only audited OS grammars are enabled. Extensions are data, never Ex commands
 # or paths to source. Fragments reset at gaps and old/new sides stay separate.
-_git_syntax_capture() {
+# The optional source-row bounds let document workspaces tokenize a viewport
+# window rather than every retained row. Global row IDs remain in the protocol,
+# so applying a completed window never depends on the reader's later position.
+_git_syntax_language() {
+  emulate -L zsh
+  reply=()
+  case ${1:t} in
+    (*.swift) reply=(swift Swift) ;;
+    (*.zsh|.zshrc|.zsh.*) reply=(zsh Zsh) ;;
+    (*.sh) reply=(sh Shell) ;;
+    (*.json) reply=(json JSON) ;;
+    (*.py) reply=(python Python) ;;
+  esac
+  (( ${#reply} == 2 ))
+}
+
+_git_syntax_prepare_input() {
   emulate -L zsh
   local name=${1:t} language='' label='' line='' input='' unicode_probe='é'
-  local -i row=0 old=0 new=0 result=0 unicode_characters=$(( ${#unicode_probe} == 1 ))
-  _GIT_SYNTAX_DATA='' _GIT_SYNTAX_NOTE='plain syntax · unsupported type'
-  case $name in
-    (*.swift) language=swift label=Swift ;;
-    (*.zsh|.zshrc|.zsh.*) language=zsh label=Zsh ;;
-    (*.sh) language=sh label=Shell ;;
-    (*.json) language=json label=JSON ;;
-    (*.py) language=python label=Python ;;
-    (*) return 0 ;;
-  esac
+  local -i first=${2:-1} last=${3:-${#_ZLE_PICKER_DOCUMENT_LINES}}
+  local -i row=0 old=0 new=0 included=0 unicode_characters=$(( ${#unicode_probe} == 1 ))
+  _GIT_SYNTAX_INPUT='' _GIT_SYNTAX_SUCCESS_NOTE=''
+  _GIT_SYNTAX_NOTE='plain syntax · unsupported type'
+  _git_syntax_language "$name" || return 0
+  language=$reply[1] label=$reply[2]
   _GIT_SYNTAX_NOTE='plain syntax · system Vim unavailable'
   [[ -x /usr/bin/vim && -r $_GIT_SYNTAX_SCRIPT ]] || return 0
+  (( first < 1 )) && first=1
+  (( last > ${#_ZLE_PICKER_DOCUMENT_LINES} )) && last=${#_ZLE_PICKER_DOCUMENT_LINES}
+  (( first <= last )) || return 0
   _GIT_SYNTAX_NOTE='plain syntax · size limit'
   input="$language"$'\n'
-  for (( row=1; row<=${#_ZLE_PICKER_DOCUMENT_LINES}; ++row )); do
+  for (( row=first; row<=last; ++row )); do
     old=${_GIT_REVIEW_DOCUMENT_OLD[row]:-0} new=${_GIT_REVIEW_DOCUMENT_NEW[row]:-0}
     (( old || new )) || continue
+    (( ++included ))
     line=${_ZLE_PICKER_DOCUMENT_LINES[row][16,-1]}
-    (( ${#line} <= 2048 && row <= 3000 )) || return 0
+    (( ${#line} <= 2048 && included <= 3000 )) || return 0
     input+="$row"$'\t'"$old"$'\t'"$new"$'\t'"$line"$'\n'
     (( ${#input} <= 65536 )) || return 0
   done
@@ -85,15 +303,33 @@ _git_syntax_capture() {
     _GIT_SYNTAX_NOTE='plain syntax · UTF-8 locale required'
     return 0
   fi
+  _GIT_SYNTAX_INPUT=$input
+  _GIT_SYNTAX_SUCCESS_NOTE="$label syntax · viewport"
   _GIT_SYNTAX_NOTE='plain syntax · unavailable or time limit'
-  _GIT_SYNTAX_DATA=$(_git_syntax_worker "$input")
-  result=$?
-  if (( result )); then
-    _GIT_SYNTAX_DATA=''
-    case $result in (129|130|143) return $result ;; esac
-    return 0
-  fi
-  _GIT_SYNTAX_NOTE="$label syntax · fragments"
+  return 0
+}
+
+_git_syntax_capture() {
+  emulate -L zsh
+  local _git_syntax_session_dir='' _git_syntax_session_request_fifo=''
+  local _git_syntax_session_response_fifo='' _git_syntax_session_buffer=''
+  local -i _git_syntax_session_fd=-1 _git_syntax_session_pid=0
+  local -i _git_syntax_session_ready=0 _git_syntax_session_generation=0
+  local -i _git_syntax_session_active_id=0
+  local -F _git_syntax_session_deadline=0
+  local -i result=0
+  _GIT_SYNTAX_DATA=''
+  _git_syntax_prepare_input "$@"
+  [[ -n $_GIT_SYNTAX_INPUT ]] || return 0
+  _GIT_SYNTAX_NOTE='plain syntax · unavailable or time limit'
+  {
+    _git_syntax_session_capture "$_GIT_SYNTAX_INPUT"
+    result=$?
+  } always {
+    _git_syntax_session_stop
+  }
+  (( result == 0 )) || { _GIT_SYNTAX_DATA=''; return 0; }
+  _GIT_SYNTAX_NOTE=$_GIT_SYNTAX_SUCCESS_NOTE
   return 0
 }
 
@@ -102,7 +338,8 @@ _git_syntax_capture() {
 _git_syntax_apply() {
   emulate -L zsh
   local record='' role=''
-  local -a records=("${(@f)1}") fields=() match=() mbegin=() mend=()
+  local payload=${1%$'\n'}
+  local -a records=("${(@f)payload}") fields=() match=() mbegin=() mend=()
   local -A spans=() ends=()
   local -i row=0 start=0 end=0 length=0
   _ZLE_PICKER_DOCUMENT_SYNTAX=()
@@ -110,7 +347,7 @@ _git_syntax_apply() {
   (( ${#records} >= 2 && ${#records} <= 4098 )) || return 1
   [[ $records[1] == compozsh-syntax-1 && $records[-1] == done ]] || return 1
   for record in "${records[@][2,-2]}"; do
-    [[ $record =~ '^([1-9][0-9]{0,3}) (0|[1-9][0-9]{0,4}) ([1-9][0-9]{0,4}) (keyword|string|number|comment|type|function|variable)$' ]] || return 1
+    [[ $record =~ '^([1-9][0-9]{0,4}) (0|[1-9][0-9]{0,4}) ([1-9][0-9]{0,4}) (keyword|string|number|comment|type|function|variable)$' ]] || return 1
     fields=( ${=record} )
     row=$fields[1] start=$fields[2] end=$fields[3] role=$fields[4]
     (( row <= ${#_ZLE_PICKER_DOCUMENT_LINES} )) || return 1

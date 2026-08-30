@@ -396,8 +396,221 @@ _git_review_document_cache_key() {
   return 0
 }
 
+# Git syntax is optional presentation metadata, never part of document capture.
+# Navigation must never wait for Vim: Terminal can repeat arrows faster than a
+# syntax request plus paint, and serial waits turn valid input into a visible
+# tail. One screen-session worker therefore runs requests asynchronously. The
+# newest selected viewport is the only generation allowed to publish; completed
+# stale work is discarded before it touches the reader.
+#
+# This is the same task rule used by mature terminal UIs: input owns the UI
+# thread, expensive preview work runs separately, and latest selection wins.
+# Supported source remains behind a stable pending surface until its validated
+# tokens arrive, so the fix neither flushes input nor paints plain code first.
+_git_review_syntax_cleanup() {
+  emulate -L zsh
+  _ZLE_PICKER_DOCUMENT_PENDING=0
+  _git_syntax_status_note=''
+  _git_syntax_active_key=''
+  _git_syntax_active_note=''
+  _git_syntax_active_first=0
+  _git_syntax_active_last=0
+  _git_syntax_active_epoch=0
+  (( ${+functions[_git_syntax_session_stop]} )) && _git_syntax_session_stop
+  return 0
+}
+
+_git_review_syntax_status() {
+  emulate -L zsh
+  local note=$1
+  [[ -n ${_git_syntax_status_note:-} ]] &&
+    _ZLE_PICKER_SUBTITLE=${_ZLE_PICKER_SUBTITLE% · $_git_syntax_status_note}
+  _ZLE_PICKER_SUBTITLE=${_ZLE_PICKER_SUBTITLE% · syntax loads in viewport}
+  _ZLE_PICKER_SUBTITLE=${_ZLE_PICKER_SUBTITLE% · syntax retry pending}
+  [[ -n $note && $_ZLE_PICKER_SUBTITLE != *"$note"* ]] && _ZLE_PICKER_SUBTITLE+=" · $note"
+  _git_syntax_status_note=$note
+  _ZLE_PICKER_INSPECT_WIDTH=0
+  return 0
+}
+
+_git_review_syntax_forget_failures() {
+  emulate -L zsh
+  local cache_key=$1 failure_key=''
+  for failure_key in ${(k)_git_document_syntax_failures}; do
+    [[ $failure_key == "$cache_key:"* ]] && unset "_git_document_syntax_failures[$failure_key]"
+  done
+  return 0
+}
+
+# A provider timeout, worker exit or invalid packet is scoped to one request.
+# It is not deterministic coverage and must never poison every later file.
+# Retry once after input settles; only a second failure for the same captured
+# document window becomes an explicit plain fallback. Unsupported types and
+# size/locale limits take the separate deterministic path below.
+_git_review_syntax_transient_failure() {
+  emulate -L zsh
+  local cache_key=$1 failure_key="$1:$2:$3"
+  local -i first=$2 last=$3 failures=$(( ${_git_document_syntax_failures[$failure_key]:-0} + 1 ))
+  _git_document_syntax_failures[$failure_key]=$failures
+  unset "_git_document_syntax_cache[$cache_key]" "_git_document_syntax_notes[$cache_key]" \
+    "_git_document_syntax_first[$cache_key]" "_git_document_syntax_last[$cache_key]"
+  _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  if (( failures < 2 )); then
+    # Keep the stable loading surface through the retry boundary. This helper
+    # runs during prepaint; clearing pending here would expose one plain source
+    # frame before the next idle pass can start the replacement child.
+    _ZLE_PICKER_DOCUMENT_PENDING=1
+    _git_review_syntax_status 'syntax retry pending'
+  else
+    _ZLE_PICKER_DOCUMENT_PENDING=0
+    _git_document_syntax_cache[$cache_key]=''
+    _git_document_syntax_notes[$cache_key]='plain syntax · unavailable after retry'
+    _git_document_syntax_first[$cache_key]=$first
+    _git_document_syntax_last[$cache_key]=$last
+    _git_review_syntax_status "${_git_document_syntax_notes[$cache_key]}"
+  fi
+  return 0
+}
+
+_git_review_syntax_idle() {
+  emulate -L zsh
+  local cache_key='' completed_key='' completed_data='' completed_note=''
+  local _GIT_SYNTAX_INPUT='' _GIT_SYNTAX_NOTE='' _GIT_SYNTAX_SUCCESS_NOTE=''
+  local -i first=$_ZLE_PICKER_DOCUMENT_VISIBLE_FIRST last=$_ZLE_PICKER_DOCUMENT_VISIBLE_LAST
+  local -i total=${#_ZLE_PICKER_DOCUMENT_LINES} guard=2 desired_first=0 desired_last=0
+  local -i covered_first=0 covered_last=0 poll_result=2 completed_id=0 changed=0
+  local -i completed_first=0 completed_last=0 completed_epoch=0
+  (( _ZLE_PICKER_DOCUMENT && first > 0 && last >= first && _GIT_REVIEW_DOCUMENT_HAS_CODE )) || return 2
+  (( ${+functions[_git_syntax_prepare_input]} && ${+functions[_git_syntax_apply]} &&
+     ${+functions[_git_syntax_session_request]} && ${+functions[_git_syntax_session_poll]} )) || return 2
+  # During a navigation burst the selected list row intentionally outruns the
+  # loaded document. Do not poll, schedule or publish syntax for that obsolete
+  # reader; preview settlement will install the final exact document first.
+  (( _ZLE_PICKER_SELECTED > 0 )) &&
+    [[ ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} == "$_ZLE_PICKER_DOCUMENT_KEY" ]] || return 2
+  _git_review_document_cache_key "$_ZLE_PICKER_DOCUMENT_KEY" "$context"
+  cache_key=$REPLY
+
+  # Poll first, but publish only when the completed generation still describes
+  # this exact selected document and covers its current source viewport.
+  if (( _git_syntax_session_active_id )); then
+    _git_syntax_session_poll
+    poll_result=$?
+    if (( poll_result == 0 || poll_result == 3 )); then
+      completed_id=$REPLY
+      completed_key=$_git_syntax_active_key
+      completed_first=$_git_syntax_active_first
+      completed_last=$_git_syntax_active_last
+      completed_note=$_git_syntax_active_note
+      completed_data=$_GIT_SYNTAX_DATA
+      completed_epoch=$_git_syntax_active_epoch
+      _git_syntax_active_key=''
+      _git_syntax_active_note=''
+      _git_syntax_active_first=0
+      _git_syntax_active_last=0
+      _git_syntax_active_epoch=0
+      if [[ $completed_key == "$cache_key" ]] &&
+         (( completed_epoch == _git_review_snapshot_epoch )) &&
+         (( completed_id && first >= completed_first && last <= completed_last )); then
+        if (( poll_result == 0 )) && _git_syntax_apply "$completed_data"; then
+          _git_document_syntax_first[$cache_key]=$completed_first
+          _git_document_syntax_last[$cache_key]=$completed_last
+          _git_document_syntax_cache[$cache_key]=$completed_data
+          _git_document_syntax_notes[$cache_key]=$completed_note
+          unset "_git_document_syntax_failures[$cache_key:$completed_first:$completed_last]"
+          _ZLE_PICKER_DOCUMENT_PENDING=0
+          _git_review_syntax_status "${_git_document_syntax_notes[$cache_key]}"
+        else
+          _git_review_syntax_transient_failure "$cache_key" $completed_first $completed_last
+        fi
+        return 0
+      fi
+      # A newer selection won while Vim was working. Its state is derived
+      # below; the stale response is deliberately neither cached nor painted.
+    elif (( poll_result == 1 )); then
+      :
+    else
+      # No active packet remains; readiness may have arrived independently.
+    fi
+  else
+    _git_syntax_session_poll >/dev/null 2>&1
+  fi
+
+  covered_first=${_git_document_syntax_first[$cache_key]:-0}
+  covered_last=${_git_document_syntax_last[$cache_key]:-0}
+  if (( covered_first > 0 && first >= covered_first && last <= covered_last )); then
+    _ZLE_PICKER_DOCUMENT_PENDING=0
+    return 2
+  fi
+
+  desired_first=$(( first - guard ))
+  desired_last=$(( last + guard ))
+  (( desired_first < 1 )) && desired_first=1
+  (( desired_last > total )) && desired_last=$total
+  _git_syntax_prepare_input "$_ZLE_PICKER_DOCUMENT_TITLE" $desired_first $desired_last
+
+  # Unsupported or bounded-out content has an immediate explicit plain state;
+  # only supported code waits behind the stable pending surface.
+  if [[ -z $_GIT_SYNTAX_INPUT ]]; then
+    _git_document_syntax_cache[$cache_key]=''
+    _git_document_syntax_notes[$cache_key]=$_GIT_SYNTAX_NOTE
+    if [[ $_GIT_SYNTAX_NOTE == ('plain syntax · unsupported type'|'plain syntax · system Vim unavailable'|'plain syntax · UTF-8 locale required') ]]; then
+      _git_document_syntax_first[$cache_key]=1
+      _git_document_syntax_last[$cache_key]=$total
+    else
+      _git_document_syntax_first[$cache_key]=$desired_first
+      _git_document_syntax_last[$cache_key]=$desired_last
+    fi
+    _ZLE_PICKER_DOCUMENT_PENDING=0
+    _git_review_syntax_status "$_GIT_SYNTAX_NOTE"
+    return 0
+  fi
+
+  # An older request may still own Vim. Remember only that the current view is
+  # pending; once the old packet arrives it is discarded and this latest view
+  # is submitted. No intermediate selection creates another queued request.
+  if (( _git_syntax_session_active_id )); then
+    if (( !_ZLE_PICKER_DOCUMENT_PENDING )); then
+      _ZLE_PICKER_DOCUMENT_PENDING=1
+      _git_review_syntax_status ''
+      _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
+      return 0
+    fi
+    return 1
+  fi
+
+  _git_syntax_session_request "$_GIT_SYNTAX_INPUT"
+  case $? in
+    (0)
+      _git_syntax_active_key=$cache_key
+      _git_syntax_active_first=$desired_first
+      _git_syntax_active_last=$desired_last
+      _git_syntax_active_note=$_GIT_SYNTAX_SUCCESS_NOTE
+      _git_syntax_active_epoch=$_git_review_snapshot_epoch
+      _ZLE_PICKER_DOCUMENT_PENDING=1
+      _git_review_syntax_status ''
+      _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
+      return 0 ;;
+    (2)
+      # Vim has completed a stale response but its next ready marker has not
+      # arrived yet. A later idle poll submits this same latest selection.
+      if (( !_ZLE_PICKER_DOCUMENT_PENDING )); then
+        _ZLE_PICKER_DOCUMENT_PENDING=1
+        _git_review_syntax_status ''
+        _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
+        return 0
+      fi
+      return 1 ;;
+    (*)
+      _git_review_syntax_transient_failure "$cache_key" $desired_first $desired_last
+      return 0 ;;
+  esac
+}
+
 # At most four captured patches per workspace, plus small per-file bookmarks.
 # Loading is a controller operation after the input loop returns, never paint.
+# Optional syntax is applied from the small visited-document cache; a missing
+# viewport is scheduled and polled without blocking at the idle boundary above.
 _git_review_document_load() {
   emulate -L zsh
   local root=$1 index=$2 oid=$3 parent=$4 context=$5 cache_key='' stale=''
@@ -407,11 +620,15 @@ _git_review_document_load() {
   # Direct/standalone callers may omit the optional syntax cache owner.
   if (( !${+_git_document_syntax_cache} )); then
     local -A _git_document_syntax_cache=() _git_document_syntax_notes=()
+    local -A _git_document_syntax_first=() _git_document_syntax_last=()
+  fi
+  if (( !${+_git_document_syntax_failures} )); then
+    local -A _git_document_syntax_failures=()
   fi
   _git_review_document_cache_key "$index" "$context"
   cache_key=$REPLY context=${REPLY#*:}
-  # The old document still owns these coordinates after the input loop or a
-  # pending-selection frame cleared the shared visual buffer.
+  # The old document still owns these coordinates after the input loop returns
+  # a new exact selection and before its replacement document is installed.
   if [[ -n $previous ]]; then
     _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$previous]:-0}"
     [[ -n $REPLY ]] && _git_document_anchors[$previous]=$REPLY
@@ -432,19 +649,21 @@ _git_review_document_load() {
   if (( ${#_git_document_order} > 4 )); then
     stale=$_git_document_order[1]
     unset "_git_document_cache[$stale]" "_git_document_partial[$stale]" \
-      "_git_document_syntax_cache[$stale]" "_git_document_syntax_notes[$stale]"
+      "_git_document_syntax_cache[$stale]" "_git_document_syntax_notes[$stale]" \
+      "_git_document_syntax_first[$stale]" "_git_document_syntax_last[$stale]"
+    _git_review_syntax_forget_failures "$stale"
     _git_document_order[1]=()
   fi
   _GIT_REVIEW_DATA=${_git_document_cache[$cache_key]}
   _GIT_REVIEW_TRUNCATED=${_git_document_partial[$cache_key]}
   _git_review_document_parse
+  _ZLE_PICKER_DOCUMENT_PENDING=0
   _ZLE_PICKER_DOCUMENT_SYNTAX=()
-  if (( ${+functions[_git_syntax_capture]} && ${+functions[_git_syntax_apply]} && _GIT_REVIEW_DOCUMENT_HAS_CODE )); then
-    if (( captured )) || [[ -z ${_git_document_syntax_cache[$cache_key]+present} ]]; then
-      local _GIT_SYNTAX_DATA='' _GIT_SYNTAX_NOTE=''
-      _git_syntax_capture "$name" || return $?
-      _git_document_syntax_cache[$cache_key]=$_GIT_SYNTAX_DATA
-      _git_document_syntax_notes[$cache_key]=$_GIT_SYNTAX_NOTE
+  if (( ${+functions[_git_syntax_prepare_input]} && ${+functions[_git_syntax_apply]} && _GIT_REVIEW_DOCUMENT_HAS_CODE )); then
+    if (( captured )); then
+      unset "_git_document_syntax_cache[$cache_key]" "_git_document_syntax_notes[$cache_key]" \
+        "_git_document_syntax_first[$cache_key]" "_git_document_syntax_last[$cache_key]"
+      _git_review_syntax_forget_failures "$cache_key"
     fi
     if [[ -n ${_git_document_syntax_cache[$cache_key]} ]] &&
        ! _git_syntax_apply "${_git_document_syntax_cache[$cache_key]}"; then
@@ -475,7 +694,10 @@ _git_review_document_load() {
   _ZLE_PICKER_SUBTITLE="${root:t} · $kind · full-file context · captured on selection"
   [[ $context == 3 ]] && _ZLE_PICKER_SUBTITLE="${root:t} · $kind · focused diff · 3 context lines · captured on selection"
   [[ $kind == untracked ]] && _ZLE_PICKER_SUBTITLE="${root:t} · untracked · new-file preview · captured on selection"
-  [[ -n ${_git_document_syntax_notes[$cache_key]-} ]] && _ZLE_PICKER_SUBTITLE+=" · ${_git_document_syntax_notes[$cache_key]}"
+  _git_syntax_status_note=${_git_document_syntax_notes[$cache_key]-}
+  [[ -n $_git_syntax_status_note ]] && _ZLE_PICKER_SUBTITLE+=" · $_git_syntax_status_note"
+  (( ${+functions[_git_syntax_prepare_input]} && _GIT_REVIEW_DOCUMENT_HAS_CODE )) &&
+    [[ -z ${_git_document_syntax_cache[$cache_key]+present} ]] && _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
   return 0
 }
 
@@ -569,9 +791,14 @@ _git_review_refresh() {
 
   _git_document_cache=() _git_document_partial=() _git_document_order=()
   _git_document_syntax_cache=() _git_document_syntax_notes=()
+  _git_document_syntax_first=() _git_document_syntax_last=()
+  _git_document_syntax_failures=()
   _git_document_contexts=() _git_document_anchors=()
   _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
   _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
+  _ZLE_PICKER_DOCUMENT_PENDING=0
+  (( ++_git_review_snapshot_epoch ))
+  _git_review_syntax_cleanup
   _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
   _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
   _GIT_REVIEW_DOCUMENT_HAS_CODE=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _GIT_REVIEW_DOCUMENT_SUMMARY=''
@@ -611,6 +838,13 @@ _git_review_refresh() {
 # Scope file snapshots and reading bookmarks to this review workspace.
 _git_review_view() {
   emulate -L zsh
+  # Syntax capture is a screen-session child, not a user shell job. MONITOR
+  # emits both `[n] pid` at launch and `[n] + done …` at completion; either can
+  # interleave with ZLE's frame bytes and composite stale documents on screen.
+  # Keep job control off for this function's dynamic lifetime so workers remain
+  # waitable/reapable without terminal job records. `emulate -L` restores the
+  # user's MONITOR/NOTIFY options as soon as the workspace exits.
+  unsetopt MONITOR NOTIFY
   setopt EXTENDED_GLOB
   local root=$1 kind=$2 target=${3:-} oid=${4:-} parent=${5:-}
   local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
@@ -619,15 +853,30 @@ _git_review_view() {
   local _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_BROWSE_LABEL=''
   local _ZLE_PICKER_EMPTY_LABEL='no matching entries'
   local _ZLE_PICKER_SEARCH_ACTION=''
+  local _ZLE_PICKER_IDLE_CALLBACK=_git_review_syntax_idle
   local _ZLE_PICKER_INSPECT_FALLBACK='' _ZLE_PICKER_INSPECT_EXPAND_KEY=''
   local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _zle_picker_start_focus=0
   local -i result=0 index=0 focus=0 _git_review_reads_blocked=0
   local -i _ZLE_PICKER_DOCUMENT=0 context=3 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _ZLE_PICKER_DOCUMENT_REFRESH=0
+  local -i _ZLE_PICKER_DOCUMENT_PENDING=0
+  local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=4
   local _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _GIT_REVIEW_DOCUMENT_SUMMARY='' _ZLE_PICKER_DOCUMENT_MODE=''
   local _git_review_refresh_status=''
+  local _git_syntax_session_dir='' _git_syntax_session_request_fifo=''
+  local _git_syntax_session_response_fifo='' _git_syntax_session_buffer=''
+  local -i _git_syntax_session_fd=-1 _git_syntax_session_pid=0
+  local -i _git_syntax_session_ready=0 _git_syntax_session_generation=0
+  local -i _git_syntax_session_active_id=0
+  local -i _git_syntax_active_first=0 _git_syntax_active_last=0
+  local -i _git_review_snapshot_epoch=1 _git_syntax_active_epoch=0
+  local -F _git_syntax_session_deadline=0
+  local _git_syntax_active_key='' _git_syntax_active_note=''
+  local _git_syntax_status_note=''
   local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _git_document_order=()
   local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _git_document_cache=() _git_document_partial=()
   local -A _ZLE_PICKER_DOCUMENT_SYNTAX=() _git_document_syntax_cache=() _git_document_syntax_notes=()
+  local -A _git_document_syntax_first=() _git_document_syntax_last=()
+  local -A _git_document_syntax_failures=()
   local -A _ZLE_PICKER_DOCUMENT_ROWS=() _git_document_contexts=() _git_document_anchors=()
   local -a _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
   local -a _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=() _GIT_REVIEW_KINDS=()
@@ -669,6 +918,10 @@ _git_review_view() {
     _git_review_reset
   fi
   _git_review_rows
+  {
+  if (( _ZLE_PICKER_DOCUMENT && ${+functions[_git_syntax_session_start]} )); then
+    _git_syntax_session_start || true
+  fi
   while true; do
     _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
     _zle_picker_start_focus=$focus
@@ -692,8 +945,9 @@ _git_review_view() {
             _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" || return $? ;;
           (*)
             [[ $_ZLE_PICKER_ACTION == select ]] && focus=1
-            [[ $index == "$_ZLE_PICKER_DOCUMENT_KEY" ]] ||
-              _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" || return $? ;;
+            if [[ $index != "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+              _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" || return $?
+            fi ;;
         esac
       fi
       continue
@@ -704,6 +958,9 @@ _git_review_view() {
     result=$?
     (( result > 1 )) && return $result
   done
+  } always {
+    _git_review_syntax_cleanup
+  }
 }
 
 _git_review_options() {

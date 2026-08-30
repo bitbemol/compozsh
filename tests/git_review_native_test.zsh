@@ -27,6 +27,7 @@ _test_git_review_native() {
     local index_before=$(git hash-object --no-filters .git/index)
     zmodload zsh/zpty
     zmodload zsh/zselect
+    zmodload zsh/datetime
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
@@ -88,7 +89,8 @@ _test_git_review_native() {
     }
     _review_test_expect() {
       local wanted=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
+      local -F deadline=$(( EPOCHREALTIME + 5.0 ))
+      while (( EPOCHREALTIME < deadline )) && zselect -r $efd $pfd -t 50; do
         while zpty -r review chunk; do trace+=$chunk; done
         if IFS= read -r -t 0 -u $efd event; then
           [[ $event == DOC\|* ]] && { doc_event=$event; continue; }
@@ -249,3 +251,239 @@ _test_git_review_native() {
   test_assert_equal reviewed "$output"
 }
 test_case 'Git review native g preserves screens bookmarks resize abort switching unborn review and peer fallback' _test_git_review_native
+
+# Terminal.app sends repeated arrows as ordinary cursor byte sequences; it does
+# not expose key-release events. Feed a complete queued burst through a real PTY
+# and use the final document load as the quiescence barrier. The controller may
+# paint lightweight selection frames while consuming the burst, but it must not
+# resolve any intermediate preview. Once the final preview is installed, the
+# immediately following Right key must focus that same document: any unread
+# arrow tail would move or load another selection first.
+_test_git_review_native_burst_settle() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.git-review"
+    mkdir -p "$HOME/repo"
+    cd "$HOME/repo"
+    git init -qb main
+    git config user.name Fixture
+    git config user.email fixture@example.invalid
+    git config commit.gpgsign false
+    local -i index=0
+    for (( index=1; index<=15; ++index )); do
+      print -r -- "let value = $index" > "file-${(l:2::0:)index}.swift"
+    done
+    git add . && git commit -qm initial || exit 1
+    for (( index=1; index<=15; ++index )); do
+      print -r -- "let changed = $index" >> "file-${(l:2::0:)index}.swift"
+    done
+
+    zmodload zsh/zpty
+    zmodload zsh/zselect
+    command mkfifo "$HOME/events" || exit 2
+    exec {efd}<> "$HOME/events" || exit 3
+    functions -c _git_review_document_load _burst_original_document_load
+    _git_review_document_load() {
+      _burst_original_document_load "$@"
+      local -i result=$?
+      print -r -u $efd -- "LOAD|$2|$_ZLE_PICKER_DOCUMENT_KEY"
+      return $result
+    }
+    functions -c _zle_picker_show _burst_original_show
+    _zle_picker_show() {
+      _burst_original_show
+      [[ $_ZLE_PICKER_TITLE == "Working changes" ]] || return 0
+      print -r -u $efd -- "FRAME|$_ZLE_PICKER_SELECTED|$_ZLE_PICKER_DOCUMENT_KEY|$_ZLE_PICKER_INSPECT_FOCUS"
+    }
+    _burst_driver() {
+      command stty rows 30 cols 120
+      print -r -u $efd READY
+      _git_review_view "$HOME/repo" working
+      local -i result=$?
+      print -r -u $efd -- "DONE|$result"
+    }
+    _burst_event() {
+      local chunk=""
+      while zselect -r $efd $pfd -t 500; do
+        while zpty -r burst chunk; do trace+=$chunk; done
+        IFS= read -r -t 0 -u $efd event && return 0
+      done
+      print -u2 -r -- "burst event timed out after ${(qqq)event}"
+      return 1
+    }
+    _burst_until() {
+      local wanted=$1
+      while _burst_event; do
+        case $event in
+          (LOAD\|*) loads+=("${${(s:|:)event}[2]}") ;;
+        esac
+        [[ $event == "$wanted" ]] && return 0
+        [[ $event == DONE\|* ]] && break
+      done
+      print -u2 -r -- "expected $wanted; got ${(qqq)event}; loads=${(j:,:)loads}"
+      return 1
+    }
+
+    local trace="" event="" burst_bytes="" key_down="" key_left="" key_right="" key_abort="" pfd=0
+    local -a loads=()
+    printf -v key_down "\\033[B"
+    printf -v key_left "\\033[D"
+    printf -v key_right "\\033[C"
+    printf -v key_abort "\\007"
+    zpty -b burst _burst_driver || exit 4
+    pfd=$REPLY
+    {
+      _burst_until READY || exit 5
+      _burst_until "LOAD|1|1" || exit 6
+      _burst_until "FRAME|1|1|0" || exit 7
+
+      repeat 8; do burst_bytes+=$key_down; done
+      zpty -w -n burst "$burst_bytes"
+      _burst_until "LOAD|9|9" || exit 8
+      _burst_until "FRAME|9|9|0" || exit 9
+      [[ ${(j:,:)loads} == 1,9 ]] || {
+        print -u2 -r -- "burst resolved intermediate documents: ${(j:,:)loads}"
+        exit 10
+      }
+
+      # LOAD|9 can only be emitted after the picker declares the burst settled.
+      # Right therefore becomes the next input operation and must focus file 9
+      # without another selection or document load appearing first.
+      zpty -w -n burst "$key_right"
+      _burst_until "FRAME|9|9|1" || exit 11
+      [[ ${(j:,:)loads} == 1,9 ]] || {
+        print -u2 -r -- "unread arrow tail followed the final load: ${(j:,:)loads}"
+        exit 12
+      }
+
+      # Repeat the same contract with Terminal.app-like transport cadence.
+      # The 80 ms sleeps only deliver bytes inside the 120 ms quiet
+      # window; assertions remain event/order based rather than performance
+      # thresholds. No intermediate file may resolve while input continues.
+      zpty -w -n burst "$key_left"
+      _burst_until "FRAME|9|9|0" || exit 13
+      repeat 5; do
+        zpty -w -n burst "$key_down"
+        command sleep 0.08
+      done
+      _burst_until "LOAD|14|14" || exit 14
+      _burst_until "FRAME|14|14|0" || exit 15
+      [[ ${(j:,:)loads} == 1,9,14 ]] || {
+        print -u2 -r -- "paced repeat resolved intermediate documents: ${(j:,:)loads}"
+        exit 16
+      }
+      zpty -w -n burst "$key_right"
+      _burst_until "FRAME|14|14|1" || exit 17
+      [[ ${(j:,:)loads} == 1,9,14 ]] || {
+        print -u2 -r -- "paced repeat left an unread movement tail: ${(j:,:)loads}"
+        exit 18
+      }
+      zpty -w -n burst "$key_abort"
+      _burst_until "DONE|1" || exit 19
+      [[ $trace != *"read-only variable"* && $trace != *"bad math expression"* ]] || exit 20
+    } always {
+      zpty -d burst 2>/dev/null
+      exec {efd}>&-
+    }
+    print burst-settled
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal burst-settled "$output"
+}
+test_case 'Git review coalesces buffered and paced arrow bursts with no unread movement tail' \
+  _test_git_review_native_burst_settle
+
+# The prepaint callback must never get ahead of terminal input that Zsh can
+# already return. Queue two complete Down sequences while the child is held at
+# a gate, then start the real picker loop. The first two frames may show the
+# intermediate selections, but the deliberately slow optional callback must
+# run exactly once and only for the final selection after both keys are read.
+# Sleep makes an accidental callback expensive enough to expose in manual
+# traces; correctness is asserted solely from event order and callback count.
+_test_git_review_native_queued_input_precedes_idle() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    zmodload zsh/zpty
+    zmodload zsh/zselect
+    command mkfifo "$HOME/events" "$HOME/gate" || exit 1
+    exec {efd}<> "$HOME/events" || exit 2
+    exec {gfd}<> "$HOME/gate" || exit 3
+
+    _queued_collect() {
+      _ZLE_PICKER_RESULTS=(one two three)
+      _ZLE_PICKER_LABELS=(one.swift two.swift three.swift)
+    }
+    _queued_idle() {
+      (( ++idle_calls ))
+      print -r -u $efd -- "IDLE|$_ZLE_PICKER_SELECTED|$idle_calls"
+      command sleep 0.15
+      return 2
+    }
+    _zle_picker_show() {
+      print -r -u $efd -- "FRAME|$_ZLE_PICKER_SELECTED"
+    }
+    _queued_driver() {
+      command stty rows 30 cols 120
+      local -i _ZLE_PICKER_SESSION=1 _ZLE_PICKER_DOCUMENT=0 idle_calls=0
+      local _ZLE_PICKER_COLLECTOR=_queued_collect
+      local _ZLE_PICKER_IDLE_CALLBACK=_queued_idle
+      local -A _ZLE_PICKER_INSPECT_TEXTS=()
+      print -r -u $efd READY
+      local go=""
+      IFS= read -r -u $gfd go || return 90
+      [[ $go == GO ]] || return 91
+      _zle_picker_loop "" 10 1 0
+      print -r -u $efd -- "DONE|$?|$idle_calls"
+    }
+    _queued_event() {
+      local chunk=""
+      while zselect -r $efd $pfd -t 500; do
+        while zpty -r queued chunk; do trace+=$chunk; done
+        IFS= read -r -t 0 -u $efd event && return 0
+      done
+      print -u2 -r -- "queued-input event timed out after ${(qqq)event}"
+      return 1
+    }
+    _queued_expect() {
+      local wanted=$1
+      _queued_event || return
+      events+=($event)
+      [[ $event == "$wanted" ]] || {
+        print -u2 -r -- "expected $wanted; got ${(qqq)event}; events=${(j:,:)events}"
+        return 1
+      }
+    }
+
+    local trace="" event="" pfd=0 key_down="" key_abort=""
+    local -a events=()
+    printf -v key_down "\\033[B"
+    printf -v key_abort "\\007"
+    zpty -b queued _queued_driver || exit 4
+    pfd=$REPLY
+    {
+      _queued_expect READY || exit 5
+      # The child cannot touch the picker until both sequences are buffered.
+      zpty -w -n queued "$key_down$key_down"
+      print -r -u $gfd GO
+      _queued_expect "FRAME|1" || exit 6
+      _queued_expect "FRAME|2" || exit 7
+      _queued_expect "IDLE|3|1" || exit 8
+      _queued_expect "FRAME|3" || exit 9
+      zpty -w -n queued "$key_abort"
+      _queued_expect "DONE|1|1" || exit 10
+    } always {
+      zpty -d queued 2>/dev/null
+      exec {efd}>&-
+      exec {gfd}>&-
+    }
+    print queued-before-idle
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal queued-before-idle "$output"
+}
+test_case 'Git review consumes queued navigation before optional idle prepaint work' \
+  _test_git_review_native_queued_input_precedes_idle

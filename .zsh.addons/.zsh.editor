@@ -162,8 +162,18 @@ typeset -g _ZLE_PICKER_DOCUMENT_MODE=''
 typeset -gi _ZLE_PICKER_DOCUMENT_REFRESH=0
 typeset -g _ZLE_PICKER_DOCUMENT_KEY=''
 typeset -g _ZLE_PICKER_DOCUMENT_TITLE=''
+typeset -gi _ZLE_PICKER_DOCUMENT_PENDING=0
+# Document workspaces may let list selection outrun expensive preview capture.
+# Zero preserves immediate controller handoff; Git review opts into a small
+# input-idle settlement measured in the loop's native 30 ms ticks.
+typeset -gi _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=0
 typeset -ga _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
 typeset -gA _ZLE_PICKER_DOCUMENT_SYNTAX=()
+# The renderer publishes the source-row interval currently visible in the
+# document reader. Providers may use this captured geometry to prepare bounded
+# presentation metadata; they must never run from the renderer itself.
+typeset -gi _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=0
+typeset -gi _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=0
 typeset -ga _ZLE_PICKER_INSPECT_SYNTAX=() _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=()
 typeset -gA _ZLE_PICKER_DOCUMENT_OFFSETS=()
 # Source-row mapping lets a caller preserve meaning when document content changes.
@@ -213,7 +223,7 @@ _zle_picker_document_bookmark() {
 _zle_picker_inspect_prepare() {
   emulate -L zsh
   local name=$1 line='' part='' words='' role='' text=''
-  local -i width=$2 first=1 max_lines=256 source_index=0 character_offset=0
+  local -i width=$2 first=1 max_lines=256 source_index=0 character_offset=0 document_pending=0
   local -a source_lines=() reply=() syntax=()
   (( _ZLE_PICKER_DOCUMENT )) && max_lines=20000
   if [[ $name == "$_ZLE_PICKER_INSPECT_KEY" ]] &&
@@ -242,7 +252,17 @@ _zle_picker_inspect_prepare() {
   source_lines=("${(@f)text}")
   if (( _ZLE_PICKER_DOCUMENT )); then
     if [[ -n $name && $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
-      source_lines=("${_ZLE_PICKER_DOCUMENT_LINES[@]}")
+      if (( _ZLE_PICKER_DOCUMENT_PENDING )); then
+        document_pending=1
+        # Preserve one prepared row per source row while optional presentation
+        # metadata is pending. Replacing the document with a single notice row
+        # destroys the source-coordinate viewport that the asynchronous
+        # provider needs to finish the request. The renderer therefore keeps
+        # the geometry but never exposes an unhighlighted source intermediate.
+        source_lines=("${_ZLE_PICKER_DOCUMENT_LINES[@]}")
+      else
+        source_lines=("${_ZLE_PICKER_DOCUMENT_LINES[@]}")
+      fi
     elif [[ -n $name ]]; then
       source_lines=('Reading selected file…')
     fi
@@ -254,11 +274,21 @@ _zle_picker_inspect_prepare() {
       _zle_picker_syntax_prepare "$line" "${_ZLE_PICKER_DOCUMENT_SYNTAX[$source_index]}"
       syntax=("${reply[@]}")
     fi
+    if (( document_pending )); then
+      # Keep wrapping and source-row maps stable without painting plain code.
+      # One short notice at the first source row makes the state explicit;
+      # remaining rows are intentionally blank placeholders.
+      [[ $source_index == 1 ]] && line='Preparing highlighted preview…' || line=''
+    fi
     (( _ZLE_PICKER_DOCUMENT )) && line=${line//$'\t'/    }
     line=${(V)line}
     role=text
     if (( _ZLE_PICKER_DOCUMENT )); then
-      [[ $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]] && role=${_ZLE_PICKER_DOCUMENT_ROLES[source_index]:-text}
+      if (( document_pending )); then
+        role=info
+      elif [[ $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+        role=${_ZLE_PICKER_DOCUMENT_ROLES[source_index]:-text}
+      fi
     elif (( first == 1 )); then
       role=heading
     elif (( first == 2 )); then
@@ -400,6 +430,19 @@ _zle_picker_inspect_render() {
   (( max_offset < 0 )) && max_offset=0
   (( _ZLE_PICKER_INSPECT_OFFSET > max_offset )) && _ZLE_PICKER_INSPECT_OFFSET=$max_offset
   (( _ZLE_PICKER_INSPECT_OFFSET < 0 )) && _ZLE_PICKER_INSPECT_OFFSET=0
+  _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=0
+  _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=0
+  if (( _ZLE_PICKER_DOCUMENT )) && [[ -n $name && $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+    _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=${_ZLE_PICKER_INSPECT_SOURCE_LINES[_ZLE_PICKER_INSPECT_OFFSET+1]:-0}
+    # The shared pane may be taller than a short document because the file list
+    # establishes the workspace height. Clamp the source-map lookup to the last
+    # prepared row; indexing the unused pane space would publish zero geometry
+    # and prevent the syntax provider from ever receiving this document.
+    local -i document_last_display=$((_ZLE_PICKER_INSPECT_OFFSET + _ZLE_PICKER_INSPECT_PAGE))
+    (( document_last_display > ${#_ZLE_PICKER_INSPECT_SOURCE_LINES} )) &&
+      document_last_display=${#_ZLE_PICKER_INSPECT_SOURCE_LINES}
+    _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=${_ZLE_PICKER_INSPECT_SOURCE_LINES[document_last_display]:-0}
+  fi
   (( left_width || _ZLE_PICKER_INSPECT_FOCUS )) || return
   title=${(V)_ZLE_PICKER_INSPECT_TITLE}
   if (( _ZLE_PICKER_DOCUMENT )) && [[ -n $name ]]; then
@@ -1720,7 +1763,10 @@ _zle_picker_loop() {
   local -i collected=0 request_limit=0 wanted=0
   local -i read_columns=0 read_lines=0
   local -i start_index=1 start_offset=0
-  local -i meta_sequence=0
+  local -i meta_sequence=0 idle_repaint=0 idle_result=1 idle_prepaint=0
+  local -i document_preview_pending=0 document_settle_ticks=${_ZLE_PICKER_DOCUMENT_SETTLE_TICKS:-0}
+  local -i document_ticks_left=0
+  local document_target=''
 
   [[ $raw_limit == <-> ]] && configured_limit=$raw_limit
   (( configured_limit < 1 )) && configured_limit=1
@@ -1749,6 +1795,8 @@ _zle_picker_loop() {
   _ZLE_PICKER_INSPECT_OFFSET=0
   _ZLE_PICKER_INSPECT_KEY=''
   _ZLE_PICKER_INSPECT_WIDTH=0
+  [[ -n ${_ZLE_PICKER_IDLE_CALLBACK:-} &&
+     ${+functions[$_ZLE_PICKER_IDLE_CALLBACK]} == 1 ]] && idle_prepaint=1
   {
     while (( !accepted && !cancelled && !aborted )); do
       limit=$configured_limit
@@ -1791,22 +1839,113 @@ _zle_picker_loop() {
 
       _ZLE_PICKER_QUERY=$query
       _ZLE_PICKER_SELECTED=$selected
-      _zle_picker_render "$query" $selected
-      _zle_picker_show
-
-      # Request capture from the controller, outside this input loop.
-      # Resizing and scrolling remain provider-free.
+      document_preview_pending=0
+      # Terminal.app supplies input bytes, not key-release events. Never flush
+      # repeated arrows: every complete sequence updates selection. A document
+      # workspace may nevertheless defer its expensive preview until selection
+      # is quiet. Intermediate rows paint the existing loading state inside
+      # this input loop; only the latest exact target reaches the controller.
       if (( _ZLE_PICKER_DOCUMENT && count )) &&
          [[ ${_ZLE_PICKER_RESULTS[selected]} != "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
-        _ZLE_PICKER_ACTION=inspect
-        accepted=1
-        continue
+        if (( document_settle_ticks > 0 )); then
+          document_preview_pending=1
+          if [[ $document_target != ${_ZLE_PICKER_RESULTS[selected]} ]]; then
+            document_target=${_ZLE_PICKER_RESULTS[selected]}
+            document_ticks_left=$document_settle_ticks
+          fi
+        else
+          _ZLE_PICKER_ACTION=inspect
+          accepted=1
+          continue
+        fi
       fi
-
       key=''
+      _zle_picker_render "$query" $selected
+      if (( idle_prepaint )); then
+        # Layout has now published the exact document viewport. Consume one
+        # already-queued byte before touching optional presentation work: a
+        # held-key stream owns the UI thread, even when a completed syntax
+        # packet is ready. Unlike fd readability, `read -t 0 -k 1` succeeds
+        # only when Zsh can actually return a byte, so a readable PTY without a
+        # complete key does not starve the callback.
+        if ! IFS= read -r -t 0 -k 1 key; then
+          # With input idle, one nonblocking callback handoff may publish
+          # completed metadata or schedule the current viewport. Provider
+          # startup, requests and completion waits must never occur here.
+          if "$_ZLE_PICKER_IDLE_CALLBACK"; then
+            idle_result=0
+          else
+            idle_result=$?
+          fi
+          if (( idle_result == 0 )); then
+            _zle_picker_render "$query" $selected
+          fi
+        fi
+      fi
+      _zle_picker_show
+
       read_columns=$COLUMNS
       read_lines=$LINES
-      if ! IFS= read -r -k 1 key; then
+      idle_repaint=0
+      if (( document_preview_pending )); then
+        # Consume input throughout the quiet window. Every received key resets
+        # settlement; no preview provider, syntax callback or document parse
+        # runs for an intermediate selection. Four ticks gives Git review a
+        # 120 ms window, longer than the observed 83 ms held-key cadence while
+        # keeping a single tap visibly responsive.
+        if [[ -z $key ]]; then
+          while ! IFS= read -r -t 0.03 -k 1 key; do
+            if (( COLUMNS != read_columns || LINES != read_lines )); then
+              idle_repaint=1
+              break
+            fi
+            if (( --document_ticks_left <= 0 )); then
+              _ZLE_PICKER_ACTION=inspect
+              accepted=1
+              break
+            fi
+          done
+        fi
+        if [[ -n $key ]]; then
+          document_ticks_left=$document_settle_ticks
+        fi
+        (( idle_repaint || accepted )) && continue
+      elif [[ -n ${_ZLE_PICKER_IDLE_CALLBACK:-} && ${+functions[$_ZLE_PICKER_IDLE_CALLBACK]} == 1 ]]; then
+        # Optional caller work is polled only while input is idle. The short
+        # timed read gives terminal bytes priority; callbacks may publish
+        # already-computed metadata, schedule work without waiting and request
+        # a repaint. Input still receives priority before every callback.
+        if [[ -z $key ]]; then
+          while ! IFS= read -r -t 0.03 -k 1 key; do
+            if (( COLUMNS != read_columns || LINES != read_lines )); then
+              idle_repaint=1
+              break
+            fi
+            if "$_ZLE_PICKER_IDLE_CALLBACK"; then
+              idle_result=0
+            else
+              idle_result=$?
+            fi
+            if (( idle_result == 0 )); then
+              idle_repaint=1
+              break
+            elif (( idle_result == 2 )); then
+              # The caller has no pending work for this frame. Return to a true
+              # blocking read until the next key or resize changes the viewport.
+              if ! IFS= read -r -k 1 key; then
+                if (( COLUMNS != read_columns || LINES != read_lines )); then
+                  idle_repaint=1
+                else
+                  cancelled=1
+                fi
+              fi
+              break
+            fi
+          done
+        fi
+        (( idle_repaint )) && continue
+        (( cancelled )) && break
+      elif [[ -z $key ]] && ! IFS= read -r -k 1 key; then
         # A terminal resize may interrupt read before ZLE's resize callback can
         # repaint. Keep the selection and redraw the cached viewport next turn.
         (( COLUMNS != read_columns || LINES != read_lines )) && continue

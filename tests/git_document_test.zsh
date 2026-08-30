@@ -149,3 +149,56 @@ _test_git_document_labels() {
   test_assert_equal labels "$output"
 }
 test_case 'Git document shows filenames while filtering exact paths and omits unavailable selected-file options' _test_git_document_labels
+
+_test_git_document_selection_settle() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    local -i shows=0 keys_read=0 _ZLE_PICKER_SESSION=1 _ZLE_PICKER_DOCUMENT=1
+    local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=4
+    local _ZLE_PICKER_DOCUMENT_KEY=one _ZLE_PICKER_COLLECTOR=_frame_collect
+    local -A _ZLE_PICKER_INSPECT_TEXTS=(one ready two ready three ready four ready)
+    local -a read_events=(timeout timeout down timeout timeout timeout down timeout timeout timeout timeout)
+    _frame_collect() {
+      _ZLE_PICKER_RESULTS=(one two three four)
+      _ZLE_PICKER_LABELS=(one.swift two.swift three.swift four.swift)
+    }
+    _zle_picker_show() { (( ++shows )); }
+    # Script quiet ticks and navigation bytes without a wall clock. Ctrl-N uses
+    # the same selection step as Down after cursor-sequence decoding. Each key
+    # must restart the complete four-tick quiet interval.
+    read() {
+      local event=${read_events[1]-timeout}
+      read_events[1]=()
+      if [[ $event == down ]]; then
+        (( ++keys_read ))
+        key=$'"'"'\x0e'"'"'
+        return 0
+      fi
+      return 1
+    }
+    _zle_picker_loop "" 10 2 0
+    [[ $? == 0 && $_ZLE_PICKER_ACTION == inspect && $_ZLE_PICKER_SELECTED_VALUE == four &&
+       $keys_read == 2 && ${#read_events} == 0 && $shows == 3 ]] || {
+      print -u2 -- "document selection settled before repeated input: selected=$_ZLE_PICKER_SELECTED_VALUE keys=$keys_read events=${#read_events} shows=$shows"
+      exit 1
+    }
+
+    # Repeats at the bottom still represent active input although selection no
+    # longer changes. They must also restart settlement; otherwise preview work
+    # can begin while the user continues holding Down.
+    shows=0 keys_read=0
+    read_events=(timeout timeout down timeout timeout timeout down timeout timeout timeout timeout)
+    _zle_picker_loop "" 10 4 0
+    [[ $? == 0 && $_ZLE_PICKER_ACTION == inspect && $_ZLE_PICKER_SELECTED_VALUE == four &&
+       $keys_read == 2 && ${#read_events} == 0 && $shows == 3 ]] || {
+      print -u2 -- "boundary repeats did not restart settlement: selected=$_ZLE_PICKER_SELECTED_VALUE keys=$keys_read events=${#read_events} shows=$shows"
+      exit 2
+    }
+    print settled
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal settled "$output"
+}
+test_case 'Git document selection paints lightly and resolves only after input settles' \
+  _test_git_document_selection_settle
