@@ -951,6 +951,74 @@ _test_usb_readback_bypasses_cache_and_compares_exact_range() {
 test_case 'USB verification reads exact raw ranges with the macOS cache disabled' \
   _test_usb_readback_bypasses_cache_and_compares_exact_range
 
+_test_usb_large_readback_uses_aligned_multi_megabyte_blocks() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/large-source.iso"
+  local target_image="$TEST_TMP_DIR/large-target.img"
+  local trace_file="$TEST_TMP_DIR/large-readback-args" output=''
+  command /bin/dd if=/dev/zero of="$source_image" bs=1m count=8 status=none || return
+  command /bin/dd if=/dev/zero of="$source_image" bs=512 count=1 seek=16384 \
+    conv=notrunc status=none || return
+  command /bin/cp "$source_image" "$target_image" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    target_image=$3 trace_file=$4
+    _usb_dd_read_run() {
+      local -a arguments=("$@")
+      local -i index=0
+      print -r -- "${(j: :)arguments}" >| "$trace_file"
+      for (( index = 1; index <= ${#arguments}; ++index )); do
+        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
+      done
+      command /bin/dd "${arguments[@]}"
+    }
+    _usb_cmp_run -n 8389120 /dev/rdisk7 "$2"
+    print -r -- "status:$?"
+    print -r -- "args:$(<$trace_file)"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$trace_file") || return
+
+  test_assert_contains "$output" 'status:0' \
+    'multi-megabyte raw comparison rejected identical media' || return
+  test_assert_contains "$output" \
+    'if=/dev/rdisk7 bs=4m skip=0 count=3 iflag=direct status=progress' \
+    'large raw comparison regressed to millions of uncached 512-byte reads'
+}
+test_case 'USB large verification reads use aligned multi-megabyte blocks' \
+  _test_usb_large_readback_uses_aligned_multi_megabyte_blocks
+
+_test_usb_verification_paints_live_read_progress() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga frames=()
+    _usb_unmount() { return 0; }
+    _usb_progress_stage() { frames+=("$*"); }
+    _usb_compare_written_image() {
+      if [[ -n ${_USB_VERIFY_META_FILE:-} && -n ${_USB_VERIFY_PROGRESS_FILE:-} ]]; then
+        builtin printf "%s\\t%s\\n" "Full image comparison" 8388608 \
+          >| "$_USB_VERIFY_META_FILE"
+        print -r -- "4194304 bytes (4.2 MB) transferred in 1.0 secs (4.2 MB/sec)" \
+          >| "$_USB_VERIFY_PROGRESS_FILE"
+      fi
+      command /bin/sleep 0.6
+      _USB_PAYLOAD_VERIFY_SCOPE=full
+      _USB_PAYLOAD_VERIFY_ERROR=""
+      return 0
+    }
+    _usb_verify_payload /images/linux.iso disk7 8388608 16777216
+    print -r -- "status:$?|scope:$_USB_PAYLOAD_VERIFY_SCOPE"
+    print -r -- "frames:${(j:|:)frames}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'status:0|scope:full' \
+    'progress supervision lost the finished-drive verification result' || return
+  test_assert_contains "$output" '50%' \
+    'finished-drive verification remained an unobservable static screen'
+}
+test_case 'USB verification paints live determinate read progress' \
+  _test_usb_verification_paints_live_read_progress
+
 _test_usb_unmounts_immediately_after_write() {
   test_make_temp_dir || return
   local output=''

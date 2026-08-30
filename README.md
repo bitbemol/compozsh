@@ -2030,8 +2030,12 @@ it removes the query row and bottom footer, keeps the active stage, image,
 target, progress, and disconnect warning together near the top, and uses
 semantic heading, success, information, and warning colors. The progress bar
 grows on wide terminals while remaining bounded and readable.
-Verification is shown as a named indeterminate stage because `cmp` does not
-expose incremental progress and `shasum` emits only its completed digest.
+Verification uses the same determinate status surface. Its uncached raw `dd`
+reader publishes the current comparison pass, bytes read, total bytes,
+percentage, and elapsed time while `cmp` remains the authoritative equality
+check. Large ranges use aligned 4 MiB reads instead of millions of 512-byte
+operations; small structural probes remain sector-precise. `shasum` emits only
+its completed digest during the separate source-integrity check.
 Native subprocess status output is captured or silenced while this view owns
 the terminal, and the temporary write worker disables interactive job
 notifications so subprocess messages do not overwrite the frame.

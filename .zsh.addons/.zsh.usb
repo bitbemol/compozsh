@@ -18,6 +18,7 @@ typeset -g _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
 typeset -g _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
 typeset -g _USB_PAYLOAD_VERIFY_ERROR=''
 typeset -g _USB_PAYLOAD_VERIFY_SCOPE='' _USB_SELECTED_IMAGE_INTEGRITY='not-provided'
+typeset -g _USB_VERIFY_PROGRESS_BAR=''
 typeset -g _USB_RESULT_IMAGE_CHECKSUM='' _USB_RESULT_EXPECTED_CHECKSUM=''
 typeset -g _USB_RESULT_CHECKSUM_ALGORITHM=''
 typeset -gi _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
@@ -1480,9 +1481,10 @@ _usb_cmp_run() {
   setopt PIPE_FAIL
   local -a arguments=("$@") statuses=()
   local target='' image='' raw_size='' after_size=''
-  local temp_root=${TMPDIR:-/tmp} read_log=''
-  local -i count=0 offset=0 sector_start=0 intra=0 read_bytes=0 sectors=0
-  local -i expected_raw_bytes=0
+  local temp_root=${TMPDIR:-/tmp} read_log='' block_label=512
+  local phase=${_USB_VERIFY_PHASE:-Reading USB}
+  local -i count=0 offset=0 block_start=0 intra=0 read_bytes=0 blocks=0
+  local -i block_size=512 minimum_raw_bytes=0 owns_read_log=0
   [[ ${arguments[1]:-} == -n && ${arguments[2]:-} == <-> ]] || return 2
   count=${arguments[2]}
   arguments=("${arguments[@]:2}")
@@ -1495,26 +1497,79 @@ _usb_cmp_run() {
   target=${arguments[1]} image=${arguments[2]}
   raw_size=$(command /usr/bin/stat -f '%z' "$image" 2>/dev/null) || return 2
   [[ $raw_size == <-> ]] && (( raw_size >= offset + count )) || return 2
-  sector_start=$(( offset / 512 * 512 ))
-  intra=$(( offset - sector_start ))
+  # Tiny structural probes remain sector-sized. Large payload comparisons use
+  # aligned 4 MiB reads so an uncached USB scan does hundreds of native reads,
+  # rather than millions of 512-byte system calls.
+  if (( count >= 4194304 )); then
+    block_size=4194304
+    block_label=4m
+  fi
+  block_start=$(( offset / block_size * block_size ))
+  intra=$(( offset - block_start ))
   read_bytes=$(( intra + count ))
-  sectors=$(( (read_bytes + 511) / 512 ))
-  expected_raw_bytes=$(( sectors * 512 ))
-  read_log=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-read.XXXXXX" \
-    2>/dev/null) || return 2
+  blocks=$(( (read_bytes + block_size - 1) / block_size ))
+  minimum_raw_bytes=$read_bytes
+  if [[ -n ${_USB_VERIFY_PROGRESS_FILE:-} &&
+        ${_USB_VERIFY_PROGRESS_FILE:t} == compozsh-usb-verify-progress.* &&
+        ${_USB_VERIFY_PROGRESS_FILE:h:A} == ${temp_root:A} ]]; then
+    read_log=$_USB_VERIFY_PROGRESS_FILE
+  else
+    read_log=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-read.XXXXXX" \
+      2>/dev/null) || return 2
+    owns_read_log=1
+  fi
+  if [[ -n ${_USB_VERIFY_META_FILE:-} &&
+        ${_USB_VERIFY_META_FILE:t} == compozsh-usb-verify-meta.* &&
+        ${_USB_VERIFY_META_FILE:h:A} == ${temp_root:A} ]]; then
+    builtin printf '%s\t%d\t%d\n' "$phase" "$count" "$intra" \
+      >| "$_USB_VERIFY_META_FILE"
+  fi
   {
-    _usb_dd_read_run "if=$target" bs=512 skip=$(( sector_start / 512 )) \
-        count="$sectors" iflag=direct 2>| "$read_log" |
+    _usb_dd_read_run "if=$target" "bs=$block_label" \
+        skip=$(( block_start / block_size )) count="$blocks" \
+        iflag=direct status=progress 2>| "$read_log" |
       _usb_cmp_drain "$count" "$intra" "$offset" "$image"
     statuses=("${pipestatus[@]}")
     _usb_dd_bytes_observed "$read_log" || return 2
-    (( statuses[1] == 0 && REPLY == expected_raw_bytes )) || return 2
+    (( statuses[1] == 0 && REPLY >= minimum_raw_bytes )) || return 2
     after_size=$(command /usr/bin/stat -f '%z' "$image" 2>/dev/null) || return 2
     [[ $after_size == "$raw_size" ]] || return 2
     return ${statuses[2]}
   } always {
-    command /bin/rm -f -- "$read_log"
+    (( owns_read_log )) && command /bin/rm -f -- "$read_log"
   }
+}
+
+_usb_verify_progress_read() {
+  emulate -L zsh
+  local progress_file=$1 meta_file=$2 started=$3
+  local phase='Preparing raw read' meta='' done_label='' total_label=''
+  local -i total=0 intra=0 raw_bytes=0 bytes=0 percent=0
+  local -i elapsed=$(( SECONDS - started )) bar_width=32
+  bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
+  (( bar_width < 24 )) && bar_width=24
+  (( bar_width > 64 )) && bar_width=64
+  _usb_progress_bar 0 $bar_width
+  _USB_VERIFY_PROGRESS_BAR=$REPLY
+  REPLY='Preparing the first raw read block…'
+  [[ -f $meta_file ]] || return 0
+  meta=$(<"$meta_file")
+  IFS=$'\t' read -r phase total intra <<< "$meta"
+  [[ $total == <-> && $intra == <-> ]] || return 0
+  if _usb_dd_bytes_observed "$progress_file"; then
+    raw_bytes=$REPLY
+    bytes=$(( raw_bytes > intra ? raw_bytes - intra : 0 ))
+    (( bytes > total )) && bytes=$total
+  fi
+  (( total > 0 )) && percent=$(( bytes * 100 / total ))
+  _usb_progress_bar $percent $bar_width
+  _USB_VERIFY_PROGRESS_BAR=$REPLY
+  _usb_human_size $bytes
+  done_label=$REPLY
+  _usb_human_size $total
+  total_label=$REPLY
+  _usb_human_duration $elapsed
+  REPLY="$phase · $done_label of $total_label · $REPLY elapsed"
 }
 
 _usb_image_checksum_run() {
@@ -1893,6 +1948,7 @@ _usb_compare_written_image() {
   emulate -L zsh
   local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
   local -i compared=0 compare_status=0
+  local _USB_VERIFY_PHASE='Full image comparison'
   _USB_PAYLOAD_VERIFY_ERROR='' _USB_PAYLOAD_VERIFY_SCOPE=''
   [[ $image_size == <-> ]] && (( image_size > 512 )) || return 2
 
@@ -1907,6 +1963,7 @@ _usb_compare_written_image() {
 
   # Preserve the real 440-byte MBR boot-code area and its 0x55AA signature.
   # Bytes 440..509 are disk signature and partition geometry.
+  _USB_VERIFY_PHASE='Checking MBR boot code'
   _usb_cmp_run -n 440 "/dev/r${identifier}" "$image" >/dev/null 2>&1
   compare_status=$?
   case $compare_status in
@@ -1914,6 +1971,7 @@ _usb_compare_written_image() {
     (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
     (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
   esac
+  _USB_VERIFY_PHASE='Checking boot signature'
   _usb_cmp_run -n 2 -i 510 "/dev/r${identifier}" "$image" >/dev/null 2>&1
   compare_status=$?
   case $compare_status in
@@ -1927,6 +1985,7 @@ _usb_compare_written_image() {
       _USB_PAYLOAD_VERIFY_ERROR=gpt-invalid
       return 1
     }
+    _USB_VERIFY_PHASE='Checking GPT partition entries'
     _usb_cmp_run -n "$_USB_GPT_ENTRY_BYTES" -i "$_USB_GPT_ENTRY_OFFSET" \
       "/dev/r${identifier}" "$image" >/dev/null 2>&1
     compare_status=$?
@@ -1940,6 +1999,7 @@ _usb_compare_written_image() {
       _USB_PAYLOAD_VERIFY_ERROR=image-read-failed
       return 2
     }
+    _USB_VERIFY_PHASE='Validated installer comparison'
     _usb_cmp_run -n "$compared" -i "$_USB_GPT_STABLE_START" \
       "/dev/r${identifier}" "$image" >/dev/null 2>&1
     compare_status=$?
@@ -1958,13 +2018,73 @@ _usb_compare_written_image() {
 
 _usb_verify_payload() {
   emulate -L zsh
+  setopt NO_BG_NICE
+  unsetopt MONITOR NOTIFY
   local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
+  local temp_root=${TMPDIR:-/tmp} progress_file='' meta_file='' result_file=''
+  local progress_text='' result='' line=''
+  local _USB_VERIFY_PROGRESS_FILE='' _USB_VERIFY_META_FILE=''
+  local -i worker=0 command_status=2 started=$SECONDS result_ready=0
   _USB_PAYLOAD_VERIFY_ERROR=''
   _usb_unmount "$identifier" >/dev/null 2>&1 || {
     _USB_PAYLOAD_VERIFY_ERROR=unmount-failed
     return 2
   }
-  _usb_compare_written_image "$image" "$identifier" "$image_size" "$target_size"
+  progress_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-usb-verify-progress.XXXXXX" 2>/dev/null) || return 2
+  meta_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-usb-verify-meta.XXXXXX" 2>/dev/null) || {
+    command /bin/rm -f -- "$progress_file"
+    return 2
+  }
+  result_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-usb-verify-result.XXXXXX" 2>/dev/null) || {
+    command /bin/rm -f -- "$progress_file" "$meta_file"
+    return 2
+  }
+  _USB_VERIFY_PROGRESS_FILE=$progress_file
+  _USB_VERIFY_META_FILE=$meta_file
+  {
+    (
+      _usb_compare_written_image "$image" "$identifier" "$image_size" \
+        "$target_size"
+      local compare_status=$?
+      print -r -- "scope=$_USB_PAYLOAD_VERIFY_SCOPE"
+      print -r -- "error=$_USB_PAYLOAD_VERIFY_ERROR"
+      exit $compare_status
+    ) >| "$result_file" &
+    worker=$!
+    while builtin kill -0 $worker 2>/dev/null; do
+      _usb_verify_progress_read "$progress_file" "$meta_file" $started
+      progress_text=$REPLY
+      _usb_progress_stage 'Verifying USB against image' \
+        progress "$_USB_VERIFY_PROGRESS_BAR" info "$progress_text" \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      command /bin/sleep 0.25
+    done
+    wait $worker
+    command_status=$?
+    result=$(<"$result_file")
+    for line in "${(f)result}"; do
+      case $line in
+        (scope=*) _USB_PAYLOAD_VERIFY_SCOPE=${line#scope=} ;;
+        (error=*) _USB_PAYLOAD_VERIFY_ERROR=${line#error=} ;;
+      esac
+    done
+    [[ $result == *$'scope='* && $result == *$'error='* ]] && result_ready=1
+    if (( !result_ready )); then
+      command_status=2
+      _USB_PAYLOAD_VERIFY_SCOPE=''
+      _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed
+    fi
+  } always {
+    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
+      builtin kill -INT $worker 2>/dev/null
+      wait $worker 2>/dev/null
+    fi
+    command /bin/rm -f -- "$progress_file" "$meta_file" "$result_file"
+  }
+  return $command_status
 }
 
 _usb_verify_payload_checksum() {
@@ -2469,7 +2589,10 @@ _compozsh_help_flash-usb() {
     '  bar. Step 3 uses a dedicated status view with no query or bottom footer:' \
     '  the active stage, image, target, progress, and disconnect warning remain' \
     '  together near the top with semantic heading, success, and warning colors.' \
-    '  Validation, unmount, verification, and eject remain named stages.' \
+    '  Verification also reports its current comparison pass, bytes read, total,' \
+    '  percentage, and elapsed time. Large raw ranges use aligned 4 MiB reads;' \
+    '  small structural probes remain sector-precise. Validation, unmount,' \
+    '  verification, and eject remain named stages.' \
     '  No pre-format is run.' \
     '  The source identity is checked again after writing; a provided full-image' \
     '  digest is also recalculated. If sudo expires during a long write, a named' \
