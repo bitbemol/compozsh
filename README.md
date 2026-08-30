@@ -2367,16 +2367,21 @@ Compozsh captures only the newest selected file. No input is flushed or treated
 as accidental repeat. This prevents a sequence of intermediate Git reads from
 continuing after you release the key.
 
-After layout determines the exact reader viewport, Compozsh schedules the
-visible rows plus two source-row guard lines above and below without waiting in
-the keyboard loop. Exactly one syntax request may be in flight. If selection or
-page navigation moves again, the completed older result is discarded and only the
-latest document, snapshot and viewport may publish. Supported source keeps its
-row geometry
-behind a stable **Preparing highlighted preview…** surface until validated tokens
-are ready, so file changes and **Option/Fn-Up/Down** page moves never expose a
-plain intermediate frame. Every complete arrow sequence remains user input;
-Compozsh does not flush or guess at Terminal's input queue.
+After layout determines the exact reader viewport, Compozsh schedules one
+bounded multi-page syntax window around it without waiting in the keyboard
+loop. It normally retains three visible spans of read-ahead on each side (up to
+256 guard rows), shrinking that margin when the independent byte bound requires
+it. Two visible spans before an interior edge, Compozsh begins replacing the
+window while the current highlighted rows remain installed. Exactly one syntax
+request may be in flight. If selection or page navigation moves again, the
+completed older result is discarded and only the latest document, snapshot and
+viewport may publish. When no highlighted window covers the reader, supported
+source retains its row geometry behind a stable **Preparing highlighted
+preview…** surface until validated tokens are ready. Ordinary line scrolling
+and **Option/Fn-Up/Down** page moves use the retained colored window while its
+replacement is prepared, so they do not expose blank or plain intermediate
+frames. Every complete arrow sequence remains user input; Compozsh does not
+flush or guess at Terminal's input queue.
 
 Completed viewport metadata is cached with its retained file/context snapshot.
 Revisiting a covered region performs no new syntax request; resizing merely

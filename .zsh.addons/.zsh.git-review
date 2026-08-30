@@ -475,10 +475,12 @@ _git_review_syntax_transient_failure() {
 _git_review_syntax_idle() {
   emulate -L zsh
   local cache_key='' completed_key='' completed_data='' completed_note=''
+  local failure_key=''
   local _GIT_SYNTAX_INPUT='' _GIT_SYNTAX_NOTE='' _GIT_SYNTAX_SUCCESS_NOTE=''
   local -i first=$_ZLE_PICKER_DOCUMENT_VISIBLE_FIRST last=$_ZLE_PICKER_DOCUMENT_VISIBLE_LAST
-  local -i total=${#_ZLE_PICKER_DOCUMENT_LINES} guard=2 desired_first=0 desired_last=0
-  local -i covered_first=0 covered_last=0 poll_result=2 completed_id=0 changed=0
+  local -i total=${#_ZLE_PICKER_DOCUMENT_LINES} span=0 guard=0 attempt_guard=0
+  local -i desired_first=0 desired_last=0 covered_first=0 covered_last=0
+  local -i refill_margin=0 current_covered=0 near_edge=0 poll_result=2 completed_id=0 changed=0
   local -i completed_first=0 completed_last=0 completed_epoch=0
   (( _ZLE_PICKER_DOCUMENT && first > 0 && last >= first && _GIT_REVIEW_DOCUMENT_HAS_CODE )) || return 2
   (( ${+functions[_git_syntax_prepare_input]} && ${+functions[_git_syntax_apply]} &&
@@ -490,6 +492,9 @@ _git_review_syntax_idle() {
     [[ ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} == "$_ZLE_PICKER_DOCUMENT_KEY" ]] || return 2
   _git_review_document_cache_key "$_ZLE_PICKER_DOCUMENT_KEY" "$context"
   cache_key=$REPLY
+  covered_first=${_git_document_syntax_first[$cache_key]:-0}
+  covered_last=${_git_document_syntax_last[$cache_key]:-0}
+  (( covered_first > 0 && first >= covered_first && last <= covered_last )) && current_covered=1
 
   # Poll first, but publish only when the completed generation still describes
   # this exact selected document and covers its current source viewport.
@@ -520,6 +525,13 @@ _git_review_syntax_idle() {
           unset "_git_document_syntax_failures[$cache_key:$completed_first:$completed_last]"
           _ZLE_PICKER_DOCUMENT_PENDING=0
           _git_review_syntax_status "${_git_document_syntax_notes[$cache_key]}"
+        elif (( current_covered )); then
+          # A speculative read-ahead failure must not discard the highlighted
+          # rows that still cover the reader. Retain that atomic frame and let
+          # a later, genuinely uncovered viewport make its own bounded request.
+          failure_key="$cache_key:$completed_first:$completed_last"
+          _git_document_syntax_failures[$failure_key]=$(( ${_git_document_syntax_failures[$failure_key]:-0} + 1 ))
+          _ZLE_PICKER_DOCUMENT_PENDING=0
         else
           _git_review_syntax_transient_failure "$cache_key" $completed_first $completed_last
         fi
@@ -536,22 +548,73 @@ _git_review_syntax_idle() {
     _git_syntax_session_poll >/dev/null 2>&1
   fi
 
-  covered_first=${_git_document_syntax_first[$cache_key]:-0}
-  covered_last=${_git_document_syntax_last[$cache_key]:-0}
-  if (( covered_first > 0 && first >= covered_first && last <= covered_last )); then
+  # One highlighted window spans several reader pages. Refill it while the
+  # current page is still covered, two visible pages before either interior
+  # edge. The existing colored frame remains installed until the complete new
+  # response validates, so line and Option/Fn-page navigation never reveal a
+  # blank or plain intermediate frame during ordinary forward progress.
+  span=$(( last - first + 1 ))
+  (( span < 1 )) && span=1
+  guard=$(( span * 3 ))
+  (( guard < 8 )) && guard=8
+  (( guard > 256 )) && guard=256
+  refill_margin=$(( span * 2 ))
+  (( refill_margin > guard )) && refill_margin=$guard
+  if (( current_covered )); then
+    (( covered_first > 1 && first - covered_first <= refill_margin )) && near_edge=1
+    (( covered_last < total && covered_last - last <= refill_margin )) && near_edge=1
     _ZLE_PICKER_DOCUMENT_PENDING=0
-    return 2
+    (( near_edge )) || return 2
   fi
 
-  desired_first=$(( first - guard ))
-  desired_last=$(( last + guard ))
-  (( desired_first < 1 )) && desired_first=1
-  (( desired_last > total )) && desired_last=$total
-  _git_syntax_prepare_input "$_ZLE_PICKER_DOCUMENT_TITLE" $desired_first $desired_last
+  # A single resident Vim request owns the worker. If this is proactive
+  # read-ahead, keep polling behind the already-highlighted frame. Only a truly
+  # uncovered viewport uses the explicit loading surface.
+  if (( _git_syntax_session_active_id )); then
+    if (( current_covered )); then
+      return 1
+    fi
+    if (( !_ZLE_PICKER_DOCUMENT_PENDING )); then
+      _ZLE_PICKER_DOCUMENT_PENDING=1
+      _git_review_syntax_status ''
+      _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
+      return 0
+    fi
+    return 1
+  fi
+
+  # Large terminals or unusually long source rows can make a multi-page window
+  # exceed the syntax adapter's independent byte bound. Shrink only the
+  # read-ahead margin; the visible viewport itself is never truncated.
+  attempt_guard=$guard
+  while true; do
+    desired_first=$(( first - attempt_guard ))
+    desired_last=$(( last + attempt_guard ))
+    (( desired_first < 1 )) && desired_first=1
+    (( desired_last > total )) && desired_last=$total
+    _git_syntax_prepare_input "$_ZLE_PICKER_DOCUMENT_TITLE" $desired_first $desired_last
+    [[ -n $_GIT_SYNTAX_INPUT ]] && break
+    if [[ $_GIT_SYNTAX_NOTE == 'plain syntax · size limit' ]] && (( attempt_guard > 2 )); then
+      attempt_guard=$(( attempt_guard / 2 ))
+      (( attempt_guard < 2 )) && attempt_guard=2
+      continue
+    fi
+    break
+  done
+
+  if (( current_covered )); then
+    # Boundary clamping can make the desired window identical to the installed
+    # one. A failed speculative request is also suppressed until navigation
+    # establishes a different desired window; the current colors remain valid.
+    (( desired_first == covered_first && desired_last == covered_last )) && return 2
+    failure_key="$cache_key:$desired_first:$desired_last"
+    (( ${_git_document_syntax_failures[$failure_key]:-0} > 0 )) && return 2
+  fi
 
   # Unsupported or bounded-out content has an immediate explicit plain state;
   # only supported code waits behind the stable pending surface.
   if [[ -z $_GIT_SYNTAX_INPUT ]]; then
+    (( current_covered )) && return 2
     _git_document_syntax_cache[$cache_key]=''
     _git_document_syntax_notes[$cache_key]=$_GIT_SYNTAX_NOTE
     if [[ $_GIT_SYNTAX_NOTE == ('plain syntax · unsupported type'|'plain syntax · system Vim unavailable'|'plain syntax · UTF-8 locale required') ]]; then
@@ -566,19 +629,6 @@ _git_review_syntax_idle() {
     return 0
   fi
 
-  # An older request may still own Vim. Remember only that the current view is
-  # pending; once the old packet arrives it is discarded and this latest view
-  # is submitted. No intermediate selection creates another queued request.
-  if (( _git_syntax_session_active_id )); then
-    if (( !_ZLE_PICKER_DOCUMENT_PENDING )); then
-      _ZLE_PICKER_DOCUMENT_PENDING=1
-      _git_review_syntax_status ''
-      _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
-      return 0
-    fi
-    return 1
-  fi
-
   _git_syntax_session_request "$_GIT_SYNTAX_INPUT"
   case $? in
     (0)
@@ -587,14 +637,21 @@ _git_review_syntax_idle() {
       _git_syntax_active_last=$desired_last
       _git_syntax_active_note=$_GIT_SYNTAX_SUCCESS_NOTE
       _git_syntax_active_epoch=$_git_review_snapshot_epoch
-      _ZLE_PICKER_DOCUMENT_PENDING=1
-      _git_review_syntax_status ''
-      _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
+      if (( current_covered )); then
+        _ZLE_PICKER_DOCUMENT_PENDING=0
+      else
+        _ZLE_PICKER_DOCUMENT_PENDING=1
+        _git_review_syntax_status ''
+        _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
+      fi
       return 0 ;;
     (2)
       # Vim has completed a stale response but its next ready marker has not
       # arrived yet. A later idle poll submits this same latest selection.
-      if (( !_ZLE_PICKER_DOCUMENT_PENDING )); then
+      if (( current_covered )); then
+        _ZLE_PICKER_DOCUMENT_PENDING=0
+        return 1
+      elif (( !_ZLE_PICKER_DOCUMENT_PENDING )); then
         _ZLE_PICKER_DOCUMENT_PENDING=1
         _git_review_syntax_status ''
         _ZLE_PICKER_SUBTITLE+=' · syntax loads in viewport'
@@ -602,7 +659,13 @@ _git_review_syntax_idle() {
       fi
       return 1 ;;
     (*)
-      _git_review_syntax_transient_failure "$cache_key" $desired_first $desired_last
+      if (( current_covered )); then
+        failure_key="$cache_key:$desired_first:$desired_last"
+        _git_document_syntax_failures[$failure_key]=$(( ${_git_document_syntax_failures[$failure_key]:-0} + 1 ))
+        _ZLE_PICKER_DOCUMENT_PENDING=0
+      else
+        _git_review_syntax_transient_failure "$cache_key" $desired_first $desired_last
+      fi
       return 0 ;;
   esac
 }

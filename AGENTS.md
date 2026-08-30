@@ -845,17 +845,22 @@ discovered. The keyboard guide must never trigger refresh.
   queue of Vim processes. Always close descriptors and kill/reap the owned
   child; keep job state isolated from the user's shell.
   Syntax acquisition is passive and pane-focus independent. After layout
-  publishes the exact source viewport, an input-idle callback schedules that
-  bounded viewport plus two source-row guard lines on each side. Provider
+  publishes the exact source viewport, an input-idle callback schedules one
+  bounded multi-page window around it: normally three visible source spans on
+  each side, clamped to 256 guard rows and reduced when the byte bound requires
+  it. Refill two visible spans before an interior edge while the installed
+  highlighted window still covers the reader. Provider
   startup, request completion and response parsing never block the input loop.
   Assign each request a monotonically increasing generation; permit exactly one
   in-flight request, keep no process queue, and let only the generation that
   still matches the current document and viewport publish. Discard stale
   responses before they touch caches or render state, then schedule the latest
-  desired viewport. While supported source is pending, preserve its source-row
-  geometry behind an explicit stable loading surface; never paint plain code
-  and fill its colors later. Validate the complete response before installing
-  it. A missing, invalid or timed-out response retires that child request
+  desired viewport. Use the explicit stable loading surface only when no
+  installed syntax window covers the current reader. During same-document
+  read-ahead, retain the existing colored frame until its complete replacement
+  validates; a speculative failure must not erase valid coverage. Never paint
+  plain code and fill its colors later. A missing, invalid or timed-out response
+  retires that child request
   without poisoning other documents or the whole screen session. Retry the
   current settled viewport once; only a second transient failure for the same
   captured document window becomes an explicit plain fallback. Deterministic

@@ -111,7 +111,7 @@ still serialized a 35–92 ms syntax step into an approximately 83 ms repeat str
 and recreated the input tail.
 
 After layout publishes the exact viewport, an input-idle callback schedules one
-framed, bounded request for that viewport plus two source-row guard lines. It
+framed, bounded request for a multi-page window around that viewport. It
 never waits for process readiness or request completion. The worker permits one
 in-flight request and no queue. Each request receives a monotonically increasing
 ID; a completed response can publish only if its document key and source-row
@@ -153,9 +153,13 @@ rows on this machine:
 
 The resident prototype averaged about **39.8 ms** for 40 dense synthetic Swift
 rows and **45.5 ms** for 44 rows on this machine. Expanding to 120 rows averaged
-about **213.2 ms**, so screen-multiple overscan was rejected. The shipped request
-uses the exact source viewport plus two guard rows each way; page gestures
-schedule their new viewport instead of relying on a large speculative window.
+about **213.2 ms**, which ruled out synchronous screen-multiple capture in the
+input path. The shipped asynchronous request can use a bounded read-ahead
+window (normally three visible spans each way, capped at 256 guard rows) because
+the installed colored frame remains usable while its replacement runs. Two
+visible spans before an interior edge, that speculative replacement starts in
+the background. Page gestures therefore consume retained coverage instead of
+exposing a loading frame; a speculative failure retains the old valid window.
 These are machine-specific observations, not universal timing constants.
 
 The earlier adjacent-file prediction did not remove the visible transition and

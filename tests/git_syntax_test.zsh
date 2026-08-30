@@ -200,6 +200,7 @@ _test_git_syntax_viewport_schedule() {
     local -a _ZLE_PICKER_RESULTS=(1) _ZLE_PICKER_DOCUMENT_LINES=() _GIT_REVIEW_KINDS=(unstaged)
     local -A _git_document_syntax_first=() _git_document_syntax_last=()
     local -A _git_document_syntax_cache=() _git_document_syntax_notes=()
+    local -A _git_document_syntax_failures=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
     local captured=""
     local -i row=0
     for (( row=1; row<=300; ++row )); do _ZLE_PICKER_DOCUMENT_LINES+=("line $row"); done
@@ -223,29 +224,110 @@ _test_git_syntax_viewport_schedule() {
     # A missing viewport is queued immediately at the pre-paint boundary,
     # without waiting for the resident worker.
     _git_review_syntax_idle
-    [[ $captured == 99:112 ]] && (( _ZLE_PICKER_DOCUMENT_PENDING == 1 )) || {
+    [[ $captured == 71:140 ]] && (( _ZLE_PICKER_DOCUMENT_PENDING == 1 )) || {
       print -u2 -- "initial: $captured pending=$_ZLE_PICKER_DOCUMENT_PENDING"; exit 1
     }
 
+    # Once the first atomic window is installed, ordinary line navigation is
+    # served directly from it and never enters the loading presentation.
     captured=""
     _git_syntax_session_active_id=0 _ZLE_PICKER_DOCUMENT_PENDING=0
-    _git_document_syntax_first[1:3]=99 _git_document_syntax_last[1:3]=112
+    _git_document_syntax_first[1:3]=71 _git_document_syntax_last[1:3]=140
+    _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=101 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=110
+    _git_review_syntax_idle
+    [[ -z $captured ]] && (( !_ZLE_PICKER_DOCUMENT_PENDING )) || {
+      print -u2 -- "covered line navigation reloaded: $captured pending=$_ZLE_PICKER_DOCUMENT_PENDING"; exit 2
+    }
+
+    # Two pages before the lower edge, begin a multi-page replacement without
+    # hiding the currently highlighted source.
+    captured=""
+    _git_syntax_session_active_id=0 _ZLE_PICKER_DOCUMENT_PENDING=0
     _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=111 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=120
     _git_review_syntax_idle
-    [[ $captured == "109:122" ]] || { print -u2 -- "page: $captured"; exit 2; }
+    [[ $captured == "81:150" ]] && (( _git_syntax_session_active_id == 2 && !_ZLE_PICKER_DOCUMENT_PENDING )) || {
+      print -u2 -- "read-ahead: $captured active=$_git_syntax_session_active_id pending=$_ZLE_PICKER_DOCUMENT_PENDING"; exit 3
+    }
 
-    # A repeated Option/Fn-page gesture can replace the complete viewport at
-    # once. Recenter the bounded request on that exact newly visible page.
+    # While that speculative request is active, the old colored window stays
+    # visible; idle polling must not substitute the loading surface.
+    _git_review_syntax_idle
+    (( _git_syntax_session_active_id == 2 && !_ZLE_PICKER_DOCUMENT_PENDING )) || exit 4
+
+    # A full Option/Fn page jump remains inside the read-ahead runway. Once its
+    # replacement is installed, the same rule recenters again before the edge.
     captured=""
-    _git_syntax_session_active_id=0 _ZLE_PICKER_DOCUMENT_PENDING=0
+    _git_syntax_session_active_id=0
+    _git_document_syntax_first[1:3]=81 _git_document_syntax_last[1:3]=150
     _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=141 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=150
     _git_review_syntax_idle
-    [[ $captured == "139:152" ]] || { print -u2 -- "rapid page: $captured"; exit 3; }
+    [[ $captured == "111:180" ]] && (( !_ZLE_PICKER_DOCUMENT_PENDING )) || {
+      print -u2 -- "page read-ahead: $captured pending=$_ZLE_PICKER_DOCUMENT_PENDING"; exit 5
+    }
     print scheduled
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal scheduled "$output"
 }
-test_case 'Git syntax derives bounded overscan from the exact pre-paint viewport' _test_git_syntax_viewport_schedule
+test_case 'Git syntax keeps a multi-page highlighted runway ahead of reader navigation' _test_git_syntax_viewport_schedule
+
+_test_git_syntax_read_ahead_failure_keeps_frame() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=31 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=38
+    local -i _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_DOCUMENT_PENDING=0
+    local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=sample.swift
+    local -a _ZLE_PICKER_RESULTS=(1) _ZLE_PICKER_DOCUMENT_LINES=({1..100})
+    local -a _GIT_REVIEW_KINDS=(unstaged)
+    local -A _git_document_syntax_first=([1:3]=1) _git_document_syntax_last=([1:3]=40)
+    local -A _git_document_syntax_cache=([1:3]=old) _git_document_syntax_notes=([1:3]="Swift syntax · viewport")
+    local -A _git_document_syntax_failures=() _ZLE_PICKER_DOCUMENT_SYNTAX=([31]="0:4:keyword")
+    local -i request_id=0 poll_mode=0 _git_syntax_session_active_id=0 _git_syntax_session_ready=1
+    local -i _git_syntax_active_first=0 _git_syntax_active_last=0
+    local -i _git_review_snapshot_epoch=1 _git_syntax_active_epoch=0
+    local _git_syntax_active_key="" _git_syntax_active_note=""
+    local _ZLE_PICKER_SUBTITLE=fixture
+    _git_syntax_prepare_input() {
+      _GIT_SYNTAX_INPUT=payload
+      _GIT_SYNTAX_SUCCESS_NOTE="Swift syntax · viewport"
+    }
+    _git_syntax_apply() { print -u2 -- unexpected-apply; return 1; }
+    _git_syntax_session_request() {
+      REPLY=$(( ++request_id ))
+      _git_syntax_session_active_id=$REPLY
+      return 0
+    }
+    _git_syntax_session_poll() {
+      (( _git_syntax_session_active_id )) || return 2
+      (( poll_mode )) || return 1
+      REPLY=$_git_syntax_session_active_id
+      _git_syntax_session_active_id=0
+      _GIT_SYNTAX_DATA=""
+      return 3
+    }
+
+    _git_review_syntax_idle
+    (( request_id == 1 && !_ZLE_PICKER_DOCUMENT_PENDING )) || exit 1
+    poll_mode=1
+    _git_review_syntax_idle
+    [[ ${_git_document_syntax_cache[1:3]} == old &&
+       ${_git_document_syntax_first[1:3]} == 1 &&
+       ${_git_document_syntax_last[1:3]} == 40 &&
+       ${_ZLE_PICKER_DOCUMENT_SYNTAX[31]} == "0:4:keyword" ]] || exit 2
+    (( !_ZLE_PICKER_DOCUMENT_PENDING )) || exit 3
+
+    # The same speculative window does not spin after failure. Navigation that
+    # actually leaves coverage will derive a new required request instead.
+    _git_review_syntax_idle
+    (( request_id == 1 && !_ZLE_PICKER_DOCUMENT_PENDING )) || exit 4
+    print retained
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal retained "$output"
+}
+test_case 'Git syntax read-ahead failure preserves the installed highlighted frame' \
+  _test_git_syntax_read_ahead_failure_keeps_frame
 
 _test_git_syntax_short_document_viewport_schedule() {
   test_make_temp_dir || return
@@ -495,7 +577,7 @@ _test_git_syntax_transient_failure_is_viewport_scoped() {
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=one.swift
-    local -a _ZLE_PICKER_RESULTS=(1) _ZLE_PICKER_DOCUMENT_LINES=({1..24}) _GIT_REVIEW_KINDS=(unstaged)
+    local -a _ZLE_PICKER_RESULTS=(1) _ZLE_PICKER_DOCUMENT_LINES=({1..100}) _GIT_REVIEW_KINDS=(unstaged)
     local -A _git_document_syntax_first=() _git_document_syntax_last=()
     local -A _git_document_syntax_cache=() _git_document_syntax_notes=()
     local -A _git_document_syntax_failures=()
@@ -539,17 +621,17 @@ _test_git_syntax_transient_failure_is_viewport_scoped() {
 
     # Viewport A fails once and remains retryable behind the pending surface.
     _git_review_syntax_idle
-    (( request_id == 1 && _git_syntax_active_first == 1 && _git_syntax_active_last == 10 )) || exit 1
+    (( request_id == 1 && _git_syntax_active_first == 1 && _git_syntax_active_last == 32 )) || exit 1
     poll_mode=1
     _git_review_syntax_idle
     (( _ZLE_PICKER_DOCUMENT_PENDING )) || exit 2
 
     # Moving before A retries gives viewport B its own first attempt. Its first
     # failure must not consume the retry budget for A or become covered plain.
-    _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=13
-    _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=20
+    _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=43
+    _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=50
     _git_review_syntax_idle
-    (( request_id == 2 && _git_syntax_active_first == 11 && _git_syntax_active_last == 22 )) || exit 3
+    (( request_id == 2 && _git_syntax_active_first == 19 && _git_syntax_active_last == 74 )) || exit 3
     poll_mode=1
     _git_review_syntax_idle
     [[ -z ${_git_document_syntax_cache[1:3]+present} &&
