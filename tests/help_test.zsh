@@ -179,7 +179,7 @@ _test_tool_help_explains_real_boundaries() {
         'Step 3' 'bold error red' 'bold success green' 'ERASE diskN' 'mismatch'
         'writes nothing' 'warning color' 'NO_COLOR' 'sudo' '/dev/rdiskN' '4 MiB'
         'determinate progress' 'dedicated status view' 'no query or bottom footer' 'disconnect warning' 'semantic heading' 'final screen' 'average'
-        'No pre-format' '17,408 bytes' 'checksum' 'createinstallmedia'
+        'No pre-format' 'validates both source' 'target primary and backup headers' 'checksum' 'createinstallmedia'
         'cannot roll back' 'Examples:') ;;
       (xcode) facts=('nearest' 'workspace' 'project' 'scheme' 'destination'
         'Build' 'Test' 'Analyze' 'Clean' 'Simulator' 'read-only discovery'

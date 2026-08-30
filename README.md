@@ -2013,7 +2013,12 @@ plain prompt.
 
 Writing uses Apple’s `diskutil unmountDisk` and `/bin/dd` against the raw
 `/dev/rdiskN` device. Input is bounded to the image’s captured 512-byte sector
-count and aggregated into 4 MiB output blocks. The final `dd` byte count must
+count, aggregated into 4 MiB output blocks, and completed with direct I/O plus
+an explicit filesystem sync. The target is unmounted again immediately after
+`dd`, before the source identity and provided checksum are rechecked, reducing
+the time in which macOS can auto-mount and modify a new filesystem. This
+`unmountDisk` call does not reserve the disk against a mount already in progress.
+The final `dd` byte count must
 equal the captured image size; early EOF, growth, or any incomplete transfer is
 a failure. No pre-format is needed or performed.
 The Step 3 screen remains visible through validation, unmount, writing,
@@ -2031,23 +2036,27 @@ Native subprocess status output is captured or silenced while this view owns
 the terminal, and the temporary write worker disables interactive job
 notifications so subprocess messages do not overwrite the frame.
 
-Read-back always uses Apple’s `cmp` as the authoritative exact-length check and
-first compares the complete image, including boot metadata. If macOS has changed
-partition geometry, the macOS fallback still requires the real MBR boot-code
-area at bytes 0–439 to match. It allows only the MBR disk signature, reserved
-fields, partition table, and GPT metadata from bytes 440 through 17,407 to
-differ, then requires every remaining image byte to match. The final screen says
-that boot code and stable payload matched while bounded disk metadata differs;
-it does not claim full-image equality. A supplied publisher checksum still
-validates every byte of the source image before and after writing. SHA-256 or
-SHA-512 payload digests are retained as supporting evidence. Missing paths,
-short reads, permission failures, and native comparison errors are reported as
-read/verification errors, never as data mismatches.
+Read-back uses uncached exact raw-device reads with Apple’s `dd` and `cmp`, first
+comparing the complete image including boot metadata. If GPT geometry differs,
+the fallback validates both source and target primary and backup headers, their
+CRCs, reciprocal physical LBAs, disk GUID, bounded entry geometry, and matching
+partition arrays. It still requires MBR boot bytes 0–439, the signature at bytes
+510–511, and every byte after the primary GPT header through the source backup
+entry array to match. The relocated target backup array must match the source
+array too. A non-GPT image receives no metadata exemption: any complete-image
+difference fails. The final screen reports **Boot bytes and installer payload
+matched** for that narrower GPT proof instead of claiming full-image equality.
+A supplied trusted checksum validates every byte of the source image before and
+after writing. If macOS wins the unmount race and changes filesystem bytes, or
+if the device write is faulty, verification fails closed rather than excluding
+broad filesystem metadata. A mismatch alone does not determine which caused it.
+Missing paths, short reads, permission failures, and native comparison errors
+are reported as read/verification errors, never as data mismatches.
 
 The target is ejected after success, and an eject is attempted after write or
 verification failure. A final screen remains until **Done** and reports bytes
 written, total duration, average write rate, image-integrity status, USB
-verification scope, the retained digest when applicable, and whether the drive is
+verification scope, and whether the drive is
 safe to remove. Failures retain a direct reason and recovery state
 instead of disappearing into terminal history. An interrupted or failed raw
 write may leave the disk unusable until it is rewritten or reformatted;

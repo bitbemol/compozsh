@@ -19,18 +19,24 @@ typeset -g _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
 typeset -g _USB_PAYLOAD_VERIFY_ERROR=''
 typeset -g _USB_PAYLOAD_VERIFY_SCOPE='' _USB_SELECTED_IMAGE_INTEGRITY='not-provided'
 typeset -g _USB_RESULT_IMAGE_CHECKSUM='' _USB_RESULT_EXPECTED_CHECKSUM=''
-typeset -g _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM='' _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=''
 typeset -g _USB_RESULT_CHECKSUM_ALGORITHM=''
 typeset -gi _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
 typeset -gi _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
 typeset -gi _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
 typeset -gi _USB_WRITE_BYTES_OBSERVED=0
+typeset -gi _USB_SELECTED_DISK_SIZE=0
 typeset -gi _USB_INFO_SIZE=0 _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
 typeset -gi _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
 typeset -gi _USB_PLIST_MAX_BYTES=1048576
 typeset -gi _USB_IMAGE_MAX_PER_FOLDER=200
 typeset -gi _USB_IMAGE_MAX_INDEXED=500 _USB_IMAGE_CAPTURE_PARTIAL=0
 typeset -gi _USB_STAT_SIZE=0 _USB_STAT_MODIFIED=0 _USB_STAT_CREATED=0
+typeset -gi _USB_GPT_ENTRY_OFFSET=0 _USB_GPT_ENTRY_BYTES=0
+typeset -gi _USB_GPT_STABLE_START=0 _USB_GPT_STABLE_END=0
+typeset -gi _USB_GPT_HEADER_SIZE=0 _USB_GPT_FIRST_USABLE=0 _USB_GPT_LAST_USABLE=0
+typeset -gi _USB_GPT_ENTRY_LBA=0 _USB_GPT_ENTRY_COUNT=0 _USB_GPT_ENTRY_SIZE=0
+typeset -gi _USB_GPT_ENTRY_CRC=0
+typeset -g _USB_GPT_DISK_GUID=''
 
 _usb_human_size() {
   emulate -L zsh
@@ -1099,7 +1105,7 @@ _usb_workspace_controller() {
       _USB_PICKER_HIGHLIGHTS+=('')
       _USB_PICKER_SEARCH+=('write verify checksum')
       _USB_PICKER_DETAILS+=(
-        'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares the full image first with a qualified macOS metadata fallback, and ejects.")
+        'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares the full image first with a validated GPT-geometry fallback, and ejects.")
       _USB_PICKER_VALUES+=(checksum)
       case $checksum_state in
         (matched)
@@ -1132,7 +1138,7 @@ _usb_workspace_controller() {
         _USB_PICKER_LABELS+=('Remove image checksum')
         _USB_PICKER_HIGHLIGHTS+=('')
         _USB_PICKER_SEARCH+=('remove checksum')
-        _USB_PICKER_DETAILS+=('Remove checksum'$'\n\n''Continue without publisher-checksum validation. Flash & verify will still perform the native payload comparison.')
+        _USB_PICKER_DETAILS+=('Remove checksum'$'\n\n''Continue without trusted-checksum validation. Flash & verify will still perform the native raw-device comparison.')
       fi
       _USB_PICKER_VALUES+=(image target flash-only)
       _USB_PICKER_LABELS+=(
@@ -1216,6 +1222,7 @@ _usb_workspace_controller() {
           _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[image_index]}
           _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[image_index]}
           _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[disk_index]}
+          _USB_SELECTED_DISK_SIZE=${_USB_DISK_SIZES[disk_index]}
           _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[disk_index]}
           _USB_SELECTED_SOURCE_DISK=$source_disk
           _USB_SELECTED_CHECKSUM=$checksum
@@ -1403,7 +1410,8 @@ _usb_write_image() {
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
   {
     _usb_dd_run "if=$image" "of=/dev/r${identifier}" \
-      ibs=512 obs=4m "count=$sector_count" status=progress 2>| "$progress_file" &
+      ibs=512 obs=4m "count=$sector_count" conv=fsync oflag=direct \
+      status=progress 2>| "$progress_file" &
     worker=$!
     while builtin kill -0 $worker 2>/dev/null; do
       _usb_dd_progress_read "$progress_file" "$image_size" $started
@@ -1432,25 +1440,86 @@ _usb_write_image() {
   return $command_status
 }
 
+_usb_dd_read_run() {
+  command /usr/bin/sudo -n /bin/dd "$@"
+}
+
+_usb_dd_bytes_observed() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local path=$1 raw='' line='' byte_text=''
+  local -i raw_size=0 bytes=-1
+  [[ -f $path ]] || return 1
+  raw_size=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 1
+  (( raw_size > 0 && raw_size <= 1048576 )) || return 1
+  raw=$(<"$path")
+  raw=${raw//$'\r'/$'\n'}
+  for line in "${(f)raw}"; do
+    line=${line##[[:space:]]#}
+    [[ $line == <->' bytes '*transferred* ]] || continue
+    byte_text=${line%% *}
+    [[ $byte_text == <-> ]] && bytes=$byte_text
+  done
+  (( bytes >= 0 )) || return 1
+  REPLY=$bytes
+}
+
+_usb_cmp_drain() {
+  emulate -L zsh
+  local count=$1 target_offset=$2 image_offset=$3 image=$4
+  local -i compare_status=2
+  command /usr/bin/cmp -n "$count" -i "${target_offset}:${image_offset}" \
+    - "$image"
+  compare_status=$?
+  command /bin/cat >/dev/null
+  return $compare_status
+}
+
 _usb_cmp_run() {
-  command /usr/bin/sudo -n /usr/bin/cmp "$@"
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local -a arguments=("$@") statuses=()
+  local target='' image='' raw_size='' after_size=''
+  local temp_root=${TMPDIR:-/tmp} read_log=''
+  local -i count=0 offset=0 sector_start=0 intra=0 read_bytes=0 sectors=0
+  local -i expected_raw_bytes=0
+  [[ ${arguments[1]:-} == -n && ${arguments[2]:-} == <-> ]] || return 2
+  count=${arguments[2]}
+  arguments=("${arguments[@]:2}")
+  if [[ ${arguments[1]:-} == -i ]]; then
+    [[ ${arguments[2]:-} == <-> ]] || return 2
+    offset=${arguments[2]}
+    arguments=("${arguments[@]:2}")
+  fi
+  (( ${#arguments} == 2 && count > 0 && offset >= 0 )) || return 2
+  target=${arguments[1]} image=${arguments[2]}
+  raw_size=$(command /usr/bin/stat -f '%z' "$image" 2>/dev/null) || return 2
+  [[ $raw_size == <-> ]] && (( raw_size >= offset + count )) || return 2
+  sector_start=$(( offset / 512 * 512 ))
+  intra=$(( offset - sector_start ))
+  read_bytes=$(( intra + count ))
+  sectors=$(( (read_bytes + 511) / 512 ))
+  expected_raw_bytes=$(( sectors * 512 ))
+  read_log=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-read.XXXXXX" \
+    2>/dev/null) || return 2
+  {
+    _usb_dd_read_run "if=$target" bs=512 skip=$(( sector_start / 512 )) \
+        count="$sectors" iflag=direct 2>| "$read_log" |
+      _usb_cmp_drain "$count" "$intra" "$offset" "$image"
+    statuses=("${pipestatus[@]}")
+    _usb_dd_bytes_observed "$read_log" || return 2
+    (( statuses[1] == 0 && REPLY == expected_raw_bytes )) || return 2
+    after_size=$(command /usr/bin/stat -f '%z' "$image" 2>/dev/null) || return 2
+    [[ $after_size == "$raw_size" ]] || return 2
+    return ${statuses[2]}
+  } always {
+    command /bin/rm -f -- "$read_log"
+  }
 }
 
 _usb_image_checksum_run() {
   local algorithm=$1 image=$2
   command /usr/bin/shasum -a "$algorithm" -b < "$image"
-}
-
-_usb_payload_checksum_run() {
-  emulate -L zsh
-  setopt PIPE_FAIL
-  local algorithm=$1 path=$2 image_size=$3 privileged=${4:-0}
-  if (( privileged )); then
-    command /usr/bin/sudo -n /usr/bin/head -c "$image_size" "$path"
-  else
-    command /usr/bin/head -c "$image_size" "$path"
-  fi | command /usr/bin/tail -c +17409 |
-    command /usr/bin/shasum -a "$algorithm" -b
 }
 
 _usb_checksum_output_read() {
@@ -1474,25 +1543,358 @@ _usb_image_checksum() {
   _usb_checksum_output_read "$output" "$algorithm"
 }
 
-_usb_payload_checksum() {
+_usb_od_uint() {
   emulate -L zsh
-  local path=$1 image_size=$2 algorithm=$3 privileged=${4:-0} output='' raw_size=''
-  (( image_size > 17408 )) || return 1
-  if (( !privileged )); then
-    [[ -f $path && ! -L $path ]] || return 1
-    raw_size=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 1
-    [[ $raw_size == <-> ]] && (( raw_size >= image_size )) || return 1
-  fi
-  output=$(_usb_payload_checksum_run "$algorithm" "$path" "$image_size" "$privileged") || return 1
-  _usb_checksum_output_read "$output" "$algorithm"
+  setopt EXTENDED_GLOB
+  local path=$1 offset=$2 width=$3 output=''
+  case $width in
+    (4|8) ;;
+    (*) return 2 ;;
+  esac
+  output=$(command /usr/bin/od -An -j "$offset" -N "$width" -t "u${width}" "$path" \
+    2>/dev/null) || return 1
+  output=${output//[[:space:]]/}
+  [[ $output == <-> ]] || return 1
+  REPLY=$output
+}
+
+_usb_od_hex() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local path=$1 offset=$2 width=$3 output=''
+  output=$(command /usr/bin/od -An -j "$offset" -N "$width" -t x1 "$path" \
+    2>/dev/null) || return 1
+  output=${output//[[:space:]]/}
+  (( ${#output} == width * 2 )) || return 1
+  [[ $output == [0-9a-f]## ]] || return 1
+  REPLY=$output
+}
+
+_usb_file_range_digest() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local path=$1 offset=$2 count=$3 output=''
+  local -i sectors=0
+  (( offset >= 0 && count > 0 && offset % 512 == 0 )) || return 2
+  sectors=$(( (count + 511) / 512 ))
+  output=$(command /bin/dd if="$path" bs=512 skip=$(( offset / 512 )) \
+      count="$sectors" status=none 2>/dev/null |
+    command /usr/bin/head -c "$count" |
+    command /usr/bin/shasum -a 256 -b) || return 1
+  _usb_checksum_output_read "$output" 256
+}
+
+_usb_crc32_output_read() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local output=$1 expected_size=$2 checksum=${output%%[[:space:]]*}
+  local remainder=${output#*[[:space:]]##}
+  local size=${remainder%%[[:space:]]*}
+  [[ $checksum == <-> && $size == <-> && $size == "$expected_size" ]] || return 1
+  REPLY=$checksum
+}
+
+_usb_file_range_crc32() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local path=$1 offset=$2 count=$3 output=''
+  (( offset >= 0 && count > 0 )) || return 2
+  output=$(command /bin/dd if="$path" bs=1 skip="$offset" count="$count" \
+      status=none 2>/dev/null | command /usr/bin/cksum -o 3) || return 1
+  _usb_crc32_output_read "$output" "$count"
+}
+
+_usb_gpt_header_crc_validate() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local path=$1 offset=$2 header_size=$3 output='' expected=''
+  (( offset >= 0 && header_size >= 92 && header_size <= 512 )) || return 2
+  _usb_od_uint "$path" $(( offset + 16 )) 4 || return 1
+  expected=$REPLY
+  output=$(
+    {
+      command /bin/dd if="$path" bs=1 skip="$offset" count=16 status=none 2>/dev/null
+      builtin printf '\0\0\0\0'
+      command /bin/dd if="$path" bs=1 skip=$(( offset + 20 )) \
+        count=$(( header_size - 20 )) status=none 2>/dev/null
+    } | command /usr/bin/cksum -o 3
+  ) || return 1
+  _usb_crc32_output_read "$output" "$header_size" || return 1
+  [[ $REPLY == "$expected" ]]
+}
+
+_usb_raw_range_digest() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local identifier=$1 offset=$2 count=$3 output=''
+  local -i sectors=0
+  (( offset >= 0 && count > 0 && offset % 512 == 0 )) || return 2
+  sectors=$(( (count + 511) / 512 ))
+  output=$(_usb_dd_read_run "if=/dev/r${identifier}" bs=512 \
+      skip=$(( offset / 512 )) count="$sectors" iflag=direct status=none 2>/dev/null |
+    command /usr/bin/head -c "$count" |
+    command /usr/bin/shasum -a 256 -b) || return 1
+  _usb_checksum_output_read "$output" 256
+}
+
+_usb_raw_sector_capture() {
+  emulate -L zsh
+  local identifier=$1 lba=$2 destination=$3
+  (( lba >= 0 )) || return 2
+  _usb_dd_read_run "if=/dev/r${identifier}" bs=512 skip="$lba" count=1 \
+    iflag=direct status=none >| "$destination" 2>/dev/null || return 1
+  [[ $(command /usr/bin/stat -f '%z' "$destination" 2>/dev/null) == 512 ]]
+}
+
+_usb_gpt_layout_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local image=$1 raw_size=$2
+  local primary_signature='' backup_signature=''
+  local -i last_lba=0 primary_revision=0 primary_reserved=0
+  local -i primary_header_size=0 primary_current=0 primary_backup=0
+  local -i first_usable=0 last_usable=0 primary_entry_lba=0 entry_count=0
+  local -i entry_size=0 entry_bytes=0 primary_entry_offset=0 primary_entry_end=0
+  local -i backup_header_offset=0 backup_revision=0 backup_reserved=0
+  local -i backup_header_size=0 backup_current=0
+  local -i backup_alternate=0 backup_first_usable=0 backup_last_usable=0
+  local -i backup_entry_lba=0 backup_entry_count=0 backup_entry_size=0
+  local -i backup_entry_offset=0 entry_storage_bytes=0
+  local -i primary_entry_crc=0 backup_entry_crc=0 actual_entry_crc=0
+  _USB_GPT_ENTRY_OFFSET=0 _USB_GPT_ENTRY_BYTES=0
+  _USB_GPT_STABLE_START=0 _USB_GPT_STABLE_END=0
+  _USB_GPT_HEADER_SIZE=0 _USB_GPT_FIRST_USABLE=0 _USB_GPT_LAST_USABLE=0
+  _USB_GPT_ENTRY_LBA=0 _USB_GPT_ENTRY_COUNT=0 _USB_GPT_ENTRY_SIZE=0
+  _USB_GPT_ENTRY_CRC=0 _USB_GPT_DISK_GUID=''
+  [[ $raw_size == <-> ]] && (( raw_size >= 68 * 512 && raw_size % 512 == 0 )) || return 1
+  last_lba=$(( raw_size / 512 - 1 ))
+  _usb_od_hex "$image" 512 8 || return 1
+  primary_signature=$REPLY
+  [[ $primary_signature == 4546492050415254 ]] || return 1
+  _usb_od_uint "$image" 520 4 || return 1
+  primary_revision=$REPLY
+  _usb_od_uint "$image" 524 4 || return 1
+  primary_header_size=$REPLY
+  _usb_od_uint "$image" 532 4 || return 1
+  primary_reserved=$REPLY
+  _usb_od_uint "$image" 536 8 || return 1
+  primary_current=$REPLY
+  _usb_od_uint "$image" 544 8 || return 1
+  primary_backup=$REPLY
+  _usb_od_uint "$image" 552 8 || return 1
+  first_usable=$REPLY
+  _usb_od_uint "$image" 560 8 || return 1
+  last_usable=$REPLY
+  _usb_od_uint "$image" 584 8 || return 1
+  primary_entry_lba=$REPLY
+  _usb_od_uint "$image" 592 4 || return 1
+  entry_count=$REPLY
+  _usb_od_uint "$image" 596 4 || return 1
+  entry_size=$REPLY
+  _usb_od_uint "$image" 600 4 || return 1
+  primary_entry_crc=$REPLY
+  (( primary_revision == 65536 && primary_reserved == 0 )) || return 1
+  (( primary_header_size >= 92 && primary_header_size <= 512 )) || return 1
+  _usb_gpt_header_crc_validate "$image" 512 "$primary_header_size" || return 1
+  (( primary_current == 1 && primary_backup == last_lba )) || return 1
+  (( first_usable > primary_entry_lba && first_usable <= last_usable )) || return 1
+  (( last_usable < last_lba && primary_entry_lba >= 2 )) || return 1
+  (( entry_count > 0 && entry_count <= 4096 )) || return 1
+  (( entry_size >= 128 && entry_size <= 4096 && entry_size % 8 == 0 )) || return 1
+  entry_bytes=$(( entry_count * entry_size ))
+  entry_storage_bytes=$(( (entry_bytes + 511) / 512 * 512 ))
+  (( entry_bytes > 0 && entry_bytes <= 16777216 )) || return 1
+  primary_entry_offset=$(( primary_entry_lba * 512 ))
+  primary_entry_end=$(( primary_entry_offset + entry_bytes ))
+  (( primary_entry_end <= first_usable * 512 )) || return 1
+
+  backup_header_offset=$(( last_lba * 512 ))
+  _usb_od_hex "$image" "$backup_header_offset" 8 || return 1
+  backup_signature=$REPLY
+  [[ $backup_signature == 4546492050415254 ]] || return 1
+  _usb_od_uint "$image" $(( backup_header_offset + 8 )) 4 || return 1
+  backup_revision=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 12 )) 4 || return 1
+  backup_header_size=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 20 )) 4 || return 1
+  backup_reserved=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 24 )) 8 || return 1
+  backup_current=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 32 )) 8 || return 1
+  backup_alternate=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 40 )) 8 || return 1
+  backup_first_usable=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 48 )) 8 || return 1
+  backup_last_usable=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 72 )) 8 || return 1
+  backup_entry_lba=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 80 )) 4 || return 1
+  backup_entry_count=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 84 )) 4 || return 1
+  backup_entry_size=$REPLY
+  _usb_od_uint "$image" $(( backup_header_offset + 88 )) 4 || return 1
+  backup_entry_crc=$REPLY
+  (( backup_revision == primary_revision && backup_reserved == 0 )) || return 1
+  (( backup_header_size == primary_header_size )) || return 1
+  _usb_gpt_header_crc_validate "$image" "$backup_header_offset" \
+    "$backup_header_size" || return 1
+  (( backup_header_size >= 92 && backup_header_size <= 512 )) || return 1
+  (( backup_current == last_lba && backup_alternate == 1 )) || return 1
+  (( backup_first_usable == first_usable && backup_last_usable == last_usable )) || return 1
+  (( backup_entry_count == entry_count && backup_entry_size == entry_size )) || return 1
+  backup_entry_offset=$(( backup_entry_lba * 512 ))
+  (( backup_entry_lba > last_usable )) || return 1
+  (( backup_entry_offset + entry_storage_bytes == backup_header_offset )) || return 1
+  _usb_od_hex "$image" 568 16 || return 1
+  local primary_disk_guid=$REPLY backup_disk_guid='' primary_entries_digest=''
+  _usb_od_hex "$image" $(( backup_header_offset + 56 )) 16 || return 1
+  backup_disk_guid=$REPLY
+  [[ $backup_disk_guid == "$primary_disk_guid" ]] || return 1
+  (( primary_entry_crc == backup_entry_crc )) || return 1
+  _usb_file_range_crc32 "$image" "$primary_entry_offset" "$entry_bytes" || return 1
+  actual_entry_crc=$REPLY
+  (( actual_entry_crc == primary_entry_crc )) || return 1
+  _usb_file_range_digest "$image" "$primary_entry_offset" "$entry_bytes" || return 1
+  primary_entries_digest=$REPLY
+  _usb_file_range_digest "$image" "$backup_entry_offset" "$entry_bytes" || return 1
+  [[ $REPLY == "$primary_entries_digest" ]] || return 1
+  _USB_GPT_ENTRY_OFFSET=$primary_entry_offset
+  _USB_GPT_ENTRY_BYTES=$entry_bytes
+  _USB_GPT_STABLE_START=1024
+  _USB_GPT_STABLE_END=$backup_entry_offset
+  _USB_GPT_HEADER_SIZE=$primary_header_size
+  _USB_GPT_FIRST_USABLE=$first_usable _USB_GPT_LAST_USABLE=$last_usable
+  _USB_GPT_ENTRY_LBA=$primary_entry_lba _USB_GPT_ENTRY_COUNT=$entry_count
+  _USB_GPT_ENTRY_SIZE=$entry_size _USB_GPT_ENTRY_CRC=$primary_entry_crc
+  _USB_GPT_DISK_GUID=$primary_disk_guid
+}
+
+_usb_target_gpt_layout_validate() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local image=$1 identifier=$2 image_size=$3 target_size=$4
+  local temp_root=${TMPDIR:-/tmp} primary_file='' backup_file=''
+  local primary_signature='' backup_signature='' primary_guid='' backup_guid=''
+  local source_backup_digest='' target_backup_digest=''
+  local -i target_last_lba=0 primary_revision=0 primary_header_size=0
+  local -i primary_reserved=0 primary_current=0 primary_backup=0
+  local -i primary_first_usable=0 primary_last_usable=0 primary_entry_lba=0
+  local -i primary_entry_count=0 primary_entry_size=0 primary_entry_crc=0
+  local -i backup_revision=0 backup_header_size=0 backup_reserved=0
+  local -i backup_current=0 backup_alternate=0 backup_first_usable=0
+  local -i backup_last_usable=0 backup_entry_lba=0 backup_entry_count=0
+  local -i backup_entry_size=0 backup_entry_crc=0 backup_entry_offset=0
+  local -i entry_storage_bytes=0 entry_storage_sectors=0
+  [[ $image_size == <-> && $target_size == <-> ]] || return 1
+  (( target_size >= image_size && target_size % 512 == 0 )) || return 1
+  target_last_lba=$(( target_size / 512 - 1 ))
+  entry_storage_bytes=$(( (_USB_GPT_ENTRY_BYTES + 511) / 512 * 512 ))
+  entry_storage_sectors=$(( entry_storage_bytes / 512 ))
+  (( target_last_lba > _USB_GPT_LAST_USABLE + entry_storage_sectors )) || return 1
+  primary_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-usb-primary-gpt.XXXXXX" 2>/dev/null) || return 1
+  backup_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-usb-backup-gpt.XXXXXX" 2>/dev/null) || {
+    command /bin/rm -f -- "$primary_file"
+    return 1
+  }
+  {
+    _usb_raw_sector_capture "$identifier" 1 "$primary_file" || return 1
+    _usb_raw_sector_capture "$identifier" "$target_last_lba" "$backup_file" || return 1
+
+    _usb_od_hex "$primary_file" 0 8 || return 1
+    primary_signature=$REPLY
+    [[ $primary_signature == 4546492050415254 ]] || return 1
+    _usb_od_uint "$primary_file" 8 4 || return 1
+    primary_revision=$REPLY
+    _usb_od_uint "$primary_file" 12 4 || return 1
+    primary_header_size=$REPLY
+    _usb_od_uint "$primary_file" 20 4 || return 1
+    primary_reserved=$REPLY
+    _usb_od_uint "$primary_file" 24 8 || return 1
+    primary_current=$REPLY
+    _usb_od_uint "$primary_file" 32 8 || return 1
+    primary_backup=$REPLY
+    _usb_od_uint "$primary_file" 40 8 || return 1
+    primary_first_usable=$REPLY
+    _usb_od_uint "$primary_file" 48 8 || return 1
+    primary_last_usable=$REPLY
+    _usb_od_hex "$primary_file" 56 16 || return 1
+    primary_guid=$REPLY
+    _usb_od_uint "$primary_file" 72 8 || return 1
+    primary_entry_lba=$REPLY
+    _usb_od_uint "$primary_file" 80 4 || return 1
+    primary_entry_count=$REPLY
+    _usb_od_uint "$primary_file" 84 4 || return 1
+    primary_entry_size=$REPLY
+    _usb_od_uint "$primary_file" 88 4 || return 1
+    primary_entry_crc=$REPLY
+    (( primary_revision == 65536 && primary_header_size == _USB_GPT_HEADER_SIZE )) || return 1
+    (( primary_reserved == 0 && primary_current == 1 )) || return 1
+    (( primary_backup == target_last_lba )) || return 1
+    (( primary_first_usable == _USB_GPT_FIRST_USABLE )) || return 1
+    (( primary_last_usable >= _USB_GPT_LAST_USABLE && primary_last_usable < target_last_lba )) || return 1
+    [[ $primary_guid == "$_USB_GPT_DISK_GUID" ]] || return 1
+    (( primary_entry_lba == _USB_GPT_ENTRY_LBA )) || return 1
+    (( primary_entry_count == _USB_GPT_ENTRY_COUNT )) || return 1
+    (( primary_entry_size == _USB_GPT_ENTRY_SIZE && primary_entry_crc == _USB_GPT_ENTRY_CRC )) || return 1
+    _usb_gpt_header_crc_validate "$primary_file" 0 "$primary_header_size" || return 1
+
+    _usb_od_hex "$backup_file" 0 8 || return 1
+    backup_signature=$REPLY
+    [[ $backup_signature == 4546492050415254 ]] || return 1
+    _usb_od_uint "$backup_file" 8 4 || return 1
+    backup_revision=$REPLY
+    _usb_od_uint "$backup_file" 12 4 || return 1
+    backup_header_size=$REPLY
+    _usb_od_uint "$backup_file" 20 4 || return 1
+    backup_reserved=$REPLY
+    _usb_od_uint "$backup_file" 24 8 || return 1
+    backup_current=$REPLY
+    _usb_od_uint "$backup_file" 32 8 || return 1
+    backup_alternate=$REPLY
+    _usb_od_uint "$backup_file" 40 8 || return 1
+    backup_first_usable=$REPLY
+    _usb_od_uint "$backup_file" 48 8 || return 1
+    backup_last_usable=$REPLY
+    _usb_od_hex "$backup_file" 56 16 || return 1
+    backup_guid=$REPLY
+    _usb_od_uint "$backup_file" 72 8 || return 1
+    backup_entry_lba=$REPLY
+    _usb_od_uint "$backup_file" 80 4 || return 1
+    backup_entry_count=$REPLY
+    _usb_od_uint "$backup_file" 84 4 || return 1
+    backup_entry_size=$REPLY
+    _usb_od_uint "$backup_file" 88 4 || return 1
+    backup_entry_crc=$REPLY
+    (( backup_revision == primary_revision && backup_header_size == primary_header_size )) || return 1
+    (( backup_reserved == 0 && backup_current == target_last_lba && backup_alternate == 1 )) || return 1
+    (( backup_first_usable == primary_first_usable && backup_last_usable == primary_last_usable )) || return 1
+    [[ $backup_guid == "$primary_guid" ]] || return 1
+    (( backup_entry_count == primary_entry_count && backup_entry_size == primary_entry_size )) || return 1
+    (( backup_entry_crc == primary_entry_crc )) || return 1
+    (( backup_entry_lba + entry_storage_sectors == target_last_lba )) || return 1
+    (( backup_entry_lba > backup_last_usable )) || return 1
+    _usb_gpt_header_crc_validate "$backup_file" 0 "$backup_header_size" || return 1
+    backup_entry_offset=$(( backup_entry_lba * 512 ))
+    _usb_file_range_digest "$image" "$_USB_GPT_STABLE_END" \
+      "$entry_storage_bytes" || return 1
+    source_backup_digest=$REPLY
+    _usb_raw_range_digest "$identifier" "$backup_entry_offset" \
+      "$entry_storage_bytes" || return 1
+    target_backup_digest=$REPLY
+    [[ $target_backup_digest == "$source_backup_digest" ]]
+  } always {
+    command /bin/rm -f -- "$primary_file" "$backup_file"
+  }
 }
 
 _usb_compare_written_image() {
   emulate -L zsh
-  local image=$1 identifier=$2 image_size=$3
-  local -i compared=$(( image_size - 17408 )) compare_status=0
+  local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
+  local -i compared=0 compare_status=0
   _USB_PAYLOAD_VERIFY_ERROR='' _USB_PAYLOAD_VERIFY_SCOPE=''
-  (( compared > 0 )) || return 2
+  [[ $image_size == <-> ]] && (( image_size > 512 )) || return 2
 
   # Prefer the strongest result: every image byte, including boot metadata.
   _usb_cmp_run -n "$image_size" "/dev/r${identifier}" "$image" >/dev/null 2>&1
@@ -1503,9 +1905,8 @@ _usb_compare_written_image() {
     (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
   esac
 
-  # Preserve the real 440-byte MBR boot-code area. Bytes 440..17407 contain the
-  # MBR disk signature/reserved fields plus partition/GPT geometry that macOS
-  # may adapt to the physical device. Then verify every stable payload byte.
+  # Preserve the real 440-byte MBR boot-code area and its 0x55AA signature.
+  # Bytes 440..509 are disk signature and partition geometry.
   _usb_cmp_run -n 440 "/dev/r${identifier}" "$image" >/dev/null 2>&1
   compare_status=$?
   case $compare_status in
@@ -1513,62 +1914,62 @@ _usb_compare_written_image() {
     (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
     (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
   esac
-  _usb_cmp_run -n "$compared" -i 17408 \
-    "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  _usb_cmp_run -n 2 -i 510 "/dev/r${identifier}" "$image" >/dev/null 2>&1
   compare_status=$?
   case $compare_status in
-    (0)
-      _USB_PAYLOAD_VERIFY_SCOPE=boot-and-stable-payload
-      _USB_PAYLOAD_VERIFY_ERROR=metadata-diff
-      return 0 ;;
+    (0) ;;
     (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
     (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
   esac
+  if _usb_gpt_layout_capture "$image" "$image_size"; then
+    _usb_target_gpt_layout_validate "$image" "$identifier" "$image_size" \
+      "$target_size" || {
+      _USB_PAYLOAD_VERIFY_ERROR=gpt-invalid
+      return 1
+    }
+    _usb_cmp_run -n "$_USB_GPT_ENTRY_BYTES" -i "$_USB_GPT_ENTRY_OFFSET" \
+      "/dev/r${identifier}" "$image" >/dev/null 2>&1
+    compare_status=$?
+    case $compare_status in
+      (0) ;;
+      (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
+      (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+    esac
+    compared=$(( _USB_GPT_STABLE_END - _USB_GPT_STABLE_START ))
+    (( compared > 0 )) || {
+      _USB_PAYLOAD_VERIFY_ERROR=image-read-failed
+      return 2
+    }
+    _usb_cmp_run -n "$compared" -i "$_USB_GPT_STABLE_START" \
+      "/dev/r${identifier}" "$image" >/dev/null 2>&1
+    compare_status=$?
+    case $compare_status in
+      (0)
+        _USB_PAYLOAD_VERIFY_SCOPE=boot-and-installer-payload
+        _USB_PAYLOAD_VERIFY_ERROR=gpt-geometry-diff
+        return 0 ;;
+      (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
+      (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+    esac
+  fi
+  _USB_PAYLOAD_VERIFY_ERROR=mismatch
+  return 1
 }
 
 _usb_verify_payload() {
   emulate -L zsh
-  local image=$1 identifier=$2 image_size=$3
+  local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
   _USB_PAYLOAD_VERIFY_ERROR=''
   _usb_unmount "$identifier" >/dev/null 2>&1 || {
     _USB_PAYLOAD_VERIFY_ERROR=unmount-failed
     return 2
   }
-  _usb_compare_written_image "$image" "$identifier" "$image_size"
+  _usb_compare_written_image "$image" "$identifier" "$image_size" "$target_size"
 }
 
 _usb_verify_payload_checksum() {
   emulate -L zsh
-  local image=$1 identifier=$2 image_size=$3 algorithm=$4
-  local image_digest='' drive_digest='' compare_reason='' compare_scope=''
-  local -i compare_status=0
-  _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM='' _USB_PAYLOAD_VERIFY_ERROR=''
-  _usb_unmount "$identifier" >/dev/null 2>&1 || {
-    _USB_PAYLOAD_VERIFY_ERROR=unmount-failed
-    return 2
-  }
-  _usb_compare_written_image "$image" "$identifier" "$image_size"
-  compare_status=$?
-  compare_reason=$_USB_PAYLOAD_VERIFY_ERROR compare_scope=$_USB_PAYLOAD_VERIFY_SCOPE
-  (( compare_status == 0 )) || return $compare_status
-  _usb_payload_checksum "$image" "$image_size" "$algorithm" 0 2>/dev/null || {
-    _USB_PAYLOAD_VERIFY_ERROR=$compare_reason _USB_PAYLOAD_VERIFY_SCOPE=$compare_scope
-    return 0
-  }
-  image_digest=$REPLY
-  _USB_PAYLOAD_IMAGE_CHECKSUM=$image_digest
-  _usb_payload_checksum "/dev/r${identifier}" "$image_size" "$algorithm" 1 2>/dev/null || {
-    _USB_PAYLOAD_VERIFY_ERROR=$compare_reason _USB_PAYLOAD_VERIFY_SCOPE=$compare_scope
-    return 0
-  }
-  drive_digest=$REPLY
-  _USB_PAYLOAD_DRIVE_CHECKSUM=$drive_digest
-  # cmp above is authoritative. Retain digests as corroborating evidence only;
-  # they must never turn an exact native byte comparison into a false failure.
-  if [[ $drive_digest != "$image_digest" ]]; then
-    _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM=''
-  fi
-  _USB_PAYLOAD_VERIFY_ERROR=$compare_reason _USB_PAYLOAD_VERIFY_SCOPE=$compare_scope
+  _usb_verify_payload "$1" "$2" "$3" "${5:-$3}"
 }
 
 _usb_eject() {
@@ -1590,17 +1991,17 @@ _usb_execute() {
   local image=$1 identifier=$2 disk_fingerprint=$3 image_fingerprint=$4
   local image_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
   local checksum_algorithm=${9:-} expected_checksum=${10:-}
-  local _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM=''
+  local target_size=${11:-$image_size}
   local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
   _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
   _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
   _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
   _USB_RESULT_EXPECTED_CHECKSUM=$expected_checksum _USB_RESULT_IMAGE_CHECKSUM=''
-  _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM='' _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=''
   _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
   _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
   _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
-  [[ $image_size == <-> ]] || return 2
+  [[ $image_size == <-> && $target_size == <-> ]] || return 2
+  (( target_size >= image_size )) || return 2
   case $request in
     (flash-verify|flash-only) ;;
     (*) return 2 ;;
@@ -1688,6 +2089,13 @@ _usb_execute() {
     fi
   fi
   if (( action_status == 0 )); then
+    _usb_unmount "$identifier" >/dev/null 2>&1 || {
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The image was written, but macOS could not immediately unmount the target for verification.'
+    }
+  fi
+  if (( action_status == 0 )); then
     _usb_image_revalidate "$image" "$image_fingerprint" "$image_size" || {
       action_status=1
       _USB_RESULT_OUTCOME=failed
@@ -1721,23 +2129,16 @@ _usb_execute() {
     }
   fi
   if (( action_status == 0 )) && [[ $request == flash-verify ]]; then
-    if [[ -n $expected_checksum ]]; then
-      _usb_progress_stage "Verifying USB against image" \
-        info 'Comparing the full image first; SHA payload digests are retained as supporting evidence.' \
-        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
-    else
-      _usb_progress_stage 'Verifying USB against image' \
-        info 'Comparing the full image first, including boot metadata.' \
-        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
-    fi
+    _usb_progress_stage 'Verifying USB against image' \
+      info 'Reading uncached raw bytes: full image first, then validated boot and installer ranges.' \
+      warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
     stage_started=$SECONDS
     if [[ -n $expected_checksum ]]; then
-      _usb_verify_payload_checksum "$image" "$identifier" "$image_size" "$checksum_algorithm"
+      _usb_verify_payload_checksum "$image" "$identifier" "$image_size" \
+        "$checksum_algorithm" "$target_size"
       action_status=$?
-      _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM=$_USB_PAYLOAD_IMAGE_CHECKSUM
-      _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=$_USB_PAYLOAD_DRIVE_CHECKSUM
     else
-      _usb_verify_payload "$image" "$identifier" "$image_size"
+      _usb_verify_payload "$image" "$identifier" "$image_size" "$target_size"
       action_status=$?
     fi
     _USB_RESULT_VERIFY_REASON=$_USB_PAYLOAD_VERIFY_ERROR
@@ -1747,15 +2148,15 @@ _usb_execute() {
       _USB_RESULT_OUTCOME=failed
       case $_USB_RESULT_VERIFY_REASON in
         (mismatch)
-          _USB_RESULT_ERROR='The finished USB stable payload differs from the selected image.' ;;
+          _USB_RESULT_ERROR='The finished USB installer or boot bytes differ from the selected image.' ;;
+        (gpt-invalid)
+          _USB_RESULT_ERROR='The finished USB GPT layout or backup partition map is invalid; the drive must not be used.' ;;
         (drive-read-failed)
           _USB_RESULT_ERROR='The image was written, but the finished USB could not be read completely for verification.' ;;
         (image-read-failed)
           _USB_RESULT_ERROR='The image changed or could not be read completely during finished-drive verification.' ;;
         (unmount-failed)
           _USB_RESULT_ERROR='The image was written, but macOS could not unmount the finished USB for verification.' ;;
-        (hash-inconsistent)
-          _USB_RESULT_ERROR='The byte comparison matched, but checksum verification was internally inconsistent.' ;;
         (authorization-expired)
           _USB_RESULT_ERROR='Administrator authorization expired before USB verification; the write completed but was not verified.' ;;
         (*)
@@ -1797,8 +2198,8 @@ _usb_result_screen() {
     duration_label=$REPLY
     if (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == full ]]; then
       verification_label='USB verification · Full image byte-for-byte matched'
-    elif (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == boot-and-stable-payload ]]; then
-      verification_label='USB verification · Boot code and stable payload matched · disk metadata differs'
+    elif (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == boot-and-installer-payload ]]; then
+      verification_label='USB verification · Boot bytes and installer payload matched'
     elif (( _USB_RESULT_VERIFIED )); then
       verification_label='USB verification · Selected image bytes matched'
     else
@@ -1837,11 +2238,11 @@ _usb_result_screen() {
     fi
     _USB_PICKER_HIGHLIGHTS+=("0:${#eject_label}:picker-success")
     _USB_PICKER_SEARCH+=(verified safe)
-    if [[ -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
-      _USB_PICKER_DETAILS+=("Finished-drive payload checksum"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM"$'\n\n''Matches the selected image after excluding the mutable 17,408-byte prefix.' '')
-    else
-      _USB_PICKER_DETAILS+=('' '')
-    fi
+    case $_USB_RESULT_VERIFY_REASON in
+      (gpt-geometry-diff)
+        _USB_PICKER_DETAILS+=('Source and target GPT headers, CRCs, partition arrays, and relocated backup map were structurally validated. MBR boot code, boot signature, and every compared installer byte matched; only physical-disk GPT geometry differed.' '') ;;
+      (*) _USB_PICKER_DETAILS+=('' '') ;;
+    esac
     _usb_result_choose 'Flash USB · Complete' 'Image  ›  Drive  ›  DONE'
   else
     if (( !_USB_RESULT_STARTED )); then
@@ -1877,25 +2278,19 @@ _usb_result_screen() {
       _USB_PICKER_SEARCH+=('image integrity not verified no checksum')
       _USB_PICKER_DETAILS+=('The selected local image had no provided checksum. Finished-drive comparison can validate the copy, but cannot establish the image’s origin.')
     fi
-    if [[ $_USB_RESULT_VERIFY_REASON == mismatch && -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
-      _USB_PICKER_VALUES+=(payload-checksum)
-      _USB_PICKER_LABELS+=("USB verification · FAILED · confirmed byte mismatch")
-      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
-      _USB_PICKER_SEARCH+=('payload checksum mismatch')
-      _USB_PICKER_DETAILS+=("Image payload"$'\n'"$_USB_RESULT_IMAGE_PAYLOAD_CHECKSUM"$'\n\n'"Finished-drive payload"$'\n'"$_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM")
-    elif [[ -n $_USB_RESULT_VERIFY_REASON ]]; then
+    if [[ -n $_USB_RESULT_VERIFY_REASON ]]; then
       _USB_PICKER_VALUES+=(verification-error)
       case $_USB_RESULT_VERIFY_REASON in
         (mismatch)
-          _USB_PICKER_LABELS+=('USB verification · FAILED · stable payload differs') ;;
+          _USB_PICKER_LABELS+=('USB verification · FAILED · installer or boot bytes differ') ;;
+        (gpt-invalid)
+          _USB_PICKER_LABELS+=('USB verification · FAILED · GPT layout is invalid') ;;
         (drive-read-failed)
           _USB_PICKER_LABELS+=('USB verification · Could not read the finished drive') ;;
         (image-read-failed)
           _USB_PICKER_LABELS+=('USB verification · Could not reread the selected image') ;;
         (unmount-failed)
           _USB_PICKER_LABELS+=('USB verification · Could not unmount the finished drive') ;;
-        (hash-inconsistent)
-          _USB_PICKER_LABELS+=('USB verification · Internal checksum inconsistency') ;;
         (authorization-expired)
           _USB_PICKER_LABELS+=('USB verification · Administrator authorization expired') ;;
         (*)
@@ -1926,7 +2321,8 @@ _usb_progress_controller() {
   _usb_execute "$_USB_SELECTED_IMAGE" "$_USB_SELECTED_DISK" \
     "$_USB_SELECTED_DISK_FINGERPRINT" "$_USB_SELECTED_IMAGE_FINGERPRINT" \
     "$_USB_SELECTED_IMAGE_SIZE" "$_USB_REQUEST" "$_USB_SELECTED_SOURCE_DISK" 1 \
-    "$_USB_SELECTED_CHECKSUM_ALGORITHM" "$_USB_SELECTED_CHECKSUM"
+    "$_USB_SELECTED_CHECKSUM_ALGORITHM" "$_USB_SELECTED_CHECKSUM" \
+    "$_USB_SELECTED_DISK_SIZE"
   execution_status=$?
   _usb_result_screen $execution_status
   return $execution_status
@@ -2081,25 +2477,29 @@ _compozsh_help_flash-usb() {
     '  Flash only skips the read-back comparison. Both actions eject afterward;' \
     '  an eject is also attempted after a write or verification failure.' \
     '  A final screen remains until Done and reports bytes, duration, average' \
-    '  write rate, image-integrity status, USB verification scope, retained digest,' \
+    '  write rate, image-integrity status, USB verification scope,' \
     '  and whether the drive is safe to remove.' \
     '' \
     'Verification boundary:' \
-    '  Native cmp first checks every image byte, including boot metadata. If that' \
-    '  full comparison differs, the macOS fallback preserves the first 440 bytes' \
-    '  of MBR boot code, allows only disk-signature and partition/GPT metadata' \
-    '  within the bounded first 17,408 bytes (through byte 17,407) to differ,' \
-    '  and requires every later image' \
-    '  byte to match. The final screen states that boot code and stable payload' \
-    '  matched instead of claiming full-image' \
-    '  equality. With SHA-256 or SHA-512,' \
-    '  payload digests are retained as supporting evidence, while cmp remains the' \
-    '  authoritative exact-length result. Read errors are never called mismatches.' \
+    '  Uncached raw reads first compare every image byte, including boot metadata.' \
+    '  If GPT geometry legitimately differs, the fallback validates both source' \
+    '  and target primary and backup headers, their CRCs, reciprocal physical LBAs,' \
+    '  disk GUID, bounded entry geometry, and matching partition arrays. It still' \
+    '  requires MBR boot bytes 0–439, the boot signature at bytes 510–511, and every' \
+    '  byte after the primary GPT header through the source backup entry array to' \
+    '  match. The relocated target backup array must match the source array too.' \
+    '  A non-GPT image receives no metadata exemption: any full-image difference' \
+    '  fails. The final screen reports the narrower GPT proof without claiming' \
+    '  full-image equality. The immediate post-write unmount reduces auto-mount' \
+    '  exposure, but stock macOS CLI tools cannot reserve the disk against a mount' \
+    '  already in progress. Any resulting filesystem-byte difference fails closed;' \
+    '  a mismatch alone does not prove whether media, writing, or mounting caused it.' \
+    '  Read errors are never called mismatches.' \
     '' \
     'Requirements and recovery:' \
     '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
-    '  and Apple’s diskutil, plutil, df, mktemp, rm, sleep, dd, cmp, head, tail,' \
-    '  shasum, stat, and sudo tools.' \
+    '  and Apple’s diskutil, plutil, df, mktemp, rm, sleep, cat, dd, cmp, cksum,' \
+    '  head, od, shasum, stat, and sudo tools.' \
     '  Apple mdfind supplies the indexed home catalog; if it fails, the shallow' \
     '  current-folder and Downloads snapshot plus Custom path remain available.' \
     '  A failed or interrupted write can leave the target unusable until it is' \
@@ -2123,13 +2523,13 @@ flash-usb() {
   local _USB_SELECTED_CHECKSUM='' _USB_SELECTED_CHECKSUM_ALGORITHM=''
   local _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
   local _USB_RESULT_CHECKSUM_ALGORITHM='' _USB_RESULT_EXPECTED_CHECKSUM=''
-  local _USB_RESULT_IMAGE_CHECKSUM='' _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM=''
-  local _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=''
+  local _USB_RESULT_IMAGE_CHECKSUM=''
   local -i _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
   local -i _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
   local -i _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
   local -i _USB_RESULT_CHECKSUM_VALIDATED=0
   local -i _USB_SELECTED_IMAGE_SIZE=0
+  local -i _USB_SELECTED_DISK_SIZE=0
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
     _compozsh_help_flash-usb
@@ -2146,7 +2546,8 @@ flash-usb() {
     }
     [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil && -x /bin/df &&
        -x /usr/bin/mktemp && -x /bin/rm && -x /bin/sleep && -x /bin/dd &&
-       -x /usr/bin/cmp && -x /usr/bin/head && -x /usr/bin/tail &&
+       -x /bin/cat && -x /usr/bin/cmp && -x /usr/bin/cksum &&
+       -x /usr/bin/head && -x /usr/bin/od &&
        -x /usr/bin/shasum && -x /usr/bin/stat && -x /usr/bin/sudo ]] || {
       print -u2 -r -- 'flash-usb: required Apple command-line tools are unavailable'
       return 1
