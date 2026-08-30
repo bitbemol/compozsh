@@ -1,4 +1,269 @@
-# Native external-disk image writing and verification.
+# Native bootable external-media creation and raw-image verification.
+
+_test_usb_media_classifier_routes_supported_families() {
+  test_make_temp_dir || return
+  local installer="$TEST_TMP_DIR/Install macOS Tahoe.app"
+  local raw="$TEST_TMP_DIR/linux.iso" windows="$TEST_TMP_DIR/windows.iso" output=''
+  command mkdir -p "$installer/Contents/Resources" || return
+  test_write_file "$installer/Contents/Resources/createinstallmedia" '#!/bin/zsh' || return
+  command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
+  test_write_file "$raw" "${(l:20000::r:)}" || return
+  test_write_file "$windows" "${(l:20000::w:)}" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_windows_installer_detect() { [[ $1 == */windows.iso ]]; }
+    _usb_media_kind_capture "$2" || exit 2
+    print -r -- "macos:$REPLY"
+    _usb_media_kind_capture "$3" || exit 3
+    print -r -- "raw:$REPLY"
+    _usb_media_kind_capture "$4" || exit 4
+    print -r -- "windows:$REPLY"
+  ' "$TEST_REPO_ROOT" "$installer" "$raw" "$windows") || return
+
+  test_assert_contains "$output" 'macos:macos-installer' \
+    'a full macOS installer application was not routed to createinstallmedia' || return
+  test_assert_contains "$output" 'raw:raw-image' \
+    'a non-Windows ISO was not routed to the raw image handler' || return
+  test_assert_contains "$output" 'windows:windows-installer' \
+    'recognized Windows installer media was not routed to the refusal handler'
+}
+test_case 'USB media classifier routes raw, macOS, and Windows families explicitly' \
+  _test_usb_media_classifier_routes_supported_families
+
+_test_usb_windows_detection_is_structural_and_always_detaches() {
+  test_make_temp_dir || return
+  local iso="$TEST_TMP_DIR/arbitrary-name.iso" output=''
+  test_write_file "$iso" "${(l:20000::w:)}" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    local -a trace=()
+    _usb_hdiutil_attach_readonly() {
+      trace+=(attach-readonly)
+      command mkdir -p "$2/sources" || return
+      print -r -- boot >| "$2/sources/boot.wim"
+      print -r -- install >| "$2/sources/install.wim"
+      _USB_INSPECT_DEVICE=disk99 _USB_INSPECT_MOUNT=$2
+    }
+    _usb_hdiutil_detach() {
+      trace+=("detach:$1")
+      command /bin/rm -f -- "$_USB_INSPECT_MOUNT/sources/boot.wim" \
+        "$_USB_INSPECT_MOUNT/sources/install.wim"
+      command /bin/rmdir "$_USB_INSPECT_MOUNT/sources"
+    }
+    _usb_windows_installer_detect "$2"
+    print -r -- "detected:$?|${(j:,:)trace}"
+    _usb_hdiutil_detach() {
+      command /bin/rm -f -- "$_USB_INSPECT_MOUNT/sources/boot.wim" \
+        "$_USB_INSPECT_MOUNT/sources/install.wim"
+      command /bin/rmdir "$_USB_INSPECT_MOUNT/sources"
+      return 1
+    }
+    _usb_windows_installer_detect "$2"
+    print -r -- "detach-failure:$?"
+  ' "$TEST_REPO_ROOT" "$iso") || return
+
+  test_assert_contains "$output" 'detected:0|attach-readonly,detach:disk99' \
+    'Windows detection did not require setup payload markers or release its read-only mount' || return
+  test_assert_contains "$output" 'detach-failure:2' \
+    'a failed read-only inspection detach did not stop the workflow safely'
+}
+test_case 'USB Windows detection uses setup markers and always detaches its probe' \
+  _test_usb_windows_detection_is_structural_and_always_detaches
+
+_test_usb_capture_accepts_full_macos_installer_apps() {
+  test_make_temp_dir || return
+  local installer="$TEST_TMP_DIR/Install macOS Tahoe.app" output=''
+  command mkdir -p "$installer/Contents/Resources" || return
+  test_write_file "$installer/Contents/Resources/createinstallmedia" '#!/bin/zsh' || return
+  command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_images_capture "$2" || exit 2
+    print -r -- "kind:${_USB_IMAGE_KINDS[1]}|path:${_USB_IMAGE_PATHS[1]}"
+    print -r -- "label:${_USB_IMAGE_LABELS[1]}"
+    print -r -- "minimum:${_USB_IMAGE_SIZES[1]}"
+  ' "$TEST_REPO_ROOT" "$installer") || return
+
+  test_assert_contains "$output" "kind:macos-installer|path:${installer:A}" \
+    'explicit full macOS installer capture lost its handler identity' || return
+  test_assert_contains "$output" 'label:Install macOS Tahoe.app · macOS installer' \
+    'macOS installer media was not recognizable in Step 1' || return
+  test_assert_contains "$output" 'minimum:15000000000' \
+    'macOS target capture did not enforce Apple’s documented 16 GiB baseline'
+}
+test_case 'USB capture accepts full macOS installer applications as media' \
+  _test_usb_capture_accepts_full_macos_installer_apps
+
+_test_usb_apple_signature_boundary_rejects_unsigned_tools() {
+  test_make_temp_dir || return
+  local unsigned="$TEST_TMP_DIR/createinstallmedia" output=''
+  test_write_file "$unsigned" '#!/bin/zsh' || return
+  command chmod +x "$unsigned" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_codesign_is_apple /usr/bin/hdiutil
+    print -r -- "apple:$?"
+    _usb_codesign_is_apple "$2" >/dev/null 2>&1
+    print -r -- "unsigned:$?"
+  ' "$TEST_REPO_ROOT" "$unsigned") || return
+
+  test_assert_contains "$output" 'apple:0' \
+    'the Apple signature boundary rejected a native Apple code object' || return
+  test_assert_contains "$output" 'unsigned:1' \
+    'the Apple signature boundary accepted an unsigned createinstallmedia executable'
+}
+test_case 'USB macOS handler accepts Apple code and rejects unsigned tools' \
+  _test_usb_apple_signature_boundary_rejects_unsigned_tools
+
+_test_usb_media_dispatcher_isolates_handlers_and_refuses_windows() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    local -a trace=()
+    _usb_execute() { trace+=(raw); return 0; }
+    _usb_macos_execute() { trace+=(macos); return 0; }
+    _usb_media_execute raw-image a b c || exit 2
+    _usb_media_execute macos-installer a b c || exit 3
+    _usb_media_execute windows-installer a b c >/dev/null 2>&1
+    print -r -- "windows:$?|trace:${(j:,:)trace}|outcome:$_USB_RESULT_OUTCOME|error:$_USB_RESULT_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'windows:1|trace:raw,macos|outcome:failed' \
+    'the dispatcher did not isolate raw and macOS handlers or refuse Windows' || return
+  test_assert_contains "$output" 'Windows installer media is not supported' \
+    'the Windows refusal did not explain the unsupported media family'
+}
+test_case 'USB media dispatcher isolates handlers and refuses Windows before mutation' \
+  _test_usb_media_dispatcher_isolates_handlers_and_refuses_windows
+
+_test_usb_workspace_refuses_windows_before_target_capture() {
+  test_make_temp_dir || return
+  local image="$TEST_TMP_DIR/windows.iso" output=''
+  test_write_file "$image" "${(l:20000::w:)}" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _USB_IMAGE_PATHS=("$2") _USB_IMAGE_LABELS=(windows.iso)
+    _USB_IMAGE_HIGHLIGHTS=("") _USB_IMAGE_DETAILS=(Windows)
+    _USB_IMAGE_SIZES=(20000) _USB_IMAGE_FINGERPRINTS=(fingerprint)
+    _USB_IMAGE_KINDS=(raw-image) _USB_IMAGE_CAPTURE_SCOPE=test
+    local -i choices=0
+    local -a trace=()
+    _usb_media_kind_capture() { REPLY=windows-installer; }
+    _usb_target_choose() { trace+=(target); return 9; }
+    _usb_choose() {
+      (( ++choices ))
+      trace+=("screen:$1")
+      if (( choices == 1 )); then
+        _ZLE_PICKER_SELECTED_VALUE=image:1 _ZLE_PICKER_ACTION=accept
+        return 0
+      fi
+      return 1
+    }
+    _usb_workspace_controller >/dev/null 2>&1
+    print -r -- "status:$?|trace:${(j:,:)trace}"
+  ' "$TEST_REPO_ROOT" "$image") || return
+
+  test_assert_contains "$output" \
+    'status:1|trace:screen:Flash USB · Step 1 of 3,screen:Flash USB · Media compatibility,screen:Flash USB · Step 1 of 3' \
+    'recognized Windows media reached target capture or skipped its refusal screen' || return
+  [[ $output != *target* ]] || test_fail 'Windows refusal mutated or captured a target'
+}
+test_case 'USB workspace refuses Windows media before target capture' \
+  _test_usb_workspace_refuses_windows_before_target_capture
+
+_test_usb_macos_handler_revalidates_before_destructive_effects() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    local -a trace=()
+    _usb_progress_stage() { return 0; }
+    _usb_macos_installer_revalidate() { trace+=(installer-check); return ${installer_status:-0}; }
+    _usb_target_revalidate() { trace+=(target-check); return 0; }
+    _usb_macos_prepare_volume() { trace+=(prepare); REPLY=/Volumes/CompozshInstaller; return 0; }
+    _usb_createinstallmedia_run() { trace+=(createinstallmedia); return 0; }
+    _usb_eject() { trace+=(eject); return 0; }
+    _usb_macos_execute /Applications/Install\ macOS\ Tahoe.app disk7 disk-fingerprint \
+      installer-fingerprint 17179869184 flash-verify "" 1 "" "" 64000000000 || exit 2
+    print -r -- "success:${(j:,:)trace}|outcome:$_USB_RESULT_OUTCOME"
+    trace=() installer_status=1
+    _usb_macos_execute /Applications/Install\ macOS\ Tahoe.app disk7 disk-fingerprint \
+      installer-fingerprint 17179869184 flash-verify "" 1 "" "" 64000000000 >/dev/null 2>&1
+    print -r -- "changed:$?|${(j:,:)trace}|started:$_USB_RESULT_STARTED"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'success:installer-check,target-check,target-check,prepare,installer-check,createinstallmedia,eject|outcome:complete' \
+    'the macOS handler did not preserve its validated native-tool sequence' || return
+  test_assert_contains "$output" 'changed:1|installer-check|started:0' \
+    'a changed macOS installer reached a destructive handler effect'
+}
+test_case 'USB macOS handler closes installer and target races before erasing' \
+  _test_usb_macos_handler_revalidates_before_destructive_effects
+
+_test_usb_createinstallmedia_progress_is_live_and_temporary() {
+  test_make_temp_dir || return
+  local installer="$TEST_TMP_DIR/Install macOS Tahoe.app"
+  local volume="$TEST_TMP_DIR/CompozshVolume" output=''
+  command mkdir -p "$installer/Contents/Resources" "$volume" || return
+  test_write_file "$installer/Contents/Resources/createinstallmedia" '#!/bin/zsh' || return
+  command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$4
+    local -a frames=() leftovers=()
+    _usb_progress_stage() { frames+=("$1|$3|$5"); }
+    _usb_createinstallmedia_command_run() {
+      print -r -- $'\''Erasing disk: 0%\rErasing disk: 42%\rCopying to disk: 87%\rInstall media now available'\''
+    }
+    _usb_createinstallmedia_run "$2" "$3" || exit 2
+    leftovers=("$4"/compozsh-createinstallmedia.*(N))
+    print -r -- "frames:${(j:;:)frames}"
+    print -r -- "leftovers:${#leftovers}"
+  ' "$TEST_REPO_ROOT" "$installer" "$volume" "$TEST_TMP_DIR") || return
+
+  test_assert_contains "$output" 'Creating macOS installer|' \
+    'Apple createinstallmedia did not publish progress on the Step 3 status view' || return
+  test_assert_contains "$output" 'leftovers:0' \
+    'Apple createinstallmedia left its bounded progress capture behind'
+}
+test_case 'USB createinstallmedia publishes live progress and cleans its capture' \
+  _test_usb_createinstallmedia_progress_is_live_and_temporary
+
+_test_usb_macos_result_screen_reports_native_outcome() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_result_choose() {
+      print -r -- "title:$1|trail:$2"
+      print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"
+      print -r -- "styles:${(j:|:)_USB_PICKER_HIGHLIGHTS}"
+    }
+    _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=75 _USB_RESULT_SOURCE_VALIDATED=1
+    _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1 _USB_RESULT_SOURCE_VALIDATED=1
+    _usb_macos_result_screen 0
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Apple createinstallmedia failed: media is too small"
+    _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
+    _usb_macos_result_screen 1
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'macOS installer complete · Apple createinstallmedia succeeded' \
+    'the macOS completion screen reused raw byte-verification language' || return
+  test_assert_contains "$output" \
+    'Source validation · Verified · Apple-signed full installer' \
+    'the macOS completion screen omitted its source-integrity evidence' || return
+  test_assert_contains "$output" \
+    'macOS installer failed · Apple createinstallmedia failed: media is too small' \
+    'the macOS failure screen hid Apple’s retained diagnostic' || return
+  [[ $output == *picker-success*picker-error* ]] ||
+    test_fail 'macOS completion and failure evidence lacked semantic colors'
+}
+test_case 'USB macOS result screen reports Apple-native completion and failure' \
+  _test_usb_macos_result_screen_reports_native_outcome
 
 _test_usb_image_capture_is_bounded_and_exact() {
   test_make_temp_dir || return
@@ -88,7 +353,7 @@ _test_usb_home_index_capture_is_newest_first_with_metadata() {
 
   test_assert_contains "$output" 'order:new.img,local.iso,old.iso' \
     'home-indexed images were not ordered by newest creation date' || return
-  test_assert_contains "$output" 'scope:Spotlight index under ~ + current folder + ~/Downloads|partial:0' \
+  test_assert_contains "$output" 'scope:Spotlight index under ~ + current folder + ~/Downloads + installed macOS installers|partial:0' \
     'home image capture hid its indexed and direct source scope' || return
   test_assert_contains "$output" "visible:new.img||Path|  $canonical_home/Archive/Nested/new.img" \
     'the selected image path fell below the passive detail-panel viewport' || return
@@ -1302,10 +1567,10 @@ _test_usb_workspace_refreshes_images_with_spotlight_snapshot() {
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" \
-    'view1:custom-path,image:1|refresh:1|label:captured images · Ctrl-R refresh Spotlight' \
+    'view1:custom-path,image:1|refresh:1|label:captured media · Ctrl-R refresh Spotlight' \
     'Step 1 did not expose its image-refresh capability' || return
   test_assert_contains "$output" \
-    'view2:custom-path,image:1,image:2|refresh:1|label:captured images · Ctrl-R refresh Spotlight|query:iso|initial:image:2' \
+    'view2:custom-path,image:1,image:2|refresh:1|label:captured media · Ctrl-R refresh Spotlight|query:iso|initial:image:2' \
     'image refresh did not retain the filter and exact prior image selection' || return
   test_assert_contains "$output" 'captures:1' \
     'Ctrl-R did not perform exactly one fresh image capture' || return

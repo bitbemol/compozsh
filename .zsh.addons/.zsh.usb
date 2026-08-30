@@ -1,13 +1,16 @@
-# Native external-disk image writing. This peer unit is loaded by the .zshrc
+# Native bootable external-media creation. This peer unit is loaded by the .zshrc
 # bootstrap only while its name matches .zsh.<name> inside an add-on directory.
 
 typeset -ga _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
 typeset -ga _USB_IMAGE_HIGHLIGHTS=()
 typeset -ga _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
 typeset -ga _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
+typeset -ga _USB_IMAGE_KINDS=()
 typeset -ga _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
 typeset -ga _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
 typeset -g _USB_CAPTURE_ERROR='' _USB_PLIST=''
+typeset -g _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+typeset -g _USB_CREATEINSTALLMEDIA_ERROR=''
 typeset -g _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL=''
 typeset -g _USB_INFO_FINGERPRINT=''
 typeset -g _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
@@ -24,6 +27,7 @@ typeset -g _USB_RESULT_CHECKSUM_ALGORITHM=''
 typeset -gi _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
 typeset -gi _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
 typeset -gi _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
+typeset -gi _USB_RESULT_SOURCE_VALIDATED=0
 typeset -gi _USB_WRITE_BYTES_OBSERVED=0
 typeset -gi _USB_SELECTED_DISK_SIZE=0
 typeset -gi _USB_INFO_SIZE=0 _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
@@ -31,6 +35,7 @@ typeset -gi _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
 typeset -gi _USB_PLIST_MAX_BYTES=1048576
 typeset -gi _USB_IMAGE_MAX_PER_FOLDER=200
 typeset -gi _USB_IMAGE_MAX_INDEXED=500 _USB_IMAGE_CAPTURE_PARTIAL=0
+typeset -gi _USB_MACOS_TARGET_MINIMUM=15000000000
 typeset -gi _USB_STAT_SIZE=0 _USB_STAT_MODIFIED=0 _USB_STAT_CREATED=0
 typeset -gi _USB_GPT_ENTRY_OFFSET=0 _USB_GPT_ENTRY_BYTES=0
 typeset -gi _USB_GPT_STABLE_START=0 _USB_GPT_STABLE_END=0
@@ -63,6 +68,158 @@ _usb_image_extension_supported() {
     (iso|img) return 0 ;;
     (*) return 1 ;;
   esac
+}
+
+_usb_macos_installer_tool() {
+  emulate -L zsh
+  local installer=${1:A} tool=''
+  REPLY=''
+  [[ -d $installer && ! -L $installer ]] || return 1
+  case ${installer:t} in
+    (Install\ macOS\ *.app|Install\ OS\ X\ *.app) ;;
+    (*) return 1 ;;
+  esac
+  tool="$installer/Contents/Resources/createinstallmedia"
+  [[ -f $tool && ! -L $tool && -x $tool ]] || return 1
+  REPLY=$tool
+}
+
+_usb_macos_installer_fingerprint() {
+  emulate -L zsh
+  local installer=${1:A} tool='' root_stat='' tool_stat=''
+  _usb_macos_installer_tool "$installer" || return 1
+  tool=$REPLY
+  root_stat=$(command /usr/bin/stat -f '%d:%i:%m:%B' "$installer" 2>/dev/null) || return 1
+  tool_stat=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$tool" 2>/dev/null) || return 1
+  REPLY="$root_stat|$tool_stat"
+}
+
+_usb_codesign_is_apple() {
+  emulate -L zsh
+  local path=$1 requirement='' normalized='' verification='' line=''
+  local -i verify_status=0
+  verification=$(command /usr/bin/codesign --verify --strict "$path" 2>&1)
+  verify_status=$?
+  (( ${#verification} <= 8192 )) || return 1
+  if (( verify_status != 0 )); then
+    [[ $verification == *CSSMERR_TP_NOT_TRUSTED* ]] || return 1
+    for line in "${(f)verification}"; do
+      case $line in
+        (*': CSSMERR_TP_NOT_TRUSTED'|'In architecture: '*) ;;
+        (*) return 1 ;;
+      esac
+    done
+  fi
+  requirement=$(command /usr/bin/codesign -d -r- "$path" 2>&1) || return 1
+  (( ${#requirement} <= 8192 )) || return 1
+  normalized=${requirement//$'\n'/}
+  [[ $normalized != *[[:cntrl:]]* ]] || return 1
+  [[ $requirement == *'anchor apple'* ]]
+}
+
+_usb_macos_codesign_verify() {
+  emulate -L zsh
+  local installer=$1 tool=''
+  _usb_macos_installer_tool "$installer" || return 1
+  tool=$REPLY
+  _usb_codesign_is_apple "$installer" || return 1
+  _usb_codesign_is_apple "$tool"
+}
+
+_usb_macos_installer_revalidate() {
+  emulate -L zsh
+  local installer=$1 expected=$2
+  _usb_macos_installer_fingerprint "$installer" || return 1
+  [[ $REPLY == "$expected" ]] || return 1
+  _usb_macos_codesign_verify "$installer"
+}
+
+_usb_hdiutil_attach_readonly() {
+  emulate -L zsh
+  local image=$1 mount_point=$2 output='' line='' device=''
+  local -i attach_status=0
+  _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+  output=$(command /usr/bin/hdiutil attach -readonly -nobrowse -noautoopen \
+    -mountpoint "$mount_point" "$image" 2>/dev/null)
+  attach_status=$?
+  for line in "${(f)output}"; do
+    device=${line%%[[:space:]]*}
+    [[ $device == /dev/disk<-> ]] || continue
+    _USB_INSPECT_DEVICE=${device#/dev/}
+    break
+  done
+  (( attach_status == 0 )) || return 1
+  [[ $_USB_INSPECT_DEVICE == disk<-> && -d $mount_point ]] || return 1
+  _USB_INSPECT_MOUNT=$mount_point
+}
+
+_usb_hdiutil_detach() {
+  command /usr/bin/hdiutil detach "/dev/$1"
+}
+
+# A Windows installer ISO is identified from its canonical setup payload, not
+# from its filename. The temporary mount is read-only and always detached.
+_usb_windows_installer_detect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB NULL_GLOB
+  local image=$1 temp_root=${TMPDIR:-/tmp} mount_point='' device=''
+  local -a source_dirs=() boot_images=() install_images=()
+  local -i detected=1 attach_status=0 cleanup_status=0
+  [[ ${image:e:l} == iso ]] || return 1
+  mount_point=$(command /usr/bin/mktemp -d \
+    "${temp_root%/}/compozsh-usb-inspect.XXXXXX" 2>/dev/null) || return 2
+  {
+    _usb_hdiutil_attach_readonly "$image" "$mount_point"
+    attach_status=$?
+    device=$_USB_INSPECT_DEVICE
+    if (( attach_status == 0 )); then
+      source_dirs=("$mount_point"/(#i)sources(N/))
+      if (( ${#source_dirs} == 1 )); then
+        boot_images=("${source_dirs[1]}"/(#i)boot.wim(N.))
+        install_images=("${source_dirs[1]}"/(#i)(install.wim|install.esd|install.swm)(N.))
+      fi
+      if (( ${#boot_images} == 1 && ${#install_images} >= 1 )); then
+        detected=0
+      fi
+    fi
+  } always {
+    if [[ -n $device ]]; then
+      _usb_hdiutil_detach "$device" >/dev/null 2>&1 || cleanup_status=1
+    fi
+    if [[ -d $mount_point && ! -L $mount_point &&
+          ${mount_point:t} == compozsh-usb-inspect.* &&
+          ${mount_point:h:A} == ${temp_root:A} ]]; then
+      command /bin/rmdir "$mount_point" 2>/dev/null || cleanup_status=1
+    fi
+  }
+  (( attach_status == 0 && cleanup_status == 0 )) || return 2
+  return $detected
+}
+
+_usb_media_kind_capture() {
+  emulate -L zsh
+  local path=${1:A} detect_status=0
+  _USB_MEDIA_ERROR=''
+  if _usb_macos_installer_tool "$path" >/dev/null; then
+    REPLY=macos-installer
+    return 0
+  fi
+  _usb_image_extension_supported "$path" || {
+    _USB_MEDIA_ERROR='choose a readable .iso, .img, or full Install macOS application'
+    return 2
+  }
+  if [[ ${path:e:l} == iso ]]; then
+    _usb_windows_installer_detect "$path"
+    detect_status=$?
+    if (( detect_status == 0 )); then
+      REPLY=windows-installer
+      return 0
+    elif (( detect_status == 2 )); then
+      _USB_MEDIA_ERROR='macOS could not inspect this ISO safely; nothing can be written'
+      return 1
+    fi
+  fi
+  REPLY=raw-image
 }
 
 _usb_image_architecture_hint() {
@@ -176,6 +333,49 @@ _usb_image_add() {
   _USB_IMAGE_FINGERPRINTS+=("$fingerprint")
   _USB_IMAGE_CREATED+=("$_USB_STAT_CREATED")
   _USB_IMAGE_MODIFIED+=("$_USB_STAT_MODIFIED")
+  _USB_IMAGE_KINDS+=(raw-image)
+}
+
+_usb_macos_installer_add() {
+  emulate -L zsh
+  local path=${1:A} fingerprint='' root_stat='' filename='' label=''
+  local created_label='' modified_label=''
+  local -a fields=()
+  [[ ${#path} -le 4096 && $path != *[[:cntrl:]]* ]] || return 1
+  (( _USB_IMAGE_PATHS[(Ie)$path] )) && return 0
+  _usb_macos_installer_fingerprint "$path" || return 1
+  fingerprint=$REPLY
+  root_stat=$(command /usr/bin/stat -f '%d:%i:%m:%B' "$path" 2>/dev/null) || return 1
+  fields=("${(@s/:/)root_stat}")
+  (( ${#fields} == 4 )) || return 1
+  [[ ${fields[3]} == <-> && ${fields[4]} == <-> ]] || return 1
+  filename=${path:t}
+  label="$filename · macOS installer · 16 GB-class target"
+  _usb_format_epoch "${fields[4]}"
+  created_label=$REPLY
+  _usb_format_epoch "${fields[3]}"
+  modified_label=$REPLY
+  _USB_IMAGE_PATHS+=("$path")
+  _USB_IMAGE_LABELS+=("$label")
+  _USB_IMAGE_HIGHLIGHTS+=("$(( ${#filename} + 3 )):$(( ${#filename} + 18 )):picker-architecture")
+  _USB_IMAGE_DETAILS+=("$filename"$'\n\nPath\n  '"$path"$'\n\n''Format · Full macOS installer application'$'\n''Handler · Apple createinstallmedia'$'\n''Target · 16 GB-class minimum; Apple reports if more is required'$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
+  _USB_IMAGE_SIZES+=("$_USB_MACOS_TARGET_MINIMUM")
+  _USB_IMAGE_FINGERPRINTS+=("$fingerprint")
+  _USB_IMAGE_CREATED+=("${fields[4]}")
+  _USB_IMAGE_MODIFIED+=("${fields[3]}")
+  _USB_IMAGE_KINDS+=(macos-installer)
+}
+
+_usb_media_add() {
+  emulate -L zsh
+  local original=$1 path=''
+  [[ ! -L $original ]] || return 1
+  path=${original:A}
+  if _usb_macos_installer_tool "$path" >/dev/null; then
+    _usb_macos_installer_add "$path"
+  else
+    _usb_image_add "$path"
+  fi
 }
 
 _usb_images_sort_newest() {
@@ -183,7 +383,7 @@ _usb_images_sort_newest() {
   local -i index=0 source_index=0 epoch=0
   local record='' key=''
   local -a records=() paths=() labels=() highlights=() details=() sizes=() fingerprints=()
-  local -a created=() modified=()
+  local -a created=() modified=() kinds=()
   for (( index = 1; index <= ${#_USB_IMAGE_PATHS}; ++index )); do
     epoch=${_USB_IMAGE_CREATED[index]:-${_USB_IMAGE_MODIFIED[index]:-0}}
     (( epoch > 0 )) || epoch=${_USB_IMAGE_MODIFIED[index]:-0}
@@ -201,12 +401,14 @@ _usb_images_sort_newest() {
     fingerprints+=("${_USB_IMAGE_FINGERPRINTS[source_index]}")
     created+=("${_USB_IMAGE_CREATED[source_index]}")
     modified+=("${_USB_IMAGE_MODIFIED[source_index]}")
+    kinds+=("${_USB_IMAGE_KINDS[source_index]}")
   done
   _USB_IMAGE_PATHS=("${paths[@]}") _USB_IMAGE_LABELS=("${labels[@]}")
   _USB_IMAGE_HIGHLIGHTS=("${highlights[@]}")
   _USB_IMAGE_DETAILS=("${details[@]}") _USB_IMAGE_SIZES=("${sizes[@]}")
   _USB_IMAGE_FINGERPRINTS=("${fingerprints[@]}")
   _USB_IMAGE_CREATED=("${created[@]}") _USB_IMAGE_MODIFIED=("${modified[@]}")
+  _USB_IMAGE_KINDS=("${kinds[@]}")
 }
 
 _usb_spotlight_run() {
@@ -248,24 +450,36 @@ _usb_images_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB NULL_GLOB
   local explicit=${1:-} candidate=''
-  local -a candidates=()
+  local -a candidates=() installers=()
   _USB_CAPTURE_ERROR=''
   _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
   _USB_IMAGE_HIGHLIGHTS=()
   _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
   _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
+  _USB_IMAGE_KINDS=()
   _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_CAPTURE_PARTIAL=0
 
   if [[ -n $explicit ]]; then
-    _usb_image_extension_supported "$explicit" || {
-      _USB_CAPTURE_ERROR='the image must be a regular .iso or .img file'
-      return 2
-    }
-    _usb_image_add "$explicit" || _usb_image_add "$explicit" || {
-      _USB_CAPTURE_ERROR='the image must be readable, larger than 17,408 bytes, and must not be a symbolic link'
+    if [[ -d $explicit && ! -L $explicit ]]; then
+      _usb_macos_installer_tool "$explicit" >/dev/null || {
+        _USB_CAPTURE_ERROR='the application is not a complete Install macOS app with createinstallmedia'
+        return 2
+      }
+    else
+      _usb_image_extension_supported "$explicit" || {
+        if [[ ${explicit:e:l} == dmg || ${explicit:e:l} == pkg ]]; then
+          _USB_CAPTURE_ERROR='open the macOS .dmg or .pkg first so it installs the full Install macOS app, then select that app'
+        else
+          _USB_CAPTURE_ERROR='the media must be a regular .iso or .img file, or a full Install macOS application'
+        fi
+        return 2
+      }
+    fi
+    _usb_media_add "$explicit" || _usb_media_add "$explicit" || {
+      _USB_CAPTURE_ERROR='the selected media must be readable, complete, and must not be a symbolic link'
       return 1
     }
-    _USB_IMAGE_CAPTURE_SCOPE='explicit image path'
+    _USB_IMAGE_CAPTURE_SCOPE='explicit media path'
     return 0
   fi
 
@@ -277,11 +491,18 @@ _usb_images_capture() {
     _usb_image_extension_supported "$candidate" || continue
     _usb_image_add "$candidate"
   done
+  installers=(
+    /Applications/Install\ (macOS|OS\ X)\ *.app(N/)
+    "$HOME/Applications"/Install\ (macOS|OS\ X)\ *.app(N/))
+  for candidate in "${installers[@]}"; do
+    [[ ! -L $candidate ]] || continue
+    _usb_macos_installer_add "$candidate"
+  done
   if _usb_spotlight_images_capture; then
-    _USB_IMAGE_CAPTURE_SCOPE='Spotlight index under ~ + current folder + ~/Downloads'
+    _USB_IMAGE_CAPTURE_SCOPE='Spotlight index under ~ + current folder + ~/Downloads + installed macOS installers'
     (( _USB_IMAGE_CAPTURE_PARTIAL )) && _USB_IMAGE_CAPTURE_SCOPE+=' · partial snapshot'
   else
-    _USB_IMAGE_CAPTURE_SCOPE='current folder + ~/Downloads · Spotlight index unavailable'
+    _USB_IMAGE_CAPTURE_SCOPE='current folder + ~/Downloads + installed macOS installers · Spotlight index unavailable'
     _USB_IMAGE_CAPTURE_PARTIAL=1
   fi
   _usb_images_sort_newest
@@ -303,11 +524,8 @@ _usb_image_from_query() {
     if [[ $candidate == '~/'* ]]; then
       candidate="$HOME/${candidate#\~/}"
     fi
-    _usb_image_extension_supported "$candidate" || continue
-    candidate=${candidate:a}
-    candidate=${candidate:A}
-    if _usb_image_add "$candidate"; then
-      REPLY=$candidate
+    if _usb_media_add "$candidate"; then
+      REPLY=${candidate:A}
       return 0
     fi
   done
@@ -320,9 +538,9 @@ _usb_path_query_collect() {
 
 _usb_read_image_path() {
   emulate -L zsh
-  local subtitle=${1:-'Drag an .iso or .img from Finder, then press Return'}
-  local _ZLE_PICKER_TITLE='Flash USB / Add image' _ZLE_PICKER_SUBTITLE=$subtitle
-  local _ZLE_PICKER_QUERY_LABEL='Image path' _ZLE_PICKER_INSPECT_TITLE=Details
+  local subtitle=${1:-'Drop an .iso, .img, or full Install macOS app, then press Return'}
+  local _ZLE_PICKER_TITLE='Flash USB / Add media' _ZLE_PICKER_SUBTITLE=$subtitle
+  local _ZLE_PICKER_QUERY_LABEL='Media path' _ZLE_PICKER_INSPECT_TITLE=Details
   local _ZLE_PICKER_INSPECT_ACTION=add _ZLE_PICKER_CANCEL_LABEL=back
   local _ZLE_PICKER_BROWSE_LABEL='drop or paste one exact path · Return validates'
   local _ZLE_PICKER_COLLECTOR=_usb_path_query_collect _ZLE_PICKER_INSPECT_FALLBACK=''
@@ -388,36 +606,50 @@ _usb_read_checksum() {
 
 # Custom Path is a bounded file browser rather than a shell-like path parser.
 # It starts at home, exposes the current path, and retains Finder-style
-# hierarchy movement while showing only folders and applicable raw images.
+# hierarchy movement while showing folders, raw images, and full macOS installers.
 _usb_browser_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB NULL_GLOB
   local location=${1:A} candidate='' raw_size='' filename='' size_label=''
-  local -a directories=() images=()
+  local -a directories=() images=() installers=()
   local -i inspected=0
   _USB_BROWSER_PARTIAL=0
   [[ -d $location && -r $location ]] || return 1
   _USB_PICKER_VALUES=(paste-path)
-  _USB_PICKER_LABELS=('[ Paste or drop an exact image path… ]')
+  _USB_PICKER_LABELS=('[ Paste or drop an exact media path… ]')
   _USB_PICKER_HIGHLIGHTS=('')
   _USB_PICKER_SEARCH=(paste drop drag finder exact path)
   _USB_PICKER_DETAILS=('')
   if (( ${_USB_BROWSER_SHOW_HIDDEN:-0} )); then
     directories=("$location"/*(ND/[1,501]))
     images=("$location"/*.(#i)(iso|img)(ND.[1,501]))
+    installers=("$location"/Install\ (macOS|OS\ X)\ *.app(ND/[1,501]))
   else
     directories=("$location"/*(N/[1,501]))
     images=("$location"/*.(#i)(iso|img)(N.[1,501]))
+    installers=("$location"/Install\ (macOS|OS\ X)\ *.app(N/[1,501]))
   fi
-  (( ${#directories} + ${#images} > 500 )) && _USB_BROWSER_PARTIAL=1
+  (( ${#directories} + ${#images} + ${#installers} > 500 )) && _USB_BROWSER_PARTIAL=1
   for candidate in "${directories[@]}"; do
     (( ++inspected > 500 )) && break
     [[ ! -L $candidate ]] || continue
+    _usb_macos_installer_tool "$candidate" >/dev/null && continue
     _USB_PICKER_VALUES+=("${candidate:A}/")
     _USB_PICKER_LABELS+=("${candidate:t}/")
     _USB_PICKER_HIGHLIGHTS+=('')
     _USB_PICKER_SEARCH+=("${candidate:t} folder")
     _USB_PICKER_DETAILS+=('')
+  done
+  for candidate in "${installers[@]}"; do
+    (( ++inspected > 500 )) && break
+    [[ ! -L $candidate ]] || continue
+    _usb_macos_installer_tool "$candidate" >/dev/null || continue
+    filename=${candidate:t}
+    _USB_PICKER_VALUES+=("${candidate:A}")
+    _USB_PICKER_LABELS+=("$filename · macOS installer")
+    _USB_PICKER_HIGHLIGHTS+=("$(( ${#filename} + 3 )):$(( ${#filename} + 18 )):picker-architecture")
+    _USB_PICKER_SEARCH+=("${candidate:t} macos installer createinstallmedia")
+    _USB_PICKER_DETAILS+=('Apple createinstallmedia will erase the selected external disk and build the bootable installer.')
   done
   for candidate in "${images[@]}"; do
     (( ++inspected > 500 )) && break
@@ -518,7 +750,7 @@ _usb_browse_image_path() {
       continue
     fi
     if [[ $selected == paste-path ]]; then
-      path_subtitle='Drag an .iso or .img from Finder, then press Return'
+      path_subtitle='Drop an .iso, .img, or full Install macOS app, then press Return'
       while true; do
         _usb_read_image_path "$path_subtitle"
         result=$?
@@ -527,7 +759,7 @@ _usb_browse_image_path() {
         if _usb_image_from_query "$_ZLE_PICKER_SELECTED_VALUE"; then
           return 0
         fi
-        path_subtitle='That is not a readable regular .iso or .img; paste another path'
+        path_subtitle='That is not readable supported media; paste another image or full Install macOS app'
       done
       continue
     fi
@@ -540,7 +772,7 @@ _usb_browse_image_path() {
       _USB_BROWSER_RESUME=('' 1 0)
       continue
     fi
-    [[ -f $selected && ! -L $selected ]] || continue
+    [[ ( -f $selected || -d $selected ) && ! -L $selected ]] || continue
     REPLY=${selected:A}
     return 0
   done
@@ -766,7 +998,8 @@ _usb_info_is_eligible() {
 
 _usb_disks_capture() {
   emulate -L zsh
-  local image_size=$1 excluded_disk=${2:-} identifier='' size_label=''
+  local image_size=$1 excluded_disk=${2:-} media_kind=${3:-raw-image}
+  local identifier='' size_label='' effect_detail=''
   local -i excluded_count=0 ineligible_count=0 undersized_count=0
   local -a captured_ids=()
   _USB_CAPTURE_ERROR=''
@@ -796,7 +1029,12 @@ _usb_disks_capture() {
     size_label=$REPLY
     _USB_DISK_IDS+=("$_USB_INFO_ID")
     _USB_DISK_LABELS+=("${_USB_INFO_NAME} · $size_label · ${_USB_INFO_PROTOCOL} · /dev/${_USB_INFO_ID}")
-    _USB_DISK_DETAILS+=("${_USB_INFO_NAME}"$'\n'"/dev/${_USB_INFO_ID} · $size_label"$'\n'"${_USB_INFO_PROTOCOL} · external physical · writable whole disk"$'\n\n'"The image writes from sector zero; existing partitions and data may be destroyed.")
+    if [[ $media_kind == macos-installer ]]; then
+      effect_detail='Apple createinstallmedia will erase and format this whole external disk; every existing partition and all data may be destroyed.'
+    else
+      effect_detail='The image writes from sector zero; existing partitions and data may be destroyed.'
+    fi
+    _USB_DISK_DETAILS+=("${_USB_INFO_NAME}"$'\n'"/dev/${_USB_INFO_ID} · $size_label"$'\n'"${_USB_INFO_PROTOCOL} · external physical · writable whole disk"$'\n\n'"$effect_detail")
     _USB_DISK_SIZES+=("$_USB_INFO_SIZE")
     _USB_DISK_FINGERPRINTS+=("$_USB_INFO_FINGERPRINT")
   done
@@ -909,10 +1147,11 @@ _usb_disks_capture_retry() {
   emulate -L zsh
   local image_size=$1 image_label=$2 back_value=$3 back_label=$4
   local excluded_disk=${5:-}
+  local media_kind=${6:-raw-image}
   local error='' selected='' retry_label='' retry_detail='' subtitle=''
   local -i result=0
   while true; do
-    _usb_disks_capture "$image_size" "$excluded_disk" && return 0
+    _usb_disks_capture "$image_size" "$excluded_disk" "$media_kind" && return 0
     error=${_USB_CAPTURE_ERROR:-'diskutil did not return a usable external-disk snapshot'}
     retry_label='Retry target capture · permission or attachment may have changed'
     retry_detail='Retry target capture'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter performs a fresh read-only diskutil capture.'
@@ -944,10 +1183,11 @@ _usb_target_choose() {
   emulate -L zsh
   local image_size=$1 image_label=$2 back_value=$3 back_label=$4
   local excluded_disk=${5:-} subtitle=${6:-"Image  ›  DRIVE  ›  Flash · $image_label"}
+  local media_kind=${7:-raw-image}
   local -i result=0 index=0
   while true; do
     _usb_disks_capture_retry "$image_size" "$image_label" "$back_value" \
-      "$back_label" "$excluded_disk" || return $?
+      "$back_label" "$excluded_disk" "$media_kind" || return $?
     _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
     for (( index = 1; index <= ${#_USB_DISK_IDS}; ++index )); do
       _USB_PICKER_VALUES+=("$index") _USB_PICKER_LABELS+=("${_USB_DISK_LABELS[index]}")
@@ -992,6 +1232,41 @@ _usb_image_architecture_capture() {
   _USB_SELECTED_IMAGE_ARCHITECTURE=$REPLY
 }
 
+_usb_media_attention_choose() {
+  emulate -L zsh
+  local image=$1 headline=$2 detail=$3
+  local -a _USB_PICKER_VALUES=(back info)
+  local -a _USB_PICKER_LABELS=('[ Choose another media ]' "$headline")
+  local -a _USB_PICKER_HIGHLIGHTS=('' "0:${#headline}:picker-error")
+  local -a _USB_PICKER_SEARCH=(back media unsupported inspect)
+  local -a _USB_PICKER_DETAILS=('' "$detail")
+  _usb_choose 'Flash USB · Media compatibility' \
+    "MEDIA  ›  ${image:t}" 'Choose another media' 1 0 1
+}
+
+_usb_macos_review_choose() {
+  emulate -L zsh
+  local installer=$1 disk_index=$2 disk=${_USB_DISK_IDS[disk_index]}
+  local source_label='Source validation · Verified · Apple-signed full installer'
+  _USB_PICKER_VALUES=(flash-verify source image target)
+  _USB_PICKER_LABELS=(
+    '[ Create bootable macOS installer ]'
+    "$source_label"
+    "Change installer · ${installer:t}"
+    "Change drive · ${_USB_DISK_LABELS[disk_index]}")
+  _USB_PICKER_HIGHLIGHTS=(
+    '' "0:${#source_label}:picker-success" '' '')
+  _USB_PICKER_SEARCH=(create apple validation installer drive)
+  _USB_PICKER_DETAILS=(
+    'Create macOS installer'$'\n\n'"The whole selected external disk is prepared as Mac OS Extended, then the selected app’s Apple createinstallmedia tool builds the bootable installer and the disk is ejected."
+    'Apple signature verified'$'\n\n''The full installer application and its createinstallmedia executable passed validation. Their captured filesystem identities are checked again before erasing the drive.'
+    "${_USB_IMAGE_DETAILS[${_USB_IMAGE_PATHS[(Ie)$installer]}]}"
+    "${_USB_DISK_DETAILS[disk_index]}")
+  _usb_choose 'Flash USB · Step 3 of 3' \
+    "Media  ›  Drive  ›  CREATE · macOS · ${installer:t} → /dev/$disk" \
+    'Filter choices' 0 0 1
+}
+
 _usb_step3_checksum_progress() {
   emulate -L zsh
   local image=$1 disk=$2 disk_label=$3 checksum=$4 algorithm=$5 architecture=$6
@@ -1010,6 +1285,7 @@ _usb_workspace_controller() {
   local selected='' image='' disk='' source_disk=''
   local image_query='' image_initial_value='' refresh_path=''
   local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
+  local media_kind=raw-image media_error=''
   local checksum_state=not-provided checksum_actual='' integrity_label='' integrity_detail=''
   local integrity_role=''
   local _USB_CHECKSUM_ALGORITHM=''
@@ -1022,10 +1298,10 @@ _usb_workspace_controller() {
   while true; do
     _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
     _USB_PICKER_VALUES+=(custom-path)
-    _USB_PICKER_LABELS+=('[ Custom path to image… ]')
+    _USB_PICKER_LABELS+=('[ Custom path to media… ]')
     _USB_PICKER_HIGHLIGHTS+=('')
     _USB_PICKER_SEARCH+=(custom path browse home finder)
-    _USB_PICKER_DETAILS+=('Custom path to image'$'\n\n''Browse from ~/ with Compozsh fuzzy matching. Use Right or Return to enter the selected folder, Left to return, and choose one regular ISO or IMG file.')
+    _USB_PICKER_DETAILS+=('Custom path to media'$'\n\n''Browse from ~/ with Compozsh fuzzy matching. Use Right or Return to enter a folder, Left to return, and choose one ISO, IMG, or full Install macOS application.')
     for (( index = 1; index <= ${#_USB_IMAGE_PATHS}; ++index )); do
       _USB_PICKER_VALUES+=("image:$index") _USB_PICKER_LABELS+=("${_USB_IMAGE_LABELS[index]}")
       _USB_PICKER_HIGHLIGHTS+=("${_USB_IMAGE_HIGHLIGHTS[index]}")
@@ -1033,8 +1309,8 @@ _usb_workspace_controller() {
       _USB_PICKER_DETAILS+=("${_USB_IMAGE_DETAILS[index]}")
     done
     _usb_choose 'Flash USB · Step 1 of 3' \
-      "IMAGE  ›  Drive  ›  Flash · newest first · ${_USB_IMAGE_CAPTURE_SCOPE}" \
-      'Filter images' 1 1 1 'captured images · Ctrl-R refresh Spotlight' \
+      "MEDIA  ›  Drive  ›  Flash · newest first · ${_USB_IMAGE_CAPTURE_SCOPE}" \
+      'Filter media' 1 1 1 'captured media · Ctrl-R refresh Spotlight' \
       "$image_query" "$image_initial_value"
     result=$?
     (( result == 0 )) || return $result
@@ -1046,7 +1322,7 @@ _usb_workspace_controller() {
       _usb_images_capture || return $?
       refresh_index=${_USB_IMAGE_PATHS[(Ie)$refresh_path]}
       if [[ -n $refresh_path ]] && (( !refresh_index )); then
-        if _usb_image_add "$refresh_path"; then
+        if _usb_media_add "$refresh_path"; then
           _USB_IMAGE_CAPTURE_SCOPE+=' + selected exact path'
           _usb_images_sort_newest
         fi
@@ -1074,6 +1350,31 @@ _usb_workspace_controller() {
       image_index=${selected#image:}
     fi
     image=${_USB_IMAGE_PATHS[image_index]}
+    media_kind=${_USB_IMAGE_KINDS[image_index]:-raw-image}
+    if [[ -e $image ]]; then
+      _usb_media_kind_capture "$image"
+      result=$?
+      if (( result != 0 )); then
+        media_error=${_USB_MEDIA_ERROR:-'macOS could not classify the selected media safely'}
+        _usb_media_attention_choose "$image" \
+          "Media inspection failed · $media_error" \
+          "$media_error"
+        continue
+      fi
+      media_kind=$REPLY
+    fi
+    if [[ $media_kind == windows-installer ]]; then
+      _usb_media_attention_choose "$image" \
+        'Windows installer detected · Not supported yet' \
+        'Compozsh recognized the Windows setup payload before selecting or changing a target. Windows USB creation needs its own filesystem-aware handler; this version refuses it and writes nothing.'
+      continue
+    fi
+    if [[ $media_kind == macos-installer ]] && ! _usb_macos_codesign_verify "$image"; then
+      _usb_media_attention_choose "$image" \
+        'macOS installer validation failed · Nothing can be written' \
+        'The selected application is incomplete or did not pass Apple code-signature validation. Download the full installer again with Software Update, the App Store, or softwareupdate.'
+      continue
+    fi
     checksum='' checksum_algorithm='' checksum_state=not-provided checksum_actual=''
     _USB_SELECTED_IMAGE_ARCHITECTURE=''
     _usb_image_architecture_capture "$image"
@@ -1084,13 +1385,66 @@ _usb_workspace_controller() {
     (( result == 0 )) || return $result
     source_disk=$_USB_IMAGE_SOURCE_DISK
 
-    _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
-      image 'Choose another image' "$source_disk"
+    if [[ $media_kind == macos-installer ]]; then
+      _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
+        image 'Choose another installer' "$source_disk" \
+        "Media  ›  DRIVE  ›  Create macOS installer · ${image:t}" "$media_kind"
+    else
+      _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
+        image 'Choose another image' "$source_disk" '' "$media_kind"
+    fi
     result=$?
     (( result == 1 )) && continue
     (( result == 0 )) || return $result
     disk_index=$_ZLE_PICKER_SELECTED_VALUE
     disk=${_USB_DISK_IDS[disk_index]}
+
+    if [[ $media_kind == macos-installer ]]; then
+      while true; do
+        _usb_macos_review_choose "$image" "$disk_index"
+        result=$?
+        (( result == 1 )) && break
+        (( result == 0 )) || return $result
+        selected=$_ZLE_PICKER_SELECTED_VALUE
+        case $selected in
+          (image) break ;;
+          (target)
+            previous_disk_ids=("${_USB_DISK_IDS[@]}")
+            previous_disk_labels=("${_USB_DISK_LABELS[@]}")
+            previous_disk_details=("${_USB_DISK_DETAILS[@]}")
+            previous_disk_sizes=("${_USB_DISK_SIZES[@]}")
+            previous_disk_fingerprints=("${_USB_DISK_FINGERPRINTS[@]}")
+            _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
+              target 'Keep current target' "$source_disk" \
+              'Media  ›  DRIVE  ›  Create macOS installer · refreshed' "$media_kind"
+            result=$?
+            if (( result == 1 )); then
+              _USB_DISK_IDS=("${previous_disk_ids[@]}")
+              _USB_DISK_LABELS=("${previous_disk_labels[@]}")
+              _USB_DISK_DETAILS=("${previous_disk_details[@]}")
+              _USB_DISK_SIZES=("${previous_disk_sizes[@]}")
+              _USB_DISK_FINGERPRINTS=("${previous_disk_fingerprints[@]}")
+              continue
+            fi
+            (( result == 0 )) || return $result
+            disk_index=$_ZLE_PICKER_SELECTED_VALUE
+            disk=${_USB_DISK_IDS[disk_index]} ;;
+          (flash-verify)
+            _USB_REQUEST=$selected _USB_SELECTED_IMAGE=$image _USB_SELECTED_DISK=$disk
+            _USB_SELECTED_MEDIA_KIND=$media_kind
+            _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[image_index]}
+            _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[image_index]}
+            _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[disk_index]}
+            _USB_SELECTED_DISK_SIZE=${_USB_DISK_SIZES[disk_index]}
+            _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[disk_index]}
+            _USB_SELECTED_SOURCE_DISK=$source_disk
+            _USB_SELECTED_CHECKSUM='' _USB_SELECTED_CHECKSUM_ALGORITHM=''
+            _USB_SELECTED_IMAGE_INTEGRITY=apple-signed
+            return 0 ;;
+        esac
+      done
+      continue
+    fi
 
     while true; do
       _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
@@ -1201,7 +1555,7 @@ _usb_workspace_controller() {
           previous_disk_fingerprints=("${_USB_DISK_FINGERPRINTS[@]}")
           _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
             target 'Keep current target' "$source_disk" \
-            'Image  ›  DRIVE  ›  Flash · refreshed'
+            'Image  ›  DRIVE  ›  Flash · refreshed' "$media_kind"
           result=$?
           if (( result == 1 )); then
             _USB_DISK_IDS=("${previous_disk_ids[@]}")
@@ -1220,6 +1574,7 @@ _usb_workspace_controller() {
             continue
           fi
           _USB_REQUEST=$selected _USB_SELECTED_IMAGE=$image _USB_SELECTED_DISK=$disk
+          _USB_SELECTED_MEDIA_KIND=$media_kind
           _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[image_index]}
           _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[image_index]}
           _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[disk_index]}
@@ -1299,34 +1654,45 @@ _usb_progress_stage() {
   shift
   (( ${+functions[_zle_picker_capture]} )) || return 0
   if [[ -n $image ]]; then
-    _ZLE_PICKER_BUSY_LINES=(
-      '' 'IMAGE' "  ${image:t}" "  ${image:h}"
-      '' 'TARGET' "  ${disk_label:-/dev/${_USB_SELECTED_DISK}}" '')
-    _ZLE_PICKER_BUSY_STYLES=(
-      picker-text picker-status-heading picker-status-info picker-status-muted
-      picker-text picker-status-heading picker-status-info picker-text)
-    if [[ -n ${_USB_SELECTED_CHECKSUM:-} ]]; then
-      integrity_status='Provided · verification pending'
-      case ${_USB_SELECTED_IMAGE_INTEGRITY:-} in
-        (matched) integrity_status="Verified in Step 3 · SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM} matched" ;;
-        (checking) integrity_status="Checking · SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM}" ;;
-      esac
-      _ZLE_PICKER_BUSY_LINES+=(
-        'IMAGE INTEGRITY' "  $integrity_status" '')
-      _ZLE_PICKER_BUSY_STYLES+=(
-        picker-status-heading picker-status-info picker-text)
+    if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == macos-installer ]]; then
+      _ZLE_PICKER_BUSY_LINES=(
+        '' 'MACOS INSTALLER' "  ${image:t}" "  ${image:h}"
+        '' 'TARGET' "  ${disk_label:-/dev/${_USB_SELECTED_DISK}}" ''
+        'SOURCE VALIDATION' '  Verified · Apple-signed full installer' '')
+      _ZLE_PICKER_BUSY_STYLES=(
+        picker-text picker-status-heading picker-status-info picker-status-muted
+        picker-text picker-status-heading picker-status-info picker-text
+        picker-status-heading picker-status-success picker-text)
     else
-      _ZLE_PICKER_BUSY_LINES+=(
-        'IMAGE INTEGRITY' '  Not verified · no checksum provided' '')
-      _ZLE_PICKER_BUSY_STYLES+=(
-        picker-status-heading picker-status-warning picker-text)
-    fi
-    if [[ -n ${_USB_SELECTED_IMAGE_ARCHITECTURE:-} ]]; then
-      _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
-      _ZLE_PICKER_BUSY_LINES+=(
-        'IMAGE ARCHITECTURE' "  $REPLY" '')
-      _ZLE_PICKER_BUSY_STYLES+=(
-        picker-status-heading picker-status-info picker-text)
+      _ZLE_PICKER_BUSY_LINES=(
+        '' 'IMAGE' "  ${image:t}" "  ${image:h}"
+      '' 'TARGET' "  ${disk_label:-/dev/${_USB_SELECTED_DISK}}" '')
+      _ZLE_PICKER_BUSY_STYLES=(
+        picker-text picker-status-heading picker-status-info picker-status-muted
+        picker-text picker-status-heading picker-status-info picker-text)
+      if [[ -n ${_USB_SELECTED_CHECKSUM:-} ]]; then
+        integrity_status='Provided · verification pending'
+        case ${_USB_SELECTED_IMAGE_INTEGRITY:-} in
+          (matched) integrity_status="Verified in Step 3 · SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM} matched" ;;
+          (checking) integrity_status="Checking · SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM}" ;;
+        esac
+        _ZLE_PICKER_BUSY_LINES+=(
+          'IMAGE INTEGRITY' "  $integrity_status" '')
+        _ZLE_PICKER_BUSY_STYLES+=(
+          picker-status-heading picker-status-info picker-text)
+      else
+        _ZLE_PICKER_BUSY_LINES+=(
+          'IMAGE INTEGRITY' '  Not verified · no checksum provided' '')
+        _ZLE_PICKER_BUSY_STYLES+=(
+          picker-status-heading picker-status-warning picker-text)
+      fi
+      if [[ -n ${_USB_SELECTED_IMAGE_ARCHITECTURE:-} ]]; then
+        _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
+        _ZLE_PICKER_BUSY_LINES+=(
+          'IMAGE ARCHITECTURE' "  $REPLY" '')
+        _ZLE_PICKER_BUSY_STYLES+=(
+          picker-status-heading picker-status-info picker-text)
+      fi
     fi
   fi
   while (( $# >= 2 )); do
@@ -2096,6 +2462,231 @@ _usb_eject() {
   command /usr/sbin/diskutil eject "/dev/$1"
 }
 
+_usb_diskutil_erase_run() {
+  command /usr/bin/sudo -n /usr/sbin/diskutil "$@"
+}
+
+_usb_macos_prepare_volume() {
+  emulate -L zsh
+  local identifier=$1 name='' mount_point='' plist='' parent=''
+  local -i attempts=0
+  REPLY=''
+  [[ $identifier == disk<-> ]] || return 2
+  while (( ++attempts <= 8 )); do
+    name="Compozsh-${identifier}-${RANDOM}"
+    [[ ! -e "/Volumes/$name" ]] && break
+    name=''
+  done
+  [[ -n $name ]] || return 1
+  _usb_diskutil_erase_run eraseDisk JHFS+ "$name" GPT "/dev/$identifier" \
+    >/dev/null 2>&1 || return 1
+  mount_point="/Volumes/$name"
+  [[ -d $mount_point && ! -L $mount_point ]] || return 1
+  _usb_diskutil_plist_capture info -plist "$mount_point" || return 1
+  plist=$_USB_PLIST
+  _usb_plist_optional "$plist" ParentWholeDisk
+  parent=$REPLY
+  [[ $parent == "$identifier" ]] || return 1
+  REPLY=$mount_point
+}
+
+_usb_createinstallmedia_progress_read() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local path=$1 raw='' line='' prefix='' latest='Preparing Apple createinstallmedia…'
+  local -i raw_size=0 percent=0 bar_width=32
+  bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
+  (( bar_width < 24 )) && bar_width=24
+  (( bar_width > 64 )) && bar_width=64
+  _usb_progress_bar 0 $bar_width
+  _USB_PROGRESS_BAR=$REPLY
+  REPLY=$latest
+  [[ -f $path ]] || return 0
+  raw_size=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 0
+  (( raw_size > 0 && raw_size <= 1048576 )) || return 0
+  raw=$(<"$path")
+  raw=${raw//$'\r'/$'\n'}
+  for line in "${(f)raw}"; do
+    line=${line##[[:space:]]#}
+    line=${line%%[[:space:]]#}
+    [[ -n $line && ${#line} -le 512 && $line != *[[:cntrl:]]* ]] || continue
+    latest=$line
+    if [[ $line == *%* ]]; then
+      prefix=${line%%\%*}
+      prefix=${prefix##*[^0-9]}
+      [[ $prefix == <-> ]] && percent=$prefix
+    fi
+  done
+  (( percent > 100 )) && percent=100
+  _usb_progress_bar $percent $bar_width
+  _USB_PROGRESS_BAR=$REPLY
+  REPLY=$latest
+}
+
+_usb_createinstallmedia_command_run() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local installer=$1 volume=$2 tool=''
+  local -a arguments=(--volume "$volume")
+  _usb_macos_installer_tool "$installer" || return 1
+  tool=$REPLY
+  [[ ${installer:t} == 'Install OS X El Capitan.app' ]] &&
+    arguments+=(--applicationpath "$installer")
+  builtin print -r -- Y | command /usr/bin/sudo -n "$tool" "${arguments[@]}"
+}
+
+_usb_createinstallmedia_run() {
+  emulate -L zsh
+  setopt NO_BG_NICE PIPE_FAIL
+  unsetopt MONITOR NOTIFY
+  local installer=$1 volume=$2 temp_root=${TMPDIR:-/tmp}
+  local progress_file='' progress_text=''
+  local -i worker=0 command_status=1
+  _USB_CREATEINSTALLMEDIA_ERROR=''
+  _usb_macos_installer_tool "$installer" >/dev/null || return 1
+  [[ -d $volume && ! -L $volume ]] || return 1
+  progress_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-createinstallmedia.XXXXXX" 2>/dev/null) || return 1
+  {
+    _usb_createinstallmedia_command_run "$installer" "$volume" \
+      >| "$progress_file" 2>&1 &
+    worker=$!
+    while builtin kill -0 $worker 2>/dev/null; do
+      _usb_createinstallmedia_progress_read "$progress_file"
+      progress_text=$REPLY
+      _usb_progress_stage 'Creating macOS installer' \
+        progress "$_USB_PROGRESS_BAR" info "$progress_text" \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      command /bin/sleep 0.25
+    done
+    wait $worker
+    command_status=$?
+    _usb_createinstallmedia_progress_read "$progress_file"
+    progress_text=$REPLY
+    _usb_progress_stage 'Creating macOS installer' \
+      progress "$_USB_PROGRESS_BAR" info "$progress_text" \
+      warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+    (( command_status == 0 )) || _USB_CREATEINSTALLMEDIA_ERROR=$progress_text
+  } always {
+    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
+      builtin kill -INT $worker 2>/dev/null
+      wait $worker 2>/dev/null
+    fi
+    [[ -n $progress_file && ${progress_file:t} == compozsh-createinstallmedia.* &&
+       ${progress_file:h:A} == ${temp_root:A} ]] && command /bin/rm -f -- "$progress_file"
+  }
+  return $command_status
+}
+
+_usb_macos_execute() {
+  emulate -L zsh
+  local installer=$1 identifier=$2 disk_fingerprint=$3 installer_fingerprint=$4
+  local minimum_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
+  local target_size=${11:-$minimum_size} volume=''
+  local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
+  _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+  _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
+  _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
+  _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
+  _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
+  _USB_RESULT_SOURCE_VALIDATED=0
+  [[ $minimum_size == <-> && $target_size == <-> ]] || return 2
+  (( target_size >= minimum_size )) || return 2
+  [[ $request == flash-verify ]] || return 2
+  if [[ -n $source_disk && $identifier == "$source_disk" ]]; then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The selected drive contains the macOS installer source; nothing was written.'
+    return 1
+  fi
+  _usb_progress_stage 'Validating Apple installer and drive' \
+    info 'Checking the installer signature, captured identity, and exact external drive.' \
+    muted 'No disk data has been changed yet.'
+  (( authorized )) || _usb_authorize || {
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Administrator authorization failed; nothing was written.'
+    return 1
+  }
+  _usb_macos_installer_revalidate "$installer" "$installer_fingerprint" || {
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The macOS installer changed, is incomplete, or is not Apple-signed; nothing was written.'
+    return 1
+  }
+  _USB_RESULT_SOURCE_VALIDATED=1
+  _usb_target_revalidate "$identifier" "$disk_fingerprint" "$minimum_size" || {
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The external drive changed or is no longer eligible; nothing was written.'
+    return 1
+  }
+  _usb_progress_stage 'Revalidating exact target' \
+    info 'Closing the device-identity race immediately before the first erase.' \
+    warning 'NO DISK DATA HAS BEEN CHANGED YET'
+  _usb_target_revalidate "$identifier" "$disk_fingerprint" "$minimum_size" || {
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The external drive changed immediately before preparation; nothing was written.'
+    return 1
+  }
+  _USB_RESULT_STARTED=1
+  _usb_progress_stage 'Preparing external drive' \
+    info 'Creating one temporary Mac OS Extended volume for Apple createinstallmedia.' \
+    warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+  _usb_macos_prepare_volume "$identifier"
+  action_status=$?
+  volume=$REPLY
+  if (( action_status )); then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='macOS could not prepare the selected whole external drive for createinstallmedia.'
+  else
+    _usb_macos_installer_revalidate "$installer" "$installer_fingerprint" || {
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The macOS installer changed while the drive was being prepared; createinstallmedia was not started.'
+    }
+    if (( action_status == 0 )); then
+      stage_started=$SECONDS
+      _usb_createinstallmedia_run "$installer" "$volume"
+      action_status=$?
+      _USB_RESULT_WRITE_SECONDS=$(( SECONDS - stage_started ))
+      if (( action_status )); then
+        _USB_RESULT_OUTCOME=failed
+        _USB_RESULT_ERROR="Apple createinstallmedia failed${_USB_CREATEINSTALLMEDIA_ERROR:+: $_USB_CREATEINSTALLMEDIA_ERROR}"
+      else
+        _USB_RESULT_VERIFIED=1
+        _USB_RESULT_VERIFY_SCOPE=apple-createinstallmedia
+      fi
+    fi
+  fi
+  _usb_progress_stage 'Ejecting external drive' \
+    info 'Finishing the operation and making the drive safe to remove.'
+  _usb_eject "$identifier" >/dev/null 2>&1
+  eject_status=$?
+  (( eject_status == 0 )) && _USB_RESULT_EJECTED=1
+  _USB_RESULT_SECONDS=$(( SECONDS - execution_started ))
+  (( action_status )) && return $action_status
+  if (( eject_status )); then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The macOS installer was created, but macOS could not eject the external drive.'
+    return $eject_status
+  fi
+  _USB_RESULT_OUTCOME=complete
+}
+
+_usb_media_execute() {
+  emulate -L zsh
+  local kind=$1
+  shift
+  case $kind in
+    (raw-image) _usb_execute "$@" ;;
+    (macos-installer) _usb_macos_execute "$@" ;;
+    (windows-installer)
+      _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0
+      _USB_RESULT_ERROR='Windows installer media is not supported yet; nothing was written.'
+      return 1 ;;
+    (*)
+      _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0
+      _USB_RESULT_ERROR='The selected media handler is unavailable; nothing was written.'
+      return 2 ;;
+  esac
+}
+
 _usb_cleanup_eject() {
   emulate -L zsh
   (( ${_USB_RESULT_STARTED:-0} && !${_USB_RESULT_EJECTED:-0} )) || return 0
@@ -2435,16 +3026,88 @@ _usb_result_screen() {
   fi
 }
 
+_usb_macos_result_screen() {
+  emulate -L zsh
+  local result_status=${1:-1} duration_label='' eject_label='' source_label=''
+  local source_style='picker-error'
+  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
+  local -a _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  _usb_human_duration $_USB_RESULT_SECONDS
+  duration_label=$REPLY
+  if (( result_status == 0 )) && [[ $_USB_RESULT_OUTCOME == complete ]]; then
+    eject_label='Safe to remove · external drive ejected'
+    _USB_PICKER_VALUES=(done complete time source eject)
+    _USB_PICKER_LABELS=(
+      '[ Done ]'
+      'macOS installer complete · Apple createinstallmedia succeeded'
+      "Time · $duration_label"
+      'Source validation · Verified · Apple-signed full installer'
+      "$eject_label")
+    _USB_PICKER_HIGHLIGHTS=(
+      "0:${#_USB_PICKER_LABELS[1]}:picker-success"
+      "0:${#_USB_PICKER_LABELS[2]}:picker-success"
+      ''
+      "0:${#_USB_PICKER_LABELS[4]}:picker-success"
+      "0:${#eject_label}:picker-success")
+    _USB_PICKER_SEARCH=(done complete time apple safe)
+    _USB_PICKER_DETAILS=(
+      ''
+      'Apple createinstallmedia completed successfully and reported the bootable installer as available.'
+      ''
+      'The installer application and its createinstallmedia executable passed Apple signature validation before the target was erased.'
+      '')
+    _usb_result_choose 'Flash USB · Complete' 'Media  ›  Drive  ›  DONE'
+    return
+  fi
+  if (( !_USB_RESULT_STARTED )); then
+    eject_label='Nothing was written · drive remains mounted'
+  elif (( _USB_RESULT_EJECTED )); then
+    eject_label='Safe to remove · external drive ejected'
+  else
+    eject_label='Check the drive before removing it'
+  fi
+  if (( _USB_RESULT_SOURCE_VALIDATED )); then
+    source_label='Source validation · Verified before preparation · Apple-signed installer'
+    source_style=picker-success
+  else
+    source_label='Source validation · FAILED · installer was not accepted'
+  fi
+  _USB_PICKER_VALUES=(done error source eject)
+  _USB_PICKER_LABELS=(
+    '[ Done ]'
+    "macOS installer failed · ${_USB_RESULT_ERROR:-The operation did not complete.}"
+    "$source_label"
+    "$eject_label")
+  _USB_PICKER_HIGHLIGHTS=(
+    '' "0:${#_USB_PICKER_LABELS[2]}:picker-error"
+    "0:${#source_label}:$source_style" '')
+  (( _USB_RESULT_EJECTED )) &&
+    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-success"
+  (( _USB_RESULT_STARTED && !_USB_RESULT_EJECTED )) &&
+    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-error"
+  _USB_PICKER_SEARCH=(done failed source recovery)
+  _USB_PICKER_DETAILS=('' "${_USB_RESULT_ERROR:-No additional diagnostic was retained.}" '' '')
+  _usb_result_choose 'Flash USB · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
+}
+
+_usb_media_result_screen() {
+  case $1 in
+    (macos-installer) _usb_macos_result_screen "$2" ;;
+    (*) _usb_result_screen "$2" ;;
+  esac
+}
+
 _usb_progress_controller() {
   emulate -L zsh
   local -i execution_status=0
-  _usb_execute "$_USB_SELECTED_IMAGE" "$_USB_SELECTED_DISK" \
+  _usb_media_execute "${_USB_SELECTED_MEDIA_KIND:-raw-image}" \
+    "$_USB_SELECTED_IMAGE" "$_USB_SELECTED_DISK" \
     "$_USB_SELECTED_DISK_FINGERPRINT" "$_USB_SELECTED_IMAGE_FINGERPRINT" \
     "$_USB_SELECTED_IMAGE_SIZE" "$_USB_REQUEST" "$_USB_SELECTED_SOURCE_DISK" 1 \
     "$_USB_SELECTED_CHECKSUM_ALGORITHM" "$_USB_SELECTED_CHECKSUM" \
     "$_USB_SELECTED_DISK_SIZE"
   execution_status=$?
-  _usb_result_screen $execution_status
+  _usb_media_result_screen "${_USB_SELECTED_MEDIA_KIND:-raw-image}" $execution_status
   return $execution_status
 }
 
@@ -2476,18 +3139,29 @@ _usb_confirm() {
   local checksum_algorithm=${5:-} checksum=${6:-} answer=''
   local expected="ERASE $identifier"
   _USB_CONFIRM_ERROR=''
-  print -r -- "Image:  $image"
+  if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == macos-installer ]]; then
+    print -r -- "Installer: $image"
+  else
+    print -r -- "Image:  $image"
+  fi
   print -r -- "Target: $disk_label"
-  if [[ -n ${_USB_SELECTED_IMAGE_ARCHITECTURE:-} ]]; then
+  if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} != macos-installer &&
+        -n ${_USB_SELECTED_IMAGE_ARCHITECTURE:-} ]]; then
     _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
     print -r -- "Image architecture: $REPLY"
   fi
-  if [[ -n $checksum ]]; then
+  if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == macos-installer ]]; then
+    print -r -- 'Source validation: Apple-signed full macOS installer'
+    print -r -- 'Action: Prepare the whole drive, run Apple createinstallmedia, and eject'
+    print -r -- 'Apple createinstallmedia will erase and format the selected external drive.'
+  elif [[ -n $checksum ]]; then
     print -r -- "Checksum: SHA-$checksum_algorithm · $checksum"
   else
     print -r -- 'Checksum: Not provided'
   fi
-  if [[ $request == flash-verify && -n $checksum ]]; then
+  if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == macos-installer ]]; then
+    :
+  elif [[ $request == flash-verify && -n $checksum ]]; then
     print -r -- "Action: Validate image SHA-$checksum_algorithm, flash, verify payload SHA-$checksum_algorithm, and eject"
   elif [[ $request == flash-verify ]]; then
     print -r -- 'Action: Flash, verify payload, and eject'
@@ -2496,7 +3170,7 @@ _usb_confirm() {
   else
     print -r -- 'Action: Flash and eject without verification'
   fi
-  print -r -- 'This writes from sector zero and can permanently destroy every existing partition and its data.'
+  print -r -- 'This can permanently destroy every existing partition and all data on the selected drive.'
   _usb_confirmation_prompt "$expected"
   IFS= read -r "answer?$REPLY" || {
     _USB_CONFIRM_ERROR='Confirmation was not completed.'
@@ -2511,11 +3185,12 @@ _usb_confirm() {
 _compozsh_help_flash-usb() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: flash-usb [image.iso|image.img]' \
-    'Open a native workspace that writes a raw disk image to an external disk.' \
+  "${printer[@]}" 'usage: flash-usb [media]' \
+    'Open a native workspace that creates bootable external installation media.' \
     '' \
     'Image capture:' \
-    '  An explicit path selects that exact readable regular .iso or .img file.' \
+    '  An explicit path selects one readable regular .iso or .img file, or a' \
+    '  full Install macOS application containing Apple createinstallmedia.' \
     '  With no path, Step 1 merges up to 500 Finder-indexed matches beneath ~' \
     '  with shallow current-folder and ~/Downloads captures of up to 200 each.' \
     '  The direct captures help include fresh files Spotlight has not indexed.' \
@@ -2546,8 +3221,11 @@ _compozsh_help_flash-usb() {
     '  Dropped text is decoded as a path without evaluating shell commands.' \
     '  If macOS asks for Removable Volumes access, granting it keeps the screen' \
     '  context; Enter on Retry performs a fresh read-only source/target capture.' \
-    '  macOS installer .dmg files are intentionally unsupported; use the' \
-    '  installer application’s Apple-provided createinstallmedia tool.' \
+    '  Installed macOS installers in /Applications and ~/Applications are also' \
+    '  captured. A macOS .dmg or .pkg must first install the full application.' \
+    '  ISO selection performs a temporary read-only inspection. Recognized' \
+    '  Windows setup media is refused before target selection because Windows' \
+    '  requires a filesystem-aware handler that is not shipped yet.' \
     '' \
     'Target capture:' \
     '  diskutil supplies currently attached whole external physical disks.' \
@@ -2565,7 +3243,7 @@ _compozsh_help_flash-usb() {
     '  power-cycle its hub, then press Ctrl-R or Enter to capture it again.' \
     '' \
     'Actions:' \
-    '  Step 2 selects one exact eligible external drive. Step 3 reviews image,' \
+    '  Step 2 selects one exact eligible external drive. Step 3 reviews media,' \
     '  drive, optional checksum, and mode; Flash & verify is the default.' \
     '  Add image checksum accepts one SHA-256 or SHA-512 digest as bare hex,' \
     '  standard shasum output, or a BSD SHA line. Step 3 immediately hashes the' \
@@ -2593,7 +3271,12 @@ _compozsh_help_flash-usb() {
     '  percentage, and elapsed time. Large raw ranges use aligned 4 MiB reads;' \
     '  small structural probes remain sector-precise. Validation, unmount,' \
     '  verification, and eject remain named stages.' \
-    '  No pre-format is run.' \
+    '  The raw handler does not pre-format the target.' \
+    '  Full macOS installer applications use a separate handler. It validates' \
+    '  the Apple code signature, revalidates the installer and target, prepares' \
+    '  one Mac OS Extended volume on the selected whole disk, and invokes the' \
+    '  installer’s createinstallmedia tool with live native progress. Apple’s' \
+    '  tool performs the bootable-media creation; the result is then ejected.' \
     '  The source identity is checked again after writing; a provided full-image' \
     '  digest is also recalculated. If sudo expires during a long write, a named' \
     '  authorization stage appears before noninteractive read-back commands.' \
@@ -2621,8 +3304,8 @@ _compozsh_help_flash-usb() {
     '' \
     'Requirements and recovery:' \
     '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
-    '  and Apple’s diskutil, plutil, df, mktemp, rm, sleep, cat, dd, cmp, cksum,' \
-    '  head, od, shasum, stat, and sudo tools.' \
+    '  and Apple’s diskutil, plutil, hdiutil, codesign, df, mktemp, rmdir, rm,' \
+    '  sleep, cat, dd, cmp, cksum, head, od, shasum, stat, and sudo tools.' \
     '  Apple mdfind supplies the indexed home catalog; if it fails, the shallow' \
     '  current-folder and Downloads snapshot plus Custom path remain available.' \
     '  A failed or interrupted write can leave the target unusable until it is' \
@@ -2630,7 +3313,8 @@ _compozsh_help_flash-usb() {
     '' \
     'Examples:' \
     '  flash-usb                         Choose a captured image and target.' \
-    '  flash-usb ~/Downloads/Linux.iso  Select this exact image, then a target.'
+    '  flash-usb ~/Downloads/Linux.iso  Select this exact raw image.' \
+    '  flash-usb "/Applications/Install macOS Tahoe.app"  Use Apple’s handler.'
 }
 
 unalias flash-usb 2>/dev/null
@@ -2639,6 +3323,7 @@ flash-usb() {
   local explicit=${1:-} picker_status=0 capture_status=0 progress_status=0
   local _USB_REQUEST='' _USB_WORKSPACE_ERROR=''
   local _USB_SELECTED_IMAGE='' _USB_SELECTED_DISK=''
+  local _USB_SELECTED_MEDIA_KIND=raw-image
   local _USB_SELECTED_SOURCE_DISK=''
   local _USB_SELECTED_IMAGE_ARCHITECTURE=''
   local _USB_SELECTED_IMAGE_FINGERPRINT='' _USB_SELECTED_DISK_FINGERPRINT=''
@@ -2651,6 +3336,7 @@ flash-usb() {
   local -i _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
   local -i _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
   local -i _USB_RESULT_CHECKSUM_VALIDATED=0
+  local -i _USB_RESULT_SOURCE_VALIDATED=0
   local -i _USB_SELECTED_IMAGE_SIZE=0
   local -i _USB_SELECTED_DISK_SIZE=0
 
@@ -2659,7 +3345,7 @@ flash-usb() {
     return 0
   fi
   (( $# <= 1 )) || {
-    print -u2 -r -- 'usage: flash-usb [image.iso|image.img]'
+    print -u2 -r -- 'usage: flash-usb [media]'
     return 2
   }
   {
@@ -2671,7 +3357,8 @@ flash-usb() {
        -x /usr/bin/mktemp && -x /bin/rm && -x /bin/sleep && -x /bin/dd &&
        -x /bin/cat && -x /usr/bin/cmp && -x /usr/bin/cksum &&
        -x /usr/bin/head && -x /usr/bin/od &&
-       -x /usr/bin/shasum && -x /usr/bin/stat && -x /usr/bin/sudo ]] || {
+       -x /usr/bin/shasum && -x /usr/bin/stat && -x /usr/bin/sudo &&
+       -x /usr/bin/hdiutil && -x /usr/bin/codesign && -x /bin/rmdir ]] || {
       print -u2 -r -- 'flash-usb: required Apple command-line tools are unavailable'
       return 1
     }
@@ -2713,15 +3400,19 @@ flash-usb() {
     _USB_IMAGE_HIGHLIGHTS=()
     _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
     _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
+    _USB_IMAGE_KINDS=()
     _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
     _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
     _USB_CAPTURE_ERROR='' _USB_PLIST=''
     _USB_CONFIRM_ERROR=''
     _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_CAPTURE_PARTIAL=0
     _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
+    _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+    _USB_CREATEINSTALLMEDIA_ERROR=''
     _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
     _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
     _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
     _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
+    _USB_RESULT_SOURCE_VALIDATED=0
   }
 }

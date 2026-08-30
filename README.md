@@ -60,8 +60,9 @@ for full-sized sessions in one Terminal window.
   separate Recents, and safe file actions
 - A live `compozsh` tool explorer that discovers public add-on functions,
   searches them fuzzily, and opens their safe self-documentation
-- A native external-disk image workspace with explicit image/target selection,
-  Finder drag and drop, typed erase confirmation, and read-back verification
+- A native bootable-media workspace with explicit media/target selection,
+  raw-image verification, Apple `createinstallmedia`, Windows refusal before
+  mutation, Finder drag and drop, and target-bound erase confirmation
 - Live native history autosuggestions with character, word, and full acceptance
 - `Ctrl-X Ctrl-E` to edit the current command in `$EDITOR`
 - Live native syntax highlighting for commands, arguments, operators, strings,
@@ -193,7 +194,7 @@ compozsh/
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
-│   ├── .zsh.usb           external-disk image writing and verification
+│   ├── .zsh.usb           bootable external-media creation and verification
 │   ├── .zsh.xcode         native Xcode workspace and agent-skill integration
 │   └── support/
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
@@ -237,7 +238,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
-| `.zsh.usb` | External-disk imaging | `flash-usb` guides image selection with visible architecture context, external-drive selection, optional SHA-256/SHA-512 integrity, and flash steps; writes with native determinate progress, verifies by default, and retains completion or recovery stats |
+| `.zsh.usb` | Bootable external media | `flash-usb` dispatches raw/hybrid images to the native byte writer and full macOS installer apps to Apple `createinstallmedia`; it refuses recognized Windows installers before target mutation, retains optional raw-image checksums and verification, and shows native progress plus completion or recovery stats |
 | `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -1899,18 +1900,20 @@ not terminal commands, and document their call signature where they are used.
 Transparent wrappers such as `grep` and `man` preserve the help behavior of the
 underlying system command.
 
-### External-disk image workspace
+### Bootable external-media workspace
 
-Open the image workspace with a discovered image or one exact path:
+Open the media workspace with discovered media or one exact path:
 
 ```sh
 flash-usb
 flash-usb ~/Downloads/Fedora-Silverblue.iso
+flash-usb "/Applications/Install macOS Tahoe.app"
 ```
 
-With no argument, the Image view asks Spotlight—the same index Finder uses—for
+With no argument, the Media view asks Spotlight—the same index Finder uses—for
 regular `.iso` and `.img` files beneath `~/`, then merges shallow captures from
-the current folder and `~/Downloads`. The direct sources help include a newly
+the current folder and `~/Downloads`. It also captures complete **Install macOS**
+applications from `/Applications` and `~/Applications`. The direct sources help include a newly
 downloaded or local image before Spotlight has indexed it. The snapshot retains
 up to 500 indexed candidates and up to 200 direct candidates per folder, never
 follows symbolic links, and may omit files excluded from Spotlight, not yet
@@ -1926,14 +1929,14 @@ selected image stays highlighted when it is still available. This makes a
 newly completed download visible without restarting `flash-usb` or waiting for
 Spotlight indexing.
 
-The screen follows one visible sequence: **Step 1 Image → Step 2 External drive
-→ Step 3 Flash**. Step 1 places **Custom path to image…** first, ahead of any
-captured images, and uses a compact secondary panel for the highlighted image’s
+The screen follows one visible sequence: **Step 1 Media → Step 2 External drive
+→ Step 3 Flash**. Step 1 places **Custom path to media…** first, ahead of any
+captured media, and uses a compact secondary panel for the highlighted item’s
 format, filename-derived architecture hint, size, creation time, modification
 time, and exact path. It opens a
 bounded file browser at `~/` that shows the current path, child folders, and
-applicable `.iso`/`.img` files. **Left** moves to the parent, **Right** or
-**Return** opens a folder, and **Return** on an image selects it and advances to
+applicable `.iso`/`.img` files and complete **Install macOS** apps. **Left** moves to the parent, **Right** or
+**Return** opens a folder, and **Return** on supported media selects it and advances to
 Step 2. Like Tab navigation, Left restores only levels opened during the current
 browser session. Typing applies the same prefix, substring, then in-order fuzzy
 matching used by Compozsh path navigation. Use the exact-path field, command
@@ -1953,13 +1956,34 @@ recognized token display **Architecture not detected** without an invented
 compatibility claim.
 
 Finder drag and drop works in both natural macOS forms. Type `flash-usb `,
-drag an image into Terminal, and press Return to pass that exact shell-quoted
-path. Or open **Custom path to image…**, choose **Paste or drop an exact image
-path…**, and drop the file into its literal field. The workspace removes one
+drag media into Terminal, and press Return to pass that exact shell-quoted
+path. Or open **Custom path to media…**, choose **Paste or drop an exact media
+path…**, and drop the file or application into its literal field. The workspace removes one
 quoting layer as path data and never evaluates dropped shell text. If macOS asks
 Terminal for **Removable Volumes** access, granting it retains the established
 step and selection; **Retry** performs a fresh read-only capture and displays
 the concrete failure in the same screen.
+
+After selection, a private dispatcher resolves the media family before target
+selection or mutation. Regular `.img` files and non-Windows `.iso` files use the
+raw/hybrid writer. ISO classification temporarily mounts the image read-only
+and hidden, checks bounded canonical Windows Setup payload markers, and always
+detaches the probe. Recognized Windows installer media stops on a clear **Not
+supported yet** screen because it needs a filesystem-aware Windows handler; no
+drive is selected, unmounted, formatted, or written. An ISO that macOS cannot
+inspect safely also fails closed.
+
+A complete `Install macOS <name>.app` uses its Apple-provided
+`Contents/Resources/createinstallmedia` executable. A downloaded `.dmg` or
+`.pkg` is only a container: open it first so it installs the full app, then
+select that app. Compozsh validates the Apple code signature during review and
+again at the effect boundary, revalidates the exact external-disk identity,
+prepares one Mac OS Extended volume on the chosen whole disk, and feeds the
+already accepted `ERASE diskN` confirmation to `createinstallmedia`. Native
+output drives a live progress screen; success and failure use a dedicated
+macOS result screen, and the whole disk is ejected afterward. Apple documents
+the source-app and capacity requirements in [Create a bootable installer for
+macOS](https://support.apple.com/101578).
 
 After the image is established, `diskutil` captures currently attached whole
 external physical disks. Internal, virtual, read-only, partition-slice, and
@@ -1978,7 +2002,7 @@ reconnect the drive, or power-cycle its hub, then press Ctrl-R or Enter. The sam
 shortcut refreshes a populated multi-drive list; it recaptures external-device
 facts without losing the selected image.
 
-Step 3 defaults to **Start flash & verify**, offers **Flash without
+For raw/hybrid images, Step 3 defaults to **Start flash & verify**, offers **Flash without
 verification**, and includes **Add image checksum…**. The optional checksum
 field accepts one SHA-256 or SHA-512 digest as bare hexadecimal, standard
 `shasum` output, or a BSD `SHA256 (file) = …` line. Step 3 immediately hashes
@@ -2011,7 +2035,7 @@ the shared warning color so the target-bound confirmation is easy to spot.
 `NO_COLOR`, redirected input, and unsupported terminals retain the identical
 plain prompt.
 
-Writing uses Apple’s `diskutil unmountDisk` and `/bin/dd` against the raw
+The raw handler uses Apple’s `diskutil unmountDisk` and `/bin/dd` against the raw
 `/dev/rdiskN` device. Input is bounded to the image’s captured 512-byte sector
 count, aggregated into 4 MiB output blocks, and completed with direct I/O plus
 an explicit filesystem sync. The target is unmounted again immediately after
@@ -2020,7 +2044,7 @@ the time in which macOS can auto-mount and modify a new filesystem. This
 `unmountDisk` call does not reserve the disk against a mount already in progress.
 The final `dd` byte count must
 equal the captured image size; early EOF, growth, or any incomplete transfer is
-a failure. No pre-format is needed or performed.
+a failure. The raw handler does not pre-format the target.
 The Step 3 screen remains visible through validation, unmount, writing,
 verification, and eject. Apple `dd status=progress` supplies transferred bytes
 once per second. Compozsh reads Apple’s live `bytes (…) transferred` records,
@@ -2064,9 +2088,9 @@ verification scope, and whether the drive is
 safe to remove. Failures retain a direct reason and recovery state
 instead of disappearing into terminal history. An interrupted or failed raw
 write may leave the disk unusable until it is rewritten or reformatted;
-overwritten bytes cannot be rolled back. macOS installer `.dmg` files use the
-installer application’s Apple-provided `createinstallmedia` tool and are
-intentionally outside this workspace.
+overwritten bytes cannot be rolled back. A failed macOS handler can likewise
+leave the selected disk erased or partially prepared; rerun the workflow or
+erase the whole physical device in Disk Utility before reuse.
 
 ### Native Xcode workspace
 
