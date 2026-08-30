@@ -18,6 +18,7 @@ typeset -g _USB_IMAGE_CAPTURE_SCOPE=''
 typeset -g _USB_STAT_FINGERPRINT=''
 typeset -g _USB_CONFIRM_ERROR=''
 typeset -g _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+typeset -g _USB_WRITE_ERROR='' _USB_WRITE_STAGE=''
 typeset -g _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
 typeset -g _USB_PAYLOAD_VERIFY_ERROR=''
 typeset -g _USB_PAYLOAD_VERIFY_SCOPE='' _USB_SELECTED_IMAGE_INTEGRITY='not-provided'
@@ -1736,9 +1737,20 @@ _usb_dd_progress_read() {
     # include human-readable units between "bytes" and "transferred", while
     # the completion record keeps those words adjacent. Accept both without
     # interpreting any other stderr line as progress.
-    [[ $line == <->' bytes '*transferred* ]] || continue
-    byte_text=${line%% *}
-    [[ $byte_text == <-> ]] && bytes=$byte_text
+    if [[ $line == <->' bytes '*transferred* ]]; then
+      byte_text=${line%% *}
+      [[ $byte_text == <-> ]] && bytes=$byte_text
+      continue
+    fi
+    case $line in
+      (compozsh-write-stage:*)
+        _USB_WRITE_STAGE=${line#compozsh-write-stage:}
+        continue ;;
+      (''|*' records in'|*' records out') continue ;;
+    esac
+    if (( ${#line} <= 512 )) && [[ $line != *[[:cntrl:]]* ]]; then
+      _USB_WRITE_ERROR=$line
+    fi
   done
   (( bytes > _USB_WRITE_BYTES_OBSERVED )) && _USB_WRITE_BYTES_OBSERVED=$bytes
   (( bytes > total )) && bytes=$total
@@ -1769,22 +1781,47 @@ _usb_dd_run() {
   command /usr/bin/sudo -n /bin/dd "$@"
 }
 
-_usb_clear_target_tail() {
+_usb_raw_write_script_capture() {
   emulate -L zsh
-  local identifier=$1 image_size=$2 target_size=$3
-  local -i image_sectors=0 target_sectors=0 trailing_sectors=0 clear_sectors=0
-  [[ $image_size == <-> && $target_size == <-> ]] || return 2
-  (( image_size > 0 && target_size >= image_size )) || return 2
-  (( target_size == image_size )) && return 0
-  (( image_size % 512 == 0 && target_size % 512 == 0 )) || return 2
-  image_sectors=$(( image_size / 512 ))
-  target_sectors=$(( target_size / 512 ))
-  trailing_sectors=$(( target_sectors - image_sectors ))
-  (( trailing_sectors > 0 )) || return 0
-  clear_sectors=$(( trailing_sectors < 33 ? trailing_sectors : 33 ))
-  _usb_dd_run if=/dev/zero "of=/dev/r${identifier}" bs=512 \
-    seek=$(( target_sectors - clear_sectors )) count="$clear_sectors" \
-    conv=fsync oflag=direct status=none
+  REPLY='emulate -LR zsh
+zmodload zsh/system || exit
+local image=$1 device=$2 sector_count=$3 tail_seek=$4 tail_count=$5
+local -i tail_byte_offset=0
+[[ -f $image && ! -L $image ]] || exit 2
+[[ (-c $device || -f $device) && ! -L $device ]] || exit 2
+[[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> ]] || exit 2
+(( sector_count > 0 && tail_seek >= 0 && tail_count >= 0 )) || exit 2
+print -u2 -r -- compozsh-write-stage:open
+if [[ -c $device ]]; then
+  exec 9> "$device" || exit 1
+else
+  exec 9<> "$device" || exit 1
+fi
+print -u2 -r -- compozsh-write-stage:image
+command /bin/dd if="$image" ibs=512 obs=4m count="$sector_count" \
+  conv=notrunc,fsync oflag=direct status=progress >&9 || exit
+if (( tail_count > 0 )); then
+  print -u2 -r -- compozsh-write-stage:tail
+  tail_byte_offset=$(( tail_seek * 512 ))
+  sysseek -u 9 "$tail_byte_offset" || exit
+  command /bin/dd if=/dev/zero bs=512 count="$tail_count" \
+    conv=notrunc,fsync oflag=direct status=none >&9 || exit
+fi'
+}
+
+_usb_raw_write_session_run() {
+  emulate -L zsh
+  local image=$1 identifier=$2 sector_count=$3 tail_seek=$4 tail_count=$5
+  [[ -f $image && ! -L $image && $identifier == disk<-> ]] || return 2
+  [[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> ]] || return 2
+  (( sector_count > 0 && tail_seek >= 0 && tail_count >= 0 )) || return 2
+  # Keep one privileged descriptor open from the first image byte through
+  # physical-tail cleanup so Disk Arbitration cannot remount stale partitions
+  # between separate raw-device writers.
+  _usb_raw_write_script_capture
+  command /usr/bin/sudo -n /bin/zsh -fc "$REPLY" compozsh-raw-write \
+    "$image" "/dev/r${identifier}" "$sector_count" \
+    "$tail_seek" "$tail_count"
 }
 
 _usb_write_image() {
@@ -1794,17 +1831,22 @@ _usb_write_image() {
   local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
   local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
   local -i worker=0 command_status=1 started=$SECONDS sector_count=0
-  _USB_WRITE_BYTES_OBSERVED=0
+  local -i target_sectors=0 trailing_sectors=0 tail_count=0 tail_seek=0
+  _USB_WRITE_BYTES_OBSERVED=0 _USB_WRITE_ERROR='' _USB_WRITE_STAGE=''
   [[ $image_size == <-> && $target_size == <-> ]] || return 2
   (( image_size > 0 && image_size % 512 == 0 )) || return 2
   (( target_size >= image_size && target_size % 512 == 0 )) || return 2
   sector_count=$(( image_size / 512 ))
-  _usb_clear_target_tail "$identifier" "$image_size" "$target_size" || return 4
+  target_sectors=$(( target_size / 512 ))
+  trailing_sectors=$(( target_sectors - sector_count ))
+  if (( trailing_sectors > 0 )); then
+    tail_count=$(( trailing_sectors < 33 ? trailing_sectors : 33 ))
+    tail_seek=$(( target_sectors - tail_count ))
+  fi
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
   {
-    _usb_dd_run "if=$image" "of=/dev/r${identifier}" \
-      ibs=512 obs=4m "count=$sector_count" conv=fsync oflag=direct \
-      status=progress 2>| "$progress_file" &
+    _usb_raw_write_session_run "$image" "$identifier" "$sector_count" \
+      "$tail_seek" "$tail_count" 2>| "$progress_file" &
     worker=$!
     while builtin kill -0 $worker 2>/dev/null; do
       _usb_dd_progress_read "$progress_file" "$image_size" $started
@@ -1819,6 +1861,9 @@ _usb_write_image() {
     _usb_dd_progress_read "$progress_file" "$image_size" $started
     if (( command_status == 0 && _USB_WRITE_BYTES_OBSERVED != image_size )); then
       command_status=3
+    fi
+    if (( command_status != 0 )) && [[ $_USB_WRITE_STAGE == tail ]]; then
+      command_status=4
     fi
   } always {
     if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
@@ -2889,6 +2934,16 @@ _usb_execute() {
     _USB_RESULT_ERROR='The external drive changed or is no longer eligible; nothing was written.'
     return 1
   }
+  if ! _usb_authorization_valid >/dev/null 2>&1; then
+    _usb_progress_stage 'Authorization required for writing' \
+      info 'Re-enter the administrator password before the external drive is unmounted or changed.' \
+      muted 'No disk data has been changed yet.'
+    _usb_authorize || {
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='Administrator authorization expired before writing; nothing was written.'
+      return 1
+    }
+  fi
   _usb_progress_stage 'Unmounting external drive' \
     info 'Preparing the whole external drive for a raw image write.' \
     warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
@@ -2919,7 +2974,9 @@ _usb_execute() {
     if (( action_status == 3 )); then
       _USB_RESULT_ERROR="Writing stopped after ${_USB_WRITE_BYTES_OBSERVED:-0} of $image_size bytes; the USB contains an incomplete image and must not be used."
     elif (( action_status == 4 )); then
-      _USB_RESULT_ERROR='The old physical-tail partition metadata could not be cleared; the image was not written and the USB must be reflashed or reformatted.'
+      _USB_RESULT_ERROR='The image write completed, but old physical-tail partition metadata could not be cleared safely; the USB must not be used.'
+    elif [[ -n $_USB_WRITE_ERROR ]]; then
+      _USB_RESULT_ERROR="Writing failed: $_USB_WRITE_ERROR. The USB may contain an incomplete image and must not be used."
     else
       _USB_RESULT_ERROR='Writing failed; the USB may contain an incomplete image and must not be used.'
     fi

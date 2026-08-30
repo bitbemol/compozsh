@@ -1481,6 +1481,39 @@ _test_usb_privileged_verification_never_hides_a_prompt() {
 test_case 'USB verification uses noninteractive retained authorization' \
   _test_usb_privileged_verification_never_hides_a_prompt
 
+_test_usb_expired_write_authorization_is_refreshed_before_unmount() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga trace=()
+    _usb_progress_stage() { trace+=("stage:$1"); }
+    _usb_image_revalidate() { trace+=(image-revalidate); return 0; }
+    _usb_target_revalidate() { trace+=(target-revalidate); return 0; }
+    _usb_authorization_valid() { trace+=(auth-check); return 1; }
+    _usb_authorize() { trace+=(auth-prompt); return 1; }
+    _usb_unmount() { trace+=(unmount); return 0; }
+    _usb_write_image() { trace+=(write); return 0; }
+    _usb_eject() { trace+=(eject); return 0; }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      8388608 flash-verify "" 1 >/dev/null 2>&1
+    print -r -- "status:$?|${(j:,:)trace}|started:$_USB_RESULT_STARTED|$_USB_RESULT_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'auth-check,stage:Authorization required for writing,auth-prompt' \
+    'expired authorization was not refreshed immediately before the destructive boundary' || return
+  [[ $output != *',unmount,'* && $output != *',write,'* ]] || {
+    test_fail 'the target was changed after write authorization refresh failed'
+    return
+  }
+  test_assert_contains "$output" \
+    'started:0|Administrator authorization expired before writing; nothing was written.' \
+    'write authorization failure did not retain a precise nothing-written result'
+}
+test_case 'USB execution refreshes expired authorization before unmounting for write' \
+  _test_usb_expired_write_authorization_is_refreshed_before_unmount
+
 _test_usb_expired_verification_authorization_is_explicit() {
   test_make_temp_dir || return
   local output=''
@@ -1492,7 +1525,12 @@ _test_usb_expired_verification_authorization_is_explicit() {
     _usb_target_revalidate() { return 0; }
     _usb_unmount() { return 0; }
     _usb_write_image() { _USB_WRITE_BYTES_OBSERVED=$3; return 0; }
-    _usb_authorization_valid() { trace+=(auth-check); return 1; }
+    auth_checks=0
+    _usb_authorization_valid() {
+      trace+=(auth-check)
+      (( ++auth_checks == 1 )) && return 0
+      return 1
+    }
     _usb_authorize() { trace+=(auth-prompt); return 1; }
     _usb_verify_payload() { trace+=(verify); return 0; }
     _usb_eject() { trace+=(eject); return 0; }
@@ -1816,7 +1854,13 @@ _test_usb_execution_preserves_failures_and_ejects() {
     _usb_image_revalidate() { trace+=(image-revalidate); }
     _usb_target_revalidate() { trace+=(revalidate); }
     _usb_unmount() { trace+=(unmount); }
-    _usb_write_image() { trace+=(write); return ${write_status:-0}; }
+    _usb_write_image() {
+      trace+=(write)
+      if (( ${write_status:-0} )); then
+        _USB_WRITE_ERROR="dd: /dev/rdisk7: Resource busy"
+      fi
+      return ${write_status:-0}
+    }
     _usb_verify_payload() { trace+=(verify); return ${verify_status:-0}; }
     _usb_eject() { trace+=(eject); return ${eject_status:-0}; }
 
@@ -1825,7 +1869,7 @@ _test_usb_execution_preserves_failures_and_ejects() {
     print -r -- "verify-status:$?|${(j:,:)trace}"
     trace=() verify_status=0 write_status=7
     _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100000 flash-verify >/dev/null 2>&1
-    print -r -- "write-status:$?|${(j:,:)trace}"
+    print -r -- "write-status:$?|${(j:,:)trace}|$_USB_RESULT_ERROR"
     trace=() write_status=0
     _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100000 flash-verify disk7 >/dev/null 2>&1
     print -r -- "source-status:$?|${(j:,:)trace}"
@@ -1833,8 +1877,9 @@ _test_usb_execution_preserves_failures_and_ejects() {
 
   test_assert_contains "$output" 'verify-status:9|authorize,image-revalidate,revalidate,unmount,revalidate,write,unmount,image-revalidate,verify,eject' \
     'verification failure or eject cleanup was lost' || return
-  test_assert_contains "$output" 'write-status:7|authorize,image-revalidate,revalidate,unmount,revalidate,write,eject' \
-    'write failure did not stop verification and preserve status' || return
+  test_assert_contains "$output" \
+    'write-status:7|authorize,image-revalidate,revalidate,unmount,revalidate,write,eject|Writing failed: dd: /dev/rdisk7: Resource busy.' \
+    'write failure did not stop verification or retain the actionable native diagnostic' || return
   test_assert_contains "$output" 'source-status:1|' \
     'execution allowed the image source disk to become its own write target'
 }
@@ -1953,7 +1998,7 @@ _test_usb_write_worker_is_bounded_and_cleaned() {
     setopt NOTIFY
     typeset -ga painted=()
     _usb_progress_stage() { painted+=("$1|$3"); }
-    _usb_dd_run() {
+    _usb_raw_write_session_run() {
       [[ -o MONITOR || -o NOTIFY ]] && print -r -- on >| "$job_marker"
       print -u2 -r -- "4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r"
       command /bin/sleep 0.1
@@ -1984,7 +2029,7 @@ _test_usb_write_rejects_successful_early_eof() {
     source "$1/.zsh.addons/.zsh.usb" || exit
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
-    _usb_dd_run() {
+    _usb_raw_write_session_run() {
       print -u2 -r -- "4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r"
       return 0
     }
@@ -1998,7 +2043,7 @@ _test_usb_write_rejects_successful_early_eof() {
 test_case 'USB write requires dd to report the exact captured image size' \
   _test_usb_write_rejects_successful_early_eof
 
-_test_usb_dd_input_is_bounded_to_captured_sectors() {
+_test_usb_raw_session_is_bounded_to_captured_sectors() {
   test_make_temp_dir || return
   local capture_root="$TEST_TMP_DIR/progress-bounded" output=''
   command mkdir -p "$capture_root" || return
@@ -2006,7 +2051,7 @@ _test_usb_dd_input_is_bounded_to_captured_sectors() {
     source "$1/.zsh.addons/.zsh.usb" || exit
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
-    _usb_dd_run() {
+    _usb_raw_write_session_run() {
       print -r -- "args:$*"
       print -u2 -r -- "8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\r"
     }
@@ -2014,15 +2059,13 @@ _test_usb_dd_input_is_bounded_to_captured_sectors() {
     print -r -- "status:$?"
   ' "$TEST_REPO_ROOT" "$capture_root") || return
 
-  test_assert_contains "$output" 'ibs=512 obs=4m count=16384' \
-    'dd was allowed to read the live image path past its captured sector count' || return
-  test_assert_contains "$output" 'conv=fsync oflag=direct' \
-    'dd did not flush the device or disable the macOS buffer cache' || return
+  test_assert_contains "$output" 'args:/images/linux.iso disk7 16384 0 0' \
+    'the privileged raw session was allowed past the captured sector count' || return
   test_assert_contains "$output" 'status:0' \
     'an exact sector-bounded write did not complete'
 }
-test_case 'USB dd reads exactly the captured sector count' \
-  _test_usb_dd_input_is_bounded_to_captured_sectors
+test_case 'USB raw write session reads exactly the captured sector count' \
+  _test_usb_raw_session_is_bounded_to_captured_sectors
 
 _test_usb_write_clears_stale_physical_tail_gpt() {
   test_make_temp_dir || return
@@ -2033,11 +2076,10 @@ _test_usb_write_clears_stale_physical_tail_gpt() {
     TMPDIR=$2
     trace_file=$2/write-calls
     _usb_progress_stage() { return 0; }
-    _usb_dd_run() {
+    _usb_raw_write_session_run() {
       print -r -- "$*" >> "$trace_file"
-      if [[ $* == *"if=/images/linux.iso"* ]]; then
-        print -u2 -r -- "8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\r"
-      fi
+      print -u2 -r -- "compozsh-write-stage:image"
+      print -u2 -r -- "8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\r"
     }
     _usb_write_image /images/linux.iso disk7 8388608 16777216
     print -r -- "status:$?"
@@ -2045,16 +2087,94 @@ _test_usb_write_clears_stale_physical_tail_gpt() {
   ' "$TEST_REPO_ROOT" "$capture_root") || return
 
   test_assert_contains "$output" \
-    'if=/dev/zero of=/dev/rdisk7 bs=512 seek=32735 count=33 conv=fsync oflag=direct status=none' \
-    'the raw writer left a previous whole-disk backup GPT at the physical target tail' || return
-  test_assert_contains "$output" \
-    'if=/images/linux.iso of=/dev/rdisk7 ibs=512 obs=4m count=16384' \
-    'tail cleanup displaced the exact bounded image write' || return
+    'calls:/images/linux.iso disk7 16384 32735 33' \
+    'the single raw-device session did not receive both the exact image bound and physical-tail cleanup range' || return
   test_assert_contains "$output" 'status:0' \
     'a successful bounded tail cleanup and image write did not complete'
 }
-test_case 'USB raw writes clear stale GPT metadata outside the image extent' \
+test_case 'USB raw write session keeps tail cleanup and image output on one device open' \
   _test_usb_write_clears_stale_physical_tail_gpt
+
+_test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source.iso"
+  local target_image="$TEST_TMP_DIR/target.img"
+  local expected_middle="$TEST_TMP_DIR/expected-middle"
+  local expected_tail="$TEST_TMP_DIR/expected-tail"
+  local output=''
+  /usr/bin/printf '%8192s' '' | /usr/bin/tr ' ' S >| "$source_image" || return
+  /usr/bin/printf '%16384s' '' | /usr/bin/tr ' ' T >| "$target_image" || return
+  /usr/bin/printf '%7680s' '' | /usr/bin/tr ' ' T >| "$expected_middle" || return
+  command /bin/dd if=/dev/zero of="$expected_tail" bs=512 count=1 \
+    status=none || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_raw_write_script_capture || exit
+    script=$REPLY
+    command /bin/zsh -fc "$script" compozsh-write-test \
+      "$2" "$3" 16 31 1 2>| "$6"
+    session_status=$?
+    command /bin/dd if="$3" of="$7" bs=512 count=16 status=none || exit
+    command /bin/dd if="$3" of="$8" bs=512 skip=16 count=15 status=none || exit
+    command /bin/dd if="$3" of="$9" bs=512 skip=31 count=1 status=none || exit
+    command /usr/bin/cmp -s "$2" "$7"
+    prefix_status=$?
+    command /usr/bin/cmp -s "$4" "$8"
+    middle_status=$?
+    command /usr/bin/cmp -s "$5" "$9"
+    tail_status=$?
+    size=$(command /usr/bin/stat -f "%z" "$3") || exit
+    diagnostic=$(<"$6")
+    diagnostic=${diagnostic//$'\r'/$'\n'}
+    print -r -- "status:$session_status|size:$size|prefix:$prefix_status|middle:$middle_status|tail:$tail_status"
+    print -r -- "diagnostic:${(j:|:)${(f)diagnostic}}"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" \
+    "$expected_middle" "$expected_tail" "$TEST_TMP_DIR/session-stderr" \
+    "$TEST_TMP_DIR/prefix" "$TEST_TMP_DIR/middle" "$TEST_TMP_DIR/tail") || return
+
+  test_assert_contains "$output" \
+    'status:0|size:16384|prefix:0|middle:0|tail:0' \
+    'the real single-descriptor writer changed bytes outside the captured image and physical-tail ranges' || return
+  test_assert_contains "$output" 'compozsh-write-stage:image' \
+    'the real raw session did not identify the image-write stage' || return
+  test_assert_contains "$output" 'compozsh-write-stage:tail' \
+    'the real raw session did not identify the physical-tail cleanup stage' || return
+  [[ $output == *'compozsh-write-stage:image'*'compozsh-write-stage:tail'* ]] || {
+    test_fail 'the physical tail was modified before the captured image completed'
+    return
+  }
+  [[ $output != *'Operation not permitted'* ]] || {
+    test_fail 'the raw session tried to reopen an inherited descriptor through /dev/fd'
+    return
+  }
+}
+test_case 'USB raw session writes exact byte ranges through one held descriptor' \
+  _test_usb_raw_session_writes_exact_offsets_through_one_descriptor
+
+_test_usb_write_retains_a_bounded_native_failure() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-error" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _usb_progress_stage() { return 0; }
+    _usb_raw_write_session_run() {
+      print -u2 -r -- "compozsh-write-stage:image"
+      print -u2 -r -- "dd: /dev/rdisk7: Resource busy"
+      return 1
+    }
+    _usb_write_image /images/linux.iso disk7 8388608
+    print -r -- "status:$?|error:$_USB_WRITE_ERROR"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" \
+    'status:1|error:dd: /dev/rdisk7: Resource busy' \
+    'the raw writer discarded the bounded native dd diagnostic'
+}
+test_case 'USB raw writer retains the exact bounded native failure diagnostic' \
+  _test_usb_write_retains_a_bounded_native_failure
 
 _test_usb_verification_owns_subprocess_output() {
   test_make_temp_dir || return
