@@ -61,8 +61,8 @@ for full-sized sessions in one Terminal window.
 - A live `compozsh` tool explorer that discovers public add-on functions,
   searches them fuzzily, and opens their safe self-documentation
 - A native bootable-media workspace with explicit media/target selection,
-  raw-image verification, Apple `createinstallmedia`, Windows refusal before
-  mutation, Finder drag and drop, and target-bound erase confirmation
+  raw-image verification, Apple `createinstallmedia`, filesystem-aware UEFI
+  Windows creation, Finder drag and drop, and target-bound erase confirmation
 - Live native history autosuggestions with character, word, and full acceptance
 - `Ctrl-X Ctrl-E` to edit the current command in `$EDITOR`
 - Live native syntax highlighting for commands, arguments, operators, strings,
@@ -238,7 +238,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
-| `.zsh.usb` | Bootable external media | `flash-usb` dispatches raw/hybrid images to the native byte writer and full macOS installer apps to Apple `createinstallmedia`; it refuses recognized Windows installers before target mutation, retains optional raw-image checksums and verification, and shows native progress plus completion or recovery stats |
+| `.zsh.usb` | Bootable external media | `flash-usb` dispatches raw/hybrid images to the native byte writer, full macOS installer apps to Apple `createinstallmedia`, and compatible UEFI Windows ISOs to a native FAT32 file-tree creator; it retains optional source checksums, verifies each handler’s finished-media boundary, and shows native progress plus completion or recovery stats |
 | `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -1967,11 +1967,27 @@ the concrete failure in the same screen.
 After selection, a private dispatcher resolves the media family before target
 selection or mutation. Regular `.img` files and non-Windows `.iso` files use the
 raw/hybrid writer. ISO classification temporarily mounts the image read-only
-and hidden, checks bounded canonical Windows Setup payload markers, and always
-detaches the probe. Recognized Windows installer media stops on a clear **Not
-supported yet** screen because it needs a filesystem-aware Windows handler; no
-drive is selected, unmounted, formatted, or written. An ISO that macOS cannot
-inspect safely also fails closed.
+and hidden, checks canonical Windows Setup payload markers within a 65,536-entry
+safety limit, and always detaches the probe. Recognized UEFI Windows installer
+media uses a dedicated
+filesystem-aware handler: it creates an MBR with one FAT32 volume, copies the
+complete captured tree, flushes it, remounts the exact partition read-only, and
+byte-compares every regular file through uncached target reads. x64 and ARM64
+are identified from their standard UEFI removable-media loaders and shown as
+ordinary architecture facts. This handler claims UEFI boot only; it does not
+claim legacy BIOS, hardware, firmware, or driver compatibility.
+
+Preflight enforces the native FAT32 workflow’s file-size and path limits before
+target selection; the finished copy is then remounted read-only and byte-verified.
+Any file beyond 4,294,967,295 bytes, non-ASCII or control-bearing path, reserved
+or ambiguous FAT path, missing Windows setup payload, or missing UEFI fallback
+loader is refused before a drive is targeted.
+Stock macOS cannot perform DISM’s format-aware WIM splitting, so an oversized
+`install.wim` must be replaced by official media that fits FAT32 or split into
+an `install.swm` series on Windows. Compozsh does not substitute exFAT or raw
+flash a recognized but incompatible Windows ISO. A clean read-only mount refusal
+remains eligible for the raw/hybrid handler so Linux images continue to work;
+a partial attachment or failed inspection cleanup fails closed.
 
 A complete `Install macOS <name>.app` uses its Apple-provided
 `Contents/Resources/createinstallmedia` executable. A downloaded `.dmg` or

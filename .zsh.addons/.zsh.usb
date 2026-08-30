@@ -10,6 +10,18 @@ typeset -ga _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
 typeset -ga _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
 typeset -g _USB_CAPTURE_ERROR='' _USB_PLIST=''
 typeset -g _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+typeset -ga _USB_WINDOWS_FILES=() _USB_WINDOWS_FILE_SIZES=()
+typeset -g _USB_WINDOWS_ERROR='' _USB_WINDOWS_ARCHITECTURE=''
+typeset -g _USB_WINDOWS_LAYOUT=''
+typeset -g _USB_WINDOWS_SOURCE_DEVICE='' _USB_WINDOWS_SOURCE_MOUNT=''
+typeset -g _USB_WINDOWS_TARGET_PARTITION='' _USB_WINDOWS_TARGET_MOUNT=''
+typeset -g _USB_WINDOWS_VERIFY_MOUNT=''
+typeset -g _USB_VOLUME_ROOT=/Volumes
+typeset -gi _USB_WINDOWS_COMPATIBLE=0 _USB_WINDOWS_FILE_COUNT=0
+typeset -gi _USB_WINDOWS_TOTAL_BYTES=0 _USB_WINDOWS_REQUIRED_BYTES=0
+typeset -gi _USB_WINDOWS_MAX_FILE_BYTES=4294967295
+typeset -gi _USB_WINDOWS_MAX_ENTRIES=65536
+typeset -gi _USB_WINDOWS_MINIMUM_BYTES=5000000000
 typeset -g _USB_CREATEINSTALLMEDIA_ERROR=''
 typeset -g _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL=''
 typeset -g _USB_INFO_FINGERPRINT=''
@@ -25,6 +37,7 @@ typeset -g _USB_PAYLOAD_VERIFY_SCOPE='' _USB_SELECTED_IMAGE_INTEGRITY='not-provi
 typeset -g _USB_VERIFY_PROGRESS_BAR=''
 typeset -g _USB_RESULT_IMAGE_CHECKSUM='' _USB_RESULT_EXPECTED_CHECKSUM=''
 typeset -g _USB_RESULT_CHECKSUM_ALGORITHM=''
+typeset -g _USB_RESULT_CHECKSUM_ERROR=''
 typeset -gi _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
 typeset -gi _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
 typeset -gi _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
@@ -144,6 +157,11 @@ _usb_hdiutil_attach_readonly() {
   emulate -L zsh
   local image=$1 mount_point=$2 output='' line='' device=''
   local -i attach_status=0
+  # A failed detach retains ownership for the outer recovery boundary. Never
+  # overwrite that identity by beginning another inspection first.
+  if [[ -n $_USB_INSPECT_DEVICE || -n $_USB_INSPECT_MOUNT ]]; then
+    _usb_inspect_cleanup || return 2
+  fi
   _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
   output=$(command /usr/bin/hdiutil attach -readonly -nobrowse -noautoopen \
     -mountpoint "$mount_point" "$image" 2>/dev/null)
@@ -154,7 +172,16 @@ _usb_hdiutil_attach_readonly() {
     _USB_INSPECT_DEVICE=${device#/dev/}
     break
   done
-  (( attach_status == 0 )) || return 1
+  if (( attach_status != 0 )); then
+    if [[ -n $device ]] &&
+        ! _usb_hdiutil_detach "${device#/dev/}" >/dev/null 2>&1; then
+      _USB_INSPECT_DEVICE=${device#/dev/}
+      _USB_INSPECT_MOUNT=$mount_point
+      return 2
+    fi
+    _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+    return 1
+  fi
   [[ $_USB_INSPECT_DEVICE == disk<-> && -d $mount_point ]] || return 1
   _USB_INSPECT_MOUNT=$mount_point
 }
@@ -163,13 +190,148 @@ _usb_hdiutil_detach() {
   command /usr/bin/hdiutil detach "/dev/$1"
 }
 
+_usb_inspect_cleanup() {
+  emulate -L zsh
+  local device=${1:-$_USB_INSPECT_DEVICE}
+  local mount_point=${2:-$_USB_INSPECT_MOUNT}
+  local temp_root=${TMPDIR:-/tmp}
+  local -i cleanup_status=0
+  if [[ -n $device ]]; then
+    if _usb_hdiutil_detach "$device" >/dev/null 2>&1; then
+      [[ $_USB_INSPECT_DEVICE == "$device" ]] && _USB_INSPECT_DEVICE=''
+    else
+      cleanup_status=1
+    fi
+  fi
+  if (( cleanup_status == 0 )) &&
+      [[ -n $mount_point && -d $mount_point && ! -L $mount_point &&
+        ${mount_point:t} == compozsh-usb-inspect.* &&
+        ${mount_point:h:A} == ${temp_root:A} ]]; then
+    if command /bin/rmdir "$mount_point" 2>/dev/null; then
+      [[ $_USB_INSPECT_MOUNT == "$mount_point" ]] && _USB_INSPECT_MOUNT=''
+    else
+      cleanup_status=1
+    fi
+  fi
+  return $cleanup_status
+}
+
+_usb_windows_tree_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB NULL_GLOB
+  local root=${1:A} entry='' relative='' folded='' component='' stem='' size=''
+  local unsafe_path='' oversized_path='' LC_ALL=C
+  local -a entries=() components=()
+  local -A folded_paths=()
+  local -i boot_image=0 install_image=0 uefi_x64=0 uefi_arm64=0
+  local -i uefi_bcd=0 boot_sdi=0
+  local -i unsafe=0 required=0 windows_marker=0
+  _USB_WINDOWS_FILES=() _USB_WINDOWS_FILE_SIZES=()
+  _USB_WINDOWS_ERROR='' _USB_WINDOWS_ARCHITECTURE=''
+  _USB_WINDOWS_LAYOUT='' _USB_WINDOWS_COMPATIBLE=0
+  _USB_WINDOWS_FILE_COUNT=0 _USB_WINDOWS_TOTAL_BYTES=0
+  _USB_WINDOWS_REQUIRED_BYTES=0
+  [[ -d $root && ! -L $root ]] || return 2
+  entries=("$root"/**/*(ND))
+  (( ${#entries} <= _USB_WINDOWS_MAX_ENTRIES )) || {
+    _USB_WINDOWS_ERROR="installer tree exceeds the $_USB_WINDOWS_MAX_ENTRIES-entry safety limit"
+    return 2
+  }
+  for entry in "${entries[@]}"; do
+    relative=${entry#$root/}
+    [[ -n $relative && $relative != /* && $relative != ../* && $relative != */../* ]] || return 2
+    if [[ -L $entry || ( ! -f $entry && ! -d $entry ) ]]; then
+      unsafe=1
+      [[ -n $unsafe_path ]] || unsafe_path=$relative
+      continue
+    fi
+    components=("${(@s:/:)relative}")
+    for component in "${components[@]}"; do
+      stem=${component%%.*}
+      if [[ -z $component || ${#component} -gt 255 ||
+            $component == *[^[:print:]]* ||
+            $component == *[:\*\?\"\<\>\|]* ||
+            $component == *[.\ ] ||
+            ${stem:u} == (CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]) ]]; then
+        unsafe=1
+        [[ -n $unsafe_path ]] || unsafe_path=$relative
+        break
+      fi
+    done
+    folded=${relative:l}
+    if [[ -n ${folded_paths[$folded]-} && ${folded_paths[$folded]} != "$relative" ]]; then
+      unsafe=1
+      [[ -n $unsafe_path ]] || unsafe_path=$relative
+    else
+      folded_paths[$folded]=$relative
+    fi
+    [[ -f $entry ]] || continue
+    size=$(command /usr/bin/stat -f '%z' "$entry" 2>/dev/null) || return 2
+    [[ $size == <-> ]] || return 2
+    _USB_WINDOWS_FILES+=("$relative")
+    _USB_WINDOWS_FILE_SIZES+=("$size")
+    (( ++_USB_WINDOWS_FILE_COUNT ))
+    (( _USB_WINDOWS_TOTAL_BYTES += size ))
+    if (( size > _USB_WINDOWS_MAX_FILE_BYTES )) && [[ -z $oversized_path ]]; then
+      oversized_path=$relative
+    fi
+    case $folded in
+      (sources/boot.wim) boot_image=1; windows_marker=1 ;;
+      (sources/install.wim) install_image=1; windows_marker=1; _USB_WINDOWS_LAYOUT=install.wim ;;
+      (sources/install.esd) install_image=1; windows_marker=1; _USB_WINDOWS_LAYOUT=install.esd ;;
+      (sources/install.swm) install_image=1; windows_marker=1; _USB_WINDOWS_LAYOUT=split-install.swm ;;
+      (efi/boot/bootx64.efi) uefi_x64=1 ;;
+      (efi/boot/bootaa64.efi) uefi_arm64=1 ;;
+      (efi/microsoft/boot/bcd) uefi_bcd=1; windows_marker=1 ;;
+      (boot/boot.sdi) boot_sdi=1 ;;
+    esac
+  done
+  if (( !(boot_image && install_image) )); then
+    (( windows_marker )) || return 1
+    _USB_WINDOWS_ERROR='the recognized Windows setup tree is incomplete; sources/boot.wim and an install.wim, install.esd, or install.swm payload are required'
+    return 0
+  fi
+  if (( !(uefi_x64 || uefi_arm64) )); then
+    _USB_WINDOWS_ERROR='this Windows setup image has no UEFI removable-media loader; native creation supports UEFI media only'
+    return 0
+  fi
+  if (( uefi_x64 && uefi_arm64 )); then
+    _USB_WINDOWS_ARCHITECTURE=multi-architecture
+  elif (( uefi_arm64 )); then
+    _USB_WINDOWS_ARCHITECTURE=arm64
+  else
+    _USB_WINDOWS_ARCHITECTURE=x86_64
+  fi
+  required=$(( _USB_WINDOWS_FILE_COUNT * 65536 ))
+  (( required < 268435456 )) && required=268435456
+  required=$(( _USB_WINDOWS_TOTAL_BYTES + required ))
+  (( required < _USB_WINDOWS_MINIMUM_BYTES )) && required=$_USB_WINDOWS_MINIMUM_BYTES
+  _USB_WINDOWS_REQUIRED_BYTES=$required
+  if [[ -n $oversized_path ]]; then
+    if [[ ${oversized_path:l} == sources/install.wim ]]; then
+      _USB_WINDOWS_ERROR="FAT32 cannot store $oversized_path because it exceeds 4 GiB; split install.wim before macOS creates the installer"
+    else
+      _USB_WINDOWS_ERROR="FAT32 cannot store $oversized_path because it exceeds 4 GiB; choose Windows media whose complete file tree fits FAT32"
+    fi
+    return 0
+  fi
+  if (( unsafe )); then
+    _USB_WINDOWS_ERROR='the installer tree contains a FAT32-incompatible or ambiguous path'
+    return 0
+  fi
+  if (( !(uefi_bcd && boot_sdi) )); then
+    _USB_WINDOWS_ERROR='the Windows UEFI boot chain is incomplete; EFI/Microsoft/Boot/BCD and boot/boot.sdi are required'
+    return 0
+  fi
+  _USB_WINDOWS_COMPATIBLE=1
+}
+
 # A Windows installer ISO is identified from its canonical setup payload, not
 # from its filename. The temporary mount is read-only and always detached.
 _usb_windows_installer_detect() {
   emulate -L zsh
   setopt EXTENDED_GLOB NULL_GLOB
   local image=$1 temp_root=${TMPDIR:-/tmp} mount_point='' device=''
-  local -a source_dirs=() boot_images=() install_images=()
   local -i detected=1 attach_status=0 cleanup_status=0
   [[ ${image:e:l} == iso ]] || return 1
   mount_point=$(command /usr/bin/mktemp -d \
@@ -179,30 +341,18 @@ _usb_windows_installer_detect() {
     attach_status=$?
     device=$_USB_INSPECT_DEVICE
     if (( attach_status == 0 )); then
-      source_dirs=("$mount_point"/(#i)sources(N/))
-      if (( ${#source_dirs} == 1 )); then
-        boot_images=("${source_dirs[1]}"/(#i)boot.wim(N.))
-        install_images=("${source_dirs[1]}"/(#i)(install.wim|install.esd|install.swm)(N.))
-      fi
-      if (( ${#boot_images} == 1 && ${#install_images} >= 1 )); then
-        detected=0
-      fi
+      _usb_windows_tree_capture "$mount_point"
+      detected=$?
     fi
   } always {
-    if [[ -n $device ]]; then
-      _usb_hdiutil_detach "$device" >/dev/null 2>&1 || cleanup_status=1
-    fi
-    if [[ -d $mount_point && ! -L $mount_point &&
-          ${mount_point:t} == compozsh-usb-inspect.* &&
-          ${mount_point:h:A} == ${temp_root:A} ]]; then
-      command /bin/rmdir "$mount_point" 2>/dev/null || cleanup_status=1
-    fi
+    _usb_inspect_cleanup "$device" "$mount_point" || cleanup_status=1
   }
   # Inspection is optional for an ISO that can still be written as a raw disk
   # image. A mount refusal therefore means "not identified as Windows". Once
   # hdiutil did attach a device, however, failed cleanup is a hard stop because
   # the probe no longer owns a known-clean temporary state.
   (( cleanup_status == 0 )) || return 2
+  (( attach_status == 2 )) && return 2
   (( attach_status == 0 )) || return 1
   return $detected
 }
@@ -248,6 +398,7 @@ _usb_image_architecture_label() {
   case $1 in
     (arm64) REPLY='ARM64 · inferred from filename' ;;
     (x86_64) REPLY='Intel/AMD x86-64 · inferred from filename' ;;
+    (multi-architecture) REPLY='x64 + ARM64 · detected in Windows media' ;;
     (*) REPLY='Not declared in filename' ;;
   esac
 }
@@ -256,6 +407,7 @@ _usb_image_architecture_short_label() {
   case $1 in
     (arm64) REPLY='ARM64' ;;
     (x86_64) REPLY='x86-64' ;;
+    (multi-architecture) REPLY='x64 + ARM64' ;;
     (*) REPLY='Architecture not detected' ;;
   esac
 }
@@ -1047,6 +1199,8 @@ _usb_disks_capture() {
     _USB_DISK_LABELS+=("${_USB_INFO_NAME} · $size_label · ${_USB_INFO_PROTOCOL} · /dev/${_USB_INFO_ID}")
     if [[ $media_kind == macos-installer ]]; then
       effect_detail='Apple createinstallmedia will erase and format this whole external disk; every existing partition and all data may be destroyed.'
+    elif [[ $media_kind == windows-installer ]]; then
+      effect_detail='The Windows handler will replace this whole disk with an MBR and one FAT32 UEFI installer volume; every existing partition and all data may be destroyed.'
     else
       effect_detail='The image writes from sector zero; existing partitions and data may be destroyed.'
     fi
@@ -1301,11 +1455,12 @@ _usb_workspace_controller() {
   local selected='' image='' disk='' source_disk=''
   local image_query='' image_initial_value='' refresh_path=''
   local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
-  local media_kind=raw-image media_error=''
+  local media_kind=raw-image media_error='' review_breadcrumb='' target_subtitle=''
   local checksum_state=not-provided checksum_actual='' integrity_label='' integrity_detail=''
   local integrity_role=''
   local _USB_CHECKSUM_ALGORITHM=''
   local -i image_index=1 disk_index=1 result=0 index=0 refresh_index=0
+  local -i target_minimum=0
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
   local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
   local -a previous_disk_ids=() previous_disk_labels=() previous_disk_details=()
@@ -1379,10 +1534,10 @@ _usb_workspace_controller() {
       fi
       media_kind=$REPLY
     fi
-    if [[ $media_kind == windows-installer ]]; then
+    if [[ $media_kind == windows-installer ]] && (( !_USB_WINDOWS_COMPATIBLE )); then
       _usb_media_attention_choose "$image" \
-        'Windows installer detected · Not supported yet' \
-        'Compozsh recognized the Windows setup payload before selecting or changing a target. Windows USB creation needs its own filesystem-aware handler; this version refuses it and writes nothing.'
+        "Windows installer cannot be created safely · ${_USB_WINDOWS_ERROR:-FAT32-compatible UEFI setup files were not found}" \
+        "${_USB_WINDOWS_ERROR:-The Windows installer tree is not compatible with the native FAT32 workflow.} Nothing was written or targeted. Use an official ISO whose files fit FAT32, or split an oversized install.wim on Windows first."
       continue
     fi
     if [[ $media_kind == macos-installer ]] && ! _usb_macos_codesign_verify "$image"; then
@@ -1394,6 +1549,9 @@ _usb_workspace_controller() {
     checksum='' checksum_algorithm='' checksum_state=not-provided checksum_actual=''
     _USB_SELECTED_IMAGE_ARCHITECTURE=''
     _usb_image_architecture_capture "$image"
+    if [[ $media_kind == windows-installer && -n $_USB_WINDOWS_ARCHITECTURE ]]; then
+      _USB_SELECTED_IMAGE_ARCHITECTURE=$_USB_WINDOWS_ARCHITECTURE
+    fi
 
     _usb_image_source_disk_retry "$image"
     result=$?
@@ -1401,13 +1559,19 @@ _usb_workspace_controller() {
     (( result == 0 )) || return $result
     source_disk=$_USB_IMAGE_SOURCE_DISK
 
+    target_minimum=${_USB_IMAGE_SIZES[image_index]}
+    [[ $media_kind == windows-installer ]] && target_minimum=$_USB_WINDOWS_REQUIRED_BYTES
     if [[ $media_kind == macos-installer ]]; then
       _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
         image 'Choose another installer' "$source_disk" \
         "Media  ›  DRIVE  ›  Create macOS installer · ${image:t}" "$media_kind"
     else
-      _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
-        image 'Choose another image' "$source_disk" '' "$media_kind"
+      target_subtitle=''
+      [[ $media_kind == windows-installer ]] &&
+        target_subtitle='Media  ›  DRIVE  ›  Create Windows installer'
+      _usb_target_choose "$target_minimum" "${image:t}" \
+        image 'Choose another image' "$source_disk" \
+        "$target_subtitle" "$media_kind"
     fi
     result=$?
     (( result == 1 )) && continue
@@ -1467,16 +1631,27 @@ _usb_workspace_controller() {
       _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
       _USB_PICKER_VALUES+=(flash-verify)
       if [[ -n $checksum && $checksum_state == matched ]]; then
-        _USB_PICKER_LABELS+=("[ Start flash & verify · SHA-$checksum_algorithm ]")
+        if [[ $media_kind == windows-installer ]]; then
+          _USB_PICKER_LABELS+=("[ Create & verify Windows installer · SHA-$checksum_algorithm ]")
+        else
+          _USB_PICKER_LABELS+=("[ Start flash & verify · SHA-$checksum_algorithm ]")
+        fi
       elif [[ -n $checksum ]]; then
         _USB_PICKER_LABELS+=('[ Resolve image integrity check before flashing ]')
+      elif [[ $media_kind == windows-installer ]]; then
+        _USB_PICKER_LABELS+=('[ Create & verify Windows installer ]')
       else
         _USB_PICKER_LABELS+=('[ Start flash & verify ]')
       fi
       _USB_PICKER_HIGHLIGHTS+=('')
       _USB_PICKER_SEARCH+=('write verify checksum')
-      _USB_PICKER_DETAILS+=(
-        'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares the full image first with a validated GPT-geometry fallback, and ejects.")
+      if [[ $media_kind == windows-installer ]]; then
+        _USB_PICKER_DETAILS+=(
+          'Create & verify Windows installer'$'\n\n'"Step 3 validates a provided ISO checksum. After confirmation it revalidates the ISO and /dev/$disk, prepares FAT32 with an MBR, copies the complete UEFI installer tree, byte-compares every source file, and ejects.")
+      else
+        _USB_PICKER_DETAILS+=(
+          'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares the full image first with a validated GPT-geometry fallback, and ejects.")
+      fi
       _USB_PICKER_VALUES+=(checksum)
       case $checksum_state in
         (matched)
@@ -1511,21 +1686,30 @@ _usb_workspace_controller() {
         _USB_PICKER_SEARCH+=('remove checksum')
         _USB_PICKER_DETAILS+=('Remove checksum'$'\n\n''Continue without trusted-checksum validation. Flash & verify will still perform the native raw-device comparison.')
       fi
-      _USB_PICKER_VALUES+=(image target flash-only)
+      _USB_PICKER_VALUES+=(image target)
       _USB_PICKER_LABELS+=(
         "Change image · ${image:t}"
-        "Change drive · ${_USB_DISK_LABELS[disk_index]}"
-        'Flash without verification')
-      _USB_PICKER_HIGHLIGHTS+=('' '' '')
-      _USB_PICKER_SEARCH+=(image target write)
+        "Change drive · ${_USB_DISK_LABELS[disk_index]}")
+      _USB_PICKER_HIGHLIGHTS+=('' '')
+      _USB_PICKER_SEARCH+=(image target)
       _USB_PICKER_DETAILS+=(
         "${_USB_IMAGE_DETAILS[image_index]}"
-        "${_USB_DISK_DETAILS[disk_index]}"
-        'Flash only'$'\n\n'"Validates a provided checksum before writing, then writes /dev/r$disk and ejects without reading the payload back.")
+        "${_USB_DISK_DETAILS[disk_index]}")
+      if [[ $media_kind != windows-installer ]]; then
+        _USB_PICKER_VALUES+=(flash-only)
+        _USB_PICKER_LABELS+=('Flash without verification')
+        _USB_PICKER_HIGHLIGHTS+=('')
+        _USB_PICKER_SEARCH+=(write)
+        _USB_PICKER_DETAILS+=(
+          'Flash only'$'\n\n'"Validates a provided checksum before writing, then writes /dev/r$disk and ejects without reading the payload back.")
+      fi
       _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
       architecture_label=$REPLY
+      review_breadcrumb="Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk"
+      [[ $media_kind == windows-installer ]] &&
+        review_breadcrumb="Media  ›  Drive  ›  CREATE WINDOWS · $architecture_label · ${image:t} → /dev/$disk"
       _usb_choose 'Flash USB · Step 3 of 3' \
-        "Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk" \
+        "$review_breadcrumb" \
         'Filter choices' 0 0 1
       result=$?
       (( result == 1 )) && break
@@ -1569,9 +1753,12 @@ _usb_workspace_controller() {
           previous_disk_details=("${_USB_DISK_DETAILS[@]}")
           previous_disk_sizes=("${_USB_DISK_SIZES[@]}")
           previous_disk_fingerprints=("${_USB_DISK_FINGERPRINTS[@]}")
-          _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
+          target_subtitle='Image  ›  DRIVE  ›  Flash · refreshed'
+          [[ $media_kind == windows-installer ]] &&
+            target_subtitle='Media  ›  DRIVE  ›  Create Windows installer · refreshed'
+          _usb_target_choose "$target_minimum" "${image:t}" \
             target 'Keep current target' "$source_disk" \
-            'Image  ›  DRIVE  ›  Flash · refreshed' "$media_kind"
+            "$target_subtitle" "$media_kind"
           result=$?
           if (( result == 1 )); then
             _USB_DISK_IDS=("${previous_disk_ids[@]}")
@@ -1585,6 +1772,7 @@ _usb_workspace_controller() {
           disk_index=$_ZLE_PICKER_SELECTED_VALUE
           disk=${_USB_DISK_IDS[disk_index]} ;;
         (flash-verify|flash-only)
+          [[ $media_kind != windows-installer || $selected == flash-verify ]] || continue
           if [[ -n $checksum && $checksum_state != matched ]]; then
             checksum_subtitle='The image integrity check must match before flashing; paste the correct checksum or go back and remove it'
             continue
@@ -2797,6 +2985,380 @@ _usb_diskutil_erase_run() {
   command /usr/bin/sudo -n /usr/sbin/diskutil "$@"
 }
 
+_usb_windows_source_close() {
+  emulate -L zsh
+  local device=${1:-$_USB_WINDOWS_SOURCE_DEVICE}
+  local mount_point=${2:-$_USB_WINDOWS_SOURCE_MOUNT}
+  local temp_root=${TMPDIR:-/tmp}
+  local -i cleanup_status=0
+  if [[ -n $device ]]; then
+    if _usb_hdiutil_detach "$device" >/dev/null 2>&1; then
+      [[ $_USB_WINDOWS_SOURCE_DEVICE == "$device" ]] &&
+        _USB_WINDOWS_SOURCE_DEVICE=''
+    else
+      cleanup_status=1
+    fi
+  fi
+  if (( cleanup_status == 0 )) &&
+      [[ -n $mount_point && -d $mount_point && ! -L $mount_point &&
+        ${mount_point:t} == compozsh-usb-windows.* &&
+        ${mount_point:h:A} == ${temp_root:A} ]]; then
+    if command /bin/rmdir "$mount_point" 2>/dev/null; then
+      [[ $_USB_WINDOWS_SOURCE_MOUNT == "$mount_point" ]] &&
+        _USB_WINDOWS_SOURCE_MOUNT=''
+    else
+      cleanup_status=1
+    fi
+  fi
+  return $cleanup_status
+}
+
+_usb_windows_source_open() {
+  emulate -L zsh
+  local image=$1 temp_root=${TMPDIR:-/tmp} mount_point='' device=''
+  local -i capture_status=0 attach_status=0
+  REPLY=''
+  _USB_WINDOWS_SOURCE_DEVICE='' _USB_WINDOWS_SOURCE_MOUNT=''
+  mount_point=$(command /usr/bin/mktemp -d \
+    "${temp_root%/}/compozsh-usb-windows.XXXXXX" 2>/dev/null) || return 2
+  _usb_hdiutil_attach_readonly "$image" "$mount_point"
+  attach_status=$?
+  if (( attach_status != 0 )); then
+    device=$_USB_INSPECT_DEVICE
+    if [[ -n $device ]]; then
+      _USB_WINDOWS_SOURCE_DEVICE=$device
+      _USB_WINDOWS_SOURCE_MOUNT=$mount_point
+      if _usb_windows_source_close "$device" "$mount_point"; then
+        _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+      fi
+    else
+      command /bin/rmdir "$mount_point" 2>/dev/null
+    fi
+    _USB_WINDOWS_ERROR='macOS could not mount the Windows ISO read-only for file-tree creation'
+    (( attach_status == 2 )) && return 2
+    return 1
+  fi
+  device=$_USB_INSPECT_DEVICE
+  _USB_WINDOWS_SOURCE_DEVICE=$device _USB_WINDOWS_SOURCE_MOUNT=$mount_point
+  _usb_windows_tree_capture "$mount_point"
+  capture_status=$?
+  if (( capture_status != 0 )); then
+    _USB_WINDOWS_ERROR='the mounted ISO no longer contains a complete UEFI Windows setup tree'
+  elif (( !_USB_WINDOWS_COMPATIBLE )); then
+    capture_status=1
+  fi
+  if (( capture_status != 0 )); then
+    _usb_windows_source_close "$device" "$mount_point" || return 2
+    return $capture_status
+  fi
+  REPLY=$mount_point
+}
+
+_usb_windows_prepare_volume() {
+  emulate -L zsh
+  local identifier=$1 expected_fingerprint=$2 minimum_size=$3
+  local name='' mount_point='' plist='' parent='' partition=''
+  local -i attempts=0 sectors=0
+  REPLY=''
+  _USB_WINDOWS_TARGET_PARTITION='' _USB_WINDOWS_TARGET_MOUNT=''
+  [[ $identifier == disk<-> && -n $expected_fingerprint &&
+     $minimum_size == <-> && -d $_USB_VOLUME_ROOT &&
+     ! -L $_USB_VOLUME_ROOT ]] || return 2
+  _usb_disk_info_capture "$identifier" || return 1
+  _usb_info_is_eligible || return 1
+  sectors=$(( _USB_INFO_SIZE / _USB_INFO_BLOCK_SIZE ))
+  (( sectors > 0 && sectors <= 4294967295 )) || {
+    _USB_WINDOWS_ERROR='the selected disk is too large for a complete MBR partition map'
+    return 1
+  }
+  while (( ++attempts <= 8 )); do
+    (( attempts == 1 )) && name=WINSETUP || name="WIN${RANDOM}"
+    name=${name[1,11]}
+    [[ ! -e "$_USB_VOLUME_ROOT/$name" ]] && break
+    name=''
+  done
+  [[ -n $name ]] || return 1
+  # This check lives inside the effect helper deliberately: authorization and
+  # UI rendering can take time, and macOS can reuse a diskN identifier.
+  _usb_target_revalidate "$identifier" "$expected_fingerprint" \
+    "$minimum_size" || return 1
+  _USB_RESULT_STARTED=1
+  _usb_diskutil_erase_run eraseDisk 'MS-DOS FAT32' "$name" MBR "/dev/$identifier" \
+    >/dev/null 2>&1 || return 1
+  mount_point="$_USB_VOLUME_ROOT/$name"
+  [[ -d $mount_point && ! -L $mount_point ]] || return 1
+  _usb_diskutil_plist_capture info -plist "$mount_point" || return 1
+  plist=$_USB_PLIST
+  _usb_plist_optional "$plist" ParentWholeDisk
+  parent=$REPLY
+  _usb_plist_optional "$plist" DeviceIdentifier
+  partition=$REPLY
+  [[ $parent == "$identifier" && $partition == ${identifier}s<-> ]] || return 1
+  _USB_WINDOWS_TARGET_PARTITION=$partition
+  _USB_WINDOWS_TARGET_MOUNT=$mount_point
+  _usb_windows_target_validate "$identifier" "$partition" "$mount_point" writable || return 1
+  REPLY=$mount_point
+}
+
+_usb_windows_target_validate() {
+  emulate -L zsh
+  local identifier=$1 partition=$2 mount_point=${3:a} mode=${4:-writable}
+  local plist='' parent='' actual_partition='' content='' filesystem=''
+  local writable='' free='' disk_content=''
+  [[ $identifier == disk<-> && $partition == ${identifier}s<-> &&
+     -d $mount_point && ! -L $mount_point ]] || return 2
+  _usb_diskutil_plist_capture info -plist "$mount_point" || return 1
+  plist=$_USB_PLIST
+  _usb_plist_optional "$plist" ParentWholeDisk
+  parent=$REPLY
+  _usb_plist_optional "$plist" DeviceIdentifier
+  actual_partition=$REPLY
+  _usb_plist_optional "$plist" Content
+  content=$REPLY
+  _usb_plist_optional "$plist" FilesystemType
+  filesystem=$REPLY
+  _usb_plist_optional "$plist" WritableVolume false
+  writable=$REPLY
+  _usb_plist_optional "$plist" FreeSpace 0
+  free=$REPLY
+  [[ $parent == "$identifier" && $actual_partition == "$partition" &&
+     $content == DOS_FAT_32 && $filesystem == msdos && $free == <-> ]] || return 1
+  case $mode in
+    (writable)
+      [[ $writable == true ]] || return 1
+      (( free >= _USB_WINDOWS_TOTAL_BYTES )) || return 1 ;;
+    (readonly) [[ $writable == false ]] || return 1 ;;
+    (*) return 2 ;;
+  esac
+  _usb_diskutil_plist_capture info -plist "/dev/$identifier" || return 1
+  plist=$_USB_PLIST
+  _usb_plist_optional "$plist" Content
+  disk_content=$REPLY
+  [[ $disk_content == FDisk_partition_scheme ]]
+}
+
+_usb_windows_sync_run() {
+  command /bin/sync
+}
+
+_usb_windows_unmount_run() {
+  _usb_diskutil_run unmountDisk "/dev/$1"
+}
+
+_usb_windows_mount_readonly_run() {
+  _usb_diskutil_run mount readOnly nobrowse -mountPoint "$2" "/dev/$1"
+}
+
+_usb_windows_verify_mount_open() {
+  emulate -L zsh
+  local identifier=$1 partition=$2 temp_root=${TMPDIR:-/tmp} mount_point=''
+  REPLY=''
+  _USB_WINDOWS_VERIFY_MOUNT=''
+  mount_point=$(command /usr/bin/mktemp -d \
+    "${temp_root%/}/compozsh-windows-readonly.XXXXXX" 2>/dev/null) || return 2
+  if ! _usb_windows_mount_readonly_run "$partition" "$mount_point" \
+      >/dev/null 2>&1; then
+    command /bin/rmdir "$mount_point" 2>/dev/null
+    return 1
+  fi
+  _USB_WINDOWS_VERIFY_MOUNT=$mount_point
+  if ! _usb_windows_target_validate "$identifier" "$partition" "$mount_point" readonly; then
+    _usb_windows_unmount_run "$identifier" >/dev/null 2>&1
+    command /bin/rmdir "$mount_point" 2>/dev/null
+    _USB_WINDOWS_VERIFY_MOUNT=''
+    return 1
+  fi
+  REPLY=$mount_point
+}
+
+_usb_windows_verify_mount_cleanup() {
+  emulate -L zsh
+  local mount_point=${1:-$_USB_WINDOWS_VERIFY_MOUNT} temp_root=${TMPDIR:-/tmp}
+  if [[ -n $mount_point && -d $mount_point && ! -L $mount_point &&
+        ${mount_point:t} == compozsh-windows-readonly.* &&
+        ${mount_point:h:A} == ${temp_root:A} ]]; then
+    command /bin/rmdir "$mount_point" 2>/dev/null || return 1
+  fi
+  _USB_WINDOWS_VERIFY_MOUNT=''
+}
+
+_usb_windows_ditto_run() {
+  command /usr/bin/ditto --norsrc --noextattr --noqtn --noacl --nocache \
+    "$1" "$2"
+}
+
+_usb_windows_target_bytes_capture() {
+  emulate -L zsh
+  zmodload zsh/stat || return 1
+  local root=${1:a} relative='' path=''
+  local -a file_stat=()
+  local -i index=0 total=0
+  REPLY=0
+  [[ -d $root && ! -L $root ]] || return 1
+  for (( index = 1; index <= ${#_USB_WINDOWS_FILES}; ++index )); do
+    relative=${_USB_WINDOWS_FILES[index]}
+    path="$root/$relative"
+    [[ -e $path && -f $path && ! -L $path ]] || continue
+    zstat -A file_stat +size -- "$path" 2>/dev/null || continue
+    (( file_stat[1] > _USB_WINDOWS_FILE_SIZES[index] )) &&
+      file_stat[1]=${_USB_WINDOWS_FILE_SIZES[index]}
+    (( total += file_stat[1] ))
+  done
+  REPLY=$total
+}
+
+_usb_windows_copy_tree() {
+  emulate -L zsh
+  setopt NO_BG_NICE
+  unsetopt MONITOR NOTIFY
+  local source=${1:a} target=${2:a} copied=0 progress_text='' bar=''
+  local -i worker=0 command_status=1 percent=0 width=32
+  [[ -d $source && ! -L $source && -d $target && ! -L $target ]] || return 2
+  (( _USB_WINDOWS_FILE_COUNT == ${#_USB_WINDOWS_FILES} &&
+     _USB_WINDOWS_FILE_COUNT == ${#_USB_WINDOWS_FILE_SIZES} &&
+     _USB_WINDOWS_TOTAL_BYTES > 0 )) || return 2
+  width=$(( (${COLUMNS:-80} - 12) / 2 ))
+  (( width < 24 )) && width=24
+  (( width > 64 )) && width=64
+  {
+    _usb_windows_ditto_run "$source/" "$target" >/dev/null 2>&1 &
+    worker=$!
+    while builtin kill -0 $worker 2>/dev/null; do
+      _usb_windows_target_bytes_capture "$target"
+      copied=$REPLY
+      percent=$(( copied * 100 / _USB_WINDOWS_TOTAL_BYTES ))
+      _usb_progress_bar $percent $width
+      bar=$REPLY
+      _usb_human_size $copied
+      progress_text="$REPLY of "
+      _usb_human_size $_USB_WINDOWS_TOTAL_BYTES
+      progress_text+=$REPLY
+      _usb_progress_stage 'Copying Windows installer files' \
+        progress "$bar" \
+        info "$progress_text" warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      command /bin/sleep 0.25
+    done
+    wait $worker
+    command_status=$?
+  } always {
+    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
+      builtin kill -INT $worker 2>/dev/null
+      wait $worker 2>/dev/null
+    fi
+  }
+  (( command_status == 0 )) || {
+    _USB_PAYLOAD_VERIFY_ERROR=copy-failed
+    return 1
+  }
+  return 0
+}
+
+_usb_windows_cmp_run() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local source=$1 target=$2 count=$3 progress_file=$4
+  local before='' after=''
+  local -a statuses=()
+  [[ -f $source && ! -L $source && -f $target && ! -L $target &&
+     $count == <-> && -f $progress_file ]] || return 2
+  before=$(command /usr/bin/stat -f '%z:%m' "$source" 2>/dev/null) || return 2
+  command /bin/dd "if=$target" bs=4m iflag=direct status=progress \
+      2>| "$progress_file" |
+    _usb_cmp_drain "$count" 0 0 "$source"
+  statuses=("${pipestatus[@]}")
+  after=$(command /usr/bin/stat -f '%z:%m' "$source" 2>/dev/null) || return 2
+  [[ $before == "$after" ]] || return 2
+  (( statuses[1] == 0 )) || return 2
+  return ${statuses[2]}
+}
+
+_usb_windows_verify_tree() {
+  emulate -L zsh
+  setopt NO_BG_NICE
+  unsetopt MONITOR NOTIFY
+  local source=${1:a} target=${2:a} relative='' source_path='' target_path=''
+  local expected_size='' actual_size='' progress_text='' bar=''
+  local temp_root=${TMPDIR:-/tmp} progress_file=''
+  local -i index=0 verified_bytes=0 current_bytes=0 percent=0 width=32
+  local -i worker=0 compare_status=0
+  _USB_PAYLOAD_VERIFY_ERROR='' _USB_RESULT_VERIFY_SCOPE=''
+  _USB_RESULT_BYTES=0
+  [[ -d $source && ! -L $source && -d $target && ! -L $target ]] || return 2
+  (( _USB_WINDOWS_FILE_COUNT == ${#_USB_WINDOWS_FILES} &&
+     _USB_WINDOWS_FILE_COUNT == ${#_USB_WINDOWS_FILE_SIZES} &&
+     _USB_WINDOWS_TOTAL_BYTES > 0 )) || return 2
+  width=$(( (${COLUMNS:-80} - 12) / 2 ))
+  (( width < 24 )) && width=24
+  (( width > 64 )) && width=64
+  progress_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-windows-verify.XXXXXX" 2>/dev/null) || return 2
+  {
+  for (( index = 1; index <= _USB_WINDOWS_FILE_COUNT; ++index )); do
+    relative=${_USB_WINDOWS_FILES[index]}
+    expected_size=${_USB_WINDOWS_FILE_SIZES[index]}
+    source_path="$source/$relative" target_path="$target/$relative"
+    if [[ ! -f $source_path || -L $source_path || ! -f $target_path || -L $target_path ]]; then
+      _USB_PAYLOAD_VERIFY_ERROR="mismatch:$relative"
+      return 1
+    fi
+    actual_size=$(command /usr/bin/stat -f '%z' "$target_path" 2>/dev/null) || {
+      _USB_PAYLOAD_VERIFY_ERROR="read-failed:$relative"
+      return 2
+    }
+    if [[ $actual_size != "$expected_size" ]]; then
+      _USB_PAYLOAD_VERIFY_ERROR="mismatch:$relative"
+      return 1
+    fi
+    : >| "$progress_file"
+    _usb_windows_cmp_run "$source_path" "$target_path" "$expected_size" \
+      "$progress_file" &
+    worker=$!
+    while builtin kill -0 $worker 2>/dev/null; do
+      _usb_dd_bytes_observed "$progress_file" && current_bytes=$REPLY || current_bytes=0
+      (( current_bytes > expected_size )) && current_bytes=$expected_size
+      percent=$(( (verified_bytes + current_bytes) * 100 / _USB_WINDOWS_TOTAL_BYTES ))
+      _usb_progress_bar $percent $width
+      bar=$REPLY
+      _usb_human_size $(( verified_bytes + current_bytes ))
+      progress_text="$REPLY of "
+      _usb_human_size $_USB_WINDOWS_TOTAL_BYTES
+      progress_text+="$REPLY verified"
+      _usb_progress_stage 'Verifying Windows installer files' \
+        progress "$bar" info "$progress_text" \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      command /bin/sleep 0.25
+    done
+    wait $worker
+    compare_status=$?
+    worker=0
+    case $compare_status in
+      (0) ;;
+      (1) _USB_PAYLOAD_VERIFY_ERROR="mismatch:$relative"; return 1 ;;
+      (*) _USB_PAYLOAD_VERIFY_ERROR="read-failed:$relative"; return 2 ;;
+    esac
+    (( verified_bytes += expected_size ))
+    percent=$(( verified_bytes * 100 / _USB_WINDOWS_TOTAL_BYTES ))
+    _usb_progress_bar $percent $width
+    bar=$REPLY
+    _usb_human_size $verified_bytes
+    progress_text="$REPLY verified"
+    _usb_progress_stage 'Verifying Windows installer files' \
+      progress "$bar" info "$progress_text" \
+      warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+  done
+  _USB_RESULT_BYTES=$verified_bytes
+  _USB_RESULT_VERIFY_SCOPE=windows-file-tree
+  } always {
+    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
+      builtin kill -INT $worker 2>/dev/null
+      wait $worker 2>/dev/null
+    fi
+    [[ -n $progress_file && ${progress_file:t} == compozsh-windows-verify.* &&
+       ${progress_file:h:A} == ${temp_root:A} ]] &&
+      command /bin/rm -f -- "$progress_file"
+  }
+}
+
 _usb_macos_prepare_volume() {
   emulate -L zsh
   local identifier=$1 name='' mount_point='' plist='' parent=''
@@ -3000,6 +3562,278 @@ _usb_macos_execute() {
   _USB_RESULT_OUTCOME=complete
 }
 
+_usb_windows_execute() {
+  emulate -L zsh
+  local image=$1 identifier=$2 disk_fingerprint=$3 image_fingerprint=$4
+  local image_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
+  local checksum_algorithm=${9:-} expected_checksum=${10:-}
+  local target_size=${11:-$image_size} source_mount='' target_mount=''
+  local source_error='' verify_mount='' target_partition=''
+  local -i action_status=0 eject_status=0 close_status=0 source_opened=0
+  local -i verify_mount_created=0 verify_cleanup_status=0
+  local -i execution_started=$SECONDS stage_started=0
+  _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+  _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
+  _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
+  _USB_RESULT_EXPECTED_CHECKSUM=$expected_checksum _USB_RESULT_IMAGE_CHECKSUM=''
+  _USB_RESULT_CHECKSUM_ERROR=''
+  _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
+  _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
+  _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
+  _USB_RESULT_SOURCE_VALIDATED=0 _USB_PAYLOAD_VERIFY_ERROR=''
+  [[ $image_size == <-> && $target_size == <-> && $request == flash-verify ]] || return 2
+  if [[ -n $expected_checksum ]]; then
+    case $checksum_algorithm in
+      (256) (( ${#expected_checksum} == 64 )) ;;
+      (512) (( ${#expected_checksum} == 128 )) ;;
+      (*) return 2 ;;
+    esac || return 2
+    [[ $expected_checksum == [0-9a-f]## ]] || return 2
+  elif [[ -n $checksum_algorithm ]]; then
+    return 2
+  fi
+  if [[ -n $source_disk && $identifier == "$source_disk" ]]; then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The selected drive contains the Windows ISO source; nothing was written.'
+    return 1
+  fi
+  _usb_progress_stage 'Inspecting Windows installer' \
+    info 'Mounting the ISO read-only and checking every path against the native FAT32 workflow.' \
+    muted 'No disk data has been changed yet.'
+  if ! _usb_windows_source_open "$image"; then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR="Windows installer preflight failed: ${_USB_WINDOWS_ERROR:-the ISO could not be inspected safely}. Nothing was written."
+    return 1
+  fi
+  source_mount=$REPLY source_opened=1
+  {
+    if (( target_size < _USB_WINDOWS_REQUIRED_BYTES )); then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The selected external drive is too small for the Windows installer tree; nothing was written.'
+    fi
+    if (( action_status == 0 )) &&
+        ! _usb_image_revalidate "$image" "$image_fingerprint" "$image_size"; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The selected Windows ISO changed after capture; nothing was written.'
+    fi
+    if (( action_status == 0 )); then
+      _USB_RESULT_SOURCE_VALIDATED=1
+    fi
+    if (( action_status == 0 )) && [[ -n $expected_checksum ]]; then
+      _usb_progress_stage "Checking ISO SHA-$checksum_algorithm" \
+        info 'Hashing the complete Windows ISO before any target data is changed.' \
+        muted "Expected · ${expected_checksum[1,16]}…"
+      if ! _usb_image_checksum "$image" "$checksum_algorithm"; then
+        action_status=1
+        _USB_RESULT_CHECKSUM_ERROR=calculation-failed
+        _USB_RESULT_OUTCOME=failed
+        _USB_RESULT_ERROR="The Windows ISO SHA-$checksum_algorithm could not be calculated; nothing was written."
+      else
+        _USB_RESULT_IMAGE_CHECKSUM=$REPLY
+        if [[ $REPLY != "$expected_checksum" ]]; then
+          action_status=1
+          _USB_RESULT_CHECKSUM_ERROR=mismatch
+          _USB_RESULT_OUTCOME=failed
+          _USB_RESULT_ERROR="The Windows ISO SHA-$checksum_algorithm does not match the provided checksum; nothing was written."
+        else
+          _USB_RESULT_CHECKSUM_VALIDATED=1
+          _USB_RESULT_CHECKSUM_ERROR=''
+        fi
+      fi
+    fi
+    if (( action_status == 0 )) &&
+        ! _usb_target_revalidate "$identifier" "$disk_fingerprint" \
+          "$_USB_WINDOWS_REQUIRED_BYTES"; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The external drive changed or is no longer eligible; nothing was written.'
+    fi
+    if (( action_status == 0 )); then
+      _usb_progress_stage 'Revalidating exact target' \
+        info 'Closing the device-identity race immediately before the first erase.' \
+        warning 'NO DISK DATA HAS BEEN CHANGED YET'
+      if ! _usb_target_revalidate "$identifier" "$disk_fingerprint" \
+          "$_USB_WINDOWS_REQUIRED_BYTES"; then
+        action_status=1
+        _USB_RESULT_OUTCOME=failed
+        _USB_RESULT_ERROR='The external drive changed immediately before Windows-media preparation; nothing was written.'
+      fi
+    fi
+    if (( action_status == 0 )) &&
+        ! _usb_authorization_valid && ! _usb_authorize; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='Administrator authorization expired before Windows-media preparation; nothing was written.'
+    fi
+    if (( action_status == 0 )) &&
+        ! _usb_target_revalidate "$identifier" "$disk_fingerprint" \
+          "$_USB_WINDOWS_REQUIRED_BYTES"; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The external drive changed during authorization; nothing was written.'
+    fi
+    if (( action_status == 0 )); then
+      _usb_progress_stage 'Preparing Windows installer drive' \
+        info 'Creating one FAT32 partition with an MBR for native UEFI Windows setup.' \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      _usb_windows_prepare_volume "$identifier" "$disk_fingerprint" \
+        "$_USB_WINDOWS_REQUIRED_BYTES"
+      action_status=$?
+      target_mount=$REPLY
+      target_partition=$_USB_WINDOWS_TARGET_PARTITION
+      if (( action_status )); then
+        _USB_RESULT_OUTCOME=failed
+        _USB_RESULT_ERROR='macOS could not prepare the selected whole external drive as FAT32 with an MBR.'
+      fi
+    fi
+    if (( action_status == 0 )) &&
+        ! _usb_image_revalidate "$image" "$image_fingerprint" "$image_size"; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The Windows ISO changed while the target was being prepared; no files were copied.'
+    fi
+    if (( action_status == 0 )) && {
+         ! _usb_target_revalidate "$identifier" "$disk_fingerprint" \
+           "$_USB_WINDOWS_REQUIRED_BYTES" ||
+         ! _usb_windows_target_validate "$identifier" "$target_partition" \
+           "$target_mount" writable
+       }; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The prepared FAT32 target no longer matches the selected external drive; no files were copied.'
+    fi
+    if (( action_status == 0 )); then
+      stage_started=$SECONDS
+      _usb_windows_copy_tree "$source_mount" "$target_mount"
+      action_status=$?
+      _USB_RESULT_WRITE_SECONDS=$(( SECONDS - stage_started ))
+      if (( action_status )); then
+        _USB_RESULT_OUTCOME=failed
+        _USB_RESULT_ERROR='Copying the Windows installer tree failed; the drive is incomplete and must not be used.'
+      fi
+    fi
+    if (( action_status == 0 )) && ! _usb_windows_sync_run; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='macOS could not flush the copied Windows installer files; the drive must not be used.'
+    fi
+    if (( action_status == 0 )) &&
+        ! _usb_image_revalidate "$image" "$image_fingerprint" "$image_size"; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The Windows ISO changed during copying; the drive must not be used.'
+    fi
+    if (( action_status == 0 )) && [[ -n $expected_checksum ]]; then
+      _usb_progress_stage "Rechecking ISO SHA-$checksum_algorithm" \
+        info 'Confirming the complete source ISO remained unchanged through the copy.' \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      if ! _usb_image_checksum "$image" "$checksum_algorithm" ||
+          [[ $REPLY != "$expected_checksum" ]]; then
+        action_status=1
+        _USB_RESULT_CHECKSUM_VALIDATED=0
+        _USB_RESULT_CHECKSUM_ERROR=changed-or-unreadable
+        _USB_RESULT_OUTCOME=failed
+        _USB_RESULT_ERROR="The Windows ISO SHA-$checksum_algorithm changed or could not be reread; the drive must not be used."
+      fi
+    fi
+    if (( action_status == 0 )) && {
+         ! _usb_target_revalidate "$identifier" "$disk_fingerprint" \
+           "$_USB_WINDOWS_REQUIRED_BYTES" ||
+         ! _usb_windows_target_validate "$identifier" "$target_partition" \
+           "$target_mount" writable
+       }; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The Windows target changed after copying; verification was stopped and the drive must not be used.'
+    fi
+    if (( action_status == 0 )); then
+      _usb_progress_stage 'Reopening Windows target read-only' \
+        info 'Flushing and remounting the exact FAT32 partition before uncached verification.' \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      if ! _usb_windows_unmount_run "$identifier" >/dev/null 2>&1 ||
+          ! _usb_windows_verify_mount_open "$identifier" "$target_partition"; then
+        action_status=1
+        _USB_RESULT_OUTCOME=failed
+        _USB_RESULT_ERROR='macOS could not remount the exact Windows target read-only for verification; the drive must not be used.'
+      else
+        verify_mount=$REPLY target_mount=$REPLY verify_mount_created=1
+      fi
+    fi
+    if (( action_status == 0 )) &&
+        ! _usb_target_revalidate "$identifier" "$disk_fingerprint" \
+          "$_USB_WINDOWS_REQUIRED_BYTES"; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The external drive identity changed before Windows file verification; the drive must not be used.'
+    fi
+    if (( action_status == 0 )); then
+      stage_started=$SECONDS
+      _usb_windows_verify_tree "$source_mount" "$target_mount"
+      action_status=$?
+      _USB_RESULT_VERIFY_SECONDS=$(( SECONDS - stage_started ))
+      _USB_RESULT_VERIFY_REASON=$_USB_PAYLOAD_VERIFY_ERROR
+      if (( action_status )); then
+        _USB_RESULT_OUTCOME=failed
+        case $_USB_PAYLOAD_VERIFY_ERROR in
+          (mismatch:*)
+            _USB_RESULT_ERROR="Windows USB verification failed at ${_USB_PAYLOAD_VERIFY_ERROR#mismatch:}; the drive must not be used." ;;
+          (read-failed:*)
+            _USB_RESULT_ERROR="Windows USB verification could not read ${_USB_PAYLOAD_VERIFY_ERROR#read-failed:}; the drive must not be used." ;;
+          (*)
+            _USB_RESULT_ERROR='Windows USB file-tree verification could not complete; the drive must not be used.' ;;
+        esac
+      else
+        _USB_RESULT_VERIFIED=1
+      fi
+    fi
+  } always {
+    if (( source_opened )); then
+      _usb_windows_source_close "$_USB_WINDOWS_SOURCE_DEVICE" \
+        "$_USB_WINDOWS_SOURCE_MOUNT"
+      close_status=$?
+      (( close_status == 0 )) && source_opened=0
+    fi
+    if (( _USB_RESULT_STARTED )); then
+      _usb_progress_stage 'Ejecting external drive' \
+        info 'Finishing the operation and making the drive safe to remove.'
+      _usb_eject "$identifier" >/dev/null 2>&1
+      eject_status=$?
+      (( eject_status == 0 )) && _USB_RESULT_EJECTED=1
+    fi
+    if (( verify_mount_created )); then
+      _usb_windows_verify_mount_cleanup "$verify_mount"
+      verify_cleanup_status=$?
+      (( verify_cleanup_status == 0 )) && verify_mount_created=0
+    fi
+  }
+  if (( close_status && action_status == 0 )); then
+    action_status=1
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The installer files were verified, but macOS could not detach the read-only source ISO cleanly.'
+  fi
+  if (( verify_cleanup_status && action_status == 0 && eject_status == 0 )); then
+    action_status=1
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The Windows installer was verified, but its temporary read-only mount could not be cleaned up.'
+  fi
+  _USB_RESULT_SECONDS=$(( SECONDS - execution_started ))
+  if (( action_status )); then
+    return $action_status
+  fi
+  if (( eject_status )); then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The Windows installer was created and verified, but macOS could not eject the external drive.'
+    return $eject_status
+  fi
+  if (( _USB_RESULT_WRITE_SECONDS > 0 )); then
+    _usb_human_size $(( _USB_WINDOWS_TOTAL_BYTES / _USB_RESULT_WRITE_SECONDS ))
+    _USB_RESULT_RATE="$REPLY/s"
+  fi
+  _USB_RESULT_OUTCOME=complete
+}
+
 _usb_media_execute() {
   emulate -L zsh
   local kind=$1
@@ -3007,10 +3841,7 @@ _usb_media_execute() {
   case $kind in
     (raw-image) _usb_execute "$@" ;;
     (macos-installer) _usb_macos_execute "$@" ;;
-    (windows-installer)
-      _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0
-      _USB_RESULT_ERROR='Windows installer media is not supported yet; nothing was written.'
-      return 1 ;;
+    (windows-installer) _usb_windows_execute "$@" ;;
     (*)
       _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0
       _USB_RESULT_ERROR='The selected media handler is unavailable; nothing was written.'
@@ -3481,9 +4312,93 @@ _usb_macos_result_screen() {
   _usb_result_choose 'Flash USB · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
 }
 
+_usb_windows_result_screen() {
+  emulate -L zsh
+  local result_status=${1:-1} duration_label='' eject_label=''
+  local integrity_label='' integrity_style=picker-error
+  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
+  local -a _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  _usb_human_duration $_USB_RESULT_SECONDS
+  duration_label=$REPLY
+  if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
+    integrity_label="Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched"
+    integrity_style=picker-success
+  elif [[ -n $_USB_RESULT_EXPECTED_CHECKSUM ]]; then
+    case $_USB_RESULT_CHECKSUM_ERROR in
+      (mismatch)
+        integrity_label="Image integrity · FAILED · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM did not match" ;;
+      (changed-or-unreadable)
+        integrity_label='Image integrity · FAILED · source changed or could not be reread' ;;
+      (*)
+        integrity_label="Image integrity · FAILED · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM could not be calculated" ;;
+    esac
+  else
+    integrity_label='Image integrity · Not verified · no checksum provided'
+  fi
+  if (( result_status == 0 )) && [[ $_USB_RESULT_OUTCOME == complete &&
+        $_USB_RESULT_VERIFIED -eq 1 && $_USB_RESULT_VERIFY_SCOPE == windows-file-tree ]]; then
+    eject_label='Safe to remove · external drive ejected'
+    _USB_PICKER_VALUES=(done complete time integrity verify eject)
+    _USB_PICKER_LABELS=(
+      '[ Done ]'
+      'Windows installer complete · complete FAT32 file tree verified'
+      "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}"
+      "$integrity_label"
+      'USB verification · Every captured installer file byte-for-byte matched'
+      "$eject_label")
+    _USB_PICKER_HIGHLIGHTS=(
+      "0:${#_USB_PICKER_LABELS[1]}:picker-success"
+      "0:${#_USB_PICKER_LABELS[2]}:picker-success"
+      ''
+      "0:${#integrity_label}:$integrity_style"
+      "0:${#_USB_PICKER_LABELS[5]}:picker-success"
+      "0:${#eject_label}:picker-success")
+    _USB_PICKER_SEARCH=(done complete time integrity verified safe)
+    _USB_PICKER_DETAILS=(
+      ''
+      'The complete UEFI Windows installer tree was copied to FAT32, flushed, remounted read-only, and verified from uncached reads.'
+      ''
+      'A publisher checksum proves the selected ISO origin only when one was provided and matched.'
+      'Every captured regular source file matched the corresponding finished USB file exactly.'
+      '')
+    _usb_result_choose 'Flash USB · Complete' 'Media  ›  Drive  ›  DONE'
+    return
+  fi
+  if (( !_USB_RESULT_STARTED )); then
+    eject_label='Nothing was written · drive remains mounted'
+  elif (( _USB_RESULT_EJECTED )); then
+    eject_label='Safe to remove · external drive ejected'
+  else
+    eject_label='Check the drive before removing it'
+  fi
+  _USB_PICKER_VALUES=(done error integrity eject)
+  _USB_PICKER_LABELS=(
+    '[ Done ]'
+    "Windows installer failed · ${_USB_RESULT_ERROR:-The operation did not complete.}"
+    "$integrity_label"
+    "$eject_label")
+  _USB_PICKER_HIGHLIGHTS=(
+    ''
+    "0:${#_USB_PICKER_LABELS[2]}:picker-error"
+    "0:${#integrity_label}:$integrity_style"
+    '')
+  (( _USB_RESULT_EJECTED )) &&
+    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-success"
+  (( _USB_RESULT_STARTED && !_USB_RESULT_EJECTED )) &&
+    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-error"
+  _USB_PICKER_SEARCH=(done failed integrity recovery)
+  _USB_PICKER_DETAILS=(
+    ''
+    "${_USB_RESULT_ERROR:-No additional diagnostic was retained.}"
+    'ISO integrity and finished USB fidelity are independent evidence.'
+    '')
+  _usb_result_choose 'Flash USB · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
+}
+
 _usb_media_result_screen() {
   case $1 in
     (macos-installer) _usb_macos_result_screen "$2" ;;
+    (windows-installer) _usb_windows_result_screen "$2" ;;
     (*) _usb_result_screen "$2" ;;
   esac
 }
@@ -3552,6 +4467,13 @@ _usb_confirm() {
   fi
   if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == macos-installer ]]; then
     :
+  elif [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == windows-installer ]]; then
+    if [[ -n $checksum ]]; then
+      print -r -- "Action: Validate ISO SHA-$checksum_algorithm, create a UEFI FAT32 installer, verify every file, and eject"
+    else
+      print -r -- 'Action: Create a UEFI FAT32 installer, verify every file, and eject'
+    fi
+    print -r -- 'Firmware support: UEFI only · legacy BIOS media is not claimed'
   elif [[ $request == flash-verify && -n $checksum ]]; then
     print -r -- "Action: Validate image SHA-$checksum_algorithm, flash, verify payload SHA-$checksum_algorithm, and eject"
   elif [[ $request == flash-verify ]]; then
@@ -3614,9 +4536,13 @@ _compozsh_help_flash-usb() {
     '  context; Enter on Retry performs a fresh read-only source/target capture.' \
     '  Installed macOS installers in /Applications and ~/Applications are also' \
     '  captured. A macOS .dmg or .pkg must first install the full application.' \
-    '  ISO selection performs a temporary read-only inspection. Recognized' \
-    '  Windows setup media is refused before target selection because Windows' \
-    '  requires a filesystem-aware handler that is not shipped yet.' \
+    '  ISO selection performs a temporary read-only inspection. Compatible UEFI' \
+    '  Windows setup media uses a filesystem-aware FAT32 handler. Windows media' \
+    '  without an x64 or ARM64 fallback UEFI loader is refused before targeting.' \
+    '  Any file beyond FAT32’s 4 GiB-minus-one-byte limit, reserved or ambiguous' \
+    '  FAT path, non-ASCII/control-bearing path, or incomplete setup tree is also' \
+    '  refused before target mutation. A clean read-only ISO mount refusal stays' \
+    '  eligible for raw/hybrid handling; partial attachment or cleanup fails closed.' \
     '' \
     'Target capture:' \
     '  diskutil supplies currently attached whole external physical disks.' \
@@ -3676,6 +4602,13 @@ _compozsh_help_flash-usb() {
     '  one Mac OS Extended volume on the selected whole disk, and invokes the' \
     '  installer’s createinstallmedia tool with live native progress. Apple’s' \
     '  tool performs the bootable-media creation; the result is then ejected.' \
+    '  Compatible Windows ISOs use another separate handler. It prepares MBR +' \
+    '  FAT32 for UEFI boot, copies the complete captured installer tree, flushes' \
+    '  it, revalidates the exact disk and partition, remounts that partition' \
+    '  read-only, and verifies every captured file using uncached target reads.' \
+    '  It supports UEFI x64 and ARM64 media. It does not claim hardware, driver,' \
+    '  firmware, or legacy BIOS compatibility, nor does it' \
+    '  split oversized WIM files, use exFAT, or raw-flash recognized Windows media.' \
     '  The source identity is checked again after writing; a provided full-image' \
     '  digest is also recalculated. The held raw session performs verification' \
     '  under the authorization retained for writing.' \
@@ -3696,8 +4629,9 @@ _compozsh_help_flash-usb() {
     '' \
     'Requirements and recovery:' \
     '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
-    '  and Apple’s diskutil, plutil, hdiutil, codesign, df, mktemp, rmdir, rm,' \
-    '  sleep, cat, dd, cmp, cksum, head, od, tr, shasum, stat, and sudo tools.' \
+    '  and Apple’s diskutil, plutil, hdiutil, codesign, ditto, df, sync, mktemp,' \
+    '  rmdir, rm, sleep, cat, dd, cmp, cksum, head, od, tr, shasum, stat, and' \
+    '  sudo tools.' \
     '  Apple mdfind supplies the indexed home catalog; if it fails, the shallow' \
     '  current-folder and Downloads snapshot plus Custom path remain available.' \
     '  A failed or interrupted write can leave the target unusable until it is' \
@@ -3706,6 +4640,7 @@ _compozsh_help_flash-usb() {
     'Examples:' \
     '  flash-usb                         Choose a captured image and target.' \
     '  flash-usb ~/Downloads/Linux.iso  Select this exact raw image.' \
+    '  flash-usb ~/Downloads/Windows.iso  Create compatible UEFI Windows media.' \
     '  flash-usb "/Applications/Install macOS Tahoe.app"  Use Apple’s handler.'
 }
 
@@ -3724,6 +4659,7 @@ flash-usb() {
   local _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
   local _USB_RESULT_CHECKSUM_ALGORITHM='' _USB_RESULT_EXPECTED_CHECKSUM=''
   local _USB_RESULT_IMAGE_CHECKSUM=''
+  local _USB_RESULT_CHECKSUM_ERROR=''
   local -i _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
   local -i _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
   local -i _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
@@ -3750,7 +4686,8 @@ flash-usb() {
        -x /bin/cat && -x /usr/bin/cmp && -x /usr/bin/cksum &&
        -x /usr/bin/head && -x /usr/bin/od && -x /usr/bin/tr &&
        -x /usr/bin/shasum && -x /usr/bin/stat && -x /usr/bin/sudo &&
-       -x /usr/bin/hdiutil && -x /usr/bin/codesign && -x /bin/rmdir ]] || {
+       -x /usr/bin/hdiutil && -x /usr/bin/codesign && -x /usr/bin/ditto &&
+       -x /bin/sync && -x /bin/rmdir ]] || {
       print -u2 -r -- 'flash-usb: required Apple command-line tools are unavailable'
       return 1
     }
@@ -3787,7 +4724,13 @@ flash-usb() {
     progress_status=$?
     return $progress_status
   } always {
+    _usb_windows_source_close "$_USB_WINDOWS_SOURCE_DEVICE" \
+      "$_USB_WINDOWS_SOURCE_MOUNT" >/dev/null 2>&1
     _usb_cleanup_eject
+    _usb_windows_verify_mount_cleanup "$_USB_WINDOWS_VERIFY_MOUNT" \
+      >/dev/null 2>&1
+    _usb_inspect_cleanup "$_USB_INSPECT_DEVICE" "$_USB_INSPECT_MOUNT" \
+      >/dev/null 2>&1
     _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
     _USB_IMAGE_HIGHLIGHTS=()
     _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
@@ -3800,6 +4743,9 @@ flash-usb() {
     _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_CAPTURE_PARTIAL=0
     _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
     _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+    _USB_WINDOWS_SOURCE_DEVICE='' _USB_WINDOWS_SOURCE_MOUNT=''
+    _USB_WINDOWS_TARGET_PARTITION='' _USB_WINDOWS_TARGET_MOUNT=''
+    _USB_WINDOWS_VERIFY_MOUNT=''
     _USB_CREATEINSTALLMEDIA_ERROR=''
     _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
     _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0

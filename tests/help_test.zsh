@@ -181,7 +181,7 @@ _test_tool_help_explains_real_boundaries() {
         'determinate progress' 'dedicated status view' 'no query or bottom footer' 'disconnect warning' 'semantic heading' 'current comparison pass' 'aligned 4 MiB reads' 'final screen' 'average'
         'raw handler does not pre-format' 'held write session' 'every image byte'
         'physical-tail cleanup' 'short reads' 'pre-mount proof' 'checksum' 'createinstallmedia'
-        'Windows setup media is refused' 'Apple code signature'
+        'UEFI Windows' 'FAT32' '4 GiB' 'Apple code signature'
         'cannot roll back' 'Examples:') ;;
       (xcode) facts=('nearest' 'workspace' 'project' 'scheme' 'destination'
         'Build' 'Test' 'Analyze' 'Clean' 'Simulator' 'read-only discovery'
