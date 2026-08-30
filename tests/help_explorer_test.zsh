@@ -101,6 +101,7 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.usb"
     source "$1/.zsh.addons/.zsh.xcode"
     zmodload -F zsh/parameter p:functions_source || exit
 
@@ -110,6 +111,7 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
       git-discard-all
       prompt-refresh
       g
+      flash-usb
       update_xcode_skills
       compozsh
     )
@@ -128,7 +130,7 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
   ' "$TEST_REPO_ROOT") || return
 
   local public_command=''
-  for public_command in mkcd cpdir git-discard-all prompt-refresh g \
+  for public_command in mkcd cpdir git-discard-all prompt-refresh g flash-usb \
       update_xcode_skills compozsh; do
     test_assert_contains "$output" "$public_command|1|0|0|same|same-source" \
       "$public_command does not share one canonical help provider" || return

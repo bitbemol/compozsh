@@ -23,6 +23,12 @@ _test_fullscreen_footer_contract() {
     _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_CANCEL_LABEL=back
     _zle_picker_footer 179 ""
     [[ $REPLY != *"^Y copy"* && $REPLY == *"Esc back"* ]] || exit 6
+    _ZLE_PICKER_REFRESH_ENABLED=1
+    _zle_picker_footer 179 ""
+    [[ $REPLY == *"^R refresh"* ]] || exit 8
+    LINES=50 _zle_picker_guide_render 179
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"Ctrl-R"*"Refresh the current captured choices"* ]] || exit 9
+    _ZLE_PICKER_REFRESH_ENABLED=0
     _ZLE_PICKER_INSPECT_FOCUS=1
     _zle_picker_footer 179 ""
     [[ $REPLY == *"↑↓ scroll"* && $REPLY == *"Tab list"* && $REPLY != *"0–9"* ]] || exit 7
@@ -31,6 +37,36 @@ _test_fullscreen_footer_contract() {
   test_assert_equal consistent "$output"
 }
 test_case 'fullscreen contract keeps essential shortcuts visible and capability hints consistent' _test_fullscreen_footer_contract
+
+_test_fullscreen_status_view_omits_input_and_bottom_footer() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.output"
+    source "$1/.zsh.addons/.zsh.editor"
+    COLUMNS=140 LINES=32
+    _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_STATUS_VIEW=1 _ZLE_PICKER_BUSY=1
+    _ZLE_PICKER_TITLE="Flash USB · Step 3 of 3"
+    _ZLE_PICKER_SUBTITLE="Image  ›  Drive  ›  FLASH"
+    _ZLE_PICKER_BROWSE_LABEL="● WRITING IMAGE"
+    _ZLE_PICKER_QUERY_LABEL=Query _ZLE_PICKER_QUERY=""
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_EMPTY_LINES=("" IMAGE "  linux.iso" "" "[========········] 50%" "KEEP THE EXTERNAL DRIVE CONNECTED")
+    _ZLE_PICKER_BUSY_STYLES=(picker-text picker-status-heading picker-status-info picker-text picker-status-progress picker-status-warning)
+    _zle_picker_render "" 0 || exit 1
+    [[ -z $_ZLE_PICKER_QUERY_ROW ]] || exit 2
+    [[ $_ZLE_PICKER_DISPLAY[-1] == "KEEP THE EXTERNAL DRIVE CONNECTED"* ]] || exit 3
+    [[ ${(F)_ZLE_PICKER_DISPLAY} != *Query* && ${(F)_ZLE_PICKER_DISPLAY} != *"● WRITING IMAGE"* ]] || exit 4
+    [[ ${(j:,:)_ZLE_PICKER_DISPLAY_STYLES} == *picker-status-progress* &&
+       ${(j:,:)_ZLE_PICKER_DISPLAY_STYLES} == *picker-status-warning* ]] || exit 5
+    [[ $_ZLE_PICKER_TITLEBAR == *"In progress" && $_ZLE_PICKER_HEADER == "● WRITING IMAGE" ]] || exit 6
+    print status-layout
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal status-layout "$output"
+}
+test_case 'fullscreen status view keeps progress prominent and removes input chrome' \
+  _test_fullscreen_status_view_omits_input_and_bottom_footer
 
 _test_files_primary_action_hints() {
   test_make_temp_dir || return

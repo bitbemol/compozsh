@@ -60,6 +60,8 @@ for full-sized sessions in one Terminal window.
   separate Recents, and safe file actions
 - A live `compozsh` tool explorer that discovers public add-on functions,
   searches them fuzzily, and opens their safe self-documentation
+- A native external-disk image workspace with explicit image/target selection,
+  Finder drag and drop, typed erase confirmation, and read-back verification
 - Live native history autosuggestions with character, word, and full acceptance
 - `Ctrl-X Ctrl-E` to edit the current command in `$EDITOR`
 - Live native syntax highlighting for commands, arguments, operators, strings,
@@ -191,6 +193,7 @@ compozsh/
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
+│   ├── .zsh.usb           external-disk image writing and verification
 │   ├── .zsh.xcode         native Xcode workspace and agent-skill integration
 │   └── support/
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
@@ -234,6 +237,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
+| `.zsh.usb` | External-disk imaging | `flash-usb` guides image selection with visible architecture context, external-drive selection, optional SHA-256/SHA-512 integrity, and flash steps; writes with native determinate progress, verifies by default, and retains completion or recovery stats |
 | `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -1254,6 +1258,10 @@ ZSH_HIGHLIGHT_STYLES[picker-selected-inactive]='fg=252,bg=238'
 ZSH_HIGHLIGHT_STYLES[picker-focus]='fg=75,bold'
 ZSH_HIGHLIGHT_STYLES[picker-match]='fg=81,bold,underline'
 ZSH_HIGHLIGHT_STYLES[picker-text]='fg=252'
+ZSH_HIGHLIGHT_STYLES[picker-architecture]='fg=117,bold'
+ZSH_HIGHLIGHT_STYLES[picker-architecture-selected]='fg=231,bold'
+ZSH_HIGHLIGHT_STYLES[picker-size]='fg=221'
+ZSH_HIGHLIGHT_STYLES[picker-size-selected]='fg=229,bold'
 ZSH_HIGHLIGHT_STYLES[picker-muted]='fg=242'
 ZSH_HIGHLIGHT_STYLES[picker-empty]='fg=203,bold'
 ```
@@ -1736,6 +1744,7 @@ cpdir --help
 git-discard-all --help
 prompt-refresh --help
 g --help
+flash-usb --help
 xcode --help
 update_xcode_skills --help
 compozsh --help
@@ -1889,6 +1898,142 @@ Programmatic extension functions such as `prompt_add_project_segment` are APIs,
 not terminal commands, and document their call signature where they are used.
 Transparent wrappers such as `grep` and `man` preserve the help behavior of the
 underlying system command.
+
+### External-disk image workspace
+
+Open the image workspace with a discovered image or one exact path:
+
+```sh
+flash-usb
+flash-usb ~/Downloads/Fedora-Silverblue.iso
+```
+
+With no argument, the Image view asks Spotlight—the same index Finder uses—for
+regular `.iso` and `.img` files beneath `~/`, then merges shallow captures from
+the current folder and `~/Downloads`. The direct sources help include a newly
+downloaded or local image before Spotlight has indexed it. The snapshot retains
+up to 500 indexed candidates and up to 200 direct candidates per folder, never
+follows symbolic links, and may omit files excluded from Spotlight, not yet
+indexed, or beyond those bounds. Pass or drop an exact path when needed.
+
+Captured images appear by creation time from newest to oldest, falling back to
+modification time when creation time is unavailable. This is presentation only:
+the workspace never accepts the newest image automatically. Every run requires
+an explicit selection. Press **Ctrl-R** in Step 1 to replace the snapshot with a
+fresh Spotlight capture under `~/` plus fresh shallow reads of the current
+folder and `~/Downloads`. The active filter remains in place, and the exact
+selected image stays highlighted when it is still available. This makes a
+newly completed download visible without restarting `flash-usb` or waiting for
+Spotlight indexing.
+
+The screen follows one visible sequence: **Step 1 Image → Step 2 External drive
+→ Step 3 Flash**. Step 1 places **Custom path to image…** first, ahead of any
+captured images, and uses a compact secondary panel for the highlighted image’s
+format, filename-derived architecture hint, size, creation time, modification
+time, and exact path. It opens a
+bounded file browser at `~/` that shows the current path, child folders, and
+applicable `.iso`/`.img` files. **Left** moves to the parent, **Right** or
+**Return** opens a folder, and **Return** on an image selects it and advances to
+Step 2. Like Tab navigation, Left restores only levels opened during the current
+browser session. Typing applies the same prefix, substring, then in-order fuzzy
+matching used by Compozsh path navigation. Use the exact-path field, command
+argument, or drag and drop for an image outside home or absent from the indexed
+snapshot. If `mdfind` cannot supply the home catalog, the shallow direct sources
+and Custom path remain available.
+
+Recognized `amd64`/`x86_64` and `arm64`/`aarch64` names display **x86-64** or
+**ARM64** equally in the image row, details, final review, confirmation, and
+progress context. Step 1 gives every recognized architecture the same semantic
+accent and renders image sizes with a separate neutral accent, including sizes
+inside Custom path; selected-row variants retain the active background while
+keeping both facts distinct. Architecture is informational and never adds an interruption
+or treats one platform as abnormal. The writer Mac’s architecture is irrelevant;
+the image still needs to match its eventual boot hardware. Images without a
+recognized token display **Architecture not detected** without an invented
+compatibility claim.
+
+Finder drag and drop works in both natural macOS forms. Type `flash-usb `,
+drag an image into Terminal, and press Return to pass that exact shell-quoted
+path. Or open **Custom path to image…**, choose **Paste or drop an exact image
+path…**, and drop the file into its literal field. The workspace removes one
+quoting layer as path data and never evaluates dropped shell text. If macOS asks
+Terminal for **Removable Volumes** access, granting it retains the established
+step and selection; **Retry** performs a fresh read-only capture and displays
+the concrete failure in the same screen.
+
+After the image is established, `diskutil` captures currently attached whole
+external physical disks. Internal, virtual, read-only, partition-slice, and
+undersized devices are excluded. USB sticks, external USB SSDs, Thunderbolt
+drives, and other external transports are eligible. Each row shows the media
+name, capacity, protocol, and exact `/dev/diskN`; selection never relies on a
+previously remembered disk number. Each refresh bounds native plist output to
+1 MiB, 4,096 device entries, and 64 whole external-disk candidates. Compozsh
+resolves the filesystem containing the selected image through `df` and
+`diskutil`, then excludes its parent whole disk from the target snapshot. An
+external disk can therefore hold the image or be the target, but never both in
+the same operation. If no target is attached yet, connect one and press
+**Ctrl-R** in Step 2. The same shortcut refreshes a populated multi-drive list;
+it recaptures external-device facts without losing the selected image.
+
+Step 3 defaults to **Start flash & verify**, offers **Flash without
+verification**, and includes **Add image checksum…**. The optional checksum
+field accepts one SHA-256 or SHA-512 digest as bare hexadecimal, standard
+`shasum` output, or a BSD `SHA256 (file) = …` line. It keeps the selected image,
+drive, and checksum visible and lets each choice be changed before the effect.
+Selecting another image clears the digest so a checksum cannot silently carry
+into a different image context. Compozsh then restores the ordinary terminal,
+shows the exact image, target, and checksum state, and requires the text
+`ERASE diskN`. After an incomplete or mismatched phrase it reports the exact confirmation
+and writes nothing. After `sudo` authorization it revalidates the image
+fingerprint, disk identity, external/physical/writable/whole eligibility, and
+capacity. A changed, disconnected, reused, or newly ineligible target stops
+before the unmount or write. When a checksum is present, Apple’s `shasum`
+validates the complete image before the external drive is changed; a mismatch
+shows the expected and actual digest and writes nothing. `sudo` may prompt again
+before verification if its credential timestamp expires during a long write.
+
+On a supported 256-color terminal, only the required `ERASE diskN` phrase uses
+the shared warning color so the target-bound confirmation is easy to spot.
+`NO_COLOR`, redirected input, and unsupported terminals retain the identical
+plain prompt.
+
+Writing uses Apple’s `diskutil unmountDisk` and `/bin/dd` against the raw
+`/dev/rdiskN` device with 4 MiB blocks. No pre-format is needed or performed.
+The Step 3 screen remains visible through validation, unmount, writing,
+verification, and eject. Apple `dd status=progress` supplies transferred bytes
+once per second. Compozsh reads Apple’s live `bytes (…) transferred` records,
+producing an honest determinate bar with completed size, total size, percentage,
+and elapsed time. This is a dedicated status view rather than an input picker:
+it removes the query row and bottom footer, keeps the active stage, image,
+target, progress, and disconnect warning together near the top, and uses
+semantic heading, success, information, and warning colors. The progress bar
+grows on wide terminals while remaining bounded and readable.
+Verification is shown as a named indeterminate stage because `cmp` does not
+expose incremental progress and `shasum` emits only its completed digest.
+Native subprocess status output is captured or silenced while this view owns
+the terminal, and the temporary write worker disables interactive job
+notifications so subprocess messages do not overwrite the frame.
+
+Without a publisher checksum, the recommended action reads the image-sized
+payload back with Apple’s `cmp`. With SHA-256 or SHA-512, the complete image
+first has to match the supplied digest; after writing, Compozsh reuses the same
+algorithm over the image-sized payload region from both the source image and
+finished drive and requires those derived digests to match. Both read-back
+paths skip the first 17,408 bytes (34 sectors), where macOS may rewrite
+protective MBR/GPT geometry for the physical disk. They verify the stable
+installer/filesystem payload without claiming that mutable boot-metadata prefix
+matches the publisher’s full-image checksum.
+
+The target is ejected after success, and an eject is attempted after write or
+verification failure. A final screen remains until **Done** and reports bytes
+written, total duration, average write rate, image-checksum status, payload
+verification, the retained digest when applicable, and whether the drive is
+safe to remove. Failures retain a direct reason and recovery state
+instead of disappearing into terminal history. An interrupted or failed raw
+write may leave the disk unusable until it is rewritten or reformatted;
+overwritten bytes cannot be rolled back. macOS installer `.dmg` files use the
+installer application’s Apple-provided `createinstallmedia` tool and are
+intentionally outside this workspace.
 
 ### Native Xcode workspace
 

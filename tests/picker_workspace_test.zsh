@@ -29,6 +29,7 @@ _test_picker_workspace_layout() {
           (( _ZLE_PICKER_VISIBLE_COUNT <= 10 &&
              _ZLE_PICKER_VISIBLE_COUNT <= LINES - 6 )) || exit 3
           for metadata in _ZLE_PICKER_DISPLAY_STYLES _ZLE_PICKER_DISPLAY_INDEX_ENDS \
+            _ZLE_PICKER_DISPLAY_HIGHLIGHTS \
             _ZLE_PICKER_DISPLAY_LEFT_ENDS _ZLE_PICKER_DISPLAY_RIGHT_ROLES _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX \
             _ZLE_PICKER_DISPLAY_CONTEXT_STARTS _ZLE_PICKER_DISPLAY_MATCH_STARTS; do
             (( ${#${(@P)metadata}} == ${#_ZLE_PICKER_DISPLAY} )) || {
@@ -85,6 +86,34 @@ _test_picker_workspace_matches() {
   test_assert_equal matched "$output"
 }
 test_case 'picker workspace highlights literal and fuzzy fragments without interpreting patterns' _test_picker_workspace_matches
+
+_test_picker_workspace_semantic_label_highlights() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    COLUMNS=80 LINES=30
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_RESULTS=(image)
+    _ZLE_PICKER_LABELS=("disk.iso · ARM64 · 2.0 GiB")
+    _ZLE_PICKER_RESULT_INDEXES=(1)
+    _ZLE_PICKER_LABEL_HIGHLIGHTS=(image "11:16:picker-architecture 19:26:picker-size 0:4:not-a-role")
+    _zle_picker_render "" 1
+    print -r -- "spans:${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[1]}"
+    _zle_picker_label_highlight_style picker-architecture 1 "fg=16,bg=75,bold"
+    print -r -- "selected-architecture:$REPLY"
+    _zle_picker_label_highlight_style picker-size 1 "fg=16,bg=75,bold"
+    print -r -- "selected-size:$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_contains "$output" 'spans:18:23:picker-architecture 26:33:picker-size' \
+    'semantic label spans did not follow the visible result-row prefix' || return
+  test_assert_contains "$output" 'selected-architecture:bg=75,bold,fg=231,bold' \
+    'architecture styling replaced the selected-row background' || return
+  test_assert_contains "$output" 'selected-size:bg=75,bold,fg=229,bold' \
+    'size styling did not remain visually distinct on the selected row'
+}
+test_case 'picker workspace colors semantic label spans without embedding terminal escapes' \
+  _test_picker_workspace_semantic_label_highlights
 
 # A real shell prompt (rather than vared) proves that a multiline draft and
 # prompt cannot push the fixed workspace footer below the terminal boundary.

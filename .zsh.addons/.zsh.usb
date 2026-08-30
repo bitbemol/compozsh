@@ -1,0 +1,1897 @@
+# Native external-disk image writing. This peer unit is loaded by the .zshrc
+# bootstrap only while its name matches .zsh.<name> inside an add-on directory.
+
+typeset -ga _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
+typeset -ga _USB_IMAGE_HIGHLIGHTS=()
+typeset -ga _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
+typeset -ga _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
+typeset -ga _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
+typeset -ga _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
+typeset -g _USB_CAPTURE_ERROR='' _USB_PLIST=''
+typeset -g _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL=''
+typeset -g _USB_INFO_FINGERPRINT=''
+typeset -g _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
+typeset -g _USB_IMAGE_CAPTURE_SCOPE=''
+typeset -g _USB_STAT_FINGERPRINT=''
+typeset -g _USB_CONFIRM_ERROR=''
+typeset -g _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+typeset -gi _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
+typeset -gi _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
+typeset -gi _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
+typeset -gi _USB_INFO_SIZE=0 _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
+typeset -gi _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
+typeset -gi _USB_PLIST_MAX_BYTES=1048576
+typeset -gi _USB_IMAGE_MAX_PER_FOLDER=200
+typeset -gi _USB_IMAGE_MAX_INDEXED=500 _USB_IMAGE_CAPTURE_PARTIAL=0
+typeset -gi _USB_STAT_SIZE=0 _USB_STAT_MODIFIED=0 _USB_STAT_CREATED=0
+
+_usb_human_size() {
+  emulate -L zsh
+  local raw=${1:-0}
+  local -F value=0.0
+  [[ $raw == <-> ]] || raw=0
+  if (( raw >= 1073741824 )); then
+    value=$(( raw / 1073741824.0 ))
+    printf -v REPLY '%.1f GiB' $value
+  elif (( raw >= 1048576 )); then
+    value=$(( raw / 1048576.0 ))
+    printf -v REPLY '%.1f MiB' $value
+  elif (( raw >= 1024 )); then
+    value=$(( raw / 1024.0 ))
+    printf -v REPLY '%.1f KiB' $value
+  else
+    REPLY="$raw bytes"
+  fi
+}
+
+_usb_image_extension_supported() {
+  case ${1:e:l} in
+    (iso|img) return 0 ;;
+    (*) return 1 ;;
+  esac
+}
+
+_usb_image_architecture_hint() {
+  emulate -L zsh
+  local name=${1:t:l}
+  case $name in
+    (*arm64*|*aarch64*) REPLY=arm64 ;;
+    (*amd64*|*x86_64*|*x86-64*) REPLY=x86_64 ;;
+    (proxmox-ve_*.iso) REPLY=x86_64 ;;
+    (*) REPLY=unknown ;;
+  esac
+}
+
+_usb_image_architecture_label() {
+  case $1 in
+    (arm64) REPLY='ARM64 · inferred from filename' ;;
+    (x86_64) REPLY='Intel/AMD x86-64 · inferred from filename' ;;
+    (*) REPLY='Not declared in filename' ;;
+  esac
+}
+
+_usb_image_architecture_short_label() {
+  case $1 in
+    (arm64) REPLY='ARM64' ;;
+    (x86_64) REPLY='x86-64' ;;
+    (*) REPLY='Architecture not detected' ;;
+  esac
+}
+
+_usb_image_stat_capture() {
+  emulate -L zsh
+  local path=$1 raw=''
+  local -a fields=()
+  _USB_STAT_FINGERPRINT=''
+  _USB_STAT_SIZE=0 _USB_STAT_MODIFIED=0 _USB_STAT_CREATED=0
+  [[ -f $path && ! -L $path && -r $path ]] || return 1
+  raw=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$path" 2>/dev/null) || return
+  fields=("${(@s/:/)raw}")
+  (( ${#fields} == 5 )) || return 1
+  [[ ${fields[3]} == <-> && ${fields[4]} == <-> && ${fields[5]} == <-> ]] || return 1
+  _USB_STAT_SIZE=${fields[3]}
+  _USB_STAT_MODIFIED=${fields[4]}
+  _USB_STAT_CREATED=${fields[5]}
+  _USB_STAT_FINGERPRINT=$raw
+}
+
+_usb_image_fingerprint() {
+  emulate -L zsh
+  _usb_image_stat_capture "$1" || return 1
+  REPLY=$_USB_STAT_FINGERPRINT
+}
+
+_usb_format_epoch() {
+  emulate -L zsh
+  local epoch=${1:-0}
+  REPLY='Unavailable'
+  [[ $epoch == <-> ]] && (( epoch > 0 )) || return 0
+  if zmodload -F zsh/datetime b:strftime 2>/dev/null &&
+      strftime -s REPLY '%Y-%m-%d %H:%M %Z' "$epoch" 2>/dev/null; then
+    return 0
+  fi
+  REPLY=$epoch
+}
+
+_usb_image_add() {
+  emulate -L zsh
+  local path=${1:a} fingerprint='' raw_size='' label='' size_label='' filename='' highlights=''
+  local created_label='' modified_label='' format='' architecture='' architecture_label=''
+  local architecture_short=''
+  local -i architecture_start=0 architecture_end=0 size_start=0 size_end=0
+  [[ ! -L $path ]] || return 1
+  path=${path:A}
+  [[ ${#path} -le 4096 && $path != *[[:cntrl:]]* ]] || return 1
+  _usb_image_extension_supported "$path" || return 1
+  (( _USB_IMAGE_PATHS[(Ie)$path] )) && return 0
+  _usb_image_stat_capture "$path" || return 1
+  fingerprint=$_USB_STAT_FINGERPRINT
+  raw_size=$_USB_STAT_SIZE
+  (( raw_size > 17408 )) || return 1
+  _usb_human_size "$raw_size"
+  size_label=$REPLY
+  format="${path:e:u} raw disk image"
+  _usb_format_epoch "$_USB_STAT_CREATED"
+  created_label=$REPLY
+  _usb_format_epoch "$_USB_STAT_MODIFIED"
+  modified_label=$REPLY
+  _usb_image_architecture_hint "$path"
+  architecture=$REPLY
+  _usb_image_architecture_label "$architecture"
+  architecture_label=$REPLY
+  _usb_image_architecture_short_label "$architecture"
+  architecture_short=$REPLY
+  filename=${path:t}
+  if [[ $architecture == unknown ]]; then
+    label="$filename · $size_label"
+    size_start=$(( ${#filename} + 3 ))
+  else
+    label="$filename · $architecture_short · $size_label"
+    architecture_start=$(( ${#filename} + 3 ))
+    architecture_end=$(( architecture_start + ${#architecture_short} ))
+    size_start=$(( architecture_end + 3 ))
+    highlights="$architecture_start:$architecture_end:picker-architecture "
+  fi
+  size_end=$(( size_start + ${#size_label} ))
+  highlights+="$size_start:$size_end:picker-size"
+  _USB_IMAGE_PATHS+=("$path")
+  _USB_IMAGE_LABELS+=("$label")
+  _USB_IMAGE_HIGHLIGHTS+=("$highlights")
+  _USB_IMAGE_DETAILS+=("${path:t}"$'\n\nPath\n  '"$path"$'\n\n'"Format · $format"$'\n'"Architecture · $architecture_label"$'\n'"Size · $size_label"$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
+  _USB_IMAGE_SIZES+=("$raw_size")
+  _USB_IMAGE_FINGERPRINTS+=("$fingerprint")
+  _USB_IMAGE_CREATED+=("$_USB_STAT_CREATED")
+  _USB_IMAGE_MODIFIED+=("$_USB_STAT_MODIFIED")
+}
+
+_usb_images_sort_newest() {
+  emulate -L zsh
+  local -i index=0 source_index=0 epoch=0
+  local record='' key=''
+  local -a records=() paths=() labels=() highlights=() details=() sizes=() fingerprints=()
+  local -a created=() modified=()
+  for (( index = 1; index <= ${#_USB_IMAGE_PATHS}; ++index )); do
+    epoch=${_USB_IMAGE_CREATED[index]:-${_USB_IMAGE_MODIFIED[index]:-0}}
+    (( epoch > 0 )) || epoch=${_USB_IMAGE_MODIFIED[index]:-0}
+    printf -v key '%020d:%010d' "$epoch" "$index"
+    records+=("$key")
+  done
+  records=("${(@O)records}")
+  for record in "${records[@]}"; do
+    source_index=$(( 10#${record##*:} ))
+    paths+=("${_USB_IMAGE_PATHS[source_index]}")
+    labels+=("${_USB_IMAGE_LABELS[source_index]}")
+    highlights+=("${_USB_IMAGE_HIGHLIGHTS[source_index]}")
+    details+=("${_USB_IMAGE_DETAILS[source_index]}")
+    sizes+=("${_USB_IMAGE_SIZES[source_index]}")
+    fingerprints+=("${_USB_IMAGE_FINGERPRINTS[source_index]}")
+    created+=("${_USB_IMAGE_CREATED[source_index]}")
+    modified+=("${_USB_IMAGE_MODIFIED[source_index]}")
+  done
+  _USB_IMAGE_PATHS=("${paths[@]}") _USB_IMAGE_LABELS=("${labels[@]}")
+  _USB_IMAGE_HIGHLIGHTS=("${highlights[@]}")
+  _USB_IMAGE_DETAILS=("${details[@]}") _USB_IMAGE_SIZES=("${sizes[@]}")
+  _USB_IMAGE_FINGERPRINTS=("${fingerprints[@]}")
+  _USB_IMAGE_CREATED=("${created[@]}") _USB_IMAGE_MODIFIED=("${modified[@]}")
+}
+
+_usb_spotlight_run() {
+  command /usr/bin/mdfind "$@"
+}
+
+# Capture a bounded Spotlight snapshot beneath home. Finder indexing supplies
+# descendant discovery without a synchronous recursive filesystem walk.
+_usb_spotlight_images_capture() {
+  emulate -L zsh
+  local root=${HOME:A} path='' resolved='' completion=''
+  local query='(kMDItemFSName == "*.iso"cd || kMDItemFSName == "*.img"cd)'
+  local -i considered=0 source_status=2 stopped=0
+  [[ -x /usr/bin/mdfind && -d $root ]] || return 2
+  while IFS= read -r -d '' path; do
+    if [[ -z $path ]]; then
+      IFS= read -r -d '' completion
+      [[ $completion == 0 ]] && source_status=0
+      break
+    fi
+    (( ++considered > _USB_IMAGE_MAX_INDEXED )) && {
+      _USB_IMAGE_CAPTURE_PARTIAL=1
+      stopped=1
+      break
+    }
+    [[ $path == /* && -f $path && ! -L $path ]] || continue
+    resolved=${path:A}
+    [[ $resolved == $root/* ]] || continue
+    _usb_image_add "$resolved"
+  done < <(_usb_spotlight_run -0 -onlyin "$root" "$query" 2>/dev/null
+    print -rn -- $'\0'"$?"$'\0' 2>/dev/null)
+  (( stopped || source_status == 0 )) || return 2
+  return 0
+}
+
+# With no explicit input, merge a bounded Finder-index snapshot beneath home
+# with shallow current-folder and Downloads reads for newly arrived images.
+_usb_images_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB NULL_GLOB
+  local explicit=${1:-} candidate=''
+  local -a candidates=()
+  _USB_CAPTURE_ERROR=''
+  _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
+  _USB_IMAGE_HIGHLIGHTS=()
+  _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
+  _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
+  _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_CAPTURE_PARTIAL=0
+
+  if [[ -n $explicit ]]; then
+    _usb_image_extension_supported "$explicit" || {
+      _USB_CAPTURE_ERROR='the image must be a regular .iso or .img file'
+      return 2
+    }
+    _usb_image_add "$explicit" || _usb_image_add "$explicit" || {
+      _USB_CAPTURE_ERROR='the image must be readable, larger than 17,408 bytes, and must not be a symbolic link'
+      return 1
+    }
+    _USB_IMAGE_CAPTURE_SCOPE='explicit image path'
+    return 0
+  fi
+
+  candidates=(
+    "$PWD"/*.(#i)(iso|img)(N.[1,$_USB_IMAGE_MAX_PER_FOLDER])
+    "$HOME/Downloads"/*.(#i)(iso|img)(N.[1,$_USB_IMAGE_MAX_PER_FOLDER]))
+  for candidate in "${candidates[@]}"; do
+    [[ ! -L $candidate ]] || continue
+    _usb_image_extension_supported "$candidate" || continue
+    _usb_image_add "$candidate"
+  done
+  if _usb_spotlight_images_capture; then
+    _USB_IMAGE_CAPTURE_SCOPE='Spotlight index under ~ + current folder + ~/Downloads'
+    (( _USB_IMAGE_CAPTURE_PARTIAL )) && _USB_IMAGE_CAPTURE_SCOPE+=' · partial snapshot'
+  else
+    _USB_IMAGE_CAPTURE_SCOPE='current folder + ~/Downloads · Spotlight index unavailable'
+    _USB_IMAGE_CAPTURE_PARTIAL=1
+  fi
+  _usb_images_sort_newest
+  return 0
+}
+
+# Terminal.app drags shell-quote paths containing spaces. Remove one quoting
+# layer as data only; never evaluate substitutions, parameters, or commands.
+_usb_image_from_query() {
+  emulate -L zsh
+  local query=$1 candidate='' decoded=''
+  local -a candidates=()
+  [[ -n $query && $query != *[[:cntrl:]]* ]] || return 2
+  decoded=${(Q)query}
+  [[ $decoded != *[[:cntrl:]]* ]] || return 2
+  candidates=("$query")
+  [[ $decoded == "$query" ]] || candidates+=("$decoded")
+  for candidate in "${candidates[@]}"; do
+    if [[ $candidate == '~/'* ]]; then
+      candidate="$HOME/${candidate#\~/}"
+    fi
+    _usb_image_extension_supported "$candidate" || continue
+    candidate=${candidate:a}
+    candidate=${candidate:A}
+    if _usb_image_add "$candidate"; then
+      REPLY=$candidate
+      return 0
+    fi
+  done
+  return 1
+}
+
+_usb_path_query_collect() {
+  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+}
+
+_usb_read_image_path() {
+  emulate -L zsh
+  local subtitle=${1:-'Drag an .iso or .img from Finder, then press Return'}
+  local _ZLE_PICKER_TITLE='Flash USB / Add image' _ZLE_PICKER_SUBTITLE=$subtitle
+  local _ZLE_PICKER_QUERY_LABEL='Image path' _ZLE_PICKER_INSPECT_TITLE=Details
+  local _ZLE_PICKER_INSPECT_ACTION=add _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_BROWSE_LABEL='drop or paste one exact path · Return validates'
+  local _ZLE_PICKER_COLLECTOR=_usb_path_query_collect _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
+  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+    'Drag a regular .iso or .img file from Finder into this field.'
+    'A pasted absolute, home-relative, or current-folder path also works.'
+    'The path is treated only as data; no shell text is evaluated.'
+    'Press Return to validate and add the exact image to this workspace.')
+  _zle_picker_loop '' 1
+}
+
+_usb_checksum_parse() {
+  emulate -L zsh
+  local input=$1 scrubbed='' token='' digest=''
+  local -a tokens=()
+  local -i matches=0
+  _USB_CHECKSUM_ALGORITHM=''
+  (( ${#input} > 0 && ${#input} <= 4096 )) || return 1
+  [[ $input != *$'\n'* && $input != *$'\r'* ]] || return 1
+  scrubbed=${input//[^0-9A-Fa-f]/ }
+  tokens=(${=scrubbed})
+  for token in "${tokens[@]}"; do
+    case ${#token} in
+      (64|128)
+        digest=${token:l}
+        (( ++matches )) ;;
+    esac
+  done
+  (( matches == 1 )) || return 1
+  (( ${#digest} == 64 )) && _USB_CHECKSUM_ALGORITHM=256 || _USB_CHECKSUM_ALGORITHM=512
+  REPLY=$digest
+}
+
+_usb_checksum_query_collect() {
+  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+}
+
+_usb_read_checksum() {
+  emulate -L zsh
+  local subtitle=${1:-'Paste one SHA-256 or SHA-512 checksum, then press Return'}
+  local initial=${2:-}
+  local _ZLE_PICKER_TITLE='Flash USB / Image checksum' _ZLE_PICKER_SUBTITLE=$subtitle
+  local _ZLE_PICKER_QUERY_LABEL='Checksum' _ZLE_PICKER_INSPECT_TITLE=Details
+  local _ZLE_PICKER_INSPECT_ACTION=add _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_BROWSE_LABEL='optional integrity check · Return validates'
+  local _ZLE_PICKER_COLLECTOR=_usb_checksum_query_collect _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
+  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+    'Paste the checksum published for the selected image.'
+    'Bare hexadecimal, shasum output, and BSD SHA lines are accepted.'
+    'SHA-256 uses 64 hexadecimal characters; SHA-512 uses 128.'
+    'The full image is checked before the external drive is changed.'
+    'After writing, the same algorithm checks the immutable payload region.')
+  _zle_picker_loop "$initial" 1
+}
+
+# Custom Path is a bounded file browser rather than a shell-like path parser.
+# It starts at home, exposes the current path, and retains Finder-style
+# hierarchy movement while showing only folders and applicable raw images.
+_usb_browser_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB NULL_GLOB
+  local location=${1:A} candidate='' raw_size='' filename='' size_label=''
+  local -a directories=() images=()
+  local -i inspected=0
+  _USB_BROWSER_PARTIAL=0
+  [[ -d $location && -r $location ]] || return 1
+  _USB_PICKER_VALUES=(paste-path)
+  _USB_PICKER_LABELS=('[ Paste or drop an exact image path… ]')
+  _USB_PICKER_HIGHLIGHTS=('')
+  _USB_PICKER_SEARCH=(paste drop drag finder exact path)
+  _USB_PICKER_DETAILS=('')
+  if (( ${_USB_BROWSER_SHOW_HIDDEN:-0} )); then
+    directories=("$location"/*(ND/[1,501]))
+    images=("$location"/*.(#i)(iso|img)(ND.[1,501]))
+  else
+    directories=("$location"/*(N/[1,501]))
+    images=("$location"/*.(#i)(iso|img)(N.[1,501]))
+  fi
+  (( ${#directories} + ${#images} > 500 )) && _USB_BROWSER_PARTIAL=1
+  for candidate in "${directories[@]}"; do
+    (( ++inspected > 500 )) && break
+    [[ ! -L $candidate ]] || continue
+    _USB_PICKER_VALUES+=("${candidate:A}/")
+    _USB_PICKER_LABELS+=("${candidate:t}/")
+    _USB_PICKER_HIGHLIGHTS+=('')
+    _USB_PICKER_SEARCH+=("${candidate:t} folder")
+    _USB_PICKER_DETAILS+=('')
+  done
+  for candidate in "${images[@]}"; do
+    (( ++inspected > 500 )) && break
+    [[ ! -L $candidate ]] || continue
+    raw_size=$(command /usr/bin/stat -f '%z' "$candidate" 2>/dev/null) || continue
+    [[ $raw_size == <-> ]] || continue
+    (( raw_size > 17408 )) || continue
+    _usb_human_size "$raw_size"
+    size_label=$REPLY
+    filename=${candidate:t}
+    _USB_PICKER_VALUES+=("${candidate:A}")
+    _USB_PICKER_LABELS+=("$filename · $size_label")
+    _USB_PICKER_HIGHLIGHTS+=("$(( ${#filename} + 3 )):$(( ${#filename} + 3 + ${#size_label} )):picker-size")
+    _USB_PICKER_SEARCH+=("${candidate:t} image")
+    _USB_PICKER_DETAILS+=('')
+  done
+}
+
+_usb_browse_choose() {
+  emulate -L zsh
+  local _ZLE_PICKER_QUERY_LABEL='Filter this folder'
+  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
+  local hidden_label='Hidden: off'
+  (( ${_USB_BROWSER_SHOW_HIDDEN:-0} )) && hidden_label='Hidden: on'
+  local _ZLE_PICKER_BROWSE_LABEL="$hidden_label · ← parent · → open folder · Return select"
+  local _ZLE_PICKER_COLLECTOR=_usb_picker_collect
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_DIGIT_SELECT=0 _ZLE_PICKER_HIERARCHY_ENABLED=1
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=1
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -A _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+  local -i index=0
+  for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
+    [[ -n ${_USB_PICKER_HIGHLIGHTS[index]-} ]] &&
+      _ZLE_PICKER_LABEL_HIGHLIGHTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_HIGHLIGHTS[index]}
+  done
+  _zle_picker_loop "${_USB_BROWSER_RESUME[1]-}" 20 \
+    "${_USB_BROWSER_RESUME[2]:-1}" "${_USB_BROWSER_RESUME[3]:-0}"
+}
+
+_usb_browse_image_path() {
+  emulate -L zsh
+  local location=${HOME:A} selected='' display_path='' path_subtitle=''
+  local _ZLE_PICKER_TITLE='Flash USB · Step 1 of 3'
+  local _ZLE_PICKER_SUBTITLE=''
+  local -i _USB_BROWSER_PARTIAL=0 _USB_BROWSER_SHOW_HIDDEN=0
+  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
+  local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  local -a _USB_BROWSER_RESUME=('' 1 0) _USB_BROWSER_LOCATION_STACK=()
+  local -a _USB_BROWSER_QUERY_STACK=() _USB_BROWSER_INDEX_STACK=() _USB_BROWSER_OFFSET_STACK=()
+  local -a _ZLE_PICKER_TRAIL=() components=() bookmark=()
+  local component='' indent=''
+  local -i result=0
+  while true; do
+    _usb_browser_capture "$location" || return 1
+    if [[ $location == ${HOME:A} ]]; then
+      display_path='~/'
+    elif [[ $location == ${HOME:A}/* ]]; then
+      display_path="~/${location#${HOME:A}/}/"
+    elif [[ $location == / ]]; then
+      display_path='/'
+    else
+      display_path="$location/"
+    fi
+    (( _USB_BROWSER_PARTIAL )) && display_path+=' · first 500 items'
+    _ZLE_PICKER_SUBTITLE=$display_path
+    _ZLE_PICKER_TRAIL=(Location)
+    components=("${(@s:/:)display_path%% · first 500 items}")
+    indent=''
+    for component in "${components[@]}"; do
+      [[ -n $component ]] || continue
+      _ZLE_PICKER_TRAIL+=("$indent$component")
+      (( ${#indent} < 6 )) && indent+='  '
+    done
+    _usb_browse_choose
+    result=$?
+    (( result == 1 )) && return 1
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
+    if [[ $_ZLE_PICKER_ACTION == toggle-hidden ]]; then
+      _USB_BROWSER_SHOW_HIDDEN=$(( !_USB_BROWSER_SHOW_HIDDEN ))
+      _USB_BROWSER_RESUME=("${bookmark[1]-}" "${bookmark[2]:-1}" "${bookmark[3]:-0}")
+      continue
+    fi
+    if [[ $_ZLE_PICKER_ACTION == parent ]]; then
+      if (( ${#_USB_BROWSER_LOCATION_STACK} )); then
+        location=${_USB_BROWSER_LOCATION_STACK[-1]}
+        _USB_BROWSER_RESUME=(
+          "${_USB_BROWSER_QUERY_STACK[-1]-}"
+          "${_USB_BROWSER_INDEX_STACK[-1]:-1}"
+          "${_USB_BROWSER_OFFSET_STACK[-1]:-0}")
+        _USB_BROWSER_LOCATION_STACK[-1]=()
+        _USB_BROWSER_QUERY_STACK[-1]=()
+        _USB_BROWSER_INDEX_STACK[-1]=()
+        _USB_BROWSER_OFFSET_STACK[-1]=()
+      fi
+      continue
+    fi
+    if [[ $selected == paste-path ]]; then
+      path_subtitle='Drag an .iso or .img from Finder, then press Return'
+      while true; do
+        _usb_read_image_path "$path_subtitle"
+        result=$?
+        (( result == 1 )) && break
+        (( result == 0 )) || return $result
+        if _usb_image_from_query "$_ZLE_PICKER_SELECTED_VALUE"; then
+          return 0
+        fi
+        path_subtitle='That is not a readable regular .iso or .img; paste another path'
+      done
+      continue
+    fi
+    if [[ $selected == */ && -d ${selected%/} && ! -L ${selected%/} ]]; then
+      _USB_BROWSER_LOCATION_STACK+=("$location")
+      _USB_BROWSER_QUERY_STACK+=("${bookmark[1]-}")
+      _USB_BROWSER_INDEX_STACK+=("${bookmark[2]:-1}")
+      _USB_BROWSER_OFFSET_STACK+=("${bookmark[3]:-0}")
+      location=${${selected%/}:A}
+      _USB_BROWSER_RESUME=('' 1 0)
+      continue
+    fi
+    [[ -f $selected && ! -L $selected ]] || continue
+    REPLY=${selected:A}
+    return 0
+  done
+}
+
+_usb_image_filesystem_device_capture() {
+  emulate -L zsh
+  local path=$1 output='' line='' device=''
+  _USB_IMAGE_DEVICE=''
+  output=$(command /bin/df -P "$path" 2>/dev/null) || {
+    _USB_CAPTURE_ERROR='macOS could not resolve the selected image filesystem'
+    return 1
+  }
+  (( ${#output} <= 8192 )) || {
+    _USB_CAPTURE_ERROR='image filesystem output exceeded the 8,192-character limit'
+    return 1
+  }
+  line=${${(f)output}[-1]-}
+  device=${line%%[[:space:]]*}
+  [[ -n $device && $device != *[[:cntrl:]]* ]] || {
+    _USB_CAPTURE_ERROR='macOS returned no usable filesystem device for the image'
+    return 1
+  }
+  _USB_IMAGE_DEVICE=$device
+}
+
+# Resolve a local source volume through diskutil metadata instead of deriving a
+# whole-disk identifier from a partition name. Network/FileProvider sources do
+# not map to a local /dev/disk target and therefore need no exclusion.
+_usb_image_source_disk_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local path=$1 device='' identifier='' plist='' parent=''
+  _USB_IMAGE_SOURCE_DISK='' _USB_CAPTURE_ERROR=''
+  _usb_image_filesystem_device_capture "$path" || return
+  device=$_USB_IMAGE_DEVICE
+  [[ $device == /dev/disk* ]] || return 0
+  [[ $device == /dev/disk<->(s<->)# ]] || {
+    _USB_CAPTURE_ERROR='the image filesystem reported an unsupported local device identifier'
+    return 1
+  }
+  identifier=${device#/dev/}
+  _usb_disk_info_read "$identifier" || return
+  plist=$_USB_PLIST
+  _usb_plist_optional "$plist" ParentWholeDisk
+  parent=$REPLY
+  if [[ -z $parent ]]; then
+    _usb_plist_optional "$plist" DeviceIdentifier
+    [[ $REPLY == disk<-> ]] && parent=$REPLY
+  fi
+  [[ $parent == disk<-> ]] || {
+    _USB_CAPTURE_ERROR='diskutil could not resolve the image filesystem to a whole disk'
+    return 1
+  }
+  _USB_IMAGE_SOURCE_DISK=$parent
+}
+
+_usb_plist_raw() {
+  emulate -L zsh
+  local plist=$1 key=$2
+  REPLY=$(print -rn -- "$plist" |
+    command /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null) || return
+}
+
+_usb_plist_optional() {
+  emulate -L zsh
+  local plist=$1 key=$2 fallback=${3:-}
+  _usb_plist_raw "$plist" "$key" || REPLY=$fallback
+}
+
+_usb_diskutil_run() {
+  emulate -L zsh
+  command /usr/sbin/diskutil "$@"
+}
+
+_usb_diskutil_plist_capture() {
+  emulate -L zsh
+  local temp_root=${TMPDIR:-/tmp} capture_file='' raw_size=''
+  local -i command_status=0
+  _USB_PLIST='' _USB_CAPTURE_ERROR=''
+  capture_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb.XXXXXX" 2>/dev/null) || {
+    _USB_CAPTURE_ERROR='cannot create a bounded diskutil capture file'
+    return 1
+  }
+  {
+    _usb_diskutil_run "$@" >| "$capture_file" 2>/dev/null
+    command_status=$?
+    if (( command_status == 0 )); then
+      raw_size=$(command /usr/bin/stat -f '%z' "$capture_file" 2>/dev/null)
+      [[ $raw_size == <-> ]] || raw_size=0
+      if (( raw_size == 0 || raw_size > _USB_PLIST_MAX_BYTES )); then
+        command_status=1
+        _USB_CAPTURE_ERROR="diskutil output exceeded the ${_USB_PLIST_MAX_BYTES}-byte capture limit"
+      else
+        _USB_PLIST=$(<"$capture_file")
+      fi
+    fi
+  } always {
+    if [[ -n $capture_file && ${capture_file:t} == compozsh-usb.* &&
+          ${capture_file:h:A} == ${temp_root:A} ]]; then
+      command /bin/rm -f -- "$capture_file"
+    fi
+  }
+  return $command_status
+}
+
+_usb_disk_list_read() {
+  emulate -L zsh
+  _usb_diskutil_plist_capture list -plist external physical || {
+    [[ -n $_USB_CAPTURE_ERROR ]] ||
+      _USB_CAPTURE_ERROR='diskutil could not capture external physical disks'
+    return 1
+  }
+  [[ -n $_USB_PLIST ]] || {
+    _USB_CAPTURE_ERROR='diskutil could not capture external physical disks'
+    return 1
+  }
+}
+
+_usb_disk_ids_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local count='' identifier=''
+  local -i index=0
+  _USB_DISK_IDS=()
+  _usb_disk_list_read || return
+  _usb_plist_raw "$_USB_PLIST" AllDisks || return 1
+  count=$REPLY
+  [[ $count == <-> ]] || return 1
+  (( count <= 4096 )) || {
+    _USB_CAPTURE_ERROR='diskutil reported too many device entries to inspect safely'
+    return 1
+  }
+  for (( index = 0; index < count; ++index )); do
+    _usb_plist_raw "$_USB_PLIST" "AllDisks.$index" || continue
+    identifier=$REPLY
+    [[ $identifier == disk<-> ]] || continue
+    _USB_DISK_IDS+=("$identifier")
+    (( ${#_USB_DISK_IDS} >= 64 )) && break
+  done
+  (( ${#_USB_DISK_IDS} )) || {
+    _USB_CAPTURE_ERROR='no whole external physical disks are attached'
+    return 1
+  }
+}
+
+_usb_disk_info_read() {
+  emulate -L zsh
+  local identifier=$1
+  _usb_diskutil_plist_capture info -plist "/dev/$identifier" || {
+    [[ -n $_USB_CAPTURE_ERROR ]] ||
+      _USB_CAPTURE_ERROR="diskutil could not inspect /dev/$identifier"
+    return 1
+  }
+  [[ -n $_USB_PLIST ]] || {
+    _USB_CAPTURE_ERROR="diskutil could not inspect /dev/$identifier"
+    return 1
+  }
+}
+
+_usb_disk_info_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local requested=$1 plist='' internal='' physical='' whole='' writable=''
+  local device_tree=''
+  _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL=''
+  _USB_INFO_FINGERPRINT=''
+  _USB_INFO_SIZE=0 _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
+  _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
+  [[ $requested == disk<-> ]] || return 2
+  _usb_disk_info_read "$requested" || return
+  plist=$_USB_PLIST
+
+  _usb_plist_optional "$plist" DeviceIdentifier
+  _USB_INFO_ID=$REPLY
+  _usb_plist_optional "$plist" TotalSize 0
+  _USB_INFO_SIZE=$REPLY
+  _usb_plist_optional "$plist" MediaName
+  _USB_INFO_NAME=$REPLY
+  [[ -n $_USB_INFO_NAME ]] || {
+    _usb_plist_optional "$plist" DeviceName 'Unnamed external disk'
+    _USB_INFO_NAME=$REPLY
+  }
+  _usb_plist_optional "$plist" BusProtocol
+  _USB_INFO_PROTOCOL=$REPLY
+  [[ -n $_USB_INFO_PROTOCOL ]] || {
+    _usb_plist_optional "$plist" DeviceProtocol External
+    _USB_INFO_PROTOCOL=$REPLY
+  }
+  _usb_plist_optional "$plist" Internal unknown
+  internal=$REPLY
+  _usb_plist_optional "$plist" VirtualOrPhysical unknown
+  physical=$REPLY
+  _usb_plist_optional "$plist" Whole
+  whole=$REPLY
+  if [[ -z $whole ]]; then
+    _usb_plist_optional "$plist" WholeDisk false
+    whole=$REPLY
+  fi
+  _usb_plist_optional "$plist" WritableMedia false
+  writable=$REPLY
+  _usb_plist_optional "$plist" DeviceTreePath
+  device_tree=$REPLY
+
+  [[ $_USB_INFO_ID == "$requested" && $_USB_INFO_SIZE == <-> ]] || return 1
+  [[ -n $_USB_INFO_NAME && ${#_USB_INFO_NAME} -le 256 &&
+     $_USB_INFO_NAME != *[[:cntrl:]]* ]] || return 1
+  [[ -n $_USB_INFO_PROTOCOL && ${#_USB_INFO_PROTOCOL} -le 64 &&
+     $_USB_INFO_PROTOCOL != *[[:cntrl:]]* ]] || return 1
+  [[ ${#device_tree} -le 2048 && $device_tree != *[[:cntrl:]]* ]] || return 1
+  [[ $internal == false ]] && _USB_INFO_EXTERNAL=1
+  [[ $physical == Physical ]] && _USB_INFO_PHYSICAL=1
+  [[ $whole == true ]] && _USB_INFO_WHOLE=1
+  [[ $writable == true ]] && _USB_INFO_WRITABLE=1
+  _USB_INFO_FINGERPRINT="${_USB_INFO_ID}|${_USB_INFO_SIZE}|${_USB_INFO_NAME}|${_USB_INFO_PROTOCOL}"
+  [[ -n $device_tree ]] && _USB_INFO_FINGERPRINT+="|$device_tree"
+}
+
+_usb_info_is_eligible() {
+  (( _USB_INFO_EXTERNAL && _USB_INFO_PHYSICAL && _USB_INFO_WHOLE &&
+     _USB_INFO_WRITABLE && _USB_INFO_SIZE > 0 ))
+}
+
+_usb_disks_capture() {
+  emulate -L zsh
+  local image_size=$1 excluded_disk=${2:-} identifier='' size_label=''
+  local -i excluded_count=0 ineligible_count=0 undersized_count=0
+  local -a captured_ids=()
+  _USB_CAPTURE_ERROR=''
+  [[ $image_size == <-> ]] || return 2
+  _usb_disk_ids_capture || return
+  captured_ids=("${_USB_DISK_IDS[@]}")
+  _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
+  _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
+  for identifier in "${captured_ids[@]}"; do
+    if [[ -n $excluded_disk && $identifier == "$excluded_disk" ]]; then
+      (( ++excluded_count ))
+      continue
+    fi
+    _usb_disk_info_capture "$identifier" || {
+      (( ++ineligible_count ))
+      continue
+    }
+    _usb_info_is_eligible || {
+      (( ++ineligible_count ))
+      continue
+    }
+    (( _USB_INFO_SIZE >= image_size )) || {
+      (( ++undersized_count ))
+      continue
+    }
+    _usb_human_size "$_USB_INFO_SIZE"
+    size_label=$REPLY
+    _USB_DISK_IDS+=("$_USB_INFO_ID")
+    _USB_DISK_LABELS+=("${_USB_INFO_NAME} · $size_label · ${_USB_INFO_PROTOCOL} · /dev/${_USB_INFO_ID}")
+    _USB_DISK_DETAILS+=("${_USB_INFO_NAME}"$'\n'"/dev/${_USB_INFO_ID} · $size_label"$'\n'"${_USB_INFO_PROTOCOL} · external physical · writable whole disk"$'\n\n'"The image writes from sector zero; existing partitions and data may be destroyed.")
+    _USB_DISK_SIZES+=("$_USB_INFO_SIZE")
+    _USB_DISK_FINGERPRINTS+=("$_USB_INFO_FINGERPRINT")
+  done
+  (( ${#_USB_DISK_IDS} )) || {
+    if (( excluded_count == ${#captured_ids} && excluded_count > 0 )); then
+      _USB_CAPTURE_ERROR='the only attached external disk contains the selected image; attach another external disk or move the image to a different disk'
+    elif (( undersized_count > 0 && ineligible_count == 0 )); then
+      _USB_CAPTURE_ERROR='no separate writable whole external physical disk is large enough for the selected image'
+    else
+      _USB_CAPTURE_ERROR='no separate writable whole external physical target is currently eligible'
+    fi
+    return 1
+  }
+}
+
+_usb_picker_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern='(#i)*' character=''
+  local literal=''
+  local -i limit=$raw_limit index=0 result_index=0
+  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  [[ $limit == <-> ]] || limit=10
+  if [[ -z $query ]]; then
+    for (( index = 1; index <= ${#_USB_PICKER_VALUES} && index <= limit; ++index )); do
+      _ZLE_PICKER_RESULTS+=("${_USB_PICKER_VALUES[index]}")
+      _ZLE_PICKER_LABELS+=("${_USB_PICKER_LABELS[index]}")
+    done
+  else
+    (( ${+functions[_zle_picker_escape_pattern]} )) || return 1
+    _zle_picker_escape_pattern "$query"
+    literal=$REPLY
+    local candidate_pattern=''
+    for candidate_pattern in "(#i)${literal}*" "(#i)*${literal}*"; do
+      for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
+        value=${_USB_PICKER_VALUES[index]}
+        (( _ZLE_PICKER_RESULTS[(Ie)$value] )) && continue
+        label=${_USB_PICKER_LABELS[index]}
+        searchable="${label} ${_USB_PICKER_SEARCH[index]-}"
+        [[ $searchable == ${~candidate_pattern} ]] || continue
+        _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
+        (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break 2
+      done
+    done
+    if (( ${#_ZLE_PICKER_RESULTS} < limit )); then
+      for character in "${(s::)query}"; do
+        _zle_picker_escape_pattern "$character"
+        pattern+="${REPLY}*"
+      done
+      for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
+        value=${_USB_PICKER_VALUES[index]}
+        (( _ZLE_PICKER_RESULTS[(Ie)$value] )) && continue
+        label=${_USB_PICKER_LABELS[index]}
+        searchable="${label} ${_USB_PICKER_SEARCH[index]-}"
+        [[ $searchable == ${~pattern} ]] || continue
+        _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
+        (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
+      done
+    fi
+  fi
+  for (( index = 1; index <= ${#_ZLE_PICKER_RESULTS}; ++index )); do
+    result_index=$index
+    (( result_index == 10 )) && result_index=0
+    _ZLE_PICKER_RESULT_INDEXES+=($result_index)
+  done
+}
+
+_usb_choose() {
+  emulate -L zsh
+  local title=$1 subtitle=$2 query_label=$3
+  local -i show_details=${4:-0}
+  local -i _ZLE_PICKER_REFRESH_ENABLED=${5:-0}
+  local -i show_highlights=${6:-0}
+  local refresh_label=${7:-'captured external disks · Ctrl-R refresh'}
+  local initial_query=${8:-} initial_value=${9:-}
+  local -i start_index=1 start_offset=0
+  local _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
+  local _ZLE_PICKER_QUERY_LABEL=$query_label _ZLE_PICKER_INSPECT_TITLE=Details
+  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_BROWSE_LABEL='captured choices · no action yet'
+  (( _ZLE_PICKER_REFRESH_ENABLED )) &&
+    _ZLE_PICKER_BROWSE_LABEL=$refresh_label
+  local _ZLE_PICKER_COLLECTOR=_usb_picker_collect
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_DIGIT_SELECT=1
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -A _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+  local -i index=0
+  for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
+    _ZLE_PICKER_ACCEPT_LABELS[${_USB_PICKER_VALUES[index]}]=choose
+    (( show_highlights )) && [[ -n ${_USB_PICKER_HIGHLIGHTS[index]-} ]] &&
+      _ZLE_PICKER_LABEL_HIGHLIGHTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_HIGHLIGHTS[index]}
+    if (( show_details )); then
+      _ZLE_PICKER_INSPECT_TEXTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_DETAILS[index]-}
+    fi
+  done
+  if [[ -n $initial_value ]]; then
+    _usb_picker_collect "$initial_query" 501
+    start_index=${_ZLE_PICKER_RESULTS[(Ie)$initial_value]}
+    (( start_index > 0 )) || start_index=1
+    start_offset=$(( start_index - 1 ))
+  fi
+  _zle_picker_loop "$initial_query" 20 $start_index $start_offset
+}
+
+# A first removable-volume access can return once while macOS applies the
+# user's permission choice. Keep the established image and screen session so
+# the user can retry that explicit provider capture without starting over.
+_usb_disks_capture_retry() {
+  emulate -L zsh
+  local image_size=$1 image_label=$2 back_value=$3 back_label=$4
+  local excluded_disk=${5:-}
+  local error='' selected=''
+  local -i result=0
+  while true; do
+    _usb_disks_capture "$image_size" "$excluded_disk" && return 0
+    error=${_USB_CAPTURE_ERROR:-'diskutil did not return a usable external-disk snapshot'}
+    _USB_PICKER_VALUES=(retry "$back_value")
+    _USB_PICKER_LABELS=(
+      'Retry target capture · permission or attachment may have changed'
+      "$back_label")
+    _USB_PICKER_SEARCH=(retry permission disk refresh back image target)
+    _USB_PICKER_DETAILS=(
+      'Retry target capture'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter performs a fresh read-only diskutil capture.'
+      "$back_label"$'\n\n''Return without discarding the established image or performing an action.')
+    _usb_choose 'Flash USB · Step 2 of 3' "DRIVE unavailable · $error" 'Filter choices' 0 1
+    result=$?
+    (( result == 1 )) && return 1
+    (( result == 0 )) || return $result
+    [[ $_ZLE_PICKER_ACTION == refresh ]] && continue
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    [[ $selected == retry ]] || return 1
+  done
+}
+
+_usb_target_choose() {
+  emulate -L zsh
+  local image_size=$1 image_label=$2 back_value=$3 back_label=$4
+  local excluded_disk=${5:-} subtitle=${6:-"Image  ›  DRIVE  ›  Flash · $image_label"}
+  local -i result=0 index=0
+  while true; do
+    _usb_disks_capture_retry "$image_size" "$image_label" "$back_value" \
+      "$back_label" "$excluded_disk" || return $?
+    _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+    for (( index = 1; index <= ${#_USB_DISK_IDS}; ++index )); do
+      _USB_PICKER_VALUES+=("$index") _USB_PICKER_LABELS+=("${_USB_DISK_LABELS[index]}")
+      _USB_PICKER_SEARCH+=("${_USB_DISK_IDS[index]} ${_USB_DISK_LABELS[index]}")
+      _USB_PICKER_DETAILS+=("${_USB_DISK_DETAILS[index]}")
+    done
+    _usb_choose 'Flash USB · Step 2 of 3' "$subtitle" 'Filter drives' 0 1
+    result=$?
+    (( result == 0 )) || return $result
+    [[ $_ZLE_PICKER_ACTION == refresh ]] && continue
+    return 0
+  done
+}
+
+_usb_image_source_disk_retry() {
+  emulate -L zsh
+  local image=$1 error='' selected=''
+  local -i result=0
+  while true; do
+    _usb_image_source_disk_capture "$image" && return 0
+    error=${_USB_CAPTURE_ERROR:-'macOS did not return a usable image-volume snapshot'}
+    _USB_PICKER_VALUES=(retry image)
+    _USB_PICKER_LABELS=(
+      'Retry image-volume access · permission may have changed'
+      'Choose another image')
+    _USB_PICKER_SEARCH=(retry permission volume image back)
+    _USB_PICKER_DETAILS=(
+      'Retry image-volume access'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter resolves the source again so it cannot be selected as the write target.'
+      'Choose another image'$'\n\n''Return to the captured image choices without performing an action.')
+    _usb_choose 'Flash USB · Step 1 of 3' "IMAGE unavailable · $error" 'Filter choices'
+    result=$?
+    (( result == 1 )) && return 1
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    [[ $selected == retry ]] || return 1
+  done
+}
+
+_usb_image_architecture_capture() {
+  emulate -L zsh
+  _usb_image_architecture_hint "$1"
+  _USB_SELECTED_IMAGE_ARCHITECTURE=$REPLY
+}
+
+_usb_workspace_controller() {
+  emulate -L zsh
+  local selected='' image='' disk='' source_disk=''
+  local image_query='' image_initial_value='' refresh_path=''
+  local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
+  local _USB_CHECKSUM_ALGORITHM=''
+  local -i image_index=1 disk_index=1 result=0 index=0 refresh_index=0
+  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
+  local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  local -a previous_disk_ids=() previous_disk_labels=() previous_disk_details=()
+  local -a previous_disk_sizes=() previous_disk_fingerprints=()
+
+  while true; do
+    _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+    _USB_PICKER_VALUES+=(custom-path)
+    _USB_PICKER_LABELS+=('[ Custom path to image… ]')
+    _USB_PICKER_HIGHLIGHTS+=('')
+    _USB_PICKER_SEARCH+=(custom path browse home finder)
+    _USB_PICKER_DETAILS+=('Custom path to image'$'\n\n''Browse from ~/ with Compozsh fuzzy matching. Use Right or Return to enter the selected folder, Left to return, and choose one regular ISO or IMG file.')
+    for (( index = 1; index <= ${#_USB_IMAGE_PATHS}; ++index )); do
+      _USB_PICKER_VALUES+=("image:$index") _USB_PICKER_LABELS+=("${_USB_IMAGE_LABELS[index]}")
+      _USB_PICKER_HIGHLIGHTS+=("${_USB_IMAGE_HIGHLIGHTS[index]}")
+      _USB_PICKER_SEARCH+=("${_USB_IMAGE_PATHS[index]}")
+      _USB_PICKER_DETAILS+=("${_USB_IMAGE_DETAILS[index]}")
+    done
+    _usb_choose 'Flash USB · Step 1 of 3' \
+      "IMAGE  ›  Drive  ›  Flash · newest first · ${_USB_IMAGE_CAPTURE_SCOPE}" \
+      'Filter images' 1 1 1 'captured images · Ctrl-R refresh Spotlight' \
+      "$image_query" "$image_initial_value"
+    result=$?
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    if [[ $_ZLE_PICKER_ACTION == refresh ]]; then
+      image_query=${_ZLE_PICKER_BOOKMARK[1]-}
+      refresh_path=''
+      [[ $selected == image:<-> ]] && refresh_path=${_USB_IMAGE_PATHS[${selected#image:}]-}
+      _usb_images_capture || return $?
+      refresh_index=${_USB_IMAGE_PATHS[(Ie)$refresh_path]}
+      if [[ -n $refresh_path ]] && (( !refresh_index )); then
+        if _usb_image_add "$refresh_path"; then
+          _USB_IMAGE_CAPTURE_SCOPE+=' + selected exact path'
+          _usb_images_sort_newest
+        fi
+      fi
+      refresh_index=${_USB_IMAGE_PATHS[(Ie)$refresh_path]}
+      if [[ -n $refresh_path ]] && (( refresh_index )); then
+        image_initial_value="image:$refresh_index"
+      else
+        image_initial_value=''
+      fi
+      continue
+    fi
+    image_query='' image_initial_value=''
+    if [[ $selected == custom-path ]]; then
+      _usb_browse_image_path
+      result=$?
+      (( result == 1 )) && continue
+      (( result == 0 )) || return $result
+      if (( !_USB_IMAGE_PATHS[(Ie)$REPLY] )); then
+        _usb_image_from_query "$REPLY" || continue
+      fi
+      _usb_images_sort_newest
+      image_index=${_USB_IMAGE_PATHS[(Ie)$REPLY]}
+    else
+      image_index=${selected#image:}
+    fi
+    image=${_USB_IMAGE_PATHS[image_index]}
+    checksum='' checksum_algorithm=''
+    _USB_SELECTED_IMAGE_ARCHITECTURE=''
+    _usb_image_architecture_capture "$image"
+
+    _usb_image_source_disk_retry "$image"
+    result=$?
+    (( result == 1 )) && continue
+    (( result == 0 )) || return $result
+    source_disk=$_USB_IMAGE_SOURCE_DISK
+
+    _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
+      image 'Choose another image' "$source_disk"
+    result=$?
+    (( result == 1 )) && continue
+    (( result == 0 )) || return $result
+    disk_index=$_ZLE_PICKER_SELECTED_VALUE
+    disk=${_USB_DISK_IDS[disk_index]}
+
+    while true; do
+      _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+      _USB_PICKER_VALUES+=(flash-verify)
+      if [[ -n $checksum ]]; then
+        _USB_PICKER_LABELS+=("[ Start flash & verify · SHA-$checksum_algorithm ]")
+      else
+        _USB_PICKER_LABELS+=('[ Start flash & verify ]')
+      fi
+      _USB_PICKER_SEARCH+=('write verify checksum')
+      _USB_PICKER_DETAILS+=(
+        'Flash & verify'$'\n\n'"After confirmation, validates the full image checksum when provided, unmounts /dev/$disk, writes through /dev/r$disk, verifies the payload outside the mutable partition prefix, and ejects.")
+      _USB_PICKER_VALUES+=(checksum)
+      if [[ -n $checksum ]]; then
+        _USB_PICKER_LABELS+=("Checksum · SHA-$checksum_algorithm · ${checksum[1,12]}…")
+        _USB_PICKER_DETAILS+=("Image checksum"$'\n\n'"SHA-$checksum_algorithm · $checksum"$'\n\n''The full image must match before writing. Finished-drive verification reuses SHA-'"$checksum_algorithm"' over the payload outside the mutable 17,408-byte prefix.')
+      else
+        _USB_PICKER_LABELS+=('Add image checksum… · SHA-256 or SHA-512')
+        _USB_PICKER_DETAILS+=('Optional image checksum'$'\n\n''Paste the publisher’s SHA-256 or SHA-512 digest. The full image is validated before writing; finished-drive verification then uses the same algorithm on the immutable payload region.')
+      fi
+      _USB_PICKER_SEARCH+=('checksum sha256 sha512 integrity')
+      if [[ -n $checksum ]]; then
+        _USB_PICKER_VALUES+=(remove-checksum)
+        _USB_PICKER_LABELS+=('Remove image checksum')
+        _USB_PICKER_SEARCH+=('remove checksum')
+        _USB_PICKER_DETAILS+=('Remove checksum'$'\n\n''Continue without publisher-checksum validation. Flash & verify will still perform the native payload comparison.')
+      fi
+      _USB_PICKER_VALUES+=(image target flash-only)
+      _USB_PICKER_LABELS+=(
+        "Change image · ${image:t}"
+        "Change drive · ${_USB_DISK_LABELS[disk_index]}"
+        'Flash without verification')
+      _USB_PICKER_SEARCH+=(image target write)
+      _USB_PICKER_DETAILS+=(
+        "${_USB_IMAGE_DETAILS[image_index]}"
+        "${_USB_DISK_DETAILS[disk_index]}"
+        'Flash only'$'\n\n'"Validates a provided publisher checksum before writing, then writes /dev/r$disk and ejects without reading the payload back.")
+      _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
+      architecture_label=$REPLY
+      _usb_choose 'Flash USB · Step 3 of 3' \
+        "Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk" 'Filter choices'
+      result=$?
+      (( result == 1 )) && break
+      (( result == 0 )) || return $result
+      selected=$_ZLE_PICKER_SELECTED_VALUE
+      case $selected in
+        (image) break ;;
+        (checksum)
+          checksum_subtitle='Paste one SHA-256 or SHA-512 checksum, then press Return'
+          while true; do
+            _usb_read_checksum "$checksum_subtitle" "$checksum"
+            result=$?
+            (( result == 1 )) && break
+            (( result == 0 )) || return $result
+            if _usb_checksum_parse "$_ZLE_PICKER_SELECTED_VALUE"; then
+              checksum=$REPLY checksum_algorithm=$_USB_CHECKSUM_ALGORITHM
+              break
+            fi
+            checksum_subtitle='No single valid SHA-256 or SHA-512 digest was found; paste another'
+          done
+          continue ;;
+        (remove-checksum)
+          checksum='' checksum_algorithm=''
+          continue ;;
+        (target)
+          previous_disk_ids=("${_USB_DISK_IDS[@]}")
+          previous_disk_labels=("${_USB_DISK_LABELS[@]}")
+          previous_disk_details=("${_USB_DISK_DETAILS[@]}")
+          previous_disk_sizes=("${_USB_DISK_SIZES[@]}")
+          previous_disk_fingerprints=("${_USB_DISK_FINGERPRINTS[@]}")
+          _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
+            target 'Keep current target' "$source_disk" \
+            'Image  ›  DRIVE  ›  Flash · refreshed'
+          result=$?
+          if (( result == 1 )); then
+            _USB_DISK_IDS=("${previous_disk_ids[@]}")
+            _USB_DISK_LABELS=("${previous_disk_labels[@]}")
+            _USB_DISK_DETAILS=("${previous_disk_details[@]}")
+            _USB_DISK_SIZES=("${previous_disk_sizes[@]}")
+            _USB_DISK_FINGERPRINTS=("${previous_disk_fingerprints[@]}")
+            continue
+          fi
+          (( result == 0 )) || return $result
+          disk_index=$_ZLE_PICKER_SELECTED_VALUE
+          disk=${_USB_DISK_IDS[disk_index]} ;;
+        (flash-verify|flash-only)
+          _USB_REQUEST=$selected _USB_SELECTED_IMAGE=$image _USB_SELECTED_DISK=$disk
+          _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[image_index]}
+          _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[image_index]}
+          _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[disk_index]}
+          _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[disk_index]}
+          _USB_SELECTED_SOURCE_DISK=$source_disk
+          _USB_SELECTED_CHECKSUM=$checksum
+          _USB_SELECTED_CHECKSUM_ALGORITHM=$checksum_algorithm
+          return 0 ;;
+      esac
+    done
+  done
+}
+
+_usb_image_revalidate() {
+  emulate -L zsh
+  local path=$1 expected_fingerprint=$2 expected_size=$3
+  _usb_image_fingerprint "$path" || return 1
+  [[ $REPLY == "$expected_fingerprint" && $expected_size == <-> ]] || return 1
+  [[ ${${REPLY#*:*:}%%:*} == "$expected_size" ]]
+}
+
+_usb_target_revalidate() {
+  emulate -L zsh
+  local identifier=$1 expected_fingerprint=$2 image_size=$3
+  _usb_disk_info_capture "$identifier" || return 1
+  _usb_info_is_eligible || return 1
+  [[ $_USB_INFO_FINGERPRINT == "$expected_fingerprint" ]] || return 1
+  (( _USB_INFO_SIZE >= image_size ))
+}
+
+_usb_human_duration() {
+  emulate -L zsh
+  local -i total=${1:-0} hours=0 minutes=0 seconds=0
+  (( total < 0 )) && total=0
+  hours=$(( total / 3600 ))
+  minutes=$(( (total % 3600) / 60 ))
+  seconds=$(( total % 60 ))
+  if (( hours )); then
+    REPLY="${hours}h ${minutes}m ${seconds}s"
+  elif (( minutes )); then
+    REPLY="${minutes}m ${seconds}s"
+  else
+    REPLY="${seconds}s"
+  fi
+}
+
+_usb_progress_bar() {
+  emulate -L zsh
+  local -i percent=${1:-0} width=${2:-32} filled_count=0
+  local filled='' empty=''
+  (( percent < 0 )) && percent=0
+  (( percent > 100 )) && percent=100
+  (( width < 10 )) && width=10
+  filled_count=$(( percent * width / 100 ))
+  printf -v filled '%*s' $filled_count ''
+  printf -v empty '%*s' $(( width - filled_count )) ''
+  filled=${filled// /=}
+  empty=${empty// /·}
+  REPLY="[$filled$empty] ${percent}%"
+}
+
+_usb_noop() {
+  return 0
+}
+
+# Paint one stable stage frame. The caller then performs its synchronous
+# effect while that frame remains visible; dd publishes determinate updates.
+_usb_progress_stage() {
+  emulate -L zsh
+  local stage=$1 style='' line=''
+  local image=${_USB_SELECTED_IMAGE:-} disk_label=${_USB_SELECTED_DISK_LABEL:-}
+  local -i _ZLE_PICKER_STATUS_VIEW=1
+  local _ZLE_PICKER_BUSY_LABEL="● ${stage:u}"
+  local -a _ZLE_PICKER_BUSY_LINES=() _ZLE_PICKER_BUSY_STYLES=()
+  shift
+  (( ${+functions[_zle_picker_capture]} )) || return 0
+  if [[ -n $image ]]; then
+    _ZLE_PICKER_BUSY_LINES=(
+      '' 'IMAGE' "  ${image:t}" "  ${image:h}"
+      '' 'TARGET' "  ${disk_label:-/dev/${_USB_SELECTED_DISK}}" '')
+    _ZLE_PICKER_BUSY_STYLES=(
+      picker-text picker-status-heading picker-status-info picker-status-muted
+      picker-text picker-status-heading picker-status-info picker-text)
+    if [[ -n ${_USB_SELECTED_CHECKSUM:-} ]]; then
+      _ZLE_PICKER_BUSY_LINES+=(
+        'CHECKSUM' "  SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM} · ${_USB_SELECTED_CHECKSUM[1,16]}…" '')
+      _ZLE_PICKER_BUSY_STYLES+=(
+        picker-status-heading picker-status-info picker-text)
+    fi
+    if [[ -n ${_USB_SELECTED_IMAGE_ARCHITECTURE:-} ]]; then
+      _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
+      _ZLE_PICKER_BUSY_LINES+=(
+        'IMAGE ARCHITECTURE' "  $REPLY" '')
+      _ZLE_PICKER_BUSY_STYLES+=(
+        picker-status-heading picker-status-info picker-text)
+    fi
+  fi
+  while (( $# >= 2 )); do
+    style=$1 line=$2
+    shift 2
+    case $style in
+      (heading|info|progress|warning|muted) ;;
+      (*) style=info ;;
+    esac
+    _ZLE_PICKER_BUSY_LINES+=("$line")
+    _ZLE_PICKER_BUSY_STYLES+=("picker-status-$style")
+  done
+  _zle_picker_capture 'Flash USB · Step 3 of 3' 'Image  ›  Drive  ›  FLASH' '' _usb_noop
+}
+
+_usb_dd_progress_read() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local progress_file=$1 total=$2 started=$3 raw='' line='' byte_text=''
+  local -i raw_size=0 bytes=0 percent=0 elapsed=$(( SECONDS - started )) bar_width=32
+  local done_label='' total_label=''
+  bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
+  (( bar_width < 24 )) && bar_width=24
+  (( bar_width > 64 )) && bar_width=64
+  _usb_progress_bar 0 $bar_width
+  _USB_PROGRESS_BAR=$REPLY
+  REPLY='Preparing the first write block…'
+  [[ -f $progress_file && $total == <-> ]] || return 0
+  raw_size=$(command /usr/bin/stat -f '%z' "$progress_file" 2>/dev/null) || return 0
+  (( raw_size > 0 && raw_size <= 1048576 )) || return 0
+  raw=$(<"$progress_file")
+  raw=${raw//$'\r'/$'\n'}
+  for line in "${(f)raw}"; do
+    line=${line##[[:space:]]#}
+    # Apple dd uses two native status shapes. Periodic status=progress records
+    # include human-readable units between "bytes" and "transferred", while
+    # the completion record keeps those words adjacent. Accept both without
+    # interpreting any other stderr line as progress.
+    [[ $line == <->' bytes '*transferred* ]] || continue
+    byte_text=${line%% *}
+    [[ $byte_text == <-> ]] && bytes=$byte_text
+  done
+  (( bytes > total )) && bytes=$total
+  (( total > 0 )) && percent=$(( bytes * 100 / total ))
+  _usb_progress_bar $percent $bar_width
+  _USB_PROGRESS_BAR=$REPLY
+  _usb_human_size $bytes
+  done_label=$REPLY
+  _usb_human_size $total
+  total_label=$REPLY
+  _usb_human_duration $elapsed
+  REPLY="$done_label of $total_label · $REPLY elapsed"
+}
+
+_usb_authorize() {
+  command /usr/bin/sudo -v
+}
+
+_usb_unmount() {
+  command /usr/sbin/diskutil unmountDisk "/dev/$1"
+}
+
+_usb_dd_run() {
+  command /usr/bin/sudo -n /bin/dd "$@"
+}
+
+_usb_write_image() {
+  emulate -L zsh
+  setopt NO_BG_NICE
+  unsetopt MONITOR NOTIFY
+  local image=$1 identifier=$2 image_size=$3
+  local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
+  local -i worker=0 command_status=1 started=$SECONDS
+  [[ $image_size == <-> ]] || return 2
+  progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
+  {
+    _usb_dd_run "if=$image" "of=/dev/r${identifier}" \
+      bs=4m status=progress 2>| "$progress_file" &
+    worker=$!
+    while builtin kill -0 $worker 2>/dev/null; do
+      _usb_dd_progress_read "$progress_file" "$image_size" $started
+      progress_text=$REPLY
+      _usb_progress_stage 'Writing image' \
+        progress "$_USB_PROGRESS_BAR" info "$progress_text" \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+      command /bin/sleep 0.25
+    done
+    wait $worker
+    command_status=$?
+  } always {
+    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
+      builtin kill -INT $worker 2>/dev/null
+      wait $worker 2>/dev/null
+    fi
+    if [[ -n $progress_file && ${progress_file:t} == compozsh-usb-progress.* &&
+          ${progress_file:h:A} == ${temp_root:A} ]]; then
+      command /bin/rm -f -- "$progress_file"
+    fi
+  }
+  return $command_status
+}
+
+_usb_cmp_run() {
+  command /usr/bin/sudo /usr/bin/cmp "$@"
+}
+
+_usb_image_checksum_run() {
+  local algorithm=$1 image=$2
+  command /usr/bin/shasum -a "$algorithm" -b < "$image"
+}
+
+_usb_payload_checksum_run() {
+  emulate -L zsh
+  unsetopt PIPE_FAIL
+  local algorithm=$1 path=$2 image_size=$3 privileged=${4:-0}
+  if (( privileged )); then
+    command /usr/bin/sudo /usr/bin/head -c "$image_size" "$path"
+  else
+    command /usr/bin/head -c "$image_size" "$path"
+  fi | command /usr/bin/tail -c +17409 |
+    command /usr/bin/shasum -a "$algorithm" -b
+}
+
+_usb_checksum_output_read() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local output=$1 algorithm=$2 digest=${output%%[[:space:]]*}
+  digest=${digest:l}
+  case $algorithm in
+    (256) (( ${#digest} == 64 )) || return 1 ;;
+    (512) (( ${#digest} == 128 )) || return 1 ;;
+    (*) return 1 ;;
+  esac
+  [[ $digest == [0-9a-f]## ]] || return 1
+  REPLY=$digest
+}
+
+_usb_image_checksum() {
+  emulate -L zsh
+  local image=$1 algorithm=$2 output=''
+  output=$(_usb_image_checksum_run "$algorithm" "$image") || return 1
+  _usb_checksum_output_read "$output" "$algorithm"
+}
+
+_usb_payload_checksum() {
+  emulate -L zsh
+  local path=$1 image_size=$2 algorithm=$3 privileged=${4:-0} output=''
+  (( image_size > 17408 )) || return 1
+  output=$(_usb_payload_checksum_run "$algorithm" "$path" "$image_size" "$privileged") || return 1
+  _usb_checksum_output_read "$output" "$algorithm"
+}
+
+_usb_verify_payload() {
+  emulate -L zsh
+  local image=$1 identifier=$2 image_size=$3
+  local -i compared=$(( image_size - 17408 ))
+  _usb_unmount "$identifier" >/dev/null 2>&1 || return
+  _usb_cmp_run -n "$compared" -i 17408 \
+    "/dev/r${identifier}" "$image" >/dev/null 2>&1
+}
+
+_usb_verify_payload_checksum() {
+  emulate -L zsh
+  local image=$1 identifier=$2 image_size=$3 algorithm=$4
+  local image_digest='' drive_digest=''
+  _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM=''
+  _usb_unmount "$identifier" >/dev/null 2>&1 || return 1
+  _usb_payload_checksum "$image" "$image_size" "$algorithm" 0 || return 1
+  image_digest=$REPLY
+  _usb_payload_checksum "/dev/r${identifier}" "$image_size" "$algorithm" 1 || return 1
+  drive_digest=$REPLY
+  _USB_PAYLOAD_IMAGE_CHECKSUM=$image_digest
+  _USB_PAYLOAD_DRIVE_CHECKSUM=$drive_digest
+  [[ $drive_digest == "$image_digest" ]]
+}
+
+_usb_eject() {
+  command /usr/sbin/diskutil eject "/dev/$1"
+}
+
+_usb_execute() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB NO_BG_NICE
+  unsetopt MONITOR NOTIFY
+  local image=$1 identifier=$2 disk_fingerprint=$3 image_fingerprint=$4
+  local image_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
+  local checksum_algorithm=${9:-} expected_checksum=${10:-}
+  local _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM=''
+  local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
+  _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+  _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
+  _USB_RESULT_EXPECTED_CHECKSUM=$expected_checksum _USB_RESULT_IMAGE_CHECKSUM=''
+  _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM='' _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=''
+  _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
+  _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
+  _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
+  [[ $image_size == <-> ]] || return 2
+  case $request in
+    (flash-verify|flash-only) ;;
+    (*) return 2 ;;
+  esac
+  if [[ -n $expected_checksum ]]; then
+    case $checksum_algorithm in
+      (256) (( ${#expected_checksum} == 64 )) ;;
+      (512) (( ${#expected_checksum} == 128 )) ;;
+      (*) return 2 ;;
+    esac || return 2
+    [[ $expected_checksum == [0-9a-f]## ]] || return 2
+  elif [[ -n $checksum_algorithm ]]; then
+    return 2
+  fi
+  if [[ -n $source_disk && $identifier == "$source_disk" ]]; then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The selected drive contains the image source; nothing was written.'
+    return 1
+  fi
+  _usb_progress_stage 'Validating image and drive' \
+    info 'Checking the captured image and external-drive identity before writing.' \
+    muted 'No disk data has been changed yet.'
+  (( authorized )) || _usb_authorize || {
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Administrator authorization failed; nothing was written.'
+    return 1
+  }
+  _usb_image_revalidate "$image" "$image_fingerprint" "$image_size" || {
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The selected image changed after capture; nothing was written.'
+    return 1
+  }
+  if [[ -n $expected_checksum ]]; then
+    _usb_progress_stage "Checking image SHA-$checksum_algorithm" \
+      info "Hashing the complete image before any external-drive data is changed." \
+      muted "Expected · ${expected_checksum[1,16]}…"
+    _usb_image_checksum "$image" "$checksum_algorithm" || {
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR="The image SHA-$checksum_algorithm checksum could not be calculated; nothing was written."
+      return 1
+    }
+    _USB_RESULT_IMAGE_CHECKSUM=$REPLY
+    if [[ $REPLY != "$expected_checksum" ]]; then
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR="The image SHA-$checksum_algorithm does not match the provided checksum; nothing was written."
+      return 1
+    fi
+    _USB_RESULT_CHECKSUM_VALIDATED=1
+  fi
+  _usb_target_revalidate "$identifier" "$disk_fingerprint" "$image_size" || {
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The external drive changed or is no longer eligible; nothing was written.'
+    return 1
+  }
+  _usb_progress_stage 'Unmounting external drive' \
+    info 'Preparing the whole external drive for a raw image write.' \
+    warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+  _usb_unmount "$identifier" >/dev/null 2>&1 || {
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='The external drive could not be unmounted; nothing was written.'
+    return 1
+  }
+  _USB_RESULT_STARTED=1
+  _usb_progress_stage 'Writing image' \
+    info 'Starting Apple dd with 4 MiB blocks.' \
+    warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+  stage_started=$SECONDS
+  _usb_write_image "$image" "$identifier" "$image_size"
+  action_status=$?
+  _USB_RESULT_WRITE_SECONDS=$(( SECONDS - stage_started ))
+  if (( action_status == 0 )); then
+    _USB_RESULT_BYTES=$image_size
+    _usb_human_size $(( image_size / (_USB_RESULT_WRITE_SECONDS > 0 ? _USB_RESULT_WRITE_SECONDS : 1) ))
+    _USB_RESULT_RATE="$REPLY/s"
+  else
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Writing failed with status $action_status."
+  fi
+  if (( action_status == 0 )) && [[ $request == flash-verify ]]; then
+    if [[ -n $expected_checksum ]]; then
+      _usb_progress_stage "Verifying payload SHA-$checksum_algorithm" \
+        info 'Hashing the image and finished drive after the mutable 17,408-byte partition prefix.' \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+    else
+      _usb_progress_stage 'Verifying payload' \
+        info 'Comparing every image byte after the mutable 17,408-byte partition prefix.' \
+        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+    fi
+    stage_started=$SECONDS
+    if [[ -n $expected_checksum ]]; then
+      _usb_verify_payload_checksum "$image" "$identifier" "$image_size" "$checksum_algorithm"
+      action_status=$?
+      _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM=$_USB_PAYLOAD_IMAGE_CHECKSUM
+      _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=$_USB_PAYLOAD_DRIVE_CHECKSUM
+    else
+      _usb_verify_payload "$image" "$identifier" "$image_size"
+      action_status=$?
+    fi
+    _USB_RESULT_VERIFY_SECONDS=$(( SECONDS - stage_started ))
+    (( action_status == 0 )) && _USB_RESULT_VERIFIED=1 || {
+      _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Payload verification failed with status $action_status."
+    }
+  fi
+  _usb_progress_stage 'Ejecting external drive' \
+    info 'Finishing the operation and making the drive safe to remove.'
+  _usb_eject "$identifier" >/dev/null 2>&1
+  eject_status=$?
+  (( eject_status == 0 )) && _USB_RESULT_EJECTED=1
+  _USB_RESULT_SECONDS=$(( SECONDS - execution_started ))
+  (( action_status )) && return $action_status
+  if (( eject_status )); then
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The image was written, but macOS could not eject the external drive.'
+    return $eject_status
+  fi
+  _USB_RESULT_OUTCOME=complete
+}
+
+_usb_result_choose() {
+  emulate -L zsh
+  _usb_choose "$1" "$2" 'Done'
+}
+
+_usb_result_screen() {
+  emulate -L zsh
+  local result_status=${1:-1} size_label='' duration_label=''
+  local verification_label='' eject_label=''
+  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
+  local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  if (( result_status == 0 )) && [[ $_USB_RESULT_OUTCOME == complete ]]; then
+    _usb_human_size $_USB_RESULT_BYTES
+    size_label=$REPLY
+    _usb_human_duration $_USB_RESULT_SECONDS
+    duration_label=$REPLY
+    if (( _USB_RESULT_VERIFIED )) && [[ -n $_USB_RESULT_CHECKSUM_ALGORITHM ]]; then
+      verification_label="USB payload · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched"
+    elif (( _USB_RESULT_VERIFIED )); then
+      verification_label='Payload verified'
+    else
+      verification_label='Verification skipped'
+    fi
+    eject_label='Safe to remove · external drive ejected'
+    _USB_PICKER_VALUES=(done bytes time)
+    _USB_PICKER_LABELS=(
+      '[ Done ]'
+      "Flash complete · $size_label written"
+      "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}")
+    _USB_PICKER_SEARCH=(done complete time)
+    _USB_PICKER_DETAILS=('' '' '')
+    if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
+      _USB_PICKER_VALUES+=(image-checksum)
+      _USB_PICKER_LABELS+=("Image checksum · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
+      _USB_PICKER_SEARCH+=('image checksum matched')
+      _USB_PICKER_DETAILS+=("Publisher checksum matched"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
+    fi
+    _USB_PICKER_VALUES+=(verify eject)
+    _USB_PICKER_LABELS+=("$verification_label" "$eject_label")
+    _USB_PICKER_SEARCH+=(verified safe)
+    if [[ -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
+      _USB_PICKER_DETAILS+=("Finished-drive payload checksum"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM"$'\n\n''Matches the selected image after excluding the mutable 17,408-byte prefix.' '')
+    else
+      _USB_PICKER_DETAILS+=('' '')
+    fi
+    _usb_result_choose 'Flash USB · Complete' 'Image  ›  Drive  ›  DONE'
+  else
+    if (( !_USB_RESULT_STARTED )); then
+      eject_label='Nothing was written · drive remains mounted'
+    elif (( _USB_RESULT_EJECTED )); then
+      eject_label='Safe to remove · external drive ejected'
+    else
+      eject_label='Check the drive before removing it'
+    fi
+    _USB_PICKER_VALUES=(done error)
+    _USB_PICKER_LABELS=(
+      '[ Done ]'
+      "Flash failed · ${_USB_RESULT_ERROR:-The operation did not complete.}")
+    _USB_PICKER_SEARCH=(done failed)
+    _USB_PICKER_DETAILS=('' '')
+    if [[ -n $_USB_RESULT_EXPECTED_CHECKSUM ]]; then
+      _USB_PICKER_VALUES+=(checksum)
+      _USB_PICKER_LABELS+=("Image checksum · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM")
+      _USB_PICKER_SEARCH+=('checksum expected actual')
+      _USB_PICKER_DETAILS+=("Expected"$'\n'"$_USB_RESULT_EXPECTED_CHECKSUM"$'\n\n'"Actual"$'\n'"${_USB_RESULT_IMAGE_CHECKSUM:-unavailable}")
+    fi
+    if [[ -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
+      _USB_PICKER_VALUES+=(payload-checksum)
+      _USB_PICKER_LABELS+=("USB payload · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM mismatch")
+      _USB_PICKER_SEARCH+=('payload checksum mismatch')
+      _USB_PICKER_DETAILS+=("Image payload"$'\n'"$_USB_RESULT_IMAGE_PAYLOAD_CHECKSUM"$'\n\n'"Finished-drive payload"$'\n'"$_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM")
+    fi
+    _USB_PICKER_VALUES+=(eject)
+    _USB_PICKER_LABELS+=("$eject_label")
+    _USB_PICKER_SEARCH+=(recovery)
+    _USB_PICKER_DETAILS+=('')
+    _usb_result_choose 'Flash USB · Couldn’t complete' 'Image  ›  Drive  ›  FAILED'
+  fi
+}
+
+_usb_progress_controller() {
+  emulate -L zsh
+  local -i execution_status=0
+  _usb_execute "$_USB_SELECTED_IMAGE" "$_USB_SELECTED_DISK" \
+    "$_USB_SELECTED_DISK_FINGERPRINT" "$_USB_SELECTED_IMAGE_FINGERPRINT" \
+    "$_USB_SELECTED_IMAGE_SIZE" "$_USB_REQUEST" "$_USB_SELECTED_SOURCE_DISK" 1 \
+    "$_USB_SELECTED_CHECKSUM_ALGORITHM" "$_USB_SELECTED_CHECKSUM"
+  execution_status=$?
+  _usb_result_screen $execution_status
+  return $execution_status
+}
+
+_usb_confirmation_prompt() {
+  emulate -L zsh
+  local expected=$1 color='' style='' reset=$'\e[0m'
+  REPLY="Type exactly $expected to continue: "
+  [[ -t 0 && -t 2 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
+  zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
+  (( ${terminfo[colors]:-0} >= 256 )) || return 0
+  if (( ${+functions[_output_color]} )); then
+    _output_color warning 221
+    color=$REPLY
+  elif [[ ${(t)ZSH_OUTPUT_COLORS} == association* &&
+          ${ZSH_OUTPUT_COLORS[warning]:-} == <0-255> ]]; then
+    color=${ZSH_OUTPUT_COLORS[warning]}
+  fi
+  [[ $color == <0-255> ]] || {
+    REPLY="Type exactly $expected to continue: "
+    return 0
+  }
+  style=$'\e[1;38;5;'"${color}m"
+  REPLY="Type exactly ${style}${expected}${reset} to continue: "
+}
+
+_usb_confirm() {
+  emulate -L zsh
+  local image=$1 identifier=$2 disk_label=$3 request=$4
+  local checksum_algorithm=${5:-} checksum=${6:-} answer=''
+  local expected="ERASE $identifier"
+  _USB_CONFIRM_ERROR=''
+  print -r -- "Image:  $image"
+  print -r -- "Target: $disk_label"
+  if [[ -n ${_USB_SELECTED_IMAGE_ARCHITECTURE:-} ]]; then
+    _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
+    print -r -- "Image architecture: $REPLY"
+  fi
+  if [[ -n $checksum ]]; then
+    print -r -- "Checksum: SHA-$checksum_algorithm · $checksum"
+  else
+    print -r -- 'Checksum: Not provided'
+  fi
+  if [[ $request == flash-verify && -n $checksum ]]; then
+    print -r -- "Action: Validate image SHA-$checksum_algorithm, flash, verify payload SHA-$checksum_algorithm, and eject"
+  elif [[ $request == flash-verify ]]; then
+    print -r -- 'Action: Flash, verify payload, and eject'
+  elif [[ -n $checksum ]]; then
+    print -r -- "Action: Validate image SHA-$checksum_algorithm, flash without read-back verification, and eject"
+  else
+    print -r -- 'Action: Flash and eject without verification'
+  fi
+  print -r -- 'This writes from sector zero and can permanently destroy every existing partition and its data.'
+  _usb_confirmation_prompt "$expected"
+  IFS= read -r "answer?$REPLY" || {
+    _USB_CONFIRM_ERROR='Confirmation was not completed.'
+    return 1
+  }
+  [[ $answer == "$expected" ]] || {
+    _USB_CONFIRM_ERROR="Confirmation did not match. Expected exactly: $expected"
+    return 1
+  }
+}
+
+_compozsh_help_flash-usb() {
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: flash-usb [image.iso|image.img]' \
+    'Open a native workspace that writes a raw disk image to an external disk.' \
+    '' \
+    'Image capture:' \
+    '  An explicit path selects that exact readable regular .iso or .img file.' \
+    '  With no path, Step 1 merges up to 500 Finder-indexed matches beneath ~' \
+    '  with shallow current-folder and ~/Downloads captures of up to 200 each.' \
+    '  The direct captures help include fresh files Spotlight has not indexed.' \
+    '  Results are a bounded snapshot: Spotlight exclusions, indexing delay, or' \
+    '  the limit can omit images. Discovery never follows symbolic links.' \
+    '  Images are ordered by creation time, newest first, falling back to' \
+    '  modification time when creation time is unavailable. Ordering never' \
+    '  accepts an image automatically; every run requires explicit selection.' \
+    '  Step 1 Ctrl-R replaces the snapshot with a fresh Spotlight capture under' \
+    '  ~ plus fresh shallow current-folder and ~/Downloads reads. It retains the' \
+    '  active filter and exact selected image while that image remains available.' \
+    '  A completed download can therefore appear without restarting flash-usb' \
+    '  or waiting for Spotlight to index it.' \
+    '  Step 1 keeps Custom path first and shows captured format, size, creation,' \
+    '  modification, filename-derived architecture, and exact path details.' \
+    '  Recognized AMD64/x86_64 and ARM64/aarch64 names receive equal passive' \
+    '  architecture labels in image, review, confirmation, and progress context.' \
+    '  No architecture adds an interruption. Unknown names remain explicitly' \
+    '  undetected; the Mac writing the USB does not determine installer architecture.' \
+    '  Custom path' \
+    '  opens a bounded browser at ~/. Left moves to the parent; Right or Return' \
+    '  opens a folder, and Return on a visible .iso or .img selects it.' \
+    '  Typing refines the current folder with prefix, substring, then in-order' \
+    '  fuzzy matching, consistent with Compozsh Tab path navigation.' \
+    '  For Finder drag and drop, type flash-usb followed by a space, drop the' \
+    '  image into Terminal, and press Return. Custom path also offers a literal' \
+    '  drop/paste field for files outside the visible folder.' \
+    '  Dropped text is decoded as a path without evaluating shell commands.' \
+    '  If macOS asks for Removable Volumes access, granting it keeps the screen' \
+    '  context; Enter on Retry performs a fresh read-only source/target capture.' \
+    '  macOS installer .dmg files are intentionally unsupported; use the' \
+    '  installer application’s Apple-provided createinstallmedia tool.' \
+    '' \
+    'Target capture:' \
+    '  diskutil supplies currently attached whole external physical disks.' \
+    '  Native plist captures are limited to 1 MiB, 4,096 device entries, and' \
+    '  64 whole external-disk candidates per refresh.' \
+    '  The workspace excludes internal, virtual, read-only, partition-slice,' \
+    '  and undersized targets. USB, Thunderbolt, and other external transports' \
+    '  are eligible; protocol, media name, exact /dev/diskN, and size are shown.' \
+    '  The parent whole disk containing the selected image is also excluded, so' \
+    '  a target can never destroy its own source during dd.' \
+    '  Step 2 Ctrl-R performs a fresh target capture without losing the selected' \
+    '  image, including from the no-drive-attached recovery screen.' \
+    '' \
+    'Actions:' \
+    '  Step 2 selects one exact eligible external drive. Step 3 reviews image,' \
+    '  drive, optional checksum, and mode; Flash & verify is the default.' \
+    '  Add image checksum accepts one SHA-256 or SHA-512 digest as bare hex,' \
+    '  standard shasum output, or a BSD SHA line. The full image must match the' \
+    '  publisher digest before disk data changes. Selecting another image clears' \
+    '  the checksum so it cannot silently carry across image context.' \
+    '  An exact typed' \
+    '  ERASE diskN confirmation is required. A mismatch reports the exact' \
+    '  expected phrase and writes nothing.' \
+    '  Supported 256-color terminals highlight that phrase with the shared' \
+    '  warning color; NO_COLOR and unsupported terminals keep it plain.' \
+    '  Compozsh then requests sudo, revalidates the image and target identity,' \
+    '  unmounts the whole disk, and' \
+    '  writes through /dev/rdiskN with Apple’s dd using 4 MiB blocks.' \
+    '  Apple dd supplies exact bytes once per second for a determinate progress' \
+    '  bar. Step 3 uses a dedicated status view with no query or bottom footer:' \
+    '  the active stage, image, target, progress, and disconnect warning remain' \
+    '  together near the top with semantic heading, success, and warning colors.' \
+    '  Validation, unmount, verification, and eject remain named stages.' \
+    '  No pre-format is run.' \
+    '  sudo may prompt again if its credential timestamp expires during a long' \
+    '  write.' \
+    '  Flash only skips the read-back comparison. Both actions eject afterward;' \
+    '  an eject is also attempted after a write or verification failure.' \
+    '  A final screen remains until Done and reports bytes, duration, average' \
+    '  write rate, image-checksum status, payload verification, retained digest,' \
+    '  and whether the drive is safe to remove.' \
+    '' \
+    'Verification boundary:' \
+    '  Without a publisher checksum, cmp checks every image byte after the first' \
+    '  17,408 bytes (34 sectors). With SHA-256 or SHA-512, the full image first' \
+    '  matches the supplied digest; after writing, the same algorithm hashes the' \
+    '  image-sized payload region from both image and drive and requires a match.' \
+    '  macOS may rewrite that protective MBR/GPT prefix for physical geometry,' \
+    '  so read-back verification excludes that prefix and does not claim those' \
+    '  mutable boot records match the publisher’s full-image digest.' \
+    '' \
+    'Requirements and recovery:' \
+    '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
+    '  and Apple’s diskutil, plutil, df, mktemp, rm, sleep, dd, cmp, head, tail,' \
+    '  shasum, stat, and sudo tools.' \
+    '  Apple mdfind supplies the indexed home catalog; if it fails, the shallow' \
+    '  current-folder and Downloads snapshot plus Custom path remain available.' \
+    '  A failed or interrupted write can leave the target unusable until it is' \
+    '  rewritten or reformatted. Compozsh cannot roll back overwritten bytes.' \
+    '' \
+    'Examples:' \
+    '  flash-usb                         Choose a captured image and target.' \
+    '  flash-usb ~/Downloads/Linux.iso  Select this exact image, then a target.'
+}
+
+unalias flash-usb 2>/dev/null
+flash-usb() {
+  emulate -L zsh
+  local explicit=${1:-} picker_status=0 capture_status=0 progress_status=0
+  local _USB_REQUEST='' _USB_WORKSPACE_ERROR=''
+  local _USB_SELECTED_IMAGE='' _USB_SELECTED_DISK=''
+  local _USB_SELECTED_SOURCE_DISK=''
+  local _USB_SELECTED_IMAGE_ARCHITECTURE=''
+  local _USB_SELECTED_IMAGE_FINGERPRINT='' _USB_SELECTED_DISK_FINGERPRINT=''
+  local _USB_SELECTED_DISK_LABEL=''
+  local _USB_SELECTED_CHECKSUM='' _USB_SELECTED_CHECKSUM_ALGORITHM=''
+  local _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+  local _USB_RESULT_CHECKSUM_ALGORITHM='' _USB_RESULT_EXPECTED_CHECKSUM=''
+  local _USB_RESULT_IMAGE_CHECKSUM='' _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM=''
+  local _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=''
+  local -i _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
+  local -i _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
+  local -i _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
+  local -i _USB_RESULT_CHECKSUM_VALIDATED=0
+  local -i _USB_SELECTED_IMAGE_SIZE=0
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_flash-usb
+    return 0
+  fi
+  (( $# <= 1 )) || {
+    print -u2 -r -- 'usage: flash-usb [image.iso|image.img]'
+    return 2
+  }
+  {
+    [[ $OSTYPE == darwin* ]] || {
+      print -u2 -r -- 'flash-usb: this workspace requires macOS'
+      return 1
+    }
+    [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil && -x /bin/df &&
+       -x /usr/bin/mktemp && -x /bin/rm && -x /bin/sleep && -x /bin/dd &&
+       -x /usr/bin/cmp && -x /usr/bin/head && -x /usr/bin/tail &&
+       -x /usr/bin/shasum && -x /usr/bin/stat && -x /usr/bin/sudo ]] || {
+      print -u2 -r -- 'flash-usb: required Apple command-line tools are unavailable'
+      return 1
+    }
+    if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
+        (( ! ${+functions[_zle_picker_run]} )); then
+      print -u2 -r -- 'flash-usb: an interactive terminal and the .zsh.editor screen peer are required'
+      return 1
+    fi
+    _usb_images_capture "$explicit"
+    capture_status=$?
+    (( capture_status == 0 )) || {
+      print -u2 -r -- "flash-usb: ${_USB_CAPTURE_ERROR:-cannot capture the image}"
+      return $capture_status
+    }
+    _zle_picker_run 20 '' 1 0 _usb_workspace_controller
+    picker_status=$?
+    (( picker_status == 1 )) && return 0
+    if (( picker_status != 0 )); then
+      [[ -n $_USB_WORKSPACE_ERROR ]] && print -u2 -r -- "flash-usb: $_USB_WORKSPACE_ERROR"
+      return $picker_status
+    fi
+    _usb_confirm "$_USB_SELECTED_IMAGE" "$_USB_SELECTED_DISK" \
+      "$_USB_SELECTED_DISK_LABEL" "$_USB_REQUEST" \
+      "$_USB_SELECTED_CHECKSUM_ALGORITHM" "$_USB_SELECTED_CHECKSUM" || {
+      [[ -n $_USB_CONFIRM_ERROR ]] && print -r -- "$_USB_CONFIRM_ERROR"
+      print -r -- 'Cancelled; nothing was written.'
+      return 0
+    }
+    _usb_authorize || {
+      print -u2 -r -- 'flash-usb: administrator authorization failed; nothing was written'
+      return 1
+    }
+    _zle_picker_run 20 '' 1 0 _usb_progress_controller
+    progress_status=$?
+    return $progress_status
+  } always {
+    _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
+    _USB_IMAGE_HIGHLIGHTS=()
+    _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
+    _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
+    _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
+    _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
+    _USB_CAPTURE_ERROR='' _USB_PLIST=''
+    _USB_CONFIRM_ERROR=''
+    _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_CAPTURE_PARTIAL=0
+    _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
+    _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+    _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
+    _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
+    _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
+  }
+}

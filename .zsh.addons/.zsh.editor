@@ -83,10 +83,15 @@ typeset -ga _ZLE_PICKER_RESULTS=()
 typeset -ga _ZLE_PICKER_LABELS=()
 # Optional secondary labels, keyed by the unchanged action value.
 typeset -gA _ZLE_PICKER_CONTEXTS=()
+# Optional zero-based, end-exclusive label spans keyed by the unchanged action
+# value. Each `start:end:picker-role` token describes presentation metadata;
+# labels remain plain text and retain exact width and matching semantics.
+typeset -gA _ZLE_PICKER_LABEL_HIGHLIGHTS=()
 typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
 typeset -ga _ZLE_PICKER_DISPLAY=()
 typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
 typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
+typeset -ga _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
 typeset -g _ZLE_PICKER_TITLE=''
 # Optional caller-owned location, separate from the title and editable filter.
 typeset -g _ZLE_PICKER_SUBTITLE=''
@@ -119,6 +124,9 @@ typeset -gi _ZLE_PICKER_ACCEPTED=0
 typeset -gi _ZLE_PICKER_DIGIT_SELECT=0
 typeset -gi _ZLE_PICKER_COPY_ENABLED=0
 typeset -gi _ZLE_PICKER_HIERARCHY_ENABLED=0
+typeset -gi _ZLE_PICKER_REFRESH_ENABLED=0
+typeset -gi _ZLE_PICKER_STATUS_VIEW=0
+typeset -ga _ZLE_PICKER_BUSY_STYLES=()
 # Optional folder-workspace capabilities: 1 browser, 2 recent locations.
 typeset -gi _ZLE_PICKER_DIRECTORY_ACTIONS=0
 typeset -ga _ZLE_PICKER_TRAIL=()
@@ -369,7 +377,7 @@ _zle_picker_inspect_render() {
   local -i selected=$1 width=$2 left_width=$3
   local name=${_ZLE_PICKER_RESULTS[selected]:-$_ZLE_PICKER_INSPECT_FALLBACK} left='' right='' title='' role=''
   local -i rows=${#_ZLE_PICKER_DISPLAY} height=6 index=0 line_index=0 right_width=$width
-  local -a display=() styles=() indexes=() left_ends=() right_roles=() context_starts=() match_starts=() right_syntax=()
+  local -a display=() styles=() indexes=() highlights=() left_ends=() right_roles=() context_starts=() match_starts=() right_syntax=()
   _zle_picker_body_height
   local -i body_height=$REPLY
   (( left_width )) && right_width=$(( width - left_width - 3 ))
@@ -437,6 +445,8 @@ _zle_picker_inspect_render() {
         styles+=("${_ZLE_PICKER_DISPLAY_STYLES[index]:-picker-text}")
       fi
       indexes+=("${_ZLE_PICKER_DISPLAY_INDEX_ENDS[index]:-0}")
+      _zle_picker_highlights_shift "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]-}" 0 ${#left}
+      highlights+=("$REPLY")
       context_starts+=("${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index]:-0}")
       match_starts+=("${_ZLE_PICKER_DISPLAY_MATCH_STARTS[index]:--1}")
     else
@@ -444,6 +454,7 @@ _zle_picker_inspect_render() {
       left_ends+=(0)
       styles+=(picker-text)
       indexes+=(0)
+      highlights+=('')
       context_starts+=(0)
       match_starts+=(-1)
       _ZLE_PICKER_INDEXES_VISIBLE=0
@@ -458,6 +469,7 @@ _zle_picker_inspect_render() {
   display+=("${_ZLE_PICKER_DISPLAY[-1]}")
   styles+=(picker-muted)
   indexes+=(0)
+  highlights+=('')
   left_ends+=(-1)
   right_roles+=('')
   right_syntax+=('')
@@ -466,6 +478,7 @@ _zle_picker_inspect_render() {
   _ZLE_PICKER_DISPLAY=("${display[@]}")
   _ZLE_PICKER_DISPLAY_STYLES=("${styles[@]}")
   _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${indexes[@]}")
+  _ZLE_PICKER_DISPLAY_HIGHLIGHTS=("${highlights[@]}")
   _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${left_ends[@]}")
   _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${right_roles[@]}")
   _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=("${right_syntax[@]}")
@@ -589,6 +602,57 @@ _zle_picker_match_spans() {
   done
 }
 
+# Shift and clip validated label-highlight spans without interpreting their
+# contents as patterns or styles. The renderer owns role resolution.
+_zle_picker_highlights_shift() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local specifications=$1 token='' role=''
+  local -i shift=${2:-0} limit=${3:-0} start=0 end=0
+  local -a fields=()
+  REPLY=''
+  (( limit > 0 )) || return 0
+  for token in ${=specifications}; do
+    fields=( "${(@s.:.)token}" )
+    (( ${#fields} == 3 )) || continue
+    [[ ${fields[1]} == <-> && ${fields[2]} == <-> ]] || continue
+    role=${fields[3]}
+    [[ $role == picker-[A-Za-z0-9_-]## ]] || continue
+    start=${fields[1]} end=${fields[2]}
+    (( start >= 0 && end > start && start < limit )) || continue
+    (( end > limit )) && end=$limit
+    REPLY+="$(( start + shift )):$(( end + shift )):$role "
+  done
+  REPLY=${REPLY% }
+}
+
+# Semantic label colors keep the selected-row background and replace only its
+# foreground. This makes metadata distinct without weakening selection focus.
+_zle_picker_label_highlight_style() {
+  emulate -L zsh
+  local role=$1 selected=${2:-0} row_style=${3:-} fallback='fg=111'
+  local selected_role="${role}-selected"
+  local -a row_attributes=() role_attributes=()
+  case $role in
+    (picker-architecture) fallback='fg=117,bold' ;;
+    (picker-size) fallback='fg=221' ;;
+  esac
+  if (( selected )); then
+    case $role in
+      (picker-architecture) fallback='fg=231,bold' ;;
+      (picker-size) fallback='fg=229,bold' ;;
+    esac
+    _zle_picker_style "$selected_role" "$fallback"
+    role_attributes=( "${(@s:,:)REPLY}" )
+    role_attributes=( "${(@)role_attributes:#bg=*}" )
+    row_attributes=( "${(@s:,:)row_style}" )
+    row_attributes=( "${(@)row_attributes:#fg=*}" )
+    REPLY="${(j:,:)row_attributes}${row_attributes:+,}${(j:,:)role_attributes}"
+  else
+    _zle_picker_style "$role" "$fallback"
+  fi
+}
+
 # One shared height budget keeps collection, layout, and footer anchoring in
 # agreement when a caller provides a location row. Tiny windows omit that row.
 _zle_picker_body_height() {
@@ -622,6 +686,7 @@ _zle_picker_workspace() {
   _ZLE_PICKER_DISPLAY=("$separator" "${_ZLE_PICKER_DISPLAY[@][1,-2]}" "${padding[@]}" "${_ZLE_PICKER_DISPLAY[-1]}")
   _ZLE_PICKER_DISPLAY_STYLES=(picker-muted "${_ZLE_PICKER_DISPLAY_STYLES[@][1,-2]}" "${padding[@]}" picker-muted)
   _ZLE_PICKER_DISPLAY_INDEX_ENDS=(0 "${_ZLE_PICKER_DISPLAY_INDEX_ENDS[@][1,-2]}" "${padding[@]}" 0)
+  _ZLE_PICKER_DISPLAY_HIGHLIGHTS=('' "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[@][1,-2]}" "${padding[@]}" '')
   _ZLE_PICKER_DISPLAY_LEFT_ENDS=(-1 "${_ZLE_PICKER_DISPLAY_LEFT_ENDS[@][1,-2]}" "${padding[@]}" -1)
   _ZLE_PICKER_DISPLAY_RIGHT_ROLES=('' "${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[@][1,-2]}" "${padding[@]}" '')
   _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=('' "${_ZLE_PICKER_DISPLAY_RIGHT_SYNTAX[@][1,-2]}" "${padding[@]}" '')
@@ -634,7 +699,7 @@ _zle_picker_workspace() {
 # central list. This composes rows, never starts another terminal renderer.
 _zle_picker_trail_render() {
   emulate -L zsh
-  local -i width=$1 index=0 prefix_end=0 first=1 trail_index=0
+  local -i width=$1 index=0 prefix_end=0 first=1 trail_index=0 row_visible_width=0
   local left='' row=''
   _ZLE_PICKER_DISPLAY_PREFIX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
   (( width )) || return 0
@@ -650,7 +715,10 @@ _zle_picker_trail_render() {
     _zle_picker_fit "${(V)left}" $width
     left="$REPLY │ " prefix_end=${#left}
     _zle_picker_fit "$row" $(( COLUMNS - width - 4 ))
+    row_visible_width=${#REPLY}
     _ZLE_PICKER_DISPLAY[index]="$left$REPLY"
+    _zle_picker_highlights_shift "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]-}" $prefix_end $row_visible_width
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]=$REPLY
     _ZLE_PICKER_DISPLAY_PREFIX_ENDS[index]=$prefix_end
     (( _ZLE_PICKER_DISPLAY_LEFT_ENDS[index] >= 0 )) && (( _ZLE_PICKER_DISPLAY_LEFT_ENDS[index] += prefix_end ))
     (( _ZLE_PICKER_DISPLAY_INDEX_ENDS[index] )) && (( _ZLE_PICKER_DISPLAY_INDEX_ENDS[index] += prefix_end ))
@@ -785,7 +853,8 @@ _zle_picker_titlebar() {
   _ZLE_PICKER_TITLEBAR_META_START=-1
   (( _ZLE_PICKER_INSPECT_FOCUS )) && focus=${(V)_ZLE_PICKER_INSPECT_TITLE}
   if (( ${_ZLE_PICKER_BUSY:-0} )); then
-    meta=${_ZLE_PICKER_BUSY_LABEL:-Searching…}
+    (( _ZLE_PICKER_STATUS_VIEW )) && meta='In progress' ||
+      meta=${_ZLE_PICKER_BUSY_LABEL:-Searching…}
   elif (( _ZLE_PICKER_GUIDE_ACTIVE )); then
     meta='Keyboard guide'
   elif [[ -n $value ]]; then
@@ -843,7 +912,8 @@ _zle_picker_footer() {
     REPLY="⏎ ${action} · Esc ${cancel}"
     (( ${(m)#REPLY} > width )) && REPLY='⏎ apply · Esc'
     hints=('^K keys')
-    (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_REFRESH )) && hints+=('^R refresh')
+    (( (_ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_REFRESH) ||
+       _ZLE_PICKER_REFRESH_ENABLED )) && hints+=('^R refresh')
     # Put the available disclosure steps ahead of convenience shortcuts.
     if (( _ZLE_PICKER_DOCUMENT )) && [[ -n $value ]]; then
       local footer=$REPLY
@@ -926,6 +996,8 @@ _zle_picker_guide_render() {
     '0–9                  Apply a visible slot only with an empty filter')
   (( _ZLE_PICKER_COPY_ENABLED )) && lines+=(
     'Ctrl-Y               Copy the selection and close the picker')
+  (( _ZLE_PICKER_REFRESH_ENABLED )) && lines+=(
+    'Ctrl-R               Refresh the current captured choices')
   [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]] && lines+=(
     'Ctrl-F               Search descendants of the displayed folder'
     'Return               Submit discovery query; typing never starts a scan')
@@ -991,7 +1063,7 @@ _zle_picker_guide_render() {
   (( max_offset < 0 )) && max_offset=0
   (( _ZLE_PICKER_GUIDE_OFFSET > max_offset )) && _ZLE_PICKER_GUIDE_OFFSET=$max_offset
   (( _ZLE_PICKER_GUIDE_OFFSET < 0 )) && _ZLE_PICKER_GUIDE_OFFSET=0
-  _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_DISPLAY_STYLES=()
+  _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_DISPLAY_STYLES=() _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
   for (( index=0; index<height; ++index )); do
     if (( index == 0 )); then
       row="Keyboard guide · $(( _ZLE_PICKER_GUIDE_OFFSET + 1 ))/${#lines}"
@@ -1003,10 +1075,12 @@ _zle_picker_guide_render() {
     _zle_picker_fit "$row" $width
     _ZLE_PICKER_DISPLAY+=("$REPLY")
     _ZLE_PICKER_DISPLAY_STYLES+=("$role")
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
   done
   _zle_picker_footer $width ""
   _ZLE_PICKER_DISPLAY+=("${(mr:$width:: :)REPLY}")
   _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
+  _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
   _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
   _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
   _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${_ZLE_PICKER_DISPLAY[@]/*/}")
@@ -1029,13 +1103,14 @@ _zle_picker_render() {
   local -i full_width=0 left_width=0 inspector=${#_ZLE_PICKER_INSPECT_TEXTS}
   local -i index=0 count=${#_ZLE_PICKER_RESULTS} index_width=2 index_end=0
   local -i total=$count view_limit=$_ZLE_PICKER_VIEW_LIMIT first=1 last=0 position=0
-  local -i zero_based=0 trail_width=0
+  local -i zero_based=0 trail_width=0 label_width=0 label_start=0
   local shown_query='' shown_title='' shown_browse='' shown_empty=''
   local query_label="${(V)${_ZLE_PICKER_QUERY_LABEL:-Search}} " query_open='‹' query_close='›'
-  local label='' row='' footer='' result_index='' context='' value='' accept_label=''
+  local label='' row='' footer='' result_index='' context='' value='' accept_label='' highlight_specs=''
   typeset -ga _ZLE_PICKER_DISPLAY=()
   typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
   typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
+  typeset -ga _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
   _ZLE_PICKER_DISPLAY_LEFT_ENDS=()
   _ZLE_PICKER_DISPLAY_RIGHT_ROLES=()
   _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=()
@@ -1108,23 +1183,27 @@ _zle_picker_render() {
     _ZLE_PICKER_SUBTITLE_ROW=$REPLY
   fi
 
-  # A stable dedicated row prevents layout shifts and lets long input use the
-  # terminal width. Abbreviation preserves both ends, favoring newly typed text;
-  # the complete query remains untouched for matching.
-  query_width=$(( row_width - ${(m)#query_label} - ${#query_open} - ${#query_close} ))
-  if (( query_width > 0 )); then
-    _zle_picker_abbreviate "$shown_query" $query_width
-    shown_query=$REPLY
-    _ZLE_PICKER_QUERY_ROW="${query_label}${query_open}${shown_query}${query_close}"
-    _ZLE_PICKER_QUERY_START=${#query_label}
-    _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+  # A status view has no editable input. Other views retain a stable dedicated
+  # query row so filtering never shifts the body.
+  if (( _ZLE_PICKER_STATUS_VIEW )); then
+    _ZLE_PICKER_QUERY_ROW=''
+    _ZLE_PICKER_QUERY_START=0 _ZLE_PICKER_QUERY_END=0
   else
-    query_label='› '
-    query_width=$(( row_width - ${#query_label} ))
-    _zle_picker_abbreviate "$shown_query" $query_width
-    _ZLE_PICKER_QUERY_ROW="${query_label}${REPLY}"
-    _ZLE_PICKER_QUERY_START=0
-    _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+    query_width=$(( row_width - ${(m)#query_label} - ${#query_open} - ${#query_close} ))
+    if (( query_width > 0 )); then
+      _zle_picker_abbreviate "$shown_query" $query_width
+      shown_query=$REPLY
+      _ZLE_PICKER_QUERY_ROW="${query_label}${query_open}${shown_query}${query_close}"
+      _ZLE_PICKER_QUERY_START=${#query_label}
+      _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+    else
+      query_label='› '
+      query_width=$(( row_width - ${#query_label} ))
+      _zle_picker_abbreviate "$shown_query" $query_width
+      _ZLE_PICKER_QUERY_ROW="${query_label}${REPLY}"
+      _ZLE_PICKER_QUERY_START=0
+      _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+    fi
   fi
 
   if (( ${#_ZLE_PICKER_TRAIL} && columns >= 120 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 10 && !_ZLE_PICKER_INSPECT_FOCUS )); then
@@ -1161,8 +1240,14 @@ _zle_picker_render() {
       for row in "${_ZLE_PICKER_EMPTY_LINES[@][1,$body_height]}"; do
         _zle_picker_fit "${(V)row}" $row_width
         _ZLE_PICKER_DISPLAY+=("$REPLY")
-        (( ++index == 1 )) && _ZLE_PICKER_DISPLAY_STYLES+=(picker-header) ||
+        (( ++index ))
+        if (( _ZLE_PICKER_STATUS_VIEW )) && [[ -n ${_ZLE_PICKER_BUSY_STYLES[index]-} ]]; then
+          _ZLE_PICKER_DISPLAY_STYLES+=("${_ZLE_PICKER_BUSY_STYLES[index]}")
+        elif (( index == 1 )); then
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-header)
+        else
           _ZLE_PICKER_DISPLAY_STYLES+=(picker-text)
+        fi
       done
     else
       _zle_picker_fit "[--]   ${shown_empty}" $row_width
@@ -1170,6 +1255,7 @@ _zle_picker_render() {
       _ZLE_PICKER_DISPLAY_STYLES+=(picker-empty)
     fi
     _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS=("${_ZLE_PICKER_DISPLAY[@]/*/}")
     _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
     _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
   else
@@ -1185,6 +1271,7 @@ _zle_picker_render() {
       content_width=$(( row_width - 2 ))
       (( _ZLE_PICKER_INDEXES_VISIBLE )) && content_width=$(( row_width - index_width - 5 ))
       value=${_ZLE_PICKER_RESULTS[position]}
+      highlight_specs=${_ZLE_PICKER_LABEL_HIGHLIGHTS[$value]-}
       context=${_ZLE_PICKER_CONTEXTS[$value]-}
       context_start=0
       if [[ -n $context ]] && (( content_width >= 24 )); then
@@ -1229,6 +1316,10 @@ _zle_picker_render() {
         fi
         index_end=0
       fi
+      label_width=${#label}
+      label_start=$(( _ZLE_PICKER_INDEXES_VISIBLE ? index_width + 5 : 2 ))
+      _zle_picker_highlights_shift "$highlight_specs" $label_start $label_width
+      _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=("$REPLY")
       if (( ${(m)#row} > row_width )); then
         _zle_picker_fit "$row" $row_width
         row=$REPLY
@@ -1242,16 +1333,27 @@ _zle_picker_render() {
 
   (( _ZLE_PICKER_GUIDE_ACTIVE )) && { _zle_picker_guide_render $(( columns - 1 )); return; }
   row_width=$full_width
-  _zle_picker_footer $(( columns - 1 )) "$query"
-  footer=$REPLY
-  _ZLE_PICKER_DISPLAY+=("${(mr:$(( columns - 1 )):: :)footer}")
-  _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
-  _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
-  _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
-  _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
-  (( inspector )) && _zle_picker_inspect_render $selected $full_width $left_width
-  _zle_picker_workspace
-  _zle_picker_trail_render $trail_width
+  if (( _ZLE_PICKER_STATUS_VIEW )); then
+    local separator=${(l:$(( columns - 1 ))::─:)}
+    _ZLE_PICKER_DISPLAY=("$separator" "${_ZLE_PICKER_DISPLAY[@]}")
+    _ZLE_PICKER_DISPLAY_STYLES=(picker-muted "${_ZLE_PICKER_DISPLAY_STYLES[@]}")
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS=(0 "${_ZLE_PICKER_DISPLAY_INDEX_ENDS[@]}")
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS=('' "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[@]}")
+    _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=(0 "${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[@]}")
+    _ZLE_PICKER_DISPLAY_MATCH_STARTS=(-1 "${_ZLE_PICKER_DISPLAY_MATCH_STARTS[@]}")
+  else
+    _zle_picker_footer $(( columns - 1 )) "$query"
+    footer=$REPLY
+    _ZLE_PICKER_DISPLAY+=("${(mr:$(( columns - 1 )):: :)footer}")
+    _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+    _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
+    _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
+    (( inspector )) && _zle_picker_inspect_render $selected $full_width $left_width
+    _zle_picker_workspace
+    _zle_picker_trail_render $trail_width
+  fi
   return 0
 }
 
@@ -1263,9 +1365,10 @@ _zle_picker_show() {
   local previous_postdisplay=$POSTDISPLAY
   local row='' style_key='' style='' index_style='' query_style=''
   local -i index=0 index_end=0 left_end=0 row_end=0 right_start=0 context_start=0
-  local role='' color='' token_base=''
+  local role='' color='' token_base='' highlight_style=''
   local match_style='' span=''
-  local -a reply=() bounds=() attributes=()
+  local -a reply=() bounds=() attributes=() fields=()
+  local -i span_start=0 span_end=0 selected_row=0
   local -i match_start=0 match_end=0
   local -i offset=$(( ${#PREDISPLAY} + ${#BUFFER} + 1 )) end=0
 
@@ -1284,7 +1387,9 @@ _zle_picker_show() {
   fi
   POSTDISPLAY+=$'\n'"$_ZLE_PICKER_HEADER"
 
-  if (( _ZLE_PICKER_SCREEN_ACTIVE )); then
+  if (( _ZLE_PICKER_STATUS_VIEW )); then
+    _zle_picker_style picker-status-heading 'fg=75,bold'
+  elif (( _ZLE_PICKER_SCREEN_ACTIVE )); then
     _zle_picker_style picker-muted 'fg=242'
   else
     _zle_picker_style picker-header 'fg=75,bold'
@@ -1302,19 +1407,21 @@ _zle_picker_show() {
     (( offset = end + 1 ))
   fi
 
-  POSTDISPLAY+=$'\n'"$_ZLE_PICKER_QUERY_ROW"
-  _zle_picker_style picker-muted 'fg=242'
-  style=$REPLY
-  end=$(( offset + ${#_ZLE_PICKER_QUERY_ROW} ))
-  region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
-  if (( _ZLE_PICKER_QUERY_END > _ZLE_PICKER_QUERY_START )); then
-    _zle_picker_style picker-query 'fg=16,bg=44,bold'
-    query_style=$REPLY
-    region_highlight+=(
-      "P$(( offset + _ZLE_PICKER_QUERY_START )) $(( offset + _ZLE_PICKER_QUERY_END )) ${query_style} memo=my-zsh-picker"
-    )
+  if (( !_ZLE_PICKER_STATUS_VIEW )); then
+    POSTDISPLAY+=$'\n'"$_ZLE_PICKER_QUERY_ROW"
+    _zle_picker_style picker-muted 'fg=242'
+    style=$REPLY
+    end=$(( offset + ${#_ZLE_PICKER_QUERY_ROW} ))
+    region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
+    if (( _ZLE_PICKER_QUERY_END > _ZLE_PICKER_QUERY_START )); then
+      _zle_picker_style picker-query 'fg=16,bg=44,bold'
+      query_style=$REPLY
+      region_highlight+=(
+        "P$(( offset + _ZLE_PICKER_QUERY_START )) $(( offset + _ZLE_PICKER_QUERY_END )) ${query_style} memo=my-zsh-picker"
+      )
+    fi
+    (( offset = end + 1 ))
   fi
-  (( offset = end + 1 ))
 
   for (( index = 1; index <= ${#_ZLE_PICKER_DISPLAY}; ++index )); do
     row=${_ZLE_PICKER_DISPLAY[index]}
@@ -1326,6 +1433,20 @@ _zle_picker_show() {
     style_key=${_ZLE_PICKER_DISPLAY_STYLES[index]}
     if [[ $style_key == picker-selected-inactive ]]; then
       _zle_picker_style "$style_key" 'fg=252,bg=238'
+    elif [[ $style_key == picker-status-* ]]; then
+      local status_role=${style_key#picker-status-} status_color=252 status_attributes=''
+      case $status_role in
+        (heading) status_color=75 status_attributes=bold ;;
+        (info) status_color=111 ;;
+        (progress) status_role=success status_color=71 status_attributes=bold ;;
+        (warning) status_color=221 status_attributes=bold ;;
+        (muted) status_color=242 ;;
+      esac
+      (( ${+functions[_output_color]} )) && {
+        _output_color "$status_role" "$status_color"
+        status_color=$REPLY
+      }
+      _zle_picker_style "$style_key" "fg=$status_color${status_attributes:+,$status_attributes}"
     else
       _zle_picker_style "$style_key" 'fg=252'
     fi
@@ -1390,6 +1511,18 @@ _zle_picker_show() {
     else
       region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
     fi
+    selected_row=0
+    [[ $style_key == picker-selected* ]] && selected_row=1
+    for span in ${=_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]}; do
+      fields=( "${(@s.:.)span}" )
+      (( ${#fields} == 3 )) || continue
+      [[ ${fields[1]} == <-> && ${fields[2]} == <-> ]] || continue
+      span_start=${fields[1]} span_end=${fields[2]} role=${fields[3]}
+      (( span_start >= 0 && span_end > span_start && span_end <= end - offset )) || continue
+      _zle_picker_label_highlight_style "$role" $selected_row "$style"
+      highlight_style=$REPLY
+      region_highlight+=("P$(( offset + span_start )) $(( offset + span_end )) ${highlight_style} memo=my-zsh-picker")
+    done
     context_start=${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index]:-0}
     if (( context_start && offset + context_start < end )) && [[ $style_key != picker-selected ]]; then
       _zle_picker_style picker-muted 'fg=242'
@@ -1799,6 +1932,9 @@ _zle_picker_loop() {
             else
               zle beep
             fi
+          elif (( _ZLE_PICKER_REFRESH_ENABLED )); then
+            _ZLE_PICKER_ACTION=refresh
+            accepted=1
           else
             _zle_picker_step 1 $selected $count
             selected=$REPLY
@@ -2063,6 +2199,7 @@ _zle_picker_loop() {
     _ZLE_PICKER_DIGIT_SELECT=0
     _ZLE_PICKER_COPY_ENABLED=0
     _ZLE_PICKER_HIERARCHY_ENABLED=0
+    _ZLE_PICKER_REFRESH_ENABLED=0
     _ZLE_PICKER_DIRECTORY_ACTIONS=0
     _ZLE_PICKER_INDEXES_VISIBLE=0
     _ZLE_PICKER_VIEW_LIMIT=20
