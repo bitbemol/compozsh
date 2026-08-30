@@ -2044,7 +2044,10 @@ the time in which macOS can auto-mount and modify a new filesystem. This
 `unmountDisk` call does not reserve the disk against a mount already in progress.
 The final `dd` byte count must
 equal the captured image size; early EOF, growth, or any incomplete transfer is
-a failure. The raw handler does not pre-format the target.
+a failure. Before writing, Compozsh zeroes up to 33 final sectors outside the
+image extent so a stale whole-disk backup GPT from the target's previous layout
+cannot conflict with the flashed image. The raw handler does not pre-format the
+target.
 The Step 3 screen remains visible through validation, unmount, writing,
 verification, and eject. Apple `dd status=progress` supplies transferred bytes
 once per second. Compozsh reads Apple’s live `bytes (…) transferred` records,
@@ -2065,15 +2068,19 @@ the terminal, and the temporary write worker disables interactive job
 notifications so subprocess messages do not overwrite the frame.
 
 Read-back uses uncached exact raw-device reads with Apple’s `dd` and `cmp`, first
-comparing the complete image including boot metadata. If GPT geometry differs,
-the fallback validates both source and target primary and backup headers, their
-CRCs, reciprocal physical LBAs, disk GUID, bounded entry geometry, and matching
-partition arrays. It still requires MBR boot bytes 0–439, the signature at bytes
-510–511, and every byte after the primary GPT header through the source backup
-entry array to match. The relocated target backup array must match the source
-array too. A non-GPT image receives no metadata exemption: any complete-image
-difference fails. The final screen reports **Boot bytes and installer payload
-matched** for that narrower GPT proof instead of claiming full-image equality.
+comparing the complete image including boot metadata. A hybrid GPT may remain
+fully source-bounded inside the image extent or use a coherent backup header
+relocated to the physical final LBA. The fallback validates the applicable
+primary and backup headers, CRCs, reciprocal LBAs, disk GUID, bounded entry
+geometry, and matching partition arrays. GPT permits relocated backup entries
+to end anywhere before their header; adjacency is not assumed. A source-bounded
+layout also requires the cleared physical tail to remain zero. The fallback
+still requires MBR boot bytes 0–439, reserved bytes and partition records
+444–509, the signature at 510–511, and every compared installer byte to match;
+only the independent four-byte MBR disk identifier may differ. A non-GPT image
+receives no metadata exemption: any complete-image difference fails. The final
+screen reports **Boot bytes and installer payload matched** for that narrower
+GPT proof instead of claiming full-image equality.
 A supplied trusted checksum validates every byte of the source image before and
 after writing. If macOS wins the unmount race and changes filesystem bytes, or
 if the device write is faulty, verification fails closed rather than excluding

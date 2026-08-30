@@ -1764,16 +1764,37 @@ _usb_dd_run() {
   command /usr/bin/sudo -n /bin/dd "$@"
 }
 
+_usb_clear_target_tail() {
+  emulate -L zsh
+  local identifier=$1 image_size=$2 target_size=$3
+  local -i image_sectors=0 target_sectors=0 trailing_sectors=0 clear_sectors=0
+  [[ $image_size == <-> && $target_size == <-> ]] || return 2
+  (( image_size > 0 && target_size >= image_size )) || return 2
+  (( target_size == image_size )) && return 0
+  (( image_size % 512 == 0 && target_size % 512 == 0 )) || return 2
+  image_sectors=$(( image_size / 512 ))
+  target_sectors=$(( target_size / 512 ))
+  trailing_sectors=$(( target_sectors - image_sectors ))
+  (( trailing_sectors > 0 )) || return 0
+  clear_sectors=$(( trailing_sectors < 33 ? trailing_sectors : 33 ))
+  _usb_dd_run if=/dev/zero "of=/dev/r${identifier}" bs=512 \
+    seek=$(( target_sectors - clear_sectors )) count="$clear_sectors" \
+    conv=fsync oflag=direct status=none
+}
+
 _usb_write_image() {
   emulate -L zsh
   setopt NO_BG_NICE
   unsetopt MONITOR NOTIFY
-  local image=$1 identifier=$2 image_size=$3
+  local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
   local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
   local -i worker=0 command_status=1 started=$SECONDS sector_count=0
   _USB_WRITE_BYTES_OBSERVED=0
-  [[ $image_size == <-> ]] && (( image_size > 0 && image_size % 512 == 0 )) || return 2
+  [[ $image_size == <-> && $target_size == <-> ]] || return 2
+  (( image_size > 0 && image_size % 512 == 0 )) || return 2
+  (( target_size >= image_size && target_size % 512 == 0 )) || return 2
   sector_count=$(( image_size / 512 ))
+  _usb_clear_target_tail "$identifier" "$image_size" "$target_size" || return 4
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
   {
     _usb_dd_run "if=$image" "of=/dev/r${identifier}" \
@@ -2067,6 +2088,30 @@ _usb_raw_sector_capture() {
   [[ $(command /usr/bin/stat -f '%z' "$destination" 2>/dev/null) == 512 ]]
 }
 
+_usb_raw_tail_zero_validate() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local identifier=$1 image_size=$2 target_size=$3 output=''
+  local -i image_sectors=0 target_sectors=0 trailing_sectors=0 check_sectors=0
+  [[ $image_size == <-> && $target_size == <-> ]] || return 2
+  (( image_size > 0 && target_size >= image_size )) || return 2
+  (( target_size == image_size )) && return 0
+  (( image_size % 512 == 0 && target_size % 512 == 0 )) || return 2
+  image_sectors=$(( image_size / 512 ))
+  target_sectors=$(( target_size / 512 ))
+  trailing_sectors=$(( target_sectors - image_sectors ))
+  (( trailing_sectors > 0 )) || return 0
+  check_sectors=$(( trailing_sectors < 33 ? trailing_sectors : 33 ))
+  output=$(
+    _usb_dd_read_run "if=/dev/r${identifier}" bs=512 \
+        skip=$(( target_sectors - check_sectors )) count="$check_sectors" \
+        iflag=direct status=none 2>/dev/null |
+      command /usr/bin/od -An -v -t x1 |
+      command /usr/bin/tr -d '0[:space:]'
+  ) || return 2
+  [[ -z $output ]]
+}
+
 _usb_gpt_layout_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -2165,7 +2210,7 @@ _usb_gpt_layout_capture() {
   (( backup_entry_count == entry_count && backup_entry_size == entry_size )) || return 1
   backup_entry_offset=$(( backup_entry_lba * 512 ))
   (( backup_entry_lba > last_usable )) || return 1
-  (( backup_entry_offset + entry_storage_bytes == backup_header_offset )) || return 1
+  (( backup_entry_offset + entry_storage_bytes <= backup_header_offset )) || return 1
   _usb_od_hex "$image" 568 16 || return 1
   local primary_disk_guid=$REPLY backup_disk_guid='' primary_entries_digest=''
   _usb_od_hex "$image" $(( backup_header_offset + 56 )) 16 || return 1
@@ -2188,6 +2233,36 @@ _usb_gpt_layout_capture() {
   _USB_GPT_ENTRY_LBA=$primary_entry_lba _USB_GPT_ENTRY_COUNT=$entry_count
   _USB_GPT_ENTRY_SIZE=$entry_size _USB_GPT_ENTRY_CRC=$primary_entry_crc
   _USB_GPT_DISK_GUID=$primary_disk_guid
+}
+
+_usb_source_bounded_gpt_validate() {
+  emulate -L zsh
+  local image=$1 identifier=$2 image_size=$3
+  local -i backup_bytes=0 compare_status=0
+  (( image_size > _USB_GPT_STABLE_END )) || return 1
+  backup_bytes=$(( image_size - _USB_GPT_STABLE_END ))
+
+  # A raw hybrid image written to larger media may retain its complete GPT
+  # inside the image extent. In that layout the extra device capacity is
+  # intentionally outside the image; prove both GPT copies exactly instead of
+  # requiring macOS to relocate the backup copy to the physical final LBA.
+  _USB_VERIFY_PHASE='Checking source-bounded primary GPT'
+  _usb_cmp_run -n 512 -i 512 "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  compare_status=$?
+  case $compare_status in
+    (0) ;;
+    (1) return 1 ;;
+    (*) return 2 ;;
+  esac
+  _USB_VERIFY_PHASE='Checking source-bounded backup GPT'
+  _usb_cmp_run -n "$backup_bytes" -i "$_USB_GPT_STABLE_END" \
+    "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  compare_status=$?
+  case $compare_status in
+    (0) return 0 ;;
+    (1) return 1 ;;
+    (*) return 2 ;;
+  esac
 }
 
 _usb_target_gpt_layout_validate() {
@@ -2294,15 +2369,15 @@ _usb_target_gpt_layout_validate() {
     [[ $backup_guid == "$primary_guid" ]] || return 1
     (( backup_entry_count == primary_entry_count && backup_entry_size == primary_entry_size )) || return 1
     (( backup_entry_crc == primary_entry_crc )) || return 1
-    (( backup_entry_lba + entry_storage_sectors == target_last_lba )) || return 1
+    (( backup_entry_lba + entry_storage_sectors <= target_last_lba )) || return 1
     (( backup_entry_lba > backup_last_usable )) || return 1
     _usb_gpt_header_crc_validate "$backup_file" 0 "$backup_header_size" || return 1
     backup_entry_offset=$(( backup_entry_lba * 512 ))
     _usb_file_range_digest "$image" "$_USB_GPT_STABLE_END" \
-      "$entry_storage_bytes" || return 1
+      "$_USB_GPT_ENTRY_BYTES" || return 1
     source_backup_digest=$REPLY
     _usb_raw_range_digest "$identifier" "$backup_entry_offset" \
-      "$entry_storage_bytes" || return 1
+      "$_USB_GPT_ENTRY_BYTES" || return 1
     target_backup_digest=$REPLY
     [[ $target_backup_digest == "$source_backup_digest" ]]
   } always {
@@ -2313,7 +2388,8 @@ _usb_target_gpt_layout_validate() {
 _usb_compare_written_image() {
   emulate -L zsh
   local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
-  local -i compared=0 compare_status=0
+  local gpt_mode=''
+  local -i compared=0 compare_status=0 source_gpt_status=0 tail_status=0
   local _USB_VERIFY_PHASE='Full image comparison'
   _USB_PAYLOAD_VERIFY_ERROR='' _USB_PAYLOAD_VERIFY_SCOPE=''
   [[ $image_size == <-> ]] && (( image_size > 512 )) || return 2
@@ -2322,7 +2398,15 @@ _usb_compare_written_image() {
   _usb_cmp_run -n "$image_size" "/dev/r${identifier}" "$image" >/dev/null 2>&1
   compare_status=$?
   case $compare_status in
-    (0) _USB_PAYLOAD_VERIFY_SCOPE=full; return 0 ;;
+    (0)
+      _USB_VERIFY_PHASE='Checking cleared physical tail'
+      _usb_raw_tail_zero_validate "$identifier" "$image_size" "$target_size"
+      tail_status=$?
+      case $tail_status in
+        (0) _USB_PAYLOAD_VERIFY_SCOPE=full; return 0 ;;
+        (1) _USB_PAYLOAD_VERIFY_ERROR=stale-tail-gpt; return 1 ;;
+        (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+      esac ;;
     (1) ;;
     (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
   esac
@@ -2346,11 +2430,41 @@ _usb_compare_written_image() {
     (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
   esac
   if _usb_gpt_layout_capture "$image" "$image_size"; then
-    _usb_target_gpt_layout_validate "$image" "$identifier" "$image_size" \
-      "$target_size" || {
-      _USB_PAYLOAD_VERIFY_ERROR=gpt-invalid
-      return 1
-    }
+    # A GPT fallback may tolerate the four-byte MBR disk identifier at
+    # 440..443, which macOS can assign independently. The reserved word and
+    # all four hybrid/protective partition records remain boot metadata and
+    # must still match the selected image exactly.
+    _USB_VERIFY_PHASE='Checking hybrid MBR partition map'
+    _usb_cmp_run -n 66 -i 444 "/dev/r${identifier}" "$image" >/dev/null 2>&1
+    compare_status=$?
+    case $compare_status in
+      (0) ;;
+      (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
+      (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+    esac
+    _usb_source_bounded_gpt_validate "$image" "$identifier" "$image_size"
+    source_gpt_status=$?
+    case $source_gpt_status in
+      (0) gpt_mode=source-bounds ;;
+      (1)
+        _usb_target_gpt_layout_validate "$image" "$identifier" "$image_size" \
+          "$target_size" || {
+          _USB_PAYLOAD_VERIFY_ERROR=gpt-invalid
+          return 1
+        }
+        gpt_mode=relocated ;;
+      (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+    esac
+    if [[ $gpt_mode == source-bounds ]]; then
+      _USB_VERIFY_PHASE='Checking cleared physical tail'
+      _usb_raw_tail_zero_validate "$identifier" "$image_size" "$target_size"
+      tail_status=$?
+      case $tail_status in
+        (0) ;;
+        (1) _USB_PAYLOAD_VERIFY_ERROR=stale-tail-gpt; return 1 ;;
+        (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+      esac
+    fi
     _USB_VERIFY_PHASE='Checking GPT partition entries'
     _usb_cmp_run -n "$_USB_GPT_ENTRY_BYTES" -i "$_USB_GPT_ENTRY_OFFSET" \
       "/dev/r${identifier}" "$image" >/dev/null 2>&1
@@ -2372,7 +2486,11 @@ _usb_compare_written_image() {
     case $compare_status in
       (0)
         _USB_PAYLOAD_VERIFY_SCOPE=boot-and-installer-payload
-        _USB_PAYLOAD_VERIFY_ERROR=gpt-geometry-diff
+        if [[ $gpt_mode == source-bounds ]]; then
+          _USB_PAYLOAD_VERIFY_ERROR=gpt-source-bounds
+        else
+          _USB_PAYLOAD_VERIFY_ERROR=gpt-geometry-diff
+        fi
         return 0 ;;
       (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
       (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
@@ -2784,7 +2902,7 @@ _usb_execute() {
     info 'Starting Apple dd with 4 MiB blocks.' \
     warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
   stage_started=$SECONDS
-  _usb_write_image "$image" "$identifier" "$image_size"
+  _usb_write_image "$image" "$identifier" "$image_size" "$target_size"
   action_status=$?
   _USB_RESULT_WRITE_SECONDS=$(( SECONDS - stage_started ))
   if (( action_status == 0 )); then
@@ -2795,6 +2913,8 @@ _usb_execute() {
     _USB_RESULT_OUTCOME=failed
     if (( action_status == 3 )); then
       _USB_RESULT_ERROR="Writing stopped after ${_USB_WRITE_BYTES_OBSERVED:-0} of $image_size bytes; the USB contains an incomplete image and must not be used."
+    elif (( action_status == 4 )); then
+      _USB_RESULT_ERROR='The old physical-tail partition metadata could not be cleared; the image was not written and the USB must be reflashed or reformatted.'
     else
       _USB_RESULT_ERROR='Writing failed; the USB may contain an incomplete image and must not be used.'
     fi
@@ -2862,6 +2982,8 @@ _usb_execute() {
           _USB_RESULT_ERROR='The finished USB installer or boot bytes differ from the selected image.' ;;
         (gpt-invalid)
           _USB_RESULT_ERROR='The finished USB GPT layout or backup partition map is invalid; the drive must not be used.' ;;
+        (stale-tail-gpt)
+          _USB_RESULT_ERROR='Old GPT metadata remains at the physical end of the USB and conflicts with the flashed image layout; the drive must be reflashed.' ;;
         (drive-read-failed)
           _USB_RESULT_ERROR='The image was written, but the finished USB could not be read completely for verification.' ;;
         (image-read-failed)
@@ -2952,6 +3074,8 @@ _usb_result_screen() {
     case $_USB_RESULT_VERIFY_REASON in
       (gpt-geometry-diff)
         _USB_PICKER_DETAILS+=('Source and target GPT headers, CRCs, partition arrays, and relocated backup map were structurally validated. MBR boot code, boot signature, and every compared installer byte matched; only physical-disk GPT geometry differed.' '') ;;
+      (gpt-source-bounds)
+        _USB_PICKER_DETAILS+=('The complete image-sized primary and backup GPT structures matched at their original image bounds. The physical tail outside the image was cleared and verified, the hybrid MBR partition records matched, and every compared boot and installer byte matched. Extra drive capacity remains intentionally unused.' '') ;;
       (*) _USB_PICKER_DETAILS+=('' '') ;;
     esac
     _usb_result_choose 'Flash USB · Complete' 'Image  ›  Drive  ›  DONE'
@@ -2996,6 +3120,8 @@ _usb_result_screen() {
           _USB_PICKER_LABELS+=('USB verification · FAILED · installer or boot bytes differ') ;;
         (gpt-invalid)
           _USB_PICKER_LABELS+=('USB verification · FAILED · GPT layout is invalid') ;;
+        (stale-tail-gpt)
+          _USB_PICKER_LABELS+=('USB verification · FAILED · old GPT metadata remains at physical tail') ;;
         (drive-read-failed)
           _USB_PICKER_LABELS+=('USB verification · Could not read the finished drive') ;;
         (image-read-failed)
@@ -3262,7 +3388,9 @@ _compozsh_help_flash-usb() {
     '  unmounts the whole disk, revalidates the target again, and' \
     '  writes through /dev/rdiskN with Apple’s dd using 512-byte input sectors' \
     '  aggregated into 4 MiB output blocks. The captured sector count bounds the' \
-    '  read, and the final transferred-byte count must equal the captured size.' \
+    '  read. Before that write, up to 33 final sectors outside the image extent' \
+    '  are zeroed so an old whole-disk backup GPT cannot conflict with the new' \
+    '  raw-image layout. The final transferred-byte count must equal the captured size.' \
     '  Apple dd supplies exact bytes once per second for a determinate progress' \
     '  bar. Step 3 uses a dedicated status view with no query or bottom footer:' \
     '  the active stage, image, target, progress, and disconnect warning remain' \
@@ -3288,12 +3416,16 @@ _compozsh_help_flash-usb() {
     '' \
     'Verification boundary:' \
     '  Uncached raw reads first compare every image byte, including boot metadata.' \
-    '  If GPT geometry legitimately differs, the fallback validates both source' \
-    '  and target primary and backup headers, their CRCs, reciprocal physical LBAs,' \
-    '  disk GUID, bounded entry geometry, and matching partition arrays. It still' \
-    '  requires MBR boot bytes 0–439, the boot signature at bytes 510–511, and every' \
-    '  byte after the primary GPT header through the source backup entry array to' \
-    '  match. The relocated target backup array must match the source array too.' \
+    '  A hybrid GPT may remain fully source-bounded inside the image extent or use' \
+    '  a coherent backup header relocated to the physical final LBA. The fallback' \
+    '  validates both source and applicable target primary and backup headers,' \
+    '  their CRCs, reciprocal' \
+    '  LBAs, disk GUID, bounded entry geometry, and matching partition arrays.' \
+    '  Relocated backup entries may end anywhere before their header as GPT permits.' \
+    '  Source-bounded layouts additionally require the cleared physical tail to' \
+    '  remain zero. MBR boot bytes 0–439, reserved bytes and partition records' \
+    '  444–509, the signature at 510–511, and every compared installer byte must' \
+    '  match; only the independent four-byte MBR disk identifier may differ.' \
     '  A non-GPT image receives no metadata exemption: any full-image difference' \
     '  fails. The final screen reports the narrower GPT proof without claiming' \
     '  full-image equality. The immediate post-write unmount reduces auto-mount' \
@@ -3305,7 +3437,7 @@ _compozsh_help_flash-usb() {
     'Requirements and recovery:' \
     '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
     '  and Apple’s diskutil, plutil, hdiutil, codesign, df, mktemp, rmdir, rm,' \
-    '  sleep, cat, dd, cmp, cksum, head, od, shasum, stat, and sudo tools.' \
+    '  sleep, cat, dd, cmp, cksum, head, od, tr, shasum, stat, and sudo tools.' \
     '  Apple mdfind supplies the indexed home catalog; if it fails, the shallow' \
     '  current-folder and Downloads snapshot plus Custom path remain available.' \
     '  A failed or interrupted write can leave the target unusable until it is' \
@@ -3356,7 +3488,7 @@ flash-usb() {
     [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil && -x /bin/df &&
        -x /usr/bin/mktemp && -x /bin/rm && -x /bin/sleep && -x /bin/dd &&
        -x /bin/cat && -x /usr/bin/cmp && -x /usr/bin/cksum &&
-       -x /usr/bin/head && -x /usr/bin/od &&
+       -x /usr/bin/head && -x /usr/bin/od && -x /usr/bin/tr &&
        -x /usr/bin/shasum && -x /usr/bin/stat && -x /usr/bin/sudo &&
        -x /usr/bin/hdiutil && -x /usr/bin/codesign && -x /bin/rmdir ]] || {
       print -u2 -r -- 'flash-usb: required Apple command-line tools are unavailable'

@@ -1104,6 +1104,23 @@ _test_usb_make_relocated_gpt_target() {
   _test_usb_update_gpt_header_crc "$target" 153088
 }
 
+_test_usb_make_sparse_relocated_gpt_target() {
+  emulate -L zsh
+  local source=$1 target=$2
+  command /bin/cp "$source" "$target" || return
+  command /usr/bin/truncate -s 153600 "$target" || return
+  command /bin/dd if="$source" of="$target" bs=512 skip=255 seek=299 count=1 \
+    conv=notrunc status=none 2>/dev/null || return
+  command /bin/dd if=/dev/zero of="$target" bs=512 seek=255 count=1 \
+    conv=notrunc status=none 2>/dev/null || return
+  _test_usb_write_le "$target" 544 299 8 || return
+  _test_usb_write_le "$target" 153112 299 8 || return
+  _test_usb_write_le "$target" 153136 210 8 || return
+  _test_usb_write_le "$target" 153160 211 8 || return
+  _test_usb_update_gpt_header_crc "$target" 512 || return
+  _test_usb_update_gpt_header_crc "$target" 153088
+}
+
 _test_usb_compare_understands_real_hybrid_gpt_geometry() {
   test_make_temp_dir || return
   local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
@@ -1168,6 +1185,106 @@ _test_usb_compare_understands_real_hybrid_gpt_geometry() {
 }
 test_case 'USB verification parses hybrid GPT bounds and preserves every boot and payload byte' \
   _test_usb_compare_understands_real_hybrid_gpt_geometry
+
+_test_usb_compare_accepts_nonadjacent_relocated_backup_entries() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
+  local output=''
+  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
+  _test_usb_make_sparse_relocated_gpt_target "$source_image" "$target_image" || return
+  builtin printf X |
+    command /bin/dd of="$target_image" bs=1 seek=440 conv=notrunc status=none \
+      2>/dev/null || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    target_image=$3
+    _usb_dd_read_run() {
+      local -a arguments=("$@")
+      local -i index=0
+      for (( index = 1; index <= ${#arguments}; ++index )); do
+        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
+      done
+      command /bin/dd "${arguments[@]}"
+    }
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image") || return
+
+  test_assert_contains "$output" \
+    'result:0|boot-and-installer-payload|gpt-geometry-diff' \
+    'a valid relocated backup table ending before its header was rejected for not being adjacent'
+}
+test_case 'USB verification accepts nonadjacent relocated GPT backup entries' \
+  _test_usb_compare_accepts_nonadjacent_relocated_backup_entries
+
+_test_usb_compare_accepts_source_bounded_gpt_on_larger_media() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
+  local pristine_target="$TEST_TMP_DIR/pristine-target.img"
+  local output=''
+  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
+  command /bin/cp "$source_image" "$target_image" || return
+  command /usr/bin/truncate -s 153600 "$target_image" || return
+  # Raw hybrid images retain their internally valid backup GPT at the end of
+  # the image extent. Exercise the metadata fallback without changing GPT.
+  builtin printf X |
+    command /bin/dd of="$target_image" bs=1 seek=440 conv=notrunc status=none \
+      2>/dev/null || return
+  command /bin/cp "$target_image" "$pristine_target" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    target_image=$3 pristine_target=$4
+    _usb_dd_read_run() {
+      local -a arguments=("$@")
+      local -i index=0
+      for (( index = 1; index <= ${#arguments}; ++index )); do
+        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
+      done
+      command /bin/dd "${arguments[@]}"
+    }
+    mutate_byte() {
+      builtin printf X | command /bin/dd of="$target_image" bs=1 seek="$1" \
+        conv=notrunc status=none 2>/dev/null
+    }
+    reset_target() { command /bin/cp "$pristine_target" "$target_image"; }
+
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+
+    reset_target; mutate_byte 520
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "primary:$?|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target; mutate_byte 108032
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "backup-entries:$?|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target; mutate_byte 130568
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "backup-header:$?|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target; mutate_byte 446
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "hybrid-mbr:$?|$_USB_PAYLOAD_VERIFY_ERROR"
+    reset_target
+    builtin printf "EFI PART" | command /bin/dd of="$target_image" bs=1 \
+      seek=153088 conv=notrunc status=none 2>/dev/null
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "stale-tail:$?|$_USB_PAYLOAD_VERIFY_ERROR"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$pristine_target") || return
+
+  test_assert_contains "$output" \
+    'result:0|boot-and-installer-payload|gpt-source-bounds' \
+    'a faithful image-sized GPT on larger media was rejected as an invalid device-wide GPT' || return
+  for result in 'primary:1|gpt-invalid' 'backup-entries:1|gpt-invalid' \
+      'backup-header:1|gpt-invalid' 'hybrid-mbr:1|mismatch'; do
+    test_assert_contains "$output" "$result" \
+      'source-bounded GPT verification accepted corrupt primary or backup metadata' || return
+  done
+  test_assert_contains "$output" 'stale-tail:1|stale-tail-gpt' \
+    'source-bounded verification accepted a competing old GPT at the physical device tail'
+}
+test_case 'USB verification accepts a faithful source-bounded GPT on larger raw media' \
+  _test_usb_compare_accepts_source_bounded_gpt_on_larger_media
 
 _test_usb_readback_bypasses_cache_and_compares_exact_range() {
   test_make_temp_dir || return
@@ -1889,6 +2006,38 @@ _test_usb_dd_input_is_bounded_to_captured_sectors() {
 }
 test_case 'USB dd reads exactly the captured sector count' \
   _test_usb_dd_input_is_bounded_to_captured_sectors
+
+_test_usb_write_clears_stale_physical_tail_gpt() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-tail" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    trace_file=$2/write-calls
+    _usb_progress_stage() { return 0; }
+    _usb_dd_run() {
+      print -r -- "$*" >> "$trace_file"
+      if [[ $* == *"if=/images/linux.iso"* ]]; then
+        print -u2 -r -- "8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\r"
+      fi
+    }
+    _usb_write_image /images/linux.iso disk7 8388608 16777216
+    print -r -- "status:$?"
+    print -r -- "calls:$(<$trace_file)"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" \
+    'if=/dev/zero of=/dev/rdisk7 bs=512 seek=32735 count=33 conv=fsync oflag=direct status=none' \
+    'the raw writer left a previous whole-disk backup GPT at the physical target tail' || return
+  test_assert_contains "$output" \
+    'if=/images/linux.iso of=/dev/rdisk7 ibs=512 obs=4m count=16384' \
+    'tail cleanup displaced the exact bounded image write' || return
+  test_assert_contains "$output" 'status:0' \
+    'a successful bounded tail cleanup and image write did not complete'
+}
+test_case 'USB raw writes clear stale GPT metadata outside the image extent' \
+  _test_usb_write_clears_stale_physical_tail_gpt
 
 _test_usb_verification_owns_subprocess_output() {
   test_make_temp_dir || return
