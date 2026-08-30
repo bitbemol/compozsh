@@ -15,9 +15,16 @@ typeset -g _USB_IMAGE_CAPTURE_SCOPE=''
 typeset -g _USB_STAT_FINGERPRINT=''
 typeset -g _USB_CONFIRM_ERROR=''
 typeset -g _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+typeset -g _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
+typeset -g _USB_PAYLOAD_VERIFY_ERROR=''
+typeset -g _USB_PAYLOAD_VERIFY_SCOPE='' _USB_SELECTED_IMAGE_INTEGRITY='not-provided'
+typeset -g _USB_RESULT_IMAGE_CHECKSUM='' _USB_RESULT_EXPECTED_CHECKSUM=''
+typeset -g _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM='' _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=''
+typeset -g _USB_RESULT_CHECKSUM_ALGORITHM=''
 typeset -gi _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0
 typeset -gi _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
 typeset -gi _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
+typeset -gi _USB_WRITE_BYTES_OBSERVED=0
 typeset -gi _USB_INFO_SIZE=0 _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0
 typeset -gi _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
 typeset -gi _USB_PLIST_MAX_BYTES=1048576
@@ -895,20 +902,28 @@ _usb_disks_capture_retry() {
   emulate -L zsh
   local image_size=$1 image_label=$2 back_value=$3 back_label=$4
   local excluded_disk=${5:-}
-  local error='' selected=''
+  local error='' selected='' retry_label='' retry_detail='' subtitle=''
   local -i result=0
   while true; do
     _usb_disks_capture "$image_size" "$excluded_disk" && return 0
     error=${_USB_CAPTURE_ERROR:-'diskutil did not return a usable external-disk snapshot'}
+    retry_label='Retry target capture · permission or attachment may have changed'
+    retry_detail='Retry target capture'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter performs a fresh read-only diskutil capture.'
+    subtitle="DRIVE unavailable · $error"
+    if [[ $error == 'no whole external physical disks are attached' ]]; then
+      retry_label='Make drive available · connect or replug it, then retry'
+      retry_detail='No external disk is currently visible to macOS.'$'\n\n''A drive can remain physically plugged in after macOS ejects it. Ctrl-R cannot reactivate an ejected drive. Unplug and reconnect the drive (or power-cycle its hub), then press Ctrl-R or Enter.'
+      subtitle='DRIVE unavailable · no external disk is currently visible to macOS'
+    fi
     _USB_PICKER_VALUES=(retry "$back_value")
     _USB_PICKER_LABELS=(
-      'Retry target capture · permission or attachment may have changed'
+      "$retry_label"
       "$back_label")
     _USB_PICKER_SEARCH=(retry permission disk refresh back image target)
     _USB_PICKER_DETAILS=(
-      'Retry target capture'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter performs a fresh read-only diskutil capture.'
+      "$retry_detail"
       "$back_label"$'\n\n''Return without discarding the established image or performing an action.')
-    _usb_choose 'Flash USB · Step 2 of 3' "DRIVE unavailable · $error" 'Filter choices' 0 1
+    _usb_choose 'Flash USB · Step 2 of 3' "$subtitle" 'Filter choices' 0 1
     result=$?
     (( result == 1 )) && return 1
     (( result == 0 )) || return $result
@@ -970,11 +985,25 @@ _usb_image_architecture_capture() {
   _USB_SELECTED_IMAGE_ARCHITECTURE=$REPLY
 }
 
+_usb_step3_checksum_progress() {
+  emulate -L zsh
+  local image=$1 disk=$2 disk_label=$3 checksum=$4 algorithm=$5 architecture=$6
+  local _USB_SELECTED_IMAGE=$image _USB_SELECTED_DISK=$disk
+  local _USB_SELECTED_DISK_LABEL=$disk_label _USB_SELECTED_CHECKSUM=$checksum
+  local _USB_SELECTED_CHECKSUM_ALGORITHM=$algorithm
+  local _USB_SELECTED_IMAGE_INTEGRITY=checking
+  local _USB_SELECTED_IMAGE_ARCHITECTURE=$architecture
+  _usb_progress_stage "Checking image SHA-$algorithm" \
+    info 'Hashing the complete local image before confirmation.' \
+    muted "Expected · ${checksum[1,16]}…"
+}
+
 _usb_workspace_controller() {
   emulate -L zsh
   local selected='' image='' disk='' source_disk=''
   local image_query='' image_initial_value='' refresh_path=''
   local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
+  local checksum_state=not-provided checksum_actual='' integrity_label='' integrity_detail=''
   local _USB_CHECKSUM_ALGORITHM=''
   local -i image_index=1 disk_index=1 result=0 index=0 refresh_index=0
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
@@ -1037,7 +1066,7 @@ _usb_workspace_controller() {
       image_index=${selected#image:}
     fi
     image=${_USB_IMAGE_PATHS[image_index]}
-    checksum='' checksum_algorithm=''
+    checksum='' checksum_algorithm='' checksum_state=not-provided checksum_actual=''
     _USB_SELECTED_IMAGE_ARCHITECTURE=''
     _usb_image_architecture_capture "$image"
 
@@ -1058,22 +1087,36 @@ _usb_workspace_controller() {
     while true; do
       _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
       _USB_PICKER_VALUES+=(flash-verify)
-      if [[ -n $checksum ]]; then
+      if [[ -n $checksum && $checksum_state == matched ]]; then
         _USB_PICKER_LABELS+=("[ Start flash & verify · SHA-$checksum_algorithm ]")
+      elif [[ -n $checksum ]]; then
+        _USB_PICKER_LABELS+=('[ Resolve image integrity check before flashing ]')
       else
         _USB_PICKER_LABELS+=('[ Start flash & verify ]')
       fi
       _USB_PICKER_SEARCH+=('write verify checksum')
       _USB_PICKER_DETAILS+=(
-        'Flash & verify'$'\n\n'"After confirmation, validates the full image checksum when provided, unmounts /dev/$disk, writes through /dev/r$disk, verifies the payload outside the mutable partition prefix, and ejects.")
+        'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares the full image first with a qualified macOS metadata fallback, and ejects.")
       _USB_PICKER_VALUES+=(checksum)
-      if [[ -n $checksum ]]; then
-        _USB_PICKER_LABELS+=("Checksum · SHA-$checksum_algorithm · ${checksum[1,12]}…")
-        _USB_PICKER_DETAILS+=("Image checksum"$'\n\n'"SHA-$checksum_algorithm · $checksum"$'\n\n''The full image must match before writing. Finished-drive verification reuses SHA-'"$checksum_algorithm"' over the payload outside the mutable 17,408-byte prefix.')
-      else
-        _USB_PICKER_LABELS+=('Add image checksum… · SHA-256 or SHA-512')
-        _USB_PICKER_DETAILS+=('Optional image checksum'$'\n\n''Paste the publisher’s SHA-256 or SHA-512 digest. The full image is validated before writing; finished-drive verification then uses the same algorithm on the immutable payload region.')
-      fi
+      case $checksum_state in
+        (matched)
+          integrity_label="Image integrity · Verified · SHA-$checksum_algorithm matched"
+          integrity_detail="Verified local image"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"$checksum_actual"$'\n\n''The complete local image matches the supplied checksum.' ;;
+        (mismatch)
+          integrity_label="Image integrity · FAILED · SHA-$checksum_algorithm mismatch"
+          integrity_detail="Local image checksum mismatch"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"${checksum_actual:-unavailable}"$'\n\n''The drive cannot be flashed until the checksum is corrected, removed, or a valid image is selected.' ;;
+        (changed)
+          integrity_label='Image integrity · FAILED · image changed during validation'
+          integrity_detail='The selected image no longer matches its captured size or filesystem identity. Choose the image again before flashing.' ;;
+        (error)
+          integrity_label="Image integrity · Could not calculate SHA-$checksum_algorithm"
+          integrity_detail='The selected image could not be read completely. Nothing can be written until the integrity check succeeds or the checksum is explicitly removed.' ;;
+        (*)
+          integrity_label='Image integrity · Not verified · no checksum provided'
+          integrity_detail='No checksum was supplied. Flash & verify will still compare the finished drive with the selected local image, but the local image’s origin is not established.' ;;
+      esac
+      _USB_PICKER_LABELS+=("$integrity_label")
+      _USB_PICKER_DETAILS+=("$integrity_detail")
       _USB_PICKER_SEARCH+=('checksum sha256 sha512 integrity')
       if [[ -n $checksum ]]; then
         _USB_PICKER_VALUES+=(remove-checksum)
@@ -1090,7 +1133,7 @@ _usb_workspace_controller() {
       _USB_PICKER_DETAILS+=(
         "${_USB_IMAGE_DETAILS[image_index]}"
         "${_USB_DISK_DETAILS[disk_index]}"
-        'Flash only'$'\n\n'"Validates a provided publisher checksum before writing, then writes /dev/r$disk and ejects without reading the payload back.")
+        'Flash only'$'\n\n'"Validates a provided checksum before writing, then writes /dev/r$disk and ejects without reading the payload back.")
       _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
       architecture_label=$REPLY
       _usb_choose 'Flash USB · Step 3 of 3' \
@@ -1110,13 +1153,26 @@ _usb_workspace_controller() {
             (( result == 0 )) || return $result
             if _usb_checksum_parse "$_ZLE_PICKER_SELECTED_VALUE"; then
               checksum=$REPLY checksum_algorithm=$_USB_CHECKSUM_ALGORITHM
+              checksum_state=checking checksum_actual=''
+              _usb_step3_checksum_progress "$image" "$disk" \
+                "${_USB_DISK_LABELS[disk_index]}" "$checksum" "$checksum_algorithm" \
+                "$_USB_SELECTED_IMAGE_ARCHITECTURE"
+              if ! _usb_image_revalidate "$image" "${_USB_IMAGE_FINGERPRINTS[image_index]}" \
+                  "${_USB_IMAGE_SIZES[image_index]}"; then
+                checksum_state=changed
+              elif _usb_image_checksum "$image" "$checksum_algorithm"; then
+                checksum_actual=$REPLY
+                [[ $checksum_actual == "$checksum" ]] && checksum_state=matched || checksum_state=mismatch
+              else
+                checksum_state=error
+              fi
               break
             fi
             checksum_subtitle='No single valid SHA-256 or SHA-512 digest was found; paste another'
           done
           continue ;;
         (remove-checksum)
-          checksum='' checksum_algorithm=''
+          checksum='' checksum_algorithm='' checksum_state=not-provided checksum_actual=''
           continue ;;
         (target)
           previous_disk_ids=("${_USB_DISK_IDS[@]}")
@@ -1140,6 +1196,10 @@ _usb_workspace_controller() {
           disk_index=$_ZLE_PICKER_SELECTED_VALUE
           disk=${_USB_DISK_IDS[disk_index]} ;;
         (flash-verify|flash-only)
+          if [[ -n $checksum && $checksum_state != matched ]]; then
+            checksum_subtitle='The image integrity check must match before flashing; paste the correct checksum or go back and remove it'
+            continue
+          fi
           _USB_REQUEST=$selected _USB_SELECTED_IMAGE=$image _USB_SELECTED_DISK=$disk
           _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[image_index]}
           _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[image_index]}
@@ -1148,6 +1208,7 @@ _usb_workspace_controller() {
           _USB_SELECTED_SOURCE_DISK=$source_disk
           _USB_SELECTED_CHECKSUM=$checksum
           _USB_SELECTED_CHECKSUM_ALGORITHM=$checksum_algorithm
+          _USB_SELECTED_IMAGE_INTEGRITY=$checksum_state
           return 0 ;;
       esac
     done
@@ -1210,7 +1271,7 @@ _usb_noop() {
 # effect while that frame remains visible; dd publishes determinate updates.
 _usb_progress_stage() {
   emulate -L zsh
-  local stage=$1 style='' line=''
+  local stage=$1 style='' line='' integrity_status=''
   local image=${_USB_SELECTED_IMAGE:-} disk_label=${_USB_SELECTED_DISK_LABEL:-}
   local -i _ZLE_PICKER_STATUS_VIEW=1
   local _ZLE_PICKER_BUSY_LABEL="● ${stage:u}"
@@ -1225,10 +1286,20 @@ _usb_progress_stage() {
       picker-text picker-status-heading picker-status-info picker-status-muted
       picker-text picker-status-heading picker-status-info picker-text)
     if [[ -n ${_USB_SELECTED_CHECKSUM:-} ]]; then
+      integrity_status='Provided · verification pending'
+      case ${_USB_SELECTED_IMAGE_INTEGRITY:-} in
+        (matched) integrity_status="Verified in Step 3 · SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM} matched" ;;
+        (checking) integrity_status="Checking · SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM}" ;;
+      esac
       _ZLE_PICKER_BUSY_LINES+=(
-        'CHECKSUM' "  SHA-${_USB_SELECTED_CHECKSUM_ALGORITHM} · ${_USB_SELECTED_CHECKSUM[1,16]}…" '')
+        'IMAGE INTEGRITY' "  $integrity_status" '')
       _ZLE_PICKER_BUSY_STYLES+=(
         picker-status-heading picker-status-info picker-text)
+    else
+      _ZLE_PICKER_BUSY_LINES+=(
+        'IMAGE INTEGRITY' '  Not verified · no checksum provided' '')
+      _ZLE_PICKER_BUSY_STYLES+=(
+        picker-status-heading picker-status-warning picker-text)
     fi
     if [[ -n ${_USB_SELECTED_IMAGE_ARCHITECTURE:-} ]]; then
       _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
@@ -1278,6 +1349,7 @@ _usb_dd_progress_read() {
     byte_text=${line%% *}
     [[ $byte_text == <-> ]] && bytes=$byte_text
   done
+  (( bytes > _USB_WRITE_BYTES_OBSERVED )) && _USB_WRITE_BYTES_OBSERVED=$bytes
   (( bytes > total )) && bytes=$total
   (( total > 0 )) && percent=$(( bytes * 100 / total ))
   _usb_progress_bar $percent $bar_width
@@ -1294,6 +1366,10 @@ _usb_authorize() {
   command /usr/bin/sudo -v
 }
 
+_usb_authorization_valid() {
+  command /usr/bin/sudo -n -v
+}
+
 _usb_unmount() {
   command /usr/sbin/diskutil unmountDisk "/dev/$1"
 }
@@ -1308,12 +1384,14 @@ _usb_write_image() {
   unsetopt MONITOR NOTIFY
   local image=$1 identifier=$2 image_size=$3
   local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
-  local -i worker=0 command_status=1 started=$SECONDS
-  [[ $image_size == <-> ]] || return 2
+  local -i worker=0 command_status=1 started=$SECONDS sector_count=0
+  _USB_WRITE_BYTES_OBSERVED=0
+  [[ $image_size == <-> ]] && (( image_size > 0 && image_size % 512 == 0 )) || return 2
+  sector_count=$(( image_size / 512 ))
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
   {
     _usb_dd_run "if=$image" "of=/dev/r${identifier}" \
-      bs=4m status=progress 2>| "$progress_file" &
+      ibs=512 obs=4m "count=$sector_count" status=progress 2>| "$progress_file" &
     worker=$!
     while builtin kill -0 $worker 2>/dev/null; do
       _usb_dd_progress_read "$progress_file" "$image_size" $started
@@ -1325,6 +1403,10 @@ _usb_write_image() {
     done
     wait $worker
     command_status=$?
+    _usb_dd_progress_read "$progress_file" "$image_size" $started
+    if (( command_status == 0 && _USB_WRITE_BYTES_OBSERVED != image_size )); then
+      command_status=3
+    fi
   } always {
     if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
       builtin kill -INT $worker 2>/dev/null
@@ -1339,7 +1421,7 @@ _usb_write_image() {
 }
 
 _usb_cmp_run() {
-  command /usr/bin/sudo /usr/bin/cmp "$@"
+  command /usr/bin/sudo -n /usr/bin/cmp "$@"
 }
 
 _usb_image_checksum_run() {
@@ -1349,10 +1431,10 @@ _usb_image_checksum_run() {
 
 _usb_payload_checksum_run() {
   emulate -L zsh
-  unsetopt PIPE_FAIL
+  setopt PIPE_FAIL
   local algorithm=$1 path=$2 image_size=$3 privileged=${4:-0}
   if (( privileged )); then
-    command /usr/bin/sudo /usr/bin/head -c "$image_size" "$path"
+    command /usr/bin/sudo -n /usr/bin/head -c "$image_size" "$path"
   else
     command /usr/bin/head -c "$image_size" "$path"
   fi | command /usr/bin/tail -c +17409 |
@@ -1382,38 +1464,111 @@ _usb_image_checksum() {
 
 _usb_payload_checksum() {
   emulate -L zsh
-  local path=$1 image_size=$2 algorithm=$3 privileged=${4:-0} output=''
+  local path=$1 image_size=$2 algorithm=$3 privileged=${4:-0} output='' raw_size=''
   (( image_size > 17408 )) || return 1
+  if (( !privileged )); then
+    [[ -f $path && ! -L $path ]] || return 1
+    raw_size=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 1
+    [[ $raw_size == <-> ]] && (( raw_size >= image_size )) || return 1
+  fi
   output=$(_usb_payload_checksum_run "$algorithm" "$path" "$image_size" "$privileged") || return 1
   _usb_checksum_output_read "$output" "$algorithm"
+}
+
+_usb_compare_written_image() {
+  emulate -L zsh
+  local image=$1 identifier=$2 image_size=$3
+  local -i compared=$(( image_size - 17408 )) compare_status=0
+  _USB_PAYLOAD_VERIFY_ERROR='' _USB_PAYLOAD_VERIFY_SCOPE=''
+  (( compared > 0 )) || return 2
+
+  # Prefer the strongest result: every image byte, including boot metadata.
+  _usb_cmp_run -n "$image_size" "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  compare_status=$?
+  case $compare_status in
+    (0) _USB_PAYLOAD_VERIFY_SCOPE=full; return 0 ;;
+    (1) ;;
+    (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+  esac
+
+  # macOS can rewrite partition-geometry metadata. Never blanket-ignore the
+  # prefix: preserve the 446-byte boot-code region, then verify every payload
+  # byte after the bounded 34-sector metadata area.
+  _usb_cmp_run -n 446 "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  compare_status=$?
+  case $compare_status in
+    (0) ;;
+    (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
+    (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+  esac
+  _usb_cmp_run -n "$compared" -i 17408 \
+    "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  compare_status=$?
+  case $compare_status in
+    (0)
+      _USB_PAYLOAD_VERIFY_SCOPE=payload-and-boot-code
+      _USB_PAYLOAD_VERIFY_ERROR=metadata-diff
+      return 0 ;;
+    (1) _USB_PAYLOAD_VERIFY_ERROR=mismatch; return 1 ;;
+    (*) _USB_PAYLOAD_VERIFY_ERROR=drive-read-failed; return 2 ;;
+  esac
 }
 
 _usb_verify_payload() {
   emulate -L zsh
   local image=$1 identifier=$2 image_size=$3
-  local -i compared=$(( image_size - 17408 ))
-  _usb_unmount "$identifier" >/dev/null 2>&1 || return
-  _usb_cmp_run -n "$compared" -i 17408 \
-    "/dev/r${identifier}" "$image" >/dev/null 2>&1
+  _USB_PAYLOAD_VERIFY_ERROR=''
+  _usb_unmount "$identifier" >/dev/null 2>&1 || {
+    _USB_PAYLOAD_VERIFY_ERROR=unmount-failed
+    return 2
+  }
+  _usb_compare_written_image "$image" "$identifier" "$image_size"
 }
 
 _usb_verify_payload_checksum() {
   emulate -L zsh
   local image=$1 identifier=$2 image_size=$3 algorithm=$4
-  local image_digest='' drive_digest=''
-  _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM=''
-  _usb_unmount "$identifier" >/dev/null 2>&1 || return 1
-  _usb_payload_checksum "$image" "$image_size" "$algorithm" 0 || return 1
+  local image_digest='' drive_digest='' compare_reason='' compare_scope=''
+  local -i compare_status=0
+  _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM='' _USB_PAYLOAD_VERIFY_ERROR=''
+  _usb_unmount "$identifier" >/dev/null 2>&1 || {
+    _USB_PAYLOAD_VERIFY_ERROR=unmount-failed
+    return 2
+  }
+  _usb_compare_written_image "$image" "$identifier" "$image_size"
+  compare_status=$?
+  compare_reason=$_USB_PAYLOAD_VERIFY_ERROR compare_scope=$_USB_PAYLOAD_VERIFY_SCOPE
+  (( compare_status == 0 )) || return $compare_status
+  _usb_payload_checksum "$image" "$image_size" "$algorithm" 0 2>/dev/null || {
+    _USB_PAYLOAD_VERIFY_ERROR=$compare_reason _USB_PAYLOAD_VERIFY_SCOPE=$compare_scope
+    return 0
+  }
   image_digest=$REPLY
-  _usb_payload_checksum "/dev/r${identifier}" "$image_size" "$algorithm" 1 || return 1
-  drive_digest=$REPLY
   _USB_PAYLOAD_IMAGE_CHECKSUM=$image_digest
+  _usb_payload_checksum "/dev/r${identifier}" "$image_size" "$algorithm" 1 2>/dev/null || {
+    _USB_PAYLOAD_VERIFY_ERROR=$compare_reason _USB_PAYLOAD_VERIFY_SCOPE=$compare_scope
+    return 0
+  }
+  drive_digest=$REPLY
   _USB_PAYLOAD_DRIVE_CHECKSUM=$drive_digest
-  [[ $drive_digest == "$image_digest" ]]
+  # cmp above is authoritative. Retain digests as corroborating evidence only;
+  # they must never turn an exact native byte comparison into a false failure.
+  if [[ $drive_digest != "$image_digest" ]]; then
+    _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM=''
+  fi
+  _USB_PAYLOAD_VERIFY_ERROR=$compare_reason _USB_PAYLOAD_VERIFY_SCOPE=$compare_scope
 }
 
 _usb_eject() {
   command /usr/sbin/diskutil eject "/dev/$1"
+}
+
+_usb_cleanup_eject() {
+  emulate -L zsh
+  (( ${_USB_RESULT_STARTED:-0} && !${_USB_RESULT_EJECTED:-0} )) || return 0
+  [[ ${_USB_SELECTED_DISK:-} == disk<-> ]] || return 0
+  _usb_eject "$_USB_SELECTED_DISK" >/dev/null 2>&1 || return 1
+  _USB_RESULT_EJECTED=1
 }
 
 _usb_execute() {
@@ -1426,6 +1581,7 @@ _usb_execute() {
   local _USB_PAYLOAD_IMAGE_CHECKSUM='' _USB_PAYLOAD_DRIVE_CHECKSUM=''
   local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
   _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+  _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
   _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
   _USB_RESULT_EXPECTED_CHECKSUM=$expected_checksum _USB_RESULT_IMAGE_CHECKSUM=''
   _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM='' _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=''
@@ -1493,6 +1649,12 @@ _usb_execute() {
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='The external drive could not be unmounted; nothing was written.'
     return 1
   }
+  _usb_target_revalidate "$identifier" "$disk_fingerprint" "$image_size" || {
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_ERROR='The external drive changed after unmounting; nothing was written.'
+    _usb_eject "$identifier" >/dev/null 2>&1 && _USB_RESULT_EJECTED=1
+    return 1
+  }
   _USB_RESULT_STARTED=1
   _usb_progress_stage 'Writing image' \
     info 'Starting Apple dd with 4 MiB blocks.' \
@@ -1506,16 +1668,54 @@ _usb_execute() {
     _usb_human_size $(( image_size / (_USB_RESULT_WRITE_SECONDS > 0 ? _USB_RESULT_WRITE_SECONDS : 1) ))
     _USB_RESULT_RATE="$REPLY/s"
   else
-    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Writing failed with status $action_status."
+    _USB_RESULT_OUTCOME=failed
+    if (( action_status == 3 )); then
+      _USB_RESULT_ERROR="Writing stopped after ${_USB_WRITE_BYTES_OBSERVED:-0} of $image_size bytes; the USB contains an incomplete image and must not be used."
+    else
+      _USB_RESULT_ERROR='Writing failed; the USB may contain an incomplete image and must not be used.'
+    fi
+  fi
+  if (( action_status == 0 )); then
+    _usb_image_revalidate "$image" "$image_fingerprint" "$image_size" || {
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR='The selected image changed during writing; the USB must not be used.'
+    }
+  fi
+  if (( action_status == 0 )) && [[ -n $expected_checksum ]]; then
+    _usb_progress_stage "Rechecking image SHA-$checksum_algorithm" \
+      info 'Confirming the complete source image remained unchanged through the write.' \
+      warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+    _usb_image_checksum "$image" "$checksum_algorithm" || {
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR="The image could not be reread after writing; the USB must not be used."
+    }
+    if (( action_status == 0 )) && [[ $REPLY != "$expected_checksum" ]]; then
+      action_status=1
+      _USB_RESULT_OUTCOME=failed
+      _USB_RESULT_ERROR="The image SHA-$checksum_algorithm changed during writing; the USB must not be used."
+    fi
+  fi
+  if (( action_status == 0 )) && [[ $request == flash-verify ]] &&
+      ! _usb_authorization_valid >/dev/null 2>&1; then
+    _usb_progress_stage 'Authorization required for verification' \
+      info 'The write completed. Re-enter the administrator password to read the finished drive.' \
+      warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+    _usb_authorize || {
+      action_status=1
+      _USB_RESULT_OUTCOME=failed _USB_RESULT_VERIFY_REASON=authorization-expired
+      _USB_RESULT_ERROR='Administrator authorization expired before USB verification; the write completed but was not verified.'
+    }
   fi
   if (( action_status == 0 )) && [[ $request == flash-verify ]]; then
     if [[ -n $expected_checksum ]]; then
-      _usb_progress_stage "Verifying payload SHA-$checksum_algorithm" \
-        info 'Hashing the image and finished drive after the mutable 17,408-byte partition prefix.' \
+      _usb_progress_stage "Verifying USB against image" \
+        info 'Comparing the full image first; SHA payload digests are retained as supporting evidence.' \
         warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
     else
-      _usb_progress_stage 'Verifying payload' \
-        info 'Comparing every image byte after the mutable 17,408-byte partition prefix.' \
+      _usb_progress_stage 'Verifying USB against image' \
+        info 'Comparing the full image first, including boot metadata.' \
         warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
     fi
     stage_started=$SECONDS
@@ -1528,9 +1728,27 @@ _usb_execute() {
       _usb_verify_payload "$image" "$identifier" "$image_size"
       action_status=$?
     fi
+    _USB_RESULT_VERIFY_REASON=$_USB_PAYLOAD_VERIFY_ERROR
+    _USB_RESULT_VERIFY_SCOPE=$_USB_PAYLOAD_VERIFY_SCOPE
     _USB_RESULT_VERIFY_SECONDS=$(( SECONDS - stage_started ))
     (( action_status == 0 )) && _USB_RESULT_VERIFIED=1 || {
-      _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Payload verification failed with status $action_status."
+      _USB_RESULT_OUTCOME=failed
+      case $_USB_RESULT_VERIFY_REASON in
+        (mismatch)
+          _USB_RESULT_ERROR='The finished USB payload differs from the selected image.' ;;
+        (drive-read-failed)
+          _USB_RESULT_ERROR='The image was written, but the finished USB could not be read completely for verification.' ;;
+        (image-read-failed)
+          _USB_RESULT_ERROR='The image changed or could not be read completely during finished-drive verification.' ;;
+        (unmount-failed)
+          _USB_RESULT_ERROR='The image was written, but macOS could not unmount the finished USB for verification.' ;;
+        (hash-inconsistent)
+          _USB_RESULT_ERROR='The byte comparison matched, but checksum verification was internally inconsistent.' ;;
+        (authorization-expired)
+          _USB_RESULT_ERROR='Administrator authorization expired before USB verification; the write completed but was not verified.' ;;
+        (*)
+          _USB_RESULT_ERROR='Finished-drive verification could not complete; the USB must not be used until it is verified.' ;;
+      esac
     }
   fi
   _usb_progress_stage 'Ejecting external drive' \
@@ -1564,12 +1782,14 @@ _usb_result_screen() {
     size_label=$REPLY
     _usb_human_duration $_USB_RESULT_SECONDS
     duration_label=$REPLY
-    if (( _USB_RESULT_VERIFIED )) && [[ -n $_USB_RESULT_CHECKSUM_ALGORITHM ]]; then
-      verification_label="USB payload · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched"
+    if (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == full ]]; then
+      verification_label='USB verification · Full image byte-for-byte matched'
+    elif (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == payload-and-boot-code ]]; then
+      verification_label='USB verification · Boot code and payload matched · partition metadata differs'
     elif (( _USB_RESULT_VERIFIED )); then
-      verification_label='Payload verified'
+      verification_label='USB verification · Selected image bytes matched'
     else
-      verification_label='Verification skipped'
+      verification_label='USB verification · Not performed · Flash only'
     fi
     eject_label='Safe to remove · external drive ejected'
     _USB_PICKER_VALUES=(done bytes time)
@@ -1579,11 +1799,15 @@ _usb_result_screen() {
       "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}")
     _USB_PICKER_SEARCH=(done complete time)
     _USB_PICKER_DETAILS=('' '' '')
+    _USB_PICKER_VALUES+=(image-checksum)
     if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
-      _USB_PICKER_VALUES+=(image-checksum)
-      _USB_PICKER_LABELS+=("Image checksum · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
-      _USB_PICKER_SEARCH+=('image checksum matched')
-      _USB_PICKER_DETAILS+=("Publisher checksum matched"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
+      _USB_PICKER_LABELS+=("Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
+      _USB_PICKER_SEARCH+=('image integrity checksum matched')
+      _USB_PICKER_DETAILS+=("Provided checksum matched"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
+    else
+      _USB_PICKER_LABELS+=('Image integrity · Not verified · no checksum provided')
+      _USB_PICKER_SEARCH+=('image integrity not verified no checksum')
+      _USB_PICKER_DETAILS+=('No checksum was provided. USB verification establishes fidelity to this local image, but does not establish the local image’s origin.')
     fi
     _USB_PICKER_VALUES+=(verify eject)
     _USB_PICKER_LABELS+=("$verification_label" "$eject_label")
@@ -1608,17 +1832,43 @@ _usb_result_screen() {
       "Flash failed · ${_USB_RESULT_ERROR:-The operation did not complete.}")
     _USB_PICKER_SEARCH=(done failed)
     _USB_PICKER_DETAILS=('' '')
-    if [[ -n $_USB_RESULT_EXPECTED_CHECKSUM ]]; then
-      _USB_PICKER_VALUES+=(checksum)
-      _USB_PICKER_LABELS+=("Image checksum · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM")
-      _USB_PICKER_SEARCH+=('checksum expected actual')
+    _USB_PICKER_VALUES+=(image-integrity)
+    if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
+      _USB_PICKER_LABELS+=("Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
+      _USB_PICKER_SEARCH+=('image integrity checksum verified matched')
+      _USB_PICKER_DETAILS+=("Provided checksum matched before writing"$'\n\n'"Expected"$'\n'"$_USB_RESULT_EXPECTED_CHECKSUM"$'\n\n'"Actual"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
+    elif [[ -n $_USB_RESULT_EXPECTED_CHECKSUM ]]; then
+      _USB_PICKER_LABELS+=("Image integrity · FAILED · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM did not match")
+      _USB_PICKER_SEARCH+=('image integrity checksum failed expected actual')
       _USB_PICKER_DETAILS+=("Expected"$'\n'"$_USB_RESULT_EXPECTED_CHECKSUM"$'\n\n'"Actual"$'\n'"${_USB_RESULT_IMAGE_CHECKSUM:-unavailable}")
+    else
+      _USB_PICKER_LABELS+=('Image integrity · Not verified · no checksum provided')
+      _USB_PICKER_SEARCH+=('image integrity not verified no checksum')
+      _USB_PICKER_DETAILS+=('The selected local image had no provided checksum. Finished-drive comparison can validate the copy, but cannot establish the image’s origin.')
     fi
-    if [[ -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
+    if [[ $_USB_RESULT_VERIFY_REASON == mismatch && -n $_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM ]]; then
       _USB_PICKER_VALUES+=(payload-checksum)
-      _USB_PICKER_LABELS+=("USB payload · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM mismatch")
+      _USB_PICKER_LABELS+=("USB verification · FAILED · confirmed byte mismatch")
       _USB_PICKER_SEARCH+=('payload checksum mismatch')
       _USB_PICKER_DETAILS+=("Image payload"$'\n'"$_USB_RESULT_IMAGE_PAYLOAD_CHECKSUM"$'\n\n'"Finished-drive payload"$'\n'"$_USB_RESULT_DRIVE_PAYLOAD_CHECKSUM")
+    elif [[ -n $_USB_RESULT_VERIFY_REASON ]]; then
+      _USB_PICKER_VALUES+=(verification-error)
+      case $_USB_RESULT_VERIFY_REASON in
+        (drive-read-failed)
+          _USB_PICKER_LABELS+=('USB verification · Could not read the finished drive') ;;
+        (image-read-failed)
+          _USB_PICKER_LABELS+=('USB verification · Could not reread the selected image') ;;
+        (unmount-failed)
+          _USB_PICKER_LABELS+=('USB verification · Could not unmount the finished drive') ;;
+        (hash-inconsistent)
+          _USB_PICKER_LABELS+=('USB verification · Internal checksum inconsistency') ;;
+        (authorization-expired)
+          _USB_PICKER_LABELS+=('USB verification · Administrator authorization expired') ;;
+        (*)
+          _USB_PICKER_LABELS+=('USB verification · Could not complete') ;;
+      esac
+      _USB_PICKER_SEARCH+=('usb verification read error recovery')
+      _USB_PICKER_DETAILS+=("Verification reason"$'\n'"$_USB_RESULT_VERIFY_REASON"$'\n\n'"${_USB_RESULT_ERROR:-No additional diagnostic was retained.}")
     fi
     _USB_PICKER_VALUES+=(eject)
     _USB_PICKER_LABELS+=("$eject_label")
@@ -1751,14 +2001,19 @@ _compozsh_help_flash-usb() {
     '  The parent whole disk containing the selected image is also excluded, so' \
     '  a target can never destroy its own source during dd.' \
     '  Step 2 Ctrl-R performs a fresh target capture without losing the selected' \
-    '  image, including from the no-drive-attached recovery screen.' \
+    '  image, including after a newly connected drive becomes available.' \
+    '  A drive macOS ejected can remain physically plugged in while absent from' \
+    '  diskutil. Ctrl-R cannot reactivate it: unplug and reconnect the drive, or' \
+    '  power-cycle its hub, then press Ctrl-R or Enter to capture it again.' \
     '' \
     'Actions:' \
     '  Step 2 selects one exact eligible external drive. Step 3 reviews image,' \
     '  drive, optional checksum, and mode; Flash & verify is the default.' \
     '  Add image checksum accepts one SHA-256 or SHA-512 digest as bare hex,' \
-    '  standard shasum output, or a BSD SHA line. The full image must match the' \
-    '  publisher digest before disk data changes. Selecting another image clears' \
+    '  standard shasum output, or a BSD SHA line. Step 3 immediately hashes the' \
+    '  complete image and shows Verified, mismatch, or read failure; a failed' \
+    '  integrity check cannot start flashing. With no checksum, Step 3 says the' \
+    '  image is not verified. Selecting another image clears' \
     '  the checksum so it cannot silently carry across image context.' \
     '  An exact typed' \
     '  ERASE diskN confirmation is required. A mismatch reports the exact' \
@@ -1766,30 +2021,35 @@ _compozsh_help_flash-usb() {
     '  Supported 256-color terminals highlight that phrase with the shared' \
     '  warning color; NO_COLOR and unsupported terminals keep it plain.' \
     '  Compozsh then requests sudo, revalidates the image and target identity,' \
-    '  unmounts the whole disk, and' \
-    '  writes through /dev/rdiskN with Apple’s dd using 4 MiB blocks.' \
+    '  unmounts the whole disk, revalidates the target again, and' \
+    '  writes through /dev/rdiskN with Apple’s dd using 512-byte input sectors' \
+    '  aggregated into 4 MiB output blocks. The captured sector count bounds the' \
+    '  read, and the final transferred-byte count must equal the captured size.' \
     '  Apple dd supplies exact bytes once per second for a determinate progress' \
     '  bar. Step 3 uses a dedicated status view with no query or bottom footer:' \
     '  the active stage, image, target, progress, and disconnect warning remain' \
     '  together near the top with semantic heading, success, and warning colors.' \
     '  Validation, unmount, verification, and eject remain named stages.' \
     '  No pre-format is run.' \
-    '  sudo may prompt again if its credential timestamp expires during a long' \
-    '  write.' \
+    '  The source identity is checked again after writing; a provided full-image' \
+    '  digest is also recalculated. If sudo expires during a long write, a named' \
+    '  authorization stage appears before noninteractive read-back commands.' \
     '  Flash only skips the read-back comparison. Both actions eject afterward;' \
     '  an eject is also attempted after a write or verification failure.' \
     '  A final screen remains until Done and reports bytes, duration, average' \
-    '  write rate, image-checksum status, payload verification, retained digest,' \
+    '  write rate, image-integrity status, USB verification scope, retained digest,' \
     '  and whether the drive is safe to remove.' \
     '' \
     'Verification boundary:' \
-    '  Without a publisher checksum, cmp checks every image byte after the first' \
-    '  17,408 bytes (34 sectors). With SHA-256 or SHA-512, the full image first' \
-    '  matches the supplied digest; after writing, the same algorithm hashes the' \
-    '  image-sized payload region from both image and drive and requires a match.' \
-    '  macOS may rewrite that protective MBR/GPT prefix for physical geometry,' \
-    '  so read-back verification excludes that prefix and does not claim those' \
-    '  mutable boot records match the publisher’s full-image digest.' \
+    '  Native cmp first checks every image byte, including boot metadata. If that' \
+    '  full comparison differs, a qualified fallback requires the first 446 boot-' \
+    '  code bytes and every byte after the first 17,408 bytes (34 sectors) of' \
+    '  partition metadata to' \
+    '  match. Only that bounded middle area may differ because macOS can rewrite' \
+    '  physical-disk geometry; the final screen states that partition metadata' \
+    '  differs instead of claiming full-image equality. With SHA-256 or SHA-512,' \
+    '  payload digests are retained as supporting evidence, while cmp remains the' \
+    '  authoritative exact-length result. Read errors are never called mismatches.' \
     '' \
     'Requirements and recovery:' \
     '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
@@ -1879,6 +2139,7 @@ flash-usb() {
     progress_status=$?
     return $progress_status
   } always {
+    _usb_cleanup_eject
     _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
     _USB_IMAGE_HIGHLIGHTS=()
     _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()

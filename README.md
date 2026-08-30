@@ -1971,15 +1971,21 @@ previously remembered disk number. Each refresh bounds native plist output to
 resolves the filesystem containing the selected image through `df` and
 `diskutil`, then excludes its parent whole disk from the target snapshot. An
 external disk can therefore hold the image or be the target, but never both in
-the same operation. If no target is attached yet, connect one and press
-**Ctrl-R** in Step 2. The same shortcut refreshes a populated multi-drive list;
-it recaptures external-device facts without losing the selected image.
+the same operation. If no target is visible yet, connect one and press
+**Ctrl-R** in Step 2. A drive that macOS ejected can remain physically plugged
+in while absent from `diskutil`; Ctrl-R alone cannot reactivate it. Unplug and
+reconnect the drive, or power-cycle its hub, then press Ctrl-R or Enter. The same
+shortcut refreshes a populated multi-drive list; it recaptures external-device
+facts without losing the selected image.
 
 Step 3 defaults to **Start flash & verify**, offers **Flash without
 verification**, and includes **Add image checksum…**. The optional checksum
 field accepts one SHA-256 or SHA-512 digest as bare hexadecimal, standard
-`shasum` output, or a BSD `SHA256 (file) = …` line. It keeps the selected image,
-drive, and checksum visible and lets each choice be changed before the effect.
+`shasum` output, or a BSD `SHA256 (file) = …` line. Step 3 immediately hashes
+the complete local image and shows **Verified**, **mismatch**, or a read error;
+a failed integrity check cannot start flashing. Without a checksum it says
+**Image integrity · Not verified · no checksum provided**. It keeps the selected
+image, drive, and checksum state visible and lets each choice be changed before the effect.
 Selecting another image clears the digest so a checksum cannot silently carry
 into a different image context. Compozsh then restores the ordinary terminal,
 shows the exact image, target, and checksum state, and requires the text
@@ -1987,10 +1993,14 @@ shows the exact image, target, and checksum state, and requires the text
 and writes nothing. After `sudo` authorization it revalidates the image
 fingerprint, disk identity, external/physical/writable/whole eligibility, and
 capacity. A changed, disconnected, reused, or newly ineligible target stops
-before the unmount or write. When a checksum is present, Apple’s `shasum`
-validates the complete image before the external drive is changed; a mismatch
-shows the expected and actual digest and writes nothing. `sudo` may prompt again
-before verification if its credential timestamp expires during a long write.
+before the unmount or write. The same target identity is checked again after
+unmounting, immediately before opening the raw device. When a checksum is
+present, Apple’s `shasum` validates the complete image before the external drive
+is changed; a mismatch shows the expected and actual digest and writes nothing.
+The image identity is checked again after writing, and a supplied digest is
+recalculated to catch a source change during the write. If `sudo` expires during
+a long write, a named authorization stage appears before read-back; verification
+subprocesses themselves remain noninteractive.
 
 On a supported 256-color terminal, only the required `ERASE diskN` phrase uses
 the shared warning color so the target-bound confirmation is easy to spot.
@@ -1998,7 +2008,10 @@ the shared warning color so the target-bound confirmation is easy to spot.
 plain prompt.
 
 Writing uses Apple’s `diskutil unmountDisk` and `/bin/dd` against the raw
-`/dev/rdiskN` device with 4 MiB blocks. No pre-format is needed or performed.
+`/dev/rdiskN` device. Input is bounded to the image’s captured 512-byte sector
+count and aggregated into 4 MiB output blocks. The final `dd` byte count must
+equal the captured image size; early EOF, growth, or any incomplete transfer is
+a failure. No pre-format is needed or performed.
 The Step 3 screen remains visible through validation, unmount, writing,
 verification, and eject. Apple `dd status=progress` supplies transferred bytes
 once per second. Compozsh reads Apple’s live `bytes (…) transferred` records,
@@ -2014,20 +2027,21 @@ Native subprocess status output is captured or silenced while this view owns
 the terminal, and the temporary write worker disables interactive job
 notifications so subprocess messages do not overwrite the frame.
 
-Without a publisher checksum, the recommended action reads the image-sized
-payload back with Apple’s `cmp`. With SHA-256 or SHA-512, the complete image
-first has to match the supplied digest; after writing, Compozsh reuses the same
-algorithm over the image-sized payload region from both the source image and
-finished drive and requires those derived digests to match. Both read-back
-paths skip the first 17,408 bytes (34 sectors), where macOS may rewrite
-protective MBR/GPT geometry for the physical disk. They verify the stable
-installer/filesystem payload without claiming that mutable boot-metadata prefix
-matches the publisher’s full-image checksum.
+Read-back always uses Apple’s `cmp` as the authoritative exact-length check and
+first compares the complete image, including boot metadata. If macOS has changed
+partition geometry, a qualified fallback requires the first 446 bytes of boot
+code and every byte after the 17,408-byte partition-metadata area to match. The
+final screen then says that boot code and payload matched while partition
+metadata differs; it does not claim full-image equality. With SHA-256 or
+SHA-512, the same algorithm also derives payload digests from the source and
+finished drive as supporting evidence. Missing paths, short reads, permission
+failures, and native comparison errors are reported as read/verification errors,
+never as data mismatches.
 
 The target is ejected after success, and an eject is attempted after write or
 verification failure. A final screen remains until **Done** and reports bytes
-written, total duration, average write rate, image-checksum status, payload
-verification, the retained digest when applicable, and whether the drive is
+written, total duration, average write rate, image-integrity status, USB
+verification scope, the retained digest when applicable, and whether the drive is
 safe to remove. Failures retain a direct reason and recovery state
 instead of disappearing into terminal history. An interrupted or failed raw
 write may leave the disk unusable until it is rewritten or reformatted;

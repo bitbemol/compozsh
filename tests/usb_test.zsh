@@ -454,7 +454,7 @@ _test_usb_workspace_requires_explicit_image_target_action() {
   test_assert_contains "$output" 'view4:1' 'target refresh did not show its new captured snapshot' || return
   test_assert_contains "$output" 'view5:flash-verify,checksum,image,target,flash-only' \
     'cancelling target refresh did not restore the prior action workspace' || return
-  test_assert_contains "$output" 'view5:flash-verify,checksum,image,target,flash-only|[ Start flash & verify ],Add image checksum… · SHA-256 or SHA-512,Change image · older.iso,Change drive · external-target' \
+  test_assert_contains "$output" 'view5:flash-verify,checksum,image,target,flash-only|[ Start flash & verify ],Image integrity · Not verified · no checksum provided,Change image · older.iso,Change drive · external-target' \
     'cancelling target refresh paired the old selection with new disk metadata' || return
   test_assert_contains "$output" 'selected:/images/older.iso|disk7|flash-verify' \
     'workspace inferred a newer image instead of retaining the explicit selection'
@@ -528,17 +528,94 @@ _test_usb_workspace_retains_optional_checksum() {
       esac
     }
     _usb_read_checksum() { _ZLE_PICKER_SELECTED_VALUE="SHA256 (linux.iso) = $digest"; }
+    _usb_image_revalidate() { return 0; }
+    _usb_image_checksum() { REPLY=$digest; }
+    _usb_progress_stage() { print -r -- "integrity-stage:$1"; }
     _usb_workspace_controller || exit 2
     print -r -- "selected:$_USB_SELECTED_CHECKSUM_ALGORITHM|$_USB_SELECTED_CHECKSUM"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'review:[ Start flash & verify · SHA-256 ]|Checksum · SHA-256 · dddddddddddd…|Remove image checksum' \
-    'Step 3 did not visibly retain the optional checksum' || return
+  test_assert_contains "$output" 'integrity-stage:Checking image SHA-256' \
+    'Step 3 did not visibly hash the local image after checksum entry' || return
+  test_assert_contains "$output" 'review:[ Start flash & verify · SHA-256 ]|Image integrity · Verified · SHA-256 matched|Remove image checksum' \
+    'Step 3 did not retain a visible verified image-integrity state' || return
   test_assert_contains "$output" "selected:256|${(l:64::d:)}" \
     'the selected checksum did not cross the action boundary'
 }
 test_case 'USB Step 3 retains an optional image checksum in review state' \
   _test_usb_workspace_retains_optional_checksum
+
+_test_usb_step3_blocks_a_mismatched_image_checksum() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    expected=${(l:64::d:)} actual=${(l:64::e:)}
+    _USB_IMAGE_PATHS=(/images/linux.iso) _USB_IMAGE_LABELS=(linux)
+    _USB_IMAGE_DETAILS=(image-details) _USB_IMAGE_SIZES=(30000)
+    _USB_IMAGE_FINGERPRINTS=(image-fingerprint)
+    _usb_image_source_disk_capture() { _USB_IMAGE_SOURCE_DISK=""; }
+    _usb_disks_capture() {
+      _USB_DISK_IDS=(disk7) _USB_DISK_LABELS=(external-target)
+      _USB_DISK_DETAILS=(target-details) _USB_DISK_SIZES=(90000)
+      _USB_DISK_FINGERPRINTS=(disk-fingerprint)
+    }
+    _usb_image_revalidate() { return 0; }
+    _usb_image_checksum() { REPLY=$actual; }
+    _usb_progress_stage() { return 0; }
+    _usb_read_checksum() { _ZLE_PICKER_SELECTED_VALUE=$expected; }
+    call=0
+    _usb_choose() {
+      (( ++call ))
+      case $call in
+        (1) _ZLE_PICKER_SELECTED_VALUE=image:1 ;;
+        (2) _ZLE_PICKER_SELECTED_VALUE=1 ;;
+        (3) _ZLE_PICKER_SELECTED_VALUE=checksum ;;
+        (4)
+          print -r -- "mismatch:${(j:|:)_USB_PICKER_LABELS}"
+          _ZLE_PICKER_SELECTED_VALUE=flash-verify ;;
+        (5)
+          print -r -- blocked-after-flash
+          _ZLE_PICKER_SELECTED_VALUE=remove-checksum ;;
+        (6) _ZLE_PICKER_SELECTED_VALUE=flash-verify ;;
+        (*) return 2 ;;
+      esac
+    }
+    _usb_workspace_controller || exit 2
+    print -r -- "selected:$call|${_USB_SELECTED_CHECKSUM:-none}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'Image integrity · FAILED · SHA-256 mismatch' \
+    'Step 3 did not show the expected and actual image mismatch' || return
+  test_assert_contains "$output" '[ Resolve image integrity check before flashing ]' \
+    'Step 3 left a destructive action looking enabled after checksum failure' || return
+  test_assert_contains "$output" 'blocked-after-flash' \
+    'a checksum-mismatched image crossed the action boundary' || return
+  test_assert_contains "$output" 'selected:6|none' \
+    'removing a failed checksum did not explicitly restore the no-checksum action'
+}
+test_case 'USB Step 3 blocks a mismatched image checksum' \
+  _test_usb_step3_blocks_a_mismatched_image_checksum
+
+_test_usb_step3_hashing_never_claims_early_success() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _zle_picker_capture() { print -r -- "lines:${(j:|:)_ZLE_PICKER_BUSY_LINES}"; }
+    _usb_step3_checksum_progress /images/linux.iso disk7 external-target \
+      ${(l:64::a:)} 256 x86_64
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'IMAGE INTEGRITY|  Checking · SHA-256' \
+    'the in-progress checksum frame claimed the image was already verified' || return
+  [[ $output != *'Verified in Step 3'* ]] || {
+    test_fail 'the checksum progress frame presented success before hashing completed'
+    return
+  }
+}
+test_case 'USB Step 3 checksum progress remains pending until matched' \
+  _test_usb_step3_hashing_never_claims_early_success
 
 _test_usb_native_checksum_boundaries() {
   test_make_temp_dir || return
@@ -565,6 +642,153 @@ _test_usb_native_checksum_boundaries() {
 }
 test_case 'USB native checksums separate the full image from its stable payload' \
   _test_usb_native_checksum_boundaries
+
+_test_usb_payload_hash_rejects_missing_and_short_reads() {
+  test_make_temp_dir || return
+  local short="$TEST_TMP_DIR/short.img" output=''
+  test_write_file "$short" 'five' || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_payload_checksum /definitely/missing 20000 256 0 >/dev/null 2>&1
+    print -r -- "missing:$?"
+    _usb_payload_checksum "$2" 20000 256 0 >/dev/null 2>&1
+    print -r -- "short:$?"
+  ' "$TEST_REPO_ROOT" "$short") || return
+
+  test_assert_contains "$output" 'missing:1' \
+    'a missing payload source became a successful empty-input digest' || return
+  test_assert_contains "$output" 'short:1' \
+    'a short payload source became a successful truncated digest'
+}
+test_case 'USB payload hashing rejects missing and short reads' \
+  _test_usb_payload_hash_rejects_missing_and_short_reads
+
+_test_usb_compare_treats_cmp_as_authoritative() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_unmount() { return 0; }
+    typeset -ga statuses=()
+    _usb_cmp_run() {
+      print -r -- "cmp:$*"
+      local rc=${statuses[1]:-0}
+      shift statuses
+      return $rc
+    }
+
+    statuses=(0)
+    _usb_compare_written_image /images/linux.iso disk7 20000
+    print -r -- "full:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+
+    statuses=(1 0 0)
+    _usb_compare_written_image /images/linux.iso disk7 20000
+    print -r -- "metadata:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+
+    statuses=(1 1)
+    _usb_compare_written_image /images/linux.iso disk7 20000
+    print -r -- "boot:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+
+    statuses=(1 0 1)
+    _usb_compare_written_image /images/linux.iso disk7 20000
+    print -r -- "payload:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+
+    statuses=(2)
+    _usb_compare_written_image /images/linux.iso disk7 20000
+    print -r -- "read:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'full:0|full|' \
+    'an exact full-image comparison was not retained as the strongest result' || return
+  test_assert_contains "$output" 'metadata:0|payload-and-boot-code|metadata-diff' \
+    'documented partition-metadata changes were not distinguished from full equality' || return
+  test_assert_contains "$output" 'boot:1||mismatch' \
+    'a changed boot-code region was accepted as harmless metadata' || return
+  test_assert_contains "$output" 'payload:1||mismatch' \
+    'a changed installer payload was accepted' || return
+  test_assert_contains "$output" 'read:2||drive-read-failed' \
+    'an operational compare failure was mislabeled as a data mismatch'
+}
+test_case 'USB verification uses full cmp with a qualified metadata fallback' \
+  _test_usb_compare_treats_cmp_as_authoritative
+
+_test_usb_diagnostic_hashes_cannot_contradict_cmp_success() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_unmount() { return 0; }
+    _usb_compare_written_image() {
+      _USB_PAYLOAD_VERIFY_SCOPE=full _USB_PAYLOAD_VERIFY_ERROR=""
+      return 0
+    }
+    calls=0
+    _usb_payload_checksum() {
+      (( ++calls ))
+      (( calls == 1 )) && REPLY=${(l:64::a:)} || REPLY=${(l:64::b:)}
+    }
+    _usb_verify_payload_checksum /images/linux.iso disk7 20000 256
+    print -r -- "status:$?|image:${_USB_PAYLOAD_IMAGE_CHECKSUM:-none}|drive:${_USB_PAYLOAD_DRIVE_CHECKSUM:-none}|scope:$_USB_PAYLOAD_VERIFY_SCOPE"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'status:0|image:none|drive:none|scope:full' \
+    'contradictory optional digests were presented as matching after cmp success'
+}
+test_case 'USB diagnostic hashes cannot contradict authoritative cmp' \
+  _test_usb_diagnostic_hashes_cannot_contradict_cmp_success
+
+_test_usb_privileged_verification_never_hides_a_prompt() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    print -r -- "cmp:${functions[_usb_cmp_run]}"
+    print -r -- "hash:${functions[_usb_payload_checksum_run]}"
+  ' "$TEST_REPO_ROOT") || return
+  [[ $output == *'/usr/bin/sudo -n /usr/bin/cmp'* ]] || {
+    test_fail 'USB cmp can prompt invisibly after the sudo timestamp expires'
+    return
+  }
+  [[ $output == *'/usr/bin/sudo -n /usr/bin/head'* ]] || {
+    test_fail 'USB drive hashing can prompt invisibly after the sudo timestamp expires'
+    return
+  }
+  return 0
+}
+test_case 'USB verification uses noninteractive retained authorization' \
+  _test_usb_privileged_verification_never_hides_a_prompt
+
+_test_usb_expired_verification_authorization_is_explicit() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga trace=()
+    _usb_progress_stage() { trace+=("stage:$1"); }
+    _usb_image_revalidate() { return 0; }
+    _usb_target_revalidate() { return 0; }
+    _usb_unmount() { return 0; }
+    _usb_write_image() { _USB_WRITE_BYTES_OBSERVED=$3; return 0; }
+    _usb_authorization_valid() { trace+=(auth-check); return 1; }
+    _usb_authorize() { trace+=(auth-prompt); return 1; }
+    _usb_verify_payload() { trace+=(verify); return 0; }
+    _usb_eject() { trace+=(eject); return 0; }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      8388608 flash-verify "" 1 >/dev/null 2>&1
+    print -r -- "status:$?|${(j:,:)trace}|$_USB_RESULT_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'auth-check,stage:Authorization required for verification,auth-prompt,stage:Ejecting external drive,eject' \
+    'expired verification authorization did not become a visible named stage' || return
+  [[ $output != *',verify,'* ]] || {
+    test_fail 'verification ran after administrator reauthorization failed'
+    return
+  }
+  test_assert_contains "$output" 'Administrator authorization expired before USB verification' \
+    'authorization expiry was mislabeled as a drive read or payload mismatch'
+}
+test_case 'USB verification handles expired authorization before read-back' \
+  _test_usb_expired_verification_authorization_is_explicit
 
 _test_usb_workspace_retries_transient_target_permission() {
   test_make_temp_dir || return
@@ -670,6 +894,39 @@ _test_usb_workspace_refreshes_after_late_attachment() {
 }
 test_case 'USB Step 2 refreshes after a drive is attached late' \
   _test_usb_workspace_refreshes_after_late_attachment
+
+_test_usb_ejected_drive_recovery_is_explicit() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_disks_capture() {
+      _USB_CAPTURE_ERROR="no whole external physical disks are attached"
+      return 1
+    }
+    _usb_choose() {
+      print -r -- "label:${_USB_PICKER_LABELS[1]}"
+      print -r -- "subtitle:$2"
+      print -r -- "detail:${_USB_PICKER_DETAILS[1]}"
+      return 1
+    }
+    _usb_disks_capture_retry 30000 linux.iso image "Choose another image"
+    print -r -- "status:$?"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'label:Make drive available · connect or replug it, then retry' \
+    'the empty target view did not give the required physical recovery action' || return
+  test_assert_contains "$output" \
+    'subtitle:DRIVE unavailable · no external disk is currently visible to macOS' \
+    'the empty target status repeated an internal provider error instead of recovery guidance' || return
+  test_assert_contains "$output" 'Ctrl-R cannot reactivate an ejected drive' \
+    'the empty target details implied that refresh can recover an ejected drive' || return
+  test_assert_contains "$output" 'status:1' \
+    'leaving the empty target recovery view did not preserve cancellation'
+}
+test_case 'USB Step 2 explains physical recovery for an ejected drive' \
+  _test_usb_ejected_drive_recovery_is_explicit
 
 _test_usb_workspace_refreshes_images_with_spotlight_snapshot() {
   test_make_temp_dir || return
@@ -832,6 +1089,7 @@ _test_usb_execution_preserves_failures_and_ejects() {
     source "$1/.zsh.addons/.zsh.usb" || exit
     typeset -ga trace=()
     _usb_authorize() { trace+=(authorize); }
+    _usb_authorization_valid() { return 0; }
     _usb_image_revalidate() { trace+=(image-revalidate); }
     _usb_target_revalidate() { trace+=(revalidate); }
     _usb_unmount() { trace+=(unmount); }
@@ -850,9 +1108,9 @@ _test_usb_execution_preserves_failures_and_ejects() {
     print -r -- "source-status:$?|${(j:,:)trace}"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'verify-status:9|authorize,image-revalidate,revalidate,unmount,write,verify,eject' \
+  test_assert_contains "$output" 'verify-status:9|authorize,image-revalidate,revalidate,unmount,revalidate,write,image-revalidate,verify,eject' \
     'verification failure or eject cleanup was lost' || return
-  test_assert_contains "$output" 'write-status:7|authorize,image-revalidate,revalidate,unmount,write,eject' \
+  test_assert_contains "$output" 'write-status:7|authorize,image-revalidate,revalidate,unmount,revalidate,write,eject' \
     'write failure did not stop verification and preserve status' || return
   test_assert_contains "$output" 'source-status:1|' \
     'execution allowed the image source disk to become its own write target'
@@ -870,6 +1128,7 @@ _test_usb_checksum_gates_write_and_reuses_algorithm() {
     _usb_progress_stage() { trace+=("stage:$1"); }
     _usb_image_revalidate() { trace+=(image-revalidate); }
     _usb_image_checksum() { trace+=("image-sha:$2"); REPLY=${actual:-$expected}; }
+    _usb_authorization_valid() { return 0; }
     _usb_target_revalidate() { trace+=(target-revalidate); }
     _usb_unmount() { trace+=(unmount); }
     _usb_write_image() { trace+=(write); }
@@ -897,13 +1156,13 @@ _test_usb_checksum_gates_write_and_reuses_algorithm() {
     'a mismatched publisher checksum reached the target or write boundary' || return
   test_assert_contains "$output" 'matched:0|' \
     'a matching publisher checksum did not complete' || return
-  test_assert_contains "$output" 'image-sha:256,target-revalidate,stage:Unmounting external drive,unmount,stage:Writing image,write,stage:Verifying payload SHA-256,payload-sha:256,stage:Ejecting external drive,eject|1|1|' \
+  test_assert_contains "$output" 'image-sha:256,target-revalidate,stage:Unmounting external drive,unmount,target-revalidate,stage:Writing image,write,image-revalidate,stage:Rechecking image SHA-256,image-sha:256,stage:Verifying USB against image,payload-sha:256,stage:Ejecting external drive,eject|1|1|' \
     'the selected SHA algorithm was not reused for finished-drive payload verification' || return
   test_assert_contains "$output" "|${(l:64::c:)}" \
     'the finished-drive payload digest was not retained for the completion screen' || return
   test_assert_contains "$output" 'summary:[ Done ]|Flash complete' \
     'checksum completion did not retain the normal success summary' || return
-  test_assert_contains "$output" 'Image checksum · SHA-256 matched|USB payload · SHA-256 matched|Safe to remove' \
+  test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · Selected image bytes matched|Safe to remove' \
     'completion summary omitted checksum and finished-drive validation'
 }
 test_case 'USB checksum mismatch prevents writing and a match verifies the drive payload' \
@@ -998,6 +1257,52 @@ _test_usb_write_worker_is_bounded_and_cleaned() {
 test_case 'USB native write worker is temporary bounded and cleaned' \
   _test_usb_write_worker_is_bounded_and_cleaned
 
+_test_usb_write_rejects_successful_early_eof() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-short" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _usb_progress_stage() { return 0; }
+    _usb_dd_run() {
+      print -u2 -r -- "4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r"
+      return 0
+    }
+    _usb_write_image /images/linux.iso disk7 8388608
+    print -r -- "status:$?|bytes:${_USB_WRITE_BYTES_OBSERVED:-0}"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" 'status:3|bytes:4194304' \
+    'dd exit zero with an early source EOF was reported as a complete write'
+}
+test_case 'USB write requires dd to report the exact captured image size' \
+  _test_usb_write_rejects_successful_early_eof
+
+_test_usb_dd_input_is_bounded_to_captured_sectors() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-bounded" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _usb_progress_stage() { return 0; }
+    _usb_dd_run() {
+      print -r -- "args:$*"
+      print -u2 -r -- "8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\r"
+    }
+    _usb_write_image /images/linux.iso disk7 8388608
+    print -r -- "status:$?"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" 'ibs=512 obs=4m count=16384' \
+    'dd was allowed to read the live image path past its captured sector count' || return
+  test_assert_contains "$output" 'status:0' \
+    'an exact sector-bounded write did not complete'
+}
+test_case 'USB dd reads exactly the captured sector count' \
+  _test_usb_dd_input_is_bounded_to_captured_sectors
+
 _test_usb_verification_owns_subprocess_output() {
   test_make_temp_dir || return
   local output=''
@@ -1026,6 +1331,7 @@ _test_usb_execution_reports_stages_and_completion_stats() {
     _usb_target_revalidate() { return 0; }
     _usb_unmount() { return 0; }
     _usb_write_image() { return 0; }
+    _usb_authorization_valid() { return 0; }
     _usb_verify_payload() { return 0; }
     _usb_eject() { return 0; }
     _USB_SELECTED_DISK_LABEL="External SSD · 64.0 GiB · /dev/disk7"
@@ -1038,7 +1344,7 @@ _test_usb_execution_reports_stages_and_completion_stats() {
     _usb_result_screen 0
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'stages:Validating image and drive,Unmounting external drive,Writing image,Verifying payload,Ejecting external drive' \
+  test_assert_contains "$output" 'stages:Validating image and drive,Unmounting external drive,Writing image,Verifying USB against image,Ejecting external drive' \
     'execution did not publish each destructive workflow stage' || return
   test_assert_contains "$output" 'result:complete|8388608|1|1' \
     'successful execution did not retain completion facts' || return
@@ -1046,10 +1352,121 @@ _test_usb_execution_reports_stages_and_completion_stats() {
     'completion screen omitted its success state' || return
   test_assert_contains "$output" '8.0 MiB written' \
     'completion screen omitted the exact written size' || return
-  test_assert_contains "$output" 'Payload verified' \
+  test_assert_contains "$output" 'USB verification · Selected image bytes matched' \
     'completion screen omitted verification status' || return
   test_assert_contains "$output" 'Safe to remove' \
     'completion screen omitted eject safety status'
 }
 test_case 'USB burning publishes stages and a persistent completion summary' \
   _test_usb_execution_reports_stages_and_completion_stats
+
+_test_usb_execution_closes_image_and_target_races() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga trace=()
+    image_checks=0 target_checks=0
+    _usb_progress_stage() { return 0; }
+    _usb_authorize() { return 0; }
+    _usb_image_revalidate() {
+      (( ++image_checks ))
+      trace+=("image-$image_checks")
+      (( image_checks == 1 ))
+    }
+    _usb_target_revalidate() {
+      (( ++target_checks ))
+      trace+=("target-$target_checks")
+      return 0
+    }
+    _usb_unmount() { trace+=(unmount); }
+    _usb_write_image() { trace+=(write); _USB_WRITE_BYTES_OBSERVED=$3; }
+    _usb_verify_payload() { trace+=(verify); }
+    _usb_eject() { trace+=(eject); }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      8388608 flash-verify "" 1 >/dev/null 2>&1
+    print -r -- "image-race:$?|${(j:,:)trace}|$_USB_RESULT_ERROR"
+
+    trace=() image_checks=0 target_checks=0
+    _usb_image_revalidate() { (( ++image_checks )); trace+=("image-$image_checks"); return 0; }
+    _usb_target_revalidate() {
+      (( ++target_checks ))
+      trace+=("target-$target_checks")
+      (( target_checks == 1 ))
+    }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      8388608 flash-verify "" 1 >/dev/null 2>&1
+    print -r -- "target-race:$?|${(j:,:)trace}|$_USB_RESULT_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'image-race:1|image-1,target-1,unmount,target-2,write,image-2,eject|The selected image changed during writing' \
+    'an image mutation during dd was allowed to reach verification or success' || return
+  test_assert_contains "$output" 'target-race:1|image-1,target-1,unmount,target-2,eject|The external drive changed after unmounting' \
+    'a target identity change after unmount was allowed to reach dd'
+}
+test_case 'USB execution revalidates image and target across the write boundary' \
+  _test_usb_execution_closes_image_and_target_races
+
+_test_usb_outer_cleanup_ejects_only_an_started_exact_target() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga trace=()
+    _usb_eject() { trace+=("eject:$1"); return 0; }
+    _USB_SELECTED_DISK=disk7 _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0
+    _usb_cleanup_eject
+    print -r -- "before:${(j:,:)trace}"
+    _USB_RESULT_STARTED=1
+    _usb_cleanup_eject
+    print -r -- "started:${(j:,:)trace}|$_USB_RESULT_EJECTED"
+    _usb_cleanup_eject
+    _USB_SELECTED_DISK="not-a-disk" _USB_RESULT_EJECTED=0
+    _usb_cleanup_eject
+    print -r -- "bounded:${(j:,:)trace}"
+    print -r -- "wired:$([[ ${functions[flash-usb]} == *_usb_cleanup_eject* ]] && print yes || print no)"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'before:' \
+    'cleanup ejected a target before writing started' || return
+  test_assert_contains "$output" 'started:eject:disk7|1' \
+    'cleanup did not eject the exact started target' || return
+  test_assert_contains "$output" 'bounded:eject:disk7' \
+    'cleanup retried an ejected target or accepted an invalid identifier' || return
+  test_assert_contains "$output" 'wired:yes' \
+    'flash-usb interruption cleanup is not connected to its always boundary'
+}
+test_case 'USB outer cleanup attempts safe eject after interruption' \
+  _test_usb_outer_cleanup_ejects_only_an_started_exact_target
+
+_test_usb_failure_screen_separates_image_and_drive_evidence() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_result_choose() { print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"; }
+    _USB_RESULT_OUTCOME=failed
+    _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
+    _USB_RESULT_ERROR="The image was written, but the finished USB could not be read completely for verification."
+    _USB_RESULT_CHECKSUM_ALGORITHM=256
+    _USB_RESULT_EXPECTED_CHECKSUM=${(l:64::a:)}
+    _USB_RESULT_IMAGE_CHECKSUM=$_USB_RESULT_EXPECTED_CHECKSUM
+    _USB_RESULT_CHECKSUM_VALIDATED=1
+    _USB_RESULT_VERIFY_REASON=drive-read-failed
+    _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=""
+    _usb_result_screen 4
+
+    _USB_RESULT_EXPECTED_CHECKSUM="" _USB_RESULT_IMAGE_CHECKSUM=""
+    _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_VERIFY_REASON=mismatch
+    _USB_RESULT_IMAGE_PAYLOAD_CHECKSUM=${(l:64::b:)}
+    _USB_RESULT_DRIVE_PAYLOAD_CHECKSUM=${(l:64::c:)}
+    _usb_result_screen 1
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · Could not read the finished drive' \
+    'a verified image and unreadable USB were collapsed into a checksum mismatch' || return
+  test_assert_contains "$output" 'Image integrity · Not verified · no checksum provided|USB verification · FAILED · confirmed byte mismatch' \
+    'no-checksum image state and a true USB mismatch were not reported independently'
+}
+test_case 'USB result screen separates image integrity from USB fidelity' \
+  _test_usb_failure_screen_separates_image_and_drive_evidence
