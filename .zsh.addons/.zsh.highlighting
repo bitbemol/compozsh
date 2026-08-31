@@ -70,12 +70,24 @@ _zle_apply_highlight_style_defaults() {
     review-function     'fg=117'
     review-variable     'fg=153'
   )
-  local role
+  local role key current
 
-  typeset -gA ZSH_HIGHLIGHT_STYLES
+  typeset -gA ZSH_HIGHLIGHT_STYLES _COMPOZSH_COLOR_MANAGED
+  typeset -gA _COMPOZSH_COLOR_FALLBACKS
   for role in ${(k)defaults}; do
-    (( ${+ZSH_HIGHLIGHT_STYLES[$role]} )) ||
+    key="highlight:$role"
+    _COMPOZSH_COLOR_FALLBACKS[$key]=${_COMPOZSH_COLOR_FALLBACKS[$key]:-${defaults[$role]}}
+    if (( ${+ZSH_HIGHLIGHT_STYLES[$role]} )); then
+      current=${ZSH_HIGHLIGHT_STYLES[$role]}
+      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
+         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
+            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+        _COMPOZSH_COLOR_MANAGED[$key]=''
+      fi
+    else
       ZSH_HIGHLIGHT_STYLES[$role]=${defaults[$role]}
+      _COMPOZSH_COLOR_MANAGED[$key]=${defaults[$role]}
+    fi
   done
 }
 _zle_apply_highlight_style_defaults
@@ -220,6 +232,9 @@ _zle_syntax_highlight() {
   (( ${_ZLE_PICKER_ACTIVE:-0} )) && return 0
   (( ${REGION_ACTIVE:-0} )) && return 0
   [[ -n $BUFFER ]] || return 0
+  # Redraw latency matters more than decoration for unusually large pasted or
+  # generated commands. Leave them plain instead of scanning without a bound.
+  (( ${#BUFFER} <= 512 )) || return 0
 
   local token='' plain='' character='' category=''
   local redirection_operator=''
@@ -234,6 +249,7 @@ _zle_syntax_highlight() {
   # Keep comments as single tokens and treat newlines as whitespace; the scan
   # below observes newlines directly so they still begin a new command.
   tokens=("${(@Z+cn+)BUFFER}") 2>/dev/null
+  (( ${#tokens} <= 128 )) || return 0
 
   for (( token_index = 1; token_index <= ${#tokens}; ++token_index )); do
     token=${tokens[token_index]}

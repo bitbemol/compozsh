@@ -74,6 +74,7 @@ for full-sized sessions in one Terminal window.
 - Searchable, arrow-driven recent-directory and Git-branch selectors with
   numbered direct shortcuts
 - Terminal-only native colors for file listings, completion, and matches
+- Automatic dark/light terminal palettes with a manual initializer override
 - A consistent semantic Git palette for status, diffs, branches, and remotes
 - Colored manual pages with highlighted headings, options, and references
 - A useful terminal tab title and a few small navigation aliases
@@ -189,6 +190,7 @@ compozsh/
 │       └── SKILL.md       evidence-backed GitHub release drafting
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           all shared peer features
+│   ├── .zsh.appearance    terminal background detection and light palette
 │   ├── .zsh.shell         shell options, history, and native tool colors
 │   ├── .zsh.editor        completion, temporary-screen pickers, and editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
@@ -235,6 +237,7 @@ peer owns one focused concern and can still be sourced independently:
 
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
+| `.zsh.appearance` | Terminal appearance and adaptive defaults | One-shot terminal background detection selects coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
@@ -247,8 +250,8 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication | `compozsh-sudo-touch-id` inspects, enables, or safely disables Apple Touch ID through the system-supported `sudo_local` PAM policy |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
-| `.zsh.usb` | External-disk preparation | `format_external_device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
-| `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
+| `.zsh.usb` | External-disk preparation | `format-external-device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
+| `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update-xcode-skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -788,9 +791,14 @@ global aliases, and `AUTO_CD` directories remain visually distinct.
 
 Each region carries a Zsh 5.9 memo tag. Redrawing the command line therefore
 replaces only this configuration's colors and preserves highlights owned by
-other native ZLE widgets.
+other native ZLE widgets. To keep every redraw bounded, buffers longer than 512
+characters or containing more than 128 lexer tokens remain plain until they
+return below those limits; editing and execution are unaffected.
 
-| Style | Meaning |
+The style names below describe the established dark-background defaults. The
+light palette retains each hue family and text attribute with a deeper shade.
+
+| Dark-background style name | Meaning |
 | --- | --- |
 | Bold purple | Regular alias |
 | Bold peach | Suffix alias |
@@ -841,6 +849,24 @@ unresolved command deliberately keeps the terminal's normal text color; it
 does not turn red merely because the word is still being typed. Git subcommands
 and other program-specific arguments remain arguments because only the invoked
 program can interpret their meaning.
+
+Compozsh selects a complete light- or dark-background palette once when a shell
+starts. In automatic mode it asks the terminal for its current background with
+the standard OSC 11 query, then uses the terminal-provided `COLORFGBG` value as
+a fallback. If neither signal is available, the established dark palette is
+retained. The light palette keeps the same semantic hue families and attributes
+while using deeper foregrounds, pale diff backgrounds, and dark native `ls`
+colors for contrast. Detection is local, bounded, and starts no process.
+
+Set `ZSH_COLOR_SCHEME` in the local initializer to bypass detection for a
+terminal or multiplexer that cannot report its background:
+
+```zsh
+ZSH_COLOR_SCHEME=light  # accepted values: auto, light, dark
+```
+
+The selection is made for each new shell. Existing shells retain the palette
+they started with.
 
 A hard link has no unique shell syntax: every linked name is an ordinary file.
 The orange hard-link style therefore means the filesystem reports a regular
@@ -1327,8 +1353,10 @@ mid-line cursor to the end and a second accepts the visible suffix. End or
 is available. Accepted text participates in Zsh's normal undo history, so
 `Ctrl-_` can undo an acceptance.
 
-The redraw hook searches Zsh's live in-memory history and caches the current
-match while its prefix grows. It launches no subprocess and writes no index.
+The redraw hook searches at most the 512 most recent Zsh history event numbers,
+newest first, and caches the current match while its prefix grows. Older or
+sparse entries outside that bounded window are intentionally omitted. It
+launches no subprocess and writes no index.
 It deliberately stays hidden for an empty or private leading-space command,
 an active selection or completion suffix, a moved cursor, recursive editing,
 multiline input, and any history entry containing terminal control bytes. The
@@ -1584,9 +1612,9 @@ individual default without editing the shared configuration.
 ## Colored command output
 
 Interactive output uses color only where the producing tool exposes reliable
-semantics. Compozsh supplies one semantic palette to those native engines; it
-never parses and repaints arbitrary command text. Pipes, substitutions, and
-redirected data therefore remain byte-compatible.
+semantics. Compozsh supplies the active light or dark semantic palette to those
+native engines; it never parses and repaints arbitrary command text. Pipes,
+substitutions, and redirected data therefore remain byte-compatible.
 
 | Output family | Behavior |
 | --- | --- |
@@ -1646,10 +1674,13 @@ ZSH_OUTPUT_COLORS[match]=199
 
 Available roles are `heading`, `accent`, `success`, `warning`, `error`,
 `info`, `muted`, `match`, and `text`; values are terminal color indexes
-from 0 through 255. Invalid local values fall back safely. Existing
+from 0 through 255. Invalid local values fall back safely to the active
+background palette. Existing
 `GREP_COLOR`, `GREP_COLORS`, and `LESS_TERMCAP_*` values retain precedence.
-Set `LSCOLORS` separately for BSD `ls`, or unset `CLICOLOR` in the local
-initializer to disable automatic file-listing colors on a particular machine.
+Set `LSCOLORS` separately for BSD `ls` to replace its adaptive default, or
+unset `CLICOLOR` in the local initializer to disable automatic file-listing
+colors on a particular machine. An existing `LS_COLORS` value retains
+precedence for completion file types.
 
 ## Local user and machine settings
 
@@ -1842,7 +1873,7 @@ Documented names without a leading underscore form the user-facing interface.
 For example, call:
 
 ```sh
-update_xcode_skills
+update-xcode-skills
 ```
 
 Do not call its helpers directly:
@@ -1871,9 +1902,9 @@ prompt-refresh --help
 compozsh-sudo-touch-id --help
 g --help
 flash-usb --help
-format_external_device --help
+format-external-device --help
 xcode --help
-update_xcode_skills --help
+update-xcode-skills --help
 compozsh --help
 ```
 
@@ -2031,7 +2062,7 @@ underlying system command.
 Open the native three-step formatter with:
 
 ```sh
-format_external_device
+format-external-device
 ```
 
 Step 1 captures currently attached whole external physical disks through
@@ -2234,9 +2265,13 @@ plain prompt.
 
 The raw handler uses Apple’s `diskutil unmountDisk` and `/bin/dd` against the raw
 `/dev/rdiskN` device. One privileged raw-device session remains open across the
-image write, filesystem sync, physical-tail cleanup, and verification. Input is
-bounded to the image’s captured 512-byte sector count and aggregated into 4 MiB
-output blocks. The final `dd` byte count must equal the captured image size;
+image write, filesystem sync, physical-tail cleanup, and verification. That
+session opens the source once with no-follow semantics, verifies the held file
+descriptor against the captured device, inode, size, and modification time,
+then reads and verifies through that same descriptor. A same-size path
+replacement cannot become the flashed source. Input is bounded to the image’s
+captured 512-byte sector count and aggregated into 4 MiB output blocks. The
+final `dd` byte count must equal the captured image size;
 early EOF, growth, or any incomplete transfer is a failure. The target’s native
 logical block size is captured before unmounting and checked again afterward.
 An image or target size that cannot be written in complete logical blocks is
@@ -2284,7 +2319,8 @@ The target is ejected after success, and an eject is attempted after write or
 verification failure. A final screen remains until **Done** and reports bytes
 written, total duration, average write rate, image-integrity status, USB
 verification scope, and whether the drive is
-safe to remove. Failures retain a direct reason and recovery state
+safe to remove. Done is its only selectable row; outcome, timing, integrity,
+verification, and recovery facts are passive status rows. Failures retain a direct reason and recovery state
 instead of disappearing into terminal history. An interrupted or failed raw
 write may leave the disk unusable until it is rewritten or reformatted;
 overwritten bytes cannot be rolled back. A failed macOS handler can likewise
@@ -2351,7 +2387,7 @@ installation may not discover them automatically. Apple documents this in the
 The `.zsh.xcode` add-on provides:
 
 ```sh
-update_xcode_skills
+update-xcode-skills
 ```
 
 The function first detects compatible coding agents installed locally, whether
@@ -2396,7 +2432,7 @@ the changes immediately with `/skills reload`; Claude Code also notices changes
 live when its top-level skills directory already existed. Kiro can confirm the
 result with `/context show`.
 
-Exporting happens only when `update_xcode_skills` is called. Opening a shell
+Exporting happens only when `update-xcode-skills` is called. Opening a shell
 never launches Xcode or writes skill files.
 
 Xcode also exposes live project operations to external agents through
@@ -3007,6 +3043,14 @@ keeps ignored files, stashes, commits, submodule contents, and nested Git
 repositories. It also refuses to run without an existing commit or while a
 merge, rebase, cherry-pick, revert, or bisect operation is active.
 
+Inspection and restore disable repository-configured content filters, hooks,
+filesystem monitors, required-filter enforcement, and lazy fetches, so the
+guarded cleanup does not execute project-controlled filter commands. After the
+confirmation, Compozsh revalidates the repository root, Git directory, `HEAD`,
+active-operation state, configured filter names, and the listed path states;
+if they changed, it leaves the repository untouched and asks you to run the
+preview again.
+
 This operation is irreversible for changes that have not been committed or
 stashed. Use `git stash --include-untracked` instead when the work may be needed
 later.
@@ -3069,7 +3113,7 @@ mv "$config_base/.zsh.addons" \
 
 Do not archive the complete tree when keeping `local/init.zsh` or private peers.
 With a symlink installation, the tree contains only those private files, so it
-can remain untouched. Agent skills exported by `update_xcode_skills` are
+can remain untouched. Agent skills exported by `update-xcode-skills` are
 independent managed copies and remain installed.
 
 Installer-created recovery snapshots remain under `.zsh-backups`. List them and

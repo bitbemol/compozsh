@@ -57,6 +57,30 @@ _test_syntax_classifier_contracts() {
 test_case 'syntax highlighter classifies structural and command tokens' \
   _test_syntax_classifier_contracts
 
+_test_syntax_highlighter_bounds_redraw_work() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/.zsh.highlighting"
+    typeset -gi probes=0
+    _zle_command_category() { (( ++probes )); return 1; }
+    _zle_path_category() { (( ++probes )); return 1; }
+    BUFFER="print ${(l:600::x:)}"
+    region_highlight=(
+      "0 1 bold memo=fixture"
+      "0 2 fg=75 memo=compozsh"
+    )
+    _zle_syntax_highlight
+    print -r -- "$probes|${(j:|:)region_highlight}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal '0|0 1 bold memo=fixture' "$output" \
+    'oversized syntax highlighting performed classification or removed foreign state'
+}
+test_case 'syntax highlighting bounds oversized redraw work' \
+  _test_syntax_highlighter_bounds_redraw_work
+
 _test_fuzzy_history_fragment_order() {
   test_make_temp_dir || return
   local output=''
@@ -79,6 +103,34 @@ _test_fuzzy_history_fragment_order() {
 test_case 'fuzzy history finds unordered fragments and abbreviated commands' \
   _test_fuzzy_history_fragment_order
 
+_test_autosuggestion_search_is_bounded_and_newest_first() {
+  test_make_temp_dir || return
+  local history_file="$TEST_TMP_DIR/history" history_contents='old-prefix target'
+  local output=''
+  local -i index=0
+
+  for (( index = 1; index <= 600; ++index )); do
+    history_contents+=$'\n'"unrelated history $index"
+  done
+  history_contents+=$'\n''git switch newest'$'\n''terminal sentinel'
+  test_write_file "$history_file" "$history_contents" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/.zsh.editor"
+    HISTSIZE=1000
+    fc -p "$2"
+    _zle_autosuggest_find old-prefix
+    print -r -- "older:$_ZLE_AUTOSUGGEST_CACHE_FULL"
+    _zle_autosuggest_find "git sw"
+    print -r -- "newest:$_ZLE_AUTOSUGGEST_CACHE_FULL"
+  ' "$TEST_REPO_ROOT" "$history_file") || return
+
+  test_assert_equal $'older:\nnewest:git switch newest' "$output" \
+    'autosuggestion search lost its newest-first bound'
+}
+test_case 'autosuggestions inspect only bounded recent history' \
+  _test_autosuggestion_search_is_bounded_and_newest_first
+
 _test_editor_widgets_keep_implementation_private() {
   test_make_temp_dir || return
   local output=''
@@ -92,6 +144,37 @@ _test_editor_widgets_keep_implementation_private() {
 }
 test_case 'editor widgets expose stable bindings but keep functions private' \
   _test_editor_widgets_keep_implementation_private
+
+_test_autosuggestion_reset_owns_only_its_display() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/.zsh.editor"
+    region_highlight=(
+      "0 1 bold memo=fixture"
+      "P1 4 fg=242 memo=my-zsh-autosuggestion"
+      "P0 2 fg=33 memo=my-zsh-picker"
+    )
+    POSTDISPLAY=suffix
+    _ZLE_AUTOSUGGEST_DISPLAY=suffix
+    _ZLE_AUTOSUGGEST_SUFFIX=suffix
+    _ZLE_PICKER_POSTDISPLAY=picker
+    _ZLE_PICKER_ACTIVE=1
+
+    _zle_autosuggest_reset
+
+    print -r -- "state:${(qqq)POSTDISPLAY}|${(qqq)_ZLE_AUTOSUGGEST_DISPLAY}|${(qqq)_ZLE_PICKER_POSTDISPLAY}|$_ZLE_PICKER_ACTIVE"
+    print -r -- "highlights:${(j:|:)region_highlight}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal \
+    $'state:""|""|"picker"|1\nhighlights:0 1 bold memo=fixture|P0 2 fg=33 memo=my-zsh-picker' \
+    "$output" \
+    'autosuggestion reset changed picker ownership or retained its own display'
+}
+test_case 'autosuggestion reset removes only its owned display state' \
+  _test_autosuggestion_reset_owns_only_its_display
 
 _test_editor_styles_without_highlighting_peer() {
   test_make_temp_dir || return
@@ -351,6 +434,42 @@ _test_prompt_rejects_project_controlled_runtime() {
 }
 test_case 'prompt never executes a runtime from the detected project' \
   _test_prompt_rejects_project_controlled_runtime
+
+_test_prompt_disables_repository_git_filters() {
+  test_make_temp_dir || return
+  local repository="$TEST_TMP_DIR/repository"
+  local filter="$TEST_TMP_DIR/filter" probe="$TEST_TMP_DIR/filter-ran"
+  local output=''
+
+  command git init -q "$repository" || return
+  command git -C "$repository" config user.name 'Zsh Tests' || return
+  command git -C "$repository" config user.email 'zsh-tests.invalid@example.invalid' || return
+  test_write_file "$repository/.gitattributes" '*.txt filter=fixture' || return
+  test_write_file "$repository/tracked.txt" 'baseline' || return
+  command git -C "$repository" add .gitattributes tracked.txt || return
+  command git -C "$repository" commit -qm baseline || return
+  test_write_file "$filter" $'#!/bin/sh\n: > "$FILTER_PROBE"\n/bin/cat' || return
+  command chmod +x "$filter" || return
+  command git -C "$repository" config filter.fixture.clean "$filter" || return
+  command git -C "$repository" config filter.fixture.required true || return
+  # Keep the worktree size unchanged so status must compare filtered content
+  # instead of deciding from the stat size alone.
+  test_write_file "$repository/tracked.txt" 'changed!' || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    export FILTER_PROBE=$2
+    source "$1/.zsh.addons/.zsh.prompt"
+    builtin cd -- "$3" || exit
+    _prompt_git
+    [[ -e $2 ]]; filter_ran=$(( !$? ))
+    print -r -- "$filter_ran|$REPLY"
+  ' "$TEST_REPO_ROOT" "$probe" "$repository") || return
+
+  [[ $output == 0\|*'!1'* ]] ||
+    test_fail "prompt executed a repository Git filter or lost status: $output"
+}
+test_case 'prompt Git status never executes repository filters' \
+  _test_prompt_disables_repository_git_filters
 
 _test_prompt_rejects_runtime_from_enclosing_repository() {
   test_make_temp_dir || return

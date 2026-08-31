@@ -1,0 +1,290 @@
+# Terminal appearance detection and light-background palette defaults.
+
+# `auto` asks the terminal for its actual background. A local initializer may
+# select `light` or `dark` explicitly when a terminal or multiplexer cannot
+# answer the query.
+typeset -g ZSH_COLOR_SCHEME=${ZSH_COLOR_SCHEME:-auto}
+
+# Convert an OSC 11 rgb response to `light` or `dark`. Channels may contain
+# one through four hexadecimal digits; normalize them before calculating the
+# same weighted brightness at every precision.
+_appearance_scheme_from_rgb() {
+  emulate -L zsh
+
+  local response=$1 red_hex='' green_hex='' blue_hex=''
+  local -i red=0 green=0 blue=0 maximum=0 brightness=0
+
+  if [[ $response =~ 'rgb:([[:xdigit:]]{1,4})/([[:xdigit:]]{1,4})/([[:xdigit:]]{1,4})' ]]; then
+    red_hex=${match[1]}
+    green_hex=${match[2]}
+    blue_hex=${match[3]}
+  else
+    return 1
+  fi
+
+  maximum=$(( (1 << (4 * ${#red_hex})) - 1 ))
+  red=$(( 16#$red_hex * 65535 / maximum ))
+  maximum=$(( (1 << (4 * ${#green_hex})) - 1 ))
+  green=$(( 16#$green_hex * 65535 / maximum ))
+  maximum=$(( (1 << (4 * ${#blue_hex})) - 1 ))
+  blue=$(( 16#$blue_hex * 65535 / maximum ))
+  brightness=$(( (299 * red + 587 * green + 114 * blue) / 1000 ))
+
+  if (( brightness >= 32768 )); then
+    REPLY=light
+  else
+    REPLY=dark
+  fi
+}
+
+# Ask the terminal directly without launching a process. The short timeout is
+# paid only once while this peer loads; unsupported terminals fall back without
+# delaying prompt redraws or consuming later user input.
+_appearance_query_terminal_background() {
+  emulate -L zsh
+
+  [[ -t 0 && -t 1 && -n ${TERM:-} && $TERM != dumb ]] || return 1
+
+  local response='' character=''
+  local -i count=0
+
+  print -rn -- $'\e]11;?\a'
+  if ! IFS= read -r -k 1 -t 0.015 character; then
+    return 1
+  fi
+  response=$character
+
+  for (( count = 1; count < 96; ++count )); do
+    [[ $response == *$'\a' || $response == *$'\e\\' ]] && break
+    IFS= read -r -k 1 -t 0.003 character || break
+    response+=$character
+  done
+
+  _appearance_scheme_from_rgb "$response"
+}
+
+_appearance_detect_color_scheme() {
+  emulate -L zsh
+
+  case ${ZSH_COLOR_SCHEME:l} in
+    light|dark)
+      REPLY=${ZSH_COLOR_SCHEME:l}
+      return
+      ;;
+    auto)
+      if _appearance_query_terminal_background; then
+        return
+      fi
+
+      # COLORFGBG is less precise because indexed colors are customizable, but
+      # it is a useful terminal-provided fallback when the background query is
+      # unavailable. Its final field is the background index.
+      local background=${COLORFGBG##*;}
+      if [[ $background == <0-255> ]]; then
+        case $background in
+          0|1|2|3|4|5|6|8) REPLY=dark ;;
+          *) REPLY=light ;;
+        esac
+        return
+      fi
+      ;;
+  esac
+
+  # Preserve the established palette when detection is unavailable or an
+  # initializer supplied an unsupported value.
+  REPLY=dark
+}
+
+# Values recorded here were installed by a shipped peer, so the appearance
+# peer may replace them regardless of load order. An empty record means the
+# value came from the local initializer or was changed by the user.
+typeset -gA _COMPOZSH_COLOR_MANAGED _COMPOZSH_COLOR_FALLBACKS
+
+_appearance_apply_light_defaults() {
+  emulate -L zsh
+
+  local -A highlight_defaults=(
+    alias              'fg=127,bold'
+    global-alias       'fg=91,bold,underline'
+    suffix-alias       'fg=130,bold'
+    function           'fg=25,bold'
+    builtin            'fg=30,bold'
+    command            'fg=28,bold'
+    directory          'fg=25,bold,underline'
+    executable         'fg=28,bold,underline'
+    symlink            'fg=126,underline'
+    symlink-directory  'fg=91,bold,underline'
+    hardlink           'fg=130,underline'
+    file               'fg=240,underline'
+    special-file       'fg=160,bold,underline'
+    argument           'fg=236'
+    option             'fg=25'
+    keyword            'fg=94,bold'
+    pipeline           'fg=127,bold'
+    logical            'fg=160,bold'
+    separator          'fg=240,bold'
+    structure          'fg=58,underline'
+    conditional        'fg=130'
+    arithmetic         'fg=130,bold'
+    redirection        'fg=25,bold'
+    redirection-target 'fg=94,underline'
+    assignment         'fg=61'
+    string             'fg=58'
+    variable           'fg=24'
+    substitution       'fg=90'
+    glob               'fg=95'
+    history            'fg=161,bold'
+    escape             'fg=30'
+    number             'fg=130'
+    comment            'fg=240'
+    autosuggestion     'fg=243'
+    picker-header       'fg=25,bold'
+    picker-location     'fg=25'
+    picker-query        'fg=231,bg=24,bold'
+    picker-match        'fg=25,bold,underline'
+    picker-index        'fg=30,bold'
+    picker-selected     'fg=231,bg=25,bold'
+    picker-selected-inactive 'fg=236,bg=250'
+    picker-focus        'fg=25,bold'
+    picker-text         'fg=236'
+    picker-architecture 'fg=25,bold'
+    picker-architecture-selected 'fg=231,bold'
+    picker-size         'fg=130'
+    picker-size-selected 'fg=229,bold'
+    picker-error        'fg=160,bold'
+    picker-error-selected 'fg=224,bold'
+    picker-success      'fg=28,bold'
+    picker-success-selected 'fg=120,bold'
+    picker-muted        'fg=243'
+    picker-empty        'fg=160,bold'
+    review-added        'fg=236,bg=194'
+    review-removed      'fg=236,bg=224'
+    review-keyword      'fg=94,bold'
+    review-string       'fg=58'
+    review-number       'fg=130'
+    review-comment      'fg=240'
+    review-type         'fg=24'
+    review-function     'fg=25'
+    review-variable     'fg=24'
+  )
+  local -A prompt_defaults=(
+    frame       240
+    identity    24
+    path        25
+    project     240
+    symbol      30
+    success     28
+    warning     130
+    danger      160
+    info        25
+    detached    89
+    duration    90
+    environment 61
+    jobs        130
+    tool        25
+    framework   90
+    container   30
+  )
+  local -A output_defaults=(
+    heading  25
+    accent   30
+    success  28
+    warning  130
+    error    160
+    info     24
+    muted    240
+    match    127
+    text     236
+  )
+  local role='' key='' current=''
+
+  typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_PROMPT_COLORS ZSH_OUTPUT_COLORS
+  for role in ${(k)highlight_defaults}; do
+    key="highlight:$role"
+    if (( ${+ZSH_HIGHLIGHT_STYLES[$role]} )); then
+      current=${ZSH_HIGHLIGHT_STYLES[$role]}
+      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
+         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
+            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+        _COMPOZSH_COLOR_MANAGED[$key]=''
+      fi
+    fi
+    _COMPOZSH_COLOR_FALLBACKS[$key]=${highlight_defaults[$role]}
+    if (( !${+ZSH_HIGHLIGHT_STYLES[$role]} )) ||
+       [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+      ZSH_HIGHLIGHT_STYLES[$role]=${highlight_defaults[$role]}
+      _COMPOZSH_COLOR_MANAGED[$key]=${highlight_defaults[$role]}
+    fi
+  done
+
+  for role in ${(k)prompt_defaults}; do
+    key="prompt:$role"
+    if (( ${+ZSH_PROMPT_COLORS[$role]} )); then
+      current=${ZSH_PROMPT_COLORS[$role]}
+      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
+         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
+            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+        _COMPOZSH_COLOR_MANAGED[$key]=''
+      fi
+    fi
+    _COMPOZSH_COLOR_FALLBACKS[$key]=${prompt_defaults[$role]}
+    if (( !${+ZSH_PROMPT_COLORS[$role]} )) ||
+       [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+      ZSH_PROMPT_COLORS[$role]=${prompt_defaults[$role]}
+      _COMPOZSH_COLOR_MANAGED[$key]=${prompt_defaults[$role]}
+    fi
+  done
+
+  for role in ${(k)output_defaults}; do
+    key="output:$role"
+    if (( ${+ZSH_OUTPUT_COLORS[$role]} )); then
+      current=${ZSH_OUTPUT_COLORS[$role]}
+      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
+         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
+            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+        _COMPOZSH_COLOR_MANAGED[$key]=''
+      fi
+    fi
+    _COMPOZSH_COLOR_FALLBACKS[$key]=${output_defaults[$role]}
+    if (( !${+ZSH_OUTPUT_COLORS[$role]} )) ||
+       [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+      ZSH_OUTPUT_COLORS[$role]=${output_defaults[$role]}
+      _COMPOZSH_COLOR_MANAGED[$key]=${output_defaults[$role]}
+    fi
+  done
+
+  if [[ -n ${LS_COLORS:-} ]]; then
+    typeset -gi _COMPOZSH_COMPLETION_COLORS_CUSTOM=1
+  elif (( !${_COMPOZSH_COMPLETION_COLORS_CUSTOM:-0} )); then
+    typeset -ga _COMPOZSH_COMPLETION_LIST_COLORS=(
+      'di=1;38;5;25' 'ln=38;5;126' 'so=38;5;30' 'pi=38;5;94'
+      'ex=1;38;5;28' 'bd=1;38;5;160' 'cd=38;5;95'
+      'or=1;4;38;5;160' 'mi=1;38;5;160'
+      'su=1;38;5;231;48;5;160' 'sg=1;38;5;231;48;5;90'
+      'tw=38;5;236;48;5;186' 'ow=38;5;231;48;5;160'
+      'st=38;5;236;48;5;179' 'ca=1;38;5;94'
+    )
+    zstyle ':completion:*' list-colors "${_COMPOZSH_COMPLETION_LIST_COLORS[@]}"
+  fi
+
+  key=lscolors
+  if (( ${+LSCOLORS} )); then
+    current=$LSCOLORS
+    if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
+       [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
+          $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+      _COMPOZSH_COLOR_MANAGED[$key]=''
+    fi
+  fi
+  _COMPOZSH_COLOR_FALLBACKS[$key]=exfxgxdxcxbxbxhbhfadabdx
+  if (( !${+LSCOLORS} )) || [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+    typeset -gx LSCOLORS=exfxgxdxcxbxbxhbhfadabdx
+    _COMPOZSH_COLOR_MANAGED[$key]=$LSCOLORS
+  fi
+  return 0
+}
+
+_appearance_detect_color_scheme
+typeset -g _COMPOZSH_COLOR_SCHEME=$REPLY
+[[ $_COMPOZSH_COLOR_SCHEME == light ]] && _appearance_apply_light_defaults
+:

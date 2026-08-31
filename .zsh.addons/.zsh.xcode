@@ -757,10 +757,10 @@ _install_xcode_skills_for_agent() {
 # Export Apple's portable Xcode skills once, then make them discoverable to the
 # common local coding agents. No Xcode process or filesystem write occurs until
 # this function is explicitly invoked.
-_compozsh_help_update_xcode_skills() {
+_compozsh_help_update-xcode-skills() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: update_xcode_skills' \
+  "${printer[@]}" 'usage: update-xcode-skills' \
     'Export Apple-authored Xcode skills to detected coding agents.' \
     '' \
     'Prerequisites and detection:' \
@@ -802,14 +802,14 @@ _compozsh_help_update_xcode_skills() {
     '  invoking Xcode, or writing files.' \
     '' \
     'Examples:' \
-    '  update_xcode_skills    Export from the currently selected Xcode.'
+    '  update-xcode-skills    Export from the currently selected Xcode.'
 }
 
-update_xcode_skills() {
+update-xcode-skills() {
   emulate -L zsh
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_update_xcode_skills
+    _compozsh_help_update-xcode-skills
     return 0
   fi
 
@@ -824,7 +824,7 @@ update_xcode_skills() {
   local -i index=0
 
   if (( $# != 0 )); then
-    print -u2 -r -- 'usage: update_xcode_skills'
+    print -u2 -r -- 'usage: update-xcode-skills'
     return 2
   fi
 
@@ -880,7 +880,7 @@ update_xcode_skills() {
   fi
 
   if (( ${#agent_names} == 0 )); then
-    print -u2 -r -- 'update_xcode_skills: no supported local coding agent found'
+    print -u2 -r -- 'update-xcode-skills: no supported local coding agent found'
     print -u2 -r -- \
       'Install Codex, Claude Code, Gemini CLI, Antigravity, or Kiro first.'
     return 1
@@ -890,7 +890,7 @@ update_xcode_skills() {
       ! agent_path=$(command xcrun --find agent 2>/dev/null) || \
       [[ -z $agent_path ]]; then
     print -u2 -r -- \
-      "update_xcode_skills: Xcode's agent command is unavailable"
+      "update-xcode-skills: Xcode's agent command is unavailable"
     print -u2 -r -- \
       'Select a compatible Xcode with xcode-select, then try again.'
     return 1
@@ -899,7 +899,7 @@ update_xcode_skills() {
   print -r -- "Detected: ${(j:, :)detected_vendors}"
 
   stage_dir=$(command mktemp -d "${temp_root%/}/xcode-skills.XXXXXX") || {
-    print -u2 -r -- 'update_xcode_skills: cannot create a temporary directory'
+    print -u2 -r -- 'update-xcode-skills: cannot create a temporary directory'
     return 1
   }
 
@@ -915,7 +915,7 @@ update_xcode_skills() {
     else
       exported_skills=("$stage_dir"/*/SKILL.md(N.))
       if (( ${#exported_skills} == 0 )); then
-        print -u2 -r -- 'update_xcode_skills: Xcode exported no usable skills'
+        print -u2 -r -- 'update-xcode-skills: Xcode exported no usable skills'
         overall_status=1
       else
         print -r -- \

@@ -161,6 +161,77 @@ _test_git_discard_all_scope() {
 test_case 'git-discard-all restores tracked data and preserves ignored files' \
   _test_git_discard_all_scope
 
+_test_git_discard_all_disables_repository_filters() {
+  test_make_temp_dir || return
+  local repo="$TEST_TMP_DIR/repository"
+  local filter="$TEST_TMP_DIR/filter" probe="$TEST_TMP_DIR/filter-ran"
+  local output=''
+
+  command git init -q "$repo" || return
+  command git -C "$repo" config user.name 'Zsh Tests' || return
+  command git -C "$repo" config user.email 'zsh-tests.invalid@example.invalid' || return
+  test_write_file "$repo/.gitattributes" '*.txt filter=fixture' || return
+  test_write_file "$repo/tracked.txt" 'baseline' || return
+  command git -C "$repo" add .gitattributes tracked.txt || return
+  command git -C "$repo" commit -qm baseline || return
+  test_write_file "$filter" $'#!/bin/sh\n: > "$FILTER_PROBE"\n/bin/cat' || return
+  command chmod +x "$filter" || return
+  command git -C "$repo" config filter.fixture.smudge "$filter" || return
+  command git -C "$repo" config filter.fixture.required true || return
+  test_write_file "$repo/tracked.txt" 'changed' || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
+    export FILTER_PROBE=$2
+    source "$1/.zsh.addons/.zsh.tools"
+    builtin cd -- "$3" || exit
+    git-discard-all <<< y >/dev/null 2>&1
+    discard_status=$?
+    [[ -e $2 ]]; filter_ran=$(( !$? ))
+    print -r -- "$discard_status|$filter_ran|$(<tracked.txt)"
+  ' "$TEST_REPO_ROOT" "$probe" "$repo") || return
+
+  test_assert_equal '0|0|baseline' "$output" \
+    'git-discard-all executed a repository content filter'
+}
+test_case 'git-discard-all restores without repository filter execution' \
+  _test_git_discard_all_disables_repository_filters
+
+_test_git_discard_all_revalidates_after_confirmation() {
+  test_make_temp_dir || return
+  local repo="$TEST_TMP_DIR/repository" output='' exit_status=0
+
+  command git init -q "$repo" || return
+  command git -C "$repo" config user.name 'Zsh Tests' || return
+  command git -C "$repo" config user.email 'zsh-tests.invalid@example.invalid' || return
+  test_write_file "$repo/tracked.txt" 'baseline' || return
+  command git -C "$repo" add tracked.txt || return
+  command git -C "$repo" commit -qm baseline || return
+  test_write_file "$repo/tracked.txt" 'changed' || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/.zsh.tools"
+    builtin cd -- "$2" || exit
+    read() {
+      [[ $* == *"answer?"* ]] && print -r -- late >| unpreviewed.txt
+      builtin read "$@"
+    }
+    git-discard-all <<< y
+  ' "$TEST_REPO_ROOT" "$repo" 2>&1) || exit_status=$?
+
+  (( exit_status != 0 )) || {
+    test_fail 'git-discard-all accepted changes introduced after its preview'
+    return
+  }
+  [[ -f "$repo/unpreviewed.txt" && $(<"$repo/tracked.txt") == changed ]] || {
+    test_fail 'git-discard-all modified the repository after revalidation failed'
+    return
+  }
+  test_assert_contains "$output" 'changed after the preview' \
+    'git-discard-all omitted its post-confirmation revalidation diagnostic'
+}
+test_case 'git-discard-all revalidates the preview before effects' \
+  _test_git_discard_all_revalidates_after_confirmation
+
 _test_git_discard_all_refuses_without_commit() {
   test_make_temp_dir || return
   local repo="$TEST_TMP_DIR/repository" output='' exit_status=0

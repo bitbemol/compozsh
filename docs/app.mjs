@@ -142,7 +142,9 @@ function renderReview() {
     row.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
-        const next = (index + (event.key === 'ArrowDown' ? 1 : scene.items.length - 1)) % scene.items.length;
+        const next = Math.max(0, Math.min(
+          index + (event.key === 'ArrowDown' ? 1 : -1), scene.items.length - 1,
+        ));
         selectReviewFile(next);
         reviewFiles.children[next].focus();
       } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
@@ -165,7 +167,7 @@ function showScene() {
   document.querySelector('#picker-title').textContent = `Compozsh / ${scene.title}`;
   document.querySelector('#demo-scope').textContent = scene.scope ?? '';
   document.querySelector('#demo-input-label').textContent = scene.input ?? 'Search';
-  document.querySelector('#demo-back-hint').textContent = bookmark ? 'Esc back' : 'Esc clear';
+  document.querySelector('#demo-back-hint').textContent = bookmark ? 'Esc back' : 'Esc cancel';
   document.querySelector('#demo-benefit').textContent = scene.benefit;
   document.querySelector('#demo-description').textContent = scene.description;
   document.querySelector('#demo-docs').href = scene.docs;
@@ -227,7 +229,9 @@ document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
   if (event.isComposing || event.metaKey || event.altKey || event.ctrlKey) return;
   if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && matches.length) {
     event.preventDefault();
-    highlight((selected + (event.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length);
+    highlight(Math.max(0, Math.min(
+      selected + (event.key === 'ArrowDown' ? 1 : -1), matches.length - 1,
+    )));
     results.children[selected].focus();
   } else if (event.key === 'Enter' && event.target === query) {
     event.preventDefault();
@@ -244,9 +248,7 @@ document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
       query.focus();
       return;
     }
-    query.value = '';
-    renderResults();
-    output.textContent = 'Search cleared. Browser preview only.';
+    output.textContent = 'Picker cancelled. In Zsh, Escape closes the workspace and restores your draft. Browser preview remains available.';
     query.focus();
   } else if (!query.value && /^[1-9]$/.test(event.key) && matches[Number(event.key) - 1]) {
     event.preventDefault();

@@ -1070,6 +1070,59 @@ _test_usb_windows_result_never_claims_a_failed_checksum_matched() {
 test_case 'USB Windows failure results keep checksum calculation and later source failures truthful' \
   _test_usb_windows_result_never_claims_a_failed_checksum_matched
 
+_test_usb_result_screens_keep_facts_passive() {
+  test_make_temp_dir || return
+  local output='' line=''
+  local -i screens=0
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_choose() {
+      print -r -- "$1|values:${(j:,:)_USB_PICKER_VALUES}|labels:${(j:,:)_USB_PICKER_LABELS}|passive:${(j:|:)_ZLE_PICKER_PASSIVE_LINES}"
+    }
+
+    _USB_RESULT_OUTCOME=complete _USB_RESULT_BYTES=1048576 _USB_RESULT_SECONDS=1
+    _USB_RESULT_RATE="1.0 MiB/s" _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
+    _USB_RESULT_VERIFIED=1 _USB_RESULT_VERIFY_SCOPE=full
+    _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_VERIFY_REASON=""
+    _usb_result_screen 0
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="raw failure"
+    _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_VERIFIED=0
+    _usb_result_screen 1
+
+    _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=2 _USB_RESULT_STARTED=1
+    _USB_RESULT_EJECTED=1 _USB_RESULT_SOURCE_VALIDATED=1
+    _usb_macos_result_screen 0
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="macOS failure"
+    _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_SOURCE_VALIDATED=0
+    _usb_macos_result_screen 1
+
+    _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=3 _USB_RESULT_STARTED=1
+    _USB_RESULT_EJECTED=1 _USB_RESULT_VERIFIED=1
+    _USB_RESULT_VERIFY_SCOPE=windows-file-tree _USB_RESULT_CHECKSUM_VALIDATED=0
+    _USB_RESULT_EXPECTED_CHECKSUM="" _USB_RESULT_CHECKSUM_ERROR=""
+    _usb_windows_result_screen 0
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Windows failure"
+    _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_VERIFIED=0
+    _usb_windows_result_screen 1
+  ' "$TEST_REPO_ROOT") || return
+
+  for line in "${(@f)output}"; do
+    (( ++screens ))
+    [[ $line == *'|values:done|labels:[ Done ]|passive:'* ]] || {
+      test_fail "USB result exposed a passive fact as an action: $line"
+      return
+    }
+    [[ $line != *'|passive:' ]] || {
+      test_fail "USB result omitted its passive outcome evidence: $line"
+      return
+    }
+  done
+  (( screens == 6 )) || test_fail "expected six USB result states, saw $screens"
+}
+test_case 'USB result screens expose only Done as an action' \
+  _test_usb_result_screens_keep_facts_passive
+
 _test_usb_windows_round_trip_on_a_real_fat32_image() {
   test_make_temp_dir || return
   local source="$TEST_TMP_DIR/source" image="$TEST_TMP_DIR/windows-fat32.dmg"
@@ -3359,19 +3412,20 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
   local target_image="$TEST_TMP_DIR/target.img"
   local expected_middle="$TEST_TMP_DIR/expected-middle"
   local expected_tail="$TEST_TMP_DIR/expected-tail"
-  local output=''
+  local fingerprint='' output=''
   /usr/bin/printf '%8192s' '' | /usr/bin/tr ' ' S >| "$source_image" || return
   /usr/bin/printf '%16384s' '' | /usr/bin/tr ' ' T >| "$target_image" || return
   /usr/bin/printf '%7680s' '' | /usr/bin/tr ' ' T >| "$expected_middle" || return
   command /bin/dd if=/dev/zero of="$expected_tail" bs=512 count=1 \
     status=none || return
+  fingerprint=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$source_image") || return
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
     _usb_raw_write_script_capture || exit
     script=$REPLY
     command /bin/zsh -fc "$script" compozsh-write-test \
-      "$2" "$3" 16 31 1 1 2>| "$6"
+      "$2" "$3" 16 31 1 1 512 "${10}" 2>| "$6"
     session_status=$?
     command /bin/dd if="$3" of="$7" bs=512 count=16 status=none || exit
     command /bin/dd if="$3" of="$8" bs=512 skip=16 count=15 status=none || exit
@@ -3383,10 +3437,10 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
     command /usr/bin/cmp -s "$5" "$9"
     tail_status=$?
     command /bin/zsh -fc "$script" compozsh-write-mismatch \
-      "$2" "$3" 16 15 1 1 512 2>/dev/null
+      "$2" "$3" 16 15 1 1 512 "${10}" 2>/dev/null
     mismatch_status=$?
     command /bin/zsh -fc "$script" compozsh-write-source-size \
-      "$2" "$3" 15 0 0 1 512 2>/dev/null
+      "$2" "$3" 15 0 0 1 512 "${10}" 2>/dev/null
     source_status=$?
     size=$(command /usr/bin/stat -f "%z" "$3") || exit
     diagnostic=$(<"$6")
@@ -3397,7 +3451,8 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
     print -r -- "mismatch:$mismatch_status|source:$source_status"
   ' "$TEST_REPO_ROOT" "$source_image" "$target_image" \
     "$expected_middle" "$expected_tail" "$TEST_TMP_DIR/session-stderr" \
-    "$TEST_TMP_DIR/prefix" "$TEST_TMP_DIR/middle" "$TEST_TMP_DIR/tail") || return
+    "$TEST_TMP_DIR/prefix" "$TEST_TMP_DIR/middle" "$TEST_TMP_DIR/tail" \
+    "$fingerprint") || return
 
   test_assert_contains "$output" \
     'status:0|size:16384|prefix:0|middle:0|tail:0' \
@@ -3432,6 +3487,33 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
 }
 test_case 'USB raw session writes exact byte ranges through one held descriptor' \
   _test_usb_raw_session_writes_exact_offsets_through_one_descriptor
+
+_test_usb_raw_session_pins_the_captured_source() {
+  test_make_temp_dir || return
+  local image="$TEST_TMP_DIR/source.iso" replacement="$TEST_TMP_DIR/replacement.iso"
+  local target="$TEST_TMP_DIR/target.img" fingerprint='' output=''
+
+  /usr/bin/printf '%512s' '' | /usr/bin/tr ' ' A >| "$image" || return
+  /usr/bin/printf '%512s' '' | /usr/bin/tr ' ' B >| "$replacement" || return
+  /usr/bin/printf '%512s' '' | /usr/bin/tr ' ' T >| "$target" || return
+  fingerprint=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$image") || return
+  command /bin/mv -f -- "$replacement" "$image" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_raw_write_script_capture || exit
+    command /bin/zsh -fc "$REPLY" compozsh-source-race \
+      "$2" "$3" 1 0 0 0 512 "$4" 2>/dev/null
+    write_status=$?
+    first_byte=$(command /usr/bin/head -c 1 "$3") || exit
+    print -r -- "$write_status|$first_byte"
+  ' "$TEST_REPO_ROOT" "$image" "$target" "$fingerprint") || return
+
+  test_assert_equal '7|T' "$output" \
+    'raw writing reopened a same-size replacement instead of the captured image'
+}
+test_case 'USB raw write pins the captured source identity' \
+  _test_usb_raw_session_pins_the_captured_source
 
 _test_usb_execution_uses_atomic_premount_verification() {
   test_make_temp_dir || return
@@ -3810,7 +3892,8 @@ _test_usb_failure_screen_separates_image_and_drive_evidence() {
         [[ -n $specification ]] && role=${specification##*:} || role=""
         roles+=("$role")
       done
-      print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"
+      roles+=("${_ZLE_PICKER_PASSIVE_STYLES[@]}")
+      print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}|${(j:|:)_ZLE_PICKER_PASSIVE_LINES}"
       print -r -- "roles:${(j:|:)roles}|semantic:${6:-0}"
     }
     _USB_RESULT_OUTCOME=failed

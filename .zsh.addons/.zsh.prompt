@@ -28,12 +28,24 @@ _prompt_apply_color_defaults() {
     framework   176
     container   44
   )
-  local role
+  local role key current
 
-  typeset -gA ZSH_PROMPT_COLORS
+  typeset -gA ZSH_PROMPT_COLORS _COMPOZSH_COLOR_MANAGED
+  typeset -gA _COMPOZSH_COLOR_FALLBACKS
   for role in ${(k)defaults}; do
-    (( ${+ZSH_PROMPT_COLORS[$role]} )) ||
+    key="prompt:$role"
+    _COMPOZSH_COLOR_FALLBACKS[$key]=${_COMPOZSH_COLOR_FALLBACKS[$key]:-${defaults[$role]}}
+    if (( ${+ZSH_PROMPT_COLORS[$role]} )); then
+      current=${ZSH_PROMPT_COLORS[$role]}
+      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
+         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
+            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+        _COMPOZSH_COLOR_MANAGED[$key]=''
+      fi
+    else
       ZSH_PROMPT_COLORS[$role]=${defaults[$role]}
+      _COMPOZSH_COLOR_MANAGED[$key]=${defaults[$role]}
+    fi
   done
 }
 _prompt_apply_color_defaults
@@ -141,6 +153,45 @@ _prompt_has_git_context() {
   return 1
 }
 
+# Git status can invoke repository-configured clean/process filters while
+# comparing working files. Discover only their names, then override each
+# driver for the status invocation without evaluating or changing config.
+_prompt_git_filter_config() {
+  emulate -L zsh
+
+  local root=$1 packet='' config_output='' tail='' key='' driver=''
+  local -A seen=()
+  reply=()
+  packet=$( {
+      GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+        GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+        -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+        -c core.hooksPath=/dev/null config --null --name-only \
+        --get-regexp '^filter\..*\.(clean|process|required)$' 2>/dev/null
+      print -rn -- $'\0'"$?"
+    } | {
+      local chunk=''
+      IFS= read -r -u 0 -k 65539 chunk || :
+      print -rn -- "$chunk"
+    } )
+  (( ${#packet} <= 65538 )) || return 1
+  [[ $packet == *$'\0'* ]] || return 1
+  tail=${packet##*$'\0'}
+  config_output=${packet%$'\0'*}
+  [[ $tail == 0 || $tail == 1 ]] || return 1
+
+  while IFS= read -r -d '' key; do
+    driver=${${key#filter.}%.*}
+    [[ -n $driver && -z ${seen[$driver]-} ]] || continue
+    seen[$driver]=1
+    reply+=(
+      -c "filter.${driver}.clean="
+      -c "filter.${driver}.process="
+      -c "filter.${driver}.required=false"
+    )
+  done <<< "$config_output"
+}
+
 # Render a compact Git summary. Porcelain v2 gives branch and file state in one
 # Git call. The metadata directory is resolved once per working directory so
 # operation checks do not require another Git process on every prompt.
@@ -155,15 +206,20 @@ _prompt_git() {
   local color=${ZSH_PROMPT_COLORS[success]}
   local -i staged=0 modified=0 untracked=0 conflicted=0 ahead=0 behind=0 stash=0
   local -i detached=0
-  local -a fields indicators
+  local -a fields indicators filter_config
 
   REPLY=''
   _PROMPT_GIT_TEXT=''
   _PROMPT_GIT_COLOR=${ZSH_PROMPT_COLORS[success]}
   _prompt_has_git_context "$PWD" || return
-  # A repository may configure an executable fsmonitor hook. Prompt rendering
-  # is passive, so never run repository-controlled code while reading status.
-  git_output=$(GIT_OPTIONAL_LOCKS=0 command git -c core.fsmonitor=false status \
+  _prompt_git_filter_config "$PWD" || return
+  filter_config=("${reply[@]}")
+  # Prompt rendering is passive: suppress repository-controlled fsmonitor,
+  # hook, and content-filter commands as well as lazy network fetches.
+  git_output=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+    -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null "${filter_config[@]}" status \
     --porcelain=v2 --branch --show-stash 2>/dev/null) || return
 
   while IFS= read -r line; do

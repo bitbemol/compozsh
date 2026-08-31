@@ -18,15 +18,21 @@ zstyle ':completion:*' matcher-list \
 zstyle ':completion:*:descriptions' format '%F{cyan}-- %d --%f'
 zstyle ':completion:*:warnings' format '%F{red}no matches%f'
 if [[ -n ${LS_COLORS:-} ]]; then
+  typeset -gi _COMPOZSH_COMPLETION_COLORS_CUSTOM=1
   zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 else
-  zstyle ':completion:*' list-colors \
-    'di=1;38;5;39' 'ln=38;5;207' 'so=38;5;44' 'pi=38;5;220' \
-    'ex=1;38;5;83' 'bd=1;38;5;203' 'cd=38;5;209' \
-    'or=1;4;38;5;203' 'mi=1;38;5;196' \
-    'su=1;38;5;229;48;5;203' 'sg=1;38;5;229;48;5;176' \
-    'tw=38;5;16;48;5;220' 'ow=38;5;16;48;5;203' \
-    'st=38;5;16;48;5;215' 'ca=1;38;5;221'
+  if (( !${#_COMPOZSH_COMPLETION_LIST_COLORS} )); then
+    typeset -ga _COMPOZSH_COMPLETION_LIST_COLORS=(
+      'di=1;38;5;39' 'ln=38;5;207' 'so=38;5;44' 'pi=38;5;220'
+      'ex=1;38;5;83' 'bd=1;38;5;203' 'cd=38;5;209'
+      'or=1;4;38;5;203' 'mi=1;38;5;196'
+      'su=1;38;5;229;48;5;203' 'sg=1;38;5;229;48;5;176'
+      'tw=38;5;16;48;5;220' 'ow=38;5;16;48;5;203'
+      'st=38;5;16;48;5;215' 'ca=1;38;5;221'
+    )
+  fi
+  typeset -gi _COMPOZSH_COMPLETION_COLORS_CUSTOM=0
+  zstyle ':completion:*' list-colors "${_COMPOZSH_COMPLETION_LIST_COLORS[@]}"
 fi
 
 # Apple keyboards omit dedicated Home, End, and forward-Delete keys. Use Zsh's
@@ -3393,18 +3399,15 @@ typeset -g _ZLE_AUTOSUGGEST_DISPLAY=''
 
 _zle_autosuggest_find() {
   emulate -L zsh
-  setopt EXTENDED_GLOB
 
-  local prefix=$1 pattern='' event='' entry=''
-  local -a events=()
+  local prefix=$1 entry=''
+  local -i event=${HISTCMD:-0} inspected=0
   typeset -g _ZLE_AUTOSUGGEST_CACHE_FULL=''
 
-  _zle_picker_escape_pattern "$prefix"
-  pattern="${REPLY}*"
-  events=( ${(kOn)history[(R)${~pattern}]} )
-
-  for event in "${events[@]}"; do
-    entry=${history[$event]}
+  # Inspect a fixed recent window without materializing or sorting every
+  # matching history key. Numeric attempts are bounded even with sparse keys.
+  for (( --event; event > 0 && inspected < 512; --event, ++inspected )); do
+    entry=${history[$event]-}
     [[ $entry == "$prefix"* && $entry != "$prefix" ]] || continue
     # Tabs, newlines, escapes, and other control bytes are valid history, but
     # writing them to POSTDISPLAY could alter the terminal rather than its UI.
@@ -3482,13 +3485,11 @@ _zle_autosuggest_update() {
 _zle_autosuggest_reset() {
   emulate -L zsh
 
-  region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
-  if [[ -n $_ZLE_PICKER_POSTDISPLAY &&
-        $POSTDISPLAY == "$_ZLE_PICKER_POSTDISPLAY" ]]; then
+  region_highlight=("${(@)region_highlight:#*memo=my-zsh-autosuggestion}")
+  if [[ -n $_ZLE_AUTOSUGGEST_DISPLAY &&
+        $POSTDISPLAY == "$_ZLE_AUTOSUGGEST_DISPLAY" ]]; then
     POSTDISPLAY=''
   fi
-  _ZLE_PICKER_POSTDISPLAY=''
-  _ZLE_PICKER_ACTIVE=0
   _ZLE_AUTOSUGGEST_SUSPENDED=0
   _ZLE_AUTOSUGGEST_CACHE_BUFFER=''
   _ZLE_AUTOSUGGEST_CACHE_HISTORY=''

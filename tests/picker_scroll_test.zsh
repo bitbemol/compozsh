@@ -192,7 +192,10 @@ _test_picker_scroll_native() {
         expected=$REPLY
         IFS= read -r -z actual || return 1
       fi
-      [[ $actual == "$expected" ]] || { print -r -- BAD-VALUE; return 2; }
+      [[ $actual == "$expected" ]] || {
+        print -r -- "BAD-VALUE expected=${(q)expected} actual=${(q)actual}"
+        return 2
+      }
       (( captures == 1 && collections <= 5 && !_ZLE_PICKER_VIEW_OFFSET &&
          !${#_ZLE_PICKER_VISIBLE_KEYS} && !${#_ZLE_PICKER_RESULTS} )) || return 3
       print -r -- END-SCROLL-DONE

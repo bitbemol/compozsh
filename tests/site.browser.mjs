@@ -45,9 +45,18 @@ try {
   assert.equal(await page.getByRole('tab', { name: 'Files', exact: true }).getAttribute('aria-selected'), 'true');
   assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab');
   assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / Directory browser');
+  assert.equal(await page.locator('#demo-back-hint').innerText(), 'Esc cancel');
   assert.equal(await page.locator('.shell-prompt').isVisible(), false);
   await page.getByRole('tab', { name: 'History', exact: true }).click();
   assert.equal(await page.locator('.result-row').count(), 3);
+  await page.locator('#demo-query').press('ArrowUp');
+  assert.match(await page.locator('.result-row.selected').innerText(), /swift build -c release/,
+    'Picker movement must stop at the first result');
+  await page.locator('.result-row').last().focus();
+  const lastHistoryResult = await page.locator('.result-row').last().innerText();
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.locator('.result-row.selected').innerText(), lastHistoryResult,
+    'Picker movement must stop at the last result');
   await page.getByLabel('Search', { exact: false }).fill('-c swift');
   assert.equal(await page.locator('.result-row').count(), 3);
   await page.locator('#demo-query').press('ArrowDown');
@@ -63,6 +72,11 @@ try {
   assert.equal(await page.locator('.result-row').count(), 1);
   assert.match(await page.locator('.result-row').innerText(), /npm run test/,
     'Refining must search sample items beyond the first five displayed');
+  await page.locator('#demo-query').press('Escape');
+  assert.equal(await page.locator('#demo-query').inputValue(), 'npm',
+    'Top-level Escape must model cancellation, not clear the filter');
+  assert.match(await page.locator('#demo-output').innerText(), /Picker cancelled.*restores your draft/,
+    'Top-level Escape must explain the real picker cancellation outcome');
   await page.getByRole('tab', { name: 'Files', exact: true }).click();
   await page.getByLabel('Example', { exact: true }).selectOption('files-project');
   assert.equal(await page.locator('#demo-command').innerText(), './ + Tab → Ctrl-F');
@@ -98,6 +112,15 @@ try {
   assert.ok(await page.locator('.review-line.added').count() >= 1);
   assert.ok(await page.locator('.review-line.removed').count() >= 1);
   assert.match(await page.locator('.review-file-row.selected').innerText(), /README\.md/);
+  await page.locator('.review-file-row').first().focus();
+  await page.keyboard.press('ArrowUp');
+  assert.match(await page.locator('.review-file-row.selected').innerText(), /README\.md/,
+    'Git navigator movement must stop at the first file');
+  await page.locator('.review-file-row').last().focus();
+  const lastReviewFile = await page.locator('.review-file-row').last().innerText();
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.locator('.review-file-row.selected').innerText(), lastReviewFile,
+    'Git navigator movement must stop at the last file');
   await page.getByRole('tab', { name: 'Tools', exact: true }).click();
   assert.equal(await page.getByLabel('Example', { exact: true }).isVisible(), false,
     'Specialized options should only appear inside relevant tasks');

@@ -30,6 +30,17 @@ setopt HIST_SAVE_NO_DUPS
 # LSCOLORS covers directories, links, sockets, pipes, executables, devices,
 # privileged files, writable directories, and dataless files in that order.
 typeset -gx CLICOLOR=${CLICOLOR:-1}
-typeset -gx LSCOLORS=${LSCOLORS:-ExFxgxDxCxBxbxHbHfadabdx}
+typeset -gA _COMPOZSH_COLOR_MANAGED _COMPOZSH_COLOR_FALLBACKS
+_COMPOZSH_COLOR_FALLBACKS[lscolors]=${_COMPOZSH_COLOR_FALLBACKS[lscolors]:-ExFxgxDxCxBxbxHbHfadabdx}
+if (( ${+LSCOLORS} )); then
+  if (( !${+_COMPOZSH_COLOR_MANAGED[lscolors]} )) ||
+     [[ -n ${_COMPOZSH_COLOR_MANAGED[lscolors]} &&
+        $LSCOLORS != ${_COMPOZSH_COLOR_MANAGED[lscolors]} ]]; then
+    _COMPOZSH_COLOR_MANAGED[lscolors]=''
+  fi
+else
+  typeset -gx LSCOLORS=ExFxgxDxCxBxbxHbHfadabdx
+  _COMPOZSH_COLOR_MANAGED[lscolors]=$LSCOLORS
+fi
 
 :

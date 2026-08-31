@@ -112,8 +112,8 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
       prompt-refresh
       g
       flash-usb
-      format_external_device
-      update_xcode_skills
+      format-external-device
+      update-xcode-skills
       compozsh
     )
     for public_command in "${public_commands[@]}"; do
@@ -131,8 +131,8 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
   ' "$TEST_REPO_ROOT") || return
 
   local public_command=''
-  for public_command in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device \
-      update_xcode_skills compozsh; do
+  for public_command in mkcd cpdir git-discard-all prompt-refresh g flash-usb format-external-device \
+      update-xcode-skills compozsh; do
     test_assert_contains "$output" "$public_command|1|0|0|same|same-source" \
       "$public_command does not share one canonical help provider" || return
   done

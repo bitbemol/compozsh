@@ -2419,23 +2419,34 @@ _usb_raw_write_script_capture() {
   emulate -L zsh
   REPLY='emulate -LR zsh
 zmodload zsh/system || exit
+zmodload zsh/stat || exit
 local image=$1 device=$2 sector_count=$3 tail_seek=$4 tail_count=$5 verify=${6:-0}
-local block_size=${7:-512} image_stat_size=""
-local -a verify_status=()
+local block_size=${7:-512} expected_fingerprint=${8:-}
+local -a verify_status=() expected_fields=() image_stat=()
 local -i tail_byte_offset=0 tail_bytes=0 tail_blocks=0 tail_block_seek=0
-local -i image_bytes=0 block_sectors=0
+local -i image_bytes=0 block_sectors=0 image_fd=-1
 [[ -f $image && ! -L $image ]] || exit 2
 [[ (-c $device || -f $device) && ! -L $device ]] || exit 2
 [[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> &&
-   $verify == [01] && $block_size == <-> ]] || exit 2
+   $verify == [01] && $block_size == <-> && -n $expected_fingerprint ]] || exit 2
 (( sector_count > 0 && tail_seek >= 0 && tail_count >= 0 )) || exit 2
 (( block_size >= 512 && block_size % 512 == 0 )) || exit 2
 block_sectors=$(( block_size / 512 ))
 image_bytes=$(( sector_count * 512 ))
 (( image_bytes % block_size == 0 && tail_seek % block_sectors == 0 &&
    tail_count % block_sectors == 0 )) || exit 2
-image_stat_size=$(command /usr/bin/stat -f "%z" "$image" 2>/dev/null) || exit 7
-[[ $image_stat_size == "$image_bytes" ]] || exit 7
+expected_fields=("${(@s/:/)expected_fingerprint}")
+(( ${#expected_fields} == 5 )) || exit 2
+[[ $expected_fields[1] == <-> && $expected_fields[2] == <-> &&
+   $expected_fields[3] == <-> && $expected_fields[4] == <-> &&
+   $expected_fields[5] == <-> ]] || exit 2
+sysopen -r -o nofollow -u image_fd -- "$image" || exit 7
+zstat -A image_stat -f "$image_fd" || exit 7
+[[ $image_stat[1] == "$expected_fields[1]" &&
+   $image_stat[2] == "$expected_fields[2]" &&
+   $image_stat[8] == "$expected_fields[3]" &&
+   $image_stat[10] == "$expected_fields[4]" &&
+   $expected_fields[3] == "$image_bytes" ]] || exit 7
 print -u2 -r -- compozsh-write-stage:open
 if [[ -c $device ]]; then
   if (( verify )); then
@@ -2447,7 +2458,7 @@ else
   exec 9<> "$device" || exit 1
 fi
 print -u2 -r -- compozsh-write-stage:image
-command /bin/dd if="$image" ibs=512 obs=4m count="$sector_count" \
+command /bin/dd if="/dev/fd/$image_fd" ibs=512 obs=4m count="$sector_count" \
   conv=notrunc,fsync status=progress >&9 || exit
 if (( tail_count > 0 )); then
   print -u2 -r -- compozsh-write-stage:tail
@@ -2461,13 +2472,16 @@ if (( tail_count > 0 )); then
 fi
 if (( verify )); then
   print -u2 -r -- compozsh-write-stage:verify
-  image_stat_size=$(command /usr/bin/stat -f "%z" "$image" 2>/dev/null) || exit 7
-  [[ $image_stat_size == "$image_bytes" ]] || exit 7
+  zstat -A image_stat -f "$image_fd" || exit 7
+  [[ $image_stat[1] == "$expected_fields[1]" &&
+     $image_stat[2] == "$expected_fields[2]" &&
+     $image_stat[8] == "$expected_fields[3]" ]] || exit 7
+  sysseek -u "$image_fd" 0 || exit 7
   command /bin/dd if="$device" ibs=512 obs=4m count="$sector_count" \
     iflag=direct status=progress |
     (
       local -i compare_status=0
-      command /usr/bin/cmp -s -n "$image_bytes" - "$image"
+      command /usr/bin/cmp -s -n "$image_bytes" - "/dev/fd/$image_fd"
       compare_status=$?
       # cmp exits at the first difference. Drain the bounded reader so it never
       # receives SIGPIPE and its own raw-device status remains authoritative.
@@ -2503,9 +2517,10 @@ _usb_raw_write_session_run() {
   local image=$1 identifier=$2 sector_count=$3 tail_seek=$4 tail_count=$5
   local verify=${6:-0}
   local block_size=${7:-512}
+  local expected_fingerprint=${8:-}
   [[ -f $image && ! -L $image && $identifier == disk<-> ]] || return 2
   [[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> &&
-     $verify == [01] && $block_size == <-> ]] || return 2
+     $verify == [01] && $block_size == <-> && -n $expected_fingerprint ]] || return 2
   (( sector_count > 0 && tail_seek >= 0 && tail_count >= 0 )) || return 2
   # Keep one privileged descriptor open from the first image byte through
   # physical-tail cleanup and read-back. No raw-device close occurs inside
@@ -2513,7 +2528,7 @@ _usb_raw_write_session_run() {
   _usb_raw_write_script_capture
   command /usr/bin/sudo -n /bin/zsh -fc "$REPLY" compozsh-raw-write \
     "$image" "/dev/r${identifier}" "$sector_count" \
-    "$tail_seek" "$tail_count" "$verify" "$block_size"
+    "$tail_seek" "$tail_count" "$verify" "$block_size" "$expected_fingerprint"
 }
 
 _usb_write_image() {
@@ -2523,6 +2538,7 @@ _usb_write_image() {
   local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
   local verify=${5:-0} progress_title='Writing image'
   local block_size=${6:-512}
+  local image_fingerprint=${7:-}
   local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
   local -i worker=0 command_status=1 started=$SECONDS sector_count=0
   local -i verify_started=0
@@ -2551,7 +2567,8 @@ _usb_write_image() {
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
   {
     _usb_raw_write_session_run "$image" "$identifier" "$sector_count" \
-      "$tail_seek" "$tail_count" "$verify" "$block_size" 2>| "$progress_file" &
+      "$tail_seek" "$tail_count" "$verify" "$block_size" \
+      "$image_fingerprint" 2>| "$progress_file" &
     worker=$!
     while builtin kill -0 $worker 2>/dev/null; do
       _usb_dd_progress_read "$progress_file" "$image_size" $started
@@ -4350,7 +4367,7 @@ _usb_execute() {
     warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
   stage_started=$SECONDS
   _usb_write_image "$image" "$identifier" "$image_size" "$target_size" \
-    "$verify_during_write" "$target_block_size"
+    "$verify_during_write" "$target_block_size" "$image_fingerprint"
   action_status=$?
   _USB_RESULT_WRITE_SECONDS=$(( SECONDS - stage_started ))
   if (( action_status == 0 )); then
@@ -4487,6 +4504,22 @@ _usb_execute() {
 
 _usb_result_choose() {
   emulate -L zsh
+
+  local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_PASSIVE_STYLES=()
+  local -i index=0
+  for (( index = 2; index <= ${#_USB_PICKER_LABELS}; ++index )); do
+    _ZLE_PICKER_PASSIVE_LINES+=("${_USB_PICKER_LABELS[index]}")
+    case ${_USB_PICKER_HIGHLIGHTS[index]-} in
+      (*:picker-success) _ZLE_PICKER_PASSIVE_STYLES+=(picker-success) ;;
+      (*:picker-error) _ZLE_PICKER_PASSIVE_STYLES+=(picker-error) ;;
+      (*) _ZLE_PICKER_PASSIVE_STYLES+=(picker-text) ;;
+    esac
+  done
+  _USB_PICKER_VALUES=("${_USB_PICKER_VALUES[1]}")
+  _USB_PICKER_LABELS=("${_USB_PICKER_LABELS[1]}")
+  _USB_PICKER_HIGHLIGHTS=("${_USB_PICKER_HIGHLIGHTS[1]-}")
+  _USB_PICKER_SEARCH=("${_USB_PICKER_SEARCH[1]-}")
+  _USB_PICKER_DETAILS=("${_USB_PICKER_DETAILS[1]-}")
   _usb_choose "$1" "$2" 'Done' 0 0 1
 }
 
@@ -5268,10 +5301,10 @@ flash-usb() {
   }
 }
 
-_compozsh_help_format_external_device() {
+_compozsh_help_format-external-device() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: format_external_device' \
+  "${printer[@]}" 'usage: format-external-device' \
     'Format one whole external physical disk with Apple diskutil.' \
     '' \
     'Drive capture:' \
@@ -5323,11 +5356,11 @@ _compozsh_help_format_external_device() {
     '  Apple diskutil, plutil, mktemp, rm, and sudo.' \
     '' \
     'Examples:' \
-    '  format_external_device  Choose an external drive and advertised format.'
+    '  format-external-device  Choose an external drive and advertised format.'
 }
 
-unalias format_external_device 2>/dev/null
-format_external_device() {
+unalias format-external-device 2>/dev/null
+format-external-device() {
   emulate -L zsh
   local picker_status=0 format_status=0
   local _USB_SELECTED_DISK='' _USB_SELECTED_DISK_LABEL=''
@@ -5338,25 +5371,25 @@ format_external_device() {
   local -i _USB_SELECTED_DISK_SIZE=0
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_format_external_device
+    _compozsh_help_format-external-device
     return 0
   fi
   (( $# == 0 )) || {
-    print -u2 -r -- 'usage: format_external_device'
+    print -u2 -r -- 'usage: format-external-device'
     return 2
   }
   [[ $OSTYPE == darwin* ]] || {
-    print -u2 -r -- 'format_external_device: this tool requires macOS'
+    print -u2 -r -- 'format-external-device: this tool requires macOS'
     return 1
   }
   [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil &&
      -x /usr/bin/mktemp && -x /bin/rm && -x /usr/bin/sudo ]] || {
-    print -u2 -r -- 'format_external_device: required Apple command-line tools are unavailable'
+    print -u2 -r -- 'format-external-device: required Apple command-line tools are unavailable'
     return 1
   }
   if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
       (( ! ${+functions[_zle_picker_run]} )); then
-    print -u2 -r -- 'format_external_device: an interactive terminal and the .zsh.editor screen peer are required'
+    print -u2 -r -- 'format-external-device: an interactive terminal and the .zsh.editor screen peer are required'
     return 1
   fi
   {
@@ -5364,7 +5397,7 @@ format_external_device() {
     picker_status=$?
     (( picker_status == 1 )) && return 0
     if (( picker_status != 0 )); then
-      print -u2 -r -- "format_external_device: ${_USB_FORMAT_ERROR:-the format workspace failed}"
+      print -u2 -r -- "format-external-device: ${_USB_FORMAT_ERROR:-the format workspace failed}"
       return $picker_status
     fi
     _usb_format_confirm "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_LABEL" \
@@ -5378,7 +5411,7 @@ format_external_device() {
       "$_USB_SELECTED_DISK_SIZE"
     format_status=$?
     if (( format_status != 0 )); then
-      print -u2 -r -- "format_external_device: ${_USB_FORMAT_ERROR:-diskutil formatting failed}"
+      print -u2 -r -- "format-external-device: ${_USB_FORMAT_ERROR:-diskutil formatting failed}"
       return $format_status
     fi
     _usb_format_print_summary "$_USB_SELECTED_DISK" \

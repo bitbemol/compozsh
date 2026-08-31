@@ -331,6 +331,12 @@ both copy-paste sprawl and speculative abstraction.
 - Give every public add-on command a descriptive collision-resistant name and
   document it in `README.md`. Keep orchestration public only when users need to
   invoke it; prefix its detectors, renderers, installers, and state with `_`.
+- Name Compozsh-owned public terminal commands in lowercase kebab-case: use
+  hyphens between words, as in `format-external-device`, and never underscores.
+  One-word commands remain one word. This naming rule does not apply to private
+  underscore-prefixed helpers, Zsh special functions, or documented extension
+  APIs such as `prompt_add_project_segment`. The suffix of a command's
+  `_compozsh_help_<command>` companion must preserve the command's exact name.
 - Treat self-documenting help as a hard public-interface contract. Every public
   add-on function intended for direct terminal invocation must accept the exact
   single argument `--help`, even when the command otherwise takes no options.
@@ -637,7 +643,8 @@ never optimize from a single timing sample.
   outside width calculations.
 - Preserve the semantic, collision-resistant palette. A color should identify
   one role in its local context; warnings and errors retain conventional warm
-  colors. Ensure useful contrast on the supported dark terminal theme.
+  colors. Keep coherent light- and dark-background defaults with useful
+  contrast, and preserve explicit initializer roles across automatic selection.
 - Unicode tree glyphs are welcome; patched-font/private-use glyphs are not.
 - Color command output only when stdout is a terminal. Pipes, redirects,
   command substitutions, and machine-readable output must remain plain and
@@ -1137,7 +1144,7 @@ discovered. The keyboard guide must never trigger refresh.
 - `.zsh.xcode` owns both the native Xcode action workspace and Apple skill export.
   Source-time behavior remains definitions only: never probe Xcode, enumerate
   projects, start Simulator, export skills, or write files while loading the
-  peer. Keep `xcode` and `update_xcode_skills` as separate public operations
+  peer. Keep `xcode` and `update-xcode-skills` as separate public operations
   with independent help providers and tests.
 - Bare `xcode` discovers only literal `.xcworkspace` and `.xcodeproj`
   directories while walking upward from PWD. Stop at the nearest scope, offer

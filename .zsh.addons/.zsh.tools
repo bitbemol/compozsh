@@ -64,6 +64,10 @@ _compozsh_help_git-discard-all() {
     '  Keeps ignored files, commits, stashes, nested repositories, and' \
     '  submodule contents. Refuses a repository with no HEAD commit or an' \
     '  active merge, rebase, cherry-pick, revert, or bisect operation.' \
+    '  Repository content filters, hooks, filesystem monitors, lazy fetches,' \
+    '  and required-filter enforcement are disabled for inspection/restore.' \
+    '  After confirmation, the target, HEAD, operation, filter names, and' \
+    '  listed path states are revalidated before any change is applied.' \
     '  Discarded work has no automatic backup or rollback. If a later step' \
     '  fails, earlier changes can already have been applied; inspect status.' \
     '  Remaining nested-repository/submodule changes are reported as failure.' \
@@ -168,6 +172,46 @@ _tools_git_operation() {
   fi
 }
 
+# Git status and restore can invoke repository-configured content filters.
+# Discover bounded driver names, then override each one for a single command;
+# repository and user configuration remain untouched.
+_tools_git_filter_config() {
+  emulate -L zsh
+
+  local root=$1 packet='' config_output='' tail='' key='' driver=''
+  local -A seen=()
+  reply=()
+  packet=$( {
+      GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+        GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+        -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+        -c core.hooksPath=/dev/null config --null --name-only \
+        --get-regexp '^filter\..*\.(clean|smudge|process|required)$' 2>/dev/null
+      print -rn -- $'\0'"$?"
+    } | {
+      local chunk=''
+      IFS= read -r -u 0 -k 65539 chunk || :
+      print -rn -- "$chunk"
+    } )
+  (( ${#packet} <= 65538 )) || return 1
+  [[ $packet == *$'\0'* ]] || return 1
+  tail=${packet##*$'\0'}
+  config_output=${packet%$'\0'*}
+  [[ $tail == 0 || $tail == 1 ]] || return 1
+
+  while IFS= read -r -d '' key; do
+    driver=${${key#filter.}%.*}
+    [[ -n $driver && -z ${seen[$driver]-} ]] || continue
+    seen[$driver]=1
+    reply+=(
+      -c "filter.${driver}.clean="
+      -c "filter.${driver}.smudge="
+      -c "filter.${driver}.process="
+      -c "filter.${driver}.required=false"
+    )
+  done <<< "$config_output"
+}
+
 # Restore the entire repository to HEAD and remove untracked files after an
 # explicit preview and confirmation. Ignored files, stashes, and commits stay.
 git-discard-all() {
@@ -182,14 +226,17 @@ git-discard-all() {
     return 2
   }
 
-  local root='' display_root='' git_dir='' operation=''
-  local changes='' remaining='' answer=''
+  local root='' confirmed_root='' display_root='' git_dir='' confirmed_git_dir=''
+  local operation='' head='' confirmed_head=''
+  local changes='' confirmed_changes='' remaining='' answer=''
+  local -a filter_config=() confirmed_filter_config=()
+  local -i filter_config_changed=0 index=0
 
   root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
     print -u2 'git-discard-all: not inside a Git working tree'
     return 1
   }
-  command git -C "$root" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 || {
+  head=$(command git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || {
     print -u2 'git-discard-all: this repository has no commit to restore'
     return 1
   }
@@ -206,7 +253,15 @@ git-discard-all() {
     return 1
   fi
 
-  changes=$(command git -C "$root" -c core.fsmonitor=false status \
+  _tools_git_filter_config "$root" || {
+    print -u2 'git-discard-all: could not validate repository content filters'
+    return 1
+  }
+  filter_config=("${reply[@]}")
+  changes=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+    -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null "${filter_config[@]}" status \
     --porcelain=v1 --untracked-files=all) || {
     print -u2 'git-discard-all: could not inspect the working tree'
     return 1
@@ -228,16 +283,66 @@ git-discard-all() {
     return 1
   fi
 
-  command git -C "$root" restore --source=HEAD --staged --worktree -- . || {
+  confirmed_root=$(command git -C "$root" rev-parse --show-toplevel 2>/dev/null) &&
+    confirmed_head=$(command git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) &&
+    confirmed_git_dir=$(command git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || {
+      print -u2 'git-discard-all: could not revalidate the repository after confirmation; nothing was discarded'
+      return 1
+    }
+  _tools_git_operation "$confirmed_git_dir"
+  operation=$REPLY
+  _tools_git_filter_config "$root" || {
+    print -u2 'git-discard-all: repository filter configuration changed after the preview; nothing was discarded'
+    return 1
+  }
+  confirmed_filter_config=("${reply[@]}")
+  if (( ${#confirmed_filter_config} != ${#filter_config} )); then
+    filter_config_changed=1
+  else
+    for (( index = 1; index <= ${#filter_config}; ++index )); do
+      [[ ${confirmed_filter_config[index]} == "${filter_config[index]}" ]] || {
+        filter_config_changed=1
+        break
+      }
+    done
+  fi
+  confirmed_changes=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+    -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" status \
+    --porcelain=v1 --untracked-files=all) || {
+    print -u2 'git-discard-all: could not revalidate the working tree; nothing was discarded'
+    return 1
+  }
+  if [[ $confirmed_root != "$root" || $confirmed_git_dir != "$git_dir" ||
+        $confirmed_head != "$head" || -n $operation ||
+        $filter_config_changed != 0 ||
+        $confirmed_changes != "$changes" ]]; then
+    print -u2 'git-discard-all: repository state changed after the preview; nothing was discarded'
+    return 1
+  fi
+
+  GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+    -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
+    restore --source="$confirmed_head" --staged --worktree -- . || {
     print -u2 'git-discard-all: failed while restoring tracked files'
     return 1
   }
-  command git -C "$root" clean -fdq -- . || {
+  GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+    -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
+    clean -fdq -- . || {
     print -u2 'git-discard-all: tracked files were restored, but cleaning failed'
     return 1
   }
 
-  remaining=$(command git -C "$root" -c core.fsmonitor=false status \
+  remaining=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+    -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" status \
     --porcelain=v1 --untracked-files=all) || {
     print -u2 'git-discard-all: changes were applied, but verification failed'
     return 1

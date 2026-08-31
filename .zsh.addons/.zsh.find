@@ -259,6 +259,7 @@ _file_search_capture_local() {
   local -a queue=()
   local -a entries=()
   local -i position=1 max_visited=20000 consider_status=0 stop=0
+  local -i remaining=0 enumeration_limit=0
   [[ -d $root && -r $root && -x $root ]] || return 2
 
   _file_search_reset
@@ -272,7 +273,15 @@ _file_search_capture_local() {
   while (( position <= ${#queue} && !stop )); do
     directory=${queue[position++]}
     [[ -d $directory && -r $directory && -x $directory ]] || continue
-    entries=("$directory"/*(ND))
+    remaining=$(( max_visited - _FILE_SEARCH_VISITED ))
+    (( remaining > 0 )) || { _FILE_SEARCH_TRUNCATED=1; break; }
+    enumeration_limit=$(( remaining + 1 ))
+    # Y stops native enumeration after the remaining budget plus one
+    # lookahead, avoiding a full allocation/sort for a saturated directory.
+    entries=("$directory"/*(NDY$enumeration_limit))
+    # `Y` stops before glob sorting. Restore deterministic order for the
+    # bounded batch so paging and visible-slot selection remain stable.
+    entries=("${(on)entries[@]}")
     for entry in "${entries[@]}"; do
       if (( _FILE_SEARCH_VISITED >= max_visited )); then
         _FILE_SEARCH_TRUNCATED=1

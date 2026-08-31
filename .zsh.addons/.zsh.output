@@ -17,12 +17,24 @@ _output_apply_color_defaults() {
     match    199
     text     252
   )
-  local role
+  local role key current
 
-  typeset -gA ZSH_OUTPUT_COLORS
+  typeset -gA ZSH_OUTPUT_COLORS _COMPOZSH_COLOR_MANAGED
+  typeset -gA _COMPOZSH_COLOR_FALLBACKS
   for role in ${(k)defaults}; do
-    (( ${+ZSH_OUTPUT_COLORS[$role]} )) ||
+    key="output:$role"
+    _COMPOZSH_COLOR_FALLBACKS[$key]=${_COMPOZSH_COLOR_FALLBACKS[$key]:-${defaults[$role]}}
+    if (( ${+ZSH_OUTPUT_COLORS[$role]} )); then
+      current=${ZSH_OUTPUT_COLORS[$role]}
+      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
+         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
+            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
+        _COMPOZSH_COLOR_MANAGED[$key]=''
+      fi
+    else
       ZSH_OUTPUT_COLORS[$role]=${defaults[$role]}
+      _COMPOZSH_COLOR_MANAGED[$key]=${defaults[$role]}
+    fi
   done
 }
 _output_apply_color_defaults
@@ -33,11 +45,12 @@ unfunction _output_apply_color_defaults
 _output_color() {
   emulate -L zsh
 
-  local value=${ZSH_OUTPUT_COLORS[$1]:-$2}
+  local fallback=${_COMPOZSH_COLOR_FALLBACKS[output:$1]:-$2}
+  local value=${ZSH_OUTPUT_COLORS[$1]:-$fallback}
   if [[ $value == <0-255> ]]; then
     REPLY=$value
   else
-    REPLY=$2
+    REPLY=$fallback
   fi
 }
 

@@ -101,10 +101,15 @@ state:
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
-| Prompt and picker facts | Shell memory | Runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
+| Prompt, appearance, and picker facts | Shell memory | Terminal background classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
 | Bounded operation captures | `${TMPDIR:-/tmp}` | USB progress, Xcode output, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
-| Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update_xcode_skills` invocation and marked for safe refresh |
+| Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; never read back by Compozsh |
+
+Appearance detection writes one fixed OSC 11 background query to the attached
+terminal and retains only the resulting `light` or `dark` classification. It
+sends no shell, user, path, project, or environment data, starts no process,
+and falls back after a bounded wait when the terminal does not answer.
 
 These are local process, filesystem, agent-directory, and operating-system
 clipboard interfaces on the machine running Compozsh. A user can independently
@@ -134,7 +139,7 @@ dedicated secret store, and rotate any credential that was exposed.
 No administrator access occurs at shell startup, during installation, while
 showing help, during `compozsh-sudo-touch-id status`, or during normal prompt,
 search, history, Git, and navigation features. Administrator access has two
-explicit boundaries: `flash-usb` and `format_external_device` after the user
+explicit boundaries: `flash-usb` and `format-external-device` after the user
 selects a whole external physical disk and types the exact visible `ERASE
 diskN` confirmation; and `compozsh-sudo-touch-id enable|disable` after the user
 names that state-changing mode.
@@ -152,10 +157,14 @@ The privilege flow is deliberately narrow:
    Apple-signature-validated `createinstallmedia` from the explicitly selected
    macOS installer application.
 
-The raw-image routine passes image paths, device names, sizes, and verification
-flags as literal arguments. It does not pass shell history, environment dumps,
-credentials, or network destinations. Password handling remains entirely
-inside the operating system's `sudo` process.
+The raw-image routine passes image paths, captured source fingerprints, device
+names, sizes, and verification flags as literal arguments. Its privileged
+routine opens the source once with no-follow semantics, verifies the held file
+descriptor's device, inode, size, and modification time against the capture,
+and uses that descriptor for writing and read-back comparison. It does not pass
+shell history, environment dumps, credentials, or network destinations.
+Password handling remains entirely inside the operating system's `sudo`
+process.
 
 The Touch ID policy flow is separate and equally bounded:
 
@@ -237,11 +246,14 @@ local graphical-session and askpass limitations.
 
 Compozsh defines no project endpoint and initiates no network request. Its Git
 inspection does not request `clone`, `fetch`, `pull`, `push`, or another remote
-operation: prompt status disables a
-repository-configured filesystem monitor, branch views read local refs and
-reflogs, and Git review disables repository-configured clean/process filters
-for its own reads. File discovery uses bounded filesystem reads, local Git
-metadata, or the local Spotlight index.
+operation: prompt status disables repository-configured clean/process filters,
+filesystem monitors, hooks, required-filter enforcement, and lazy fetches;
+branch views read local refs and reflogs; and Git review applies its own
+equivalent read-only filter boundary. `git-discard-all` applies those controls
+to preview, restore, cleanup, and verification, and revalidates repository,
+HEAD, operation, filter-name, and listed-path state after confirmation. File
+discovery uses bounded filesystem reads, local Git metadata, or the local
+Spotlight index.
 
 This is the complete external-network boundary disclosure. The following
 independently controlled software can use the network; none is a permission for

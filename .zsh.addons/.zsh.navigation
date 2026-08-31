@@ -468,7 +468,7 @@ _compozsh_help_g() {
     '  omitted multiline context can affect colors; full context can help.' \
     '  Vim uses only system definitions, with user config/plugins/modelines off.' \
     '  Source stays in pipes; scroll/resize never run Vim. Syntax is bounded to' \
-    '  64 KiB input, 3,000 rows, 2,048 characters/line, 4,096 tokens, 300 ms child.' \
+    '  64 KiB input, 3,000 rows, 2,048 characters/line, 4,096 tokens, 800 ms child.' \
     '  Syntax limits retain readable diff text and backgrounds; Git limits below' \
     '  are separate. Refresh replaces both diff and syntax snapshots.' \
     '  Right: files -> focused diff -> full-file context. Left reverses the steps.' \
