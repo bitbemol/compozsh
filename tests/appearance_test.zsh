@@ -128,6 +128,26 @@ _test_completion_colors_preserve_ls_colors() {
 test_case 'adaptive completion preserves an explicit LS_COLORS palette' \
   _test_completion_colors_preserve_ls_colors
 
+_test_light_manual_selection_uses_contrasting_text() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output=''
+  test_write_file "$fake_bin/man" $'#!/bin/zsh\nif [[ $LESS_TERMCAP_so == *"38;5;231;48;5;25m" ]]; then\n  print -r -- contrasting-selection\nelse\n  print -r -- noncontrasting-selection\nfi' || return
+  command chmod +x "$fake_bin/man" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    path=("$2" $path)
+    ZSH_COLOR_SCHEME=light
+    source "$1/.zsh.addons/.zsh.appearance"
+    source "$1/.zsh.addons/.zsh.output"
+    man example
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+
+  test_assert_equal contrasting-selection "$output" \
+    'light manual selection used dark text on the deep selection background'
+}
+test_case 'light manual selection uses contrasting text and background roles' \
+  _test_light_manual_selection_uses_contrasting_text
+
 _test_color_scheme_detection_precedence_and_rgb() {
   test_make_temp_dir || return
   local output=''

@@ -38,8 +38,8 @@ _appearance_scheme_from_rgb() {
 }
 
 # Ask the terminal directly without launching a process. The short timeout is
-# paid only once while this peer loads; unsupported terminals fall back without
-# delaying prompt redraws or consuming later user input.
+# paid only once while this peer loads and bounds the startup wait when a
+# terminal does not answer.
 _appearance_query_terminal_background() {
   emulate -L zsh
 
