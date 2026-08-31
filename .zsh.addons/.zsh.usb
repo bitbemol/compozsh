@@ -26,6 +26,7 @@ typeset -gi _USB_WINDOWS_TOTAL_BYTES=0 _USB_WINDOWS_REQUIRED_BYTES=0
 typeset -gi _USB_WINDOWS_MAX_FILE_BYTES=4294967295
 typeset -gi _USB_WINDOWS_MAX_ENTRIES=65536
 typeset -gi _USB_WINDOWS_MINIMUM_BYTES=5000000000
+typeset -gi _USB_ISO_TABLE_MAX_BYTES=16777216
 typeset -g _USB_CREATEINSTALLMEDIA_ERROR=''
 typeset -g _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL=''
 typeset -g _USB_INFO_FINGERPRINT=''
@@ -330,8 +331,27 @@ _usb_windows_tree_capture() {
   _USB_WINDOWS_COMPATIBLE=1
 }
 
-# A Windows installer ISO is identified from its canonical setup payload, not
-# from its filename. The temporary mount is read-only and always detached.
+# Classification only needs to decide whether raw flashing must be refused.
+# Check a fixed set of canonical setup markers without enumerating or statting
+# the complete mounted tree; the retired Windows writer owns the deeper private
+# preflight and is never reached from the public workspace.
+_usb_windows_setup_markers_detect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB NULL_GLOB
+  local root=${1:A}
+  local -a markers=()
+  [[ -d $root && ! -L $root ]] || return 2
+  markers=(
+    "$root"/(#i)sources/boot.wim(N.)
+    "$root"/(#i)sources/install.wim(N.)
+    "$root"/(#i)sources/install.esd(N.)
+    "$root"/(#i)sources/install.swm(N.)
+    "$root"/(#i)efi/microsoft/boot/bcd(N.))
+  (( ${#markers} ))
+}
+
+# A Windows installer ISO is identified from canonical setup markers, not from
+# its filename. The temporary mount is read-only and always detached.
 _usb_windows_installer_detect() {
   emulate -L zsh
   setopt EXTENDED_GLOB NULL_GLOB
@@ -345,7 +365,7 @@ _usb_windows_installer_detect() {
     attach_status=$?
     device=$_USB_INSPECT_DEVICE
     if (( attach_status == 0 )); then
-      _usb_windows_tree_capture "$mount_point"
+      _usb_windows_setup_markers_detect "$mount_point"
       detected=$?
     fi
   } always {
@@ -361,6 +381,68 @@ _usb_windows_installer_detect() {
   return $detected
 }
 
+_usb_windows_filename_hint() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local name=${1:t:l}
+  [[ ${name:e} == iso ]] || return 1
+  case $name in
+    (win10.iso|win10[_-]*.iso|win11.iso|win11[_-]*.iso|\
+      windows10.iso|windows10[_-]*.iso|windows11.iso|windows11[_-]*.iso|\
+      windows[_-]10*.iso|windows[_-]11*.iso|\
+      windowsserver*.iso|windows[_-]server*.iso)
+      return 0 ;;
+  esac
+  return 1
+}
+
+_usb_windows_iso_table_detect() {
+  emulate -L zsh
+  local image=${1:A} temp_root=${TMPDIR:-/tmp} capture_file=''
+  local raw_size='' line='' folded=''
+  local -a command_statuses=()
+  local -i result=2 entry_count=0
+  [[ -f $image && ! -L $image && ${image:e:l} == iso &&
+    -x /usr/bin/tar && -x /usr/bin/head ]] || return 2
+  capture_file=$(command /usr/bin/mktemp \
+    "${temp_root%/}/compozsh-usb-iso.XXXXXX" 2>/dev/null) || return 2
+  {
+    command /usr/bin/tar -tf "$image" 2>/dev/null |
+      command /usr/bin/head -c $(( _USB_ISO_TABLE_MAX_BYTES + 1 )) >| "$capture_file"
+    command_statuses=("${pipestatus[@]}")
+    raw_size=$(command /usr/bin/stat -f '%z' "$capture_file" 2>/dev/null)
+    [[ $raw_size == <-> ]] || raw_size=0
+    if (( command_statuses[1] == 0 && command_statuses[2] == 0 &&
+          raw_size > 0 && raw_size <= _USB_ISO_TABLE_MAX_BYTES )); then
+      result=1
+      while IFS= read -r line; do
+        (( ++entry_count <= _USB_WINDOWS_MAX_ENTRIES )) || {
+          result=2
+          break
+        }
+        folded=${line:l}
+        folded=${folded#./}
+        folded=${folded%/}
+        case $folded in
+          (sources/boot.wim|sources/boot.wim\;<->|\
+            sources/install.wim|sources/install.wim\;<->|\
+            sources/install.esd|sources/install.esd\;<->|\
+            sources/install.swm|sources/install.swm\;<->|\
+            efi/microsoft/boot/bcd|efi/microsoft/boot/bcd\;<->)
+            result=0
+            break ;;
+        esac
+      done < "$capture_file"
+    fi
+  } always {
+    if [[ -n $capture_file && ${capture_file:t} == compozsh-usb-iso.* &&
+          ${capture_file:h:A} == ${temp_root:A} ]]; then
+      command /bin/rm -f -- "$capture_file"
+    fi
+  }
+  return $result
+}
+
 _usb_media_kind_capture() {
   emulate -L zsh
   local path=${1:A} detect_status=0
@@ -374,6 +456,23 @@ _usb_media_kind_capture() {
     return 2
   }
   if [[ ${path:e:l} == iso ]]; then
+    # Officially named Windows media can only reach the unsupported terminal
+    # screen, so refusing it from a conservative filename prefix is safe and
+    # avoids macOS's comparatively slow temporary attach/detach cycle. Renamed
+    # or ambiguous ISOs retain the structural inspection below.
+    if _usb_windows_filename_hint "$path"; then
+      REPLY=windows-installer
+      return 0
+    fi
+    _usb_windows_iso_table_detect "$path"
+    detect_status=$?
+    if (( detect_status == 0 )); then
+      REPLY=windows-installer
+      return 0
+    elif (( detect_status == 1 )); then
+      REPLY=raw-image
+      return 0
+    fi
     _usb_windows_installer_detect "$path"
     detect_status=$?
     if (( detect_status == 0 )); then
@@ -1670,6 +1769,27 @@ _usb_media_attention_choose() {
     "MEDIA  ›  ${image:t}" 'Choose another media' 1 0 1
 }
 
+_usb_windows_unsupported_choose() {
+  emulate -L zsh
+  local image=$1
+  local boundary='Windows USB creation is unavailable on stock macOS'
+  local boot='Boot requirement · Windows Setup requires FAT32 for portable UEFI media'
+  local limit='Media limit · Current Windows 11 ISOs can contain install.wim larger than 4 GiB'
+  local tool='Required tool · Microsoft requires DISM on Windows to create install.swm parts'
+  local safety='Safety · Compozsh will not use raw, exFAT, or NTFS workarounds'
+  local summary='Compozsh detected Windows Setup media and stopped before drive selection.'$'\n\n''Microsoft’s supported portable installer uses FAT32. Current Windows 11 ISOs can contain sources/install.wim larger than FAT32’s 4 GiB single-file limit. Microsoft requires DISM on Windows to split that image into install.swm parts; stock macOS has no supported WIM splitter. Raw writing and alternate exFAT or NTFS layouts are not reliable ordinary Windows Setup media.'$'\n\n''Nothing was written or targeted. Use Microsoft Media Creation Tool or DISM on Windows.'
+  local -a _USB_PICKER_VALUES=(done)
+  local -a _USB_PICKER_LABELS=('[ Done ]')
+  local -a _USB_PICKER_HIGHLIGHTS=('')
+  local -a _USB_PICKER_SEARCH=(done)
+  local -a _USB_PICKER_DETAILS=("$summary")
+  local -a _ZLE_PICKER_PASSIVE_LINES=("$boundary" "$boot" "$limit" "$tool" "$safety")
+  local -a _ZLE_PICKER_PASSIVE_STYLES=(
+    picker-error picker-text picker-text picker-text picker-success)
+  _usb_choose 'Flash USB · Windows unsupported' \
+    "MEDIA  ›  WINDOWS UNSUPPORTED · ${image:t}" 'Done' 0 0 1
+}
+
 _usb_macos_review_choose() {
   emulate -L zsh
   local installer=$1 disk_index=$2 disk=${_USB_DISK_IDS[disk_index]}
@@ -1790,11 +1910,9 @@ _usb_workspace_controller() {
       fi
       media_kind=$REPLY
     fi
-    if [[ $media_kind == windows-installer ]] && (( !_USB_WINDOWS_COMPATIBLE )); then
-      _usb_media_attention_choose "$image" \
-        "Windows installer cannot be created safely · ${_USB_WINDOWS_ERROR:-FAT32-compatible UEFI setup files were not found}" \
-        "${_USB_WINDOWS_ERROR:-The Windows installer tree is not compatible with the native FAT32 workflow.} Stock macOS cannot split Windows WIM files. Microsoft requires DISM on a Windows technician PC to create install.swm parts below FAT32's single-file limit. Nothing was written or targeted."
-      continue
+    if [[ $media_kind == windows-installer ]]; then
+      _usb_windows_unsupported_choose "$image"
+      return 1
     fi
     if [[ $media_kind == macos-installer ]] && ! _usb_macos_codesign_verify "$image"; then
       _usb_media_attention_choose "$image" \
@@ -4097,7 +4215,10 @@ _usb_media_execute() {
   case $kind in
     (raw-image) _usb_execute "$@" ;;
     (macos-installer) _usb_macos_execute "$@" ;;
-    (windows-installer) _usb_windows_execute "$@" ;;
+    (windows-installer)
+      _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0
+      _USB_RESULT_ERROR='Windows media is unsupported on stock macOS; nothing was written.'
+      return 2 ;;
     (*)
       _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0
       _USB_RESULT_ERROR='The selected media handler is unavailable; nothing was written.'
@@ -4928,13 +5049,16 @@ _compozsh_help_flash-usb() {
     '  context; Enter on Retry performs a fresh read-only source/target capture.' \
     '  Installed macOS installers in /Applications and ~/Applications are also' \
     '  captured. A macOS .dmg or .pkg must first install the full application.' \
-    '  ISO selection performs a temporary read-only inspection. Compatible UEFI' \
-    '  Windows setup media uses a filesystem-aware FAT32 handler. Windows media' \
-    '  without an x64 or ARM64 fallback UEFI loader is refused before targeting.' \
-    '  Any file beyond FAT32’s 4 GiB-minus-one-byte limit, reserved or ambiguous' \
-    '  FAT path, non-ASCII/control-bearing path, or incomplete setup tree is also' \
-    '  refused before target mutation. A clean read-only ISO mount refusal stays' \
-    '  eligible for raw/hybrid handling; partial attachment or cleanup fails closed.' \
+    '  ISO selection first reads a bounded archive table without mounting it.' \
+    '  Media the native archive reader cannot parse uses a read-only attach fallback;' \
+    '  every fallback device is detached before the workspace continues. Recognized' \
+    '  Windows Setup media opens a terminal Windows unsupported screen before' \
+    '  target capture. It explains the portable FAT32 requirement, its 4 GiB' \
+    '  single-file limit, and Microsoft’s DISM/install.swm resolution on Windows.' \
+    '  Done ends the tool. Nothing was written or targeted; Windows media is never' \
+    '  raw-flashed or routed through unverified exFAT or NTFS layouts.' \
+    '  A clean read-only ISO fallback refusal stays eligible for raw/hybrid handling;' \
+    '  partial attachment or cleanup fails closed.' \
     '' \
     'Target capture:' \
     '  diskutil supplies currently attached whole external physical disks.' \
@@ -4994,16 +5118,13 @@ _compozsh_help_flash-usb() {
     '  one Mac OS Extended volume on the selected whole disk, and invokes the' \
     '  installer’s createinstallmedia tool with live native progress. Apple’s' \
     '  tool performs the bootable-media creation; the result is then ejected.' \
-    '  Compatible Windows ISOs use another separate handler. It prepares MBR +' \
-    '  FAT32 for UEFI boot, copies the complete captured installer tree, flushes' \
-    '  it, revalidates the exact disk and partition, remounts that partition' \
-    '  read-only, and verifies every captured file using uncached target reads.' \
-    '  It supports UEFI x64 and ARM64 media. It does not claim hardware, driver,' \
-    '  firmware, or legacy BIOS compatibility, nor does it' \
-    '  split oversized WIM files, use exFAT, or raw-flash recognized Windows media.' \
-    '  The source identity is checked again after writing; a provided full-image' \
-    '  digest is also recalculated. The held raw session performs verification' \
-    '  under the authorization retained for writing.' \
+    '  Windows Setup media is deliberately not a creation action. Stock macOS has' \
+    '  no supported WIM splitter, while current Windows 11 media can exceed FAT32’s' \
+    '  file limit. Microsoft requires DISM on Windows to create install.swm parts.' \
+    '  The dispatcher therefore shows the reasons and exits before drive selection.' \
+    '  For raw images, the source identity is checked again after writing; a' \
+    '  provided full-image digest is also recalculated. The held raw session' \
+    '  performs verification under the authorization retained for writing.' \
     '  Flash only skips the read-back comparison. Both actions eject afterward;' \
     '  an eject is also attempted after a write or verification failure.' \
     '  A final screen remains until Done and reports bytes, duration, average' \
@@ -5021,7 +5142,7 @@ _compozsh_help_flash-usb() {
     '' \
     'Requirements and recovery:' \
     '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
-    '  and Apple’s diskutil, plutil, hdiutil, codesign, ditto, df, sync, mktemp,' \
+    '  and Apple’s diskutil, plutil, hdiutil, codesign, ditto, tar, df, sync, mktemp,' \
     '  rmdir, rm, sleep, cat, dd, cmp, cksum, head, od, tr, shasum, stat, and' \
     '  sudo tools.' \
     '  Apple mdfind supplies the indexed home catalog; if it fails, the shallow' \
@@ -5032,7 +5153,7 @@ _compozsh_help_flash-usb() {
     'Examples:' \
     '  flash-usb                         Choose a captured image and target.' \
     '  flash-usb ~/Downloads/Linux.iso  Select this exact raw image.' \
-    '  flash-usb ~/Downloads/Windows.iso  Create compatible UEFI Windows media.' \
+    '  flash-usb ~/Downloads/Windows.iso  Explain why Windows media is unsupported.' \
     '  flash-usb "/Applications/Install macOS Tahoe.app"  Use Apple’s handler.'
 }
 

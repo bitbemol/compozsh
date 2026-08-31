@@ -182,7 +182,9 @@ _test_tool_help_explains_real_boundaries() {
         'determinate progress' 'dedicated status view' 'no query or bottom footer' 'disconnect warning' 'semantic heading' 'current comparison pass' 'aligned 4 MiB reads' 'final screen' 'average'
         'raw handler does not pre-format' 'held write session' 'every image byte'
         'physical-tail cleanup' 'short reads' 'pre-mount proof' 'checksum' 'createinstallmedia'
-        'UEFI Windows' 'FAT32' '4 GiB' 'Apple code signature'
+        'Windows Setup media' 'Windows unsupported' 'FAT32' '4 GiB' 'DISM'
+        'install.swm' 'bounded archive table' 'attach fallback'
+        'Nothing was written or targeted' 'Apple code signature'
         'cannot roll back' 'Examples:') ;;
       (format_external_device) facts=('whole external physical' 'Internal' 'virtual'
         'read-only' 'partition-slice' '1 MiB' '4,096' '64 whole' 'Ctrl-R'

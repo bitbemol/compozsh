@@ -100,6 +100,10 @@ typeset -g _ZLE_PICKER_BROWSE_LABEL='items'
 typeset -g _ZLE_PICKER_EMPTY_LABEL='no matches'
 # Optional informational rows; never added to the selectable result array.
 typeset -ga _ZLE_PICKER_EMPTY_LINES=()
+# Optional passive rows shown after selectable results. They consume body space
+# but never receive selection indexes, matching, navigation, or actions.
+typeset -ga _ZLE_PICKER_PASSIVE_LINES=()
+typeset -ga _ZLE_PICKER_PASSIVE_STYLES=()
 typeset -gi _ZLE_PICKER_GUIDE_ACTIVE=0
 typeset -gi _ZLE_PICKER_GUIDE_OFFSET=0
 typeset -gi _ZLE_PICKER_GUIDE_PAGE=1
@@ -1151,6 +1155,7 @@ _zle_picker_render() {
   local -i index=0 count=${#_ZLE_PICKER_RESULTS} index_width=2 index_end=0
   local -i total=$count view_limit=$_ZLE_PICKER_VIEW_LIMIT first=1 last=0 position=0
   local -i zero_based=0 trail_width=0 label_width=0 label_start=0
+  local -i passive_count=${#_ZLE_PICKER_PASSIVE_LINES} passive_limit=0
   local shown_query='' shown_title='' shown_browse='' shown_empty=''
   local query_label="${(V)${_ZLE_PICKER_QUERY_LABEL:-Search}} " query_open='‹' query_close='›'
   local label='' row='' footer='' result_index='' context='' value='' accept_label='' highlight_specs=''
@@ -1177,6 +1182,12 @@ _zle_picker_render() {
     view_limit=$body_height
   else
     (( view_limit > 20 )) && view_limit=20
+    if (( passive_count )); then
+      (( passive_count >= body_height )) && passive_count=$(( body_height - 1 ))
+      (( passive_count < 0 )) && passive_count=0
+      (( view_limit > body_height - passive_count )) &&
+        view_limit=$(( body_height - passive_count ))
+    fi
   fi
   (( LINES > 6 && view_limit > body_height )) && view_limit=$body_height
   (( selected > total )) && selected=$total
@@ -1375,6 +1386,23 @@ _zle_picker_render() {
       _ZLE_PICKER_DISPLAY_INDEX_ENDS+=($index_end)
       _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=($context_start)
       _ZLE_PICKER_DISPLAY_MATCH_STARTS+=($(( _ZLE_PICKER_INDEXES_VISIBLE ? index_width + 5 : 2 )))
+    done
+  fi
+
+  # Passive context belongs to the current view, not its candidate set. Keep
+  # it visibly adjacent while excluding it from indexes and keyboard actions.
+  if (( passive_count )); then
+    passive_limit=$(( body_height - ${#_ZLE_PICKER_DISPLAY} ))
+    (( passive_limit > passive_count )) && passive_limit=$passive_count
+    for (( index = 1; index <= passive_limit; ++index )); do
+      row=${_ZLE_PICKER_PASSIVE_LINES[index]}
+      _zle_picker_fit "${(V)row}" $row_width
+      _ZLE_PICKER_DISPLAY+=("$REPLY")
+      _ZLE_PICKER_DISPLAY_STYLES+=("${_ZLE_PICKER_PASSIVE_STYLES[index]:-picker-text}")
+      _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
+      _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+      _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
+      _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
     done
   fi
 

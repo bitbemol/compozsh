@@ -84,7 +84,7 @@ private. Avoid inventing a privileged core tier through new terminology.
 | Collector | Picker code that filters, ranks or extends a result prefix from captured candidates. It performs no new provider discovery. |
 | Result | A candidate matching the current query/filter; it may be outside the visible viewport. |
 | Query / filter | Literal user input used for matching. Specify **discovery query** when submission triggers capture and **refinement filter** when it only narrows captured candidates. |
-| Viewport / visible row | The displayed slice of results / one presentation slot in that slice. A visible digit identifies a slot; the exact underlying value remains separate. |
+| Viewport / visible row | The displayed slice of results / one actionable presentation slot in that slice. A visible digit identifies that slot; the exact underlying value remains separate. Passive information is not a result row and receives no digit. |
 | Selection / target | Selection identifies the active candidate. A target is the exact value and necessary scope an operation will use, such as repository plus branch; it may instead be an explicitly named current folder. |
 | Target resolution | Turns a path or a selected recall result into an exact target for the next operation. It does not itself authorize insertion, directory change or execution; action dispatch validates mutable facts again. |
 | Operation / transition | An operation is a supported step; a transition is its change to interaction context or state. Use the five operation categories in [Context-preserving composition](#context-preserving-composition). |
@@ -663,6 +663,19 @@ sources prove a particular column ratio or key assignment is optimal.
 | Main body | Pickers prioritize results; document workspaces prioritize the selected document beside a stable navigator. Preserve exact values separately from labels |
 | Details / reader | Secondary information or a primary document, respectively; explicit focus and independent scroll, no provider calls during repaint. In a document workspace, distinguish selected content from keyboard focus |
 | Footer | Shared capability-derived hints; acceptance, Escape and keyboard-guide access get first priority |
+
+The visible `[n]` prefix is reserved for actionable candidates: directories,
+files, menu operations, or other exact values that the input loop can select and
+accept. Showing `[n] some text` promises that the row participates in selection
+and that its visible digit can choose it whenever digit selection is active.
+Information-only text must use passive rows, status/context regions, or
+details/reader content. It must not enter the result/candidate array, receive a
+selection cursor or selected-row highlight, become an arrow-navigation stop, or
+acquire a digit shortcut or acceptance action. When a screen has one action such
+as **Done** followed by an explanation, index only **Done**; render every reason,
+warning, statistic, and recovery instruction as passive content. Preserve this
+affordance consistently across every Compozsh screen and cover both candidate
+membership and rendered indexes in shared UI regression tests.
 
 The following is the canonical **modal picker key map**. These are Compozsh
 controls, not claims about macOS-wide shortcut standards. Use the same key for

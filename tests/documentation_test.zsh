@@ -112,3 +112,19 @@ _test_security_contract_is_public_and_auditable() {
 }
 test_case 'security and privacy contract stays public and auditable' \
   _test_security_contract_is_public_and_auditable
+
+_test_picker_index_affordance_is_documented() {
+  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+
+  test_assert_contains "$agents" \
+    'visible `[n]` prefix is reserved for actionable candidates' \
+    'agent contract does not reserve picker indexes for real actions' || return
+  test_assert_contains "$agents" \
+    'Information-only text must use passive rows' \
+    'agent contract lets explanatory text masquerade as picker actions' || return
+  test_assert_contains "$agents" \
+    'must not enter the result/candidate array' \
+    'agent contract does not separate passive text from selectable values'
+}
+test_case 'agent UI contract reserves picker indexes for actionable rows' \
+  _test_picker_index_affordance_is_documented

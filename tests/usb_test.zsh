@@ -31,6 +31,76 @@ _test_usb_media_classifier_routes_supported_families() {
 test_case 'USB media classifier routes raw, macOS, and Windows families explicitly' \
   _test_usb_media_classifier_routes_supported_families
 
+_test_usb_named_windows_media_skips_native_attachment() {
+  test_make_temp_dir || return
+  local windows="$TEST_TMP_DIR/Win11_25H2_English_x64_v2.iso" output=''
+  local linux="$TEST_TMP_DIR/ubuntu-windows-tools.iso"
+  test_write_file "$windows" "${(l:20000::w:)}" || return
+  test_write_file "$linux" "${(l:20000::l:)}" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    local -a trace=()
+    _usb_windows_installer_detect() {
+      trace+=("inspect:${1:t}")
+      [[ ${1:t} == ubuntu-windows-tools.iso ]] && return 1
+      return 77
+    }
+    _usb_media_kind_capture "$2"
+    print -r -- "windows:$?:$REPLY"
+    _usb_media_kind_capture "$3"
+    print -r -- "linux:$?:$REPLY"
+    print -r -- "trace:${(j:,:)trace}"
+  ' "$TEST_REPO_ROOT" "$windows" "$linux") || return
+
+  test_assert_contains "$output" 'windows:0:windows-installer' \
+    'an unmistakably named Windows ISO did not route directly to unsupported handling' || return
+  test_assert_contains "$output" 'linux:0:raw-image' \
+    'a non-Windows filename containing a generic windows fragment was misclassified' || return
+  test_assert_equal 'trace:inspect:ubuntu-windows-tools.iso' "${${(f)output}[-1]}" \
+    'the Windows filename fast path still attached its ISO or skipped ambiguous inspection'
+}
+test_case 'USB unmistakable Windows filenames bypass native ISO attachment' \
+  _test_usb_named_windows_media_skips_native_attachment
+
+_test_usb_ambiguous_iso_uses_native_archive_table_without_attachment() {
+  test_make_temp_dir || return
+  local windows_root="$TEST_TMP_DIR/windows-tree" linux_root="$TEST_TMP_DIR/linux-tree"
+  local windows_iso="$TEST_TMP_DIR/trust-me.iso" linux_iso="$TEST_TMP_DIR/rescue.iso"
+  local output=''
+  command mkdir -p "$windows_root/sources" "$windows_root/efi/microsoft/boot" \
+    "$linux_root/boot" || return
+  test_write_file "$windows_root/sources/boot.wim" boot || return
+  test_write_file "$windows_root/sources/install.wim" install || return
+  test_write_file "$windows_root/efi/microsoft/boot/bcd" bcd || return
+  test_write_file "$linux_root/boot/kernel" linux || return
+  command /usr/bin/hdiutil makehybrid -quiet -o "$windows_iso" \
+    "$windows_root" -iso -joliet || return
+  command /usr/bin/hdiutil makehybrid -quiet -o "$linux_iso" \
+    "$linux_root" -iso -joliet || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    local -a trace=()
+    _usb_hdiutil_attach_readonly() {
+      trace+=("attach:${1:t}")
+      return 1
+    }
+    _usb_media_kind_capture "$2"
+    print -r -- "windows:$?:$REPLY"
+    _usb_media_kind_capture "$3"
+    print -r -- "linux:$?:$REPLY"
+    print -r -- "trace:${(j:,:)trace}"
+  ' "$TEST_REPO_ROOT" "$windows_iso" "$linux_iso") || return
+
+  test_assert_contains "$output" 'windows:0:windows-installer' \
+    'an ambiguously named Windows ISO was not recognized from its archive table' || return
+  test_assert_contains "$output" 'linux:0:raw-image' \
+    'a parseable non-Windows ISO did not remain eligible for raw flashing' || return
+  test_assert_equal 'trace:' "${${(f)output}[-1]}" \
+    'a parseable ISO still entered the slow native attach/detach fallback'
+}
+test_case 'USB parseable ISO tables avoid native attachment without weakening detection' \
+  _test_usb_ambiguous_iso_uses_native_archive_table_without_attachment
+
 _test_usb_windows_detection_is_structural_and_always_detaches() {
   test_make_temp_dir || return
   local iso="$TEST_TMP_DIR/arbitrary-name.iso" output=''
@@ -87,6 +157,39 @@ _test_usb_windows_detection_is_structural_and_always_detaches() {
 test_case 'USB Windows detection uses setup markers and always detaches its probe' \
   _test_usb_windows_detection_is_structural_and_always_detaches
 
+_test_usb_windows_detection_avoids_obsolete_tree_preflight() {
+  test_make_temp_dir || return
+  local iso="$TEST_TMP_DIR/arbitrary-name.iso" output=''
+  test_write_file "$iso" "${(l:20000::w:)}" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    local -a trace=()
+    _usb_hdiutil_attach_readonly() {
+      command mkdir -p "$2/SOURCES" || return
+      print -r -- boot >| "$2/SOURCES/BOOT.WIM"
+      print -r -- install >| "$2/SOURCES/INSTALL.WIM"
+      _USB_INSPECT_DEVICE=disk98 _USB_INSPECT_MOUNT=$2
+    }
+    _usb_windows_tree_capture() {
+      trace+=(obsolete-recursive-preflight)
+      return 77
+    }
+    _usb_hdiutil_detach() {
+      trace+=("detach:$1")
+      command /bin/rm -f -- "$_USB_INSPECT_MOUNT/SOURCES/BOOT.WIM" \
+        "$_USB_INSPECT_MOUNT/SOURCES/INSTALL.WIM"
+      command /bin/rmdir "$_USB_INSPECT_MOUNT/SOURCES"
+    }
+    _usb_windows_installer_detect "$2"
+    print -r -- "status:$?|trace:${(j:,:)trace}"
+  ' "$TEST_REPO_ROOT" "$iso") || return
+
+  test_assert_equal 'status:0|trace:detach:disk98' "$output" \
+    'Step 1 Windows detection still traversed and statted the complete ISO tree'
+}
+test_case 'USB Step 1 Windows detection checks bounded markers without tree preflight' \
+  _test_usb_windows_detection_avoids_obsolete_tree_preflight
+
 _test_usb_windows_partial_attach_failure_stops_classification() {
   test_make_temp_dir || return
   local iso="$TEST_TMP_DIR/windows.iso" output=''
@@ -111,38 +214,22 @@ test_case 'USB Windows classification stops after a partial ISO attach failure' 
 
 _test_usb_windows_preflight_captures_a_fat32_compatible_tree() {
   test_make_temp_dir || return
-  local iso="$TEST_TMP_DIR/windows.iso" output=''
-  test_write_file "$iso" "${(l:20000::w:)}" || return
+  local root="$TEST_TMP_DIR/windows" output=''
+  command mkdir -p "$root/sources" "$root/EFI/BOOT" \
+    "$root/EFI/Microsoft/Boot" "$root/boot" || return
+  test_write_file "$root/sources/boot.wim" boot || return
+  test_write_file "$root/sources/install.esd" install || return
+  test_write_file "$root/EFI/BOOT/BOOTX64.EFI" uefi || return
+  test_write_file "$root/EFI/Microsoft/Boot/BCD" bcd || return
+  test_write_file "$root/boot/boot.sdi" sdi || return
+  test_write_file "$root/setup.exe" setup || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    _usb_hdiutil_attach_readonly() {
-      command mkdir -p "$2/sources" "$2/EFI/BOOT" \
-        "$2/EFI/Microsoft/Boot" "$2/boot" || return
-      print -rn -- boot >| "$2/sources/boot.wim"
-      print -rn -- install >| "$2/sources/install.esd"
-      print -rn -- uefi >| "$2/EFI/BOOT/BOOTX64.EFI"
-      print -rn -- bcd >| "$2/EFI/Microsoft/Boot/BCD"
-      print -rn -- sdi >| "$2/boot/boot.sdi"
-      print -rn -- setup >| "$2/setup.exe"
-      _USB_INSPECT_DEVICE=disk99 _USB_INSPECT_MOUNT=$2
-    }
-    _usb_hdiutil_detach() {
-      command /bin/rm -f -- "$_USB_INSPECT_MOUNT/sources/boot.wim" \
-        "$_USB_INSPECT_MOUNT/sources/install.esd" \
-        "$_USB_INSPECT_MOUNT/EFI/BOOT/BOOTX64.EFI" \
-        "$_USB_INSPECT_MOUNT/EFI/Microsoft/Boot/BCD" \
-        "$_USB_INSPECT_MOUNT/boot/boot.sdi" \
-        "$_USB_INSPECT_MOUNT/setup.exe"
-      command /bin/rmdir "$_USB_INSPECT_MOUNT/sources" \
-        "$_USB_INSPECT_MOUNT/EFI/Microsoft/Boot" \
-        "$_USB_INSPECT_MOUNT/EFI/Microsoft" "$_USB_INSPECT_MOUNT/EFI/BOOT" \
-        "$_USB_INSPECT_MOUNT/EFI" "$_USB_INSPECT_MOUNT/boot"
-    }
-    _usb_windows_installer_detect "$2"
+    _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|arch:$_USB_WINDOWS_ARCHITECTURE"
     print -r -- "layout:$_USB_WINDOWS_LAYOUT|files:$_USB_WINDOWS_FILE_COUNT|minimum:$_USB_WINDOWS_REQUIRED_BYTES"
     print -r -- "tree:${(j:,:)_USB_WINDOWS_FILES}"
-  ' "$TEST_REPO_ROOT" "$iso") || return
+  ' "$TEST_REPO_ROOT" "$root") || return
 
   test_assert_contains "$output" 'status:0|compatible:1|arch:x86_64' \
     'a UEFI Windows tree with FAT32-safe files was not accepted' || return
@@ -156,34 +243,19 @@ test_case 'USB Windows preflight captures a FAT32-compatible installer tree' \
 
 _test_usb_windows_preflight_rejects_an_oversized_file_before_targeting() {
   test_make_temp_dir || return
-  local iso="$TEST_TMP_DIR/windows-large.iso" output=''
-  test_write_file "$iso" "${(l:20000::w:)}" || return
+  local root="$TEST_TMP_DIR/windows-large" output=''
+  command mkdir -p "$root/sources" "$root/EFI/BOOT" \
+    "$root/EFI/Microsoft/Boot" "$root/boot" || return
+  test_write_file "$root/sources/boot.wim" boot || return
+  command /usr/bin/truncate -s 4294967296 "$root/sources/install.wim" || return
+  test_write_file "$root/EFI/BOOT/BOOTX64.EFI" uefi || return
+  test_write_file "$root/EFI/Microsoft/Boot/BCD" bcd || return
+  test_write_file "$root/boot/boot.sdi" sdi || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    _usb_hdiutil_attach_readonly() {
-      command mkdir -p "$2/sources" "$2/EFI/BOOT" \
-        "$2/EFI/Microsoft/Boot" "$2/boot" || return
-      print -rn -- boot >| "$2/sources/boot.wim"
-      command /usr/bin/truncate -s 4294967296 "$2/sources/install.wim" || return
-      print -rn -- uefi >| "$2/EFI/BOOT/BOOTX64.EFI"
-      print -rn -- bcd >| "$2/EFI/Microsoft/Boot/BCD"
-      print -rn -- sdi >| "$2/boot/boot.sdi"
-      _USB_INSPECT_DEVICE=disk99 _USB_INSPECT_MOUNT=$2
-    }
-    _usb_hdiutil_detach() {
-      command /bin/rm -f -- "$_USB_INSPECT_MOUNT/sources/boot.wim" \
-        "$_USB_INSPECT_MOUNT/sources/install.wim" \
-        "$_USB_INSPECT_MOUNT/EFI/BOOT/BOOTX64.EFI" \
-        "$_USB_INSPECT_MOUNT/EFI/Microsoft/Boot/BCD" \
-        "$_USB_INSPECT_MOUNT/boot/boot.sdi"
-      command /bin/rmdir "$_USB_INSPECT_MOUNT/sources" \
-        "$_USB_INSPECT_MOUNT/EFI/Microsoft/Boot" \
-        "$_USB_INSPECT_MOUNT/EFI/Microsoft" "$_USB_INSPECT_MOUNT/EFI/BOOT" \
-        "$_USB_INSPECT_MOUNT/EFI" "$_USB_INSPECT_MOUNT/boot"
-    }
-    _usb_windows_installer_detect "$2"
+    _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
-  ' "$TEST_REPO_ROOT" "$iso") || return
+  ' "$TEST_REPO_ROOT" "$root") || return
 
   test_assert_contains "$output" 'status:0|compatible:0' \
     'an oversized Windows installer file was not recognized and refused safely' || return
@@ -257,7 +329,7 @@ _test_usb_apple_signature_boundary_rejects_unsigned_tools() {
 test_case 'USB macOS handler accepts Apple code and rejects unsigned tools' \
   _test_usb_apple_signature_boundary_rejects_unsigned_tools
 
-_test_usb_media_dispatcher_isolates_all_three_handlers() {
+_test_usb_media_dispatcher_rejects_windows_execution() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
@@ -268,17 +340,19 @@ _test_usb_media_dispatcher_isolates_all_three_handlers() {
     _usb_windows_execute() { trace+=(windows); return 0; }
     _usb_media_execute raw-image a b c || exit 2
     _usb_media_execute macos-installer a b c || exit 3
-    _usb_media_execute windows-installer a b c || exit 4
-    print -r -- "trace:${(j:,:)trace}"
+    _usb_media_execute windows-installer a b c
+    print -r -- "windows-status:$?|trace:${(j:,:)trace}|error:$_USB_RESULT_ERROR"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'trace:raw,macos,windows' \
-    'the dispatcher did not isolate raw, macOS, and Windows handlers'
+  test_assert_contains "$output" 'windows-status:2|trace:raw,macos|error:' \
+    'the execution dispatcher still invoked the discarded Windows writer' || return
+  test_assert_contains "$output" 'Windows media is unsupported on stock macOS; nothing was written' \
+    'the execution boundary did not retain the Windows no-effect guarantee'
 }
-test_case 'USB media dispatcher isolates raw, macOS, and Windows handlers' \
-  _test_usb_media_dispatcher_isolates_all_three_handlers
+test_case 'USB media execution rejects the discarded Windows writer' \
+  _test_usb_media_dispatcher_rejects_windows_execution
 
-_test_usb_workspace_refuses_incompatible_windows_before_target_capture() {
+_test_usb_workspace_ends_on_windows_media_before_target_capture() {
   test_make_temp_dir || return
   local image="$TEST_TMP_DIR/windows.iso" output=''
   test_write_file "$image" "${(l:20000::w:)}" || return
@@ -289,12 +363,12 @@ _test_usb_workspace_refuses_incompatible_windows_before_target_capture() {
     _USB_IMAGE_SIZES=(20000) _USB_IMAGE_FINGERPRINTS=(fingerprint)
     _USB_IMAGE_KINDS=(raw-image) _USB_IMAGE_CAPTURE_SCOPE=test
     local -i choices=0
-    local compatibility_detail=""
+    local screen_values="" screen_labels="" done_detail="" passive_lines=""
     local -a trace=()
     _usb_media_kind_capture() {
       REPLY=windows-installer
-      _USB_WINDOWS_COMPATIBLE=0
-      _USB_WINDOWS_ERROR="FAT32 cannot store sources/install.wim because it exceeds 4 GiB"
+      _USB_WINDOWS_COMPATIBLE=1
+      _USB_WINDOWS_ARCHITECTURE=x86_64
     }
     _usb_target_choose() { trace+=(TARGET_CAPTURE_CALLED); return 9; }
     _usb_choose() {
@@ -304,77 +378,49 @@ _test_usb_workspace_refuses_incompatible_windows_before_target_capture() {
         _ZLE_PICKER_SELECTED_VALUE=image:1 _ZLE_PICKER_ACTION=accept
         return 0
       fi
-      if [[ $1 == "Flash USB · Media compatibility" ]]; then
-        compatibility_detail=${_USB_PICKER_DETAILS[1]}
+      if [[ $1 == "Flash USB · Windows unsupported" ]]; then
+        screen_values=${(j:,:)_USB_PICKER_VALUES}
+        screen_labels=${(j:|:)_USB_PICKER_LABELS}
+        done_detail=${_USB_PICKER_DETAILS[1]}
+        passive_lines=${(j:|:)_ZLE_PICKER_PASSIVE_LINES}
+        _ZLE_PICKER_SELECTED_VALUE=done _ZLE_PICKER_ACTION=accept
+        return 0
       fi
       return 1
     }
     _usb_workspace_controller >/dev/null 2>&1
-    print -r -- "status:$?|trace:${(j:,:)trace}|default-detail:$compatibility_detail"
+    print -r -- "status:$?|trace:${(j:,:)trace}"
+    print -r -- "values:$screen_values"
+    print -r -- "labels:$screen_labels"
+    print -r -- "passive:$passive_lines"
+    print -r -- "done-detail:$done_detail"
   ' "$TEST_REPO_ROOT" "$image") || return
 
   test_assert_contains "$output" \
-    'status:1|trace:screen:Flash USB · Step 1 of 3,screen:Flash USB · Media compatibility,screen:Flash USB · Step 1 of 3|default-detail:' \
-    'recognized Windows media reached target capture or skipped its refusal screen' || return
-  test_assert_contains "$output" \
-    'default-detail:FAT32 cannot store sources/install.wim because it exceeds 4 GiB' \
-    'the default Windows refusal choice hid the decisive compatibility reason' || return
-  test_assert_contains "$output" 'Stock macOS cannot split Windows WIM files' \
-    'the Windows refusal did not explain the native macOS boundary' || return
+    'status:1|trace:screen:Flash USB · Step 1 of 3,screen:Flash USB · Windows unsupported' \
+    'recognized Windows media did not end through its dedicated terminal screen' || return
+  test_assert_contains "$output" 'values:done' \
+    'the Windows unsupported screen did not make Done its only action' || return
+  [[ $output != *'values:done,'* ]] ||
+    test_fail 'the Windows explanation was exposed as numbered picker actions' || return
+  test_assert_contains "$output" 'labels:[ Done ]' \
+    'the Windows unsupported screen exposed selectable explanation rows' || return
+  test_assert_contains "$output" 'passive:Windows USB creation is unavailable on stock macOS' \
+    'the Windows explanation was not rendered as passive content' || return
+  test_assert_contains "$output" 'Windows USB creation is unavailable on stock macOS' \
+    'the Windows unsupported screen did not state the product boundary' || return
+  test_assert_contains "$output" 'Windows Setup requires FAT32' \
+    'the Windows unsupported screen omitted the portable boot requirement' || return
+  test_assert_contains "$output" 'install.wim larger than 4 GiB' \
+    'the Windows unsupported screen omitted the WIM size conflict' || return
+  test_assert_contains "$output" 'Microsoft requires DISM on Windows' \
+    'the Windows unsupported screen omitted Microsoft’s supported resolution' || return
+  test_assert_contains "$output" 'Nothing was written or targeted' \
+    'the Windows unsupported screen did not state its no-effect guarantee' || return
   [[ $output != *TARGET_CAPTURE_CALLED* ]] || test_fail 'Windows refusal mutated or captured a target'
 }
-test_case 'USB workspace refuses incompatible Windows media before target capture' \
-  _test_usb_workspace_refuses_incompatible_windows_before_target_capture
-
-_test_usb_workspace_composes_a_compatible_windows_installer() {
-  test_make_temp_dir || return
-  local image="$TEST_TMP_DIR/windows.iso" output=''
-  test_write_file "$image" "${(l:20000::w:)}" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    _USB_IMAGE_PATHS=("$2") _USB_IMAGE_LABELS=(windows.iso)
-    _USB_IMAGE_HIGHLIGHTS=("") _USB_IMAGE_DETAILS=(Windows)
-    _USB_IMAGE_SIZES=(20000) _USB_IMAGE_FINGERPRINTS=(fingerprint)
-    _USB_IMAGE_KINDS=(raw-image) _USB_IMAGE_CAPTURE_SCOPE=test
-    local -i choices=0
-    local -a trace=()
-    _usb_media_kind_capture() {
-      REPLY=windows-installer
-      _USB_WINDOWS_COMPATIBLE=1 _USB_WINDOWS_REQUIRED_BYTES=5000000000
-      _USB_WINDOWS_ARCHITECTURE=x86_64 _USB_WINDOWS_LAYOUT=install.esd
-    }
-    _usb_image_source_disk_retry() { _USB_IMAGE_SOURCE_DISK=; }
-    _usb_target_choose() {
-      trace+=("target-min:$1|kind:$7")
-      _USB_DISK_IDS=(disk99) _USB_DISK_LABELS=("Test USB")
-      _USB_DISK_DETAILS=(details) _USB_DISK_SIZES=(8000000000)
-      _USB_DISK_FINGERPRINTS=(disk-fingerprint)
-      _ZLE_PICKER_SELECTED_VALUE=1
-    }
-    _usb_choose() {
-      (( ++choices ))
-      trace+=("screen:$1")
-      if (( choices == 1 )); then
-        _ZLE_PICKER_SELECTED_VALUE=image:1 _ZLE_PICKER_ACTION=accept
-      else
-        _ZLE_PICKER_SELECTED_VALUE=flash-verify _ZLE_PICKER_ACTION=accept
-      fi
-    }
-    _usb_workspace_controller
-    print -r -- "status:$?|request:$_USB_REQUEST|kind:$_USB_SELECTED_MEDIA_KIND|arch:$_USB_SELECTED_IMAGE_ARCHITECTURE"
-    print -r -- "trace:${(j:,:)trace}"
-  ' "$TEST_REPO_ROOT" "$image") || return
-
-  test_assert_contains "$output" \
-    'status:0|request:flash-verify|kind:windows-installer|arch:x86_64' \
-    'a compatible Windows installer did not reach the verified creation action' || return
-  test_assert_contains "$output" 'target-min:5000000000|kind:windows-installer' \
-    'Windows target selection did not use the captured FAT32 tree minimum' || return
-  [[ $output != *'Media compatibility'* ]] ||
-    test_fail 'a compatible Windows installer was routed through the refusal screen'
-}
-test_case 'USB workspace composes compatible Windows media through target and review' \
-  _test_usb_workspace_composes_a_compatible_windows_installer
+test_case 'USB workspace ends on all Windows media before target capture' \
+  _test_usb_workspace_ends_on_windows_media_before_target_capture
 
 _test_usb_windows_copy_and_verification_cover_every_file() {
   test_make_temp_dir || return
@@ -490,15 +536,13 @@ _test_usb_windows_partial_family_fails_closed_in_dispatch() {
       command /bin/rm -rf -- "$_USB_INSPECT_MOUNT"/*(DN)
     }
     _usb_media_kind_capture "$2/image.iso"
-    print -r -- "status:$?|kind:$REPLY|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
+    print -r -- "status:$?|kind:$REPLY"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" "$root") || return
 
-  test_assert_contains "$output" 'status:0|kind:windows-installer|compatible:0' \
-    'a partially recognizable Windows family escaped into the raw-image handler' || return
-  test_assert_contains "$output" 'incomplete' \
-    'partial Windows setup media did not receive a precise fail-closed explanation'
+  test_assert_equal 'status:0|kind:windows-installer' "$output" \
+    'a partially recognizable Windows family escaped into the raw-image handler'
 }
-test_case 'USB Windows dispatcher refuses a partial setup family instead of raw flashing it' \
+test_case 'USB partial Windows setup markers route to unsupported handling' \
   _test_usb_windows_partial_family_fails_closed_in_dispatch
 
 _test_usb_generic_uefi_loader_does_not_claim_windows_family() {

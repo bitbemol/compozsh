@@ -68,6 +68,38 @@ _test_fullscreen_status_view_omits_input_and_bottom_footer() {
 test_case 'fullscreen status view keeps progress prominent and removes input chrome' \
   _test_fullscreen_status_view_omits_input_and_bottom_footer
 
+_test_fullscreen_passive_rows_are_not_picker_actions() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    COLUMNS=140 LINES=24
+    _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_TITLE="Flash USB · Windows unsupported"
+    _ZLE_PICKER_BROWSE_LABEL="captured choices · no action yet"
+    _ZLE_PICKER_QUERY_LABEL=Done
+    _ZLE_PICKER_RESULTS=(done) _ZLE_PICKER_LABELS=("[ Done ]")
+    _ZLE_PICKER_RESULT_INDEXES=(1)
+    _ZLE_PICKER_PASSIVE_LINES=(
+      "Windows USB creation is unavailable on stock macOS"
+      "Boot requirement · Windows Setup requires FAT32")
+    _ZLE_PICKER_PASSIVE_STYLES=(picker-error picker-text)
+    _zle_picker_render "" 1 || exit 1
+    [[ $_ZLE_PICKER_DISPLAY[2] == "[ 1] ● [ Done ]"* ]] || exit 2
+    [[ $_ZLE_PICKER_DISPLAY[3] == "Windows USB creation is unavailable"* &&
+       $_ZLE_PICKER_DISPLAY[4] == "Boot requirement"* ]] || exit 3
+    [[ $_ZLE_PICKER_DISPLAY[3] != \[* && $_ZLE_PICKER_DISPLAY[4] != \[* ]] || exit 4
+    [[ ${(j:,:)_ZLE_PICKER_VISIBLE_KEYS} == 1 ]] || exit 5
+    [[ $_ZLE_PICKER_DISPLAY_STYLES[3] == picker-error &&
+       $_ZLE_PICKER_DISPLAY_STYLES[4] == picker-text ]] || exit 6
+    print passive-layout
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal passive-layout "$output"
+}
+test_case 'fullscreen passive context never receives picker numbers or actions' \
+  _test_fullscreen_passive_rows_are_not_picker_actions
+
 _test_files_primary_action_hints() {
   test_make_temp_dir || return
   local output
