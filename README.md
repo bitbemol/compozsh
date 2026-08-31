@@ -251,7 +251,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication | `compozsh-sudo-touch-id` inspects, enables, or safely disables Apple Touch ID through the system-supported `sudo_local` PAM policy |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
 | `.zsh.usb` | External-disk preparation | `format-external-device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
-| `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update-xcode-skills` exports Apple-authored skills to detected coding agents |
+| `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools and reports bounded test outcomes with failure files; `update-xcode-skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -2369,7 +2369,22 @@ Build-related choices are explicit execution boundaries. A project can contain
 build scripts, package plugins, macros, tests, and application code, so review
 an unfamiliar repository before applying an action. The full-screen dashboard
 closes before the selected action starts, leaving Xcode’s native output in the
-normal terminal.
+normal terminal. After **Test** finishes, the dashboard reopens with a result
+snapshot. A successful run is shown with the shared success color and its test
+totals. A failed run uses the shared error color and lists up to 20 failed tests
+plus up to 20 build-stage errors; selecting one shows Xcode’s failure reason,
+target, and every structured source location retained for that item. Xcode does
+not attach a source location to every failure, and the result view says so when
+no involved file was reported. If structured results cannot be read, the view
+still reports the native action status and labels totals/details as unavailable.
+
+For the dashboard Test action, Compozsh asks Xcode for a temporary `.xcresult`
+bundle beneath `${TMPDIR:-/tmp}`. It reads only bounded summaries, failure
+details, source locations, and build issues through `xcresulttool`; it does not
+read attachments or source-file contents, and disables Xcode’s verbose test
+diagnostic collection for this transient bundle. The bundle is removed before
+the result window opens. Direct `xcode` arguments remain unmodified
+`xcodebuild` access and do not add this result window.
 
 Arguments keep direct access to the underlying CLI and preserve its status:
 

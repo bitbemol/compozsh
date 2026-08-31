@@ -102,7 +102,7 @@ state:
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
-| Bounded operation captures | `${TMPDIR:-/tmp}` | USB progress, Xcode output, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; never read back by Compozsh |
 
@@ -127,6 +127,14 @@ retention policy. Compozsh deliberately does not delete them automatically.
 An uncatchable process termination or system failure can also leave a temporary
 capture behind; its validated `compozsh-*` name makes it identifiable in
 `${TMPDIR:-/tmp}`.
+
+The Xcode dashboard's Test action asks Xcode to create a transient result
+bundle while disabling verbose test-diagnostic collection. Xcode can still put
+test-authored attachments and logs in that bundle. Compozsh reads only
+size-bounded summary/detail JSON and structured source locations, never those
+attachments or source files, and removes the complete bundle before opening the
+result view. An uncatchable termination can leave the local bundle behind under
+the identifiable `compozsh-xcode-test.*` temporary directory.
 
 Shell command lines are a poor place for passwords, tokens, or private keys:
 they can be exposed through history, process listings, logs, or the invoked

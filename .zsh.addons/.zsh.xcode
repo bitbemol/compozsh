@@ -20,6 +20,14 @@ typeset -ga _XCODE_SCHEMES=()
 typeset -ga _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
 typeset -ga _XCODE_DESTINATION_NAMES=() _XCODE_COMMAND=()
 typeset -g _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+typeset -g _XCODE_TEST_RESULT='' _XCODE_TEST_CAPTURE_ERROR=''
+typeset -g _XCODE_TEST_SCHEME='' _XCODE_TEST_DESTINATION=''
+typeset -gi _XCODE_TEST_TOTAL=0 _XCODE_TEST_PASSED=0 _XCODE_TEST_FAILED=0
+typeset -gi _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
+typeset -ga _XCODE_TEST_FAILURE_NAMES=() _XCODE_TEST_FAILURE_TARGETS=()
+typeset -ga _XCODE_TEST_FAILURE_TEXTS=() _XCODE_TEST_FAILURE_FILES=()
+typeset -ga _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=()
+typeset -ga _XCODE_TEST_BUILD_FILES=()
 
 _xcode_container_discover() {
   emulate -L zsh
@@ -120,6 +128,172 @@ _xcode_json_raw() {
   (( $+commands[plutil] )) || return 1
   REPLY=$(print -rn -- "$json" |
     command /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null) || return
+}
+
+_xcode_test_result_reset() {
+  emulate -L zsh
+  _XCODE_TEST_RESULT='' _XCODE_TEST_CAPTURE_ERROR=''
+  _XCODE_TEST_TOTAL=0 _XCODE_TEST_PASSED=0 _XCODE_TEST_FAILED=0
+  _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
+  _XCODE_TEST_FAILURE_NAMES=() _XCODE_TEST_FAILURE_TARGETS=()
+  _XCODE_TEST_FAILURE_TEXTS=() _XCODE_TEST_FAILURE_FILES=()
+  _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=()
+  _XCODE_TEST_BUILD_FILES=()
+}
+
+# Collect structured source locations from one failed test's bounded detail
+# tree. xcresulttool owns the schema; this walker accepts only its numeric array
+# indexes, limits depth/nodes, and retains no attachments or source contents.
+_xcode_test_node_sources_capture() {
+  emulate -L zsh
+  local json=$1 key=$2
+  local -i depth=${3:-0} children=0 index=0 line=0
+  local file=''
+  (( depth <= 12 && _XCODE_TEST_DETAIL_NODE_COUNT < 256 )) || return 0
+  (( ++_XCODE_TEST_DETAIL_NODE_COUNT ))
+
+  if _xcode_json_raw "$json" "$key.sourceLocation.filePath"; then
+    file=$REPLY
+    if [[ -n $file && ${#file} -le 4096 && $file != *[[:cntrl:]]* ]]; then
+      if _xcode_json_raw "$json" "$key.sourceLocation.lineNumber" &&
+          [[ $REPLY == <-> ]]; then
+        line=$REPLY
+      fi
+      (( line > 0 )) && file+=":$line"
+      (( _XCODE_TEST_DETAIL_FILES[(Ie)$file] )) ||
+        _XCODE_TEST_DETAIL_FILES+=("$file")
+    fi
+  fi
+  _xcode_json_raw "$json" "$key.children" || return 0
+  children=$REPLY
+  [[ $children == <-> ]] || return 0
+  (( children > 64 )) && children=64
+  for (( index = 0; index < children; ++index )); do
+    _xcode_test_node_sources_capture "$json" "$key.children.$index" $(( depth + 1 ))
+    (( _XCODE_TEST_DETAIL_NODE_COUNT < 256 )) || break
+  done
+}
+
+_xcode_test_failure_files_capture() {
+  emulate -L zsh
+  local bundle=$1 identifier=$2 json='' count=0
+  local -i index=0
+  typeset -ga _XCODE_TEST_DETAIL_FILES=()
+  typeset -gi _XCODE_TEST_DETAIL_NODE_COUNT=0
+  [[ -n $identifier && ${#identifier} -le 4096 &&
+     $identifier != *[[:cntrl:]]* ]] || return 1
+  _xcode_capture_command xcrun xcresulttool get test-results test-details \
+    --path "$bundle" --test-id "$identifier" --compact || return
+  json=$_XCODE_CAPTURE
+  _xcode_json_raw "$json" testRuns || return 1
+  count=$REPLY
+  [[ $count == <-> ]] || return 1
+  (( count > 64 )) && count=64
+  for (( index = 0; index < count; ++index )); do
+    _xcode_test_node_sources_capture "$json" "testRuns.$index" 0
+    (( _XCODE_TEST_DETAIL_NODE_COUNT < 256 )) || break
+  done
+  (( ${#_XCODE_TEST_DETAIL_FILES} ))
+}
+
+_xcode_test_source_url_display() {
+  emulate -L zsh
+  local source=$1
+  [[ -n $source && ${#source} -le 4096 &&
+     $source != *[[:cntrl:]]* ]] || { REPLY=''; return 1; }
+  source=${source#file://}
+  source=${source//\%20/ }
+  REPLY=$source
+}
+
+_xcode_test_build_issues_capture() {
+  emulate -L zsh
+  local bundle=$1 json='' count=0 message='' issue='' target='' source=''
+  local -i index=0
+  _xcode_capture_command xcrun xcresulttool get build-results \
+    --path "$bundle" --compact || return
+  json=$_XCODE_CAPTURE
+  _xcode_json_raw "$json" errors || return 0
+  count=$REPLY
+  [[ $count == <-> ]] || return 1
+  (( count > 20 )) && count=20
+  for (( index = 0; index < count; ++index )); do
+    _xcode_json_raw "$json" "errors.$index.issueType" && issue=$REPLY || issue='Build error'
+    _xcode_json_raw "$json" "errors.$index.targetName" && target=$REPLY || target=''
+    _xcode_json_raw "$json" "errors.$index.message" && message=$REPLY || message='No diagnostic was reported.'
+    _xcode_json_raw "$json" "errors.$index.sourceURL" && source=$REPLY || source=''
+    (( ${#issue} > 256 )) && issue=${issue[1,256]}
+    (( ${#target} > 256 )) && target=${target[1,256]}
+    (( ${#message} > 4096 )) && message=${message[1,4096]}
+    [[ -n $target ]] && issue+=" · $target"
+    _xcode_test_source_url_display "$source" || REPLY=''
+    _XCODE_TEST_BUILD_NAMES+=("$issue")
+    _XCODE_TEST_BUILD_TEXTS+=("$message")
+    _XCODE_TEST_BUILD_FILES+=("$REPLY")
+  done
+}
+
+# Read only the bounded summary, failed-test details, and build issues from the
+# transient xcresult bundle. The native xcodebuild stream remains untouched in
+# the restored terminal while these captured facts feed the result view.
+_xcode_test_result_capture() {
+  emulate -L zsh
+  local bundle=$1
+  local -i action_status=${2:-1} failure_count=0 index=0
+  local json='' name='' target='' reason='' identifier='' files=''
+  _xcode_test_result_reset
+  (( $+commands[xcrun] )) || {
+    (( action_status == 0 )) && _XCODE_TEST_RESULT=Passed || _XCODE_TEST_RESULT=Failed
+    _XCODE_TEST_CAPTURE_ERROR='xcrun is unavailable; the native test status is shown without structured details'
+    return 0
+  }
+
+  if _xcode_capture_command xcrun xcresulttool get test-results summary \
+       --path "$bundle" --compact; then
+    json=$_XCODE_CAPTURE
+    _xcode_json_raw "$json" result && _XCODE_TEST_RESULT=$REPLY
+    case $_XCODE_TEST_RESULT in
+      (Passed|Failed|'Expected Failure'|Skipped|unknown) ;;
+      (*) _XCODE_TEST_RESULT='' ;;
+    esac
+    _xcode_json_raw "$json" totalTestCount && [[ $REPLY == <-> ]] && _XCODE_TEST_TOTAL=$REPLY
+    _xcode_json_raw "$json" passedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_PASSED=$REPLY
+    _xcode_json_raw "$json" failedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_FAILED=$REPLY
+    _xcode_json_raw "$json" skippedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_SKIPPED=$REPLY
+    _xcode_json_raw "$json" expectedFailures && [[ $REPLY == <-> ]] && _XCODE_TEST_EXPECTED_FAILURES=$REPLY
+    _xcode_json_raw "$json" testFailures && failure_count=$REPLY || failure_count=0
+    [[ $failure_count == <-> ]] || failure_count=0
+    (( failure_count > 20 )) && failure_count=20
+    for (( index = 0; index < failure_count; ++index )); do
+      _xcode_json_raw "$json" "testFailures.$index.testName" && name=$REPLY || name="Failed test $(( index + 1 ))"
+      _xcode_json_raw "$json" "testFailures.$index.targetName" && target=$REPLY || target=''
+      _xcode_json_raw "$json" "testFailures.$index.failureText" && reason=$REPLY || reason='No failure reason was reported.'
+      _xcode_json_raw "$json" "testFailures.$index.testIdentifierURL" && identifier=$REPLY || identifier=''
+      [[ -n $identifier ]] ||
+        { _xcode_json_raw "$json" "testFailures.$index.testIdentifierString" && identifier=$REPLY || identifier=''; }
+      (( ${#name} > 512 )) && name=${name[1,512]}
+      (( ${#target} > 256 )) && target=${target[1,256]}
+      (( ${#reason} > 4096 )) && reason=${reason[1,4096]}
+      files=''
+      if _xcode_test_failure_files_capture "$bundle" "$identifier"; then
+        files=${(F)_XCODE_TEST_DETAIL_FILES}
+      fi
+      _XCODE_TEST_FAILURE_NAMES+=("$name")
+      _XCODE_TEST_FAILURE_TARGETS+=("$target")
+      _XCODE_TEST_FAILURE_TEXTS+=("$reason")
+      _XCODE_TEST_FAILURE_FILES+=("$files")
+    done
+  else
+    _XCODE_TEST_CAPTURE_ERROR=${_XCODE_CAPTURE_ERROR:-'Xcode returned no readable test summary'}
+  fi
+
+  if [[ -z $_XCODE_TEST_RESULT ]]; then
+    (( action_status == 0 )) && _XCODE_TEST_RESULT=Passed || _XCODE_TEST_RESULT=Failed
+  elif (( action_status != 0 )); then
+    _XCODE_TEST_RESULT=Failed
+  fi
+  (( action_status != 0 )) && _xcode_test_build_issues_capture "$bundle"
+  return 0
 }
 
 _xcode_schemes_capture() {
@@ -355,6 +529,168 @@ _xcode_choose() {
   _zle_picker_loop '' 20
 }
 
+_xcode_test_result_choose() {
+  emulate -L zsh
+  local title=$1 subtitle=$2
+  local _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
+  local _ZLE_PICKER_QUERY_LABEL='Filter failures'
+  local _ZLE_PICKER_INSPECT_TITLE='Test result'
+  local _ZLE_PICKER_INSPECT_ACTION=done _ZLE_PICKER_CANCEL_LABEL=done
+  local _ZLE_PICKER_BROWSE_LABEL='captured Xcode result · source locations from xcresult'
+  local _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_DIGIT_SELECT=1
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
+  local -A _ZLE_PICKER_ACCEPT_LABELS=() _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+  local -a _ZLE_PICKER_PASSIVE_LINES=("${_XCODE_TEST_PASSIVE_LINES[@]}")
+  local -a _ZLE_PICKER_PASSIVE_STYLES=("${_XCODE_TEST_PASSIVE_STYLES[@]}")
+  local -i index=0
+  for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
+    _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
+    _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=done
+    [[ -n ${_XCODE_PICKER_HIGHLIGHTS[index]-} ]] &&
+      _ZLE_PICKER_LABEL_HIGHLIGHTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_HIGHLIGHTS[index]}
+  done
+  _zle_picker_loop '' 20
+}
+
+_xcode_test_result_screen() {
+  emulate -L zsh
+  local -i action_status=${1:-1} index=0
+  local title='Xcode Test · Failed' subtitle=''
+  local name='' target='' reason='' files='' first_file='' label='' details=''
+  local overview='Test results' count_label=''
+  local -a _XCODE_PICKER_VALUES=(done) _XCODE_PICKER_LABELS=('[ Done ]')
+  local -a _XCODE_PICKER_HIGHLIGHTS=('') _XCODE_PICKER_SEARCH=(done)
+  local -a _XCODE_PICKER_DETAILS=('')
+  local -a _XCODE_TEST_PASSIVE_LINES=() _XCODE_TEST_PASSIVE_STYLES=()
+
+  count_label="${_XCODE_TEST_PASSED} passed · ${_XCODE_TEST_FAILED} failed"
+  (( _XCODE_TEST_SKIPPED )) && count_label+=" · ${_XCODE_TEST_SKIPPED} skipped"
+  (( _XCODE_TEST_EXPECTED_FAILURES )) &&
+    count_label+=" · ${_XCODE_TEST_EXPECTED_FAILURES} expected failures"
+  overview+=$'\n'"$count_label"
+
+  if (( action_status == 0 )) && [[ $_XCODE_TEST_RESULT == Passed ]]; then
+    title='Xcode Test · Passed'
+    subtitle="$_XCODE_TEST_SCHEME · $_XCODE_TEST_DESTINATION · DONE"
+    if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
+      label='Test action passed · structured totals unavailable'
+    elif (( _XCODE_TEST_TOTAL )); then
+      label="All tests passed · ${_XCODE_TEST_PASSED} of ${_XCODE_TEST_TOTAL} passed"
+    else
+      label='Test action passed · Xcode reported no tests'
+    fi
+    _XCODE_TEST_PASSIVE_LINES+=("$label")
+    _XCODE_TEST_PASSIVE_STYLES+=(picker-success)
+    if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
+      _XCODE_TEST_PASSIVE_LINES+=("Result details limited · $_XCODE_TEST_CAPTURE_ERROR")
+      _XCODE_TEST_PASSIVE_STYLES+=(picker-warning)
+      overview+=$'\n\n''Limits'$'\n'"  $_XCODE_TEST_CAPTURE_ERROR"
+    fi
+    _XCODE_PICKER_HIGHLIGHTS[1]="0:${#_XCODE_PICKER_LABELS[1]}:picker-success"
+    _XCODE_PICKER_DETAILS=("$overview"$'\n\n''Outcome'$'\n'"  $label")
+    _xcode_test_result_choose "$title" "$subtitle"
+    return $?
+  fi
+
+  subtitle="$_XCODE_TEST_SCHEME · $_XCODE_TEST_DESTINATION · FAILED"
+  overview+=$'\n\n''Failures'
+  for (( index = 1; index <= ${#_XCODE_TEST_FAILURE_NAMES}; ++index )); do
+    name=${_XCODE_TEST_FAILURE_NAMES[index]}
+    target=${_XCODE_TEST_FAILURE_TARGETS[index]}
+    reason=${_XCODE_TEST_FAILURE_TEXTS[index]}
+    files=${_XCODE_TEST_FAILURE_FILES[index]}
+    first_file=${files%%$'\n'*}
+    label="Test failed · $name"
+    [[ -n $first_file ]] && label+=" · ${first_file:t}"
+    details="$name"
+    [[ -n $target ]] && details+=$'\n'"Target · $target"
+    details+=$'\n\n''Failure'$'\n'"  $reason"$'\n\n''Involved files'
+    if [[ -n $files ]]; then
+      details+=$'\n'"  ${files//$'\n'/$'\n  '}"
+    else
+      details+=$'\n''  Xcode reported no source location for this failure.'
+    fi
+    _XCODE_PICKER_VALUES+=("failure:$index")
+    _XCODE_PICKER_LABELS+=("$label")
+    _XCODE_PICKER_HIGHLIGHTS+=("0:${#label}:picker-error")
+    _XCODE_PICKER_SEARCH+=("$name $target $reason $files")
+    _XCODE_PICKER_DETAILS+=("$details")
+    overview+=$'\n'"  $name"
+    [[ -n $files ]] && overview+=$'\n'"    ${files//$'\n'/$'\n    '}"
+  done
+  for (( index = 1; index <= ${#_XCODE_TEST_BUILD_NAMES}; ++index )); do
+    name=${_XCODE_TEST_BUILD_NAMES[index]}
+    reason=${_XCODE_TEST_BUILD_TEXTS[index]}
+    files=${_XCODE_TEST_BUILD_FILES[index]}
+    label="Build failed · $name"
+    [[ -n $files ]] && label+=" · ${files:t}"
+    details="$name"$'\n\n''Failure'$'\n'"  $reason"$'\n\n''Involved files'$'\n'"  ${files:-Xcode reported no source location for this issue.}"
+    _XCODE_PICKER_VALUES+=("build:$index")
+    _XCODE_PICKER_LABELS+=("$label")
+    _XCODE_PICKER_HIGHLIGHTS+=("0:${#label}:picker-error")
+    _XCODE_PICKER_SEARCH+=("$name $reason $files")
+    _XCODE_PICKER_DETAILS+=("$details")
+    overview+=$'\n'"  $name"
+    [[ -n $files ]] && overview+=$'\n'"    $files"
+  done
+  if (( ${#_XCODE_TEST_FAILURE_NAMES} + ${#_XCODE_TEST_BUILD_NAMES} == 0 )); then
+    label='Test action failed · Xcode reported no structured failure details'
+    _XCODE_TEST_PASSIVE_LINES+=("$label")
+    _XCODE_TEST_PASSIVE_STYLES+=(picker-error)
+    overview+=$'\n''  Xcode reported no structured test or build issue.'
+  fi
+  if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
+    _XCODE_TEST_PASSIVE_LINES+=("Result details limited · $_XCODE_TEST_CAPTURE_ERROR")
+    _XCODE_TEST_PASSIVE_STYLES+=(picker-warning)
+    overview+=$'\n\n''Limits'$'\n'"  $_XCODE_TEST_CAPTURE_ERROR"
+  fi
+  _XCODE_PICKER_DETAILS=("$overview" "${_XCODE_PICKER_DETAILS[@][2,-1]}")
+  _xcode_test_result_choose "$title" "$subtitle"
+}
+
+_xcode_test_result_controller() {
+  _xcode_test_result_screen "${_XCODE_TEST_ACTION_STATUS:-1}"
+}
+
+_xcode_test_execute() {
+  emulate -L zsh
+  local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5 destination=$6
+  local temp_root=${TMPDIR:-/tmp} result_dir='' bundle=''
+  local -i action_status=0
+  _XCODE_TEST_SCHEME=$scheme _XCODE_TEST_DESTINATION=$destination
+  _xcode_test_result_reset
+  _xcode_action_command "$kind" "$container" "$scheme" "$platform" "$identifier" test || return
+  result_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-test.XXXXXX") || result_dir=''
+  if [[ -n $result_dir ]]; then
+    bundle="$result_dir/Test.xcresult"
+    _XCODE_COMMAND=("${_XCODE_COMMAND[@][1,-2]}" -collect-test-diagnostics never \
+      -resultBundlePath "$bundle" test)
+  else
+    _XCODE_TEST_CAPTURE_ERROR='cannot create a temporary Xcode result directory'
+  fi
+  {
+    command "${_XCODE_COMMAND[@]}"
+    action_status=$?
+    if [[ -n $bundle && -d $result_dir && ! -L $result_dir &&
+          -d $bundle && ! -L $bundle ]]; then
+      _xcode_test_result_capture "$bundle" $action_status
+    else
+      (( action_status == 0 )) && _XCODE_TEST_RESULT=Passed || _XCODE_TEST_RESULT=Failed
+      [[ -n $_XCODE_TEST_CAPTURE_ERROR ]] ||
+        _XCODE_TEST_CAPTURE_ERROR='Xcode produced no readable result bundle'
+    fi
+  } always {
+    if [[ -n $result_dir && -d $result_dir &&
+          ${result_dir:t} == compozsh-xcode-test.* &&
+          ${result_dir:h:A} == ${temp_root:A} ]]; then
+      command rm -rf -- "$result_dir"
+    fi
+  }
+  return $action_status
+}
+
 _xcode_workspace_controller() {
   emulate -L zsh
   local kind=${_XCODE_CONTAINER_KINDS[1]} container=${_XCODE_CONTAINERS[1]}
@@ -406,7 +742,7 @@ _xcode_workspace_controller() {
       "$scheme"$'\n\nChoose one of Xcode’s shared schemes.'
       "$destination"$'\n'"$platform · $identifier"$'\n\nChoose an exact destination reported by Xcode.'
       'Build'$'\n\nRuns xcodebuild after this full-screen workspace closes. Project build scripts, package plugins and macros may execute.'
-      'Test'$'\n\nBuilds and runs tests on the selected destination after this workspace closes.'
+      'Test'$'\n\nBuilds and runs tests after this workspace closes, keeps native output in the terminal, then reopens a result view with totals, failures, and involved files reported by Xcode.'
       'Analyze'$'\n\nRuns Xcode static analysis after this workspace closes.'
       'Clean'$'\n\nRemoves build products for this scheme and destination after this workspace closes.')
     if [[ $platform == *Simulator ]]; then
@@ -486,6 +822,12 @@ _compozsh_help_xcode() {
     '  boots Simulator, installs the resulting app, and launches its bundle.' \
     '  Physical-device launch and signing configuration are outside this UI.' \
     '  The screen closes before xcodebuild or Simulator performs the action.' \
+    '  Native output remains in the terminal. After Test, the screen reopens' \
+    '  with passed/failed totals and, for failures, reasons and involved files.' \
+    '  Failure selection shows up to 20 tests and 20 build-stage errors. Some' \
+    '  Xcode failures have no structured source location; the view says so.' \
+    '  If structured results are unavailable, the native status remains visible' \
+    '  and the result view labels its missing detail instead of inventing totals.' \
     '' \
     'Safety and reproducibility:' \
     '  Discovery/output captures are bounded; automatic package resolution and' \
@@ -495,9 +837,15 @@ _compozsh_help_xcode() {
     '  Build, Test, Analyze, Clean, and Run are explicit execution boundaries:' \
     '  project build scripts, package plugins, macros, tests, and app code may run.' \
     '  Review unfamiliar repositories before selecting an action.' \
+    '  Test creates a temporary xcresult bundle under TMPDIR, disables verbose' \
+    '  test-diagnostic collection, and reads bounded' \
+    '  summaries, failure source locations, and build issues with xcresulttool,' \
+    '  then removes it before showing the result. Attachments and source contents' \
+    '  are not read. The native xcodebuild status remains the command status.' \
     '' \
     'Direct xcodebuild access and fallback:' \
     '  Any arguments delegate directly to xcodebuild and preserve its status.' \
+    '  Direct arguments do not add a result bundle or result window.' \
     '  In a noninteractive/dumb terminal, no arguments run a safe xcodebuild -list' \
     '  for the nearest container. Full Xcode must be selected with xcode-select.' \
     '' \
@@ -511,6 +859,7 @@ unalias xcode 2>/dev/null
 xcode() {
   emulate -L zsh
   local kind='' container='' request='' picker_status=0
+  local -i action_status=0
   local _XCODE_REQUEST='' _XCODE_WORKSPACE_ERROR=''
   local _XCODE_SELECTED_KIND='' _XCODE_SELECTED_CONTAINER=''
   local _XCODE_SELECTED_SCHEME='' _XCODE_SELECTED_PLATFORM=''
@@ -553,12 +902,21 @@ xcode() {
     fi
     request=$_XCODE_REQUEST
     case $request in
-      (build|test|analyze|clean)
+      (build|analyze|clean)
         _xcode_action_command "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
           "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" \
           "$_XCODE_SELECTED_ID" "$request" || return
         print -r -- "Xcode ${request}: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
         command "${_XCODE_COMMAND[@]}" ;;
+      (test)
+        print -r -- "Xcode test: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        _xcode_test_execute "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
+          "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" \
+          "$_XCODE_SELECTED_ID" "$_XCODE_SELECTED_DESTINATION"
+        action_status=$?
+        _XCODE_TEST_ACTION_STATUS=$action_status
+        _zle_picker_run 20 '' 1 0 _xcode_test_result_controller
+        return $action_status ;;
       (run)
         print -r -- "Xcode run: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
         _xcode_run_simulator "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
@@ -570,6 +928,10 @@ xcode() {
     _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
     _XCODE_DESTINATION_NAMES=() _XCODE_COMMAND=()
     _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+    _xcode_test_result_reset
+    _XCODE_TEST_SCHEME='' _XCODE_TEST_DESTINATION=''
+    unset _XCODE_TEST_ACTION_STATUS _XCODE_TEST_DETAIL_NODE_COUNT
+    unset _XCODE_TEST_DETAIL_FILES
     unset _XCODE_CONTAINER_ARGUMENTS _XCODE_SAFE_ARGUMENTS
     unset _XCODE_APP_PATH _XCODE_BUNDLE_ID
   }

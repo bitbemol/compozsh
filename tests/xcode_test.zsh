@@ -240,6 +240,176 @@ _test_xcode_action_builder_preserves_target_and_safety_policy() {
 test_case 'Xcode workspace builds exact safe xcodebuild actions' \
   _test_xcode_action_builder_preserves_target_and_safety_policy
 
+_test_xcode_test_result_capture_retains_failures_and_files() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" bundle="$TEST_TMP_DIR/Test.xcresult"
+  local summary="$TEST_TMP_DIR/summary.json" details="$TEST_TMP_DIR/details.json"
+  local build="$TEST_TMP_DIR/build.json"
+  command mkdir -p -- "$bundle" || return
+  test_write_file "$summary" '{
+    "result":"Failed","totalTestCount":2,"passedTests":1,
+    "failedTests":1,"skippedTests":0,"expectedFailures":0,
+    "testFailures":[{
+      "testName":"WidgetTests.testRendering()","targetName":"WidgetTests",
+      "failureText":"Expected the rendered value to match.",
+      "testIdentifierString":"WidgetTests/testRendering()"
+    }]
+  }' || return
+  test_write_file "$details" '{
+    "testRuns":[{
+      "nodeType":"Test Case Run","name":"testRendering()","children":[{
+        "nodeType":"Failure Message","name":"Expected the rendered value to match.",
+        "sourceLocation":{"filePath":"/project/Tests/WidgetTests.swift","lineNumber":42}
+      }]
+    }]
+  }' || return
+  test_write_file "$build" '{
+    "errors":[{
+      "issueType":"Swift Compiler Error","message":"Cannot find WidgetFactory in scope",
+      "targetName":"App","sourceURL":"file:///project/Sources/Widget.swift#StartingLineNumber=12"
+    }]
+  }' || return
+  test_write_file "$fake_bin/xcrun" $'#!/bin/zsh -df\ncase "${(j: :)@}" in\n  (*"test-results summary"*) command cat -- "$XCODE_SUMMARY" ;;\n  (*"test-results test-details"*) command cat -- "$XCODE_DETAILS" ;;\n  (*"build-results"*) command cat -- "$XCODE_BUILD" ;;\n  (*) exit 2 ;;\nesac' || return
+  command chmod +x "$fake_bin/xcrun" || return
+
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    export XCODE_SUMMARY=$4 XCODE_DETAILS=$5 XCODE_BUILD=$6
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    _xcode_test_result_capture "$3" 65 || exit
+    print -r -- "result:$_XCODE_TEST_RESULT|$_XCODE_TEST_TOTAL|$_XCODE_TEST_PASSED|$_XCODE_TEST_FAILED"
+    print -r -- "failure:${_XCODE_TEST_FAILURE_NAMES[1]}|${_XCODE_TEST_FAILURE_TARGETS[1]}"
+    print -r -- "reason:${_XCODE_TEST_FAILURE_TEXTS[1]}"
+    print -r -- "file:${_XCODE_TEST_FAILURE_FILES[1]}"
+    print -r -- "build:${_XCODE_TEST_BUILD_NAMES[1]}|${_XCODE_TEST_BUILD_TEXTS[1]}|${_XCODE_TEST_BUILD_FILES[1]}"
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$bundle" "$summary" "$details" "$build") || return
+
+  test_assert_contains "$output" 'result:Failed|2|1|1' \
+    'Xcode test summary counts were not retained' || return
+  test_assert_contains "$output" 'failure:WidgetTests.testRendering()|WidgetTests' \
+    'failed Xcode test identity was not retained' || return
+  test_assert_contains "$output" 'reason:Expected the rendered value to match.' \
+    'failed Xcode test reason was not retained' || return
+  test_assert_contains "$output" 'file:/project/Tests/WidgetTests.swift:42' \
+    'failed Xcode test source location was not retained' || return
+  test_assert_contains "$output" \
+    'build:Swift Compiler Error · App|Cannot find WidgetFactory in scope|/project/Sources/Widget.swift#StartingLineNumber=12' \
+    'Xcode build-stage failure and involved file were not retained'
+}
+test_case 'Xcode test results retain failure reasons and involved files' \
+  _test_xcode_test_result_capture_retains_failures_and_files
+
+_test_xcode_test_result_screen_uses_shared_semantic_roles() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="iPhone 18 Pro"
+    _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=2 _XCODE_TEST_PASSED=1
+    _XCODE_TEST_FAILED=1 _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
+    _XCODE_TEST_FAILURE_NAMES=("WidgetTests.testRendering()")
+    _XCODE_TEST_FAILURE_TARGETS=(WidgetTests)
+    _XCODE_TEST_FAILURE_TEXTS=("Expected matching output")
+    _XCODE_TEST_FAILURE_FILES=("/project/Tests/WidgetTests.swift:42")
+    _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=() _XCODE_TEST_BUILD_FILES=()
+    _zle_picker_loop() {
+      print -r -- "title:$_ZLE_PICKER_TITLE"
+      print -r -- "subtitle:$_ZLE_PICKER_SUBTITLE"
+      print -r -- "labels:${(j:|:)_XCODE_PICKER_LABELS}"
+      print -r -- "failure-style:${_ZLE_PICKER_LABEL_HIGHLIGHTS[failure:1]}"
+      print -r -- "details:${_ZLE_PICKER_INSPECT_TEXTS[failure:1]}"
+      return 0
+    }
+    _xcode_test_result_screen 65
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'title:Xcode Test · Failed' \
+    'failed Xcode test result title is not explicit' || return
+  test_assert_contains "$output" 'subtitle:App · iPhone 18 Pro · FAILED' \
+    'failed Xcode test result lost its exact target' || return
+  test_assert_contains "$output" 'failure-style:0:' \
+    'failed Xcode test row has no semantic highlight' || return
+  test_assert_contains "$output" ':picker-error' \
+    'failed Xcode test row does not use the shared error role' || return
+  test_assert_contains "$output" 'Expected matching output' \
+    'failed Xcode test details omit the reason' || return
+  test_assert_contains "$output" '/project/Tests/WidgetTests.swift:42' \
+    'failed Xcode test details omit the involved file'
+}
+test_case 'Xcode test failure window uses shared error styling and exact details' \
+  _test_xcode_test_result_screen_uses_shared_semantic_roles
+
+_test_xcode_test_success_screen_uses_shared_semantic_role() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
+    _XCODE_TEST_RESULT=Passed _XCODE_TEST_TOTAL=24 _XCODE_TEST_PASSED=24
+    _XCODE_TEST_FAILED=0 _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
+    _XCODE_TEST_FAILURE_NAMES=() _XCODE_TEST_FAILURE_TARGETS=()
+    _XCODE_TEST_FAILURE_TEXTS=() _XCODE_TEST_FAILURE_FILES=()
+    _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=() _XCODE_TEST_BUILD_FILES=()
+    _zle_picker_loop() {
+      print -r -- "title:$_ZLE_PICKER_TITLE"
+      print -r -- "summary:${_ZLE_PICKER_PASSIVE_LINES[1]}"
+      print -r -- "style:${_ZLE_PICKER_PASSIVE_STYLES[1]}"
+      return 0
+    }
+    _xcode_test_result_screen 0
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'title:Xcode Test · Passed' \
+    'successful Xcode test result title is not explicit' || return
+  test_assert_contains "$output" 'summary:All tests passed · 24 of 24 passed' \
+    'successful Xcode test result omitted its totals' || return
+  test_assert_contains "$output" 'style:picker-success' \
+    'successful Xcode test result does not use the shared success role'
+}
+test_case 'Xcode test success window uses the shared success styling' \
+  _test_xcode_test_success_screen_uses_shared_semantic_role
+
+_test_xcode_test_execution_streams_and_cleans_result_bundle() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" invocation="$TEST_TMP_DIR/invocation"
+  local bundle_log="$TEST_TMP_DIR/bundle-path" temp_root="$TEST_TMP_DIR/temp"
+  command mkdir -p -- "$temp_root" || return
+  test_write_file "$fake_bin/xcodebuild" $'#!/bin/zsh -df\nprint -rl -- "$@" >| "$XCODE_INVOCATION"\nprevious=""\nfor argument in "$@"; do\n  if [[ $previous == -resultBundlePath ]]; then\n    command mkdir -p -- "$argument" || exit 9\n    print -r -- "$argument" >| "$XCODE_BUNDLE_LOG"\n  fi\n  previous=$argument\ndone\nprint -r -- "native xcodebuild output"\nexit 65' || return
+  command chmod +x "$fake_bin/xcodebuild" || return
+
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    export TMPDIR=$3 XCODE_INVOCATION=$4 XCODE_BUNDLE_LOG=$5
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    _xcode_test_result_capture() {
+      [[ -d $1 && $2 == 65 ]] || return 99
+      _XCODE_TEST_RESULT=Failed
+    }
+    _xcode_test_execute project /example/App.xcodeproj App macOS MAC-123 "My Mac"
+    print -r -- "status=$?"
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$temp_root" "$invocation" "$bundle_log") || return
+
+  test_assert_contains "$output" 'native xcodebuild output' \
+    'Xcode test execution hid the native stream' || return
+  test_assert_contains "$output" 'status=65' \
+    'Xcode test execution did not preserve the native failure status' || return
+  local arguments=$(<"$invocation") bundle=$(<"$bundle_log")
+  test_assert_contains "$arguments" '-resultBundlePath' \
+    'Xcode test execution did not request a structured result bundle' || return
+  test_assert_contains "$arguments" $'-collect-test-diagnostics\nnever' \
+    'Xcode test execution permits verbose failure diagnostics in its transient bundle' || return
+  test_assert_equal test "${${(f)arguments}[-1]}" \
+    'Xcode test action no longer follows its result-bundle option' || return
+  [[ ! -e $bundle && ! -e ${bundle:h} ]] ||
+    test_fail 'Xcode test execution retained its temporary result bundle'
+}
+test_case 'Xcode test execution preserves native output status and temporary cleanup' \
+  _test_xcode_test_execution_streams_and_cleans_result_bundle
+
 _test_xcode_command_delegates_arguments_and_preserves_status() {
   test_make_temp_dir || return
   local fake_bin="$TEST_TMP_DIR/bin"

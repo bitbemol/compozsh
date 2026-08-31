@@ -1163,7 +1163,9 @@ discovered. The keyboard guide must never trigger refresh.
   controller over Container → Scheme → Destination → Action, with configuration
   choices returning to the action dashboard. Do not add a renderer, key parser,
   background watcher, workflow framework, persistent project state or new
-  shortcut. Dispatch every action only after the screen is restored.
+  shortcut. Dispatch every action only after the screen is restored. Test may
+  start a new screen session after xcodebuild returns, using only its already
+  captured result snapshot; it must never run a provider from the renderer.
 - Discovery is read-only coordination, though Xcode may inspect project and
   package metadata. Always disable automatic package resolution and package
   updates and require versions from `Package.resolved`. Never silently enable
@@ -1173,7 +1175,13 @@ discovered. The keyboard guide must never trigger refresh.
   boundaries. Project build scripts, package plugins, macros, tests and app code
   may execute. State this in the dashboard, README and `xcode --help`; never run
   an action merely to populate details. Native Xcode output belongs in the
-  restored terminal, not a captured pseudo-console.
+  restored terminal, not a captured pseudo-console. The dashboard Test action
+  adds one temporary result bundle, then uses bounded `xcresulttool` summaries,
+  failed-test source locations and build issues to reopen a shared result view.
+  Show success and failure with the shared semantic palette, retain exact
+  scheme/destination context, keep the native action status, read no attachments
+  or source contents, disable verbose test-diagnostic collection for that
+  transient bundle, and remove it before presenting the snapshot.
 - Simulator Run initially supports only an exact simulator destination. Build
   first, derive one installable `.app` and validated bundle identifier from
   bounded `xcodebuild -showBuildSettings -json`, then use `xcrun simctl` to boot,
@@ -1183,9 +1191,11 @@ discovered. The keyboard guide must never trigger refresh.
 - Test discovery order, spaces in literal paths, bounded/failed JSON, hostile
   destination text, no-scheme/no-destination states, argument delegation,
   noninteractive fallback, cancellation, resize cleanup, exact action arrays
-  and simulator dispatch with PATH-shadowed first-party command spies. Real
-  Xcode/Simulator checks are optional host integration tests and must not read
-  private project data or mutate a user's active project.
+  and simulator dispatch with PATH-shadowed first-party command spies. Cover
+  successful test totals, assertion and build-stage failures, source locations,
+  semantic result colors, native output/status preservation and result-bundle
+  cleanup. Real Xcode/Simulator checks are optional host integration tests and
+  must not read private project data or mutate a user's active project.
 
 ## Keyboard and ZLE behavior
 
