@@ -2343,15 +2343,39 @@ Compozsh walks upward to the nearest directory containing a literal
 `.xcworkspace` or `.xcodeproj`; it does not recursively search the repository.
 When both exist at that scope, the workspace is offered first. The full-screen
 dashboard then uses Xcode to discover shared schemes and concrete destinations.
-Choose either setting directly, then apply **Build**, **Test**, **Analyze**, or
-**Clean**. Selecting a Simulator also exposes **Build & Run**, which builds the
-scheme, boots that exact simulator, installs the app, and launches its bundle.
-Physical-device launching remains in Xcode.
+Choose either setting directly, then apply **Build**, **Rebuild**, **Test**,
+**Rebuild & Test**, **Analyze**, or **Clean**. **Build** and **Test** use Xcode's
+normal incremental graph, so Xcode recompiles products it determines have
+changed. **Rebuild** and **Rebuild & Test** are slower recovery paths when a
+product or result appears to use older source: they run ordered `clean build` or
+`clean test` actions for that exact scheme and destination. They do not remove
+the entire DerivedData tree or disable Xcode's package and compilation caches.
+Selecting a Simulator also exposes incremental **Build & Run** and recovery
+**Rebuild & Run**; each boots that exact simulator, installs the resulting app,
+and launches its bundle. Physical-device launching remains in Xcode.
+
+Compozsh does not guess build freshness or target membership from Git changes or
+file timestamps. Those signals cannot describe generated files, package inputs,
+custom build locations, or Xcode's complete target dependency graph. Add a new
+project source to a target built or tested by the selected scheme, either
+explicitly or through an Xcode buildable folder assigned to that target. If a
+rebuild still runs older behavior, check target membership, the selected test
+plan where applicable, target dependencies, and custom script input/output
+declarations in Xcode.
 
 The scheme view retains every validated scheme in Xcode’s bounded response and
 pages through the complete captured list. A pathological response above 4,096
 schemes is rejected explicitly with no partial list, rather than silently
 hiding later schemes.
+
+Destination discovery is reused only inside the current dashboard. Compozsh
+keeps a least-recently-used set of up to four successful, validated destination
+snapshots, so switching back to a scheme does not start another
+`xcodebuild -showdestinations`. Choose **Refresh destinations** after connected
+devices or installed runtimes change; it replaces the current scheme’s snapshot
+and preserves the selected destination when that exact identifier remains.
+Closing and reopening `xcode` discards these snapshots and performs fresh
+discovery. No project-specific disk or shell-session cache is created.
 
 The dashboard coordinates the first-party tools already installed with Xcode:
 `xcodebuild`, `xcrun`, `simctl`, `open`, and `plutil`. Its filtering, focus,
@@ -2374,9 +2398,10 @@ Build-related choices are explicit execution boundaries. A project can contain
 build scripts, package plugins, macros, tests, and application code, so review
 an unfamiliar repository before applying an action. The full-screen dashboard
 closes before the selected action starts, leaving Xcode’s native output in the
-normal terminal. After **Test** finishes, the dashboard reopens with a result
-snapshot. A successful run is shown with the shared success color and its test
-totals. A failed run uses the shared error color and lists up to 20 failed tests
+normal terminal. After either test action finishes, the dashboard reopens with
+a result snapshot that identifies **Incremental Test** or **Rebuild & Test**. A
+successful run is shown with the shared success color and its test totals. A
+failed run uses the shared error color and lists up to 20 failed tests
 plus up to 20 build-stage errors; selecting one shows Xcode’s failure reason,
 target, and every structured source location retained for that item. Xcode does
 not attach a source location to every failure, and the result view says so when
@@ -2385,16 +2410,17 @@ still reports the native action status and labels totals/details as unavailable.
 
 When `pbcopy` is available, the final result window also offers
 **Copy report and done**. After restoring the terminal, this explicit action
-writes a plain-text report containing the result and native status, project or
-workspace container, scheme, destination and identifier, totals, every retained
-failed-test name, test identifier, target, reason and involved file, retained
-build errors, and any capture limitation. The report is built only from the
-bounded result snapshot: it does not read source files or attachments. The
-native `xcodebuild` status remains the command status. During SSH, the report is
-written to the clipboard of the machine running Zsh, and macOS may synchronize
-that clipboard according to the user's operating-system settings.
+writes a plain-text report containing the result, native status, test mode,
+project or workspace container, scheme, destination and identifier, totals,
+every retained failed-test name, test identifier, target, reason and involved
+file, retained build errors, and any capture limitation. The report is built
+only from the bounded result snapshot: it does not read source files or
+attachments. The native `xcodebuild` status remains the command status. During
+SSH, the report is written to the clipboard of the machine running Zsh, and
+macOS may synchronize that clipboard according to the user's operating-system
+settings.
 
-For the dashboard Test action, Compozsh asks Xcode for a temporary `.xcresult`
+For either dashboard test action, Compozsh asks Xcode for a temporary `.xcresult`
 bundle beneath `${TMPDIR:-/tmp}`. It reads only bounded summaries, failure
 details, source locations, and build issues through `xcresulttool`; it does not
 read attachments or source-file contents, and disables Xcode’s verbose test

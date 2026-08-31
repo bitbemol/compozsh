@@ -1165,43 +1165,66 @@ discovered. The keyboard guide must never trigger refresh.
   controller over Container → Scheme → Destination → Action, with configuration
   choices returning to the action dashboard. Do not add a renderer, key parser,
   background watcher, workflow framework, persistent project state or new
-  shortcut. Dispatch every action only after the screen is restored. Test may
+  shortcut. Keep each digit-select Xcode page at ten rows so every visible index
+  is reachable with one of 0–9; ordinary paging retains later candidates.
+  Dispatch every action only after the screen is restored, and revalidate that
+  the exact captured container leaf still exists, matches its project/workspace
+  kind and is not a symlink immediately before execution. Test may
   start a new screen session after xcodebuild returns, using only its already
   captured result snapshot; it must never run a provider from the renderer.
+  Destination compatibility may reuse an LRU of at most four successful parsed
+  scheme snapshots inside this controller only. Retain exact IDs, platforms and
+  names; never cache raw output or failures. Returning to a cached scheme performs
+  no provider call. **Refresh destinations** explicitly replaces the current
+  snapshot while preserving an exact surviving identifier. Release every entry
+  on action, cancellation or workspace exit; reopening `xcode` is always fresh.
+  A refresh that cannot retain its newly parsed snapshot must forget the prior
+  scheme entry and fail explicitly rather than allowing stale restoration.
 - Discovery is read-only coordination, though Xcode may inspect project and
   package metadata. Always disable automatic package resolution and package
   updates and require versions from `Package.resolved`. Never silently enable
   provisioning updates or skip package-plugin/macro validation. Keep these
   policy arguments centralized and cover their exact presence/absence in tests.
-- Build, Test, Analyze, Clean and Simulator Run are explicit code-execution
-  boundaries. Project build scripts, package plugins, macros, tests and app code
-  may execute. State this in the dashboard, README and `xcode --help`; never run
-  an action merely to populate details. Native Xcode output belongs in the
-  restored terminal, not a captured pseudo-console. The dashboard Test action
-  adds one temporary result bundle, then uses bounded `xcresulttool` summaries,
+- Build, Rebuild, Test, Rebuild & Test, Analyze, Clean, Build & Run and Rebuild
+  & Run are explicit code-execution boundaries. Project build scripts, package
+  plugins, macros, tests and app code may execute. State this in the dashboard,
+  README and `xcode --help`; never run an action merely to populate details.
+  Native Xcode output belongs in the restored terminal, not a captured
+  pseudo-console. Build, Test and Build & Run use Xcode's normal incremental
+  `build`/`test` actions. Do not infer artifact freshness from Git state,
+  filesystem timestamps or private DerivedData metadata; Xcode owns the target
+  membership, dependency graph and rebuild decision. Rebuild and **Rebuild &
+  Run** are explicit slower recoveries that send ordered `clean build` actions;
+  **Rebuild & Test** sends `clean test` for the exact scheme and destination.
+  Never trigger these recovery actions automatically. Both test modes add
+  one temporary result bundle, then use bounded `xcresulttool` summaries,
   failed-test source locations and build issues to reopen a shared result view.
   Show success and failure with the shared semantic palette, retain exact
-  scheme/destination context, keep the native action status, read no attachments
-  or source contents, disable verbose test-diagnostic collection for that
-  transient bundle, and remove it before presenting the snapshot. When `pbcopy`
-  is available, the result view may offer one explicit **Copy report and done**
-  candidate. Build its plain text only from the retained snapshot, including the
-  native status, exact test context, totals, every retained test/build failure,
-  identifiers, reasons, involved files and capture limitations. Perform the
-  clipboard write after screen restoration, recheck the captured executable,
-  never read source files or the clipboard, and preserve a failing native test
-  status even when copying succeeds or fails.
+  scheme/destination context and mode, keep the native action status, read no
+  attachments or source contents, disable verbose test-diagnostic collection for
+  that transient bundle, and remove it before presenting the snapshot. When
+  `pbcopy` is available, the result view may offer one explicit **Copy report and
+  done** candidate. Build its plain text only from the retained snapshot,
+  including the native status, mode, exact test context, totals, every retained
+  test/build failure, identifiers, reasons, involved files and capture
+  limitations. Perform the clipboard write after screen restoration, recheck the
+  captured executable, never read source files or the clipboard, and preserve a
+  failing native test status even when copying succeeds or fails.
 - Simulator Run initially supports only an exact simulator destination. Build
-  first, derive one installable `.app` and validated bundle identifier from
-  bounded `xcodebuild -showBuildSettings -json`, then use `xcrun simctl` to boot,
-  install and launch it; opening Apple's Simulator app is part of that explicit
-  action. Do not claim physical-device launch, alter signing, choose a generic
-  destination or infer a product from recursive filesystem search.
+  incrementally, or clean then build only for explicit Rebuild & Run, derive one
+  installable `.app` and validated bundle identifier from bounded `xcodebuild
+  -showBuildSettings -json`, then use `xcrun simctl` to boot, install and launch
+  it; opening Apple's Simulator app is part of that explicit action. Do not claim
+  physical-device launch, alter signing, choose a generic destination or infer a
+  product or target membership from recursive filesystem search.
 - Test discovery order, spaces in literal paths, complete multi-page scheme
   catalogs, bounded/failed JSON, hostile destination text,
   no-scheme/no-destination states, argument delegation, noninteractive fallback,
-  cancellation, resize cleanup, exact action arrays and simulator dispatch with
-  PATH-shadowed first-party command spies. Cover
+  cancellation, resize cleanup, ten-row digit pages, container replacement,
+  failed refresh eviction, exact incremental/rebuild action arrays and Simulator
+  dispatch with PATH-shadowed first-party command spies. Cover hostile literal
+  action arguments, result-bundle symlink rejection, destination provider-call
+  counts, exact cache restoration, four-scheme eviction, explicit refresh, and
   successful test totals, assertion and build-stage failures, source locations,
   semantic result colors, bounded report contents, conditional clipboard
   affordance, post-screen copying, native output/status preservation and

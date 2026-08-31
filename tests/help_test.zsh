@@ -239,7 +239,10 @@ _test_tool_help_explains_real_boundaries() {
         'Build' 'Test' 'Analyze' 'Clean' 'Simulator' 'read-only discovery'
         'build scripts' 'package plugins' 'automatic package resolution'
         'provisioning updates' 'xcodebuild' 'Copy report and done' 'pbcopy'
-        'clipboard of the machine running Zsh' 'Examples:') ;;
+        'clipboard of the machine running Zsh' 'four schemes'
+        'Refresh destinations' 'reopening xcode' 'Rebuild & Test'
+        'Build & Run' 'Rebuild & Run' 'incremental' 'buildable folder'
+        'target membership' 'test mode' 'slower recovery' 'Examples:') ;;
       (update-xcode-skills) facts=('xcode-select' 'DEVELOPER_DIR' 'PATH'
         '~/.agents/skills' '~/.claude/skills' '~/.gemini/config/skills'
         '~/.kiro/skills' 'CodingAssistant/codex/skills/__xcode'

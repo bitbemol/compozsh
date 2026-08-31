@@ -23,7 +23,7 @@ typeset -g _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
 typeset -g _XCODE_TEST_RESULT='' _XCODE_TEST_CAPTURE_ERROR=''
 typeset -g _XCODE_TEST_CONTAINER='' _XCODE_TEST_SCHEME=''
 typeset -g _XCODE_TEST_PLATFORM='' _XCODE_TEST_DESTINATION_ID=''
-typeset -g _XCODE_TEST_DESTINATION=''
+typeset -g _XCODE_TEST_DESTINATION='' _XCODE_TEST_MODE=''
 typeset -gi _XCODE_TEST_TOTAL=0 _XCODE_TEST_PASSED=0 _XCODE_TEST_FAILED=0
 typeset -gi _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
 typeset -gi _XCODE_TEST_BUILD_ERROR_TOTAL=0
@@ -70,6 +70,20 @@ _xcode_container_arguments() {
     (workspace) _XCODE_CONTAINER_ARGUMENTS=(-workspace "$2") ;;
     (project) _XCODE_CONTAINER_ARGUMENTS=(-project "$2") ;;
     (*) return 2 ;;
+  esac
+}
+
+# Revalidate the exact leaf after the full-screen workspace restores the
+# terminal. A project may be renamed or replaced while the user is choosing an
+# action; never execute a different symlink target under the captured consent.
+_xcode_container_is_current() {
+  emulate -L zsh
+  local kind=$1 container=$2
+  [[ $container == /* && -d $container && ! -L $container ]] || return 1
+  case $kind in
+    (workspace) [[ ${container:t} == *.xcworkspace ]] ;;
+    (project) [[ ${container:t} == *.xcodeproj ]] ;;
+    (*) return 1 ;;
   esac
 }
 
@@ -372,6 +386,8 @@ _xcode_test_report_build() {
   result=$REPLY
   report+=$'\n\n'"Result: $result"
   report+=$'\n'"xcodebuild exit status: $action_status"
+  _xcode_test_report_text "${_XCODE_TEST_MODE:-Incremental Test}"
+  report+=$'\n'"Mode: $REPLY"
   if [[ -n $_XCODE_TEST_CONTAINER ]]; then
     _xcode_test_report_text "$_XCODE_TEST_CONTAINER"
     report+=$'\n'"Container: $REPLY"
@@ -577,7 +593,10 @@ _xcode_destinations_parse() {
        -n $name && ${#name} -le 200 && $name != *[[:cntrl:]]* ]] || continue
     (( ${+seen[$identifier]} )) && continue
     seen[$identifier]=1
-    [[ -n $os ]] && name+=" · ${platform% Simulator} ${(V)os}"
+    if [[ -n $os && ${#os} -le 100 ]]; then
+      name+=" · ${platform% Simulator} ${(V)os}"
+    fi
+    (( ${#name} <= 4096 )) || continue
     _XCODE_DESTINATION_IDS+=("$identifier")
     _XCODE_DESTINATION_PLATFORMS+=("$platform")
     _XCODE_DESTINATION_NAMES+=("$name")
@@ -600,13 +619,134 @@ _xcode_destinations_capture() {
   }
 }
 
+# Destination compatibility is expensive Xcode-owned discovery. Keep at most
+# four successful parsed snapshots inside one workspace controller so returning
+# to a scheme does not start xcodebuild again. These dynamically scoped arrays
+# disappear when that screen session ends; reopening xcode is always fresh.
+_xcode_destination_cache_touch() {
+  emulate -L zsh
+  local slot=$1 saved_scheme='' saved_ids='' saved_platforms='' saved_names=''
+  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} )) || return 2
+  [[ $slot == <-> ]] && (( slot >= 1 && slot <= ${#_XCODE_DESTINATION_CACHE_SCHEMES} )) ||
+    return 2
+  saved_scheme=${_XCODE_DESTINATION_CACHE_SCHEMES[slot]}
+  saved_ids=${_XCODE_DESTINATION_CACHE_IDS[slot]}
+  saved_platforms=${_XCODE_DESTINATION_CACHE_PLATFORMS[slot]}
+  saved_names=${_XCODE_DESTINATION_CACHE_NAMES[slot]}
+  _XCODE_DESTINATION_CACHE_SCHEMES[slot]=()
+  _XCODE_DESTINATION_CACHE_IDS[slot]=()
+  _XCODE_DESTINATION_CACHE_PLATFORMS[slot]=()
+  _XCODE_DESTINATION_CACHE_NAMES[slot]=()
+  _XCODE_DESTINATION_CACHE_SCHEMES+=("$saved_scheme")
+  _XCODE_DESTINATION_CACHE_IDS+=("$saved_ids")
+  _XCODE_DESTINATION_CACHE_PLATFORMS+=("$saved_platforms")
+  _XCODE_DESTINATION_CACHE_NAMES+=("$saved_names")
+}
+
+_xcode_destination_cache_forget() {
+  emulate -L zsh
+  local scheme=$1
+  local -i slot=0
+  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} )) || return 2
+  slot=${_XCODE_DESTINATION_CACHE_SCHEMES[(Ie)$scheme]}
+  (( slot )) || return 0
+  _XCODE_DESTINATION_CACHE_SCHEMES[slot]=()
+  _XCODE_DESTINATION_CACHE_IDS[slot]=()
+  _XCODE_DESTINATION_CACHE_PLATFORMS[slot]=()
+  _XCODE_DESTINATION_CACHE_NAMES[slot]=()
+}
+
+_xcode_destination_cache_store() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local scheme=$1 name='' platform='' identifier=''
+  local -i count=${#_XCODE_DESTINATION_IDS} index=0 slot=0
+  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} )) || return 2
+  [[ -n $scheme && $scheme != *[[:cntrl:]]* ]] || return 1
+  (( count >= 1 && count <= 100 &&
+     ${#_XCODE_DESTINATION_PLATFORMS} == count &&
+     ${#_XCODE_DESTINATION_NAMES} == count )) || return 1
+  for (( index = 1; index <= count; ++index )); do
+    identifier=${_XCODE_DESTINATION_IDS[index]}
+    platform=${_XCODE_DESTINATION_PLATFORMS[index]}
+    name=${_XCODE_DESTINATION_NAMES[index]}
+    [[ $identifier == [[:alnum:]][[:alnum:].-]# &&
+       -n $name && ${#name} -le 4096 && $name != *[[:cntrl:]]* ]] || return 1
+    _xcode_destination_platform_is_supported "$platform" || return 1
+  done
+  slot=${_XCODE_DESTINATION_CACHE_SCHEMES[(Ie)$scheme]}
+  if (( slot )); then
+    _XCODE_DESTINATION_CACHE_IDS[slot]=${(F)_XCODE_DESTINATION_IDS}
+    _XCODE_DESTINATION_CACHE_PLATFORMS[slot]=${(F)_XCODE_DESTINATION_PLATFORMS}
+    _XCODE_DESTINATION_CACHE_NAMES[slot]=${(F)_XCODE_DESTINATION_NAMES}
+  else
+    _XCODE_DESTINATION_CACHE_SCHEMES+=("$scheme")
+    _XCODE_DESTINATION_CACHE_IDS+=("${(F)_XCODE_DESTINATION_IDS}")
+    _XCODE_DESTINATION_CACHE_PLATFORMS+=("${(F)_XCODE_DESTINATION_PLATFORMS}")
+    _XCODE_DESTINATION_CACHE_NAMES+=("${(F)_XCODE_DESTINATION_NAMES}")
+    slot=${#_XCODE_DESTINATION_CACHE_SCHEMES}
+  fi
+  _xcode_destination_cache_touch $slot || return
+  if (( ${#_XCODE_DESTINATION_CACHE_SCHEMES} > 4 )); then
+    _XCODE_DESTINATION_CACHE_SCHEMES=("${_XCODE_DESTINATION_CACHE_SCHEMES[@][2,-1]}")
+    _XCODE_DESTINATION_CACHE_IDS=("${_XCODE_DESTINATION_CACHE_IDS[@][2,-1]}")
+    _XCODE_DESTINATION_CACHE_PLATFORMS=("${_XCODE_DESTINATION_CACHE_PLATFORMS[@][2,-1]}")
+    _XCODE_DESTINATION_CACHE_NAMES=("${_XCODE_DESTINATION_CACHE_NAMES[@][2,-1]}")
+  fi
+}
+
+_xcode_destination_cache_restore() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local scheme=$1 encoded='' name='' platform='' identifier=''
+  local -i slot=0 count=0 index=0
+  local -a ids=() platforms=() names=()
+  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} )) || return 2
+  slot=${_XCODE_DESTINATION_CACHE_SCHEMES[(Ie)$scheme]}
+  (( slot )) || return 1
+  encoded=${_XCODE_DESTINATION_CACHE_IDS[slot]}
+  ids=("${(@f)encoded}")
+  encoded=${_XCODE_DESTINATION_CACHE_PLATFORMS[slot]}
+  platforms=("${(@f)encoded}")
+  encoded=${_XCODE_DESTINATION_CACHE_NAMES[slot]}
+  names=("${(@f)encoded}")
+  count=${#ids}
+  (( count >= 1 && count <= 100 && ${#platforms} == count && ${#names} == count )) ||
+    return 1
+  for (( index = 1; index <= count; ++index )); do
+    identifier=${ids[index]} platform=${platforms[index]} name=${names[index]}
+    [[ $identifier == [[:alnum:]][[:alnum:].-]# &&
+       -n $name && ${#name} -le 4096 && $name != *[[:cntrl:]]* ]] || return 1
+    _xcode_destination_platform_is_supported "$platform" || return 1
+  done
+  _XCODE_DESTINATION_IDS=("${ids[@]}")
+  _XCODE_DESTINATION_PLATFORMS=("${platforms[@]}")
+  _XCODE_DESTINATION_NAMES=("${names[@]}")
+  _xcode_destination_cache_touch $slot
+}
+
 _xcode_action_command() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5 action=$6
+  local -a actions=()
   typeset -ga _XCODE_COMMAND=()
   case $action in
-    (build|test|analyze|clean) ;;
+    (build|test|analyze|clean) actions=("$action") ;;
+    (rebuild) actions=(clean build) ;;
+    (rebuild-test) actions=(clean test) ;;
     (*) return 2 ;;
   esac
   [[ -n $scheme && $scheme != *[[:cntrl:]]* ]] || return 2
@@ -616,7 +756,7 @@ _xcode_action_command() {
   _xcode_safe_arguments
   _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" -scheme "$scheme"
     -destination "platform=$platform,id=$identifier"
-    "${_XCODE_SAFE_ARGUMENTS[@]}" -hideShellScriptEnvironment "$action")
+    "${_XCODE_SAFE_ARGUMENTS[@]}" -hideShellScriptEnvironment "${actions[@]}")
 }
 
 _xcode_build_settings_capture() {
@@ -659,11 +799,18 @@ _xcode_build_settings_capture() {
 _xcode_run_simulator() {
   emulate -L zsh
   local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5
+  local requested_mode=${6:-run} build_action=build
+  case $requested_mode in
+    (run) ;;
+    (rebuild-run) build_action=rebuild ;;
+    (*) return 2 ;;
+  esac
   [[ $platform == *Simulator ]] || {
     print -u2 -r -- 'xcode: Run requires a concrete Simulator destination'
     return 2
   }
-  _xcode_action_command "$kind" "$container" "$scheme" "$platform" "$identifier" build || return
+  _xcode_action_command "$kind" "$container" "$scheme" "$platform" "$identifier" \
+    "$build_action" || return
   command "${_XCODE_COMMAND[@]}" || return
   _xcode_build_settings_capture "$kind" "$container" "$scheme" "$platform" "$identifier" || {
     print -u2 -r -- "xcode: ${_XCODE_CAPTURE_ERROR:-cannot resolve the built application}"
@@ -726,7 +873,7 @@ _xcode_choose() {
     _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
     _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=choose
   done
-  _zle_picker_loop '' 20
+  _zle_picker_loop '' 10
 }
 
 _xcode_test_result_choose() {
@@ -755,7 +902,7 @@ _xcode_test_result_choose() {
     [[ -n ${_XCODE_PICKER_HIGHLIGHTS[index]-} ]] &&
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_HIGHLIGHTS[index]}
   done
-  _zle_picker_loop '' 20
+  _zle_picker_loop '' 10
 }
 
 _xcode_test_result_screen() {
@@ -776,7 +923,7 @@ _xcode_test_result_screen() {
     _XCODE_PICKER_HIGHLIGHTS+=('')
     _XCODE_PICKER_SEARCH+=('copy report clipboard done failures files')
     _XCODE_PICKER_DETAILS+=(
-      'Copy the captured test report to the host clipboard and close.'$'\n\n''Includes the result, native status, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.'
+      'Copy the captured test report to the host clipboard and close.'$'\n\n''Includes the result, native status, test mode, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.'
     )
   fi
 
@@ -784,6 +931,7 @@ _xcode_test_result_screen() {
   (( _XCODE_TEST_SKIPPED )) && count_label+=" · ${_XCODE_TEST_SKIPPED} skipped"
   (( _XCODE_TEST_EXPECTED_FAILURES )) &&
     count_label+=" · ${_XCODE_TEST_EXPECTED_FAILURES} expected failures"
+  overview+=$'\n'"Mode · ${_XCODE_TEST_MODE:-Incremental Test}"
   overview+=$'\n'"$count_label"
 
   if (( action_status == 0 )) && [[ $_XCODE_TEST_RESULT == Passed ]]; then
@@ -872,13 +1020,20 @@ _xcode_test_result_controller() {
 _xcode_test_execute() {
   emulate -L zsh
   local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5 destination=$6
+  local requested_mode=${7:-test}
   local temp_root=${TMPDIR:-/tmp} result_dir='' bundle=''
   local -i action_status=0
+  case $requested_mode in
+    (test) _XCODE_TEST_MODE='Incremental Test' ;;
+    (rebuild-test) _XCODE_TEST_MODE='Rebuild & Test' ;;
+    (*) return 2 ;;
+  esac
   _XCODE_TEST_CONTAINER=$container _XCODE_TEST_SCHEME=$scheme
   _XCODE_TEST_PLATFORM=$platform _XCODE_TEST_DESTINATION_ID=$identifier
   _XCODE_TEST_DESTINATION=$destination
   _xcode_test_result_reset
-  _xcode_action_command "$kind" "$container" "$scheme" "$platform" "$identifier" test || return
+  _xcode_action_command "$kind" "$container" "$scheme" "$platform" "$identifier" \
+    "$requested_mode" || return
   result_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-test.XXXXXX") || result_dir=''
   if [[ -n $result_dir ]]; then
     bundle="$result_dir/Test.xcresult"
@@ -912,9 +1067,14 @@ _xcode_workspace_controller() {
   emulate -L zsh
   local kind=${_XCODE_CONTAINER_KINDS[1]} container=${_XCODE_CONTAINERS[1]}
   local scheme='' platform='' identifier='' destination='' selected=''
+  local previous_identifier=''
   local -i result=0 index=0 container_index=1 scheme_index=1 destination_index=1
   local -a _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=()
   local -a _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
+  local -a _XCODE_DESTINATION_CACHE_SCHEMES=()
+  local -a _XCODE_DESTINATION_CACHE_IDS=()
+  local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
+  local -a _XCODE_DESTINATION_CACHE_NAMES=()
 
   if (( ${#_XCODE_CONTAINERS} > 1 )); then
     _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
@@ -941,32 +1101,47 @@ _xcode_workspace_controller() {
     _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
     return 4
   }
+  _xcode_destination_cache_store "$scheme" || :
   platform=${_XCODE_DESTINATION_PLATFORMS[1]}
   identifier=${_XCODE_DESTINATION_IDS[1]}
   destination=${_XCODE_DESTINATION_NAMES[1]}
 
   while true; do
-    _XCODE_PICKER_VALUES=(scheme destination build test analyze clean)
+    _XCODE_PICKER_VALUES=(scheme destination refresh-destinations build rebuild
+      test rebuild-test analyze clean)
     _XCODE_PICKER_LABELS=(
       "Scheme · $scheme"
       "Destination · $destination"
-      'Build · Compile the selected scheme'
-      'Test · Run the selected scheme tests'
+      'Refresh destinations · Read Xcode again for this scheme'
+      'Build · Incrementally compile changed products'
+      'Rebuild · Clean selected products, then build'
+      'Test · Incrementally build changed products, then run tests'
+      'Rebuild & Test · Clean selected products, rebuild, then test'
       'Analyze · Run Xcode static analysis'
       'Clean · Remove selected-scheme build products')
-    _XCODE_PICKER_SEARCH=(scheme destination build test analyze clean)
+    _XCODE_PICKER_SEARCH=(scheme destination 'refresh destinations devices runtimes'
+      'build incremental changed modified products' 'rebuild clean build stale older source'
+      'test incremental changed products' 'rebuild clean test stale older source' analyze clean)
     _XCODE_PICKER_DETAILS=(
       "$scheme"$'\n\nChoose one of Xcode’s shared schemes.'
       "$destination"$'\n'"$platform · $identifier"$'\n\nChoose an exact destination reported by Xcode.'
-      'Build'$'\n\nRuns xcodebuild after this full-screen workspace closes. Project build scripts, package plugins and macros may execute.'
-      'Test'$'\n\nBuilds and runs tests after this workspace closes, keeps native output in the terminal, then reopens a result view with totals, failures, and involved files reported by Xcode.'
+      'Refresh destinations'$'\n\nReplaces the current scheme’s in-memory snapshot with a fresh Xcode query. Use after devices or runtimes change.'
+      'Build'$'\n\nAsks Xcode to incrementally compile changed products after this workspace closes. Project build scripts, package plugins and macros may execute.'
+      'Rebuild'$'\n\nRuns Xcode clean and build for this scheme and destination after the workspace closes. This slower recovery is useful when a product appears to use older source; it preserves broader DerivedData and package caches.'
+      'Test'$'\n\nAsks Xcode to incrementally rebuild changed products and run tests after this workspace closes. Keeps native output in the terminal, then reopens a result view with totals, failures, and involved files reported by Xcode.'
+      'Rebuild & Test'$'\n\nRuns Xcode clean and test for this scheme and destination after the workspace closes. This slower recovery is useful when results appear to use older source; it preserves the broader DerivedData and package caches.'
       'Analyze'$'\n\nRuns Xcode static analysis after this workspace closes.'
       'Clean'$'\n\nRemoves build products for this scheme and destination after this workspace closes.')
     if [[ $platform == *Simulator ]]; then
-      _XCODE_PICKER_VALUES+=(run)
-      _XCODE_PICKER_LABELS+=('Build & Run · Launch in the selected Simulator')
-      _XCODE_PICKER_SEARCH+=(simulator launch run)
-      _XCODE_PICKER_DETAILS+=('Build & Run'$'\n\nBuilds, boots the selected Simulator, installs the app and launches it. No physical-device launch.')
+      _XCODE_PICKER_VALUES+=(run rebuild-run)
+      _XCODE_PICKER_LABELS+=(
+        'Build & Run · Incrementally build and launch in Simulator'
+        'Rebuild & Run · Clean, rebuild, and launch in Simulator')
+      _XCODE_PICKER_SEARCH+=('simulator launch run incremental changed modified'
+        'rebuild clean simulator launch stale older source')
+      _XCODE_PICKER_DETAILS+=(
+        'Build & Run'$'\n\nAsks Xcode to incrementally build changed products, then boots the selected Simulator, installs the app and launches it. No physical-device launch.'
+        'Rebuild & Run'$'\n\nRuns Xcode clean and build for this scheme and destination, then boots the selected Simulator, installs the app and launches it. This is a slower stale-product recovery.')
     fi
     _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions'
     result=$?
@@ -986,10 +1161,13 @@ _xcode_workspace_controller() {
         (( result == 0 )) || return $result
         scheme_index=$_ZLE_PICKER_SELECTED_VALUE
         scheme=${_XCODE_SCHEMES[scheme_index]}
-        _xcode_destinations_capture "$kind" "$container" "$scheme" || {
-          _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
-          return 4
-        }
+        if ! _xcode_destination_cache_restore "$scheme"; then
+          _xcode_destinations_capture "$kind" "$container" "$scheme" || {
+            _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
+            return 4
+          }
+          _xcode_destination_cache_store "$scheme" || :
+        fi
         destination_index=1
         platform=${_XCODE_DESTINATION_PLATFORMS[1]}
         identifier=${_XCODE_DESTINATION_IDS[1]}
@@ -1010,7 +1188,23 @@ _xcode_workspace_controller() {
         platform=${_XCODE_DESTINATION_PLATFORMS[destination_index]}
         identifier=${_XCODE_DESTINATION_IDS[destination_index]}
         destination=${_XCODE_DESTINATION_NAMES[destination_index]} ;;
-      (build|test|analyze|clean|run)
+      (refresh-destinations)
+        previous_identifier=$identifier
+        _xcode_destinations_capture "$kind" "$container" "$scheme" || {
+          _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
+          return 4
+        }
+        _xcode_destination_cache_forget "$scheme" || return 4
+        _xcode_destination_cache_store "$scheme" || {
+          _XCODE_WORKSPACE_ERROR='cannot retain the refreshed destination snapshot'
+          return 4
+        }
+        destination_index=${_XCODE_DESTINATION_IDS[(Ie)$previous_identifier]}
+        (( destination_index )) || destination_index=1
+        platform=${_XCODE_DESTINATION_PLATFORMS[destination_index]}
+        identifier=${_XCODE_DESTINATION_IDS[destination_index]}
+        destination=${_XCODE_DESTINATION_NAMES[destination_index]} ;;
+      (build|rebuild|test|rebuild-test|analyze|clean|run|rebuild-run)
         _XCODE_REQUEST=$selected
         _XCODE_SELECTED_KIND=$kind _XCODE_SELECTED_CONTAINER=$container
         _XCODE_SELECTED_SCHEME=$scheme _XCODE_SELECTED_PLATFORM=$platform
@@ -1034,38 +1228,48 @@ _compozsh_help_xcode() {
     '  read-only discovery and remain inside one responsive full-screen workspace.' \
     '  Every validated scheme in a bounded response is available to filtering and' \
     '  paging. A response above 4096 schemes fails; no partial list is shown.' \
+    '  Destination snapshots for up to four schemes stay in memory only while this' \
+    '  workspace is open, so returning to a scheme avoids another Xcode query.' \
+    '  Refresh destinations replaces the current scheme snapshot after devices or' \
+    '  runtimes change. Closing and reopening xcode performs fresh discovery.' \
     '' \
     'Actions:' \
-    '  Choose a scheme and destination, then Build, Test, Analyze, or Clean.' \
-    '  A concrete Simulator destination also offers Build & Run: it builds,' \
+    '  Choose a scheme and destination, then Build, Rebuild, Test,' \
+    '  Rebuild & Test, Analyze, or Clean. Build and Test use Xcode incremental' \
+    '  dependency decisions. Rebuild actions run clean first as slower recovery.' \
+    '  A concrete Simulator also offers Build & Run and Rebuild & Run; each' \
     '  boots Simulator, installs the resulting app, and launches its bundle.' \
+    '  Add new project sources to a target built or tested by the selected scheme,' \
+    '  either explicitly or through an Xcode buildable folder assigned to it.' \
+    '  Compozsh does not infer target membership from filesystem or Git.' \
     '  Physical-device launch and signing configuration are outside this UI.' \
     '  The screen closes before xcodebuild or Simulator performs the action.' \
-    '  Native output remains in the terminal. After Test, the screen reopens' \
-    '  with passed/failed totals and, for failures, reasons and involved files.' \
+    '  Native output remains in the terminal. After either test action, the' \
+    '  screen reopens with the mode, passed/failed totals and, for failures,' \
+    '  reasons and involved files.' \
     '  Failure selection shows up to 20 tests and 20 build-stage errors. Some' \
     '  Xcode failures have no structured source location; the view says so.' \
     '  If structured results are unavailable, the native status remains visible' \
     '  and the result view labels its missing detail instead of inventing totals.' \
     '  When pbcopy is available, Copy report and done writes the result, native' \
-    '  status, exact target, totals, all retained failure reasons and involved' \
-    '  files, build errors, and capture limits as plain text after the screen' \
-    '  closes. It uses the clipboard of the machine running Zsh; in SSH that is' \
+    '  status, test mode, exact target, totals, retained failure reasons,' \
+    '  involved files, build errors, and capture limits as plain text after cleanup.' \
+    '  It uses the clipboard of the machine running Zsh; in SSH that is' \
     '  the remote host. Compozsh never reads the clipboard or source-file content.' \
     '' \
     'Safety and reproducibility:' \
     '  Captures and item counts are bounded; automatic package resolution and' \
-    '  package updates are disabled; resolved package versions' \
-    '  are required.' \
+    '  package updates are disabled; resolved package versions are required.' \
     '  Compozsh never enables provisioning updates and never skips package plugin' \
     '  or macro validation. Xcode may still inspect project/package metadata.' \
-    '  Build, Test, Analyze, Clean, and Run are explicit execution boundaries:' \
+    '  Build, Rebuild, Test, Rebuild & Test, Analyze, Clean, Build & Run, and' \
+    '  Rebuild & Run are explicit execution boundaries:' \
     '  project build scripts, package plugins, macros, tests, and app code may run.' \
     '  Review unfamiliar repositories before selecting an action.' \
-    '  Test creates a temporary xcresult bundle under TMPDIR, disables verbose' \
-    '  test-diagnostic collection, and reads bounded' \
+    '  Both test actions create a temporary xcresult bundle under TMPDIR,' \
+    '  disable verbose test-diagnostic collection, and read bounded' \
     '  summaries, failure source locations, and build issues with xcresulttool,' \
-    '  then removes it before showing the result. Attachments and source contents' \
+    '  then remove it before showing the result. Attachments and source contents' \
     '  are not read. The native xcodebuild status remains the command status.' \
     '' \
     'Direct xcodebuild access and fallback:' \
@@ -1128,28 +1332,46 @@ xcode() {
       return $picker_status
     fi
     request=$_XCODE_REQUEST
+    _xcode_container_is_current "$_XCODE_SELECTED_KIND" \
+      "$_XCODE_SELECTED_CONTAINER" || {
+      print -u2 -r -- 'xcode: the selected project or workspace changed; reopen xcode'
+      return 1
+    }
     case $request in
-      (build|analyze|clean)
+      (build|rebuild|analyze|clean)
         _xcode_action_command "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
           "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" \
           "$_XCODE_SELECTED_ID" "$request" || return
-        print -r -- "Xcode ${request}: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        if [[ $request == rebuild ]]; then
+          print -r -- "Xcode rebuild: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        else
+          print -r -- "Xcode ${request}: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        fi
         command "${_XCODE_COMMAND[@]}" ;;
-      (test)
-        print -r -- "Xcode test: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+      (test|rebuild-test)
+        if [[ $request == rebuild-test ]]; then
+          print -r -- "Xcode rebuild & test: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        else
+          print -r -- "Xcode test: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        fi
         _xcode_test_execute "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
           "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" \
-          "$_XCODE_SELECTED_ID" "$_XCODE_SELECTED_DESTINATION"
+          "$_XCODE_SELECTED_ID" "$_XCODE_SELECTED_DESTINATION" "$request"
         action_status=$?
         _XCODE_TEST_ACTION_STATUS=$action_status
         _zle_picker_run 20 '' 1 0 _xcode_test_result_controller
         _xcode_test_result_apply "$action_status" "$_ZLE_PICKER_SELECTED_VALUE" \
           "$_XCODE_TEST_CLIPBOARD_BINARY"
         return $? ;;
-      (run)
-        print -r -- "Xcode run: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+      (run|rebuild-run)
+        if [[ $request == rebuild-run ]]; then
+          print -r -- "Xcode rebuild & run: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        else
+          print -r -- "Xcode build & run: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
+        fi
         _xcode_run_simulator "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
-          "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" "$_XCODE_SELECTED_ID" ;;
+          "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" \
+          "$_XCODE_SELECTED_ID" "$request" ;;
       (*) return 0 ;;
     esac
   } always {
@@ -1160,7 +1382,7 @@ xcode() {
     _xcode_test_result_reset
     _XCODE_TEST_CONTAINER='' _XCODE_TEST_SCHEME=''
     _XCODE_TEST_PLATFORM='' _XCODE_TEST_DESTINATION_ID=''
-    _XCODE_TEST_DESTINATION=''
+    _XCODE_TEST_DESTINATION='' _XCODE_TEST_MODE=''
     unset _XCODE_TEST_ACTION_STATUS _XCODE_TEST_DETAIL_NODE_COUNT
     unset _XCODE_TEST_DETAIL_FILES
     unset _XCODE_CONTAINER_ARGUMENTS _XCODE_SAFE_ARGUMENTS

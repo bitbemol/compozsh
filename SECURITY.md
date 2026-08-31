@@ -130,13 +130,14 @@ An uncatchable process termination or system failure can also leave a temporary
 capture behind; its validated `compozsh-*` name makes it identifiable in
 `${TMPDIR:-/tmp}`.
 
-The Xcode dashboard's Test action asks Xcode to create a transient result
-bundle while disabling verbose test-diagnostic collection. Xcode can still put
-test-authored attachments and logs in that bundle. Compozsh reads only
-size-bounded summary/detail JSON and structured source locations, never those
-attachments or source files, and removes the complete bundle before opening the
-result view. An uncatchable termination can leave the local bundle behind under
-the identifiable `compozsh-xcode-test.*` temporary directory.
+The Xcode dashboard's Test and Rebuild & Test actions ask Xcode to create a
+transient result bundle while disabling verbose test-diagnostic collection.
+Xcode can still put test-authored attachments and logs in that bundle. Compozsh
+reads only size-bounded summary/detail JSON and structured source locations,
+never those attachments or source files, rejects a symlink substituted for the
+result bundle, and removes the complete bundle before opening the result view.
+An uncatchable termination can leave the local bundle behind under the
+identifiable `compozsh-xcode-test.*` temporary directory.
 
 Shell command lines are a poor place for passwords, tokens, or private keys:
 they can be exposed through history, process listings, logs, or the invoked
