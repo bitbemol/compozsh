@@ -43,7 +43,7 @@
 # export EDITOR='vim'
 # HISTSIZE=75000
 # SAVEHIST=75000
-# ZSH_COLOR_SCHEME=light  # auto, light, or dark
+# ZSH_COLOR_SCHEME=light  # auto (COLORFGBG hint), light, or dark
 # typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_OUTPUT_COLORS ZSH_PROMPT_COLORS
 # ZSH_HIGHLIGHT_STYLES[command]='fg=118,bold'
 # ZSH_OUTPUT_COLORS[success]=118

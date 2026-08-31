@@ -101,15 +101,15 @@ state:
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
-| Prompt, appearance, and picker facts | Shell memory | Terminal background classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
+| Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
 | Bounded operation captures | `${TMPDIR:-/tmp}` | USB progress, Xcode output, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; never read back by Compozsh |
 
-Appearance detection writes one fixed OSC 11 background query to the attached
-terminal and retains only the resulting `light` or `dark` classification. It
-sends no shell, user, path, project, or environment data, starts no process,
-and falls back after a bounded wait when the terminal does not answer.
+Appearance selection reads only `ZSH_COLOR_SCHEME` and the optional passive
+`COLORFGBG` environment hint, then retains a `light` or `dark` classification.
+It writes no terminal query, reads no terminal input, sends no data, and starts
+no process. An absent or invalid automatic hint retains the dark palette.
 
 These are local process, filesystem, agent-directory, and operating-system
 clipboard interfaces on the machine running Compozsh. A user can independently

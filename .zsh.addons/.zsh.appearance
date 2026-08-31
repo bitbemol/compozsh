@@ -1,66 +1,39 @@
-# Terminal appearance detection and light-background palette defaults.
+# Terminal color-scheme selection and coherent palette defaults.
 
-# `auto` asks the terminal for its actual background. A local initializer may
-# select `light` or `dark` explicitly when a terminal or multiplexer cannot
-# answer the query.
-typeset -g ZSH_COLOR_SCHEME=${ZSH_COLOR_SCHEME:-auto}
+# A local initializer may select `light` or `dark` explicitly. Automatic
+# selection uses only passive terminal metadata: querying the terminal during
+# startup can race with user input and leave delayed replies in ZLE's buffer.
+(( ${+ZSH_COLOR_SCHEME} )) || typeset -g ZSH_COLOR_SCHEME=auto
 
-# Convert an OSC 11 rgb response to `light` or `dark`. Channels may contain
-# one through four hexadecimal digits; normalize them before calculating the
-# same weighted brightness at every precision.
-_appearance_scheme_from_rgb() {
+# Classify COLORFGBG's final indexed-color field. The first 16 colors retain
+# the conventional dark/light grouping; extended xterm colors use their
+# standard cube or grayscale luminance. Terminal palettes remain customizable,
+# so an explicit ZSH_COLOR_SCHEME is authoritative.
+_appearance_scheme_from_color_index() {
   emulate -L zsh
 
-  local response=$1 red_hex='' green_hex='' blue_hex=''
-  local -i red=0 green=0 blue=0 maximum=0 brightness=0
+  local -i index=$1 red=0 green=0 blue=0 cube=0 brightness=0
+  local -a levels=(0 95 135 175 215 255)
 
-  if [[ $response =~ 'rgb:([[:xdigit:]]{1,4})/([[:xdigit:]]{1,4})/([[:xdigit:]]{1,4})' ]]; then
-    red_hex=${match[1]}
-    green_hex=${match[2]}
-    blue_hex=${match[3]}
+  if (( index < 16 )); then
+    case $index in
+      0|1|2|3|4|5|6|8|9|12|13) REPLY=dark ;;
+      *) REPLY=light ;;
+    esac
+    return
+  elif (( index < 232 )); then
+    cube=$(( index - 16 ))
+    red=${levels[cube / 36 + 1]}
+    green=${levels[(cube / 6) % 6 + 1]}
+    blue=${levels[cube % 6 + 1]}
   else
-    return 1
+    red=$(( 8 + (index - 232) * 10 ))
+    green=$red
+    blue=$red
   fi
 
-  maximum=$(( (1 << (4 * ${#red_hex})) - 1 ))
-  red=$(( 16#$red_hex * 65535 / maximum ))
-  maximum=$(( (1 << (4 * ${#green_hex})) - 1 ))
-  green=$(( 16#$green_hex * 65535 / maximum ))
-  maximum=$(( (1 << (4 * ${#blue_hex})) - 1 ))
-  blue=$(( 16#$blue_hex * 65535 / maximum ))
   brightness=$(( (299 * red + 587 * green + 114 * blue) / 1000 ))
-
-  if (( brightness >= 32768 )); then
-    REPLY=light
-  else
-    REPLY=dark
-  fi
-}
-
-# Ask the terminal directly without launching a process. The short timeout is
-# paid only once while this peer loads and bounds the startup wait when a
-# terminal does not answer.
-_appearance_query_terminal_background() {
-  emulate -L zsh
-
-  [[ -t 0 && -t 1 && -n ${TERM:-} && $TERM != dumb ]] || return 1
-
-  local response='' character=''
-  local -i count=0
-
-  print -rn -- $'\e]11;?\a'
-  if ! IFS= read -r -k 1 -t 0.015 character; then
-    return 1
-  fi
-  response=$character
-
-  for (( count = 1; count < 96; ++count )); do
-    [[ $response == *$'\a' || $response == *$'\e\\' ]] && break
-    IFS= read -r -k 1 -t 0.003 character || break
-    response+=$character
-  done
-
-  _appearance_scheme_from_rgb "$response"
+  (( brightness >= 128 )) && REPLY=light || REPLY=dark
 }
 
 _appearance_detect_color_scheme() {
@@ -72,19 +45,11 @@ _appearance_detect_color_scheme() {
       return
       ;;
     auto)
-      if _appearance_query_terminal_background; then
-        return
-      fi
-
-      # COLORFGBG is less precise because indexed colors are customizable, but
-      # it is a useful terminal-provided fallback when the background query is
-      # unavailable. Its final field is the background index.
+      # COLORFGBG is a best-effort hint because indexed colors are customizable.
+      # Its final field is the background index.
       local background=${COLORFGBG##*;}
       if [[ $background == <0-255> ]]; then
-        case $background in
-          0|1|2|3|4|5|6|8) REPLY=dark ;;
-          *) REPLY=light ;;
-        esac
+        _appearance_scheme_from_color_index "$background"
         return
       fi
       ;;
@@ -134,7 +99,7 @@ _appearance_apply_light_defaults() {
     substitution       'fg=90'
     glob               'fg=95'
     history            'fg=161,bold'
-    escape             'fg=30'
+    escape             'fg=23'
     number             'fg=130'
     comment            'fg=240'
     autosuggestion     'fg=243'
@@ -187,7 +152,7 @@ _appearance_apply_light_defaults() {
   )
   local -A output_defaults=(
     heading  25
-    accent   30
+    accent   24
     success  28
     warning  130
     error    160
@@ -196,6 +161,15 @@ _appearance_apply_light_defaults() {
     match    127
     text     236
   )
+  local -a completion_defaults=(
+      'di=1;38;5;25' 'ln=38;5;126' 'so=38;5;30' 'pi=38;5;94'
+      'ex=1;38;5;28' 'bd=1;38;5;160' 'cd=38;5;95'
+      'or=1;4;38;5;160' 'mi=1;38;5;160'
+      'su=1;38;5;231;48;5;160' 'sg=1;38;5;231;48;5;90'
+      'tw=38;5;236;48;5;186' 'ow=38;5;231;48;5;160'
+      'st=38;5;236;48;5;179' 'ca=1;38;5;94'
+  )
+  local lscolors_default=exfxgxdxcxbxbxhbhfadabdx
   local role='' key='' current=''
 
   typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_PROMPT_COLORS ZSH_OUTPUT_COLORS
@@ -256,14 +230,7 @@ _appearance_apply_light_defaults() {
   if [[ -n ${LS_COLORS:-} ]]; then
     typeset -gi _COMPOZSH_COMPLETION_COLORS_CUSTOM=1
   elif (( !${_COMPOZSH_COMPLETION_COLORS_CUSTOM:-0} )); then
-    typeset -ga _COMPOZSH_COMPLETION_LIST_COLORS=(
-      'di=1;38;5;25' 'ln=38;5;126' 'so=38;5;30' 'pi=38;5;94'
-      'ex=1;38;5;28' 'bd=1;38;5;160' 'cd=38;5;95'
-      'or=1;4;38;5;160' 'mi=1;38;5;160'
-      'su=1;38;5;231;48;5;160' 'sg=1;38;5;231;48;5;90'
-      'tw=38;5;236;48;5;186' 'ow=38;5;231;48;5;160'
-      'st=38;5;236;48;5;179' 'ca=1;38;5;94'
-    )
+    typeset -ga _COMPOZSH_COMPLETION_LIST_COLORS=("${completion_defaults[@]}")
     zstyle ':completion:*' list-colors "${_COMPOZSH_COMPLETION_LIST_COLORS[@]}"
   fi
 
@@ -276,15 +243,17 @@ _appearance_apply_light_defaults() {
       _COMPOZSH_COLOR_MANAGED[$key]=''
     fi
   fi
-  _COMPOZSH_COLOR_FALLBACKS[$key]=exfxgxdxcxbxbxhbhfadabdx
+  _COMPOZSH_COLOR_FALLBACKS[$key]=$lscolors_default
   if (( !${+LSCOLORS} )) || [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
-    typeset -gx LSCOLORS=exfxgxdxcxbxbxhbhfadabdx
+    typeset -gx LSCOLORS=$lscolors_default
     _COMPOZSH_COLOR_MANAGED[$key]=$LSCOLORS
   fi
   return 0
 }
 
-_appearance_detect_color_scheme
-typeset -g _COMPOZSH_COLOR_SCHEME=$REPLY
+if (( !${+_COMPOZSH_COLOR_SCHEME} )); then
+  _appearance_detect_color_scheme
+  typeset -g _COMPOZSH_COLOR_SCHEME=$REPLY
+fi
 [[ $_COMPOZSH_COLOR_SCHEME == light ]] && _appearance_apply_light_defaults
 :

@@ -616,6 +616,28 @@ _zle_picker_style() {
   fi
 }
 
+# Consume the optional output peer's validator when available, while retaining
+# an independently useful adaptive palette when only appearance and editor are
+# enabled. Treat malformed public overrides as absent in either path.
+_zle_picker_output_color() {
+  emulate -L zsh
+
+  local role=$1 fallback=$2 value='' fallback_key="output:$1"
+  if [[ ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]] &&
+     (( ${+_COMPOZSH_COLOR_FALLBACKS[$fallback_key]} )); then
+    fallback=${_COMPOZSH_COLOR_FALLBACKS[$fallback_key]}
+  fi
+  if (( ${+functions[_output_color]} )); then
+    _output_color "$role" "$fallback"
+    return
+  fi
+  if [[ ${(t)ZSH_OUTPUT_COLORS} == association* ]] &&
+     (( ${+ZSH_OUTPUT_COLORS[$role]} )); then
+    value=${ZSH_OUTPUT_COLORS[$role]}
+  fi
+  [[ $value == <0-255> ]] && REPLY=$value || REPLY=$fallback
+}
+
 # Zero-based character ranges within visible text, never executable patterns.
 # Emphasis is bounded independently of searching; long queries still match in
 # the collectors. The caller declares reply locally to retain these ranges.
@@ -1523,10 +1545,8 @@ _zle_picker_show() {
         (warning) status_color=221 status_attributes=bold ;;
         (muted) status_color=242 ;;
       esac
-      (( ${+functions[_output_color]} )) && {
-        _output_color "$status_role" "$status_color"
-        status_color=$REPLY
-      }
+      _zle_picker_output_color "$status_role" "$status_color"
+      status_color=$REPLY
       _zle_picker_style "$style_key" "fg=$status_color${status_attributes:+,$status_attributes}"
     else
       _zle_picker_style "$style_key" 'fg=252'
@@ -1558,7 +1578,8 @@ _zle_picker_show() {
         (error) color=203 ;;
         (*) color=252 ;;
       esac
-      (( ${+functions[_output_color]} )) && { _output_color "$role" "$color"; color=$REPLY; }
+      _zle_picker_output_color "$role" "$color"
+      color=$REPLY
       color="fg=$color"
       [[ $role == heading || $role == warning ]] && color+=',bold'
       if (( _ZLE_PICKER_DOCUMENT )); then

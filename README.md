@@ -190,7 +190,7 @@ compozsh/
 │       └── SKILL.md       evidence-backed GitHub release drafting
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           all shared peer features
-│   ├── .zsh.appearance    terminal background detection and light palette
+│   ├── .zsh.appearance    color-scheme selection and light palette
 │   ├── .zsh.shell         shell options, history, and native tool colors
 │   ├── .zsh.editor        completion, temporary-screen pickers, and editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
@@ -237,7 +237,7 @@ peer owns one focused concern and can still be sourced independently:
 
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
-| `.zsh.appearance` | Terminal appearance and adaptive defaults | One-shot terminal background detection selects coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
+| `.zsh.appearance` | Terminal appearance and adaptive defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
@@ -851,18 +851,22 @@ and other program-specific arguments remain arguments because only the invoked
 program can interpret their meaning.
 
 Compozsh selects a complete light- or dark-background palette once when a shell
-starts. In automatic mode it asks the terminal for its current background with
-the standard OSC 11 query, then uses the terminal-provided `COLORFGBG` value as
-a fallback. If neither signal is available, the established dark palette is
-retained. The light palette keeps the same semantic hue families and attributes
-while using deeper foregrounds, pale diff backgrounds, and dark native `ls`
-colors for contrast. Detection is local, bounded, and starts no process.
+starts. In automatic mode it reads the passive `COLORFGBG` environment hint,
+when the terminal supplies a valid indexed background color. Because terminal
+color indexes are customizable, this is best-effort; an absent or invalid hint
+retains the established dark palette. Compozsh does not query the terminal or
+read terminal input while loading. The light palette keeps the same semantic
+hue families and attributes while using deeper foregrounds, pale diff
+backgrounds, and dark native `ls` colors for contrast.
 
-Set `ZSH_COLOR_SCHEME` in the local initializer to bypass detection for a
-terminal or multiplexer that cannot report its background:
+Terminal profiles are independent of the macOS system appearance. Compozsh
+does not inspect the system light/dark setting or a Terminal.app profile name,
+so a dark Terminal profile remains compatible while macOS is in light mode. If
+a light profile does not export `COLORFGBG`—including stock Terminal.app's
+usual configuration—set `ZSH_COLOR_SCHEME` explicitly in the local initializer:
 
 ```zsh
-ZSH_COLOR_SCHEME=light  # accepted values: auto, light, dark
+ZSH_COLOR_SCHEME=light  # auto (COLORFGBG hint), light, or dark
 ```
 
 The selection is made for each new shell. Existing shells retain the palette

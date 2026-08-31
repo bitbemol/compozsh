@@ -148,16 +148,17 @@ _test_light_manual_selection_uses_contrasting_text() {
 test_case 'light manual selection uses contrasting text and background roles' \
   _test_light_manual_selection_uses_contrasting_text
 
-_test_color_scheme_detection_precedence_and_rgb() {
+_test_color_scheme_detection_precedence_and_index_classification() {
   test_make_temp_dir || return
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.appearance"
-    _appearance_scheme_from_rgb $'\''\e]11;rgb:ffff/eeee/dddd\a'\''
-    bright=$REPLY
-    _appearance_scheme_from_rgb $'\''\e]11;rgb:1111/2222/3333\a'\''
-    dark=$REPLY
+    local index classifications=""
+    for index in 9 12 15 16 231 232 255; do
+      _appearance_scheme_from_color_index "$index"
+      classifications+="${classifications:+,}$index:$REPLY"
+    done
     COLORFGBG="15;0"
     ZSH_COLOR_SCHEME=auto
     _appearance_detect_color_scheme
@@ -169,16 +170,23 @@ _test_color_scheme_detection_precedence_and_rgb() {
     ZSH_COLOR_SCHEME=unsupported
     _appearance_detect_color_scheme
     invalid=$REPLY
-    print -r -- "$bright|$dark|$indexed|$explicit|$invalid"
+    COLORFGBG="0;1;255"
+    ZSH_COLOR_SCHEME=auto
+    _appearance_detect_color_scheme
+    multifield=$REPLY
+    COLORFGBG="0;bogus"
+    _appearance_detect_color_scheme
+    malformed=$REPLY
+    print -r -- "$classifications|$indexed|$explicit|$invalid|$multifield|$malformed"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_equal 'light|dark|dark|dark|dark' "$output" \
-    'appearance detection lost RGB, terminal fallback, or override precedence'
+  test_assert_equal '9:dark,12:dark,15:light,16:dark,231:light,232:dark,255:light|dark|dark|dark|light|dark' \
+    "$output" 'appearance detection lost indexed-color classification or override precedence'
 }
-test_case 'appearance detection classifies terminal RGB and honors explicit mode' \
-  _test_color_scheme_detection_precedence_and_rgb
+test_case 'appearance detection classifies passive indexed colors and honors explicit mode' \
+  _test_color_scheme_detection_precedence_and_index_classification
 
-_test_terminal_background_query_selects_light() {
+_test_appearance_source_preserves_queued_terminal_input() {
   test_make_temp_dir || return
   local output=''
 
@@ -186,37 +194,85 @@ _test_terminal_background_query_selects_light() {
     zmodload zsh/zpty || exit 2
     zmodload zsh/zselect || exit 2
     _appearance_test_driver() {
-      COLORFGBG="15;0"
+      unset COLORFGBG
+      ZSH_COLOR_SCHEME=auto
+      SSH_CONNECTION="example"
+      TMUX="example"
+      TERM=screen-256color
+      local gate="" queued=""
+      IFS= read -r -k 1 gate || exit 6
       source "$1/.zsh.addons/.zsh.appearance"
-      print -r -- "RESULT:$_COMPOZSH_COLOR_SCHEME:${ZSH_OUTPUT_COLORS[text]}"
+      IFS= read -r -k 8 queued || exit 7
+      print -r -- "RESULT:$_COMPOZSH_COLOR_SCHEME:$queued"
     }
     local chunk="" trace="" pty_fd=0
-    local -i answered=0 attempts=0
+    local -i attempts=0
     zpty -b appearance _appearance_test_driver "$1" || exit 3
     pty_fd=$REPLY
-    for (( attempts = 0; attempts < 20; ++attempts )); do
+    zpty -w -n appearance xsentinel
+    for (( attempts = 0; attempts < 50; ++attempts )); do
       zselect -r $pty_fd -t 1 || continue
       while zpty -r appearance chunk; do trace+=$chunk; done
-      if (( !answered )) && [[ $trace == *$'\''\e]11;?\a'\''* ]]; then
-        zpty -w -n appearance $'\''\e]11;rgb:ffff/ffff/ffff\a'\''
-        answered=1
-      fi
       [[ $trace == *RESULT:* ]] && break
     done
     zpty -d appearance
-    (( answered )) || {
-      print -u2 -r -- "missing OSC 11 query: ${(qqq)trace}"
-      exit 4
-    }
-    [[ $trace == *"RESULT:light:236"* ]] || {
-      print -u2 -r -- "unexpected appearance result: ${(qqq)trace}"
+    trace=${trace//$'\''\r'\''/}
+    trace=${trace%$'\''\n'\''}
+    [[ $trace == "RESULT:dark:sentinel" ]] || {
+      print -u2 -r -- "appearance source emitted output or consumed queued input: ${(qqq)trace}"
       exit 5
     }
-    print -r -- terminal-query-light
+    print -r -- terminal-input-preserved
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_equal terminal-query-light "$output" \
-    'OSC 11 response did not select the light palette through a real PTY'
+  test_assert_equal terminal-input-preserved "$output" \
+    'appearance source wrote to the terminal or consumed queued user input'
 }
-test_case 'terminal background query selects light through a real PTY' \
-  _test_terminal_background_query_selects_light
+test_case 'appearance source performs no terminal I/O and preserves queued input' \
+  _test_appearance_source_preserves_queued_terminal_input
+
+_test_scheme_selection_is_one_shot_and_preserves_empty_initializer_value() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    ZSH_COLOR_SCHEME=light
+    source "$1/.zsh.addons/.zsh.appearance"
+    ZSH_COLOR_SCHEME=dark
+    source "$1/.zsh.addons/.zsh.appearance"
+    print -r -- "$_COMPOZSH_COLOR_SCHEME|${ZSH_OUTPUT_COLORS[text]}"
+
+    unset _COMPOZSH_COLOR_SCHEME
+    ZSH_COLOR_SCHEME=""
+    source "$1/.zsh.addons/.zsh.appearance"
+    print -r -- "${+ZSH_COLOR_SCHEME}|${(qqq)ZSH_COLOR_SCHEME}|$_COMPOZSH_COLOR_SCHEME"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal $'light|236\n1|""|dark' "$output" \
+    'appearance re-source changed the selected scheme or replaced an empty initializer value'
+}
+test_case 'appearance selection is one-shot and preserves initializer ownership' \
+  _test_scheme_selection_is_one_shot_and_preserves_empty_initializer_value
+
+_test_editor_uses_light_output_roles_without_output_peer() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    ZSH_COLOR_SCHEME=light
+    source "$1/.zsh.addons/.zsh.appearance"
+    source "$1/.zsh.addons/.zsh.editor"
+    _zle_picker_output_color heading 75
+    heading=$REPLY
+    _zle_picker_output_color info 111
+    info=$REPLY
+    ZSH_OUTPUT_COLORS[warning]=invalid
+    _zle_picker_output_color warning 221
+    print -r -- "$heading|$info|$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal '25|24|130' "$output" \
+    'standalone editor ignored adaptive output roles or accepted a malformed override'
+}
+test_case 'editor degrades to adaptive output roles when output peer is disabled' \
+  _test_editor_uses_light_output_roles_without_output_peer
