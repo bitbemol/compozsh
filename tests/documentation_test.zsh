@@ -71,8 +71,8 @@ _test_security_contract_is_public_and_auditable() {
     'security contract omits its highest local-only invariant' || return
   test_assert_contains "$security" 'Transmission is prohibited rather' \
     'security contract permits transmission as a configurable feature' || return
-  test_assert_contains "$security" 'Data that stays on the machine' \
-    'security contract hides local persistence' || return
+  test_assert_contains "$security" 'All Compozsh data remains local' \
+    'security contract ambiguously describes its local-only data inventory' || return
   test_assert_contains "$security" 'Administrator boundary' \
     'security contract omits the sudo boundary' || return
   test_assert_contains "$security" 'Network boundary' \

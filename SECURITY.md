@@ -83,9 +83,11 @@ to Git. An application opened by an explicit file action, an Xcode build phase,
 or an installed runtime queried for its version has its own security and
 privacy behavior.
 
-## Data that stays on the machine
+## All Compozsh data remains local
 
-No project-owned service receives any of the following data. Some data is
+Every data category Compozsh reads, captures, derives, or stores remains on the
+user's computer and is never transmitted by Compozsh. The inventory below
+fully discloses where that local data exists and for how long. Some entries are
 intentionally persistent because a shell and a recoverable installer need local
 state:
 
