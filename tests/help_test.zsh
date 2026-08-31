@@ -14,6 +14,7 @@ _test_public_commands_support_help() {
     source "$1/.zsh.addons/.zsh.find"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
     source "$1/.zsh.addons/.zsh.xcode"
@@ -25,6 +26,7 @@ _test_public_commands_support_help() {
       cpdir
       git-discard-all
       prompt-refresh
+      compozsh-sudo-touch-id
       g
       flash-usb
       format_external_device
@@ -51,7 +53,7 @@ _test_public_commands_support_help() {
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
 
   local public_command='' output_line='' record=''
-  for public_command in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
+  for public_command in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format_external_device xcode \
       update_xcode_skills compozsh; do
     record=''
     for output_line in ${(f)output}; do
@@ -144,11 +146,12 @@ _test_tool_help_explains_real_boundaries() {
   test_make_temp_dir || return
   local output='' tool='' fact=''
   local -a facts=()
-  for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
+  for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format_external_device xcode \
       update_xcode_skills compozsh; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home" '
       source "$1/.zsh.addons/.zsh.tools"
       source "$1/.zsh.addons/.zsh.navigation"
+      source "$1/.zsh.addons/.zsh.sudo-touch-id"
       source "$1/.zsh.addons/.zsh.usb"
       source "$1/.zsh.addons/.zsh.xcode"
       source "$1/.zsh.addons/.zsh.help"
@@ -160,6 +163,18 @@ _test_tool_help_explains_real_boundaries() {
       (git-discard-all) facts=('repository root' 'HEAD' 'staged' 'untracked'
         '[y/N]' 'ignored' 'submodule' 'rebase' 'rollback' 'stash' 'Examples:') ;;
       (prompt-refresh) facts=('current shell' 'next use' 'exec zsh' 'reload' 'Examples:') ;;
+      (compozsh-sudo-touch-id) facts=('/etc/pam.d/sudo_local' 'default' 'root-owned'
+        'Custom PAM policy' 'pam_opendirectory.so authenticator' 'sudo permission' 'SSH'
+        'macOS Sonoma 14' 'ACL-free' '/usr/bin/sudo -v' 'timestamp' 'sudo -n'
+        'persists' 'No backup' 'uncertain enable error' 'Apple-supported'
+        'Apple supports this interface' 'Compozsh additionally requires'
+        'entirely local' 'no network' 'Secure Enclave' "sudo's exit status"
+        'reusable biometric token' 'successful Touch ID authentication'
+        'password keystrokes' 'credential capture'
+        'same terminal session' 'sudo -k' 'managed work Mac' 'PAM policy'
+        'never other links' \
+        'does not verify that a command is safe' 'never enabled automatically'
+        'Examples:') ;;
       (g) facts=('200' 'reflog' 'remote' 'g branch' 'character order'
         'git switch --no-guess' 'worktree' 'pbcopy' 'Ctrl-Y' 'SSH'
         'empty' 'Ctrl-U' 'noninteractive' 'Examples:' 'Ctrl-X review' 'read-only'
@@ -221,6 +236,7 @@ _test_all_tool_help_is_static_without_optional_tools() {
     source "$1/.zsh.addons/.zsh.find"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
     source "$1/.zsh.addons/.zsh.xcode"
@@ -232,7 +248,7 @@ _test_all_tool_help_is_static_without_optional_tools() {
         _detect_xcode_skill_vendor _compozsh_tool_capture; do
       functions[$helper]="print -u2 -- unexpected-operation; return 99"
     done
-    for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
+    for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format_external_device xcode \
         update_xcode_skills compozsh; do
       "$tool" --help >| "$HOME/help.out" 2>| "$HOME/help.err" || exit 10
       help_text=$(<"$HOME/help.out")
@@ -266,6 +282,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     source "$1/.zsh.addons/.zsh.find"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
     source "$1/.zsh.addons/.zsh.xcode"
@@ -276,7 +293,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     zmodload zsh/zpty || exit 10
     _help_test_driver() {
       local tool
-      for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
+      for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format_external_device xcode \
           update_xcode_skills compozsh; do
         "$tool" --help || return
       done
@@ -303,7 +320,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     [[ $plain != *$'\''\e'\''* ]] || exit 12
     _help_test_capture || exit 13
     colored=$REPLY
-    for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
+    for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format_external_device xcode \
         update_xcode_skills compozsh; do
       [[ $colored == *$'\''\e[1;38;5;123m'\''"usage: $tool"* ]] || {
         print -u2 -- "$tool help is missing the heading palette color"

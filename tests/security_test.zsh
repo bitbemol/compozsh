@@ -36,13 +36,14 @@ _test_privilege_and_credential_surface_stays_bounded() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local usb="$TEST_REPO_ROOT/.zsh.addons/.zsh.usb"
+  local touch_id="$TEST_REPO_ROOT/.zsh.addons/.zsh.sudo-touch-id"
   local file='' line='' trimmed='' invocation='' contents=''
   _security_runtime_files
 
   for file in "${_SECURITY_RUNTIME_FILES[@]}"; do
     contents=$(<"$file")
-    if [[ $file != "$usb" && $contents == *sudo* ]]; then
-      test_fail "sudo reference escaped the external-media peer: ${file#$TEST_REPO_ROOT/}"
+    if [[ $file != "$usb" && $file != "$touch_id" && $contents == *sudo* ]]; then
+      test_fail "sudo reference escaped the documented privilege peers: ${file#$TEST_REPO_ROOT/}"
       return 1
     fi
     if [[ $contents == *'sudo -S'* || $contents == *'sudo --stdin'* ||
@@ -53,15 +54,26 @@ _test_privilege_and_credential_surface_stays_bounded() {
     fi
   done
 
-  while IFS= read -r line; do
-    [[ $line == *'command /usr/bin/sudo'* ]] || continue
-    trimmed=${line##[[:space:]]#}
-    invocation=${trimmed#*command /usr/bin/sudo}
-    if [[ $invocation != ' -v' && $invocation != ' -n '* ]]; then
-      test_fail "sudo can prompt outside the single validation call: $trimmed"
-      return 1
-    fi
-  done < "$usb"
+  for file in "$usb" "$touch_id"; do
+    while IFS= read -r line; do
+      [[ $line == *'command /usr/bin/sudo'* ]] || continue
+      trimmed=${line##[[:space:]]#}
+      invocation=${trimmed#*command /usr/bin/sudo}
+      if [[ $invocation != ' -v' && $invocation != ' -n '* ]]; then
+        test_fail "sudo can prompt outside an explicit validation call: $trimmed"
+        return 1
+      fi
+    done < "$file"
+  done
+
+  contents=$(<"$touch_id")
+  [[ $contents == *"command /usr/bin/sudo -n /bin/zsh -dfc"* &&
+     $contents == *"command /bin/link \"\$temp_file\" /etc/pam.d/sudo_local"* &&
+     $contents == *"command /bin/unlink /etc/pam.d/sudo_local"* &&
+     $contents != *"sudo -n /bin/rm -f -- \"\$"* ]] || {
+    test_fail 'sudo Touch ID privilege targets are not fixed and auditable'
+    return 1
+  }
 }
-test_case 'privilege and credential surface stays inside the documented USB boundary' \
+test_case 'privilege and credential surface stays inside documented fixed boundaries' \
   _test_privilege_and_credential_surface_stays_bounded

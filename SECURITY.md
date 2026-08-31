@@ -65,8 +65,10 @@ guarantees made by Compozsh.
 - The tracked shell and installer define no project endpoint and initiate no
   network request. Updates happen only when the user runs Git themselves.
 - It does not collect, read, log, store, or transmit a `sudo` password. The two
-  external-media tools invoke Apple's `/usr/bin/sudo -v`; `sudo` owns the
-  terminal prompt and its timestamp. Compozsh never receives the password.
+  external-media tools and explicit `compozsh-sudo-touch-id enable|disable`
+  modes invoke Apple's `/usr/bin/sudo -v`; `sudo` and PAM own the authentication
+  prompt, Touch ID exchange, and timestamp. Compozsh never receives the
+  password or fingerprint data.
 - It does not use `sudo -S`, `SUDO_ASKPASS`, a password variable, the login
   keychain, or the macOS `security` credential command.
 - It never reads the clipboard. Explicit Copy actions write only the visibly
@@ -98,6 +100,7 @@ state:
 | Command history | `${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}` by default | Zsh's normal local, shared history and the in-memory history picker |
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
+| Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt and picker facts | Shell memory | Runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
 | Bounded operation captures | `${TMPDIR:-/tmp}` | USB progress, Xcode output, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update_xcode_skills` invocation and marked for safe refresh |
@@ -129,10 +132,12 @@ dedicated secret store, and rotate any credential that was exposed.
 ## Administrator boundary
 
 No administrator access occurs at shell startup, during installation, while
-showing help, or during normal prompt, search, history, Git, and navigation
-features. Only `flash-usb` and `format_external_device` use `sudo`, after the
-user selects a whole external physical disk and types the exact visible
-`ERASE diskN` confirmation.
+showing help, during `compozsh-sudo-touch-id status`, or during normal prompt,
+search, history, Git, and navigation features. Administrator access has two
+explicit boundaries: `flash-usb` and `format_external_device` after the user
+selects a whole external physical disk and types the exact visible `ERASE
+diskN` confirmation; and `compozsh-sudo-touch-id enable|disable` after the user
+names that state-changing mode.
 
 The privilege flow is deliberately narrow:
 
@@ -152,6 +157,60 @@ flags as literal arguments. It does not pass shell history, environment dumps,
 credentials, or network destinations. Password handling remains entirely
 inside the operating system's `sudo` process.
 
+The Touch ID policy flow is separate and equally bounded:
+
+1. Compozsh verifies macOS and an ACL-free, root-owned, non-writable
+   `/etc/pam.d`. Enable additionally requires the root-owned, ACL-free system
+   `sudo` policy to include `sudo_local` before its required
+   `pam_opendirectory.so` password fallback, and the matching system template to
+   advertise `pam_tid`. Policy files observed above 64 KiB are rejected before
+   reading; this is a fail-closed size check, not atomic isolation from root.
+2. `status` reads fixed PAM-directory metadata and the fixed target. `enable`
+   proceeds only when `/etc/pam.d/sudo_local` is absent. `disable` remains
+   usable if the enable prerequisites later drift, but proceeds only for a regular, ACL-free,
+   `root:wheel`, mode `0444`, byte-identical managed file. Existing
+   custom, symbolic-link, special-file, changed, or unsafe policy is preserved.
+3. The state-changing modes run `/usr/bin/sudo -v`. Before enable, this normally
+   means a password; after enable, Apple's PAM stack can present Touch ID.
+   Authentication data remains inside `sudo`, PAM, and macOS. The local
+   `pam_tid` result is scoped to sudo; Compozsh receives no fingerprint,
+   template, or reusable biometric token and introduces no network request.
+   Either authentication method can refresh sudo's ordinary credential cache;
+   a process already controlling the same terminal session may benefit until
+   expiry. `sudo -k` invalidates the current timestamp.
+4. After visible authorization, enable repeats platform validation and absence
+   checking. One `sudo -n` fixed internal `/bin/zsh -dfc` routine repeats the
+   fixed system-policy checks, creates a root-only temporary file beneath
+   `/etc/pam.d`, writes only the fixed policy, strips inherited ACLs, applies
+   `root:wheel` ownership and mode `0444`, verifies exact metadata and bytes,
+   and uses `/bin/link` to publish exactly `/etc/pam.d/sudo_local` without
+   replacing any path. It removes the temporary link and verifies the published
+   inode. Disable's one fixed privileged routine revalidates type, numeric link
+   count, ownership, mode, ACL and bytes immediately before `/bin/unlink`. An
+   exact managed target with additional hard links remains removable, but only
+   the literal `/etc/pam.d/sudo_local` name is unlinked; every other link is
+   preserved for separate inspection. Handled failures do not broaden either
+   target. The privileged routines do not trust
+   the caller's inspection path: they repeat checks against literal
+   `/etc/pam.d` targets. A concurrent root policy manager can
+   still replace state around shell-level checks; Compozsh fails closed when it
+   observes drift but does not claim compare-and-unlink isolation from root.
+5. `pam_tid` is configured as `sufficient`. A failed or unavailable biometric
+   attempt falls through to the verified later required
+   `pam_opendirectory.so` authenticator; the rule changes the authentication
+   method, not who is authorized for sudo.
+
+The managed policy persists across shells and macOS updates until explicit
+disable. No backup is created because existing `sudo_local` policy is never
+changed. An abnormal or unhandled termination during the short privileged
+enable step can leave a root-owned `.compozsh-sudo-touch-id.*` file beneath
+`/etc/pam.d`; it is not included by sudo and may be empty, partially written,
+or complete, with mode `0600` or finalized mode `0444`. Inspect and remove such
+residue as administrator after confirming its fixed path and contents. Apple's
+`pam_tid` cannot present Touch ID in SSH's non-graphical session and may also be
+unavailable through a multiplexer or another remote context. The later password
+authenticator can prompt only when `sudo` has usable terminal input.
+
 Audit the complete privilege surface with:
 
 ```sh
@@ -160,9 +219,19 @@ git grep -nE 'sudo[[:space:]]+(-S|--stdin)|SUDO_ASKPASS|pbpaste|/usr/bin/securit
   -- .zshrc install.zsh '.zsh.addons/**'
 ```
 
-The first command should identify only `.zsh.addons/.zsh.usb`. The second
-should print no matches and return status 1. Inspect every changed result rather
-than treating the command as a permanent allowlist.
+The first command should identify only `.zsh.addons/.zsh.usb` and
+`.zsh.addons/.zsh.sudo-touch-id`. The second should print no matches and return
+status 1. Inspect every changed result rather than treating the command as a
+permanent allowlist. In the Touch ID peer, confirm every privileged target is a
+literal path beneath `/etc/pam.d` and that only `/usr/bin/sudo -v` can prompt.
+On a supported Mac, independently inspect the active system files for Apple's
+documented interface with
+`ls -lde /etc/pam.d /etc/pam.d/sudo /etc/pam.d/sudo_local.template`,
+`sed -n '1,120p' /etc/pam.d/sudo`, and
+`sed -n '1,120p' /etc/pam.d/sudo_local.template`; do not paste these files into
+a shell command. Apple's macOS Sonoma enterprise notes document the persistent
+`sudo_local` interface, and Apple's published `pam_tid` source documents its
+local graphical-session and askpass limitations.
 
 ## Compozsh network prohibition and external boundaries
 

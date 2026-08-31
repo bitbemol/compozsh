@@ -1,0 +1,552 @@
+# Explicit, reversible macOS Touch ID configuration for sudo.
+
+_sudo_touch_id_print_help() {
+  emulate -L zsh
+
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" "usage: $1" "${@:2}"
+}
+
+_compozsh_help_compozsh-sudo-touch-id() {
+  _sudo_touch_id_print_help 'compozsh-sudo-touch-id [status|enable|disable]' \
+    'Inspect or manage Touch ID authentication for sudo on this Mac.' \
+    '' \
+    'Modes:' \
+    '  status   Classifies /etc/pam.d/sudo_local as absent, managed, or custom.' \
+    '           This is the default and never requests administrator access.' \
+    "  enable   Installs Apple's advertised sufficient pam_tid rule in one" \
+    '           root-owned policy at that exact path.' \
+    '           The first authorization still normally requires a password.' \
+    '  disable  Removes the file only when its contents exactly match the' \
+    '           Compozsh-managed policy. Custom PAM policy is never replaced.' \
+    '' \
+    'Apple-supported change:' \
+    '  Apple supports this interface on macOS Sonoma 14 or later.' \
+    '  Compozsh additionally requires an ACL-free system sudo policy and' \
+    '  template, a' \
+    '  sudo_local include with a later required password fallback, and an' \
+    '  enrolled fingerprint on a compatible Mac with Touch ID.' \
+    '  The setting is never enabled automatically by installation, startup, or' \
+    '  updates. Only the explicit enable mode can create the managed policy.' \
+    '' \
+    'Local security model:' \
+    '  Authentication is entirely local: Zsh invokes sudo; sudo invokes macOS' \
+    "  PAM and Apple's pam_tid; the Secure Enclave performs the biometric match." \
+    '  This adds no network request or external authentication service.' \
+    "  pam_tid returns an authentication result to PAM; Compozsh observes only" \
+    "  sudo's exit status, never fingerprint or template data. Compozsh receives" \
+    '  no reusable biometric token.' \
+    '  A successful Touch ID authentication avoids sudo password keystrokes,' \
+    '  reducing password credential capture, observation, and replay risk.' \
+    '  It does not grant sudo permission. Touch ID authenticates the invoking' \
+    '  user. It does not verify that a command is safe.' \
+    '  The sufficient pam_tid rule falls through to the verified later required' \
+    '  pam_opendirectory.so authenticator when Touch ID fails or is unavailable.' \
+    '  SSH and some multiplexed or remote contexts cannot present Touch ID;' \
+    '  password fallback also requires usable terminal input.' \
+    '' \
+    'Authorization cache:' \
+    '  When a state change is needed, enable and disable run /usr/bin/sudo -v,' \
+    '  then one sudo -n fixed privileged routine. Authentication by password' \
+    '  or Touch ID can refresh the ordinary sudo timestamp.' \
+    '  The cache applies to the same terminal session, normally for five' \
+    '  minutes unless system policy differs.' \
+    '  A process already controlling that session may benefit from the cache' \
+    '  after either method. Run sudo -k to invalidate the current timestamp.' \
+    '  The PAM rule does not change sudo timeout or timestamp policy.' \
+    '' \
+    'Risks, persistence, and recovery:' \
+    '  PAM policy controls system authentication. On a managed work Mac, obtain' \
+    '  administrator approval before changing organization-controlled policy.' \
+    '  No variable path or policy text is accepted. Exact owner, mode, ACL,' \
+    '  bytes, and fixed targets are checked at the privileged effect boundary.' \
+    '  A successful enable persists across shells and system updates until' \
+    '  disabled. Enable uses a temporary file under /etc/pam.d and publishes' \
+    '  only sudo_local. No backup exists because existing policy is preserved.' \
+    '  After an uncertain enable error, run status and then disable if managed.' \
+    '  Any inactive .compozsh-sudo-touch-id.* residue requires separate review.' \
+    '  Additional hard links are reported. Disable removes only sudo_local,' \
+    '  never other links; inspect remaining links separately.' \
+    '  --help shows this guide without reading PAM files or invoking sudo.' \
+    '' \
+    'Examples:' \
+    '  compozsh-sudo-touch-id          Inspect current state.' \
+    '  compozsh-sudo-touch-id enable   Opt in after reviewing this guide.' \
+    "  compozsh-sudo-touch-id disable  Remove only Compozsh's exact policy."
+}
+
+_sudo_touch_id_managed_text() {
+  REPLY=$'# sudo_local: local config file which survives system update and is included for sudo\n# Managed by Compozsh; use compozsh-sudo-touch-id disable to remove this exact file.\nauth       sufficient     pam_tid.so'
+}
+
+_sudo_touch_id_read_bounded() {
+  emulate -L zsh
+
+  local size=''
+  REPLY=''
+  size=$(command /usr/bin/stat -f '%z' "$1" 2>/dev/null) || return 1
+  [[ $size == <-> ]] && (( size <= 65536 )) || return 1
+  REPLY=$(<"$1") 2>/dev/null
+}
+
+_sudo_touch_id_acl_free() {
+  emulate -L zsh
+
+  local listing=''
+  local -a lines=()
+  listing=$(command /bin/ls -lde "$1" 2>/dev/null) || return 1
+  lines=("${(@f)listing}")
+  (( ${#lines} == 1 ))
+}
+
+_sudo_touch_id_state() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local target="$1/sudo_local" contents='' line='' trimmed='' metadata=''
+  local -i expected_size=0
+  REPLY=''
+  if [[ ! -e $target && ! -L $target ]]; then
+    REPLY=absent
+    return 0
+  fi
+  if [[ -L $target || ! -f $target ]]; then
+    REPLY=unsafe
+    return 0
+  fi
+  _sudo_touch_id_read_bounded "$target" || {
+    REPLY=unsafe
+    return 0
+  }
+  contents=$REPLY
+  _sudo_touch_id_managed_text
+  expected_size=$(( ${#REPLY} + 1 ))
+  metadata=$(command /usr/bin/stat -f '%z' "$target" 2>/dev/null) || {
+    REPLY=unsafe
+    return 0
+  }
+  if [[ $metadata == "$expected_size" && $contents == "$REPLY" ]]; then
+    REPLY=managed
+    return 0
+  fi
+  local -a fields=()
+  for line in "${(f)contents}"; do
+    trimmed=${line%%\#*}
+    fields=(${=trimmed})
+    if (( ${#fields} >= 3 )) &&
+      [[ $fields[1] == auth && $fields[2] == sufficient && $fields[3] == pam_tid.so ]]; then
+      REPLY=enabled-external
+      return 0
+    fi
+  done
+  REPLY=conflicting
+}
+
+_sudo_touch_id_is_macos() {
+  [[ $(command /usr/bin/uname -s 2>/dev/null) == Darwin ]]
+}
+
+_sudo_touch_id_metadata_safe() {
+  emulate -L zsh
+
+  local metadata=$1 owner='' group='' mode='' links=''
+  local expected_mode=${2:-} expected_links=${3:-}
+  owner=${metadata%%:*}
+  metadata=${metadata#*:}
+  group=${metadata%%:*}
+  metadata=${metadata#*:}
+  mode=${metadata%%:*}
+  links=${metadata#*:}
+  [[ $owner == 0 && $group == 0 && $mode == <-> ]] || return 1
+  [[ -z $expected_mode || $mode == $expected_mode ]] || return 1
+  [[ -z $expected_links || $links == $expected_links ]] || return 1
+  (( (8#$mode & 8#022) == 0 ))
+}
+
+_sudo_touch_id_root_owned() {
+  emulate -L zsh
+
+  local metadata=''
+  metadata=$(command /usr/bin/stat -f '%u:%g:%Lp:%l' "$1" 2>/dev/null) || return 1
+  _sudo_touch_id_metadata_safe "$metadata" "$2" "$3" || return 1
+  _sudo_touch_id_acl_free "$1"
+}
+
+_sudo_touch_id_base_preflight() {
+  emulate -L zsh
+
+  local pam_dir=$1
+  _sudo_touch_id_is_macos || {
+    print -u2 'compozsh-sudo-touch-id: Touch ID for sudo is supported only on macOS'
+    return 1
+  }
+  [[ -d $pam_dir && ! -L $pam_dir ]] && _sudo_touch_id_root_owned "$pam_dir" || {
+    print -u2 'compozsh-sudo-touch-id: /etc/pam.d is not a trusted root-owned ACL-free directory'
+    return 1
+  }
+}
+
+_sudo_touch_id_enable_preflight() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local pam_dir=$1 sudo_policy="$1/sudo" template="$1/sudo_local.template"
+  local contents='' line='' trimmed=''
+  local -a fields=()
+  local -i include_position=0 position=0 fallback_position=0 advertised=0
+  _sudo_touch_id_base_preflight "$pam_dir" || return 1
+  [[ -f $sudo_policy && ! -L $sudo_policy ]] &&
+    _sudo_touch_id_root_owned "$sudo_policy" || {
+    print -u2 'compozsh-sudo-touch-id: system sudo PAM policy is unavailable or unsafe'
+    return 1
+  }
+  _sudo_touch_id_read_bounded "$sudo_policy" || return 1
+  contents=$REPLY
+  for line in "${(f)contents}"; do
+    trimmed=${line%%\#*}
+    fields=(${=trimmed})
+    (( ${#fields} )) || continue
+    (( ++position ))
+    (( ${#fields} == 3 )) || continue
+    [[ $fields[1] == auth && $fields[2] == include && $fields[3] == sudo_local ]] &&
+      (( include_position == 0 )) && include_position=$position
+    [[ $fields[1] == auth && $fields[2] == required && $fields[3] == pam_opendirectory.so ]] &&
+      (( fallback_position == 0 )) && fallback_position=$position
+  done
+  (( include_position > 0 && fallback_position > include_position )) || {
+    print -u2 'compozsh-sudo-touch-id: system sudo policy lacks a safe sudo_local-to-password fallback chain'
+    return 1
+  }
+  [[ -f $template && ! -L $template ]] && _sudo_touch_id_root_owned "$template" || {
+    print -u2 'compozsh-sudo-touch-id: system sudo_local template is unavailable or unsafe'
+    return 1
+  }
+  _sudo_touch_id_read_bounded "$template" || return 1
+  contents=$REPLY
+  for line in "${(f)contents}"; do
+    trimmed=${line##[[:space:]]#}
+    [[ $trimmed == \#* ]] || continue
+    trimmed=${trimmed#\#}
+    fields=(${=trimmed})
+    if (( ${#fields} == 3 )) &&
+      [[ $fields[1] == auth && $fields[2] == sufficient && $fields[3] == pam_tid.so ]]; then
+      advertised=1
+      break
+    fi
+  done
+  (( advertised )) || {
+    print -u2 'compozsh-sudo-touch-id: this macOS release does not advertise pam_tid for sudo'
+    return 1
+  }
+}
+
+_sudo_touch_id_authorize() {
+  command /usr/bin/sudo -v
+}
+
+_sudo_touch_id_privileged_install_script() {
+  REPLY='
+    emulate -LR zsh
+    setopt EXTENDED_GLOB
+    local temp_file=""
+    local expected_one="# sudo_local: local config file which survives system update and is included for sudo"
+    local expected_two="# Managed by Compozsh; use compozsh-sudo-touch-id disable to remove this exact file."
+    local expected_three="auth       sufficient     pam_tid.so"
+    local contents="" expected_contents="" line="" trimmed="" metadata="" owner="" group="" mode="" listing=""
+    local -a fields=() acl_lines=()
+    local -i include_position=0 fallback_position=0 position=0 advertised=0 expected_size=0
+    local -i expected_uid=0 expected_gid=0
+    _cleanup() {
+      if [[ -n $temp_file && -f $temp_file && ! -L $temp_file &&
+            ${temp_file:h} == /etc/pam.d &&
+            ${temp_file:t} == .compozsh-sudo-touch-id.* ]]; then
+        command /bin/rm -f -- "$temp_file"
+      fi
+    }
+    trap _cleanup EXIT
+    trap "_cleanup; exit 1" HUP INT QUIT TERM
+    _acl_free() {
+      listing=$(command /bin/ls -lde "$1") || return 1
+      acl_lines=("${(@f)listing}")
+      (( ${#acl_lines} == 1 ))
+    }
+    _trusted() {
+      metadata=$(command /usr/bin/stat -f "%u:%g:%Lp" "$1") || return 1
+      owner=${metadata%%:*}; metadata=${metadata#*:}
+      group=${metadata%%:*}; mode=${metadata#*:}
+      [[ $owner == $expected_uid && $group == $expected_gid && $mode == <-> ]] || return 1
+      (( (8#$mode & 8#022) == 0 )) || return 1
+      _acl_free "$1"
+    }
+    [[ $# == 3 && $1 == "$expected_one" && $2 == "$expected_two" &&
+       $3 == "$expected_three" ]] || exit 1
+    expected_contents=$(print -rl -- "$expected_one" "$expected_two" "$expected_three")
+    [[ -d /etc/pam.d && ! -L /etc/pam.d ]] && _trusted /etc/pam.d || exit 1
+    [[ -f /etc/pam.d/sudo && ! -L /etc/pam.d/sudo ]] && _trusted /etc/pam.d/sudo || exit 1
+    [[ $(command /usr/bin/stat -f "%z" /etc/pam.d/sudo) == <0-65536> ]] || exit 1
+    contents=$(</etc/pam.d/sudo) || exit 1
+    for line in "${(f)contents}"; do
+      trimmed=${line%%\#*}; fields=(${=trimmed})
+      (( ${#fields} )) || continue
+      (( ++position )); (( ${#fields} == 3 )) || continue
+      [[ $fields[1] == auth && $fields[2] == include && $fields[3] == sudo_local ]] &&
+        (( include_position == 0 )) && include_position=$position
+      [[ $fields[1] == auth && $fields[2] == required && $fields[3] == pam_opendirectory.so ]] &&
+        (( fallback_position == 0 )) && fallback_position=$position
+    done
+    (( include_position > 0 && fallback_position > include_position )) || exit 1
+    [[ -f /etc/pam.d/sudo_local.template && ! -L /etc/pam.d/sudo_local.template ]] &&
+      _trusted /etc/pam.d/sudo_local.template || exit 1
+    [[ $(command /usr/bin/stat -f "%z" /etc/pam.d/sudo_local.template) == <0-65536> ]] || exit 1
+    contents=$(</etc/pam.d/sudo_local.template) || exit 1
+    for line in "${(f)contents}"; do
+      trimmed=${line##[[:space:]]#}; [[ $trimmed == \#* ]] || continue
+      trimmed=${trimmed#\#}; fields=(${=trimmed})
+      if (( ${#fields} == 3 )) &&
+        [[ $fields[1] == auth && $fields[2] == sufficient && $fields[3] == pam_tid.so ]]; then
+        advertised=1; break
+      fi
+    done
+    (( advertised )) || exit 1
+    [[ ! -e /etc/pam.d/sudo_local && ! -L /etc/pam.d/sudo_local ]] || exit 1
+    umask 077
+    temp_file=$(command /usr/bin/mktemp /etc/pam.d/.compozsh-sudo-touch-id.XXXXXX) || exit 1
+    [[ -f $temp_file && ! -L $temp_file && ${temp_file:h} == /etc/pam.d &&
+       ${temp_file:t} == .compozsh-sudo-touch-id.* ]] || exit 1
+    print -rl -- "$@" >| "$temp_file" || exit 1
+    command /bin/chmod -N "$temp_file" || exit 1
+    command /usr/sbin/chown root:wheel "$temp_file" || exit 1
+    command /bin/chmod 0444 "$temp_file" || exit 1
+    contents=$(<"$temp_file") || exit 1
+    expected_size=$(( ${#expected_one} + ${#expected_two} + ${#expected_three} + 3 ))
+    [[ $contents == "$expected_contents" ]] || exit 1
+    [[ $(command /usr/bin/stat -f "%u:%g:%Lp:%z" "$temp_file") == "$expected_uid:$expected_gid:444:$expected_size" ]] || exit 1
+    _acl_free "$temp_file" || exit 1
+    command /bin/link "$temp_file" /etc/pam.d/sudo_local || exit 1
+    command /bin/unlink "$temp_file" || exit 1
+    temp_file=""
+    [[ -f /etc/pam.d/sudo_local && ! -L /etc/pam.d/sudo_local ]] || exit 1
+    [[ $(command /usr/bin/stat -f "%u:%g:%Lp:%z:%l" /etc/pam.d/sudo_local) == "$expected_uid:$expected_gid:444:$expected_size:1" ]] || exit 1
+    _acl_free /etc/pam.d/sudo_local || exit 1
+  '
+}
+
+_sudo_touch_id_privileged_remove_script() {
+  REPLY='
+    emulate -LR zsh
+    local expected_one="# sudo_local: local config file which survives system update and is included for sudo"
+    local expected_two="# Managed by Compozsh; use compozsh-sudo-touch-id disable to remove this exact file."
+    local expected_three="auth       sufficient     pam_tid.so"
+    local expected_contents="" contents="" metadata="" listing=""
+    local -a acl_lines=()
+    local -i expected_size=0 expected_uid=0 expected_gid=0
+    [[ $# == 3 && $1 == "$expected_one" && $2 == "$expected_two" &&
+       $3 == "$expected_three" ]] || exit 1
+    expected_contents=$(print -rl -- "$expected_one" "$expected_two" "$expected_three")
+    expected_size=$(( ${#expected_one} + ${#expected_two} + ${#expected_three} + 3 ))
+    [[ -f /etc/pam.d/sudo_local && ! -L /etc/pam.d/sudo_local ]] || exit 1
+    metadata=$(command /usr/bin/stat -f "%u:%g:%Lp:%z:%l" /etc/pam.d/sudo_local) || exit 1
+    [[ ${metadata%:*} == "$expected_uid:$expected_gid:444:$expected_size" && ${metadata##*:} == <-> ]] || exit 1
+    listing=$(command /bin/ls -lde /etc/pam.d/sudo_local) || exit 1
+    acl_lines=("${(@f)listing}")
+    (( ${#acl_lines} == 1 )) || exit 1
+    contents=$(</etc/pam.d/sudo_local) || exit 1
+    [[ $contents == "$expected_contents" ]] || exit 1
+    [[ $(command /usr/bin/stat -f "%u:%g:%Lp:%z:%l" /etc/pam.d/sudo_local) == "$metadata" ]] || exit 1
+    command /bin/unlink /etc/pam.d/sudo_local
+  '
+}
+
+_sudo_touch_id_install() {
+  emulate -L zsh
+
+  local managed='' install_script=''
+  local -a lines=()
+  _sudo_touch_id_managed_text
+  managed=$REPLY
+  lines=("${(f)managed}")
+  _sudo_touch_id_privileged_install_script
+  install_script=$REPLY
+  command /usr/bin/sudo -n /bin/zsh -dfc "$install_script" \
+    compozsh-sudo-touch-id "${lines[@]}"
+}
+
+_sudo_touch_id_remove() {
+  emulate -L zsh
+
+  local managed='' remove_script=''
+  local -a lines=()
+  _sudo_touch_id_managed_text
+  managed=$REPLY
+  lines=("${(f)managed}")
+  _sudo_touch_id_privileged_remove_script
+  remove_script=$REPLY
+  command /usr/bin/sudo -n /bin/zsh -dfc "$remove_script" \
+    compozsh-sudo-touch-id "${lines[@]}"
+}
+
+_sudo_touch_id_enable() {
+  emulate -L zsh
+
+  local pam_dir=$1 state=''
+  _sudo_touch_id_state "$pam_dir"
+  state=$REPLY
+  case $state in
+    (managed)
+      print -r -- 'The Compozsh-managed sudo_local policy is already installed.'
+      return 0
+      ;;
+    (enabled-external)
+      print -r -- 'An existing custom policy already contains a sufficient pam_tid rule; nothing was changed.'
+      return 0
+      ;;
+    (conflicting)
+      print -u2 'Refusing to replace /etc/pam.d/sudo_local because it contains custom policy.'
+      return 1
+      ;;
+    (unsafe)
+      print -u2 'Refusing unsafe /etc/pam.d/sudo_local: expected a regular root-owned file or no file.'
+      return 1
+      ;;
+  esac
+
+  _sudo_touch_id_enable_preflight "$pam_dir" || return 1
+  print -r -- 'Enabling Apple Touch ID as an optional sudo authenticator.'
+  print -r -- 'Password authentication remains available when Touch ID cannot be used.'
+  _sudo_touch_id_authorize || {
+    print -u2 'compozsh-sudo-touch-id: administrator authorization failed'
+    return 1
+  }
+  _sudo_touch_id_enable_preflight "$pam_dir" || {
+    print -u2 'compozsh-sudo-touch-id: system sudo policy changed during authorization; nothing was installed'
+    return 1
+  }
+  _sudo_touch_id_state "$pam_dir"
+  [[ $REPLY == absent ]] || {
+    print -u2 'compozsh-sudo-touch-id: sudo_local changed during authorization; nothing was installed'
+    return 1
+  }
+  local -i install_status=0
+  _sudo_touch_id_install || install_status=$?
+  _sudo_touch_id_state "$pam_dir"
+  [[ $REPLY == managed ]] && _sudo_touch_id_root_owned "$pam_dir/sudo_local" 444 1 || {
+    if (( install_status )); then
+      print -u2 'compozsh-sudo-touch-id: installation failed or is uncertain; run status, then disable if managed'
+    else
+      print -u2 'compozsh-sudo-touch-id: installed policy failed exact content, owner, mode, or ACL verification'
+    fi
+    return 1
+  }
+  print -r -- 'Enabled Touch ID for sudo; password authentication remains available.'
+}
+
+_sudo_touch_id_disable() {
+  emulate -L zsh
+
+  local pam_dir=$1 state=''
+  _sudo_touch_id_state "$pam_dir"
+  state=$REPLY
+  case $state in
+    (absent)
+      print -r -- 'No Compozsh-managed sudo_local policy is installed.'
+      return 0
+      ;;
+    (enabled-external|conflicting)
+      print -u2 'Refusing to remove /etc/pam.d/sudo_local because Compozsh does not own its exact contents.'
+      return 1
+      ;;
+    (unsafe)
+      print -u2 "Refusing unsafe /etc/pam.d/sudo_local: expected Compozsh's exact regular file."
+      return 1
+      ;;
+  esac
+
+  _sudo_touch_id_authorize || {
+    print -u2 'compozsh-sudo-touch-id: administrator authorization failed'
+    return 1
+  }
+  _sudo_touch_id_base_preflight "$pam_dir" || {
+    print -u2 'compozsh-sudo-touch-id: PAM directory changed during authorization; nothing was removed'
+    return 1
+  }
+  _sudo_touch_id_state "$pam_dir"
+  [[ $REPLY == managed ]] && _sudo_touch_id_root_owned "$pam_dir/sudo_local" 444 || {
+    print -u2 'compozsh-sudo-touch-id: sudo_local changed during authorization; nothing was removed'
+    return 1
+  }
+  local -i remove_status=0
+  _sudo_touch_id_remove || remove_status=$?
+  if [[ -e "$pam_dir/sudo_local" || -L "$pam_dir/sudo_local" ]]; then
+    if (( remove_status )); then
+      print -u2 'compozsh-sudo-touch-id: removal failed safely; the policy still exists'
+    else
+      print -u2 'compozsh-sudo-touch-id: the managed policy still exists after removal'
+    fi
+    return 1
+  fi
+  print -r -- 'Disabled the Compozsh-managed Touch ID policy for sudo.'
+}
+
+_sudo_touch_id_run() {
+  emulate -L zsh
+
+  local action=$1 pam_dir=$2 state='' links=''
+  _sudo_touch_id_base_preflight "$pam_dir" || return 1
+  _sudo_touch_id_state "$pam_dir"
+  state=$REPLY
+  if [[ $state == managed ]] && ! _sudo_touch_id_root_owned "$pam_dir/sudo_local" 444; then
+    print -u2 'compozsh-sudo-touch-id: managed policy has unsafe owner, mode, or ACL'
+    return 1
+  elif [[ $state != absent ]] && ! _sudo_touch_id_root_owned "$pam_dir/sudo_local"; then
+    print -u2 'compozsh-sudo-touch-id: /etc/pam.d/sudo_local is not safely root-owned'
+    return 1
+  fi
+  case $action in
+    (status)
+      case $state in
+        (absent) print -r -- 'No sudo_local policy is installed.' ;;
+        (managed)
+          links=$(command /usr/bin/stat -f '%l' "$pam_dir/sudo_local" 2>/dev/null) || return 1
+          if [[ $links == <-> ]] && (( links > 1 )); then
+            print -r -- 'The Compozsh-managed sudo_local policy has additional hard links; disable removes only sudo_local, then inspect remaining links.'
+          else
+            print -r -- 'The Compozsh-managed sudo_local policy is installed.'
+          fi
+          ;;
+        (enabled-external) print -r -- 'A custom sudo_local policy contains a sufficient pam_tid rule.' ;;
+        (conflicting) print -r -- 'A custom sudo_local policy exists without a sufficient pam_tid rule.' ;;
+        (unsafe)
+          print -u2 'compozsh-sudo-touch-id: /etc/pam.d/sudo_local is a symlink, special file, or unreadable'
+          return 1
+          ;;
+      esac
+      ;;
+    (enable) _sudo_touch_id_enable "$pam_dir" ;;
+    (disable) _sudo_touch_id_disable "$pam_dir" ;;
+  esac
+}
+
+compozsh-sudo-touch-id() {
+  emulate -L zsh
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_compozsh-sudo-touch-id
+    return 0
+  fi
+  (( $# <= 1 )) || {
+    print -u2 'usage: compozsh-sudo-touch-id [status|enable|disable]'
+    return 2
+  }
+  local action=${1:-status}
+  case $action in
+    (status|enable|disable) ;;
+    (*)
+      print -u2 'usage: compozsh-sudo-touch-id [status|enable|disable]'
+      return 2
+      ;;
+  esac
+  _sudo_touch_id_run "$action" /etc/pam.d
+}
+
+:

@@ -199,6 +199,7 @@ compozsh/
 │   ├── .zsh.navigation    directory/branch workspaces, details and copying
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
+│   ├── .zsh.sudo-touch-id explicit macOS sudo Touch ID policy management
 │   ├── .zsh.tools         small commands and safe Git cleanup
 │   ├── .zsh.usb           external-disk formatting and bootable-media creation
 │   ├── .zsh.xcode         native Xcode workspace and agent-skill integration
@@ -244,6 +245,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, copying and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
+| `.zsh.sudo-touch-id` | Opt-in sudo authentication | `compozsh-sudo-touch-id` inspects, enables, or safely disables Apple Touch ID through the system-supported `sudo_local` PAM policy |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
 | `.zsh.usb` | External-disk preparation | `format_external_device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
 | `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
@@ -306,14 +308,77 @@ add data, endpoints, or requests to external commands.
 
 Compozsh has no telemetry, analytics, automatic update check, project server,
 or runtime network client. It does retain expected local shell state, including
-history and installer recovery backups. The external-media tools are the only
-`sudo` boundary: Apple's `sudo` reads the password directly, while subsequent
-privileged operations use non-prompting `sudo -n` calls.
+history and installer recovery backups. Administrator access occurs only in the
+two explicitly confirmed external-media tools and the explicit
+`compozsh-sudo-touch-id enable|disable` modes. Apple's `sudo` and PAM stack own
+authentication input; subsequent privileged operations use non-prompting
+`sudo -n` calls against fixed targets.
 
 Read [SECURITY.md](SECURITY.md) for the precise scope and limitations, local
 data inventory, website boundary, update-review workflow, vulnerability
 reporting route, and copy-paste audit commands. The document is designed so the
 claims can be checked against any specific commit without running Compozsh.
+
+### Touch ID for sudo
+
+On macOS Sonoma 14 or later, a compatible Mac with an enrolled Touch ID
+fingerprint can opt the system `sudo` service into Apple's `pam_tid`
+authenticator. This uses [Apple's update-persistent `sudo_local`
+interface](https://support.apple.com/en-us/109030):
+
+```sh
+compozsh-sudo-touch-id          # inspect without administrator access
+compozsh-sudo-touch-id enable   # install the fixed local PAM policy
+```
+
+The first authorization normally asks for your password because the policy is
+not active yet. Later `sudo` authentication can use Touch ID. The rule is
+`sufficient`, so unavailable or failed biometric authentication falls through
+to the normal password authenticator; it does not grant sudo access to an
+account that lacks it.
+
+The Secure Enclave performs the local biometric match. `pam_tid` returns an
+authentication result to PAM; Compozsh observes only `sudo`'s exit status,
+never fingerprint or template data. Compozsh receives no reusable biometric
+token; `sudo` can still refresh its separate credential timestamp as described
+below. A successful Touch ID authentication avoids typing the sudo password and
+therefore reduces password-capture, observation, and replay risk. It
+authenticates the user but does not verify that the requested command is safe.
+
+The PAM rule does not change sudo's timeout policy. The `enable` and `disable`
+commands do run `sudo -v`, so they can refresh sudo's current cached credential
+timestamp. Password and Touch ID authentication have the same ordinary sudo
+cache boundary; a process already controlling that terminal session may benefit
+from it until expiry. Run `sudo -k` to invalidate the current timestamp.
+
+The command follows the system `/etc/pam.d/sudo_local.template`, verifies that
+the system `sudo_local` include still has a later required password fallback, and
+rejects ACL-bearing or writable policy paths. Enable creates a temporary file
+beneath `/etc/pam.d`, strips inherited ACLs, then publishes only the persistent
+`/etc/pam.d/sudo_local` policy as `root:wheel` mode `0444`. It refuses to
+replace or remove existing custom policy. The setting persists across new
+shells and macOS updates. Apple's `pam_tid` implementation requires a local
+graphical session, so SSH and some remote or multiplexed contexts can fall
+through to password authentication only when `sudo` has usable terminal input.
+See [Apple's Touch ID setup
+guide](https://support.apple.com/guide/mac-help/use-touch-id-mchl16fbf90a/mac)
+for enrollment.
+
+Because PAM policy controls system authentication, obtain administrator
+approval before enabling this on a managed work Mac. Compozsh never enables it
+during installation, startup, or updates.
+
+To reverse the Compozsh-managed change:
+
+```sh
+compozsh-sudo-touch-id disable
+```
+
+Disable removes the file only when its complete contents still match the exact
+policy Compozsh installed. If status reports additional hard links, disable
+unlinks only `sudo_local`; it never removes the other links, which require
+separate inspection. Run `compozsh-sudo-touch-id --help` for the complete safety
+and recovery contract.
 
 ## Modern-first compatibility
 
@@ -1803,6 +1868,7 @@ mkcd --help
 cpdir --help
 git-discard-all --help
 prompt-refresh --help
+compozsh-sudo-touch-id --help
 g --help
 flash-usb --help
 format_external_device --help
@@ -2946,6 +3012,20 @@ stashed. Use `git stash --include-untracked` instead when the work may be needed
 later.
 
 ## Uninstall
+
+The optional sudo policy persists independently of the shell configuration.
+Before archiving Compozsh, inspect it and remove it if desired while the guarded
+command is still available:
+
+```sh
+compozsh-sudo-touch-id status
+compozsh-sudo-touch-id disable
+```
+
+Disable preserves custom policy and is still available if an OS update changed
+the enable prerequisites. If Compozsh was already archived, source the
+trusted archived `.zsh.sudo-touch-id` peer from the same release and use its
+`status` and `disable` modes; do not remove an unverified `sudo_local` file.
 
 Use the same configuration base as installation, then inspect the active
 bootstrap without printing its contents:
