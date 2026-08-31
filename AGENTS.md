@@ -9,8 +9,8 @@ user's current request first; within that scope, preserve the principles below.
 This project is a polished, self-contained interactive Zsh configuration. Its
 core promises are:
 
-- Local-only operation is the highest security invariant. All data Compozsh
-  reads, captures, derives, or stores remains on the user's computer. No
+- Local-only operation is the highest security invariant. All processing
+  performed by Compozsh remains on the machine running its Zsh process. No
   Compozsh-owned code may transmit user or project data under any circumstance.
 - Privacy, credential protection, data minimization, and user control are
   top-level product goals. Handle only the minimum information required for a
@@ -1314,11 +1314,18 @@ discovered. The keyboard guide must never trigger refresh.
   boundaries remain fully disclosed in `SECURITY.md`; do not silently expand
   them.
 - All data Compozsh reads, captures, derives, or stores must remain on the
-  user's computer. No Compozsh-owned operation may transmit user or project
-  data under any circumstance. There is no telemetry opt-in, consent exception,
-  feature flag, debugging exception, or future product mode that may weaken
-  this invariant. A proposed feature that requires project-owned transmission
-  is incompatible with Compozsh and must be rejected.
+  machine running its Zsh process for all Compozsh-owned processing and
+  storage. No Compozsh-owned operation may transmit user or project data under
+  any circumstance. There is no telemetry opt-in, consent exception, feature
+  flag, debugging exception, or future product mode that may weaken this
+  invariant. A proposed feature that requires project-owned transmission is
+  incompatible with Compozsh and must be rejected.
+- Treat user-configured synced or network-mounted storage, operating-system
+  clipboard synchronization, explicitly invoked external programs, and hosted
+  services as separate trust boundaries. Compozsh must never configure or
+  silently select those external destinations. Disclose every local handoff and
+  the steps required for physical single-machine retention; never hide an
+  independently controlled transfer behind an unqualified “always local” claim.
 - An external program remains a separate trust boundary when the user
   deliberately asks that program to communicate—for example, by invoking
   `git push` through the transparent Git wrapper. Compozsh must not add data,

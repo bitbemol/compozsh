@@ -7,19 +7,22 @@ document defines the shipped security boundary, identifies every intentional
 sensitive-data and administrator boundary, and provides repeatable checks for
 the exact commit you intend to run.
 
-The claims below apply to repository-managed files at the commit being audited.
-They do not extend to private add-ons, the machine-local initializer, programs
-already installed on the machine, repositories being inspected, the operating
-system, GitHub, or software opened or built at the user's request.
+The guarantees below apply to all behavior implemented by repository-managed
+files at the commit being audited. Private add-ons, the machine-local
+initializer, installed programs, inspected repositories, the operating system,
+GitHub, and software opened or built at the user's request are independently
+controlled code or services. The sections below disclose every class of local
+handoff from Compozsh to one of those boundaries. Those disclosures do not
+create an exception that permits Compozsh itself to transmit data.
 
 ## Non-transmission invariant
 
-All data Compozsh reads, captures, derives, or stores stays on the user's
-computer. Compozsh never transmits user or project data under any circumstance.
-There is no telemetry opt-in, consent exception, debugging mode, feature flag,
-or future product mode that weakens this rule. A feature that requires
-Compozsh-owned transmission is outside the product contract and must not be
-added.
+All processing performed by Compozsh stays on the machine running its Zsh
+process, including a user-controlled remote host during SSH. Compozsh never
+transmits user or project data under any circumstance. There is no telemetry
+opt-in, consent exception, debugging mode, feature flag, or future product mode
+that weakens this rule. A feature that requires Compozsh-owned transmission is
+outside the product contract and must not be added.
 
 This invariant governs Compozsh code; it does not pretend that the operating
 system or a program explicitly invoked by the user is offline. If the user asks
@@ -34,8 +37,7 @@ Privacy, credential protection, data minimization, and user control are
 top-level product goals. Compozsh's model is to acquire only the facts required
 for the visible task, within its displayed scope, and retain them only for the
 necessary lifetime. Temporary view state stays in memory when practical;
-intentional persistent local state is enumerated below rather than hidden
-behind a broad “everything is local” claim.
+every intentional persistent location and lifetime is enumerated below.
 
 Sensitive values are handled as literal, bounded data and are not evaluated as
 shell code. Compozsh does not collect information merely because it is
@@ -60,8 +62,8 @@ guarantees made by Compozsh.
 - It has no telemetry, analytics, crash-reporting service, account, project
   server, background daemon, automatic update check, or runtime package
   download.
-- The tracked shell and installer contain no network-client invocation or
-  project endpoint. Updates happen only when the user runs Git themselves.
+- The tracked shell and installer define no project endpoint and initiate no
+  network request. Updates happen only when the user runs Git themselves.
 - It does not collect, read, log, store, or transmit a `sudo` password. The two
   external-media tools invoke Apple's `/usr/bin/sudo -v`; `sudo` owns the
   terminal prompt and its timestamp. Compozsh never receives the password.
@@ -70,25 +72,25 @@ guarantees made by Compozsh.
 - It never reads the clipboard. Explicit Copy actions write only the visibly
   selected path or branch through `pbcopy`. The optional website writes a
   visible installation command only after its Copy button is clicked.
-- The shell configuration, installer, and static site do not upload shell
-  history, paths, Git data, project metadata, file previews, diffs, runtime
-  versions, disk metadata, or installer output.
+- The shell configuration, installer, and static site upload nothing. This
+  includes shell history, paths, Git data, project metadata, file previews,
+  diffs, runtime versions, disk metadata, and installer output.
 - It does not automatically download and execute shell code. Installation uses
   only files already present in the reviewed clone.
 
-These are implementation constraints, not a claim that the wider computer is
-offline. A command the user runs can use the network. Compozsh's `git` wrapper,
-for example, passes the user's `git clone`, `fetch`, `pull`, and `push` requests
-to Git. An application opened by an explicit file action, an Xcode build phase,
-or an installed runtime queried for its version has its own security and
-privacy behavior.
+These constraints admit no Compozsh exception. They do not claim that the
+operating system and independently controlled programs are offline. Compozsh's
+transparent `git` wrapper, for example, passes an explicit user request for
+`git clone`, `fetch`, `pull`, or `push` to Git without adding data or another
+destination. An application opened by an explicit file action, an Xcode build
+phase, or an installed runtime queried for its version retains its own security
+and privacy behavior.
 
-## All Compozsh data remains local
+## Complete local data inventory
 
-Every data category Compozsh reads, captures, derives, or stores remains on the
-user's computer and is never transmitted by Compozsh. The inventory below
-fully discloses where that local data exists and for how long. Some entries are
-intentionally persistent because a shell and a recoverable installer need local
+Compozsh creates no off-machine storage or transmission destination. Every
+intentional Compozsh data location is listed below with its lifetime. Some
+entries are persistent because a shell and a recoverable installer need local
 state:
 
 | Data | Location and lifetime | Why it exists |
@@ -97,9 +99,18 @@ state:
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Prompt and picker facts | Shell memory | Runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
-| Bounded operation captures | `${TMPDIR:-/tmp}` | USB progress, Xcode output, and Git syntax transport; validated temporary paths are removed during normal and handled-error cleanup |
+| Bounded operation captures | `${TMPDIR:-/tmp}` | USB progress, Xcode output, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update_xcode_skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; never read back by Compozsh |
+
+These are local process, filesystem, agent-directory, and operating-system
+clipboard interfaces on the machine running Compozsh. A user can independently
+configure a history, configuration, temporary, or agent directory on a synced
+or network-mounted filesystem. macOS can also synchronize its clipboard when
+the user enables that operating-system feature. Compozsh does not configure,
+detect, start, or control either form of synchronization. Users who require
+physical single-machine retention must choose local, nonsynchronized paths and
+disable operating-system clipboard synchronization or avoid Copy actions.
 
 The installer never prints the contents of an old `.zshrc` or private add-on,
 but a recovery backup can contain secrets that were already present there.
@@ -153,17 +164,19 @@ The first command should identify only `.zsh.addons/.zsh.usb`. The second
 should print no matches and return status 1. Inspect every changed result rather
 than treating the command as a permanent allowlist.
 
-## Network boundary
+## Compozsh network prohibition and external boundaries
 
-The active shell configuration contains no network client and no project
-endpoint. Compozsh's Git inspection does not request `clone`, `fetch`, `pull`,
-`push`, or another remote operation: prompt status disables a
+Compozsh defines no project endpoint and initiates no network request. Its Git
+inspection does not request `clone`, `fetch`, `pull`, `push`, or another remote
+operation: prompt status disables a
 repository-configured filesystem monitor, branch views read local refs and
 reflogs, and Git review disables repository-configured clean/process filters
 for its own reads. File discovery uses bounded filesystem reads, local Git
 metadata, or the local Spotlight index.
 
-These boundaries can still lead to network activity outside Compozsh itself:
+This is the complete external-network boundary disclosure. The following
+independently controlled software can use the network; none is a permission for
+Compozsh to add a request, destination, or data:
 
 - Cloning and updating the repository, and network-capable Git subcommands the
   user explicitly runs, use the configured Git transport. Git also documents
@@ -171,9 +184,10 @@ These boundaries can still lead to network activity outside Compozsh itself:
   demand-fetch a missing object during an otherwise local command; that is
   installed Git behavior against the repository's configured promisor remote,
   not a Compozsh endpoint.
-- Project runtime detection invokes an installed runtime's version command from
-  `/`. Common auto-install and telemetry controls are disabled where supported,
-  but the executable on `PATH` remains independently trusted software.
+- Prompt runtime detection invokes a trusted-path installed runtime with a
+  fixed version argument from `/`. Common auto-install and telemetry controls
+  are disabled where supported, but the executable on `PATH` remains
+  independently trusted software with its own behavior.
 - Explicit Xcode build, test, analyze, clean, run, and Apple skill-export actions
   invoke Apple's tools. Discovery disables automatic package resolution and
   updates; a chosen build can execute project build phases.
@@ -288,7 +302,8 @@ Fetching necessarily contacts the configured remote; it does not activate the
 fetched shell files. Replace `origin/main` with the exact remote ref you intend
 to trust. Compare the recorded old and new commit IDs, inspect renamed and new
 files, and rerun the audit and tests. Copy installations do not change until the
-reviewed installer is run again.
+reviewed installer is run again. This fetch is a deliberate command run by the
+user for an update review; Compozsh never performs it automatically.
 
 ## Supported versions
 
@@ -299,6 +314,10 @@ advisory says otherwise. Reports for any version are welcome—include the exact
 commit ID so the affected behavior can be reproduced.
 
 ## Reporting a vulnerability
+
+Reporting is optional, deliberate communication initiated by the user and is
+not performed by Compozsh. GitHub receives whatever the reporter chooses to
+submit, so review and redact the report before sending it.
 
 Do not place a live password, token, private key, personal path, private
 repository content, or exploitable sensitive detail in a public issue. Use

@@ -61,6 +61,8 @@ _test_security_contract_is_public_and_auditable() {
     'README does not expose privacy as a top-level product goal' || return
   test_assert_contains "$readme" 'never transmits user or project data under any circumstance' \
     'README does not promise local-only user data' || return
+  test_assert_contains "$readme" 'User-configured synced or network-mounted storage' \
+    'README hides independently controlled synchronization boundaries' || return
   test_assert_contains "$site" 'blob/main/SECURITY.md' \
     'website does not expose the security self-audit' || return
   test_assert_contains "$security" 'What the shipped project does not do' \
@@ -71,11 +73,15 @@ _test_security_contract_is_public_and_auditable() {
     'security contract omits its highest local-only invariant' || return
   test_assert_contains "$security" 'Transmission is prohibited rather' \
     'security contract permits transmission as a configurable feature' || return
-  test_assert_contains "$security" 'All Compozsh data remains local' \
+  test_assert_contains "$security" 'Complete local data inventory' \
     'security contract ambiguously describes its local-only data inventory' || return
+  test_assert_contains "$security" 'Compozsh creates no off-machine storage' \
+    'security contract does not make its storage boundary explicit' || return
+  test_assert_contains "$security" 'operating-system clipboard synchronization' \
+    'security contract hides independently configured synchronization' || return
   test_assert_contains "$security" 'Administrator boundary' \
     'security contract omits the sudo boundary' || return
-  test_assert_contains "$security" 'Network boundary' \
+  test_assert_contains "$security" 'Compozsh network prohibition and external boundaries' \
     'security contract omits the network boundary' || return
   test_assert_contains "$security" 'Audit a commit before installing' \
     'security contract does not provide a self-audit workflow' || return
@@ -97,6 +103,8 @@ _test_security_contract_is_public_and_auditable() {
     'agent contract does not rank local-only operation first' || return
   test_assert_contains "$agents" 'There is no telemetry opt-in, consent exception' \
     'agent contract permits exceptions to non-transmission' || return
+  test_assert_contains "$agents" 'never hide an' \
+    'agent contract permits ambiguous always-local claims' || return
   test_assert_contains "$agents" 'New persistent storage requires an explicit' \
     'agent contract permits undocumented sensitive storage' || return
   test_assert_contains "$agents" 'No Compozsh-owned operation may transmit' \

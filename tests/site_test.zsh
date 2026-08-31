@@ -20,7 +20,7 @@ _test_site_static_contract() {
   test_assert_contains "$html" 'id="git-review-demo"' || return
   test_assert_contains "$html" '--symlink --dry-run' || return
   test_assert_contains "$html" 'blob/main/SECURITY.md' || return
-  test_assert_contains "$html" 'Your Compozsh data stays local. Never transmitted.' || return
+  test_assert_contains "$html" 'Local processing. Compozsh never transmits your data.' || return
   test_assert_contains "$css" 'prefers-reduced-motion' || return
   test_assert_contains "$css" 'clamp(' || return
   test_assert_contains "$css" '.review-workspace' || return

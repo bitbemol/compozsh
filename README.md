@@ -293,12 +293,14 @@ top-level product goals. Features capture only the facts required for their
 visible task, prefer temporary in-memory state, and keep every intentional
 persistent boundary explicit.
 
-All data Compozsh reads, captures, derives, or stores stays on your computer.
+All processing performed by Compozsh stays on the machine running Zsh.
 Compozsh never transmits user or project data under any circumstance. This is a
 non-negotiable product invariant, with no telemetry opt-in, debugging exception,
-or future network mode. Programs you explicitly direct to communicate—such as
-Git during `push`, `fetch`, `pull`, or `clone`—remain separate trust boundaries;
-Compozsh does not add data, endpoints, or requests to those commands.
+or future network mode. User-configured synced or network-mounted storage,
+macOS clipboard synchronization, and programs you explicitly direct to
+communicate—such as Git during `push`, `fetch`, `pull`, or `clone`—remain
+separate trust boundaries. Compozsh does not configure those destinations or
+add data, endpoints, or requests to external commands.
 
 Compozsh has no telemetry, analytics, automatic update check, project server,
 or runtime network client. It does retain expected local shell state, including
