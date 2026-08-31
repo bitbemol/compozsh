@@ -194,7 +194,7 @@ compozsh/
 │   ├── .zsh.output        semantic palette, help styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.tools         small commands and safe Git cleanup
-│   ├── .zsh.usb           bootable external-media creation and verification
+│   ├── .zsh.usb           external-disk formatting and bootable-media creation
 │   ├── .zsh.xcode         native Xcode workspace and agent-skill integration
 │   └── support/
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
@@ -238,7 +238,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
-| `.zsh.usb` | Bootable external media | `flash-usb` dispatches raw/hybrid images to the native byte writer, full macOS installer apps to Apple `createinstallmedia`, and compatible UEFI Windows ISOs to a native FAT32 file-tree creator; it retains optional source checksums, verifies each handler’s finished-media boundary, and shows native progress plus completion or recovery stats |
+| `.zsh.usb` | External-disk preparation | `format_external_device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images, full macOS installer apps, and compatible UEFI Windows ISOs to native verified media handlers |
 | `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -1746,6 +1746,7 @@ git-discard-all --help
 prompt-refresh --help
 g --help
 flash-usb --help
+format_external_device --help
 xcode --help
 update_xcode_skills --help
 compozsh --help
@@ -1899,6 +1900,64 @@ Programmatic extension functions such as `prompt_add_project_segment` are APIs,
 not terminal commands, and document their call signature where they are used.
 Transparent wrappers such as `grep` and `man` preserve the help behavior of the
 underlying system command.
+
+### Formatting an external device
+
+Open the native three-step formatter with:
+
+```sh
+format_external_device
+```
+
+Step 1 captures currently attached whole external physical disks through
+`diskutil`. Internal, virtual, read-only, and partition-slice devices are
+excluded. Each row identifies the media name, capacity, protocol, and exact
+`/dev/diskN`; no action relies on a remembered disk number. The same shared
+provider used by `flash-usb` bounds each native plist capture to 1 MiB, 4,096
+device entries, and 64 whole-disk candidates. Press **Ctrl-R** to replace the
+temporary device snapshot without leaving the workspace. An ejected disk can
+remain physically connected while absent from `diskutil`; reconnect it or
+power-cycle its hub, then retry the capture.
+
+After selecting a disk, Step 2 asks `diskutil listFilesystems -plist` for the
+filesystem personalities available on the current Mac. It shows every
+advertised entry instead of maintaining a static format list, including
+installed filesystem bundles and special personalities such as **Free Space**.
+Details show the user-visible name, exact personality passed to `eraseDisk`,
+and Apple’s reported minimum and maximum sizes. A personality outside the
+selected disk’s bounds stays visible with an unavailable label and cannot begin
+an erase. Going back returns to drive selection; no selection formats anything.
+
+Step 3 asks for the initial volume name with two choices. **Use default name ·
+External** continues immediately with `External`; **Give the volume a custom
+name…** opens a literal text field. APFS and HFS names accept up to 255 printable
+characters without `/`, `:`, control characters, or leading/trailing spaces.
+Other formatted personalities use a conservative 11-character subset of
+letters, numbers, spaces, underscores, and hyphens. Invalid input stays in the
+name field with a concrete format-specific reason and cannot reach confirmation.
+Going back returns to the format choices.
+
+Acceptance restores the ordinary terminal and names the exact drive, format,
+and chosen volume name. The operation requires the target-bound
+phrase `ERASE diskN`, then administrator authorization. Compozsh revalidates
+the captured disk fingerprint plus external, physical, writable, whole-disk
+eligibility before authorization and again immediately before calling:
+
+```sh
+diskutil eraseDisk <personality> <volume-name> /dev/diskN
+```
+
+`diskutil` chooses its native partition scheme. Special personalities that do
+not create a mounted filesystem may ignore the supplied volume name. Formatting
+destroys every existing partition and all data on the selected whole disk. If
+`diskutil` fails after beginning the operation, the previous layout may already
+be changed; Compozsh cannot restore the partition map or files. Native command
+output remains visible so a device or filesystem-driver failure keeps Apple’s
+specific diagnostic. On supported 256-color terminals, the shared semantic
+palette distinguishes the erase heading, live stages, native field labels, and
+successful completion. `NO_COLOR`, redirects, pipes, unsupported terminals,
+and a missing output peer retain the exact plain `diskutil` stream and final
+summary. Styling does not change native diagnostics or exit status.
 
 ### Bootable external-media workspace
 

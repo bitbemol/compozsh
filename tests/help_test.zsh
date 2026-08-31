@@ -27,6 +27,7 @@ _test_public_commands_support_help() {
       prompt-refresh
       g
       flash-usb
+      format_external_device
       xcode
       update_xcode_skills
       compozsh
@@ -50,7 +51,7 @@ _test_public_commands_support_help() {
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
 
   local public_command='' output_line='' record=''
-  for public_command in mkcd cpdir git-discard-all prompt-refresh g flash-usb xcode \
+  for public_command in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
       update_xcode_skills compozsh; do
     record=''
     for output_line in ${(f)output}; do
@@ -143,7 +144,7 @@ _test_tool_help_explains_real_boundaries() {
   test_make_temp_dir || return
   local output='' tool='' fact=''
   local -a facts=()
-  for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb xcode \
+  for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
       update_xcode_skills compozsh; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home" '
       source "$1/.zsh.addons/.zsh.tools"
@@ -183,6 +184,14 @@ _test_tool_help_explains_real_boundaries() {
         'physical-tail cleanup' 'short reads' 'pre-mount proof' 'checksum' 'createinstallmedia'
         'UEFI Windows' 'FAT32' '4 GiB' 'Apple code signature'
         'cannot roll back' 'Examples:') ;;
+      (format_external_device) facts=('whole external physical' 'Internal' 'virtual'
+        'read-only' 'partition-slice' '1 MiB' '4,096' '64 whole' 'Ctrl-R'
+        'temporary snapshot' 'listFilesystems -plist' 'every filesystem personality'
+        'Free Space' 'size bounds' 'passed unchanged' 'eraseDisk' 'External'
+        'Step 3' 'custom name' '11-character' '255 printable' 'Invalid input'
+        '256-color' 'live stages' 'field labels' 'NO_COLOR' 'exit status'
+        'ERASE diskN' 'administrator authorization' 'immediately before'
+        'permanently destroys' 'cannot restore' 'Examples:') ;;
       (xcode) facts=('nearest' 'workspace' 'project' 'scheme' 'destination'
         'Build' 'Test' 'Analyze' 'Clean' 'Simulator' 'read-only discovery'
         'build scripts' 'package plugins' 'automatic package resolution'
@@ -221,7 +230,7 @@ _test_all_tool_help_is_static_without_optional_tools() {
         _detect_xcode_skill_vendor _compozsh_tool_capture; do
       functions[$helper]="print -u2 -- unexpected-operation; return 99"
     done
-    for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb xcode \
+    for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
         update_xcode_skills compozsh; do
       "$tool" --help >| "$HOME/help.out" 2>| "$HOME/help.err" || exit 10
       help_text=$(<"$HOME/help.out")
@@ -265,7 +274,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     zmodload zsh/zpty || exit 10
     _help_test_driver() {
       local tool
-      for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb xcode \
+      for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
           update_xcode_skills compozsh; do
         "$tool" --help || return
       done
@@ -292,7 +301,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     [[ $plain != *$'\''\e'\''* ]] || exit 12
     _help_test_capture || exit 13
     colored=$REPLY
-    for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb xcode \
+    for tool in mkcd cpdir git-discard-all prompt-refresh g flash-usb format_external_device xcode \
         update_xcode_skills compozsh; do
       [[ $colored == *$'\''\e[1;38;5;123m'\''"usage: $tool"* ]] || {
         print -u2 -- "$tool help is missing the heading palette color"

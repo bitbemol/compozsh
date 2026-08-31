@@ -8,7 +8,11 @@ typeset -ga _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
 typeset -ga _USB_IMAGE_KINDS=()
 typeset -ga _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
 typeset -ga _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
+typeset -ga _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=()
+typeset -ga _USB_FORMAT_DETAILS=()
+typeset -ga _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
 typeset -g _USB_CAPTURE_ERROR='' _USB_PLIST=''
+typeset -g _USB_FORMAT_ERROR=''
 typeset -g _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
 typeset -ga _USB_WINDOWS_FILES=() _USB_WINDOWS_FILE_SIZES=()
 typeset -g _USB_WINDOWS_ERROR='' _USB_WINDOWS_ARCHITECTURE=''
@@ -388,7 +392,7 @@ _usb_image_architecture_hint() {
   local name=${1:t:l}
   case $name in
     (*arm64*|*aarch64*) REPLY=arm64 ;;
-    (*amd64*|*x86_64*|*x86-64*) REPLY=x86_64 ;;
+    (*amd64*|*x64*|*x86_64*|*x86-64*) REPLY=x86_64 ;;
     (proxmox-ve_*.iso) REPLY=x86_64 ;;
     (*) REPLY=unknown ;;
   esac
@@ -1164,14 +1168,14 @@ _usb_info_is_eligible() {
      _USB_INFO_WRITABLE && _USB_INFO_SIZE > 0 ))
 }
 
-_usb_disks_capture() {
+_usb_external_disks_capture() {
   emulate -L zsh
-  local image_size=$1 excluded_disk=${2:-} media_kind=${3:-raw-image}
+  local minimum_size=${1:-1} excluded_disk=${2:-} purpose=${3:-raw-image}
   local identifier='' size_label='' effect_detail=''
   local -i excluded_count=0 ineligible_count=0 undersized_count=0
   local -a captured_ids=()
   _USB_CAPTURE_ERROR=''
-  [[ $image_size == <-> ]] || return 2
+  [[ $minimum_size == <-> ]] || return 2
   _usb_disk_ids_capture || return
   captured_ids=("${_USB_DISK_IDS[@]}")
   _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
@@ -1189,7 +1193,7 @@ _usb_disks_capture() {
       (( ++ineligible_count ))
       continue
     }
-    (( _USB_INFO_SIZE >= image_size )) || {
+    (( _USB_INFO_SIZE >= minimum_size )) || {
       (( ++undersized_count ))
       continue
     }
@@ -1197,10 +1201,12 @@ _usb_disks_capture() {
     size_label=$REPLY
     _USB_DISK_IDS+=("$_USB_INFO_ID")
     _USB_DISK_LABELS+=("${_USB_INFO_NAME} · $size_label · ${_USB_INFO_PROTOCOL} · /dev/${_USB_INFO_ID}")
-    if [[ $media_kind == macos-installer ]]; then
+    if [[ $purpose == macos-installer ]]; then
       effect_detail='Apple createinstallmedia will erase and format this whole external disk; every existing partition and all data may be destroyed.'
-    elif [[ $media_kind == windows-installer ]]; then
+    elif [[ $purpose == windows-installer ]]; then
       effect_detail='The Windows handler will replace this whole disk with an MBR and one FAT32 UEFI installer volume; every existing partition and all data may be destroyed.'
+    elif [[ $purpose == format ]]; then
+      effect_detail='diskutil will replace this whole disk with one newly formatted volume; every existing partition and all data may be destroyed.'
     else
       effect_detail='The image writes from sector zero; existing partitions and data may be destroyed.'
     fi
@@ -1209,7 +1215,9 @@ _usb_disks_capture() {
     _USB_DISK_FINGERPRINTS+=("$_USB_INFO_FINGERPRINT")
   done
   (( ${#_USB_DISK_IDS} )) || {
-    if (( excluded_count == ${#captured_ids} && excluded_count > 0 )); then
+    if [[ $purpose == format ]]; then
+      _USB_CAPTURE_ERROR='no writable whole external physical disk is currently eligible'
+    elif (( excluded_count == ${#captured_ids} && excluded_count > 0 )); then
       _USB_CAPTURE_ERROR='the only attached external disk contains the selected image; attach another external disk or move the image to a different disk'
     elif (( undersized_count > 0 && ineligible_count == 0 )); then
       _USB_CAPTURE_ERROR='no separate writable whole external physical disk is large enough for the selected image'
@@ -1218,6 +1226,14 @@ _usb_disks_capture() {
     fi
     return 1
   }
+}
+
+_usb_disks_capture() {
+  _usb_external_disks_capture "$1" "${2:-}" "${3:-raw-image}"
+}
+
+_usb_format_disks_capture() {
+  _usb_external_disks_capture 1 '' format
 }
 
 _usb_picker_collect() {
@@ -1313,15 +1329,14 @@ _usb_choose() {
 # A first removable-volume access can return once while macOS applies the
 # user's permission choice. Keep the established image and screen session so
 # the user can retry that explicit provider capture without starting over.
-_usb_disks_capture_retry() {
+_usb_external_device_capture_retry() {
   emulate -L zsh
-  local image_size=$1 image_label=$2 back_value=$3 back_label=$4
-  local excluded_disk=${5:-}
-  local media_kind=${6:-raw-image}
+  local capture_helper=$1 minimum_size=$2 excluded_disk=$3 purpose=$4
+  local title=$5 back_value=$6 back_label=$7
   local error='' selected='' retry_label='' retry_detail='' subtitle=''
   local -i result=0
   while true; do
-    _usb_disks_capture "$image_size" "$excluded_disk" "$media_kind" && return 0
+    "$capture_helper" "$minimum_size" "$excluded_disk" "$purpose" && return 0
     error=${_USB_CAPTURE_ERROR:-'diskutil did not return a usable external-disk snapshot'}
     retry_label='Retry target capture · permission or attachment may have changed'
     retry_detail='Retry target capture'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter performs a fresh read-only diskutil capture.'
@@ -1339,7 +1354,7 @@ _usb_disks_capture_retry() {
     _USB_PICKER_DETAILS=(
       "$retry_detail"
       "$back_label"$'\n\n''Return without discarding the established image or performing an action.')
-    _usb_choose 'Flash USB · Step 2 of 3' "$subtitle" 'Filter choices' 0 1
+    _usb_choose "$title" "$subtitle" 'Filter choices' 0 1
     result=$?
     (( result == 1 )) && return 1
     (( result == 0 )) || return $result
@@ -1349,26 +1364,267 @@ _usb_disks_capture_retry() {
   done
 }
 
-_usb_target_choose() {
+_usb_disks_capture_retry() {
   emulate -L zsh
   local image_size=$1 image_label=$2 back_value=$3 back_label=$4
-  local excluded_disk=${5:-} subtitle=${6:-"Image  ›  DRIVE  ›  Flash · $image_label"}
-  local media_kind=${7:-raw-image}
+  local excluded_disk=${5:-} media_kind=${6:-raw-image}
+  _usb_external_device_capture_retry _usb_disks_capture "$image_size" \
+    "$excluded_disk" "$media_kind" 'Flash USB · Step 2 of 3' \
+    "$back_value" "$back_label"
+}
+
+_usb_external_device_choose() {
+  emulate -L zsh
+  local capture_helper=$1 minimum_size=$2 excluded_disk=$3 purpose=$4
+  local title=$5 subtitle=$6 query_label=$7 back_value=$8 back_label=$9
   local -i result=0 index=0
   while true; do
-    _usb_disks_capture_retry "$image_size" "$image_label" "$back_value" \
-      "$back_label" "$excluded_disk" "$media_kind" || return $?
+    _usb_external_device_capture_retry "$capture_helper" "$minimum_size" \
+      "$excluded_disk" "$purpose" "$title" "$back_value" "$back_label" || return $?
     _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
     for (( index = 1; index <= ${#_USB_DISK_IDS}; ++index )); do
       _USB_PICKER_VALUES+=("$index") _USB_PICKER_LABELS+=("${_USB_DISK_LABELS[index]}")
       _USB_PICKER_SEARCH+=("${_USB_DISK_IDS[index]} ${_USB_DISK_LABELS[index]}")
       _USB_PICKER_DETAILS+=("${_USB_DISK_DETAILS[index]}")
     done
-    _usb_choose 'Flash USB · Step 2 of 3' "$subtitle" 'Filter drives' 0 1
+    _usb_choose "$title" "$subtitle" "$query_label" 0 1
     result=$?
     (( result == 0 )) || return $result
     [[ $_ZLE_PICKER_ACTION == refresh ]] && continue
     return 0
+  done
+}
+
+_usb_target_choose() {
+  emulate -L zsh
+  local image_size=$1 image_label=$2 back_value=$3 back_label=$4
+  local excluded_disk=${5:-} subtitle=${6:-"Image  ›  DRIVE  ›  Flash · $image_label"}
+  local media_kind=${7:-raw-image}
+  _usb_external_device_choose _usb_disks_capture "$image_size" "$excluded_disk" \
+    "$media_kind" 'Flash USB · Step 2 of 3' "$subtitle" 'Filter drives' \
+    "$back_value" "$back_label"
+}
+
+_usb_formats_capture() {
+  emulate -L zsh
+  local personality='' visible_name='' minimum='' maximum=''
+  local minimum_label='' maximum_label=''
+  local -i index=0
+  _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=() _USB_FORMAT_DETAILS=()
+  _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
+  _USB_CAPTURE_ERROR=''
+  _usb_diskutil_plist_capture listFilesystems -plist || {
+    [[ -n $_USB_CAPTURE_ERROR ]] ||
+      _USB_CAPTURE_ERROR='diskutil could not capture its filesystem catalog'
+    return 1
+  }
+  while (( index < 64 )); do
+    _usb_plist_raw "$_USB_PLIST" "$index.Personality" || break
+    personality=$REPLY
+    _usb_plist_optional "$_USB_PLIST" "$index.UserVisibleName" "$personality"
+    visible_name=$REPLY
+    _usb_plist_optional "$_USB_PLIST" "$index.MinimumSize" 0
+    minimum=$REPLY
+    _usb_plist_optional "$_USB_PLIST" "$index.MaximumSize" 0
+    maximum=$REPLY
+    if [[ -n $personality && ${#personality} -le 128 &&
+          $personality != *[[:cntrl:]]* && -n $visible_name &&
+          ${#visible_name} -le 128 && $visible_name != *[[:cntrl:]]* &&
+          $minimum == <-> && $maximum == <-> ]]; then
+      if (( minimum > 0 )); then
+        _usb_human_size "$minimum"
+        minimum_label=$REPLY
+      else
+        minimum_label='none reported'
+      fi
+      if (( maximum > 0 )); then
+        _usb_human_size "$maximum"
+        maximum_label=$REPLY
+      else
+        maximum_label='none reported'
+      fi
+      _USB_FORMAT_PERSONALITIES+=("$personality")
+      _USB_FORMAT_LABELS+=("$visible_name")
+      _USB_FORMAT_DETAILS+=("$visible_name"$'\n'"diskutil personality · $personality"$'\n'"Minimum size · $minimum_label"$'\n'"Maximum size · $maximum_label"$'\n\n''diskutil advertised this personality for its erase and partition verbs on this Mac.')
+      _USB_FORMAT_MINIMUM_SIZES+=("$minimum")
+      _USB_FORMAT_MAXIMUM_SIZES+=("$maximum")
+    fi
+    (( ++index ))
+  done
+  if (( index == 64 )) && _usb_plist_raw "$_USB_PLIST" '64.Personality'; then
+    _USB_CAPTURE_ERROR='diskutil reported more than 64 filesystem personalities'
+    return 1
+  fi
+  (( ${#_USB_FORMAT_PERSONALITIES} )) || {
+    _USB_CAPTURE_ERROR='diskutil reported no usable filesystem personalities'
+    return 1
+  }
+}
+
+_usb_format_is_applicable() {
+  emulate -L zsh
+  local index=$1 disk_size=$2
+  local minimum=${_USB_FORMAT_MINIMUM_SIZES[index]:-0}
+  local maximum=${_USB_FORMAT_MAXIMUM_SIZES[index]:-0}
+  [[ $index == <-> && $disk_size == <-> && $minimum == <-> && $maximum == <-> ]] ||
+    return 2
+  (( disk_size >= minimum && ( maximum == 0 || disk_size <= maximum ) ))
+}
+
+_usb_volume_name_validate() {
+  emulate -L zsh
+  local name=$1 personality=$2
+  _USB_FORMAT_ERROR='' REPLY=''
+  (( ${#name} > 0 )) || {
+    _USB_FORMAT_ERROR='Volume name cannot be empty.'
+    return 1
+  }
+  (( ${#name} <= 255 )) || {
+    _USB_FORMAT_ERROR='Volume name exceeds the 255-character safety limit.'
+    return 1
+  }
+  [[ $name != *[[:cntrl:]]* ]] && [[ $name != *'/'* ]] &&
+      [[ $name != *':'* ]] && [[ ${name[1]} != ' ' && ${name[-1]} != ' ' ]] || {
+    _USB_FORMAT_ERROR='Volume name cannot contain control characters, /, :, or leading/trailing spaces.'
+    return 1
+  }
+  case $personality in
+    (*APFS|*HFS+|Free\ Space|Linux\ Swap|Linux\ Native) ;;
+    (*)
+      (( ${#name} <= 11 )) || {
+        _USB_FORMAT_ERROR="$personality volume names are limited to 11 portable characters."
+        return 1
+      }
+      [[ $name != *[^-A-Za-z0-9_\ ]* ]] || {
+        _USB_FORMAT_ERROR="$personality names may use letters, numbers, spaces, underscores, and hyphens."
+        return 1
+      } ;;
+  esac
+  REPLY=$name
+}
+
+_usb_volume_name_query_collect() {
+  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+}
+
+_usb_read_volume_name() {
+  emulate -L zsh
+  local subtitle=${1:-'Enter a volume name, then press Return'}
+  local initial=${2:-}
+  local _ZLE_PICKER_TITLE='Format External Device / Volume name'
+  local _ZLE_PICKER_SUBTITLE=$subtitle _ZLE_PICKER_QUERY_LABEL='Volume name'
+  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=use
+  local _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_BROWSE_LABEL='literal volume name · Return validates'
+  local _ZLE_PICKER_COLLECTOR=_usb_volume_name_query_collect
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
+  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=()
+  local -A _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+    'Enter the initial name for the new volume.'
+    'The text is passed to diskutil as one literal argument.'
+    'APFS and HFS accept printable names without / or :.'
+    'Other formatted volumes use an 11-character portable label subset.'
+    'Press Return to validate the name, or Escape to go back.')
+  _zle_picker_loop "$initial" 1
+}
+
+_usb_format_workspace_controller() {
+  emulate -L zsh
+  local selected='' disk='' format_subtitle='DRIVE  ›  Format'
+  local size_label='' incompatibility='' volume_name='' name_subtitle=''
+  local -i result=0 disk_index=0 format_index=0 index=0
+  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
+  local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  while true; do
+    _usb_external_device_choose _usb_format_disks_capture 1 '' format \
+      'Format External Device · Step 1 of 3' \
+      'DRIVE  ›  Format · whole external physical disks only' \
+      'Filter drives' cancel 'Cancel formatting'
+    result=$?
+    (( result == 0 )) || return $result
+    disk_index=$_ZLE_PICKER_SELECTED_VALUE
+    disk=${_USB_DISK_IDS[disk_index]}
+    _usb_formats_capture || {
+      _USB_FORMAT_ERROR=${_USB_CAPTURE_ERROR:-'diskutil did not return a usable filesystem catalog'}
+      return 1
+    }
+    _usb_human_size "${_USB_DISK_SIZES[disk_index]}"
+    size_label=$REPLY
+    format_subtitle="Drive  ›  FORMAT · /dev/$disk · $size_label"
+    while true; do
+      _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
+      _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+      for (( index = 1; index <= ${#_USB_FORMAT_PERSONALITIES}; ++index )); do
+        _USB_PICKER_VALUES+=("$index")
+        _USB_PICKER_LABELS+=("${_USB_FORMAT_LABELS[index]}")
+        _USB_PICKER_SEARCH+=("${_USB_FORMAT_LABELS[index]} ${_USB_FORMAT_PERSONALITIES[index]}")
+        if _usb_format_is_applicable "$index" "${_USB_DISK_SIZES[disk_index]}"; then
+          _USB_PICKER_DETAILS+=("${_USB_FORMAT_DETAILS[index]}"$'\n\n'"The selected $size_label drive is within diskutil's reported size bounds.")
+        else
+          _USB_PICKER_LABELS[index]+=" · unavailable for $size_label"
+          _USB_PICKER_DETAILS+=("${_USB_FORMAT_DETAILS[index]}"$'\n\n'"This personality is outside diskutil's reported size bounds for the selected $size_label drive. Selecting it will not erase the disk.")
+        fi
+      done
+      _usb_choose 'Format External Device · Step 2 of 3' "$format_subtitle" \
+        'Filter formats' 1
+      result=$?
+      (( result == 1 )) && break
+      (( result == 0 )) || return $result
+      format_index=$_ZLE_PICKER_SELECTED_VALUE
+      if ! _usb_format_is_applicable "$format_index" "${_USB_DISK_SIZES[disk_index]}"; then
+        incompatibility=${_USB_FORMAT_LABELS[format_index]}
+        format_subtitle="FORMAT unavailable for $size_label · $incompatibility"
+        continue
+      fi
+      _USB_SELECTED_DISK=$disk
+      _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[disk_index]}
+      _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[disk_index]}
+      _USB_SELECTED_DISK_SIZE=${_USB_DISK_SIZES[disk_index]}
+      _USB_SELECTED_FORMAT=${_USB_FORMAT_PERSONALITIES[format_index]}
+      _USB_SELECTED_FORMAT_LABEL=${_USB_FORMAT_LABELS[format_index]}
+      while true; do
+        _USB_PICKER_VALUES=(default-name custom-name)
+        _USB_PICKER_LABELS=(
+          'Use default name · External'
+          'Give the volume a custom name…')
+        _USB_PICKER_SEARCH=(default external custom name label)
+        _USB_PICKER_DETAILS=(
+          'Use default name'$'\n\n''Continue with External as the initial volume name.'
+          'Custom volume name'$'\n\n''Enter one literal name. It is validated for the selected filesystem before confirmation.')
+        _usb_choose 'Format External Device · Step 3 of 3' \
+          "Drive  ›  Format  ›  NAME · ${_USB_FORMAT_LABELS[format_index]} · /dev/$disk" \
+          'Filter choices' 1
+        result=$?
+        (( result == 1 )) && break
+        (( result == 0 )) || return $result
+        selected=$_ZLE_PICKER_SELECTED_VALUE
+        if [[ $selected == default-name ]]; then
+          _USB_SELECTED_VOLUME_NAME=External
+          return 0
+        fi
+        [[ $selected == custom-name ]] || continue
+        name_subtitle="Enter a name for ${_USB_FORMAT_LABELS[format_index]}"
+        volume_name=''
+        while true; do
+          _usb_read_volume_name "$name_subtitle" "$volume_name"
+          result=$?
+          (( result == 1 )) && break
+          (( result == 0 )) || return $result
+          volume_name=$_ZLE_PICKER_SELECTED_VALUE
+          if _usb_volume_name_validate "$volume_name" \
+              "${_USB_FORMAT_PERSONALITIES[format_index]}"; then
+            _USB_SELECTED_VOLUME_NAME=$REPLY
+            return 0
+          fi
+          name_subtitle=${_USB_FORMAT_ERROR:-'Enter another volume name'}
+        done
+      done
+      continue
+    done
   done
 }
 
@@ -1409,7 +1665,7 @@ _usb_media_attention_choose() {
   local -a _USB_PICKER_LABELS=('[ Choose another media ]' "$headline")
   local -a _USB_PICKER_HIGHLIGHTS=('' "0:${#headline}:picker-error")
   local -a _USB_PICKER_SEARCH=(back media unsupported inspect)
-  local -a _USB_PICKER_DETAILS=('' "$detail")
+  local -a _USB_PICKER_DETAILS=("$detail" "$detail")
   _usb_choose 'Flash USB · Media compatibility' \
     "MEDIA  ›  ${image:t}" 'Choose another media' 1 0 1
 }
@@ -1537,7 +1793,7 @@ _usb_workspace_controller() {
     if [[ $media_kind == windows-installer ]] && (( !_USB_WINDOWS_COMPATIBLE )); then
       _usb_media_attention_choose "$image" \
         "Windows installer cannot be created safely · ${_USB_WINDOWS_ERROR:-FAT32-compatible UEFI setup files were not found}" \
-        "${_USB_WINDOWS_ERROR:-The Windows installer tree is not compatible with the native FAT32 workflow.} Nothing was written or targeted. Use an official ISO whose files fit FAT32, or split an oversized install.wim on Windows first."
+        "${_USB_WINDOWS_ERROR:-The Windows installer tree is not compatible with the native FAT32 workflow.} Stock macOS cannot split Windows WIM files. Microsoft requires DISM on a Windows technician PC to create install.swm parts below FAT32's single-file limit. Nothing was written or targeted."
       continue
     fi
     if [[ $media_kind == macos-installer ]] && ! _usb_macos_codesign_verify "$image"; then
@@ -4439,6 +4695,142 @@ _usb_confirmation_prompt() {
   REPLY="Type exactly ${style}${expected}${reset} to continue: "
 }
 
+_usb_format_confirm() {
+  emulate -L zsh
+  local identifier=$1 disk_label=$2 format_label=$3 volume_name=$4 answer=''
+  local expected="ERASE $identifier"
+  _USB_CONFIRM_ERROR=''
+  print -r -- "Target: $disk_label"
+  print -r -- "Format: $format_label"
+  print -r -- "Volume name: $volume_name"
+  print -r -- 'Action: Replace the whole disk with one volume using Apple diskutil.'
+  print -r -- 'This can permanently destroy every existing partition and all data on the selected drive.'
+  _usb_confirmation_prompt "$expected"
+  IFS= read -r "answer?$REPLY" || {
+    _USB_CONFIRM_ERROR='Confirmation was not completed.'
+    return 1
+  }
+  [[ $answer == "$expected" ]] || {
+    _USB_CONFIRM_ERROR="Confirmation did not match. Expected exactly: $expected"
+    return 1
+  }
+}
+
+_usb_format_color_style() {
+  emulate -L zsh
+  local role=$1 fallback=$2 bold=${3:-0} color=''
+  REPLY=''
+  [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
+  zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
+  (( ${terminfo[colors]:-0} >= 256 )) || return 0
+  if (( ${+functions[_output_color]} )); then
+    _output_color "$role" "$fallback"
+    color=$REPLY
+  elif [[ ${(t)ZSH_OUTPUT_COLORS} == association* &&
+          ${ZSH_OUTPUT_COLORS[$role]:-} == <0-255> ]]; then
+    color=${ZSH_OUTPUT_COLORS[$role]}
+  fi
+  [[ $color == <0-255> ]] || return 0
+  if (( bold )); then
+    REPLY=$'\e[1;38;5;'"${color}m"
+  else
+    REPLY=$'\e[38;5;'"${color}m"
+  fi
+}
+
+_usb_format_output_filter() {
+  emulate -L zsh
+  local line='' prefix='' remainder='' reset=$'\e[0m'
+  local heading='' info='' accent='' success=''
+  _usb_format_color_style heading 75 1
+  heading=$REPLY
+  _usb_format_color_style info 111
+  info=$REPLY
+  _usb_format_color_style accent 81
+  accent=$REPLY
+  _usb_format_color_style success 71 1
+  success=$REPLY
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ -z $heading ]]; then
+      print -r -- "$line"
+      continue
+    fi
+    case $line in
+      (Started\ erase\ on\ *)
+        print -r -- "${heading}${line}${reset}" ;;
+      (Finished\ erase\ on\ *)
+        print -r -- "${success}${line}${reset}" ;;
+      (Unmounting\ *|Creating\ *|Waiting\ *|Formatting\ *|Mounting\ *)
+        print -r -- "${info}${line}${reset}" ;;
+      (*:*)
+        prefix=${line%%:*}
+        remainder=${line#"$prefix"}
+        print -r -- "${accent}${prefix}${reset}${info}${remainder}${reset}" ;;
+      (*) print -r -- "$line" ;;
+    esac
+  done
+}
+
+_usb_format_erase_run() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  _usb_format_color_style heading 75 1
+  if [[ -z $REPLY ]]; then
+    _usb_diskutil_erase_run "$@"
+    return $?
+  fi
+  _usb_diskutil_erase_run "$@" | _usb_format_output_filter
+  return $?
+}
+
+_usb_format_print_summary() {
+  emulate -L zsh
+  local identifier=$1 format_label=$2 volume_name=$3 reset=$'\e[0m'
+  local success='' accent=''
+  _usb_format_color_style success 71 1
+  success=$REPLY
+  _usb_format_color_style accent 81
+  accent=$REPLY
+  if [[ -z $success ]]; then
+    print -r -- "Formatted /dev/$identifier as $format_label."
+    print -r -- "Volume name: $volume_name"
+    return
+  fi
+  print -r -- "${success}Formatted /dev/$identifier as $format_label.${reset}"
+  print -r -- "${accent}Volume name:${reset} $volume_name"
+}
+
+_usb_format_execute() {
+  emulate -L zsh
+  local identifier=$1 expected_fingerprint=$2 personality=$3 volume_name=$4
+  local captured_size=${5:-0}
+  _USB_FORMAT_ERROR=''
+  [[ $identifier == disk<-> && -n $expected_fingerprint &&
+     -n $personality && ${#personality} -le 128 &&
+     $personality != *[[:cntrl:]]* && -n $volume_name &&
+     ${#volume_name} -le 128 && $volume_name != *[[:cntrl:]]* &&
+     $captured_size == <-> ]] || {
+    _USB_FORMAT_ERROR='the captured format request is invalid; nothing was erased'
+    return 2
+  }
+  _usb_target_revalidate "$identifier" "$expected_fingerprint" 1 || {
+    _USB_FORMAT_ERROR='the external drive changed or became ineligible before authorization; nothing was erased'
+    return 1
+  }
+  _usb_authorize || {
+    _USB_FORMAT_ERROR='administrator authorization failed; nothing was erased'
+    return 1
+  }
+  _usb_target_revalidate "$identifier" "$expected_fingerprint" 1 || {
+    _USB_FORMAT_ERROR='the external drive changed or became ineligible before formatting; nothing was erased'
+    return 1
+  }
+  _usb_format_erase_run eraseDisk "$personality" "$volume_name" "/dev/$identifier" || {
+    _USB_FORMAT_ERROR="diskutil could not format /dev/$identifier as $personality; the prior layout may already be changed"
+    return 1
+  }
+}
+
 _usb_confirm() {
   emulate -L zsh
   local image=$1 identifier=$2 disk_label=$3 request=$4
@@ -4752,5 +5144,130 @@ flash-usb() {
     _USB_RESULT_WRITE_SECONDS=0 _USB_RESULT_VERIFY_SECONDS=0
     _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_STARTED=0
     _USB_RESULT_SOURCE_VALIDATED=0
+  }
+}
+
+_compozsh_help_format_external_device() {
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: format_external_device' \
+    'Format one whole external physical disk with Apple diskutil.' \
+    '' \
+    'Drive capture:' \
+    '  Step 1 captures currently attached whole external physical disks through' \
+    '  diskutil. Internal, virtual, read-only, and partition-slice devices are' \
+    '  excluded. Rows show the media name, size, protocol, and exact /dev/diskN.' \
+    '  The native plist capture is bounded to 1 MiB, 4,096 device entries, and' \
+    '  64 whole external-disk candidates. The result is a temporary snapshot.' \
+    '  Ctrl-R replaces it with a fresh capture while retaining the workspace.' \
+    '  If an ejected drive is absent from diskutil, reconnect it or power-cycle' \
+    '  its hub before retrying; refresh cannot reactivate an offline device.' \
+    '' \
+    'Format capture:' \
+    '  After drive selection, Step 2 calls diskutil listFilesystems -plist and' \
+    '  shows every filesystem personality advertised by this Mac, including' \
+    '  installed filesystem bundles and special personalities such as Free Space.' \
+    '  Each choice shows its exact diskutil personality and reported size bounds.' \
+    '  A choice outside those bounds remains visible but cannot start an erase.' \
+    '  The selected personality is passed unchanged to diskutil eraseDisk.' \
+    '' \
+    'Volume name:' \
+    '  Step 3 offers Use default name to continue with External, or Give the' \
+    '  volume a custom name. Custom text is passed as one literal argument after' \
+    '  validation. APFS and HFS names accept up to 255 printable characters' \
+    '  without /, :, control characters, or leading/trailing spaces. Other' \
+    '  formatted personalities use a conservative 11-character subset of' \
+    '  letters, numbers, spaces, underscores, and hyphens. Invalid input stays' \
+    '  in the naming step and cannot reach confirmation.' \
+    '  diskutil chooses its native partition scheme; personalities that do not' \
+    '  create a volume may ignore the selected name.' \
+    '' \
+    'Native report:' \
+    '  On supported 256-color terminals, the shared semantic palette styles' \
+    '  diskutil headings, live stages, field labels, and successful completion.' \
+    '  The text, ordering, diagnostics, and diskutil exit status remain unchanged.' \
+    '  NO_COLOR, redirects, pipes, unsupported terminals, and a missing output' \
+    '  peer retain diskutil’s exact plain output and the plain final summary.' \
+    '' \
+    'Safety and recovery:' \
+    '  The action always targets the selected whole /dev/diskN. It requires the' \
+    '  exact typed phrase ERASE diskN, then requests administrator authorization.' \
+    '  The captured disk identity and external, physical, writable, whole-disk' \
+    '  eligibility are checked before authorization and again immediately before' \
+    '  eraseDisk. A changed, disconnected, reused, or ineligible target stops.' \
+    '  Formatting permanently destroys all existing partitions and data on the' \
+    '  selected disk. diskutil may already have changed the layout if formatting' \
+    '  later fails; Compozsh cannot restore the previous partition map or files.' \
+    '  Requires macOS, an interactive terminal, the .zsh.editor screen peer, and' \
+    '  Apple diskutil, plutil, mktemp, rm, and sudo.' \
+    '' \
+    'Examples:' \
+    '  format_external_device  Choose an external drive and advertised format.'
+}
+
+unalias format_external_device 2>/dev/null
+format_external_device() {
+  emulate -L zsh
+  local picker_status=0 format_status=0
+  local _USB_SELECTED_DISK='' _USB_SELECTED_DISK_LABEL=''
+  local _USB_SELECTED_DISK_FINGERPRINT=''
+  local _USB_SELECTED_FORMAT='' _USB_SELECTED_FORMAT_LABEL=''
+  local _USB_SELECTED_VOLUME_NAME=External
+  local _USB_FORMAT_ERROR='' _USB_CONFIRM_ERROR=''
+  local -i _USB_SELECTED_DISK_SIZE=0
+
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    _compozsh_help_format_external_device
+    return 0
+  fi
+  (( $# == 0 )) || {
+    print -u2 -r -- 'usage: format_external_device'
+    return 2
+  }
+  [[ $OSTYPE == darwin* ]] || {
+    print -u2 -r -- 'format_external_device: this tool requires macOS'
+    return 1
+  }
+  [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil &&
+     -x /usr/bin/mktemp && -x /bin/rm && -x /usr/bin/sudo ]] || {
+    print -u2 -r -- 'format_external_device: required Apple command-line tools are unavailable'
+    return 1
+  }
+  if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
+      (( ! ${+functions[_zle_picker_run]} )); then
+    print -u2 -r -- 'format_external_device: an interactive terminal and the .zsh.editor screen peer are required'
+    return 1
+  fi
+  {
+    _zle_picker_run 20 '' 1 0 _usb_format_workspace_controller
+    picker_status=$?
+    (( picker_status == 1 )) && return 0
+    if (( picker_status != 0 )); then
+      print -u2 -r -- "format_external_device: ${_USB_FORMAT_ERROR:-the format workspace failed}"
+      return $picker_status
+    fi
+    _usb_format_confirm "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_LABEL" \
+      "$_USB_SELECTED_FORMAT_LABEL" "$_USB_SELECTED_VOLUME_NAME" || {
+      [[ -n $_USB_CONFIRM_ERROR ]] && print -r -- "$_USB_CONFIRM_ERROR"
+      print -r -- 'Cancelled; nothing was erased.'
+      return 0
+    }
+    _usb_format_execute "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_FINGERPRINT" \
+      "$_USB_SELECTED_FORMAT" "$_USB_SELECTED_VOLUME_NAME" \
+      "$_USB_SELECTED_DISK_SIZE"
+    format_status=$?
+    if (( format_status != 0 )); then
+      print -u2 -r -- "format_external_device: ${_USB_FORMAT_ERROR:-diskutil formatting failed}"
+      return $format_status
+    fi
+    _usb_format_print_summary "$_USB_SELECTED_DISK" \
+      "$_USB_SELECTED_FORMAT_LABEL" "$_USB_SELECTED_VOLUME_NAME"
+  } always {
+    _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
+    _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
+    _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=()
+    _USB_FORMAT_DETAILS=()
+    _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
+    _USB_CAPTURE_ERROR='' _USB_FORMAT_ERROR='' _USB_CONFIRM_ERROR='' _USB_PLIST=''
   }
 }

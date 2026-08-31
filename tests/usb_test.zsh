@@ -289,13 +289,14 @@ _test_usb_workspace_refuses_incompatible_windows_before_target_capture() {
     _USB_IMAGE_SIZES=(20000) _USB_IMAGE_FINGERPRINTS=(fingerprint)
     _USB_IMAGE_KINDS=(raw-image) _USB_IMAGE_CAPTURE_SCOPE=test
     local -i choices=0
+    local compatibility_detail=""
     local -a trace=()
     _usb_media_kind_capture() {
       REPLY=windows-installer
       _USB_WINDOWS_COMPATIBLE=0
       _USB_WINDOWS_ERROR="FAT32 cannot store sources/install.wim because it exceeds 4 GiB"
     }
-    _usb_target_choose() { trace+=(target); return 9; }
+    _usb_target_choose() { trace+=(TARGET_CAPTURE_CALLED); return 9; }
     _usb_choose() {
       (( ++choices ))
       trace+=("screen:$1")
@@ -303,16 +304,24 @@ _test_usb_workspace_refuses_incompatible_windows_before_target_capture() {
         _ZLE_PICKER_SELECTED_VALUE=image:1 _ZLE_PICKER_ACTION=accept
         return 0
       fi
+      if [[ $1 == "Flash USB · Media compatibility" ]]; then
+        compatibility_detail=${_USB_PICKER_DETAILS[1]}
+      fi
       return 1
     }
     _usb_workspace_controller >/dev/null 2>&1
-    print -r -- "status:$?|trace:${(j:,:)trace}"
+    print -r -- "status:$?|trace:${(j:,:)trace}|default-detail:$compatibility_detail"
   ' "$TEST_REPO_ROOT" "$image") || return
 
   test_assert_contains "$output" \
-    'status:1|trace:screen:Flash USB · Step 1 of 3,screen:Flash USB · Media compatibility,screen:Flash USB · Step 1 of 3' \
+    'status:1|trace:screen:Flash USB · Step 1 of 3,screen:Flash USB · Media compatibility,screen:Flash USB · Step 1 of 3|default-detail:' \
     'recognized Windows media reached target capture or skipped its refusal screen' || return
-  [[ $output != *target* ]] || test_fail 'Windows refusal mutated or captured a target'
+  test_assert_contains "$output" \
+    'default-detail:FAT32 cannot store sources/install.wim because it exceeds 4 GiB' \
+    'the default Windows refusal choice hid the decisive compatibility reason' || return
+  test_assert_contains "$output" 'Stock macOS cannot split Windows WIM files' \
+    'the Windows refusal did not explain the native macOS boundary' || return
+  [[ $output != *TARGET_CAPTURE_CALLED* ]] || test_fail 'Windows refusal mutated or captured a target'
 }
 test_case 'USB workspace refuses incompatible Windows media before target capture' \
   _test_usb_workspace_refuses_incompatible_windows_before_target_capture
@@ -1257,8 +1266,10 @@ test_case 'USB long image names keep the path visible in passive details' \
 _test_usb_image_architecture_is_passive_context() {
   test_make_temp_dir || return
   local amd="$TEST_TMP_DIR/ubuntu-live-server-amd64.iso"
+  local windows="$TEST_TMP_DIR/Win11_25H2_English_x64_v2.iso"
   local arm="$TEST_TMP_DIR/proxmox-ve-arm64.iso" unknown="$TEST_TMP_DIR/rescue.iso" output=''
   test_write_file "$amd" "${(l:20000::a:)}" || return
+  test_write_file "$windows" "${(l:20000::w:)}" || return
   test_write_file "$arm" "${(l:20000::b:)}" || return
   test_write_file "$unknown" "${(l:20000::c:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
@@ -1266,21 +1277,24 @@ _test_usb_image_architecture_is_passive_context() {
     _usb_image_add "$2" || exit 2
     _usb_image_add "$3" || exit 3
     _usb_image_add "$4" || exit 4
+    _usb_image_add "$5" || exit 5
     print -rl -- "${_USB_IMAGE_LABELS[@]}"
     print -r -- "styles:${(j:|:)_USB_IMAGE_HIGHLIGHTS}"
     _USB_SELECTED_IMAGE_ARCHITECTURE=""
-    _usb_image_architecture_capture "$3"
+    _usb_image_architecture_capture "$4"
     print -r -- "selected:$_USB_SELECTED_IMAGE_ARCHITECTURE"
-    print -r -- "unknown-detail:${_USB_IMAGE_DETAILS[3]}"
-  ' "$TEST_REPO_ROOT" "$amd" "$arm" "$unknown") || return
+    print -r -- "unknown-detail:${_USB_IMAGE_DETAILS[4]}"
+  ' "$TEST_REPO_ROOT" "$amd" "$windows" "$arm" "$unknown") || return
 
   test_assert_contains "$output" 'ubuntu-live-server-amd64.iso · x86-64 ·' \
     'recognized x86-64 architecture was not visible in the image row' || return
+  test_assert_contains "$output" 'Win11_25H2_English_x64_v2.iso · x86-64 ·' \
+    'the standard Windows x64 filename token was not recognized as x86-64' || return
   test_assert_contains "$output" 'proxmox-ve-arm64.iso · ARM64 ·' \
     'recognized ARM64 architecture was not given equal passive prominence' || return
   test_assert_contains "$output" 'styles:' \
     'image rows did not publish semantic metadata spans' || return
-  [[ $output == *styles:*picker-architecture*picker-size*'|'*picker-architecture*picker-size*'|'*picker-size* ]] ||
+  [[ $output == *styles:*picker-architecture*picker-size*'|'*picker-architecture*picker-size*'|'*picker-architecture*picker-size*'|'*picker-size* ]] ||
     test_fail 'architecture and size did not receive distinct neutral row roles' || return
   test_assert_contains "$output" 'selected:arm64' \
     'selected architecture was not retained for review and progress context' || return
@@ -2574,6 +2588,361 @@ _test_usb_workspace_refreshes_images_with_spotlight_snapshot() {
 }
 test_case 'USB Step 1 refreshes Spotlight images without losing filter or selection context' \
   _test_usb_workspace_refreshes_images_with_spotlight_snapshot
+
+_test_usb_external_device_capture_is_shared_by_flash_and_format() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_disk_ids_capture() { _USB_DISK_IDS=(disk7 disk8); }
+    _usb_disk_info_capture() {
+      _USB_INFO_ID=$1 _USB_INFO_NAME="Drive $1" _USB_INFO_PROTOCOL=USB
+      _USB_INFO_EXTERNAL=1 _USB_INFO_PHYSICAL=1 _USB_INFO_WHOLE=1
+      _USB_INFO_WRITABLE=1 _USB_INFO_BLOCK_SIZE=512
+      [[ $1 == disk7 ]] && _USB_INFO_SIZE=20000 || _USB_INFO_SIZE=90000
+      _USB_INFO_FINGERPRINT="$1|$_USB_INFO_SIZE|Drive $1|USB"
+    }
+    _usb_disks_capture 30000 "" raw-image || exit 2
+    print -r -- "flash:${(j:,:)_USB_DISK_IDS}|${_USB_DISK_DETAILS[1]}"
+    _usb_format_disks_capture || exit 3
+    print -r -- "format:${(j:,:)_USB_DISK_IDS}|${_USB_DISK_DETAILS[1]}"
+    print -r -- "shared:$([[ ${functions[_usb_disks_capture]} == *_usb_external_disks_capture* && ${functions[_usb_format_disks_capture]} == *_usb_external_disks_capture* ]] && print yes || print no)"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'flash:disk8|' \
+    'flash capture did not retain its minimum-size constraint' || return
+  test_assert_contains "$output" 'format:disk7,disk8|' \
+    'format capture did not include every eligible external whole disk' || return
+  test_assert_contains "$output" 'diskutil will replace this whole disk' \
+    'format capture did not describe its exact destructive boundary' || return
+  test_assert_contains "$output" 'shared:yes' \
+    'flash and format did not share one external-device capture implementation'
+}
+test_case 'USB tools share eligible external-device capture with scoped constraints' \
+  _test_usb_external_device_capture_is_shared_by_flash_and_format
+
+_test_usb_format_catalog_comes_from_diskutil() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_diskutil_plist_capture() { _USB_PLIST=catalog; }
+    _usb_plist_raw() {
+      local key=$2
+      case $key in
+        (0.Personality) REPLY=APFS ;;
+        (0.UserVisibleName) REPLY=APFS ;;
+        (0.MinimumSize) REPLY=8388608 ;;
+        (0.MaximumSize) REPLY=9223372034707292160 ;;
+        (1.Personality) REPLY="MS-DOS FAT32" ;;
+        (1.UserVisibleName) REPLY="MS-DOS (FAT32)" ;;
+        (1.MinimumSize) REPLY=34603008 ;;
+        (1.MaximumSize) REPLY=8796093022208 ;;
+        (2.Personality) REPLY="Free Space" ;;
+        (2.UserVisibleName) REPLY="Free Space" ;;
+        (2.MinimumSize|2.MaximumSize) REPLY=0 ;;
+        (*) return 1 ;;
+      esac
+    }
+    _usb_formats_capture || exit 2
+    print -r -- "formats:${(j:|:)_USB_FORMAT_PERSONALITIES}"
+    print -r -- "labels:${(j:|:)_USB_FORMAT_LABELS}"
+    print -r -- "details:${_USB_FORMAT_DETAILS[2]}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'formats:APFS|MS-DOS FAT32|Free Space' \
+    'format choices were hard-coded or omitted a diskutil-advertised personality' || return
+  test_assert_contains "$output" 'labels:APFS|MS-DOS (FAT32)|Free Space' \
+    'format choices did not use diskutil user-visible names' || return
+  test_assert_contains "$output" 'diskutil personality · MS-DOS FAT32' \
+    'format details hid the exact value passed back to diskutil'
+}
+test_case 'USB format choices are captured from diskutil listFilesystems' \
+  _test_usb_format_catalog_comes_from_diskutil
+
+_test_usb_format_workspace_reloads_drives_then_selects_a_format() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    capture_count=0 choose_count=0
+    _usb_format_disks_capture() {
+      (( ++capture_count ))
+      _USB_DISK_IDS=(disk9) _USB_DISK_LABELS=(external-drive)
+      _USB_DISK_DETAILS=(drive-details) _USB_DISK_SIZES=(9000000000)
+      _USB_DISK_FINGERPRINTS=(disk-fingerprint)
+    }
+    _usb_formats_capture() {
+      _USB_FORMAT_PERSONALITIES=(APFS ExFAT)
+      _USB_FORMAT_LABELS=(APFS ExFAT)
+      _USB_FORMAT_DETAILS=(apfs-details exfat-details)
+      _USB_FORMAT_MINIMUM_SIZES=(8388608 1048576)
+      _USB_FORMAT_MAXIMUM_SIZES=(0 0)
+    }
+    _usb_choose() {
+      (( ++choose_count ))
+      print -r -- "view$choose_count:$1|${(j:,:)_USB_PICKER_VALUES}|refresh:${5:-0}"
+      case $choose_count in
+        (1) _ZLE_PICKER_ACTION=refresh ;;
+        (2) _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=1 ;;
+        (3) _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=2 ;;
+        (4) _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=default-name ;;
+        (*) return 2 ;;
+      esac
+    }
+    _usb_format_workspace_controller || exit 2
+    print -r -- "captures:$capture_count"
+    print -r -- "selected:$_USB_SELECTED_DISK|$_USB_SELECTED_FORMAT|$_USB_SELECTED_FORMAT_LABEL|$_USB_SELECTED_VOLUME_NAME"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'view1:Format External Device · Step 1 of 3|1|refresh:1' \
+    'format drive selection did not expose Ctrl-R refresh' || return
+  test_assert_contains "$output" 'view2:Format External Device · Step 1 of 3|1|refresh:1' \
+    'format refresh did not return to a fresh external-device snapshot' || return
+  test_assert_contains "$output" 'view3:Format External Device · Step 2 of 3|1,2|refresh:0' \
+    'format selection did not follow exact drive selection' || return
+  test_assert_contains "$output" \
+    'view4:Format External Device · Step 3 of 3|default-name,custom-name|refresh:0' \
+    'format selection did not offer default and custom volume-name choices' || return
+  test_assert_contains "$output" 'captures:2' \
+    'Ctrl-R did not perform exactly one fresh format-target capture' || return
+  test_assert_contains "$output" 'selected:disk9|ExFAT|ExFAT|External' \
+    'the default volume name did not cross the workspace boundary'
+}
+test_case 'USB format workspace composes drive format and default volume name' \
+  _test_usb_format_workspace_reloads_drives_then_selects_a_format
+
+_test_usb_format_workspace_validates_a_custom_volume_name() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_format_disks_capture() {
+      _USB_DISK_IDS=(disk9) _USB_DISK_LABELS=(external-drive)
+      _USB_DISK_DETAILS=(drive-details) _USB_DISK_SIZES=(9000000000)
+      _USB_DISK_FINGERPRINTS=(disk-fingerprint)
+    }
+    _usb_formats_capture() {
+      _USB_FORMAT_PERSONALITIES=(ExFAT) _USB_FORMAT_LABELS=(ExFAT)
+      _USB_FORMAT_DETAILS=(exfat-details)
+      _USB_FORMAT_MINIMUM_SIZES=(1048576) _USB_FORMAT_MAXIMUM_SIZES=(0)
+    }
+    choose_count=0 name_reads=0
+    _usb_choose() {
+      (( ++choose_count ))
+      case $choose_count in
+        (1) _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=1 ;;
+        (2) _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=1 ;;
+        (3)
+          print -r -- "name-options:${(j:|:)_USB_PICKER_LABELS}"
+          _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=custom-name ;;
+        (*) return 2 ;;
+      esac
+    }
+    _usb_read_volume_name() {
+      (( ++name_reads ))
+      print -r -- "name-read$name_reads:$1"
+      if (( name_reads == 1 )); then
+        _ZLE_PICKER_SELECTED_VALUE="Twelve Chars"
+      else
+        _ZLE_PICKER_SELECTED_VALUE="My USB"
+      fi
+    }
+    _usb_format_workspace_controller || exit 2
+    print -r -- "selected:$_USB_SELECTED_VOLUME_NAME|reads:$name_reads"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'name-options:Use default name · External|Give the volume a custom name…' \
+    'the naming step did not present exactly the default and custom paths' || return
+  test_assert_contains "$output" \
+    'name-read2:ExFAT volume names are limited to 11 portable characters.' \
+    'an invalid ExFAT label did not remain in the custom-name input with guidance' || return
+  test_assert_contains "$output" 'selected:My USB|reads:2' \
+    'the validated custom name did not cross the workspace boundary'
+}
+test_case 'USB format workspace validates and retains a custom volume name' \
+  _test_usb_format_workspace_validates_a_custom_volume_name
+
+_test_usb_volume_name_validation_is_format_aware() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_volume_name_validate "Portable 1" ExFAT
+    print -r -- "fat-valid:$?|$REPLY"
+    _usb_volume_name_validate "Bad.Name" "MS-DOS FAT32" >/dev/null
+    print -r -- "fat-punctuation:$?|$_USB_FORMAT_ERROR"
+    _usb_volume_name_validate "Trabajo ✓" APFS
+    print -r -- "apfs-valid:$?|$REPLY"
+    _usb_volume_name_validate "bad/name" APFS >/dev/null
+    print -r -- "apfs-slash:$?|$_USB_FORMAT_ERROR"
+    _usb_volume_name_validate "Third Party Volume" "Third Party FS" >/dev/null
+    print -r -- "unknown-long:$?|$_USB_FORMAT_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'fat-valid:0|Portable 1' \
+    'a portable ExFAT name was rejected' || return
+  test_assert_contains "$output" 'fat-punctuation:1|MS-DOS FAT32 names may use' \
+    'an unsupported FAT punctuation character was accepted' || return
+  test_assert_contains "$output" 'apfs-valid:0|Trabajo ✓' \
+    'a printable APFS Unicode name was rejected' || return
+  test_assert_contains "$output" 'apfs-slash:1|Volume name cannot contain' \
+    'a path-separator-bearing APFS name was accepted' || return
+  test_assert_contains "$output" \
+    'unknown-long:1|Third Party FS volume names are limited to 11 portable characters.' \
+    'an unknown advertised format bypassed conservative name validation'
+}
+test_case 'USB custom volume names use format-aware validation' \
+  _test_usb_volume_name_validation_is_format_aware
+
+_test_usb_format_execution_revalidates_immediately_before_erase() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga trace=()
+    check_count=0
+    _usb_target_revalidate() {
+      (( ++check_count ))
+      trace+=("check:$1:$2:$3")
+      (( check_count <= ${allowed_checks:-2} ))
+    }
+    _usb_authorize() { trace+=(authorize); }
+    _usb_diskutil_erase_run() { trace+=("erase:${(j:|:)@}"); }
+    _usb_format_execute disk9 disk-fingerprint "MS-DOS FAT32" External 90000
+    print -r -- "success:$?|${(j:,:)trace}"
+    trace=() check_count=0 allowed_checks=1
+    _usb_format_execute disk9 disk-fingerprint APFS External 90000 >/dev/null 2>&1
+    print -r -- "changed:$?|${(j:,:)trace}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'success:0|check:disk9:disk-fingerprint:1,authorize,check:disk9:disk-fingerprint:1,erase:eraseDisk|MS-DOS FAT32|External|/dev/disk9' \
+    'format execution did not revalidate and pass exact quoted operands to diskutil' || return
+  test_assert_contains "$output" \
+    'changed:1|check:disk9:disk-fingerprint:1,authorize,check:disk9:disk-fingerprint:1' \
+    'a changed external drive was not rejected at the final erase boundary' || return
+  [[ $output != *'changed:'*'erase:'* ]] ||
+    test_fail 'diskutil erase ran after final target identity validation failed'
+}
+test_case 'USB format execution revalidates exact drive identity before eraseDisk' \
+  _test_usb_format_execution_revalidates_immediately_before_erase
+
+_test_usb_format_confirmation_is_target_bound() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_format_confirm disk9 "External SSD · /dev/disk9" ExFAT External <<< "ERASE disk8" >/dev/null
+    print -r -- "wrong:$?|$_USB_CONFIRM_ERROR"
+    _usb_format_confirm disk9 "External SSD · /dev/disk9" ExFAT External <<< "ERASE disk9" >/dev/null
+    print -r -- "right:$?|$_USB_CONFIRM_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'wrong:1|Confirmation did not match. Expected exactly: ERASE disk9' \
+    'format confirmation accepted or obscured a mismatched target phrase' || return
+  test_assert_contains "$output" 'right:0|' \
+    'format confirmation rejected the exact selected target phrase'
+}
+test_case 'USB format confirmation is bound to the exact whole disk' \
+  _test_usb_format_confirmation_is_target_bound
+
+_test_usb_format_report_uses_semantic_colors_with_plain_fallbacks() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    setopt EXTENDED_GLOB
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -gA ZSH_OUTPUT_COLORS=(heading 123 info 124 accent 125 success 126)
+    TERM=xterm-256color
+    zmodload zsh/zpty || exit 2
+    _format_report_driver() {
+      print -rl -- \
+        "Started erase on disk28" \
+        "Unmounting disk" \
+        "Formatting disk28s2 as ExFAT with name KuroEx" \
+        "Volume name      : KuroEx" \
+        "# FAT sectors    : 4096" \
+        "Finished erase on disk28" | _usb_format_output_filter
+      _usb_format_print_summary disk28 ExFAT KuroEx
+      print -r -- END-FORMAT-REPORT
+    }
+    _format_report_capture() {
+      local mode=$1 capture="" line=""
+      if [[ $mode == plain ]]; then
+        NO_COLOR=1 zpty format-report _format_report_driver || return
+      else
+        zpty format-report _format_report_driver || return
+      fi
+      {
+        while zpty -r format-report line; do
+          capture+=$line
+          [[ $line == *END-FORMAT-REPORT* ]] && break
+        done
+        [[ $capture == *END-FORMAT-REPORT* ]] || return 1
+        REPLY=${capture//$'\''\r'\''/}
+        REPLY=${REPLY%$'\''\n'\''}
+      } always {
+        zpty -d format-report 2>/dev/null
+      }
+    }
+    plain=$(_format_report_driver)
+    [[ $plain != *$'\''\e'\''* ]] || exit 3
+    _format_report_capture color || exit 4
+    colored=$REPLY
+    print -r -- "heading:$([[ $colored == *$'\''\e[1;38;5;123mStarted erase on disk28\e[0m'\''* ]] && print yes || print no)"
+    print -r -- "stage:$([[ $colored == *$'\''\e[38;5;124mFormatting disk28s2 as ExFAT with name KuroEx\e[0m'\''* ]] && print yes || print no)"
+    print -r -- "field:$([[ $colored == *$'\''\e[38;5;125mVolume name      \e[0m\e[38;5;124m: KuroEx\e[0m'\''* ]] && print yes || print no)"
+    print -r -- "success:$([[ $colored == *$'\''\e[1;38;5;126mFinished erase on disk28\e[0m'\''* && $colored == *$'\''\e[1;38;5;126mFormatted /dev/disk28 as ExFAT.\e[0m'\''* ]] && print yes || print no)"
+    stripped=${colored//$'\''\e'\''\[[0-9\;]#m/}
+    stripped=${stripped%$'\''\n'\''}
+    plain=${plain%$'\''\n'\''}
+    print -r -- "same:$([[ $stripped == $plain ]] && print yes || print no)"
+    _format_report_capture plain || exit 5
+    print -r -- "no-color:$([[ $REPLY == $plain ]] && print yes || print no)"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'heading:yes' \
+    'format report did not style the native erase heading' || return
+  test_assert_contains "$output" 'stage:yes' \
+    'format report did not style the native progress stages' || return
+  test_assert_contains "$output" 'field:yes' \
+    'format report did not distinguish native field labels and values' || return
+  test_assert_contains "$output" 'success:yes' \
+    'format report did not style native and Compozsh completion lines' || return
+  test_assert_contains "$output" 'same:yes' \
+    'semantic styling changed the report text or line structure' || return
+  test_assert_contains "$output" 'no-color:yes' \
+    'NO_COLOR did not preserve the exact plain format report'
+}
+test_case 'USB format report uses semantic colors with exact plain fallbacks' \
+  _test_usb_format_report_uses_semantic_colors_with_plain_fallbacks
+
+_test_usb_format_report_preserves_diskutil_failure_status() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_diskutil_erase_run() {
+      print -r -- "args:${(j:|:)@}"
+      print -u2 -r -- native-format-error
+      return 7
+    }
+    captured=$(_usb_format_erase_run eraseDisk ExFAT KuroEx /dev/disk28 2>&1)
+    command_status=$?
+    print -r -- "status:$command_status|$captured"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'status:7|args:eraseDisk|ExFAT|KuroEx|/dev/disk28' \
+    'format report styling hid diskutil arguments or failure status' || return
+  test_assert_contains "$output" 'native-format-error' \
+    'format report styling discarded diskutil diagnostics'
+}
+test_case 'USB format report preserves diskutil failure status and diagnostics' \
+  _test_usb_format_report_preserves_diskutil_failure_status
 
 _test_usb_target_revalidation_detects_reuse() {
   test_make_temp_dir || return
