@@ -21,10 +21,14 @@ typeset -ga _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
 typeset -ga _XCODE_DESTINATION_NAMES=() _XCODE_COMMAND=()
 typeset -g _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
 typeset -g _XCODE_TEST_RESULT='' _XCODE_TEST_CAPTURE_ERROR=''
-typeset -g _XCODE_TEST_SCHEME='' _XCODE_TEST_DESTINATION=''
+typeset -g _XCODE_TEST_CONTAINER='' _XCODE_TEST_SCHEME=''
+typeset -g _XCODE_TEST_PLATFORM='' _XCODE_TEST_DESTINATION_ID=''
+typeset -g _XCODE_TEST_DESTINATION=''
 typeset -gi _XCODE_TEST_TOTAL=0 _XCODE_TEST_PASSED=0 _XCODE_TEST_FAILED=0
 typeset -gi _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
+typeset -gi _XCODE_TEST_BUILD_ERROR_TOTAL=0
 typeset -ga _XCODE_TEST_FAILURE_NAMES=() _XCODE_TEST_FAILURE_TARGETS=()
+typeset -ga _XCODE_TEST_FAILURE_IDENTIFIERS=()
 typeset -ga _XCODE_TEST_FAILURE_TEXTS=() _XCODE_TEST_FAILURE_FILES=()
 typeset -ga _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=()
 typeset -ga _XCODE_TEST_BUILD_FILES=()
@@ -169,7 +173,9 @@ _xcode_test_result_reset() {
   _XCODE_TEST_RESULT='' _XCODE_TEST_CAPTURE_ERROR=''
   _XCODE_TEST_TOTAL=0 _XCODE_TEST_PASSED=0 _XCODE_TEST_FAILED=0
   _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
+  _XCODE_TEST_BUILD_ERROR_TOTAL=0
   _XCODE_TEST_FAILURE_NAMES=() _XCODE_TEST_FAILURE_TARGETS=()
+  _XCODE_TEST_FAILURE_IDENTIFIERS=()
   _XCODE_TEST_FAILURE_TEXTS=() _XCODE_TEST_FAILURE_FILES=()
   _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=()
   _XCODE_TEST_BUILD_FILES=()
@@ -250,6 +256,7 @@ _xcode_test_build_issues_capture() {
   _xcode_json_raw "$json" errors || return 0
   count=$REPLY
   [[ $count == <-> ]] || return 1
+  _XCODE_TEST_BUILD_ERROR_TOTAL=$count
   (( count > 20 )) && count=20
   for (( index = 0; index < count; ++index )); do
     _xcode_json_raw "$json" "errors.$index.issueType" && issue=$REPLY || issue='Build error'
@@ -305,6 +312,7 @@ _xcode_test_result_capture() {
       _xcode_json_raw "$json" "testFailures.$index.testIdentifierURL" && identifier=$REPLY || identifier=''
       [[ -n $identifier ]] ||
         { _xcode_json_raw "$json" "testFailures.$index.testIdentifierString" && identifier=$REPLY || identifier=''; }
+      [[ ${#identifier} -le 4096 && $identifier != *[[:cntrl:]]* ]] || identifier=''
       (( ${#name} > 512 )) && name=${name[1,512]}
       (( ${#target} > 256 )) && target=${target[1,256]}
       (( ${#reason} > 4096 )) && reason=${reason[1,4096]}
@@ -314,6 +322,7 @@ _xcode_test_result_capture() {
       fi
       _XCODE_TEST_FAILURE_NAMES+=("$name")
       _XCODE_TEST_FAILURE_TARGETS+=("$target")
+      _XCODE_TEST_FAILURE_IDENTIFIERS+=("$identifier")
       _XCODE_TEST_FAILURE_TEXTS+=("$reason")
       _XCODE_TEST_FAILURE_FILES+=("$files")
     done
@@ -328,6 +337,150 @@ _xcode_test_result_capture() {
   fi
   (( action_status != 0 )) && _xcode_test_build_issues_capture "$bundle"
   return 0
+}
+
+# Keep clipboard reports readable plain text even when an external diagnostic
+# includes terminal control bytes. Newlines and tabs remain intact because they
+# carry useful compiler and assertion structure for the recipient.
+_xcode_test_report_text() {
+  emulate -L zsh
+  local value=$1 character='' safe=''
+  value=${value//$'\r\n'/$'\n'}
+  value=${value//$'\r'/$'\n'}
+  for character in "${(@s::)value}"; do
+    if [[ $character == $'\n' || $character == $'\t' ||
+          $character != [[:cntrl:]] ]]; then
+      safe+=$character
+    else
+      safe+='?'
+    fi
+  done
+  REPLY=$safe
+}
+
+# Compose an inert, bounded report only from the structured facts already
+# retained for the result window. No source files, attachments or environment
+# values are read while formatting or copying it.
+_xcode_test_report_build() {
+  emulate -L zsh
+  local -i action_status=${1:-1} index=0 captured=0 reported=0
+  local report='Xcode test report' result='' name='' target='' identifier=''
+  local reason='' files=''
+  local expected_label='expected failure'
+
+  _xcode_test_report_text "${_XCODE_TEST_RESULT:-Unknown}"
+  result=$REPLY
+  report+=$'\n\n'"Result: $result"
+  report+=$'\n'"xcodebuild exit status: $action_status"
+  if [[ -n $_XCODE_TEST_CONTAINER ]]; then
+    _xcode_test_report_text "$_XCODE_TEST_CONTAINER"
+    report+=$'\n'"Container: $REPLY"
+  fi
+  _xcode_test_report_text "$_XCODE_TEST_SCHEME"
+  report+=$'\n'"Scheme: $REPLY"
+  _xcode_test_report_text "$_XCODE_TEST_DESTINATION"
+  report+=$'\n'"Destination: $REPLY"
+  if [[ -n $_XCODE_TEST_PLATFORM ]]; then
+    _xcode_test_report_text "$_XCODE_TEST_PLATFORM"
+    report+=$'\n'"Platform: $REPLY"
+  fi
+  if [[ -n $_XCODE_TEST_DESTINATION_ID ]]; then
+    _xcode_test_report_text "$_XCODE_TEST_DESTINATION_ID"
+    report+=$'\n'"Destination ID: $REPLY"
+  fi
+  (( _XCODE_TEST_EXPECTED_FAILURES != 1 )) && expected_label+='s'
+  report+=$'\n'"Tests: ${_XCODE_TEST_TOTAL} total · ${_XCODE_TEST_PASSED} passed"
+  report+=" · ${_XCODE_TEST_FAILED} failed · ${_XCODE_TEST_SKIPPED} skipped"
+  report+=" · ${_XCODE_TEST_EXPECTED_FAILURES} $expected_label"
+  report+=$'\n''Report scope: bounded structured xcresult snapshot; native console'
+  report+=' output, attachments, and source contents are not included.'
+
+  captured=${#_XCODE_TEST_FAILURE_NAMES}
+  reported=$_XCODE_TEST_FAILED
+  (( reported < captured )) && reported=$captured
+  if (( captured )); then
+    report+=$'\n\n'"Failed tests: $captured captured of $reported reported"
+    for (( index = 1; index <= captured; ++index )); do
+      _xcode_test_report_text "${_XCODE_TEST_FAILURE_NAMES[index]}"
+      name=$REPLY
+      _xcode_test_report_text "${_XCODE_TEST_FAILURE_TARGETS[index]}"
+      target=$REPLY
+      _xcode_test_report_text "${_XCODE_TEST_FAILURE_IDENTIFIERS[index]}"
+      identifier=$REPLY
+      _xcode_test_report_text "${_XCODE_TEST_FAILURE_TEXTS[index]}"
+      reason=$REPLY
+      _xcode_test_report_text "${_XCODE_TEST_FAILURE_FILES[index]}"
+      files=$REPLY
+      report+=$'\n\n'"$index. $name"
+      [[ -n $target ]] && report+=$'\n'"Target: $target"
+      [[ -n $identifier ]] && report+=$'\n'"Identifier: $identifier"
+      report+=$'\n'"Failure:"$'\n'"$reason"
+      if [[ -n $files ]]; then
+        report+=$'\n'"Involved files:"$'\n- '"${files//$'\n'/$'\n- '}"
+      else
+        report+=$'\n'"Involved files: Xcode reported no source location for this failure."
+      fi
+    done
+  fi
+
+  captured=${#_XCODE_TEST_BUILD_NAMES}
+  if (( captured )); then
+    reported=$_XCODE_TEST_BUILD_ERROR_TOTAL
+    (( reported < captured )) && reported=$captured
+    report+=$'\n\n'"Build errors: $captured captured of $reported reported"
+    for (( index = 1; index <= captured; ++index )); do
+      _xcode_test_report_text "${_XCODE_TEST_BUILD_NAMES[index]}"
+      name=$REPLY
+      _xcode_test_report_text "${_XCODE_TEST_BUILD_TEXTS[index]}"
+      reason=$REPLY
+      _xcode_test_report_text "${_XCODE_TEST_BUILD_FILES[index]}"
+      files=$REPLY
+      report+=$'\n\n'"$index. $name"$'\n'"Failure:"$'\n'"$reason"
+      if [[ -n $files ]]; then
+        report+=$'\n'"Involved files:"$'\n- '"${files//$'\n'/$'\n- '}"
+      else
+        report+=$'\n'"Involved files: Xcode reported no source location for this issue."
+      fi
+    done
+  elif (( action_status != 0 && ${#_XCODE_TEST_FAILURE_NAMES} == 0 )); then
+    report+=$'\n\n''Structured failure details: Xcode reported no test or build issue.'
+  fi
+
+  if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
+    _xcode_test_report_text "$_XCODE_TEST_CAPTURE_ERROR"
+    report+=$'\n\n'"Structured result limitation: $REPLY"
+  fi
+  REPLY=$report
+}
+
+_xcode_test_report_copy() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  local action_status=$1 clipboard_binary=$2
+  [[ -n $clipboard_binary && -x $clipboard_binary ]] || {
+    print -u2 -r -- 'xcode: pbcopy is unavailable; the test report was not copied'
+    return 1
+  }
+  _xcode_test_report_build "$action_status" || return
+  print -rn -- "$REPLY" | command "$clipboard_binary" || {
+    print -u2 -r -- 'xcode: could not copy the test report'
+    return 1
+  }
+  print -r -- 'Copied Xcode test report to the clipboard.'
+}
+
+# Apply the result-screen choice after its screen session has restored the
+# terminal. A clipboard failure becomes the command status only when the native
+# test action itself passed; a failing test always keeps xcodebuild's status.
+_xcode_test_result_apply() {
+  emulate -L zsh
+  local action_status=$1 selected=$2 clipboard_binary=$3
+  local -i copy_status=0
+  if [[ $selected == copy-report ]]; then
+    _xcode_test_report_copy "$action_status" "$clipboard_binary" || copy_status=$?
+  fi
+  (( action_status == 0 && copy_status != 0 )) && return $copy_status
+  return $action_status
 }
 
 _xcode_schemes_capture() {
@@ -594,7 +747,11 @@ _xcode_test_result_choose() {
   local -i index=0
   for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
     _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
-    _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=done
+    if [[ ${_XCODE_PICKER_VALUES[index]} == copy-report ]]; then
+      _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]='copy report and done'
+    else
+      _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=done
+    fi
     [[ -n ${_XCODE_PICKER_HIGHLIGHTS[index]-} ]] &&
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_HIGHLIGHTS[index]}
   done
@@ -611,6 +768,17 @@ _xcode_test_result_screen() {
   local -a _XCODE_PICKER_HIGHLIGHTS=('') _XCODE_PICKER_SEARCH=(done)
   local -a _XCODE_PICKER_DETAILS=('')
   local -a _XCODE_TEST_PASSIVE_LINES=() _XCODE_TEST_PASSIVE_STYLES=()
+
+  if [[ -n ${_XCODE_TEST_CLIPBOARD_BINARY:-} &&
+        -x ${_XCODE_TEST_CLIPBOARD_BINARY:-} ]]; then
+    _XCODE_PICKER_VALUES+=(copy-report)
+    _XCODE_PICKER_LABELS+=('[ Copy report and done ]')
+    _XCODE_PICKER_HIGHLIGHTS+=('')
+    _XCODE_PICKER_SEARCH+=('copy report clipboard done failures files')
+    _XCODE_PICKER_DETAILS+=(
+      'Copy the captured test report to the host clipboard and close.'$'\n\n''Includes the result, native status, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.'
+    )
+  fi
 
   count_label="${_XCODE_TEST_PASSED} passed · ${_XCODE_TEST_FAILED} failed"
   (( _XCODE_TEST_SKIPPED )) && count_label+=" · ${_XCODE_TEST_SKIPPED} skipped"
@@ -636,7 +804,7 @@ _xcode_test_result_screen() {
       overview+=$'\n\n''Limits'$'\n'"  $_XCODE_TEST_CAPTURE_ERROR"
     fi
     _XCODE_PICKER_HIGHLIGHTS[1]="0:${#_XCODE_PICKER_LABELS[1]}:picker-success"
-    _XCODE_PICKER_DETAILS=("$overview"$'\n\n''Outcome'$'\n'"  $label")
+    _XCODE_PICKER_DETAILS[1]="$overview"$'\n\n''Outcome'$'\n'"  $label"
     _xcode_test_result_choose "$title" "$subtitle"
     return $?
   fi
@@ -693,7 +861,7 @@ _xcode_test_result_screen() {
     _XCODE_TEST_PASSIVE_STYLES+=(picker-warning)
     overview+=$'\n\n''Limits'$'\n'"  $_XCODE_TEST_CAPTURE_ERROR"
   fi
-  _XCODE_PICKER_DETAILS=("$overview" "${_XCODE_PICKER_DETAILS[@][2,-1]}")
+  _XCODE_PICKER_DETAILS[1]=$overview
   _xcode_test_result_choose "$title" "$subtitle"
 }
 
@@ -706,7 +874,9 @@ _xcode_test_execute() {
   local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5 destination=$6
   local temp_root=${TMPDIR:-/tmp} result_dir='' bundle=''
   local -i action_status=0
-  _XCODE_TEST_SCHEME=$scheme _XCODE_TEST_DESTINATION=$destination
+  _XCODE_TEST_CONTAINER=$container _XCODE_TEST_SCHEME=$scheme
+  _XCODE_TEST_PLATFORM=$platform _XCODE_TEST_DESTINATION_ID=$identifier
+  _XCODE_TEST_DESTINATION=$destination
   _xcode_test_result_reset
   _xcode_action_command "$kind" "$container" "$scheme" "$platform" "$identifier" test || return
   result_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-test.XXXXXX") || result_dir=''
@@ -877,6 +1047,11 @@ _compozsh_help_xcode() {
     '  Xcode failures have no structured source location; the view says so.' \
     '  If structured results are unavailable, the native status remains visible' \
     '  and the result view labels its missing detail instead of inventing totals.' \
+    '  When pbcopy is available, Copy report and done writes the result, native' \
+    '  status, exact target, totals, all retained failure reasons and involved' \
+    '  files, build errors, and capture limits as plain text after the screen' \
+    '  closes. It uses the clipboard of the machine running Zsh; in SSH that is' \
+    '  the remote host. Compozsh never reads the clipboard or source-file content.' \
     '' \
     'Safety and reproducibility:' \
     '  Captures and item counts are bounded; automatic package resolution and' \
@@ -914,6 +1089,7 @@ xcode() {
   local _XCODE_SELECTED_KIND='' _XCODE_SELECTED_CONTAINER=''
   local _XCODE_SELECTED_SCHEME='' _XCODE_SELECTED_PLATFORM=''
   local _XCODE_SELECTED_ID='' _XCODE_SELECTED_DESTINATION=''
+  local _XCODE_TEST_CLIPBOARD_BINARY=''
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
     _compozsh_help_xcode
@@ -943,6 +1119,7 @@ xcode() {
       return $?
     fi
 
+    _XCODE_TEST_CLIPBOARD_BINARY=${commands[pbcopy]:-}
     _zle_picker_run 20 '' 1 0 _xcode_workspace_controller
     picker_status=$?
     (( picker_status == 1 )) && return 0
@@ -966,7 +1143,9 @@ xcode() {
         action_status=$?
         _XCODE_TEST_ACTION_STATUS=$action_status
         _zle_picker_run 20 '' 1 0 _xcode_test_result_controller
-        return $action_status ;;
+        _xcode_test_result_apply "$action_status" "$_ZLE_PICKER_SELECTED_VALUE" \
+          "$_XCODE_TEST_CLIPBOARD_BINARY"
+        return $? ;;
       (run)
         print -r -- "Xcode run: $_XCODE_SELECTED_SCHEME · $_XCODE_SELECTED_DESTINATION"
         _xcode_run_simulator "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
@@ -979,7 +1158,9 @@ xcode() {
     _XCODE_DESTINATION_NAMES=() _XCODE_COMMAND=()
     _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
     _xcode_test_result_reset
-    _XCODE_TEST_SCHEME='' _XCODE_TEST_DESTINATION=''
+    _XCODE_TEST_CONTAINER='' _XCODE_TEST_SCHEME=''
+    _XCODE_TEST_PLATFORM='' _XCODE_TEST_DESTINATION_ID=''
+    _XCODE_TEST_DESTINATION=''
     unset _XCODE_TEST_ACTION_STATUS _XCODE_TEST_DETAIL_NODE_COUNT
     unset _XCODE_TEST_DETAIL_FILES
     unset _XCODE_CONTAINER_ARGUMENTS _XCODE_SAFE_ARGUMENTS

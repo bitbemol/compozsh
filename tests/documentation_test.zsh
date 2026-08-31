@@ -106,6 +106,10 @@ _test_security_contract_is_public_and_auditable() {
     'security contract does not make its storage boundary explicit' || return
   test_assert_contains "$security" 'operating-system clipboard synchronization' \
     'security contract hides independently configured synchronization' || return
+  test_assert_contains "$security" 'bounded Xcode test report' \
+    'security contract omits Xcode diagnostic clipboard data' || return
+  test_assert_contains "$readme" 'Copy report and done' \
+    'README omits the Xcode result clipboard action' || return
   test_assert_contains "$security" 'Administrator boundary' \
     'security contract omits the sudo boundary' || return
   test_assert_contains "$security" 'Compozsh network prohibition and external boundaries' \

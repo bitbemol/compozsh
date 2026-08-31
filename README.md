@@ -2383,6 +2383,17 @@ not attach a source location to every failure, and the result view says so when
 no involved file was reported. If structured results cannot be read, the view
 still reports the native action status and labels totals/details as unavailable.
 
+When `pbcopy` is available, the final result window also offers
+**Copy report and done**. After restoring the terminal, this explicit action
+writes a plain-text report containing the result and native status, project or
+workspace container, scheme, destination and identifier, totals, every retained
+failed-test name, test identifier, target, reason and involved file, retained
+build errors, and any capture limitation. The report is built only from the
+bounded result snapshot: it does not read source files or attachments. The
+native `xcodebuild` status remains the command status. During SSH, the report is
+written to the clipboard of the machine running Zsh, and macOS may synchronize
+that clipboard according to the user's operating-system settings.
+
 For the dashboard Test action, Compozsh asks Xcode for a temporary `.xcresult`
 bundle beneath `${TMPDIR:-/tmp}`. It reads only bounded summaries, failure
 details, source locations, and build issues through `xcresulttool`; it does not

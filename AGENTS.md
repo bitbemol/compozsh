@@ -1183,7 +1183,14 @@ discovered. The keyboard guide must never trigger refresh.
   Show success and failure with the shared semantic palette, retain exact
   scheme/destination context, keep the native action status, read no attachments
   or source contents, disable verbose test-diagnostic collection for that
-  transient bundle, and remove it before presenting the snapshot.
+  transient bundle, and remove it before presenting the snapshot. When `pbcopy`
+  is available, the result view may offer one explicit **Copy report and done**
+  candidate. Build its plain text only from the retained snapshot, including the
+  native status, exact test context, totals, every retained test/build failure,
+  identifiers, reasons, involved files and capture limitations. Perform the
+  clipboard write after screen restoration, recheck the captured executable,
+  never read source files or the clipboard, and preserve a failing native test
+  status even when copying succeeds or fails.
 - Simulator Run initially supports only an exact simulator destination. Build
   first, derive one installable `.app` and validated bundle identifier from
   bounded `xcodebuild -showBuildSettings -json`, then use `xcrun simctl` to boot,
@@ -1196,9 +1203,11 @@ discovered. The keyboard guide must never trigger refresh.
   cancellation, resize cleanup, exact action arrays and simulator dispatch with
   PATH-shadowed first-party command spies. Cover
   successful test totals, assertion and build-stage failures, source locations,
-  semantic result colors, native output/status preservation and result-bundle
-  cleanup. Real Xcode/Simulator checks are optional host integration tests and
-  must not read private project data or mutate a user's active project.
+  semantic result colors, bounded report contents, conditional clipboard
+  affordance, post-screen copying, native output/status preservation and
+  result-bundle cleanup. Real Xcode/Simulator checks are optional host
+  integration tests and must not read private project data or mutate a user's
+  active project.
 
 ## Keyboard and ZLE behavior
 

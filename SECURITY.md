@@ -72,8 +72,10 @@ guarantees made by Compozsh.
 - It does not use `sudo -S`, `SUDO_ASKPASS`, a password variable, the login
   keychain, or the macOS `security` credential command.
 - It never reads the clipboard. Explicit Copy actions write only the visibly
-  selected path or branch through `pbcopy`. The optional website writes a
-  visible installation command only after its Copy button is clicked.
+  selected path or branch, current directory, or a bounded Xcode test report
+  assembled from the visible result snapshot through `pbcopy`. The optional
+  website writes a visible installation command only after its Copy button is
+  clicked.
 - The shell configuration, installer, and static site upload nothing. This
   includes shell history, paths, Git data, project metadata, file previews,
   diffs, runtime versions, disk metadata, and installer output.
@@ -104,7 +106,7 @@ state:
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
-| Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; never read back by Compozsh |
+| Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, or bounded Xcode test report with local project paths and diagnostics; never read back by Compozsh |
 
 Appearance selection reads only `ZSH_COLOR_SCHEME` and the optional passive
 `COLORFGBG` environment hint, then retains a `light` or `dark` classification.

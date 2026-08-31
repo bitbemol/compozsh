@@ -324,6 +324,7 @@ _test_xcode_test_result_capture_retains_failures_and_files() {
     _xcode_test_result_capture "$3" 65 || exit
     print -r -- "result:$_XCODE_TEST_RESULT|$_XCODE_TEST_TOTAL|$_XCODE_TEST_PASSED|$_XCODE_TEST_FAILED"
     print -r -- "failure:${_XCODE_TEST_FAILURE_NAMES[1]}|${_XCODE_TEST_FAILURE_TARGETS[1]}"
+    print -r -- "identifier:${_XCODE_TEST_FAILURE_IDENTIFIERS[1]}"
     print -r -- "reason:${_XCODE_TEST_FAILURE_TEXTS[1]}"
     print -r -- "file:${_XCODE_TEST_FAILURE_FILES[1]}"
     print -r -- "build:${_XCODE_TEST_BUILD_NAMES[1]}|${_XCODE_TEST_BUILD_TEXTS[1]}|${_XCODE_TEST_BUILD_FILES[1]}"
@@ -333,6 +334,8 @@ _test_xcode_test_result_capture_retains_failures_and_files() {
     'Xcode test summary counts were not retained' || return
   test_assert_contains "$output" 'failure:WidgetTests.testRendering()|WidgetTests' \
     'failed Xcode test identity was not retained' || return
+  test_assert_contains "$output" 'identifier:WidgetTests/testRendering()' \
+    'failed Xcode test identifier was not retained' || return
   test_assert_contains "$output" 'reason:Expected the rendered value to match.' \
     'failed Xcode test reason was not retained' || return
   test_assert_contains "$output" 'file:/project/Tests/WidgetTests.swift:42' \
@@ -413,6 +416,206 @@ _test_xcode_test_success_screen_uses_shared_semantic_role() {
 }
 test_case 'Xcode test success window uses the shared success styling' \
   _test_xcode_test_success_screen_uses_shared_semantic_role
+
+_test_xcode_test_report_contains_complete_retained_diagnostics() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_SCHEME="Example App"
+    _XCODE_TEST_CONTAINER="/project/Example App.xcworkspace"
+    _XCODE_TEST_PLATFORM="iOS Simulator"
+    _XCODE_TEST_DESTINATION_ID="SIM-456"
+    _XCODE_TEST_DESTINATION="iPhone 18 Pro · iOS 27.0"
+    _XCODE_TEST_RESULT=Failed
+    _XCODE_TEST_TOTAL=5 _XCODE_TEST_PASSED=1 _XCODE_TEST_FAILED=2
+    _XCODE_TEST_SKIPPED=1 _XCODE_TEST_EXPECTED_FAILURES=1
+    _XCODE_TEST_CAPTURE_ERROR="Only the bounded structured result was retained."
+    _XCODE_TEST_FAILURE_NAMES=("WidgetTests.testRendering()")
+    _XCODE_TEST_FAILURE_TARGETS=(WidgetTests)
+    _XCODE_TEST_FAILURE_IDENTIFIERS=("WidgetTests/testRendering()")
+    _XCODE_TEST_FAILURE_TEXTS=($'\''Expected matching output.\nActual value was blue.'\'')
+    _XCODE_TEST_FAILURE_FILES=($'\''/project/Tests/WidgetTests.swift:42\n/project/Sources/Widget.swift:18'\'')
+    _XCODE_TEST_BUILD_NAMES=("Swift Compiler Error · App")
+    _XCODE_TEST_BUILD_ERROR_TOTAL=3
+    _XCODE_TEST_BUILD_TEXTS=($'\''\e[31mCannot find WidgetFactory in scope\e[0m'\'')
+    _XCODE_TEST_BUILD_FILES=("/project/Sources/App.swift#StartingLineNumber=12")
+    _xcode_test_report_build 65 || exit
+    print -rn -- "$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'Xcode test report' \
+    'copied Xcode report omitted its identity' || return
+  test_assert_contains "$output" 'Result: Failed' \
+    'copied Xcode report omitted its result' || return
+  test_assert_contains "$output" 'xcodebuild exit status: 65' \
+    'copied Xcode report omitted the native status' || return
+  test_assert_contains "$output" 'Scheme: Example App' \
+    'copied Xcode report omitted its scheme' || return
+  test_assert_contains "$output" 'Container: /project/Example App.xcworkspace' \
+    'copied Xcode report omitted its project container' || return
+  test_assert_contains "$output" 'Destination: iPhone 18 Pro · iOS 27.0' \
+    'copied Xcode report omitted its destination' || return
+  test_assert_contains "$output" 'Platform: iOS Simulator' \
+    'copied Xcode report omitted its platform' || return
+  test_assert_contains "$output" 'Destination ID: SIM-456' \
+    'copied Xcode report omitted its exact destination identifier' || return
+  test_assert_contains "$output" \
+    'Tests: 5 total · 1 passed · 2 failed · 1 skipped · 1 expected failure' \
+    'copied Xcode report omitted summary totals' || return
+  test_assert_contains "$output" \
+    'native console output, attachments, and source contents are not included' \
+    'copied Xcode report concealed its diagnostic scope' || return
+  test_assert_contains "$output" 'Failed tests: 1 captured of 2 reported' \
+    'copied Xcode report concealed bounded failed-test coverage' || return
+  test_assert_contains "$output" 'WidgetTests.testRendering()' \
+    'copied Xcode report omitted the failed test name' || return
+  test_assert_contains "$output" 'Target: WidgetTests' \
+    'copied Xcode report omitted the failed test target' || return
+  test_assert_contains "$output" 'Identifier: WidgetTests/testRendering()' \
+    'copied Xcode report omitted the failed test identifier' || return
+  test_assert_contains "$output" $'Expected matching output.\nActual value was blue.' \
+    'copied Xcode report changed a multiline failure reason' || return
+  test_assert_contains "$output" '/project/Tests/WidgetTests.swift:42' \
+    'copied Xcode report omitted a test source location' || return
+  test_assert_contains "$output" '/project/Sources/Widget.swift:18' \
+    'copied Xcode report omitted an additional test source location' || return
+  test_assert_contains "$output" 'Build errors: 1 captured of 3 reported' \
+    'copied Xcode report omitted its build-error section' || return
+  test_assert_contains "$output" 'Cannot find WidgetFactory in scope' \
+    'copied Xcode report omitted a build failure reason' || return
+  [[ $output != *$'\e'* ]] ||
+    test_fail 'copied Xcode report retained terminal control bytes' || return
+  test_assert_contains "$output" 'Only the bounded structured result was retained.' \
+    'copied Xcode report omitted its structured-result limitation'
+}
+test_case 'Xcode copy report retains target totals failures files and limits' \
+  _test_xcode_test_report_contains_complete_retained_diagnostics
+
+_test_xcode_test_result_screen_offers_report_only_with_clipboard() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output=''
+  test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh -df\n/bin/cat >/dev/null' || return
+  command chmod +x "$fake_bin/pbcopy" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
+    _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=1 _XCODE_TEST_FAILED=1
+    _XCODE_TEST_FAILURE_NAMES=("AppTests.testLaunch()")
+    _XCODE_TEST_FAILURE_TARGETS=(AppTests)
+    _XCODE_TEST_FAILURE_TEXTS=("Launch failed")
+    _XCODE_TEST_FAILURE_FILES=("/project/Tests/AppTests.swift:9")
+    _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=() _XCODE_TEST_BUILD_FILES=()
+    local _XCODE_TEST_CLIPBOARD_BINARY=$2/pbcopy
+    local scenario=available
+    _zle_picker_loop() {
+      print -r -- "$scenario-labels:${(j:|:)_XCODE_PICKER_LABELS}"
+      print -r -- "copy-action:${_ZLE_PICKER_ACCEPT_LABELS[copy-report]}"
+      return 0
+    }
+    _xcode_test_result_screen 65
+    scenario=unavailable
+    _XCODE_TEST_CLIPBOARD_BINARY=
+    _xcode_test_result_screen 65
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+
+  test_assert_contains "$output" \
+    'available-labels:[ Done ]|[ Copy report and done ]|Test failed · AppTests.testLaunch() · AppTests.swift:9' \
+    'Xcode result screen omitted the explicit copy-report action' || return
+  test_assert_contains "$output" 'copy-action:copy report and done' \
+    'Xcode result screen did not name the copy acceptance effect' || return
+  test_assert_contains "$output" \
+    'unavailable-labels:[ Done ]|Test failed · AppTests.testLaunch() · AppTests.swift:9' \
+    'Xcode result screen changed its non-clipboard fallback' || return
+  [[ $output != *'unavailable-labels:'*'[ Copy report and done ]'* ]] ||
+    test_fail 'Xcode result screen advertised a missing clipboard action'
+}
+test_case 'Xcode result window offers copy report when the clipboard is available' \
+  _test_xcode_test_result_screen_offers_report_only_with_clipboard
+
+_test_xcode_test_report_copy_writes_exact_report_without_newline() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" clipboard="$TEST_TMP_DIR/clipboard"
+  test_write_file "$fake_bin/pbcopy" \
+    $'#!/bin/zsh -df\n/bin/cat >| "$XCODE_CLIPBOARD"' || return
+  command chmod +x "$fake_bin/pbcopy" || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    export XCODE_CLIPBOARD=$3
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
+    _XCODE_TEST_RESULT=Passed _XCODE_TEST_TOTAL=3 _XCODE_TEST_PASSED=3
+    _xcode_test_report_copy 0 "$commands[pbcopy]" || exit
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$clipboard") || return
+
+  test_assert_equal 'Copied Xcode test report to the clipboard.' "$output" \
+    'Xcode report copy omitted its post-screen confirmation' || return
+  local copied=$(<"$clipboard")
+  test_assert_contains "$copied" 'Result: Passed' \
+    'clipboard did not receive the rendered Xcode test report' || return
+  test_assert_contains "$copied" 'Tests: 3 total · 3 passed · 0 failed' \
+    'successful copied report omitted its totals' || return
+  local last_byte=$(command tail -c 1 -- "$clipboard" | command od -An -tu1)
+  last_byte=${last_byte//[[:space:]]/}
+  [[ $last_byte != 10 ]] ||
+    test_fail 'Xcode copied report gained a trailing newline'
+}
+test_case 'Xcode copy report writes exact plain text and confirms after cleanup' \
+  _test_xcode_test_report_copy_writes_exact_report_without_newline
+
+_test_xcode_test_result_apply_preserves_native_failure_status() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" clipboard="$TEST_TMP_DIR/clipboard"
+  test_write_file "$fake_bin/pbcopy" \
+    $'#!/bin/zsh -df\n/bin/cat >| "$XCODE_CLIPBOARD"' || return
+  command chmod +x "$fake_bin/pbcopy" || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    export XCODE_CLIPBOARD=$3
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
+    _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=1 _XCODE_TEST_FAILED=1
+    _XCODE_TEST_FAILURE_NAMES=("AppTests.testLaunch()")
+    _XCODE_TEST_FAILURE_TARGETS=(AppTests)
+    _XCODE_TEST_FAILURE_IDENTIFIERS=("AppTests/testLaunch()")
+    _XCODE_TEST_FAILURE_TEXTS=("Launch failed")
+    _XCODE_TEST_FAILURE_FILES=("/project/Tests/AppTests.swift:9")
+    _xcode_test_result_apply 65 copy-report "$commands[pbcopy]"
+    print -r -- "status=$?"
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$clipboard") || return
+
+  test_assert_contains "$output" 'Copied Xcode test report to the clipboard.' \
+    'post-screen report action did not perform its explicit copy' || return
+  test_assert_contains "$output" 'status=65' \
+    'post-screen report action replaced the native test failure status' || return
+  test_assert_contains "$(<"$clipboard")" 'AppTests.testLaunch()' \
+    'post-screen report action did not copy the failed test'
+}
+test_case 'Xcode post-screen copy preserves the native failing test status' \
+  _test_xcode_test_result_apply_preserves_native_failure_status
+
+_test_xcode_test_result_copy_rechecks_clipboard_capability() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_RESULT=Passed _XCODE_TEST_SCHEME=App
+    _XCODE_TEST_DESTINATION="My Mac"
+    _xcode_test_result_apply 0 copy-report "$HOME/disappeared-pbcopy" 2>&1
+    print -r -- "status=$?"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'pbcopy is unavailable' \
+    'post-screen Xcode copy did not recheck clipboard availability' || return
+  test_assert_contains "$output" 'status=1' \
+    'passed Xcode test concealed a requested clipboard failure'
+}
+test_case 'Xcode post-screen copy fails clearly if the clipboard disappears' \
+  _test_xcode_test_result_copy_rechecks_clipboard_capability
 
 _test_xcode_test_execution_streams_and_cleans_result_bundle() {
   test_make_temp_dir || return
