@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compozsh Release Draft"
+  short_description: "Draft evidence-backed Compozsh releases"
+  default_prompt: "Use $compozsh-release-draft to compare the latest published release with the current repository and draft GitHub release metadata."

@@ -22,6 +22,33 @@ _test_readme_inventory_matches_shipped_units() {
 test_case 'README inventory exactly matches the shipped peer files' \
   _test_readme_inventory_matches_shipped_units
 
+_test_repository_skill_inventory_is_documented() {
+  local directory='' line='' name=''
+  local readme="$(<"$TEST_REPO_ROOT/README.md")"
+  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  local -a actual=() documented=()
+
+  for directory in "$TEST_REPO_ROOT"/.agents/skills/*(N/); do
+    [[ -f $directory/SKILL.md ]] || continue
+    actual+=("${directory:t}")
+    test_assert_contains "$agents" ".agents/skills/${directory:t}/" \
+      "agent contract omits the ${directory:t} repository skill" || return
+  done
+  while IFS= read -r line; do
+    [[ $line == *'compozsh-'*'/' ]] || continue
+    name=${line##* }
+    documented+=("${name%/}")
+  done <<< "$readme"
+
+  actual=(${(on)actual})
+  documented=(${(on)documented})
+  test_assert_equal "${(j:|:)actual}" \
+    "${(j:|:)documented}" \
+    'README repository-skill inventory is stale'
+}
+test_case 'README and agent contract inventory exactly match repository skills' \
+  _test_repository_skill_inventory_is_documented
+
 _test_private_initializer_is_not_in_repository_tree() {
   [[ ! -e "$TEST_REPO_ROOT/.zsh.addons/local/init.zsh" ]] ||
     test_fail 'private initializer exists inside the repository add-on tree'

@@ -182,9 +182,11 @@ Repository layout:
 ```text
 compozsh/
 ├── .agents/skills/        repository-scoped agent workflows
-│   └── compozsh-platform-review/
-│       ├── SKILL.md       first-party macOS modernization audit
-│       └── scripts/       privacy-safe native platform inventory
+│   ├── compozsh-platform-review/
+│   │   ├── SKILL.md       first-party macOS modernization audit
+│   │   └── scripts/       privacy-safe native platform inventory
+│   └── compozsh-release-draft/
+│       └── SKILL.md       evidence-backed GitHub release drafting
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.shell         shell options, history, and native tool colors
@@ -364,6 +366,31 @@ isolated probes and measured prototypes, while disclosing the missing exact
 comparison. Snapshots omit personal paths, names, host data, preferences and
 hardware identifiers. The structure follows the current
 [OpenAI skill guidance](https://learn.chatgpt.com/docs/build-skills).
+
+### Draft a GitHub release
+
+The repository also ships a `compozsh-release-draft` skill for preparing the
+next tag, title and GitHub release body from verified evidence:
+
+```text
+Draft the next GitHub release from the latest published release and the current repository.
+```
+
+Codex can select the skill automatically from that ordinary request. Use
+`$compozsh-release-draft` only when you want to force that specific workflow.
+
+The workflow reads the actual latest published GitHub release and resolves its
+exact commit before choosing a baseline; it never substitutes the newest local
+tag. It then compares the baseline and candidate implementation, public help,
+focused tests, README and security contract before including a claim. Explicit
+allowlists and final dispatch paths define shipped coverage, so an underlying
+tool's broader capabilities or an intermediate commit cannot silently expand
+the notes.
+
+Conflicting implementation, help, test or documentation evidence is reported
+as a release blocker instead of being guessed away. The skill drafts metadata
+only. It does not create a tag or release, commit, push, publish, or write to
+the clipboard without a separate explicit request.
 
 ## Installation
 

@@ -196,6 +196,14 @@ configuration base.
   from implementation authority. Update it when the native-platform contract,
   audit evidence lanes, compatibility gates, or report workflow changes. Do
   not commit generated platform snapshots automatically.
+- `.agents/skills/compozsh-release-draft/` is the repository-scoped,
+  read-only GitHub release evidence workflow. It must resolve the actual latest
+  published release and exact tag commit instead of trusting local tags, then
+  compare the baseline and final implementation, public help, tests and
+  documentation before drafting a claim. Treat conflicts as release blockers;
+  never infer coverage from an underlying tool or an intermediate commit. The
+  skill does not authorize tagging, committing, pushing, publishing or
+  clipboard access.
 - `LICENSE` is the canonical, unmodified GNU GPL version 3 text. The repository
   is distributed under `GPL-3.0-or-later`; keep the README declaration and SPDX
   identifier synchronized with it. Do not add contradictory licensing terms or

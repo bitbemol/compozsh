@@ -197,6 +197,11 @@ Compozsh to add a request, destination, or data:
   asks the chosen coding agent to consult current official documentation. The
   local snapshot script contains no URL request and omits personal machine
   data, but the agent and its provider have their own network and data policies.
+- Invoking the repository's `compozsh-release-draft` agent skill asks the chosen
+  coding agent to read this project's public GitHub release metadata and tag
+  resolution. Its instructions prohibit sending repository contents, local
+  paths, credentials, or private remote parameters in those requests, but the
+  agent, its provider, and GitHub retain their own network and data policies.
 
 The optional `docs/` website is static and self-contained. Its Content Security
 Policy uses `connect-src 'none'`; JavaScript has no fetch, beacon, WebSocket, or
