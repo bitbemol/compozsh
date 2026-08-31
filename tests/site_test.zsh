@@ -15,15 +15,20 @@ _test_site_static_contract() {
   test_assert_contains "$html" 'src="./app.mjs"' || return
   test_assert_contains "$html" 'href="./styles.css"' || return
   test_assert_contains "$html" 'Content-Security-Policy' || return
+  test_assert_contains "$html" "connect-src 'none'" || return
   test_assert_contains "$html" 'Browser demo' || return
   test_assert_contains "$html" 'id="git-review-demo"' || return
   test_assert_contains "$html" '--symlink --dry-run' || return
+  test_assert_contains "$html" 'blob/main/SECURITY.md' || return
+  test_assert_contains "$html" 'Your Compozsh data stays local. Never transmitted.' || return
   test_assert_contains "$css" 'prefers-reduced-motion' || return
   test_assert_contains "$css" 'clamp(' || return
   test_assert_contains "$css" '.review-workspace' || return
   [[ $html != *'src="https://'* && $css != *'@import'* &&
-     $script != *'innerHTML'* && $script != *'eval('* ]] || {
-    test_fail 'website added third-party scripts, remote CSS, or executable text'
+     $script != *'innerHTML'* && $script != *'eval('* &&
+     $script != *'fetch('* && $script != *XMLHttpRequest* &&
+     $script != *WebSocket* && $script != *sendBeacon* ]] || {
+    test_fail 'website added a remote asset, connection API, or executable text'
     return 1
   }
 }

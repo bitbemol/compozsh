@@ -9,6 +9,13 @@ user's current request first; within that scope, preserve the principles below.
 This project is a polished, self-contained interactive Zsh configuration. Its
 core promises are:
 
+- Local-only operation is the highest security invariant. All data Compozsh
+  reads, captures, derives, or stores remains on the user's computer. No
+  Compozsh-owned code may transmit user or project data under any circumstance.
+- Privacy, credential protection, data minimization, and user control are
+  top-level product goals. Handle only the minimum information required for a
+  visible feature, keep it local and ephemeral whenever possible, and never
+  trade privacy for convenience, analytics, personalization, or feature breadth.
 - Zsh 5.9 or newer; compatibility with older Zsh releases is not a goal.
 - No plugin manager, prompt framework, third-party shell code, patched font, or
   background daemon.
@@ -156,6 +163,11 @@ configuration base.
   sourceable, re-source safe, narrow in purpose, and successful after setup.
 - `README.md` is user-facing documentation. Keep it synchronized with visible
   behavior, keys, installation steps, extension points, and safety guarantees.
+- `SECURITY.md` is the public trust and self-audit contract. Keep its claims,
+  limitations, local-data inventory, privilege boundaries, reporting guidance,
+  and independently reproducible checks synchronized with the shipped code,
+  installer, tests, website, and repository-scoped agent workflows. A change is
+  incomplete when it makes any security or privacy statement stale.
 - The README's **Shipped configuration units** table is the public inventory of
   repository peers. In the same change that adds, deletes, renames, splits,
   merges, or materially changes the responsibility or public surface of a
@@ -272,12 +284,14 @@ audit installation, updating, and uninstall instructions together.
 
 When concerns conflict, prefer them in this order:
 
-1. Correctness and preservation of shell semantics
-2. Safety and predictable failure behavior
-3. Interactive latency
-4. Clarity and maintainability
-5. UI consistency and useful information density
-6. Additional feature breadth
+1. Local-only operation and non-transmission of user data
+2. Privacy, credential protection, and user control
+3. Correctness and preservation of shell semantics
+4. Safety and predictable failure behavior
+5. Interactive latency
+6. Clarity and maintainability
+7. UI consistency and useful information density
+8. Additional feature breadth
 
 Small, native, understandable code is preferred to a clever framework. Avoid
 both copy-paste sprawl and speculative abstraction.
@@ -1270,6 +1284,77 @@ discovered. The keyboard guide must never trigger refresh.
 ## Safety and security
 
 - Starting a shell or drawing a prompt must never access the network.
+- Privacy is a top-level product goal and an implementation constraint, not a
+  documentation slogan. Minimize every read and capture to the facts, scope,
+  and lifetime required by the user's visible task. Prefer transient in-memory
+  state. Do not introduce telemetry, behavioral profiling, identifiers, a
+  project-owned persistent cache, or speculative collection “for later.” A
+  useful feature is not justification for collecting unrelated information.
+- Handle private or sensitive information only through a deliberately defined
+  effect boundary. Keep values literal, bounded, and out of shell evaluation,
+  command construction, diagnostics, terminal titles, screenshots, fixtures,
+  and public reports. Do not copy or retain a value merely because it was
+  available in the environment, filesystem, Git metadata, tool output, or
+  terminal session. Fail closed when scope, ownership, identity, permissions,
+  destination, or cleanup cannot be established safely.
+- Never receive or persist plaintext passwords, tokens, private keys, recovery
+  codes, session cookies, or authentication answers. Authentication input must
+  go directly to the operating system or explicitly chosen trusted tool. Use
+  least privilege, non-prompting retained authorization after the visible
+  authentication step, exact targets, and the shortest practical lifetime.
+  Never weaken file or directory access controls while preserving user-owned
+  history, configuration, or recovery data.
+- New persistent storage requires an explicit product need and user-visible
+  documentation of its exact path, contents, ownership, access controls,
+  retention, cleanup, crash residue, recovery behavior, and uninstall result.
+  Preserve existing user-owned modes and ownership, create sensitive state with
+  the least access the platform supports, reject symlink/special-file and path
+  substitution hazards, and test failure cleanup. If those properties cannot
+  be guaranteed, do not store the data. The existing local history and recovery
+  boundaries remain fully disclosed in `SECURITY.md`; do not silently expand
+  them.
+- All data Compozsh reads, captures, derives, or stores must remain on the
+  user's computer. No Compozsh-owned operation may transmit user or project
+  data under any circumstance. There is no telemetry opt-in, consent exception,
+  feature flag, debugging exception, or future product mode that may weaken
+  this invariant. A proposed feature that requires project-owned transmission
+  is incompatible with Compozsh and must be rejected.
+- An external program remains a separate trust boundary when the user
+  deliberately asks that program to communicate—for example, by invoking
+  `git push` through the transparent Git wrapper. Compozsh must not add data,
+  destinations, requests, uploads, synchronization, or background activity to
+  that explicit external command. Disclose this boundary precisely; never use
+  it to disguise project-owned transmission or claim that the external program
+  keeps its data local.
+- Before declaring any work complete—including a refactor, documentation-only
+  change, test change, website change, or agent-workflow change—compare the
+  final diff with `SECURITY.md`. Explicitly determine whether it changes a
+  network or update path; collection, reading, storage, retention, display, or
+  transmission of user data; history, clipboard, Keychain, credential, token,
+  environment, project, or private-configuration access; temporary or
+  persistent state; an external command or hosted-service boundary; privilege,
+  `sudo`, authentication, destructive behavior, or recovery; project-code
+  execution; dependencies; or any documented audit result. If it does, update
+  `SECURITY.md` in the same unit of work and add or revise focused regression
+  coverage. If it does not, completion still requires verifying that every
+  existing security claim remains true for the final tree.
+- Security documentation requires full disclosure, including inconvenient
+  limitations. State what data is read, where it comes from, where it is kept,
+  its lifetime and cleanup limits, what can leave the machine, the destination
+  and trigger, the exact privileged boundary, who receives authentication
+  input, and which operating-system, hosting, installed-tool, repository,
+  private-peer, and user-action behaviors remain outside Compozsh's guarantee.
+  Distinguish shipped-code guarantees from assumptions about external tools.
+  Never use broad claims such as “local,” “safe,” “private,” or “no phone home”
+  to conceal an exception or transfer of trust.
+- Every material `SECURITY.md` claim must be independently checkable against an
+  exact commit without first executing Compozsh. Provide the relevant readable
+  source boundary plus copy-paste commands or focused tests using Git, Zsh, or
+  stock macOS tools; state the expected output/status and the check's limits.
+  Keyword searches and deny-lists are regression aids, not proofs. Keep the
+  README and website links to the policy working, and keep the reporting and
+  supported-version guidance accurate. Agents must never replace verifiable
+  evidence with a maintainer assurance.
 - Treat this as a public repository. Never commit a real name, personal email,
   private username, home-directory username, hostname, device identifier, IP
   address, internal company or project name, absolute machine path, terminal
@@ -1387,10 +1472,11 @@ record Terminal.app's manual fullscreen/windowed acceptance result separately.
    benchmark proportional to the decision rather than building a permanent
    framework for a one-time comparison.
 5. Implement with `apply_patch`; keep section ordering and comments coherent.
-6. Update `README.md`, its shipped-unit inventory and repository layout,
-   `templates/init.zsh`, and relevant `.zsh.addons/`
-   documentation when public behavior, a unit boundary, or an extension point
-   changes.
+6. Update `README.md`, `SECURITY.md`, the shipped-unit inventory and repository
+   layout, `templates/init.zsh`, and relevant `.zsh.addons/` documentation when
+   their public behavior, security/privacy claims, unit boundaries, or
+   extension points change. Even when `SECURITY.md` needs no edit, verify it
+   against the final diff before continuing.
 7. Test proportionally to the risk, including an actual ZLE session for
    interactive behavior.
 8. Review the final diff for correctness, idiomatic Zsh, security, measured
@@ -1427,6 +1513,10 @@ fi
 
 Then select relevant checks from this list:
 
+- For every change, reread `SECURITY.md` against the final tree and run the
+  focused security and documentation contracts. When a sensitive boundary
+  changes, exercise its independent audit commands, confirm their documented
+  expected output and limitations, and include that evidence in the handoff.
 - Whenever shipped add-ons change, compare every recursive repository-relative
   `.zsh.<name>` path with the README inventory. Every file must have exactly one
   current row and every row must resolve to a shipped file.

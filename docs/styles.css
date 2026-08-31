@@ -135,6 +135,7 @@
   .closing-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 17px; }
   .site-footer { align-items: center; color: var(--muted); font-size: 10px; }
   .site-footer .brand { color: var(--ink); font-size: 21px; }
+  .site-footer nav { display: flex; gap: 18px; }
   .site-footer a:hover { color: var(--accent); }
 }
 @layer components {
@@ -289,6 +290,7 @@
     .closing h2 { font-size: 42px; }
     .site-footer { flex-wrap: wrap; gap: 20px; }
     .site-footer > span { display: none; }
+    .site-footer nav { flex-wrap: wrap; justify-content: flex-end; }
     .code-box pre { font-size: 12px; }
     .review-workspace { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
     .review-pane + .review-pane { border-left: 0; border-top: 1px solid #526166; }

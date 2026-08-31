@@ -3,6 +3,10 @@
 A polished, self-contained Zsh setup with no frameworks, prompt themes, or
 third-party plugins.
 
+Before installing, read [Security and privacy](SECURITY.md) for the no-phone-home
+boundary, the complete `sudo` and local-data inventory, and commands that let
+you audit the exact commit yourself.
+
 ## Start with your next task
 
 | What you want to do | Entry point | What happens next |
@@ -61,8 +65,8 @@ for full-sized sessions in one Terminal window.
 - A live `compozsh` tool explorer that discovers public add-on functions,
   searches them fuzzily, and opens their safe self-documentation
 - A native bootable-media workspace with explicit media/target selection,
-  raw-image verification, Apple `createinstallmedia`, filesystem-aware UEFI
-  Windows creation, Finder drag and drop, and target-bound erase confirmation
+  raw-image verification, Apple `createinstallmedia`, safe Windows-media
+  refusal, Finder drag and drop, and target-bound erase confirmation
 - Live native history autosuggestions with character, word, and full acceptance
 - `Ctrl-X Ctrl-E` to edit the current command in `$EDITOR`
 - Live native syntax highlighting for commands, arguments, operators, strings,
@@ -215,6 +219,7 @@ compozsh/
 │   ├── site.test.mjs      optional Node tests for browser search
 │   ├── site-scenes.test.mjs  optional Node checks for demo fixtures
 │   └── site.browser.mjs   optional local browser interaction checks
+├── SECURITY.md            security, privacy, privilege, and self-audit contract
 ├── LICENSE                GNU GPL version 3 or any later version
 ├── README.md              user-facing behavior and installation
 └── AGENTS.md              contributor and coding-agent contract
@@ -238,7 +243,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
-| `.zsh.usb` | External-disk preparation | `format_external_device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images, full macOS installer apps, and compatible UEFI Windows ISOs to native verified media handlers |
+| `.zsh.usb` | External-disk preparation | `format_external_device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
 | `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools; `update_xcode_skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -280,6 +285,31 @@ Check the installed versions with:
 zsh --version
 git --version
 ```
+
+## Security and privacy
+
+Privacy, credential protection, data minimization, and user control are
+top-level product goals. Features capture only the facts required for their
+visible task, prefer temporary in-memory state, and keep every intentional
+persistent boundary explicit.
+
+All data Compozsh reads, captures, derives, or stores stays on your computer.
+Compozsh never transmits user or project data under any circumstance. This is a
+non-negotiable product invariant, with no telemetry opt-in, debugging exception,
+or future network mode. Programs you explicitly direct to communicate—such as
+Git during `push`, `fetch`, `pull`, or `clone`—remain separate trust boundaries;
+Compozsh does not add data, endpoints, or requests to those commands.
+
+Compozsh has no telemetry, analytics, automatic update check, project server,
+or runtime network client. It does retain expected local shell state, including
+history and installer recovery backups. The external-media tools are the only
+`sudo` boundary: Apple's `sudo` reads the password directly, while subsequent
+privileged operations use non-prompting `sudo -n` calls.
+
+Read [SECURITY.md](SECURITY.md) for the precise scope and limitations, local
+data inventory, website boundary, update-review workflow, vulnerability
+reporting route, and copy-paste audit commands. The document is designed so the
+claims can be checked against any specific commit without running Compozsh.
 
 ## Modern-first compatibility
 
@@ -2027,26 +2057,23 @@ After selection, a private dispatcher resolves the media family before target
 selection or mutation. Regular `.img` files and non-Windows `.iso` files use the
 raw/hybrid writer. ISO classification temporarily mounts the image read-only
 and hidden, checks canonical Windows Setup payload markers within a 65,536-entry
-safety limit, and always detaches the probe. Recognized UEFI Windows installer
-media uses a dedicated
-filesystem-aware handler: it creates an MBR with one FAT32 volume, copies the
-complete captured tree, flushes it, remounts the exact partition read-only, and
-byte-compares every regular file through uncached target reads. x64 and ARM64
-are identified from their standard UEFI removable-media loaders and shown as
-ordinary architecture facts. This handler claims UEFI boot only; it does not
-claim legacy BIOS, hardware, firmware, or driver compatibility.
+safety limit, and always detaches the probe. Recognized Windows Setup media
+never reaches drive selection. A terminal **Windows unsupported** screen makes
+**Done** the primary action and explains the complete no-effect boundary.
 
-Preflight enforces the native FAT32 workflow’s file-size and path limits before
-target selection; the finished copy is then remounted read-only and byte-verified.
-Any file beyond 4,294,967,295 bytes, non-ASCII or control-bearing path, reserved
-or ambiguous FAT path, missing Windows setup payload, or missing UEFI fallback
-loader is refused before a drive is targeted.
-Stock macOS cannot perform DISM’s format-aware WIM splitting, so an oversized
-`install.wim` must be replaced by official media that fits FAT32 or split into
-an `install.swm` series on Windows. Compozsh does not substitute exFAT or raw
-flash a recognized but incompatible Windows ISO. A clean read-only mount refusal
-remains eligible for the raw/hybrid handler so Linux images continue to work;
-a partial attachment or failed inspection cleanup fails closed.
+Microsoft specifies FAT32 for portable ordinary Windows Setup USB media. FAT32
+cannot store a file larger than 4,294,967,295 bytes, while current Windows 11
+media can contain a larger `sources/install.wim`. Microsoft’s supported
+resolution is DISM on Windows to create an `install.swm` series. Stock macOS has
+no supported WIM splitter, UEFI does not guarantee exFAT or NTFS for removable
+boot, and a Windows optical ISO is not a hybrid raw USB image. Compozsh therefore
+does not create Windows USB installers or substitute an unverified raw, exFAT,
+NTFS, or multipartition layout. Nothing is written or targeted. See Microsoft’s
+[Windows USB procedure](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/install-windows-from-a-usb-flash-drive?view=windows-11)
+and [DISM platform support](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/dism-supported-platforms?view=windows-11).
+A clean read-only mount refusal remains eligible for the raw/hybrid handler so
+Linux images continue to work; a partial attachment or failed inspection cleanup
+fails closed.
 
 A complete `Install macOS <name>.app` uses its Apple-provided
 `Contents/Resources/createinstallmedia` executable. A downloaded `.dmg` or
