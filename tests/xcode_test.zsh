@@ -188,6 +188,49 @@ _test_xcode_workspace_captures_bounded_schemes_without_update_flags() {
 test_case 'Xcode workspace captures schemes through bounded native JSON' \
   _test_xcode_workspace_captures_bounded_schemes_without_update_flags
 
+_test_xcode_workspace_keeps_complete_large_scheme_list() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin"
+  test_write_file "$fake_bin/xcodebuild" $'#!/bin/zsh -df\nlocal -a schemes=()\nlocal -i index=0\nfor (( index = 1; index <= 74; ++index )); do\n  schemes+=("\\\"Scheme $index\\\"")\ndone\nschemes+=("\\\"Special & <Final>\\\"")\nprint -r -- "{\\\"workspace\\\":{\\\"schemes\\\":[${(j:,:)schemes}]}}"' || return
+  command chmod +x "$fake_bin/xcodebuild" || return
+
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    _xcode_schemes_capture workspace /example/App.xcworkspace || exit
+    print -r -- "${#_XCODE_SCHEMES}|${_XCODE_SCHEMES[1]}|${_XCODE_SCHEMES[-1]}"
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+
+  test_assert_equal '75|Scheme 1|Special & <Final>' "$output" \
+    'Xcode scheme capture silently truncated the complete reported list'
+}
+test_case 'Xcode workspace retains every scheme in a large bounded response' \
+  _test_xcode_workspace_keeps_complete_large_scheme_list
+
+_test_xcode_workspace_rejects_pathological_scheme_count_without_partial_list() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin"
+  test_write_file "$fake_bin/xcodebuild" $'#!/bin/zsh -df\nlocal -a schemes=()\nrepeat 4097 schemes+=("\\\"S\\\"")\nprint -r -- "{\\\"workspace\\\":{\\\"schemes\\\":[${(j:,:)schemes}]}}"' || return
+  command chmod +x "$fake_bin/xcodebuild" || return
+
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    _xcode_schemes_capture workspace /example/App.xcworkspace
+    print -r -- "$?|${#_XCODE_SCHEMES}|$_XCODE_CAPTURE_ERROR"
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+
+  test_assert_equal \
+    '1|0|Xcode reported more than 4096 schemes; none were retained' "$output" \
+    'pathological Xcode scheme response was silently presented as partial'
+}
+test_case 'Xcode workspace fails closed instead of truncating a pathological scheme list' \
+  _test_xcode_workspace_rejects_pathological_scheme_count_without_partial_list
+
 _test_xcode_destination_parser_keeps_exact_usable_ids() {
   test_make_temp_dir || return
   local output=''

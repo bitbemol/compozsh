@@ -1156,8 +1156,10 @@ discovered. The keyboard guide must never trigger refresh.
   machine-readable JSON where the CLI provides it and parse it with the system
   `plutil`; accept the documented destination listing only after validating a
   fixed platform vocabulary and literal stable identifier. Bound every retained
-  provider capture (currently 256 KiB), diagnostic and item count. No repaint,
-  filtering, focus, scrolling or resize may invoke an Xcode provider.
+  provider capture (currently 256 KiB), diagnostic and item count. Retain every
+  validated scheme within those bounds; an exceeded item bound fails with no
+  partial catalog. No repaint, filtering, focus, scrolling or resize may invoke
+  an Xcode provider.
 - Use the shared full-screen renderer, screen owner, input loop, guide, focus
   language and temporary-screen cleanup. The dashboard is one shallow
   controller over Container → Scheme → Destination → Action, with configuration
@@ -1188,10 +1190,11 @@ discovered. The keyboard guide must never trigger refresh.
   install and launch it; opening Apple's Simulator app is part of that explicit
   action. Do not claim physical-device launch, alter signing, choose a generic
   destination or infer a product from recursive filesystem search.
-- Test discovery order, spaces in literal paths, bounded/failed JSON, hostile
-  destination text, no-scheme/no-destination states, argument delegation,
-  noninteractive fallback, cancellation, resize cleanup, exact action arrays
-  and simulator dispatch with PATH-shadowed first-party command spies. Cover
+- Test discovery order, spaces in literal paths, complete multi-page scheme
+  catalogs, bounded/failed JSON, hostile destination text,
+  no-scheme/no-destination states, argument delegation, noninteractive fallback,
+  cancellation, resize cleanup, exact action arrays and simulator dispatch with
+  PATH-shadowed first-party command spies. Cover
   successful test totals, assertion and build-stage failures, source locations,
   semantic result colors, native output/status preservation and result-bundle
   cleanup. Real Xcode/Simulator checks are optional host integration tests and

@@ -130,6 +130,40 @@ _xcode_json_raw() {
     command /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null) || return
 }
 
+# Decode the five named XML entities emitted by plutil for string values. Decode
+# ampersands last so literal text such as "&lt;" makes exactly one round trip.
+_xcode_xml_string_decode() {
+  emulate -L zsh
+  local value=$1 apostrophe="'" double_quote='"'
+  value=${value//\&lt\;/<}
+  value=${value//\&gt\;/>}
+  value=${value//\&quot\;/$double_quote}
+  value=${value//\&apos\;/$apostrophe}
+  value=${value//\&amp\;/\&}
+  REPLY=$value
+}
+
+# Parse only plutil's normalized XML representation of a string array. The
+# caller obtains the original array count separately, so a type mismatch or
+# malformed conversion fails instead of producing a partial scheme catalog.
+_xcode_plist_string_array_parse() {
+  emulate -L zsh
+  local remaining=$1 expected=$2 value=''
+  local open='<string>' close='</string>'
+  local -i parsed=0
+  reply=()
+  [[ $expected == <-> ]] || return 1
+  while [[ $remaining == *"$open"*"$close"* ]]; do
+    remaining=${remaining#*"$open"}
+    value=${remaining%%"$close"*}
+    remaining=${remaining#*"$close"}
+    _xcode_xml_string_decode "$value"
+    reply+=("$REPLY")
+    (( ++parsed > expected )) && return 1
+  done
+  (( parsed == expected ))
+}
+
 _xcode_test_result_reset() {
   emulate -L zsh
   _XCODE_TEST_RESULT='' _XCODE_TEST_CAPTURE_ERROR=''
@@ -298,8 +332,8 @@ _xcode_test_result_capture() {
 
 _xcode_schemes_capture() {
   emulate -L zsh
-  local kind=$1 container=$2 json='' count='' scheme='' key=''
-  local -i index=0
+  local kind=$1 container=$2 json='' xml='' count='' scheme='' key=''
+  local -a reply=()
   typeset -ga _XCODE_SCHEMES=()
   (( $+commands[xcodebuild] )) || {
     _XCODE_CAPTURE_ERROR='xcodebuild is unavailable; select full Xcode with xcode-select'
@@ -317,11 +351,24 @@ _xcode_schemes_capture() {
     return 1
   }
   count=$REPLY
-  [[ $count == <-> ]] || return 1
-  (( count > 50 )) && count=50
-  for (( index = 0; index < count; ++index )); do
-    _xcode_json_raw "$json" "$key.$index" || continue
-    scheme=$REPLY
+  [[ $count == <-> ]] || {
+    _XCODE_CAPTURE_ERROR='Xcode returned an invalid scheme count'
+    return 1
+  }
+  (( count <= 4096 )) || {
+    _XCODE_CAPTURE_ERROR='Xcode reported more than 4096 schemes; none were retained'
+    return 1
+  }
+  xml=$(print -rn -- "$json" |
+    command /usr/bin/plutil -extract "$key" xml1 -o - -- - 2>/dev/null) || {
+    _XCODE_CAPTURE_ERROR='Xcode returned no readable scheme list'
+    return 1
+  }
+  _xcode_plist_string_array_parse "$xml" "$count" || {
+    _XCODE_CAPTURE_ERROR='Xcode returned a malformed scheme list; none were retained'
+    return 1
+  }
+  for scheme in "${reply[@]}"; do
     [[ -n $scheme && ${#scheme} -le 256 && $scheme != *[[:cntrl:]]* ]] || continue
     _XCODE_SCHEMES+=("$scheme")
   done
@@ -815,6 +862,8 @@ _compozsh_help_xcode() {
     '  A workspace is offered before a project at the same nearest scope.' \
     '  Xcode supplies shared schemes and concrete destinations; selections are' \
     '  read-only discovery and remain inside one responsive full-screen workspace.' \
+    '  Every validated scheme in a bounded response is available to filtering and' \
+    '  paging. A response above 4096 schemes fails; no partial list is shown.' \
     '' \
     'Actions:' \
     '  Choose a scheme and destination, then Build, Test, Analyze, or Clean.' \
@@ -830,8 +879,9 @@ _compozsh_help_xcode() {
     '  and the result view labels its missing detail instead of inventing totals.' \
     '' \
     'Safety and reproducibility:' \
-    '  Discovery/output captures are bounded; automatic package resolution and' \
-    '  package updates are disabled; resolved package versions are required.' \
+    '  Captures and item counts are bounded; automatic package resolution and' \
+    '  package updates are disabled; resolved package versions' \
+    '  are required.' \
     '  Compozsh never enables provisioning updates and never skips package plugin' \
     '  or macro validation. Xcode may still inspect project/package metadata.' \
     '  Build, Test, Analyze, Clean, and Run are explicit execution boundaries:' \

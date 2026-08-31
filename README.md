@@ -2348,6 +2348,11 @@ Choose either setting directly, then apply **Build**, **Test**, **Analyze**, or
 scheme, boots that exact simulator, installs the app, and launches its bundle.
 Physical-device launching remains in Xcode.
 
+The scheme view retains every validated scheme in Xcode’s bounded response and
+pages through the complete captured list. A pathological response above 4,096
+schemes is rejected explicitly with no partial list, rather than silently
+hiding later schemes.
+
 The dashboard coordinates the first-party tools already installed with Xcode:
 `xcodebuild`, `xcrun`, `simctl`, `open`, and `plutil`. Its filtering, focus,
 resize behavior, guide, and temporary-screen cleanup are the same shared
