@@ -1,16 +1,28 @@
 ---
 name: compozsh-release-draft
-description: Draft a Compozsh GitHub release tag, title, and notes by resolving the latest published release and auditing the final implementation, help, tests, and documentation diff. Use for release-note, changelog, or next-version requests; do not publish, tag, or push.
+description: Draft a Compozsh GitHub release tag, title, and notes for the user to publish by resolving the latest published release and auditing the final implementation, help, tests, and documentation diff. Use for release-note, changelog, or next-version requests; never access the user's account, publish, tag, or push.
 ---
 
 # Draft a Compozsh release
 
-Produce release metadata from verified repository evidence. Work read-only unless
-the user separately authorizes copying to the clipboard or publishing actions.
+Produce release metadata from verified repository evidence. Work read-only; the
+user owns every publication action. Public, unauthenticated GitHub reads are
+allowed, but never request or use the user's credentials, authenticated browser
+session, cookies, tokens, account connection, or approval to sign in on their
+behalf. Copy draft text to the local clipboard only when explicitly requested.
 
 ## Establish the published baseline
 
-1. Read the official GitHub releases list and the complete page for the latest
+The canonical public repository is
+`https://github.com/bitbemol/compozsh`; its authoritative release list is
+`https://github.com/bitbemol/compozsh/releases`. Use those public URLs directly
+instead of inferring a repository from an arbitrary local remote. Before
+continuing, sanitize `remote.origin.url` and confirm that its owner/repository
+identity is `bitbemol/compozsh`. A missing or different origin is a release
+blocker unless the user explicitly supplies and verifies the intended checkout.
+Never display credentials or private remote parameters while checking it.
+
+1. Read the canonical GitHub releases list and the complete page for the latest
    published, non-draft release. Resolve its tag to the exact commit. A local
    tag list, `git describe`, commit subject, or remembered version is never
    sufficient: local tags can be stale or incomplete.
@@ -27,7 +39,9 @@ the user separately authorizes copying to the clipboard or publishing actions.
 
 Use public GitHub data only. Do not put local paths, repository contents,
 credentials, or private remote parameters into a network request. Redact a
-credential-bearing remote URL rather than displaying or querying it.
+credential-bearing remote URL rather than displaying or querying it. If the
+canonical public URLs move, stop and report the mismatch instead of guessing a
+replacement repository from local configuration.
 
 ## Audit what actually changed
 
@@ -130,6 +144,9 @@ are presentation wrappers and must not be included in text copied to GitHub.
 Copy raw Markdown to the clipboard only after explicit authorization, and do
 not read the existing clipboard contents.
 
-Drafting does not authorize creating a Git tag or GitHub release, committing,
-pushing, deploying, or publishing. Perform any such action only after a
-separate explicit request and final target verification.
+This workflow is permanently draft-only. The user will create any Git tag and
+GitHub release and perform any commit, push, deployment, or publication. Do not
+open an authenticated release form, ask the user to sign in, or attempt those
+actions on the user's behalf, even when a request says to make or publish the
+release. Finish by presenting the verified tag, title, raw release body,
+evidence, and blockers for the user to apply themselves.
