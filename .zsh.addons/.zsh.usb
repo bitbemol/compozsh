@@ -2366,6 +2366,11 @@ _usb_dd_progress_read() {
         _USB_WRITE_PROGRESS_STAGE=$parse_stage
         _USB_WRITE_STAGE=$parse_stage
         continue ;;
+      (compozsh-write-verify-bytes:<->)
+        byte_text=${line#compozsh-write-verify-bytes:}
+        (( byte_text <= total && byte_text > verify_bytes )) &&
+          verify_bytes=$byte_text
+        continue ;;
       (compozsh-write-verified)
         _USB_WRITE_VERIFIED=1
         continue ;;
@@ -2423,8 +2428,11 @@ zmodload zsh/stat || exit
 local image=$1 device=$2 sector_count=$3 tail_seek=$4 tail_count=$5 verify=${6:-0}
 local block_size=${7:-512} expected_fingerprint=${8:-}
 local -a verify_status=() expected_fields=() image_stat=()
+local verify_bulk_label=4m
 local -i tail_byte_offset=0 tail_bytes=0 tail_blocks=0 tail_block_seek=0
 local -i image_bytes=0 block_sectors=0 image_fd=-1
+local -i verify_bulk_bytes=4194304 verify_bulk_blocks=0
+local -i verify_tail_bytes=0 verify_tail_blocks=0 verify_tail_skip=0
 [[ -f $image && ! -L $image ]] || exit 2
 [[ (-c $device || -f $device) && ! -L $device ]] || exit 2
 [[ $sector_count == <-> && $tail_seek == <-> && $tail_count == <-> &&
@@ -2433,8 +2441,17 @@ local -i image_bytes=0 block_sectors=0 image_fd=-1
 (( block_size >= 512 && block_size % 512 == 0 )) || exit 2
 block_sectors=$(( block_size / 512 ))
 image_bytes=$(( sector_count * 512 ))
+(( image_bytes > 0 && image_bytes / 512 == sector_count )) || exit 2
 (( image_bytes % block_size == 0 && tail_seek % block_sectors == 0 &&
    tail_count % block_sectors == 0 )) || exit 2
+if (( verify_bulk_bytes % block_size != 0 )); then
+  verify_bulk_bytes=$block_size
+  verify_bulk_label=$block_size
+fi
+verify_bulk_blocks=$(( image_bytes / verify_bulk_bytes ))
+verify_tail_bytes=$(( image_bytes % verify_bulk_bytes ))
+verify_tail_blocks=$(( verify_tail_bytes / block_size ))
+verify_tail_skip=$(( verify_bulk_blocks * (verify_bulk_bytes / block_size) ))
 expected_fields=("${(@s/:/)expected_fingerprint}")
 (( ${#expected_fields} == 5 )) || exit 2
 [[ $expected_fields[1] == <-> && $expected_fields[2] == <-> &&
@@ -2477,8 +2494,18 @@ if (( verify )); then
      $image_stat[2] == "$expected_fields[2]" &&
      $image_stat[8] == "$expected_fields[3]" ]] || exit 7
   sysseek -u "$image_fd" 0 || exit 7
-  command /bin/dd if="$device" ibs=512 obs=4m count="$sector_count" \
-    iflag=direct status=progress |
+  {
+    if (( verify_bulk_blocks > 0 )); then
+      command /bin/dd if="$device" bs="$verify_bulk_label" \
+        count="$verify_bulk_blocks" iflag=direct,fullblock \
+        status=progress || exit 6
+    fi
+    if (( verify_tail_blocks > 0 )); then
+      command /bin/dd if="$device" bs="$block_size" skip="$verify_tail_skip" \
+        count="$verify_tail_blocks" iflag=direct,fullblock \
+        status=progress || exit 6
+    fi
+  } |
     (
       local -i compare_status=0
       command /usr/bin/cmp -s -n "$image_bytes" - "/dev/fd/$image_fd"
@@ -2490,6 +2517,7 @@ if (( verify )); then
     )
   verify_status=("${pipestatus[@]}")
   (( verify_status[1] == 0 )) || exit 6
+  print -u2 -r -- "compozsh-write-verify-bytes:$image_bytes"
   (( verify_status[2] == 1 )) && exit 5
   (( verify_status[2] == 0 )) || exit 7
   if (( tail_count > 0 )); then

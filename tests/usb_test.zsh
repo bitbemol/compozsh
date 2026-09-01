@@ -3488,6 +3488,150 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
 test_case 'USB raw session writes exact byte ranges through one held descriptor' \
   _test_usb_raw_session_writes_exact_offsets_through_one_descriptor
 
+_test_usb_atomic_verifier_uses_exact_multi_megabyte_reads() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source-large.iso"
+  local target_image="$TEST_TMP_DIR/target-large.img"
+  local fingerprint='' script='' output=''
+  local -i image_size=$(( 4194304 + 4096 ))
+
+  command /bin/dd if=/dev/zero of="$source_image" bs=4096 count=1025 \
+    status=none || return
+  /usr/bin/printf '%4096s' '' | /usr/bin/tr ' ' X |
+    command /bin/dd of="$source_image" bs=4096 seek=1024 count=1 \
+      conv=notrunc status=none || return
+  command /bin/dd if=/dev/zero of="$target_image" bs=4096 count=1025 \
+    status=none || return
+  fingerprint=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$source_image") || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_raw_write_script_capture || exit
+    script=$REPLY
+    print -r -- "bulk:$([[ $script == *'\''verify_bulk_label=4m'\''*'\''if="$device" bs="$verify_bulk_label"'\''*'\''count="$verify_bulk_blocks" iflag=direct,fullblock'\''* ]] && print yes || print no)"
+    print -r -- "tail:$([[ $script == *'\''bs="$block_size" skip="$verify_tail_skip"'\''*'\''count="$verify_tail_blocks" iflag=direct,fullblock'\''* ]] && print yes || print no)"
+    print -r -- "tiny:$([[ $script == *'\''if="$device" ibs=512 obs=4m'\''* ]] && print yes || print no)"
+    command /bin/zsh -fc "$script" compozsh-large-verify \
+      "$2" "$3" 8200 0 0 1 4096 "$4" 2>| "$5"
+    session_status=$?
+    diagnostic=$(<"$5")
+    diagnostic=${diagnostic//$'\''\r'\''/$'\''\n'\''}
+    print -r -- "status:$session_status|diagnostic:${(j:|:)${(f)diagnostic}}"
+    command /bin/zsh -fc "$script" compozsh-large-mismatch \
+      "$2" "$3" 8200 8192 8 1 4096 "$4" 2>| "$6"
+    mismatch_status=$?
+    mismatch_diagnostic=$(<"$6")
+    mismatch_diagnostic=${mismatch_diagnostic//$'\''\r'\''/$'\''\n'\''}
+    print -r -- "mismatch:$mismatch_status|diagnostic:${(j:|:)${(f)mismatch_diagnostic}}"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$fingerprint" \
+    "$TEST_TMP_DIR/large-verify-stderr" \
+    "$TEST_TMP_DIR/large-mismatch-stderr") || return
+
+  test_assert_contains "$output" 'bulk:yes' \
+    'atomic verification did not request multi-megabyte uncached raw reads' || return
+  test_assert_contains "$output" 'tail:yes' \
+    'atomic verification did not preserve an exact logical-block tail read' || return
+  test_assert_contains "$output" 'tiny:no' \
+    'atomic verification retained millions of uncached 512-byte reads' || return
+  test_assert_contains "$output" \
+    "status:0|diagnostic:compozsh-write-stage:open|compozsh-write-stage:image" \
+    'optimized atomic verification rejected a non-4-MiB-aligned image' || return
+  test_assert_contains "$output" "compozsh-write-verify-bytes:$image_size" \
+    'atomic verification did not publish exact completed read evidence' || return
+  test_assert_contains "$output" 'compozsh-write-verified' \
+    'optimized atomic verification omitted final byte-match evidence' || return
+  test_assert_contains "$output" \
+    "mismatch:5|diagnostic:compozsh-write-stage:open|compozsh-write-stage:image" \
+    'a real split raw read did not preserve byte-mismatch status' || return
+  [[ $output == *'mismatch:5|'*"compozsh-write-verify-bytes:$image_size"* ]] || {
+    test_fail 'a complete mismatched split read omitted exact read evidence'
+    return
+  }
+}
+test_case 'USB atomic verification uses exact multi-megabyte raw reads' \
+  _test_usb_atomic_verifier_uses_exact_multi_megabyte_reads
+
+_test_usb_atomic_verifier_handles_exact_bulk_blocks() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source-aligned.iso"
+  local target_image="$TEST_TMP_DIR/target-aligned.img"
+  local fingerprint='' output=''
+
+  command /bin/dd if=/dev/zero of="$source_image" bs=4m count=2 \
+    status=none || return
+  command /bin/dd if=/dev/zero of="$target_image" bs=4m count=2 \
+    status=none || return
+  fingerprint=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$source_image") || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_raw_write_script_capture || exit
+    command /bin/zsh -fc "$REPLY" compozsh-aligned-verify \
+      "$2" "$3" 16384 0 0 1 512 "$4" 2>| "$5"
+    session_status=$?
+    diagnostic=$(<"$5")
+    diagnostic=${diagnostic//$'\''\r'\''/$'\''\n'\''}
+    verify_diagnostic=${diagnostic#*compozsh-write-stage:verify}
+    print -r -- "status:$session_status|diagnostic:${(j:|:)${(f)verify_diagnostic}}"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$fingerprint" \
+    "$TEST_TMP_DIR/aligned-verify-stderr") || return
+
+  test_assert_contains "$output" \
+    'status:0|diagnostic:2+0 records in|2+0 records out' \
+    'an exact 8 MiB payload did not use two complete 4 MiB raw reads' || return
+  test_assert_contains "$output" 'compozsh-write-verify-bytes:8388608' \
+    'an exact bulk-only read omitted complete byte evidence' || return
+  test_assert_contains "$output" 'compozsh-write-verified' \
+    'an exact bulk-only read omitted final match evidence'
+}
+test_case 'USB atomic verification handles exact bulk blocks' \
+  _test_usb_atomic_verifier_handles_exact_bulk_blocks
+
+_test_usb_atomic_split_read_progress_is_exact() {
+  test_make_temp_dir || return
+  local progress_file="$TEST_TMP_DIR/atomic-split-progress" output=''
+  test_write_file "$progress_file" $'compozsh-write-stage:verify\n4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r4096 bytes transferred in 0.1 secs (40960 bytes/sec)\rcompozsh-write-verify-bytes:4198400\ncompozsh-write-verified\n' || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_dd_progress_read "$2" 4198400 0
+    print -r -- "bytes:$_USB_WRITE_VERIFY_BYTES_OBSERVED|verified:$_USB_WRITE_VERIFIED|detail:$REPLY"
+  ' "$TEST_REPO_ROOT" "$progress_file") || return
+
+  test_assert_contains "$output" \
+    'bytes:4198400|verified:1|detail:4.0 MiB of 4.0 MiB' \
+    'split raw reads did not publish exact cumulative completion progress'
+}
+test_case 'USB atomic split-read progress is exact and cumulative' \
+  _test_usb_atomic_split_read_progress_is_exact
+
+_test_usb_atomic_split_read_preserves_mismatch_status() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-split-mismatch" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _usb_progress_stage() { return 0; }
+    _usb_raw_write_session_run() {
+      print -u2 -r -- "compozsh-write-stage:image"
+      print -u2 -r -- "4198400 bytes transferred in 1.0 secs (4198400 bytes/sec)\r"
+      print -u2 -r -- "compozsh-write-stage:verify"
+      print -u2 -r -- "4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r"
+      print -u2 -r -- "4096 bytes transferred in 0.1 secs (40960 bytes/sec)\r"
+      print -u2 -r -- "compozsh-write-verify-bytes:4198400"
+      return 5
+    }
+    _usb_write_image /images/linux.iso disk7 4198400 4198400 1 4096
+    print -r -- "status:$?|read:$_USB_WRITE_VERIFY_BYTES_OBSERVED|verified:$_USB_WRITE_VERIFIED"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" 'status:5|read:4198400|verified:0' \
+    'a complete split read mislabeled a byte mismatch as a short device read'
+}
+test_case 'USB atomic split reads preserve mismatch status' \
+  _test_usb_atomic_split_read_preserves_mismatch_status
+
 _test_usb_raw_session_pins_the_captured_source() {
   test_make_temp_dir || return
   local image="$TEST_TMP_DIR/source.iso" replacement="$TEST_TMP_DIR/replacement.iso"
