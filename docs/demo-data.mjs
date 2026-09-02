@@ -145,7 +145,7 @@ export const scenes = {
     items: [
       ['compozsh', 'Explore your loaded tools', 'usage: compozsh [--list | help command]', 'Explore public functions loaded from Compozsh add-on directories.'],
       ['cpdir', 'Copy your current directory', 'usage: cpdir', 'Copy the exact current directory to the local macOS clipboard.'],
-      ['g', 'Switch Git branches', 'usage: g [git-arguments ...]', 'With no arguments, open the recent-branch picker.'],
+      ['g', 'Branches and worktrees', 'usage: g [git-arguments ...]', 'Open recent branches, manage worktrees with -w or --worktree, or run Git.'],
     ].map(([name, description, usage, help]) => ({ label: `${name} — ${description}`, preview: `${usage}\n${help}` })),
   },
 };

@@ -16,6 +16,7 @@ you audit the exact commit yourself.
 | Find a file below a folder | Path + Tab → Ctrl-F | Review the displayed source and scope, enter a discovery query, then press Enter |
 | Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
+| Manage Git worktrees | `g -w` or `g --worktree` | Enter a checkout folder, create a worktree through an editable summary, or check and remove one while keeping its branch |
 | Review Git changes | `g` → Ctrl-X | Read working changes or selected-branch commits, drill into files and colored diffs |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
 | Discover your custom tools | `compozsh` | Explore loaded public functions and their safe help |
@@ -195,6 +196,7 @@ compozsh/
 │   ├── .zsh.editor        command/path completion, temporary-screen pickers, editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.git-review    read-only working changes, commits, files and diffs
+│   ├── .zsh.git-worktree  guided worktree creation, folder entry and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
@@ -242,10 +244,11 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
 | `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and single-frame bounded previews |
+| `.zsh.git-worktree` | Git worktree actions | `g -w` / `g --worktree` use the shared fuzzy picker for registered worktrees, local branches, parent folders, editable creation and guarded removal; effects run after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
-| `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, copying and small navigation aliases |
+| `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, worktree-mode dispatch, copying and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication | `compozsh-sudo-touch-id` inspects, enables, or safely disables Apple Touch ID through the system-supported `sudo_local` PAM policy |
@@ -2061,7 +2064,7 @@ Add-on authors must give every new public command the same contract. Define its
 companion provider beside it and handle `--help` before detection or operational
 logic; the `.zsh.postgres` example above is the canonical starting shape.
 
-`g --help` documents Compozsh's branch-picker mode; use `git --help` for Git's
+`g --help` documents Compozsh's branch picker and worktree workspace; use `git --help` for Git's
 own documentation.
 
 Programmatic extension functions such as `prompt_add_project_segment` are APIs,
@@ -2605,8 +2608,9 @@ Search ‹›
 ⏎ switch · Esc cancel · ^K keys · ^X review · ^Y copy · ↑↓ move
 ```
 
-The familiar Git shorthand remains intact: `g status`, `g switch`, and every
-other argument-bearing form delegate directly to `git`. With an empty filter,
+The familiar Git shorthand remains intact: `g status`, `g switch`, and other
+Git arguments delegate directly to `git`. Compozsh reserves `g --help`, `g -w`
+and `g --worktree`; the two worktree aliases accept no extra arguments. With an empty filter,
 press a visible digit to switch immediately; after typing a filter, digits are
 search text.
 
@@ -2653,6 +2657,91 @@ Override the viewport size locally if desired:
 ```zsh
 ZSH_NAVIGATION_PICKER_MAX_RESULTS=12
 ```
+
+### Git worktree workspace
+
+Run **`g -w`** or **`g --worktree`** inside any checkout with a commit. Both
+open the same fuzzy workspace, scoped to that repository's registered
+worktrees. `g worktree list` and other ordinary Git arguments retain native Git
+behavior. Disabling `.zsh.git-worktree` leaves the recent-branch picker intact
+and makes either worktree alias report the missing capability.
+
+The first view lists **Create worktree…**, registered worktrees and **Refresh
+worktrees**. Worktrees match their branch and full folder path. Enter changes
+this shell to the selected checkout folder; **Ctrl-X options** opens its Enter
+and Remove actions. Main/current, locked, prunable and detached metadata come
+from the captured Git catalog. The list does not scan every checkout for file
+changes. Refresh explicitly replaces that catalog; there is no background poll.
+
+Creation follows these steps:
+
+1. Choose **New branch** or **Existing local branch**. New branch asks for a
+   literal name and starts from the captured current HEAD commit. Existing
+   branch offers all captured local branches not assigned to another worktree,
+   including branches absent from `g`'s recent history. Remote-only refs are
+   excluded; missing registered worktrees still reserve branches and paths.
+2. Review the editable branch, starting point, parent folder, new folder name
+   and action. The suggested destination is beside the main checkout:
+   `example-app-feature-search` for branch `feature/search`. Slashes are changed
+   only in this suggested folder name; the branch stays exact. Existing edits
+   remain in their original checkout. The new worktree uses committed content.
+3. Choose **Create and enter** (the default) or toggle to **Create and stay**.
+   **Inspect Git operation…** shows quoted operation arguments and the local
+   execution policy. This text is never evaluated. The action revalidates the
+   repository, branch and destination after restoring the terminal.
+
+The parent chooser lists actual child directories, excluding symlinks. Use
+Right/Tab to enter, Left/Shift-Tab to go up, Ctrl-T for hidden folders, and
+**Use this folder** to choose the parent. The new folder must be absent and
+outside every registered worktree; an existing file, folder or link is never
+overwritten. A custom folder name is preserved when changing the branch.
+
+Every list uses the same case-insensitive, character-ordered fuzzy matching as
+`g`, with literal prefix and substring matches ranked first. Ten rows at most
+are visible; arrows and paging reach later captured matches. Empty-filter
+digits accept visible rows only with list focus. Branch/folder-name entry uses
+digits as text, with no shell expansion. Ctrl-K opens the shared guide;
+Escape/Ctrl-G returns, and Ctrl-C aborts. Tab or Ctrl-E/B focuses details/list
+outside the parent chooser. Back preserves the calling filter, selection,
+viewport and focus. Filtering, scrolling and resize do not run Git or enumerate
+folders.
+
+**Remove worktree…** checks the exact selected checkout, then offers explicit
+folder removal with its branch and commits preserved. It refuses the main
+checkout, the current shell's folder or ancestor, locked/missing/detached
+worktrees, active Git operations, tracked changes, untracked **and ignored**
+files, sparse/unmerged indexes and assume-unchanged entries. Removal has no
+Undo. These checks deliberately go beyond ordinary Git removal, which may
+remove ignored files. Files can still change between checks and execution;
+avoid removing a checkout while another tool is writing to it.
+
+Creation and removal refuse configured checkout filters, including Git LFS,
+and checkouts containing submodules. This conservative first version neither
+runs those filters nor silently replaces their output with unfiltered content.
+Creation registers the worktree without checkout, then checks the new branch's
+effective configuration before populating its full committed tree. A filter
+enabled only by that branch or directory can therefore leave a registered,
+empty checkout when refused; the error explains what remains.
+Use explicit Git commands when those features are needed. Worktree operations
+disable hooks, filesystem monitors, lazy fetches, network transport, automatic
+maintenance and submodule recursion. No stash, force, branch reset, package
+installation or editor launch is added.
+
+Captures retain at most 256 KiB each, 1,000 registered worktrees, 1,000 local
+branches, and 1,000 child folders per parent. An exceeded bound refuses the
+capture instead of treating partial results as a complete safety check. These
+are output limits; synchronous Git and mounted storage can still take time.
+Reopen creation to capture newly added branches. Noninteractive/dumb-terminal
+calls, or calls without the shared picker, print a sanitized worktree list and
+perform no action.
+
+Git action failures preserve their status. Failed creation can leave a branch or a
+partial checkout; inspect `g worktree list`, `g branch` and the destination
+before retrying. No automatic deletion or rollback follows failure. If folder
+entry fails after creation, the created worktree remains and the error says so.
+Created folders and Git metadata persist until explicitly removed; uninstalling
+Compozsh preserves them. See [Security and privacy](SECURITY.md) for the full
+data and execution boundary.
 
 ### Read-only Git review
 

@@ -1070,7 +1070,7 @@ _zle_picker_guide_render() {
     'Ctrl-K               Show or close this keyboard guide'
   )
   (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) &&
-    lines[1]='Type                 Enter discovery fragments; Return starts search'
+    lines[1]='Type                 Enter literal text; Return submits'
   (( _ZLE_PICKER_DIGIT_SELECT )) && lines+=(
     '0–9                  Apply a visible slot only with an empty filter')
   (( _ZLE_PICKER_COPY_ENABLED )) && lines+=(
@@ -1092,6 +1092,12 @@ _zle_picker_guide_render() {
             'Review               Read-only; select files to read their continuous diff'
             'Scope                Working changes belong to the current worktree'
             'History              The selected branch is inspected without switching')
+  elif (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )) && [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == worktree ]]; then
+    lines+=('Ctrl-X               Options for the selected worktree'
+            'Enter                Enter its folder; Create opens configuration'
+            'Refresh              Choose Refresh to capture registered worktrees again'
+            'Removal              Check the exact folder; preserve its branch'
+            'Snapshot             Filtering and resize do not read Git')
   elif (( _ZLE_PICKER_DOCUMENT )); then
     lines+=('Right                Files → focused diff → full-file context'
             'Left                 Full-file context → focused diff → files'

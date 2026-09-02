@@ -715,7 +715,7 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-E / Ctrl-B | Focus details/list, when available |
 | Tab / Shift-Tab | Switch list/details focus; in the browser, enter/go Back |
 | Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
-| Ctrl-X | Open **review** on Branches or **options** in filesystem views; inactive in document readers |
+| Ctrl-X | Open **review** on Branches or **options** in filesystem/worktree views; inactive in document readers |
 | Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence |
 | Ctrl-R in a document workspace | Refresh the file list and selected diff, retaining available selection/focus/source area |
 | Ctrl-T | Toggle hidden folders in the browser |
@@ -850,6 +850,36 @@ discovered. The keyboard guide must never trigger refresh.
   unavailable capabilities, stale entries, guide dismissal, typed digits,
   pane focus and live resize with shared tests plus native PTY interaction.
   Measure complete warm collection/render/paint work and isolated startup.
+
+## Git worktree workspace boundary
+
+- `g -w` and `g --worktree` are equivalent exact entry points. The optional
+  `.zsh.git-worktree` peer owns capture, temporary choices and actions; `g`
+  retains its recent-branch default and transparent ordinary Git arguments.
+- Reuse the navigation fuzzy collector and shared editor, text entry, keys,
+  guide, focus and screen lifecycle. Worktree options consume the selected
+  registered path. Creation composes branch, captured start commit and a new
+  folder into one explicit action after terminal restoration. Parent browsing
+  uses the existing hierarchy keys; Back preserves caller bookmarks.
+- Capture registered worktrees from NUL-delimited Git porcelain and all local
+  branches within explicit bounds, rather than using recent checkout history
+  as an eligibility catalog. Never treat a truncated capture as a complete
+  safety check. Filtering and painting read no providers. Refresh is explicit.
+- Keep Git transport, lazy fetches, hooks, fsmonitor, automatic maintenance and
+  submodule recursion disabled. Creation/removal refuse configured checkout
+  filters and submodule trees. Register new worktrees without checkout, then
+  check their effective configuration before materializing files; conditional
+  includes can differ from the source checkout. Revalidate exact repository/directory identities,
+  branch/commit and destination after cleanup. Never evaluate command previews.
+- Removal keeps the branch, refuses main/current/locked/missing/detached targets
+  and active Git operations, and checks ignored files as well as tracked and
+  untracked changes. Sparse/unmerged/assume-unchanged indexes cannot establish
+  safety. Never force, auto-stash, reset branches or recursively delete failed
+  creation residue. Disclose concurrent-writer races and partial failures.
+- Keep full help in the same-source `g` companion. Document persistent native
+  Git/checkout effects, local data reads, refusal policies and recovery in
+  README and SECURITY together. Test synthetic repositories and real ZLE
+  journeys, including hostile literal values and post-cleanup dispatch.
 
 ## Git review workspace boundary
 

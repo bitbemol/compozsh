@@ -389,13 +389,63 @@ _git_branch_stack_print() {
   done
 }
 
-# Keep `g <arguments>` as the familiar Git shorthand. Its no-argument form,
-# which would otherwise only print Git's help, opens the recent-branch picker.
+# Keep ordinary Git arguments transparent; exact -w/--worktree and --help
+# invocations are Compozsh modes. Bare g opens the recent-branch picker.
 _compozsh_help_g() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
   "${printer[@]}" 'usage: g [git-arguments ...]' \
-    'With no arguments, open the recent-branch picker.' \
+    'Open recent branches, manage worktrees with -w or --worktree, or run Git.' \
+    '' \
+    'Worktrees:' \
+    '  g -w and g --worktree open the same worktree workspace.' \
+    '  Requires .zsh.git-worktree; g worktree ... still delegates to Git.' \
+    '  Run inside a working tree with a commit. Scope is its one repository,' \
+    '  including all registered linked worktrees. No global directory scan.' \
+    '  Enter on a worktree changes this shell to that exact folder.' \
+    '  Create worktree chooses New branch or Existing local branch.' \
+    '  New defaults to the captured current HEAD commit; local edits stay put.' \
+    '  Existing offers all captured local branches unused by a worktree,' \
+    '  including branches absent from the recent picker. Remote-only refs' \
+    '  are excluded; missing worktrees still reserve their branches/paths.' \
+    '  The summary edits branch, starting point, parent, folder name and' \
+    '  Create and enter / Create and stay. Default is Create and enter.' \
+    '  The suggested folder is a sibling of the main checkout, named from' \
+    '  that checkout and branch (slashes become hyphens only in the folder).' \
+    '  Choose a new absent folder outside registered worktrees. No overwrite,' \
+    '  automatic stash, forced checkout, branch reset or dependency setup.' \
+    '  Inspect Git operation shows quoted arguments; it never evaluates text.' \
+    '  Ctrl-X opens selected-worktree options. Remove checks then confirms' \
+    '  the exact folder; its branch and commits remain. Removal has no Undo.' \
+    '  Main/current, locked, missing and detached worktrees cannot be removed.' \
+    '  Changes, untracked/ignored files, active Git operations and hidden-index' \
+    '  flags block removal. Sparse/unmerged indexes and submodules are refused.' \
+    '  Creation and removal refuse configured checkout filters, including LFS,' \
+    '  instead of running them or silently producing unfiltered checkouts.' \
+    '  Creation registers without checkout, checks the new branch’s effective' \
+    '  configuration, then populates the full committed tree. A filter enabled' \
+    '  only there can leave a registered, empty checkout when refused.' \
+    '  Hooks, fsmonitor, lazy fetch and Git transport are disabled. No fetch.' \
+    '  Captures are limited to 256 KiB, 1,000 worktrees / local branches and' \
+    '  1,000 child folders per parent. Exceeding a bound refuses that capture;' \
+    '  limits bound retained output, not Git or filesystem response time.' \
+    '  Ten visible rows at most; arrows and paging reach later matches.' \
+    '  Matching is the same case-insensitive, character-ordered fuzzy search' \
+    '  as g, with prefix/substring priority. Worktrees match branch and path.' \
+    '  Refresh worktrees replaces the list; reopen creation for new branches.' \
+    '  Typing and resize use captured facts. Actions revalidate after cleanup.' \
+    '  Digits apply visible rows only with empty filter and list focus.' \
+    '  Branch/folder-name entry treats digits as text; no shell expansion.' \
+    '  Parent browsing: Right/Tab enters, Left/Shift-Tab goes up; Ctrl-T toggles' \
+    '  hidden folders. Choose Use this folder; child symlinks are excluded.' \
+    '  Escape/Ctrl-G goes Back; Ctrl-C aborts. Ctrl-K shows shared keys.' \
+    '  Ctrl-E/B or Tab focuses details/list outside parent browsing.' \
+    '  Noninteractive, dumb-terminal or missing-picker calls only print the' \
+    '  sanitized registered-worktree list; they never create, remove or cd.' \
+    '  Files can change between checks and Git. Git action status is preserved;' \
+    '  a failed creation may leave a branch or partial folder. Inspect before' \
+    '  retrying; there is no automatic cleanup or rollback. If cd fails after' \
+    '  creation, the new worktree is preserved and the failure is reported.' \
     '' \
     'Which branches appear?' \
     '  Requires Git and a working tree. Starts with the current local branch,' \
@@ -525,7 +575,8 @@ _compozsh_help_g() {
     '  slow storage can delay synchronous reads. Failed captures show a notice.' \
     '' \
     'Git shorthand and fallback:' \
-    '  With arguments, delegates directly to Git and preserves its status.' \
+    '  Arguments other than -w/--worktree and --help delegate to Git.' \
+    '  Git status is preserved. -w/--worktree accept no extra arguments.' \
     '  g --help is this guide; use git --help for Git itself.' \
     '  There is no Compozsh --list mode: g --list is passed to Git.' \
     '  A noninteractive or dumb-terminal g with no arguments runs plain git.' \
@@ -534,6 +585,9 @@ _compozsh_help_g() {
     '' \
     'Examples:' \
     '  g                       Open recent branches; type to filter.' \
+    '  g -w                    Create, enter or remove a worktree.' \
+    '  g --worktree            The same worktree workspace.' \
+    '  g worktree list         Ask Git for its native worktree list.' \
     '  g status                Inspect working-tree changes.' \
     '  g branch                List every local branch.' \
     '  g switch feature/search Switch a known branch outside the recent list.' \
@@ -547,6 +601,16 @@ g() {
   if (( $# == 1 )) && [[ $1 == --help ]]; then
     _compozsh_help_g
     return 0
+  fi
+
+  if [[ ${1:-} == (-w|--worktree) ]]; then
+    (( $# == 1 )) || { print -u2 -r -- 'usage: g [git-arguments ...]'; return 2; }
+    (( ${+functions[_git_worktree_session]} )) || {
+      print -u2 -r -- 'g: worktrees unavailable; enable .zsh.git-worktree'
+      return 1
+    }
+    _git_worktree_session
+    return $?
   fi
 
   (( $# == 0 )) || {

@@ -1,0 +1,775 @@
+# Git worktree action workspace. Definitions only at source time. Navigation
+# supplies g; the shared editor owns fuzzy interaction and screen restoration.
+typeset -g _GWT_ROOT='' _GWT_COMMON='' _GWT_ROOT_ID='' _GWT_COMMON_ID=''
+typeset -g _GWT_DATA='' _GWT_ERROR='' _GWT_HEAD='' _GWT_HEAD_REF=''
+typeset -ga _GWT_PATHS=() _GWT_BRANCHES=() _GWT_OIDS=() _GWT_STATES=()
+typeset -ga _GWT_REFS=() _GWT_TIPS=() _GWT_COMMAND=()
+typeset -g _GWT_ACTION='' _GWT_TARGET='' _GWT_BRANCH='' _GWT_OID=''
+typeset -g _GWT_MODE='' _GWT_PARENT_ID='' _GWT_TARGET_ID=''
+typeset -gi _GWT_ENTER=1
+
+_git_worktree_fail() {
+  _GWT_ERROR=$1
+  return 1
+}
+
+# Explicit roots own every Git invocation, including inherited selector state.
+# Transport, hooks, optional writes and filesystem monitors stay disabled for
+# capture and execution. Mutations additionally refuse configured filters.
+_git_worktree_git() {
+  emulate -L zsh
+  local root=$1
+  shift
+  local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
+  local -x GIT_ALLOW_PROTOCOL='' GIT_LITERAL_PATHSPECS=1
+  command git --no-pager --no-replace-objects -C "$root" \
+    -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+    -c core.untrackedCache=false -c maintenance.auto=false -c gc.auto=0 \
+    -c submodule.recurse=false -c fetch.recurseSubmodules=false \
+    -c checkout.guess=false -c branch.autoSetupMerge=false "$@"
+}
+
+# Complete snapshots only: one lookahead byte and a trailing NUL/status protect
+# against truncated output and failed commands. Bounds do not limit wall time.
+_git_worktree_capture() {
+  emulate -L zsh
+  local -x LC_ALL=C
+  local packet='' result=''
+  _GWT_DATA=''
+  packet=$( { _git_worktree_git "$@" 2>/dev/null; print -rn -- $'\0'"$?"; } |
+    { local chunk=''; IFS= read -r -u 0 -k 262145 chunk || :; print -rn -- "$chunk"; } )
+  (( ${#packet} <= 262144 )) && [[ $packet == *$'\0'* ]] || {
+    _git_worktree_fail 'Git capture exceeded 256 KiB or was incomplete; no action applied.'
+    return 2
+  }
+  result=${packet##*$'\0'}
+  _GWT_DATA=${packet%$'\0'*}
+  [[ $result == 0 ]] && return 0
+  [[ $result == 1 ]] && return 1
+  _git_worktree_fail 'Git could not read the selected local repository.'
+  return 2
+}
+
+_git_worktree_identity() {
+  emulate -L zsh
+  local -A info=()
+  [[ -d $1 && ! -L $1 ]] || return 1
+  zmodload -F zsh/stat b:zstat || return 1
+  zstat -H info -- "$1" 2>/dev/null || return 1
+  REPLY="$info[device]:$info[inode]"
+}
+
+_git_worktree_valid_oid() {
+  [[ $1 != *[^[:xdigit:]]* ]] && (( ${#1} == 40 || ${#1} == 64 ))
+}
+
+_git_worktree_context() {
+  emulate -L zsh
+  local start=${1:A}
+  _GWT_ERROR=''
+  _git_worktree_capture "$start" rev-parse --show-toplevel || {
+    _git_worktree_fail 'Run g --worktree inside a working tree with a commit.'
+    return 1
+  }
+  _GWT_ROOT=${_GWT_DATA%$'\n'}
+  [[ -d $_GWT_ROOT && $_GWT_ROOT == ${_GWT_ROOT:A} ]] || return 1
+  _git_worktree_capture "$_GWT_ROOT" rev-parse --path-format=absolute --git-common-dir || return
+  _GWT_COMMON=${_GWT_DATA%$'\n'}
+  _git_worktree_identity "$_GWT_ROOT" || return
+  _GWT_ROOT_ID=$REPLY
+  _git_worktree_identity "$_GWT_COMMON" || return
+  _GWT_COMMON_ID=$REPLY
+  _git_worktree_capture "$_GWT_ROOT" rev-parse --verify HEAD || {
+    _git_worktree_fail 'This repository has no local HEAD commit; create an initial commit first.'
+    return 1
+  }
+  _GWT_HEAD=${_GWT_DATA%$'\n'}
+  _git_worktree_valid_oid "$_GWT_HEAD" || return 1
+  _GWT_HEAD_REF=''
+  if _git_worktree_capture "$_GWT_ROOT" symbolic-ref --quiet --short HEAD; then
+    _GWT_HEAD_REF=${_GWT_DATA%$'\n'}
+  fi
+  return 0
+}
+
+_git_worktree_repository_current() {
+  emulate -L zsh
+  _git_worktree_identity "$_GWT_ROOT" && [[ $REPLY == $_GWT_ROOT_ID ]] &&
+    _git_worktree_identity "$_GWT_COMMON" && [[ $REPLY == $_GWT_COMMON_ID ]] &&
+    _git_worktree_capture "$_GWT_ROOT" rev-parse --path-format=absolute --git-common-dir &&
+    [[ ${_GWT_DATA%$'\n'} == $_GWT_COMMON ]] && return 0
+  _git_worktree_fail 'The repository identity changed; reopen g --worktree.'
+}
+
+_git_worktree_snapshot() {
+  emulate -L zsh
+  local field='' location='' branch='' oid='' state=''
+  local -a paths=() branches=() oids=() states=()
+  _git_worktree_capture "$_GWT_ROOT" worktree list --porcelain -z || return
+  while IFS= read -r -d '' field; do
+    case $field in
+      ('worktree '*) location=${field#worktree } ;;
+      ('HEAD '*) oid=${field#HEAD } ;;
+      ('branch refs/heads/'*) branch=${field#branch refs/heads/} ;;
+      (locked*) state+='locked ' ;;
+      (prunable*) state+='missing ' ;;
+      (detached) state+='detached ' ;;
+      (bare) state+='bare ' ;;
+      ('')
+        [[ $location == /* ]] || { _git_worktree_fail 'Malformed worktree catalog.'; return 1; }
+        (( ${#paths} < 1000 )) || { _git_worktree_fail 'More than 1,000 worktrees; catalog unavailable.'; return 1; }
+        paths+=("$location") branches+=("$branch") oids+=("$oid") states+=("$state")
+        location='' branch='' oid='' state='' ;;
+    esac
+  done <<< "$_GWT_DATA"
+  (( ${#paths} )) && [[ -z $location ]] || return 1
+  _GWT_PATHS=("${paths[@]}") _GWT_BRANCHES=("${branches[@]}")
+  _GWT_OIDS=("${oids[@]}") _GWT_STATES=("${states[@]}")
+}
+
+_git_worktree_branches() {
+  emulate -L zsh
+  local ref='' oid=''
+  local -a refs=() tips=()
+  _git_worktree_capture "$_GWT_ROOT" for-each-ref --count=1001 \
+    '--format=%(refname)%00%(objectname)%00' refs/heads/ || return
+  while IFS= read -r -d '' ref && IFS= read -r -d '' oid; do
+    ref=${ref#$'\n'}
+    [[ $ref == refs/heads/* ]] && _git_worktree_valid_oid "$oid" || return 1
+    (( ${#refs} < 1000 )) || { _git_worktree_fail 'More than 1,000 local branches; catalog unavailable.'; return 1; }
+    refs+=("${ref#refs/heads/}") tips+=("$oid")
+  done <<< "$_GWT_DATA"
+  _GWT_REFS=("${refs[@]}") _GWT_TIPS=("${tips[@]}")
+}
+
+_git_worktree_filters_safe() {
+  emulate -L zsh
+  local -i result=0
+  _git_worktree_capture "$1" config --null --name-only --get-regexp '^filter\..*\.(clean|smudge|process|required)$'
+  result=$?
+  (( result == 1 )) && [[ -z $_GWT_DATA ]] && return 0
+  _git_worktree_fail 'Configured checkout filters require explicit Git handling; this workspace will not run or bypass them.'
+}
+
+_git_worktree_tree_safe() {
+  emulate -L zsh
+  _git_worktree_capture "$1" ls-tree -r '--format=%(objectmode)' "$2" || return
+  [[ $'\n'$_GWT_DATA$'\n' != *$'\n160000\n'* ]] && return 0
+  _git_worktree_fail 'This checkout contains submodules; use explicit Git worktree handling.'
+}
+
+_git_worktree_name_valid() {
+  emulate -L zsh
+  [[ -n $1 && $1 != -* && $1 != *[[:cntrl:]]* ]] && (( ${#1} <= 512 )) &&
+    _git_worktree_git "$_GWT_ROOT" check-ref-format "refs/heads/$1" >/dev/null 2>&1 && return 0
+  _git_worktree_fail 'Enter a valid new branch name, at most 512 characters, such as feature/search.'
+}
+
+_git_worktree_destination_safe() {
+  emulate -L zsh
+  local destination=$1 parent=${1:h} registered=''
+  [[ $destination == /* && $destination != *[[:cntrl:]]* &&
+     ! -e $destination && ! -L $destination && -d $parent &&
+     $parent == ${parent:A} && ${destination:t} != (.|..) ]] || {
+    _git_worktree_fail 'Choose an existing parent and a new, absent folder; existing files and links are preserved.'
+    return 1
+  }
+  for registered in "${_GWT_PATHS[@]}"; do
+    if [[ $destination == "$registered" || $destination == "$registered"/* ||
+          $registered == "$destination"/* ]]; then
+      _git_worktree_fail 'Choose a folder outside every registered worktree, including missing entries.'
+      return 1
+    fi
+  done
+  _git_worktree_identity "$parent" || return
+}
+
+# A plan contains literal argument values, never shell source. It is validated
+# again after screen cleanup. The full command preview uses Zsh quoting only.
+_git_worktree_plan() {
+  emulate -L zsh
+  local mode=$1 branch=$2 oid=$3 destination=$4
+  local -i result=0
+  _GWT_ERROR=''
+  _git_worktree_repository_current && _git_worktree_snapshot || return
+  _git_worktree_name_valid "$branch" && _git_worktree_valid_oid "$oid" || return 1
+  _git_worktree_destination_safe "$destination" || return
+  local parent_id=$REPLY
+  _git_worktree_filters_safe "$_GWT_ROOT" && _git_worktree_tree_safe "$_GWT_ROOT" "$oid" || return
+  if [[ $mode == new ]]; then
+    _git_worktree_capture "$_GWT_ROOT" show-ref --verify --quiet "refs/heads/$branch"
+    result=$?
+    if (( result == 0 )); then
+      _git_worktree_fail 'That branch already exists; choose Existing local branch or another name.'
+      return 1
+    fi
+    (( result == 1 )) || {
+      _git_worktree_fail 'Could not establish whether that branch exists; reopen creation.'
+      return 1
+    }
+    _GWT_COMMAND=(worktree add --no-checkout --no-guess-remote -b "$branch" -- "$destination" "$oid")
+  elif [[ $mode == existing ]]; then
+    if (( ${_GWT_BRANCHES[(Ie)$branch]} )); then
+      _git_worktree_fail 'That branch is already assigned to a worktree; enter its existing folder.'
+      return 1
+    fi
+    _git_worktree_capture "$_GWT_ROOT" rev-parse --verify "refs/heads/$branch" || return
+    [[ ${_GWT_DATA%$'\n'} == $oid ]] || {
+      _git_worktree_fail 'The selected branch tip changed; reopen creation to capture it again.'
+      return 1
+    }
+    _GWT_COMMAND=(worktree add --no-checkout --no-guess-remote -- "$destination" "$branch")
+  else
+    return 2
+  fi
+  _GWT_ACTION=create _GWT_MODE=$mode _GWT_BRANCH=$branch _GWT_OID=$oid
+  _GWT_TARGET=$destination _GWT_PARENT_ID=$parent_id
+  return 0
+}
+
+_git_worktree_target_current() {
+  emulate -L zsh
+  local target=$1
+  _git_worktree_repository_current || return
+  [[ -d $target && ! -L $target && $target == ${target:A} ]] &&
+    _git_worktree_capture "$target" rev-parse --show-toplevel &&
+    [[ ${_GWT_DATA%$'\n'} == $target ]] &&
+    _git_worktree_capture "$target" rev-parse --path-format=absolute --git-common-dir &&
+    [[ ${_GWT_DATA%$'\n'} == $_GWT_COMMON ]] && return 0
+  _git_worktree_fail 'The selected folder is missing, replaced or belongs to another repository.'
+}
+
+_git_worktree_remove_check() {
+  emulate -L zsh
+  local target=$1 git_dir='' flag=''
+  local -i index=0
+  _GWT_ERROR=''
+  _git_worktree_target_current "$target" && _git_worktree_snapshot || return
+  index=${_GWT_PATHS[(Ie)$target]}
+  if (( index <= 1 )) || [[ ${PWD:A} == "$target" || ${PWD:A} == "$target"/* ]]; then
+    _git_worktree_fail 'The main worktree and the current shell folder cannot be removed here.'
+    return 1
+  fi
+  [[ -z $_GWT_STATES[index] && -n $_GWT_BRANCHES[index] ]] || {
+    _git_worktree_fail 'Locked, missing or detached worktrees require explicit Git handling.'
+    return 1
+  }
+  _git_worktree_filters_safe "$target" || return
+  _git_worktree_capture "$target" rev-parse --absolute-git-dir || return
+  git_dir=${_GWT_DATA%$'\n'}
+  for flag in MERGE_HEAD MERGE_AUTOSTASH CHERRY_PICK_HEAD REVERT_HEAD \
+      BISECT_LOG BISECT_START rebase-merge rebase-apply sequencer; do
+    [[ ! -e "$git_dir/$flag" ]] || {
+      _git_worktree_fail 'Finish the Git operation in this worktree before removing it.'
+      return 1
+    }
+  done
+  _git_worktree_tree_safe "$target" "$_GWT_OIDS[index]" || return
+  _git_worktree_capture "$target" ls-files -v -z || return
+  while IFS= read -r -d '' flag; do
+    [[ $flag == 'H '* ]] || {
+      _git_worktree_fail 'Sparse, unmerged or assume-unchanged index entries prevent a complete removal check.'
+      return 1
+    }
+  done <<< "$_GWT_DATA"
+  _git_worktree_capture "$target" status --porcelain=v1 -z --no-renames \
+    --untracked-files=all --ignored --ignore-submodules=none || return
+  [[ -z $_GWT_DATA ]] || {
+    _git_worktree_fail 'Removal blocked: tracked changes, untracked files or ignored files remain. Preserve them first.'
+    return 1
+  }
+  _git_worktree_identity "$target" || return
+  _GWT_TARGET_ID=$REPLY
+  return 0
+}
+
+# Conditional includeIf configuration can differ in the new branch/directory.
+# Register without checkout first, then validate that effective configuration
+# before a non-forcing initial read-tree. Failures leave inspectable Git state.
+_git_worktree_materialize() {
+  emulate -L zsh
+  local target=$1 branch=$2 oid=$3 identity=''
+  local -a entries=()
+  _git_worktree_target_current "$target" && _git_worktree_identity "$target" || return
+  identity=$REPLY
+  _git_worktree_filters_safe "$target" || return
+  _git_worktree_capture "$target" rev-parse --verify HEAD || return
+  [[ ${_GWT_DATA%$'\n'} == $oid ]] || {
+    _git_worktree_fail 'The new worktree commit changed before checkout.'
+    return 1
+  }
+  _git_worktree_capture "$target" symbolic-ref --quiet HEAD || return
+  [[ ${_GWT_DATA%$'\n'} == "refs/heads/$branch" ]] || return 1
+  entries=("$target"/*(DNY2))
+  [[ ${#entries} == 1 && $entries[1] == "$target/.git" ]] || {
+    _git_worktree_fail 'Files appeared in the new worktree before checkout; they are preserved.'
+    return 1
+  }
+  _git_worktree_identity "$target" && [[ $REPLY == $identity ]] || return 1
+  _git_worktree_git "$target" read-tree -m -u --no-sparse-checkout "$oid"
+}
+
+_git_worktree_apply() {
+  emulate -L zsh
+  local parent_id=$_GWT_PARENT_ID target_id=$_GWT_TARGET_ID
+  local branch=$_GWT_BRANCH oid=$_GWT_OID
+  local -i result=0 index=0
+  case $_GWT_ACTION in
+    (enter)
+      _git_worktree_target_current "$_GWT_TARGET" || return
+      builtin cd -- "$_GWT_TARGET" ;;
+    (create)
+      _git_worktree_plan "$_GWT_MODE" "$branch" "$oid" "$_GWT_TARGET" || return
+      [[ $_GWT_PARENT_ID == $parent_id ]] || {
+        _git_worktree_fail 'The destination parent changed; reopen creation.'
+        return 1
+      }
+      _git_worktree_git "$_GWT_ROOT" "${_GWT_COMMAND[@]}"
+      result=$?
+      if (( result )); then
+        _GWT_ERROR='Git creation failed; a branch or partial folder may remain. Inspect g worktree list and g branch before retrying. No automatic deletion was attempted.'
+        return $result
+      fi
+      _git_worktree_materialize "$_GWT_TARGET" "$branch" "$oid"
+      result=$?
+      if (( result )); then
+        _GWT_ERROR="Worktree registration succeeded, but checkout stopped. ${_GWT_ERROR:-Git could not populate the new folder.} The branch and folder are preserved; inspect them before retrying."
+        return $result
+      fi
+      if (( _GWT_ENTER )); then
+        _git_worktree_target_current "$_GWT_TARGET" && builtin cd -- "$_GWT_TARGET" || {
+          _git_worktree_fail 'The worktree was created, but entering its folder failed; the created worktree is preserved.'
+          return 1
+        }
+      fi
+      print -r -- "Created worktree: ${(V)_GWT_TARGET}"
+      return 0 ;;
+    (remove)
+      _git_worktree_remove_check "$_GWT_TARGET" || return
+      index=${_GWT_PATHS[(Ie)$_GWT_TARGET]}
+      [[ $_GWT_TARGET_ID == $target_id && $_GWT_BRANCHES[index] == $branch &&
+         $_GWT_OIDS[index] == $oid ]] || {
+        _git_worktree_fail 'The selected worktree changed after confirmation; reopen removal.'
+        return 1
+      }
+      _git_worktree_git "$_GWT_ROOT" worktree remove -- "$_GWT_TARGET"
+      result=$?
+      (( result == 0 )) || { _GWT_ERROR='Git removal failed; inspect the worktree before retrying. No force or manual cleanup was attempted.'; return $result; }
+      print -r -- "Removed worktree: ${(V)_GWT_TARGET}; branch ${(V)branch} preserved." ;;
+    (*) return 2 ;;
+  esac
+}
+
+# The following presentation helpers populate the existing navigation collector.
+# No second matcher, renderer or input parser is introduced.
+_git_worktree_rows_reset() {
+  _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+  _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  _GWT_DETAILS=() _GWT_LABELS=()
+}
+
+_git_worktree_row() {
+  _NAVIGATION_PICKER_VALUES+=("$1") _NAVIGATION_PICKER_LABELS+=("$2")
+  _NAVIGATION_PICKER_INDEXES+=($(( ${#_NAVIGATION_PICKER_VALUES} - 1 )))
+  _NAVIGATION_PICKER_SEARCH_LABELS+=("${5:-$2}")
+  _GWT_LABELS[$1]=$3 _GWT_DETAILS[$1]=${4:-}
+}
+
+# Re-resolve a bookmark by its exact value after an explicit recapture or menu
+# change. A newly inserted row must not silently become the previous selection.
+_git_worktree_bookmark() {
+  emulate -L zsh
+  local query=$1 value=$2
+  local -i offset=${3:-0} index=1
+  _navigation_picker_collect "$query" ${#_NAVIGATION_PICKER_VALUES}
+  index=${_ZLE_PICKER_RESULTS[(Ie)$value]}
+  (( index )) || { index=1; offset=0; }
+  (( offset < index )) || offset=$(( index - 1 ))
+  reply=("$query" "$index" "$offset")
+}
+
+_git_worktree_pick() {
+  emulate -L zsh
+  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
+  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=choose
+  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_OPTIONS_KIND=worktree
+  local _ZLE_PICKER_BROWSE_LABEL=${_GWT_NOTICE:-local snapshot}
+  local _ZLE_PICKER_EMPTY_LABEL='no matching choices'
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_SEARCH_ACTION=''
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=${_GWT_OPTIONS:-0}
+  local -i _ZLE_PICKER_HIERARCHY_ENABLED=${_GWT_HIERARCHY:-0}
+  local -i _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_QUERY_SUBMIT=0
+  local -i _ZLE_PICKER_REFRESH_ENABLED=0 _ZLE_PICKER_DOCUMENT=0
+  local -i _zle_picker_start_focus=${_GWT_FOCUS:-0}
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_GWT_DETAILS}")
+  local -A _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_GWT_LABELS}")
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
+  _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
+}
+
+_git_worktree_text() {
+  emulate -L zsh
+  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$_GWT_ROOT
+  local _ZLE_PICKER_QUERY_LABEL=$2 _ZLE_PICKER_INSPECT_ACTION=continue
+  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_BROWSE_LABEL='Enter literal text, then Return'
+  local _ZLE_PICKER_COLLECTOR=_zle_picker_query_collect _ZLE_PICKER_SEARCH_ACTION=''
+  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
+  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
+  local -i _zle_picker_start_focus=0
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=("$4")
+  _zle_picker_loop "${3:-}" 10
+}
+
+_git_worktree_notice() {
+  emulate -L zsh
+  local message=$1
+  local -i result=0 _GWT_OPTIONS=0 _GWT_HIERARCHY=0 _GWT_FOCUS=1
+  _git_worktree_rows_reset
+  _git_worktree_row back Back back "$message"
+  _git_worktree_pick Worktrees "$_GWT_ROOT" 'Filter actions'
+  result=$?
+  (( result == 0 )) && return 1
+  return $result
+}
+
+# Each explicit level captures at most 1,001 directory names. Back restores
+# query/selection/viewport/focus; typing only refines the current level.
+_git_worktree_folder() {
+  emulate -L zsh
+  local folder=${1:A} child='' chosen='' query=''
+  local -i hidden=0 result=0 _GWT_HIERARCHY=1 _GWT_OPTIONS=0 _GWT_FOCUS=0
+  local -a children=()
+  local -A queries=() selections=() offsets=() focuses=()
+  while true; do
+    if (( hidden )); then
+      children=("$folder"/*(DN/Y1001))
+    else
+      children=("$folder"/*(N/Y1001))
+    fi
+    if (( ${#children} > 1000 )); then
+      _git_worktree_notice 'More than 1,000 child folders; choose a narrower parent outside this workspace.'
+      return $?
+    fi
+    children=("${(@on)children}")
+    _git_worktree_rows_reset
+    _git_worktree_row use 'Use this folder' use "$folder"$'\n\nThe new folder will be created directly inside this parent.'
+    for child in "${children[@]}"; do
+      _git_worktree_row "$child" "${child:t}/" browse "$child"
+    done
+    _GWT_FOCUS=${focuses[$folder]:-0}
+    _git_worktree_bookmark "${queries[$folder]:-}" "${selections[$folder]:-use}" "${offsets[$folder]:-0}"
+    _git_worktree_pick 'Worktree parent' "$folder" 'Filter folders' \
+      "${reply[@]}"
+    result=$?
+    (( result == 0 )) || return $result
+    queries[$folder]=${_ZLE_PICKER_BOOKMARK[1]-}
+    selections[$folder]=$_ZLE_PICKER_SELECTED_VALUE
+    offsets[$folder]=${_ZLE_PICKER_BOOKMARK[3]:-0}
+    focuses[$folder]=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
+    chosen=$_ZLE_PICKER_SELECTED_VALUE
+    case $_ZLE_PICKER_ACTION in
+      (parent) folder=${folder:h} ;;
+      (toggle-hidden) hidden=$(( !hidden )) ;;
+      (select|descend)
+        if [[ $chosen == use ]]; then
+          [[ $_ZLE_PICKER_ACTION == descend ]] && continue
+          REPLY=$folder
+          return 0
+        fi
+        [[ -d $chosen && ! -L $chosen ]] || continue
+        folder=${chosen:A} ;;
+    esac
+  done
+}
+
+_git_worktree_branch_pick() {
+  emulate -L zsh
+  local kind=$1 ref='' oid=''
+  local -i index=0 excluded=0 _GWT_OPTIONS=0
+  _git_worktree_rows_reset
+  for (( index=1; index<=${#_GWT_REFS}; ++index )); do
+    ref=$_GWT_REFS[index] oid=$_GWT_TIPS[index]
+    if [[ $kind == existing ]] && (( ${_GWT_BRANCHES[(Ie)$ref]} )); then
+      (( ++excluded ))
+      continue
+    fi
+    _git_worktree_row "$ref" "$ref" choose "$ref"$'\n'"$oid"$'\n\nCaptured local commit; no fetch.'
+  done
+  local _GWT_NOTICE="local branches · $excluded in-use branches excluded"
+  [[ $kind == base ]] && _GWT_NOTICE='local branches · committed starting points'
+  _git_worktree_pick 'Worktree branch' "$_GWT_ROOT" 'Filter branches'
+}
+
+_git_worktree_create_choose() {
+  emulate -L zsh
+  local mode='' branch='' oid=$_GWT_HEAD base=${_GWT_HEAD_REF:-detached HEAD}
+  local parent=${_GWT_PATHS[1]:h} name='' auto_name='' chosen='' draft='' note='' selected=''
+  local -i result=0 index=0 enter=1 valid=0 _GWT_OPTIONS=0 _GWT_FOCUS=0
+  local -a bookmark=('' 1 0)
+  # Revalidation reads must not replace the caller's home snapshot on Back.
+  local -a _GWT_PATHS=("${_GWT_PATHS[@]}") _GWT_BRANCHES=("${_GWT_BRANCHES[@]}")
+  local -a _GWT_OIDS=("${_GWT_OIDS[@]}") _GWT_STATES=("${_GWT_STATES[@]}")
+  local -a _GWT_REFS=() _GWT_TIPS=()
+  _git_worktree_branches || { _git_worktree_notice "$_GWT_ERROR"; return $?; }
+  while [[ -z $branch ]]; do
+    _git_worktree_rows_reset
+    _git_worktree_row new 'New branch' choose 'Create a branch from the current committed HEAD, or choose another starting point.'
+    _git_worktree_row existing 'Existing local branch' choose 'Choose a local branch not assigned to another worktree.'
+    _git_worktree_pick 'Create worktree' "$_GWT_ROOT" 'Filter choices'
+    result=$?
+    (( result == 0 )) || return $result
+    mode=$_ZLE_PICKER_SELECTED_VALUE
+    if [[ $mode == new ]]; then
+      _git_worktree_text 'New worktree branch' 'Branch name' "$draft" 'Literal branch name, such as feature/search; no shell expansion.'
+      result=$?
+      (( result == 1 )) && continue
+      (( result == 0 )) || return $result
+      draft=$_ZLE_PICKER_SELECTED_VALUE
+      if ! _git_worktree_name_valid "$draft"; then
+        _git_worktree_notice "$_GWT_ERROR"
+        result=$?
+        (( result == 1 )) || return $result
+        continue
+      fi
+      branch=$draft
+    elif [[ $mode == existing ]]; then
+      _git_worktree_branch_pick existing
+      result=$?
+      (( result == 1 )) && continue
+      (( result == 0 )) || return $result
+      branch=$_ZLE_PICKER_SELECTED_VALUE
+      index=${_GWT_REFS[(Ie)$branch]}
+      oid=$_GWT_TIPS[index] base=$branch
+    fi
+  done
+  auto_name="${_GWT_PATHS[1]:t}-${branch//\//-}" name=$auto_name
+  while true; do
+    valid=0 note=''
+    if _git_worktree_plan "$mode" "$branch" "$oid" "$parent/$name"; then
+      valid=1
+    else
+      note=$_GWT_ERROR
+    fi
+    _git_worktree_rows_reset
+    _git_worktree_row branch "Branch · $branch" edit "$mode branch"$'\n'"$branch"
+    [[ $mode == new ]] && _git_worktree_row base "Start from · $base" choose "$oid"$'\n\nCommitted snapshot; existing local edits stay in their original folder.'
+    _git_worktree_row parent "Parent · $parent" browse 'Choose an existing parent folder.'
+    _git_worktree_row name "New folder · $name" edit "$parent/$name"$'\n\nMust be absent. Existing files and folders are preserved.'
+    if (( enter )); then
+      _git_worktree_row after 'After creation · enter new folder' change 'Choose Create and stay instead.'
+    else
+      _git_worktree_row after 'After creation · stay here' change 'Choose Create and enter instead.'
+    fi
+    if (( valid )); then
+      chosen='create and stay'
+      (( enter )) && chosen='create and enter'
+      _git_worktree_row command 'Inspect Git operation…' inspect \
+        "git -C ${(q)_GWT_ROOT} ${(j: :)${(@q)_GWT_COMMAND}}"$'\n'\
+"git -C ${(q)parent}/${(q)name} read-tree -m -u --no-sparse-checkout $oid"$'\n\nRegister without checkout; check the new branch’s effective\nconfiguration before populating files. Quoted operation arguments;\ndisplayed text is never evaluated. The executor also disables\nnetwork transport, hooks, filesystem monitors, automatic maintenance\nand submodule recursion. Configured checkout filters are refused.\nAction: '"$chosen"
+      _git_worktree_row apply "${(C)chosen}" "$chosen" \
+        "$mode branch: $branch"$'\n'"Start: $base ($oid)"$'\n'"Folder: $parent/$name"$'\n\nCreates a linked checkout after the terminal is restored.\nRevalidates the destination, repository and branch first.\nNo hook, checkout filter or network operation is run.'
+    else
+      _git_worktree_row reason 'Why creation is unavailable…' inspect "$note"
+    fi
+    local _GWT_NOTICE='review choices · Enter edits or applies the named action'
+    [[ -n $note ]] && _GWT_NOTICE="Cannot create · $note"
+    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]"
+    bookmark=("${reply[@]}")
+    _git_worktree_pick 'Create worktree' "$_GWT_ROOT" 'Filter actions' "${bookmark[@]}"
+    result=$?
+    (( result == 0 )) || return $result
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") _GWT_FOCUS=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
+    chosen=$_ZLE_PICKER_SELECTED_VALUE
+    selected=$chosen
+    case $chosen in
+      (apply) _GWT_ENTER=$enter; return 0 ;;
+      (after) enter=$(( !enter )) ;;
+      (parent)
+        _git_worktree_folder "$parent"
+        result=$?
+        (( result == 0 )) && parent=$REPLY ;;
+      (name)
+        _git_worktree_text 'Worktree folder name' 'New folder name' "$name" 'One folder name; spaces are literal. No slashes, shell expansion or overwrites.'
+        result=$?
+        if (( result == 0 )); then
+          draft=$_ZLE_PICKER_SELECTED_VALUE
+          if [[ $draft != */* && $draft != (.|..) && $draft != *[[:cntrl:]]* ]] && (( ${#draft} <= 255 )); then
+            name=$draft
+          else
+            _git_worktree_notice 'Choose one folder name, at most 255 characters, without slashes or control characters.'
+            result=$?
+          fi
+        fi ;;
+      (base|branch)
+        if [[ $chosen == branch && $mode == new ]]; then
+          _git_worktree_text 'New worktree branch' 'Branch name' "$branch" 'Literal branch name, such as feature/search; no shell expansion.'
+          result=$?
+          if (( result == 0 )); then
+            draft=$_ZLE_PICKER_SELECTED_VALUE
+            if _git_worktree_name_valid "$draft"; then
+              branch=$draft
+            else
+              _git_worktree_notice "$_GWT_ERROR"
+              result=$?
+            fi
+          fi
+        else
+          _git_worktree_branch_pick "${${chosen:#branch}:-existing}"
+          result=$?
+          if (( result == 0 )); then
+            base=$_ZLE_PICKER_SELECTED_VALUE
+            index=${_GWT_REFS[(Ie)$base]} oid=$_GWT_TIPS[index]
+            [[ $chosen == branch ]] && branch=$base
+          fi
+        fi
+        if [[ $name == $auto_name ]]; then
+          auto_name="${_GWT_PATHS[1]:t}-${branch//\//-}" name=$auto_name
+        fi ;;
+      (reason) _git_worktree_notice "$note"; result=$? ;;
+      (command) _git_worktree_notice "${_GWT_DETAILS[command]}"; result=$? ;;
+    esac
+    (( result == 0 || result == 1 )) || return $result
+  done
+}
+
+_git_worktree_remove_choose() {
+  emulate -L zsh
+  local target=$1 branch=$2 oid=$3
+  local -i result=0 _GWT_OPTIONS=0 _GWT_FOCUS=1
+  local -a _GWT_PATHS=("${_GWT_PATHS[@]}") _GWT_BRANCHES=("${_GWT_BRANCHES[@]}")
+  local -a _GWT_OIDS=("${_GWT_OIDS[@]}") _GWT_STATES=("${_GWT_STATES[@]}")
+  if ! _git_worktree_remove_check "$target"; then
+    _git_worktree_notice "$_GWT_ERROR"
+    result=$?
+    (( result <= 1 )) && return 1
+    return $result
+  fi
+  _git_worktree_rows_reset
+  _git_worktree_row back Back back "$target"$'\n\nKeep this worktree.'
+  _git_worktree_row remove 'Remove this folder; keep branch' 'remove folder' \
+    "Remove: $target"$'\n'"Keep branch: $branch"$'\n'"Commit: $oid"$'\n\nNo tracked changes, untracked or ignored files found.\nThis deletes the folder. There is no Undo.\nThe same checks run again after screen restoration.'
+  _git_worktree_pick 'Remove worktree' "$target" 'Filter actions'
+  result=$?
+  (( result == 0 )) || return $result
+  [[ $_ZLE_PICKER_SELECTED_VALUE == remove ]] || return 1
+  _GWT_ACTION=remove _GWT_TARGET=$target _GWT_BRANCH=$branch _GWT_OID=$oid
+}
+
+_git_worktree_controller() {
+  emulate -L zsh
+  local chosen='' target='' branch='' oid='' label='' selected=''
+  local -i result=0 index=0 _GWT_OPTIONS=1 _GWT_FOCUS=0
+  local -a bookmark=('' 1 0)
+  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+  local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -A _GWT_DETAILS=() _GWT_LABELS=()
+  while true; do
+    _git_worktree_rows_reset
+    _git_worktree_row create 'Create worktree…' configure 'Create a new branch or use an available local branch in a new folder.'
+    for (( index=1; index<=${#_GWT_PATHS}; ++index )); do
+      target=$_GWT_PATHS[index] branch=$_GWT_BRANCHES[index]
+      label=${branch:-detached HEAD}
+      (( index == 1 )) && label+=' · main worktree'
+      [[ $target == $_GWT_ROOT ]] && label+=' · current'
+      [[ -n $_GWT_STATES[index] ]] && label+=" · $_GWT_STATES[index]"
+      _git_worktree_row "$target" "$label · $target" 'enter folder' \
+        "$target"$'\n'"${branch:-detached HEAD} · $_GWT_OIDS[index]"$'\n\nEnter changes this shell’s folder. Ctrl-X opens worktree options.\nFile cleanliness is checked only when requesting removal.' \
+        "$branch $target"
+    done
+    _git_worktree_row refresh 'Refresh worktrees' refresh 'Replace the registered-worktree snapshot. No background polling.'
+    _GWT_OPTIONS=1
+    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]"
+    bookmark=("${reply[@]}")
+    _git_worktree_pick Worktrees "$_GWT_ROOT" 'Filter worktrees' "${bookmark[@]}"
+    result=$?
+    (( result == 0 )) || return $result
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") _GWT_FOCUS=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
+    chosen=$_ZLE_PICKER_SELECTED_VALUE
+    selected=$chosen
+    _GWT_OPTIONS=0
+    if [[ $chosen == create ]]; then
+      _git_worktree_create_choose
+      result=$?
+      (( result == 0 )) && return 0
+      (( result == 1 )) && continue
+      return $result
+    elif [[ $chosen == refresh ]]; then
+      if ! _git_worktree_repository_current || ! _git_worktree_snapshot; then
+        _git_worktree_notice "${_GWT_ERROR:-Could not refresh worktrees; previous snapshot retained.}"
+        result=$?
+        (( result == 1 )) || return $result
+      fi
+      continue
+    fi
+    index=${_GWT_PATHS[(Ie)$chosen]}
+    (( index )) || continue
+    target=$chosen branch=$_GWT_BRANCHES[index] oid=$_GWT_OIDS[index]
+    if [[ $_ZLE_PICKER_ACTION == actions ]]; then
+      while true; do
+        _git_worktree_rows_reset
+        _git_worktree_row enter 'Enter folder' 'enter folder' "$target"
+        _git_worktree_row remove 'Remove worktree…' inspect 'Check this folder for changes and ignored files, then confirm removal. Keep its branch.'
+        _git_worktree_pick 'Worktree options' "$target" 'Filter actions'
+        result=$?
+        (( result == 1 )) && break
+        (( result == 0 )) || return $result
+        if [[ $_ZLE_PICKER_SELECTED_VALUE == remove ]]; then
+          _git_worktree_remove_choose "$target" "$branch" "$oid"
+          result=$?
+          (( result == 0 )) && return 0
+          (( result == 1 )) && continue
+          return $result
+        fi
+        _GWT_ACTION=enter _GWT_TARGET=$target
+        return 0
+      done
+    else
+      _GWT_ACTION=enter _GWT_TARGET=$target
+      return 0
+    fi
+  done
+}
+
+_git_worktree_session() {
+  emulate -L zsh
+  local -i result=0 index=0
+  # Invocation state is discarded even on abort. No peer source-time dependency.
+  local _GWT_ROOT='' _GWT_COMMON='' _GWT_ROOT_ID='' _GWT_COMMON_ID=''
+  local _GWT_DATA='' _GWT_ERROR='' _GWT_HEAD='' _GWT_HEAD_REF=''
+  local -a _GWT_PATHS=() _GWT_BRANCHES=() _GWT_OIDS=() _GWT_STATES=()
+  local -a _GWT_REFS=() _GWT_TIPS=() _GWT_COMMAND=()
+  local _GWT_ACTION='' _GWT_TARGET='' _GWT_BRANCH='' _GWT_OID=''
+  local _GWT_MODE='' _GWT_PARENT_ID='' _GWT_TARGET_ID=''
+  local -i _GWT_ENTER=1
+  {
+    _git_worktree_context "$PWD" && _git_worktree_snapshot || return 1
+    if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
+        (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_navigation_picker_collect]} )); then
+      for (( index=1; index<=${#_GWT_PATHS}; ++index )); do
+        print -r -- "${(V)_GWT_PATHS[index]} · ${(V)${_GWT_BRANCHES[index]:-detached HEAD}} ${_GWT_STATES[index]}"
+      done
+      return 0
+    fi
+    _zle_picker_run 10 '' 1 0 _git_worktree_controller
+    result=$?
+    (( result == 1 )) && { _GWT_ERROR=''; return 0; }
+    (( result == 0 )) || return $result
+    _GWT_ERROR=''
+    _git_worktree_apply
+    return $?
+  } always {
+    [[ -n $_GWT_ERROR ]] && print -u2 -r -- "g --worktree: ${(V)_GWT_ERROR}"
+    _ZLE_PICKER_SELECTED_VALUE='' _ZLE_PICKER_BOOKMARK=()
+    _ZLE_PICKER_BOOKMARK_FOCUS=0
+  }
+}
+
+:

@@ -104,6 +104,7 @@ state:
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
+| Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g -w` / `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, or bounded Xcode test report with local project paths and diagnostics; never read back by Compozsh |
@@ -149,6 +150,54 @@ never those attachments or source files, rejects a symlink substituted for the
 result bundle, and removes the complete bundle before opening the result view.
 An uncatchable termination can leave the local bundle behind under the
 identifiable `compozsh-xcode-test.*` temporary directory.
+
+The worktree workspace reads local refs, commit IDs, registered paths and flags
+from Git, directory identities, and explicitly browsed parent-folder names.
+Removal additionally reads Git operation markers, tracked-tree modes, index
+flags, and status including ignored and untracked names; Git may read working
+file contents to establish status. Creation reads the selected committed tree
+to check for submodules. Captures stay in invocation memory, bounded to 256 KiB
+each and 1,000 worktrees, branches or child folders per catalog. Failed or
+oversized safety captures refuse the action. No worktree catalog or navigation
+history is written by Compozsh. Git may take longer than these output bounds
+suggest, especially on slow storage.
+
+Create writes the chosen new folder and native Git refs/registration; the
+installed Git and the user's umask govern normal checkout ownership and modes.
+`git rev-parse --path-format=absolute --git-common-dir` resolves the metadata
+base: linked-worktree registrations live under its `worktrees/<id>` directory,
+and branch references use the repository's native Git reference storage.
+Compozsh neither copies ignored/private files from another checkout nor changes
+existing access controls. The workspace refuses configured clean/smudge/process
+filters or required-filter settings, rather than invoking them or disabling
+their content transformations. This includes globally configured Git LFS even
+when a particular checkout might not use it. Submodule checkouts are refused.
+Creation first uses `worktree add --no-checkout`, then checks effective
+configuration in that new branch/directory before a non-forcing `read-tree -m
+-u --no-sparse-checkout` populates the complete committed tree. This second
+check covers conditional includes absent from the source checkout. Refusal at
+that stage leaves the branch and registered empty folder for inspection; no
+filter is executed and no automatic cleanup is attempted.
+All workspace Git calls disable transport, lazy fetch, hooks, fsmonitor,
+automatic maintenance, optional index writes and submodule recursion. Explicit
+roots override inherited Git directory/index/object/namespace selectors.
+Entering a worktree changes this shell's directory and can invoke independently
+owned user `chpwd` hooks, as with an ordinary explicit directory change.
+
+Removal deletes only the confirmed registered linked checkout, preserves its
+branch, and refuses main/current, locked, missing or detached worktrees,
+in-progress Git operations, changes, untracked and ignored files, submodules,
+sparse/unmerged indexes and assume-unchanged flags. Repository and directory
+identities, branch/commit and safety checks are revalidated after screen
+restoration. These checks are not an atomic filesystem transaction: concurrent
+writers or path replacement between validation and Git can still change the
+outcome. Stop other writers before removal; there is no Undo. No force, branch
+deletion, automatic stash, recursive shell deletion or rollback is used.
+Git action errors retain their status. An interrupted/failed creation may leave a
+branch, registration or partial folder. Inspect `git worktree list`,
+`git branch` and the exact destination before retrying; Compozsh does not delete
+that residue automatically. A failed directory change after creation preserves
+the checkout. Removing Compozsh leaves created worktrees and branches intact.
 
 Shell command lines are a poor place for passwords, tokens, or private keys:
 they can be exposed through history, process listings, logs, or the invoked
@@ -271,7 +320,10 @@ inspection does not request `clone`, `fetch`, `pull`, `push`, or another remote
 operation: prompt status disables repository-configured clean/process filters,
 filesystem monitors, hooks, required-filter enforcement, and lazy fetches;
 branch views read local refs and reflogs; and Git review applies its own
-equivalent read-only filter boundary. `git-discard-all` applies those controls
+equivalent read-only filter boundary. The `g -w` / `g --worktree` action
+workspace also disables transport and hooks and refuses checkout filters;
+its checkout/removal boundary is detailed in the local-data inventory above.
+`git-discard-all` applies those controls
 to preview, restore, cleanup, and verification, and revalidates repository,
 HEAD, operation, filter-name, and listed-path state after confirmation. File
 discovery uses bounded filesystem reads, local Git metadata, or the local
@@ -359,6 +411,22 @@ git grep -nE '(^|[;&|[:space:]])(command[[:space:]]+)?(/usr/bin/)?(curl|wget|ssh
 The command should print no matches and return status 1. This is a useful
 regression check, not proof by keyword absence; also read new command execution,
 redirection, dynamic function dispatch, and source paths in the diff.
+
+Audit the worktree action boundary before exercising it:
+
+```sh
+git show HEAD:.zsh.addons/.zsh.git-worktree
+git show HEAD:.zsh.addons/.zsh.navigation
+zsh tests/run.zsh 'worktree '
+```
+
+Read the fixed Git policy in `_git_worktree_git`, complete-capture checks,
+creation/removal validation and post-screen dispatch. The focused tests use
+disposable repositories and should all pass: aliases/fallbacks, exact targets,
+refusals, branch preservation and native keyboard/screen behavior. They do not
+prove atomicity against concurrent external writers. Run against the exact
+checkout being audited; before commit, read the corresponding working files
+instead of `git show HEAD:...`.
 
 Audit website connection primitives and all hard-coded destinations:
 
