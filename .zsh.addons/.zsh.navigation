@@ -402,7 +402,9 @@ _compozsh_help_g() {
     '  Requires .zsh.git-worktree; g worktree ... still delegates to Git.' \
     '  Run inside a working tree with a commit. Scope is its one repository,' \
     '  including all registered linked worktrees. No global directory scan.' \
-    '  Enter on a worktree changes this shell to that exact folder.' \
+    '  The main menu offers Create, Enter, Move / rename, Remove and Refresh.' \
+    '  Each action opens its own fuzzy choices. Enter worktree lists captured' \
+    '  checkouts with details; accepting one changes this shell to its folder.' \
     '  Create worktree chooses New branch or Existing local branch.' \
     '  New defaults to the captured current HEAD commit; local edits stay put.' \
     '  Existing offers all captured local branches unused by a worktree,' \
@@ -415,7 +417,19 @@ _compozsh_help_g() {
     '  Choose a new absent folder outside registered worktrees. No overwrite,' \
     '  automatic stash, forced checkout, branch reset or dependency setup.' \
     '  Inspect Git operation shows quoted arguments; it never evaluates text.' \
-    '  Ctrl-X opens selected-worktree options. Remove checks then confirms' \
+    '  Move / rename chooses a linked checkout, then edits its parent or name.' \
+    '  Review the old and new paths before choosing Move worktree. Its branch,' \
+    '  tracked edits, untracked and ignored files travel with the checkout.' \
+    '  The shell stays here. The new folder must be absent on the same' \
+    '  filesystem. Main/current, locked, missing, active-operation and' \
+    '  submodule checkouts cannot be moved here. No copy or force fallback.' \
+    '  Move does not run checkout filters. Stop other writers before moving;' \
+    '  failed moves can leave changed paths/registration. Inspect both paths' \
+    '  and g worktree list before retrying; there is no automatic rollback.' \
+    '  Remove worktree in the main menu opens a fuzzy checkout chooser.' \
+    '  Main/current, locked, missing and detached entries are excluded there.' \
+    '  Type delete to find the removal action too. Ctrl-X on a worktree still' \
+    '  opens its options. Selecting a removal target checks then confirms' \
     '  the exact folder; its branch and commits remain. Removal has no Undo.' \
     '  Main/current, locked, missing and detached worktrees cannot be removed.' \
     '  Changes, untracked/ignored files, active Git operations and hidden-index' \
@@ -432,7 +446,7 @@ _compozsh_help_g() {
     '  Ten visible rows at most; arrows and paging reach later matches.' \
     '  Matching is the same case-insensitive, character-ordered fuzzy search' \
     '  as g, with prefix/substring priority. Worktrees match branch and path.' \
-    '  Refresh worktrees replaces the list; reopen creation for new branches.' \
+    '  Refresh worktrees replaces the catalog; reopen creation for new branches.' \
     '  Typing and resize use captured facts. Actions revalidate after cleanup.' \
     '  Digits apply visible rows only with empty filter and list focus.' \
     '  Branch/folder-name entry treats digits as text; no shell expansion.' \
@@ -585,7 +599,7 @@ _compozsh_help_g() {
     '' \
     'Examples:' \
     '  g                       Open recent branches; type to filter.' \
-    '  g -w                    Create, enter or remove a worktree.' \
+    '  g -w                    Create, enter, move or remove a worktree.' \
     '  g --worktree            The same worktree workspace.' \
     '  g worktree list         Ask Git for its native worktree list.' \
     '  g status                Inspect working-tree changes.' \

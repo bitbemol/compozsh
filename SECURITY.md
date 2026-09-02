@@ -156,8 +156,10 @@ from Git, directory identities, and explicitly browsed parent-folder names.
 Removal additionally reads Git operation markers, tracked-tree modes, index
 flags, and status including ignored and untracked names; Git may read working
 file contents to establish status. Creation reads the selected committed tree
-to check for submodules. Captures stay in invocation memory, bounded to 256 KiB
-each and 1,000 worktrees, branches or child folders per catalog. Failed or
+to check for submodules. Moving also reads operation markers and committed-tree
+modes, and validates source/destination directory identities without scanning
+file contents for cleanliness. Captures stay in invocation memory, bounded to
+256 KiB each and 1,000 worktrees, branches or child folders per catalog. Failed or
 oversized safety captures refuse the action. No worktree catalog or navigation
 history is written by Compozsh. Git may take longer than these output bounds
 suggest, especially on slow storage.
@@ -184,15 +186,29 @@ roots override inherited Git directory/index/object/namespace selectors.
 Entering a worktree changes this shell's directory and can invoke independently
 owned user `chpwd` hooks, as with an ordinary explicit directory change.
 
+Move / rename calls native `git worktree move` after reviewing the exact source
+and destination. It relocates the existing checkout and updates its native Git
+registration; tracked edits, untracked and ignored files travel with the folder,
+and the branch is preserved. The destination must be absent and on the same
+filesystem. Main/current, locked, missing, in-progress and submodule checkouts
+are refused. Moving performs no checkout/filter execution, file copy, privilege
+change or directory change in the current shell. Failure can leave the folder
+location and registration partially updated; inspect both paths and the Git
+catalog before retrying. There is no automatic rollback. Other writers and path
+replacement can race validation, as with removal below.
+
 Removal deletes only the confirmed registered linked checkout, preserves its
 branch, and refuses main/current, locked, missing or detached worktrees,
 in-progress Git operations, changes, untracked and ignored files, submodules,
 sparse/unmerged indexes and assume-unchanged flags. Repository and directory
 identities, branch/commit and safety checks are revalidated after screen
-restoration. These checks are not an atomic filesystem transaction: concurrent
-writers or path replacement between validation and Git can still change the
-outcome. Stop other writers before removal; there is no Undo. No force, branch
-deletion, automatic stash, recursive shell deletion or rollback is used.
+restoration. The removal chooser in the main menu filters the captured worktree
+catalog; only selecting a target reads its file status. It shares confirmation
+and action validation with selected-worktree options. These checks are not an
+atomic filesystem transaction: concurrent writers or path replacement between
+validation and Git can still change the outcome. Stop other writers before
+removal; there is no Undo. No force, branch deletion, automatic stash, recursive
+shell deletion or rollback is used.
 Git action errors retain their status. An interrupted/failed creation may leave a
 branch, registration or partial folder. Inspect `git worktree list`,
 `git branch` and the exact destination before retrying; Compozsh does not delete
@@ -423,7 +439,8 @@ zsh tests/run.zsh 'worktree '
 Read the fixed Git policy in `_git_worktree_git`, complete-capture checks,
 creation/removal validation and post-screen dispatch. The focused tests use
 disposable repositories and should all pass: aliases/fallbacks, exact targets,
-refusals, branch preservation and native keyboard/screen behavior. They do not
+refusals, move preservation of local files, branch preservation and native
+keyboard/screen behavior. They do not
 prove atomicity against concurrent external writers. Run against the exact
 checkout being audited; before commit, read the corresponding working files
 instead of `git show HEAD:...`.

@@ -16,7 +16,7 @@ you audit the exact commit yourself.
 | Find a file below a folder | Path + Tab → Ctrl-F | Review the displayed source and scope, enter a discovery query, then press Enter |
 | Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
-| Manage Git worktrees | `g -w` or `g --worktree` | Enter a checkout folder, create a worktree through an editable summary, or check and remove one while keeping its branch |
+| Manage Git worktrees | `g -w` or `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
 | Review Git changes | `g` → Ctrl-X | Read working changes or selected-branch commits, drill into files and colored diffs |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
 | Discover your custom tools | `compozsh` | Explore loaded public functions and their safe help |
@@ -196,7 +196,7 @@ compozsh/
 │   ├── .zsh.editor        command/path completion, temporary-screen pickers, editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.git-review    read-only working changes, commits, files and diffs
-│   ├── .zsh.git-worktree  guided worktree creation, folder entry and removal
+│   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
@@ -244,7 +244,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
 | `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and single-frame bounded previews |
-| `.zsh.git-worktree` | Git worktree actions | `g -w` / `g --worktree` use the shared fuzzy picker for registered worktrees, local branches, parent folders, editable creation and guarded removal; effects run after terminal restoration |
+| `.zsh.git-worktree` | Git worktree actions | `g -w` / `g --worktree` expose Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
@@ -2666,12 +2666,21 @@ worktrees. `g worktree list` and other ordinary Git arguments retain native Git
 behavior. Disabling `.zsh.git-worktree` leaves the recent-branch picker intact
 and makes either worktree alias report the missing capability.
 
-The first view lists **Create worktree…**, registered worktrees and **Refresh
-worktrees**. Worktrees match their branch and full folder path. Enter changes
-this shell to the selected checkout folder; **Ctrl-X options** opens its Enter
-and Remove actions. Main/current, locked, prunable and detached metadata come
-from the captured Git catalog. The list does not scan every checkout for file
-changes. Refresh explicitly replaces that catalog; there is no background poll.
+The main menu centers on five operations:
+
+| Operation | Flow |
+| --- | --- |
+| **Create worktree…** | Choose a branch and destination, review the editable summary, then create |
+| **Enter worktree…** | Fuzzy-find a registered checkout, inspect its details, then enter its folder |
+| **Move / rename worktree…** | Choose a linked checkout, edit its parent or folder name, then review and move |
+| **Remove worktree…** | Choose a linked checkout, check its files, then confirm folder removal |
+| **Refresh worktrees** | Replace the registered-worktree catalog explicitly |
+
+Worktree choices match their branch and full folder path. Main/current, locked,
+prunable and detached metadata come from the captured Git catalog. No operation
+scans every checkout for file changes. In the Enter list, **Ctrl-X options**
+offers Enter, Move and Remove for the selected checkout as shortcuts to the same
+flows. Back retains the caller's filter, exact selection, viewport and focus.
 
 Creation follows these steps:
 
@@ -2706,8 +2715,26 @@ outside the parent chooser. Back preserves the calling filter, selection,
 viewport and focus. Filtering, scrolling and resize do not run Git or enumerate
 folders.
 
-**Remove worktree…** checks the exact selected checkout, then offers explicit
-folder removal with its branch and commits preserved. It refuses the main
+**Move / rename worktree…** changes the folder location without changing its
+branch. Select a linked checkout, edit **Parent** or **Folder name**, then review
+the exact old/new paths before choosing **Move worktree**. Moving carries tracked
+edits, untracked and ignored files with the checkout, and leaves this shell in
+its current folder. The destination must be absent, outside registered
+worktrees and on the same filesystem. Main/current, locked, missing and
+in-progress checkouts and submodules are refused. Native Git performs the move;
+no checkout filters, force, cross-volume copy or automatic rollback are added.
+Stop other tools writing there before moving. A failed move can leave changed
+paths or registration; inspect both folders and `g worktree list` before retrying.
+
+Choose **Remove worktree…** from the main menu, fuzzy-select a checkout, then
+review and confirm the exact folder. Typing `delete` also finds the removal
+action. The chooser excludes main/current, locked, missing and detached
+worktrees using the captured catalog; it checks file cleanliness only after
+selection. Back restores the calling filter and selection. **Ctrl-X options**
+on a worktree continues to offer the same removal action.
+
+Removal checks the exact selected checkout, then offers explicit folder
+removal with its branch and commits preserved. It refuses the main
 checkout, the current shell's folder or ancestor, locked/missing/detached
 worktrees, active Git operations, tracked changes, untracked **and ignored**
 files, sparse/unmerged indexes and assume-unchanged entries. Removal has no

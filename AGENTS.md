@@ -861,6 +861,11 @@ discovered. The keyboard guide must never trigger refresh.
   registered path. Creation composes branch, captured start commit and a new
   folder into one explicit action after terminal restoration. Parent browsing
   uses the existing hierarchy keys; Back preserves caller bookmarks.
+- Keep Create, Enter, Move / rename, Remove and Refresh visible in the main
+  menu. Each operation specializes the captured worktree catalog; contextual
+  options are shortcuts to the same flows, never their only entry points.
+  Move edits the parent/folder name, preserves files and branch, and delegates
+  to native Git on the same filesystem after reviewing exact old/new paths.
 - Capture registered worktrees from NUL-delimited Git porcelain and all local
   branches within explicit bounds, rather than using recent checkout history
   as an eligibility catalog. Never treat a truncated capture as a complete
