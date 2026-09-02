@@ -78,6 +78,10 @@ _compozsh_help_compozsh() {
     'Filesystem workspace (path + Tab):' \
     '  Type ~/ then Tab for home, ./ then Tab for the current directory, or' \
     '  / then Tab for root. An arbitrary folder path sets that exact scope.' \
+    '  At line end, vim ~/Developer + Tab browses its directory argument.' \
+    '  Arguments starting ~/, /, ./ or ../ preserve the command and earlier' \
+    '  arguments on insertion; they do not require AUTO_CD. File arguments,' \
+    '  expansions and complex shell syntax retain native completion.' \
     '  Browse lists child directories. Enter inserts a shell-quoted path;' \
     '  Right/Tab enters a folder, Left/Shift-Tab goes Back. Ctrl-T toggles' \
     '  hidden folders, Ctrl-O previews names, Ctrl-X opens workspace options.' \
@@ -99,8 +103,10 @@ _compozsh_help_compozsh() {
     '  Recents is the current shell directory stack, including the current' \
     '  folder. It is separate from children and never searches the filesystem.' \
     '  Both entry points insert a visible quoted path when you select a row.' \
-    '  This replaces the command draft and puts the cursor at the end.' \
-    '  Review it, then Enter at the prompt changes directory via AUTO_CD.' \
+    '  A lone path or Recents selection replaces the draft; a path argument' \
+    '  replaces only that argument. The cursor moves to the inserted end.' \
+    '  Review it, then Enter at the prompt runs the command or uses AUTO_CD' \
+    '  for a lone path. Selection itself never executes the command.' \
     '  Escape or copy preserves the original command, cursor and directory.' \
     '  Native dirs -v and ~1, ~2, ... remain available. Stacks are per shell.' \
     '  Ctrl-O browses a recent folder. Ctrl-X switches workspace views.' \

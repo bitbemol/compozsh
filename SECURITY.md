@@ -113,6 +113,17 @@ Appearance selection reads only `ZSH_COLOR_SCHEME` and the optional passive
 It writes no terminal query, reads no terminal input, sends no data, and starts
 no process. An absent or invalid automatic hint retains the dark palette.
 
+Path + Tab can capture immediate directory entries from a lone path or an
+explicit directory argument such as `vim ~/Developer`. The editor retains the
+command prefix only in invocation-local memory; insertion replaces that
+argument after screen cleanup, without executing the command. Escape and Copy
+preserve the draft. Browsing reads entry names and file-type metadata, never
+file contents; snapshots and the retained prefix are released on return.
+Inspect `.zsh.addons/.zsh.editor` and run `zsh tests/run.zsh 'directory argument'`
+to verify insertion, quoting, cancellation, clipboard dispatch and native file
+completion in isolated fixtures. These checks do not establish availability
+or latency for arbitrary mounted filesystems.
+
 These are local process, filesystem, agent-directory, and operating-system
 clipboard interfaces on the machine running Compozsh. A user can independently
 configure a history, configuration, temporary, or agent directory on a synced

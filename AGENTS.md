@@ -524,7 +524,9 @@ quoted path visibly in the ordinary prompt. Only subsequent prompt submission
 performs AUTO_CD; an entry strategy must not silently change this contract.
 
 Keep direct entry fast and preserve the draft/cursor until acceptance; cancellation
-and copying restore both, while path insertion replaces the draft. A related modifier gesture
+and copying restore both. Path insertion replaces the draft for a lone path or
+Recents entry; completion of a command's path argument replaces only that
+argument and preserves the preceding command text. A related modifier gesture
 may pair concrete and recall-led entry when the terminal delivers distinct keys
 and has no conflicting assignment. For filesystem navigation that pair is Tab
 and Option-Tab. This is a product convention, not a universal macOS rule; follow

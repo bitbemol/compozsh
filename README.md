@@ -192,7 +192,7 @@ compozsh/
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.appearance    color-scheme selection and light palette
 │   ├── .zsh.shell         shell options, history, and native tool colors
-│   ├── .zsh.editor        completion, temporary-screen pickers, and editing
+│   ├── .zsh.editor        command/path completion, temporary-screen pickers, editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.git-review    read-only working changes, commits, files and diffs
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
@@ -239,7 +239,7 @@ peer owns one focused concern and can still be sourced independently:
 | --- | --- | --- |
 | `.zsh.appearance` | Terminal appearance and adaptive defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion and ZLE editing | Native completion; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
+| `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
 | `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and single-frame bounded previews |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
@@ -909,7 +909,7 @@ Home, End, or forward-Delete keys missing from compact Apple keyboards:
 | `Ctrl-Y` | Restore the most recently deleted text |
 | `Ctrl-_` | Undo the last edit |
 | `Up` / `Down` or `Ctrl-P` / `Ctrl-N` | Search history using the typed prefix |
-| `Tab` | Open the directory picker for a lone `AUTO_CD` path; otherwise complete natively |
+| `Tab` | Browse a lone `AUTO_CD` path or an explicit directory argument at line end; otherwise complete natively |
 | `Option-Tab` | Open Recents directly; selection inserts an editable path, cancellation preserves the draft/cursor (requires Option as Meta) |
 | `Shift-Tab` | Complete backward natively; switch panes in pickers, or go Back in the folder browser |
 | `Ctrl-R` | Open fuzzy history search |
@@ -1040,13 +1040,18 @@ Search. Recents never broadens into a whole-disk search. The visible Enter label
 always names the next action, and Escape returns without applying it.
 
 Both entry points finish at the ordinary prompt with the selected, safely quoted
-path visible and the cursor at its end. Selection replaces the existing command
-draft; it does not change directory yet. Review or edit the path, then press
-**Enter at the prompt** to change directory through Zsh's `AUTO_CD`. Cancelling
-or copying instead keeps your original command, cursor and directory unchanged.
+path visible and the cursor at its end. A lone path or Recents selection replaces
+the existing draft; selecting a directory argument replaces only that argument.
+Selection does not change directory or execute the command. Review the draft,
+then press **Enter at the prompt** to run it (a lone path uses Zsh's `AUTO_CD`).
+Cancelling or copying keeps your original command, cursor and directory unchanged.
 
-When the editable line contains only an `AUTO_CD` directory path, `Tab` opens
-the same searchable picker used elsewhere in Compozsh:
+For example, `vim ~/Developer` + **Tab** browses that folder. Choosing `example/`
+leaves `vim ~/Developer/example/` ready to edit or run. Explicit directory
+arguments starting with `~/`, `/`, `./`, or `../` work without `AUTO_CD`, including
+quoted absolute paths and escaped spaces. Earlier arguments remain unchanged.
+
+A lone `AUTO_CD` directory path opens the same searchable picker:
 
 ```text
 ❯ ~/Projects/
@@ -1142,8 +1147,9 @@ Back at the starting level keeps the current view and explains the boundary.
 
 A visible number or `Enter` inserts the selected full path and appends `/`; it
 does not change directory or execute anything. Press `Enter` once the picker
-closes to let Zsh's native `AUTO_CD` enter that path. Empty folders are usable
-levels: Ctrl-X → **current folder** selects them, or Left goes Back.
+closes to run the resulting command or let Zsh's native `AUTO_CD` enter a lone
+path. Empty folders are usable levels: Ctrl-X → **current folder** selects them,
+or Left goes Back.
 Unreadable or removed children preserve the last usable level with a notice.
 
 Press **Ctrl-T** to toggle hidden directories.
@@ -1171,11 +1177,13 @@ explicit Finder reveal invokes `open -R`, after the picker screen is restored.
 Captured children and navigation bookmarks are
 released on exit, with no persistent index or saved navigation history.
 
-The contextual behavior is deliberately narrow. Commands, options, multiple
-words such as `git switch`, file arguments, a cursor in the middle of the line,
-missing or unreadable parents, and an exact command that shares a directory
-name all delegate to Zsh's original `expand-or-complete` widget. Outside the
-picker, `Shift-Tab` continues to use native reverse completion.
+Commands, options, ordinary arguments such as `git switch`, file arguments,
+directory-argument prefixes with no matching directories, trailing whitespace,
+and a cursor in the middle of the line delegate to Zsh's original
+`expand-or-complete` widget. So do missing or unreadable parents, shell operators,
+argument expansions or wildcard syntax, and quoted/escaped tildes. An exact
+command name still wins over a same-named directory in command position.
+Outside the picker, `Shift-Tab` continues to use native reverse completion.
 
 At most ten rows are shown so every visible index remains a single direct key.
 Arrows scroll through all matching children at the current level, and page keys

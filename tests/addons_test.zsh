@@ -270,6 +270,38 @@ _test_contextual_directory_picker_fallbacks() {
 test_case 'contextual Tab picker delegates non-directory completion contexts' \
   _test_contextual_directory_picker_fallbacks
 
+_test_contextual_directory_argument() {
+  test_make_temp_dir || return
+  command mkdir -p "$TEST_TMP_DIR/home/Developer/Example & Co" || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    builtin cd -- "$HOME" || exit
+    unsetopt AUTO_CD
+    local BUFFER="vim ~/Developer" CURSOR=15
+    local -i captures=0 fallback=0
+    # Keep the real context parser, capture and insertion dispatcher; replace
+    # only terminal ownership and selection for this deterministic regression.
+    zle() { [[ $1 == expand-or-complete ]] && (( ++fallback )); return 0; }
+    _zle_picker_screen_session() {
+      (( ++captures ))
+      [[ $_DIRECTORY_PICKER_LOCATION == "~/Developer/" ]] || return 4
+      _ZLE_PICKER_ACTION=select
+      _ZLE_PICKER_SELECTED_VALUE="~/Developer/Example & Co/"
+    }
+    _directory_context_complete_widget
+    [[ $BUFFER == "vim ~/Developer/Example\\ \\&\\ Co/" && $CURSOR == ${#BUFFER} &&
+       $captures == 1 && $fallback == 0 && $PWD == "$HOME" ]] || {
+      print -u2 -r -- "path argument was not completed: $BUFFER|$captures|$fallback"
+      exit 1
+    }
+    print argument
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal argument "$output"
+}
+test_case 'contextual Tab completes a directory argument without replacing its command' \
+  _test_contextual_directory_argument
+
 _test_contextual_directory_picker_hierarchy() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" output=''

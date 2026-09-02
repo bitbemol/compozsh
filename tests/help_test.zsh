@@ -109,6 +109,7 @@ _test_file_finder_help_explains_search() {
   local -a facts=(
     'path + Tab' 'repository root' 'current directory'
     '~/ then Tab' 'Recents' 'Option-Tab' 'Option as Meta' 'directory stack'
+    'vim ~/Developer + Tab' 'preserve the command' 'replaces only that argument'
     'Spotlight index' 'longest query fragment' 'Unindexed'
     'any order' 'file contents' 'initial query' 'captured paths'
     '20,000' '2,000' '10 rows' 'Partial'

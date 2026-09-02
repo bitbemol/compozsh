@@ -3063,6 +3063,7 @@ _directory_browser_actions() {
 # shared screen remains owned, then dispatch the final action after cleanup.
 _directory_browser_session() {
   local entry=$1 mode=$2 runner=$3
+  local argument_prefix=${5:-}
   local _FILES_ORIGIN=${4:-browse} _FILES_VIEW=${4:-browse}
   local -a _FILES_RECENTS_BOOKMARK=('' 1 0)
   local -i _FILES_WORKSPACE=1 _ZLE_PICKER_WORKSPACE_ACTIONS=1
@@ -3080,12 +3081,20 @@ _directory_browser_session() {
   local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
   local _ZLE_PICKER_INSPECT_FALLBACK=''
   local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  # Inspect AUTO_CD before `emulate` localizes the widget's option state; the
-  # parser itself establishes a clean Zsh environment after capturing it.
+  # Inspect AUTO_CD before `emulate` localizes the widget's option state.
+  # Explicit path arguments and internal navigation do not require AUTO_CD.
   local -i internal=0
-  [[ $runner == command ]] && internal=1
+  [[ $runner == command || -n $argument_prefix ]] && internal=1
   if [[ $_FILES_ORIGIN != recents ]] && ! _directory_picker_prepare "$entry" ${#entry} $internal 1; then
     return 3
+  fi
+  if [[ -n $argument_prefix && -n $_DIRECTORY_PICKER_PATH_QUERY ]]; then
+    # Existing files and prefixes with no directory matches keep native file
+    # completion. An exact empty directory remains a usable Browse scope.
+    _directory_browser_absolute "${(Q)entry}"
+    [[ -e $REPLY || -L $REPLY ]] && return 3
+    _directory_picker_collect '' 1
+    (( ${#_ZLE_PICKER_RESULTS} )) || return 3
   fi
   emulate -L zsh
 
@@ -3142,7 +3151,7 @@ _directory_browser_session() {
       fi
       _directory_picker_quote "$_ZLE_PICKER_SELECTED_VALUE"
       if [[ $runner == widget ]]; then
-        BUFFER=$REPLY CURSOR=${#REPLY}
+        BUFFER="${argument_prefix}${REPLY}" CURSOR=${#BUFFER}
       else
         print -zr -- "$REPLY"
       fi
@@ -3384,14 +3393,43 @@ zle -N files-recents _files_recents_widget
 # This is a prompt binding only: modal Tab and Escape keep their own meanings.
 bindkey '^[^I' files-recents
 
+# Return the untouched command prefix for an explicit path argument, or an
+# empty prefix for the session's lone-path parser. This parses text only.
+_directory_completion_prefix() {
+  emulate -L zsh
+  local buffer=$1 token='' input_path='' word=''
+  local -a words=( ${(z)buffer} )
+  REPLY=''
+  (( ${#words} > 1 )) || return 0
+  token=${words[-1]}
+  input_path=${(Q)token}
+  [[ $buffer == *"$token" &&
+     $input_path == (/*|./*|../*|'~/'*) &&
+     $token != *['$`*?[]{}']* &&
+     ( $input_path != '~/'* || $token == '~/'* ) ]] || return 1
+  # Operators can put the last word in command/redirection position. Leave
+  # those contexts to Zsh rather than inferring an argument from word count.
+  for word in "${words[@]}"; do
+    [[ $word == [';&|<>()']* ]] && return 1
+  done
+  REPLY=${buffer[1,$(( ${#buffer} - ${#token} ))]}
+  [[ $REPLY == *[[:blank:]] ]]
+}
+
 _directory_context_complete_widget() {
-  # Preserve native completion for every context except a complete AUTO_CD
-  # word. The session's own parser rejects ambiguous or executable input.
-  (( CURSOR == ${#BUFFER} )) || { zle .expand-or-complete; return; }
-  _directory_browser_session "$BUFFER" insert widget
+  # Preserve caller options for AUTO_CD detection and native completion. The
+  # parser localizes its own options; command text stays outside Browse state.
+  # Use compinit's expand-or-complete registration: the dotted builtin bypasses
+  # its command-specific completion functions.
+  (( CURSOR == ${#BUFFER} )) || { zle expand-or-complete; return; }
+  local REPLY='' entry=$BUFFER argument_prefix=''
+  _directory_completion_prefix "$BUFFER" || { zle expand-or-complete; return; }
+  argument_prefix=$REPLY
+  [[ -n $argument_prefix ]] && entry=${BUFFER[$(( ${#argument_prefix} + 1 )),-1]}
+  _directory_browser_session "$entry" insert widget browse "$argument_prefix"
   local result=$?
   if (( result == 3 )); then
-    zle .expand-or-complete
+    zle expand-or-complete
   elif (( result > 1 )); then
     zle -M 'Directory browser: the requested action could not be completed.'
   fi
