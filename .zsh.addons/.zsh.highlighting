@@ -2,96 +2,8 @@
 # Native command-line syntax highlighting
 # -----------------------------------------------------------------------------
 
-# Public color palette. The early local initializer may replace individual
-# roles; this unit fills only missing defaults.
-_zle_apply_highlight_style_defaults() {
-  emulate -L zsh
-  local -A defaults=(
-    alias              'fg=171,bold'
-    global-alias       'fg=177,bold,underline'
-    suffix-alias       'fg=215,bold'
-    function           'fg=75,bold'
-    builtin            'fg=44,bold'
-    command            'fg=77,bold'
-    directory          'fg=39,bold,underline'
-    executable         'fg=83,bold,underline'
-    symlink            'fg=207,underline'
-    symlink-directory  'fg=141,bold,underline'
-    hardlink           'fg=214,underline'
-    file               'fg=250,underline'
-    special-file       'fg=203,bold,underline'
-    argument           'fg=252'
-    option             'fg=81'
-    keyword            'fg=220,bold'
-    pipeline           'fg=213,bold'
-    logical            'fg=203,bold'
-    separator          'fg=245,bold'
-    structure          'fg=229,underline'
-    conditional        'fg=221'
-    arithmetic         'fg=208,bold'
-    redirection        'fg=69,bold'
-    redirection-target 'fg=222,underline'
-    assignment         'fg=68'
-    string             'fg=186'
-    variable           'fg=111'
-    substitution       'fg=176'
-    glob               'fg=209'
-    history            'fg=199,bold'
-    escape             'fg=87'
-    number             'fg=216'
-    comment            'fg=244'
-    autosuggestion     'fg=242'
-    picker-header       'fg=75,bold'
-    picker-location     'fg=39'
-    picker-query        'fg=16,bg=44,bold'
-    picker-match        'fg=81,bold,underline'
-    picker-index        'fg=44,bold'
-    picker-selected     'fg=16,bg=75,bold'
-    picker-selected-inactive 'fg=252,bg=238'
-    picker-focus        'fg=75,bold'
-    picker-text         'fg=252'
-    picker-architecture 'fg=117,bold'
-    picker-architecture-selected 'fg=231,bold'
-    picker-size         'fg=221'
-    picker-size-selected 'fg=229,bold'
-    picker-error        'fg=203,bold'
-    picker-error-selected 'fg=224,bold'
-    picker-success      'fg=71,bold'
-    picker-success-selected 'fg=120,bold'
-    picker-muted        'fg=242'
-    picker-empty        'fg=203,bold'
-    review-added        'fg=252,bg=22'
-    review-removed      'fg=252,bg=52'
-    review-keyword      'fg=222,bold'
-    review-string       'fg=186'
-    review-number       'fg=216'
-    review-comment      'fg=250'
-    review-type         'fg=153'
-    review-function     'fg=117'
-    review-variable     'fg=153'
-  )
-  local role key current
-
-  typeset -gA ZSH_HIGHLIGHT_STYLES _COMPOZSH_COLOR_MANAGED
-  typeset -gA _COMPOZSH_COLOR_FALLBACKS
-  for role in ${(k)defaults}; do
-    key="highlight:$role"
-    _COMPOZSH_COLOR_FALLBACKS[$key]=${_COMPOZSH_COLOR_FALLBACKS[$key]:-${defaults[$role]}}
-    if (( ${+ZSH_HIGHLIGHT_STYLES[$role]} )); then
-      current=${ZSH_HIGHLIGHT_STYLES[$role]}
-      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
-         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
-            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
-        _COMPOZSH_COLOR_MANAGED[$key]=''
-      fi
-    else
-      ZSH_HIGHLIGHT_STYLES[$role]=${defaults[$role]}
-      _COMPOZSH_COLOR_MANAGED[$key]=${defaults[$role]}
-    fi
-  done
-}
-_zle_apply_highlight_style_defaults
-unfunction _zle_apply_highlight_style_defaults
+# Appearance owns defaults; this consumer preserves explicit public roles.
+typeset -gA ZSH_HIGHLIGHT_STYLES
 
 # zstat recognizes hard links without launching an external process while the
 # user is typing. It is part of the standard Zsh 5.9 installation.
@@ -99,7 +11,14 @@ zmodload -F zsh/stat b:zstat
 
 _zle_add_highlight() {
   local -i start=$1 end=$2
-  local style=${ZSH_HIGHLIGHT_STYLES[$3]:-}
+  local style=''
+  # An explicitly empty syntax role disables that category's highlighting.
+  if [[ ${(t)ZSH_HIGHLIGHT_STYLES} == association* ]] &&
+     (( ${+ZSH_HIGHLIGHT_STYLES[$3]} )); then
+    style=${ZSH_HIGHLIGHT_STYLES[$3]}
+  elif [[ ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
+    style=${_COMPOZSH_COLOR_FALLBACKS[highlight:$3]-}
+  fi
   [[ -n $style ]] &&
     region_highlight+=("$start $end $style memo=compozsh")
 }
@@ -166,7 +85,7 @@ _zle_path_category() {
   local named_directory=''
   local -a file_stat=()
   local -a stack_entries=()
-  local -i stack_index=0
+  local -i stack_index=0 stack_limit=0
   typeset -gi _ZLE_PATH_EXECUTABLE=0
   REPLY=''
 
@@ -181,9 +100,17 @@ _zle_path_category() {
   elif [[ $raw == '~'<->(|/*) ]]; then
     stack_prefix=${raw%%/*}
     stack_number=${stack_prefix#\~}
+    stack_number=${stack_number##0#}
+    [[ -n $stack_number ]] || stack_number=0
+    stack_limit=${#dirstack}
+    # Compare decimal text before arithmetic: a pasted index can exceed Zsh's
+    # integer range even within the bounded editable buffer.
+    (( ${#stack_number} <= ${#stack_limit} )) || return 1
+    if (( ${#stack_number} == ${#stack_limit} )) && [[ $stack_number > $stack_limit ]]; then
+      return 1
+    fi
     (( stack_index = 10#$stack_number ))
     stack_entries=("$PWD" "${dirstack[@]}")
-    (( stack_index < ${#stack_entries} )) || return 1
     literal="${stack_entries[stack_index + 1]}${literal#$stack_prefix}"
   elif [[ $raw == '~'?*(|/*) ]]; then
     stack_prefix=${raw%%/*}

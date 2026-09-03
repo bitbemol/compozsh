@@ -4,6 +4,9 @@ _test_git_focus_default() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     _git_review_load() {
       _GIT_REVIEW_PATHS=(file) _GIT_REVIEW_LABELS=(file)
@@ -33,6 +36,9 @@ _test_git_focus_coordinates() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     (( ${+functions[_git_review_document_anchor]} && ${+functions[_git_review_document_seek]} )) || {
       print -u2 "source-line anchoring is missing"; exit 1
@@ -83,6 +89,9 @@ _test_git_focus_wrap() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_KEY=one
     _ZLE_PICKER_DOCUMENT_LINES=("a long source line wrapping several times" "next source line")
     _ZLE_PICKER_DOCUMENT_ROLES=(text text)
@@ -110,6 +119,9 @@ _test_git_focus_transition() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     local -A _git_document_cache=() _git_document_partial=() _git_document_contexts=() _git_document_anchors=()
     local -a _git_document_order=() _GIT_REVIEW_PATHS=(one two) _GIT_REVIEW_KINDS=(unstaged staged)

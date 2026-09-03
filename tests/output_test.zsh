@@ -5,7 +5,7 @@ _test_output_palette_drives_native_git_colors() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     typeset -gA ZSH_OUTPUT_COLORS=(success 123)
-    source "$1/.zsh.addons/.zsh.output"
+    source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
     _output_git_color_arguments
     print -r -- "palette:${ZSH_OUTPUT_COLORS[success]}|${ZSH_OUTPUT_COLORS[error]}|${ZSH_OUTPUT_COLORS[match]}"
     print -r -- "wrapper:${+functions[git]}"
@@ -47,7 +47,7 @@ _test_git_wrapper_preserves_plain_delegation_and_status() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     path=("$2" $path)
-    source "$1/.zsh.addons/.zsh.output"
+    source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
     git -C /tmp/example status --short
     git status fail
     print -r -- "status:$?"
@@ -78,7 +78,7 @@ print -r -- "$heading|$warning|$match|$selected|${(j:|:)@}"' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     path=("$2" $path)
     typeset -gA ZSH_OUTPUT_COLORS=(heading 123 warning 124 match 125)
-    source "$1/.zsh.addons/.zsh.output"
+    source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
     man git-status
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
 
@@ -91,7 +91,7 @@ test_case 'manual-page styling shares the semantic output palette' \
 _test_output_palette_matches_prompt_semantics() {
   test_make_temp_dir || return
   local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'source "$1/.zsh.addons/.zsh.output"; print -r -- "${ZSH_OUTPUT_COLORS[success]}|${ZSH_OUTPUT_COLORS[warning]}|${ZSH_OUTPUT_COLORS[error]}|${ZSH_OUTPUT_COLORS[match]}"' "$TEST_REPO_ROOT") || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"; print -r -- "${ZSH_OUTPUT_COLORS[success]}|${ZSH_OUTPUT_COLORS[warning]}|${ZSH_OUTPUT_COLORS[error]}|${ZSH_OUTPUT_COLORS[match]}"' "$TEST_REPO_ROOT") || return
   test_assert_equal '71|221|203|199' "$output" \
     'output palette diverged from the established semantic colors'
 }
@@ -101,7 +101,7 @@ test_case 'output palette follows established prompt semantics' \
 _test_output_palette_rejects_malformed_indexes() {
   test_make_temp_dir || return
   local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'source "$1/.zsh.addons/.zsh.output"; ZSH_OUTPUT_COLORS[success]=999999999999999999999999999999999999; _output_color success 71; print -r -- "fallback:$REPLY"' "$TEST_REPO_ROOT" 2>&1) || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"; ZSH_OUTPUT_COLORS[success]=999999999999999999999999999999999999; _output_color success 71; print -r -- "fallback:$REPLY"' "$TEST_REPO_ROOT" 2>&1) || return
   test_assert_equal 'fallback:71' "$output" \
     'malformed output color escaped validation or emitted a diagnostic'
 }

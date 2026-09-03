@@ -1,6 +1,9 @@
 # Worktree actions use disposable repositories and never the operator's state.
 _test_worktree_fixture() {
   source "$1/.zsh.addons/.zsh.editor"
+  source "$1/.zsh.addons/support/.zsh.ui"
+  source "$1/.zsh.addons/support/.zsh.matching"
+  source "$1/.zsh.addons/support/.zsh.appearance"
   source "$1/.zsh.addons/.zsh.navigation"
   [[ -f "$1/.zsh.addons/.zsh.git-worktree" ]] || {
     print -u2 'missing worktree workspace capability'
@@ -26,6 +29,7 @@ _test_worktree_routes() {
   local output=''
   output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _git_worktree_session() { print workspace; }
     [[ $(g --worktree) == workspace ]] || exit 1
     command git -w > "$HOME/native-out" 2> "$HOME/native-err"
@@ -379,6 +383,9 @@ _test_worktree_shared_guide() {
   local output=''
   output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_OPTIONS_KIND=worktree
     _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_DOCUMENT=0
     LINES=60 _zle_picker_guide_render 100

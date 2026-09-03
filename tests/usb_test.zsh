@@ -382,7 +382,7 @@ _test_usb_workspace_ends_on_windows_media_before_target_capture() {
         screen_values=${(j:,:)_USB_PICKER_VALUES}
         screen_labels=${(j:|:)_USB_PICKER_LABELS}
         done_detail=${_USB_PICKER_DETAILS[1]}
-        passive_lines=${(j:|:)_ZLE_PICKER_PASSIVE_LINES}
+        passive_lines=${(j:|:)_USB_PICKER_PASSIVE_LINES}
         _ZLE_PICKER_SELECTED_VALUE=done _ZLE_PICKER_ACTION=accept
         return 0
       fi
@@ -1078,7 +1078,7 @@ _test_usb_result_screens_keep_facts_passive() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
     _usb_choose() {
-      print -r -- "$1|values:${(j:,:)_USB_PICKER_VALUES}|labels:${(j:,:)_USB_PICKER_LABELS}|passive:${(j:|:)_ZLE_PICKER_PASSIVE_LINES}"
+      print -r -- "$1|values:${(j:,:)_USB_PICKER_VALUES}|labels:${(j:,:)_USB_PICKER_LABELS}|passive:${(j:|:)_USB_PICKER_PASSIVE_LINES}"
     }
 
     _USB_RESULT_OUTCOME=complete _USB_RESULT_BYTES=1048576 _USB_RESULT_SECONDS=1
@@ -1316,6 +1316,9 @@ _test_usb_step_one_alone_has_secondary_image_details() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
     _USB_PICKER_VALUES=(custom-path image:1)
     _USB_PICKER_LABELS=(Custom Linux)
@@ -1344,6 +1347,8 @@ _test_usb_long_image_path_stays_in_passive_details() {
   test_write_file "$image" "${(l:20000::i:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor" || exit
+    source "$1/.zsh.addons/support/.zsh.ui" || exit
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.usb" || exit
     _usb_image_add "$2" || exit 2
     typeset -A _ZLE_PICKER_INSPECT_TEXTS=()
@@ -1547,6 +1552,8 @@ _test_usb_custom_path_matches_tab_navigation_contract() {
   test_write_file "$home/.hidden.img" "${(l:20000::h:)}" || return
   output=$(test_run_interactive "$home" '
     source "$1/.zsh.addons/.zsh.editor" || exit
+    source "$1/.zsh.addons/support/.zsh.ui" || exit
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.usb" || exit
     typeset -a _USB_PICKER_VALUES=(middle exact fuzzy)
     typeset -a _USB_PICKER_LABELS=(my-linux.iso linux.iso lxinux.iso)
@@ -1594,6 +1601,9 @@ _test_usb_steps_use_clean_single_pane_choices() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
     _USB_PICKER_VALUES=(one two)
     _USB_PICKER_LABELS=(One Two)
@@ -1828,6 +1838,9 @@ _test_usb_step3_hashing_never_claims_early_success() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
     _zle_picker_capture() { print -r -- "lines:${(j:|:)_ZLE_PICKER_BUSY_LINES}"; }
     _usb_step3_checksum_progress /images/linux.iso disk7 external-target \
@@ -3118,6 +3131,7 @@ _test_usb_confirmation_colors_only_exact_phrase() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
     _usb_confirmation_prompt "ERASE disk28"
@@ -3269,6 +3283,9 @@ _test_usb_progress_uses_prominent_status_view() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
     _USB_SELECTED_IMAGE=/Users/example/Downloads/linux.iso
     _USB_SELECTED_DISK=disk28
@@ -4036,8 +4053,8 @@ _test_usb_failure_screen_separates_image_and_drive_evidence() {
         [[ -n $specification ]] && role=${specification##*:} || role=""
         roles+=("$role")
       done
-      roles+=("${_ZLE_PICKER_PASSIVE_STYLES[@]}")
-      print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}|${(j:|:)_ZLE_PICKER_PASSIVE_LINES}"
+      roles+=("${_USB_PICKER_PASSIVE_STYLES[@]}")
+      print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}|${(j:|:)_USB_PICKER_PASSIVE_LINES}"
       print -r -- "roles:${(j:|:)roles}|semantic:${6:-0}"
     }
     _USB_RESULT_OUTCOME=failed

@@ -148,7 +148,8 @@ try {
   await page.locator('.more-features summary').click();
   assert.equal(await page.locator('.more-features dd').count(), 4);
   await page.locator('.more-features summary').click();
-  for (const width of [1440, 768, 390, 320]) {
+  const responsiveWidths = [1440, 1100, 1059, 1058, 1024, 1000, 941, 940, 768, 390, 320];
+  for (const width of responsiveWidths) {
     await page.setViewportSize({ width, height: 1000 });
     const heights = [];
     for (const tab of ['Context', 'History', 'Files', 'Git', 'Tools']) {
@@ -231,7 +232,7 @@ try {
   assert.equal(await noJS.locator('.demo-tabs').isVisible(), false);
   assert.equal(await noJS.locator('[data-copy]:visible').count(), 0);
   await noJS.close();
-  console.log('PASS: task tabs, captured file scopes, branch previews, keyboard, unordered search, literal input, numeric selection, copy success/failure, disclosure, stable geometry, reduced motion, no-JS, local-only requests, and 4 responsive widths');
+  console.log(`PASS: task tabs, captured file scopes, branch previews, keyboard, unordered search, literal input, numeric selection, copy success/failure, disclosure, stable geometry, reduced motion, no-JS, local-only requests, and ${responsiveWidths.length} responsive widths`);
 } finally {
   await browser.close();
 }

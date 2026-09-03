@@ -798,23 +798,17 @@ _usb_image_from_query() {
   return 1
 }
 
-_usb_path_query_collect() {
-  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+_usb_read_image_path() {
+  _zle_ui_view query _usb_image_path_view "$@"
 }
 
-_usb_read_image_path() {
+_usb_image_path_view() {
   emulate -L zsh
   local subtitle=${1:-'Drop an .iso, .img, or full Install macOS app, then press Return'}
-  local _ZLE_PICKER_TITLE='Flash USB / Add media' _ZLE_PICKER_SUBTITLE=$subtitle
-  local _ZLE_PICKER_QUERY_LABEL='Media path' _ZLE_PICKER_INSPECT_TITLE=Details
-  local _ZLE_PICKER_INSPECT_ACTION=add _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_BROWSE_LABEL='drop or paste one exact path · Return validates'
-  local _ZLE_PICKER_COLLECTOR=_usb_path_query_collect _ZLE_PICKER_INSPECT_FALLBACK=''
-  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
-  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
-  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+  _ZLE_PICKER_TITLE='Flash USB / Add media' _ZLE_PICKER_SUBTITLE=$subtitle
+  _ZLE_PICKER_QUERY_LABEL='Media path' _ZLE_PICKER_INSPECT_ACTION=add
+  _ZLE_PICKER_BROWSE_LABEL='drop or paste one exact path · Return validates'
+  _ZLE_PICKER_EMPTY_LINES=(
     'Drag a regular .iso or .img file from Finder into this field.'
     'A pasted absolute, home-relative, or current-folder path also works.'
     'The path is treated only as data; no shell text is evaluated.'
@@ -844,24 +838,18 @@ _usb_checksum_parse() {
   REPLY=$digest
 }
 
-_usb_checksum_query_collect() {
-  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+_usb_read_checksum() {
+  _zle_ui_view query _usb_checksum_view "$@"
 }
 
-_usb_read_checksum() {
+_usb_checksum_view() {
   emulate -L zsh
   local subtitle=${1:-'Paste one SHA-256 or SHA-512 checksum, then press Return'}
   local initial=${2:-}
-  local _ZLE_PICKER_TITLE='Flash USB / Image checksum' _ZLE_PICKER_SUBTITLE=$subtitle
-  local _ZLE_PICKER_QUERY_LABEL='Checksum' _ZLE_PICKER_INSPECT_TITLE=Details
-  local _ZLE_PICKER_INSPECT_ACTION=add _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_BROWSE_LABEL='optional integrity check · Return validates'
-  local _ZLE_PICKER_COLLECTOR=_usb_checksum_query_collect _ZLE_PICKER_INSPECT_FALLBACK=''
-  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
-  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
-  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+  _ZLE_PICKER_TITLE='Flash USB / Image checksum' _ZLE_PICKER_SUBTITLE=$subtitle
+  _ZLE_PICKER_QUERY_LABEL='Checksum' _ZLE_PICKER_INSPECT_ACTION=add
+  _ZLE_PICKER_BROWSE_LABEL='optional integrity check · Return validates'
+  _ZLE_PICKER_EMPTY_LINES=(
     'Paste the checksum published for the selected image.'
     'Bare hexadecimal, shasum output, and BSD SHA lines are accepted.'
     'SHA-256 uses 64 hexadecimal characters; SHA-512 uses 128.'
@@ -1338,9 +1326,10 @@ _usb_format_disks_capture() {
 _usb_picker_collect() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern='(#i)*' character=''
+  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern=''
   local literal=''
-  local -i limit=$raw_limit index=0 result_index=0
+  local -a reply=()
+  local -i limit=$raw_limit index=0
   typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
   [[ $limit == <-> ]] || limit=10
   if [[ -z $query ]]; then
@@ -1349,9 +1338,8 @@ _usb_picker_collect() {
       _ZLE_PICKER_LABELS+=("${_USB_PICKER_LABELS[index]}")
     done
   else
-    (( ${+functions[_zle_picker_escape_pattern]} )) || return 1
-    _zle_picker_escape_pattern "$query"
-    literal=$REPLY
+    _matching_compile "$query" || return
+    literal=${reply[1]} pattern=${reply[2]}
     local candidate_pattern=''
     for candidate_pattern in "(#i)${literal}*" "(#i)*${literal}*"; do
       for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
@@ -1365,10 +1353,6 @@ _usb_picker_collect() {
       done
     done
     if (( ${#_ZLE_PICKER_RESULTS} < limit )); then
-      for character in "${(s::)query}"; do
-        _zle_picker_escape_pattern "$character"
-        pattern+="${REPLY}*"
-      done
       for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
         value=${_USB_PICKER_VALUES[index]}
         (( _ZLE_PICKER_RESULTS[(Ie)$value] )) && continue
@@ -1380,36 +1364,34 @@ _usb_picker_collect() {
       done
     fi
   fi
-  for (( index = 1; index <= ${#_ZLE_PICKER_RESULTS}; ++index )); do
-    result_index=$index
-    (( result_index == 10 )) && result_index=0
-    _ZLE_PICKER_RESULT_INDEXES+=($result_index)
-  done
+  return 0
 }
 
 _usb_choose() {
+  _zle_ui_view choice _usb_choice_view "$@"
+}
+
+_usb_choice_view() {
   emulate -L zsh
   local title=$1 subtitle=$2 query_label=$3
   local -i show_details=${4:-0}
-  local -i _ZLE_PICKER_REFRESH_ENABLED=${5:-0}
+  _ZLE_PICKER_REFRESH_ENABLED=${5:-0}
   local -i show_highlights=${6:-0}
   local refresh_label=${7:-'captured external disks · Ctrl-R refresh'}
   local initial_query=${8:-} initial_value=${9:-}
   local -i start_index=1 start_offset=0
-  local _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
-  local _ZLE_PICKER_QUERY_LABEL=$query_label _ZLE_PICKER_INSPECT_TITLE=Details
-  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_BROWSE_LABEL='captured choices · no action yet'
+  _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
+  _ZLE_PICKER_QUERY_LABEL=$query_label
+  _ZLE_PICKER_BROWSE_LABEL='captured choices · no action yet'
   (( _ZLE_PICKER_REFRESH_ENABLED )) &&
     _ZLE_PICKER_BROWSE_LABEL=$refresh_label
-  local _ZLE_PICKER_COLLECTOR=_usb_picker_collect
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_DIGIT_SELECT=1
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -A _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+  _ZLE_PICKER_COLLECTOR=_usb_picker_collect
+  if (( ${+_USB_PICKER_PASSIVE_LINES} )); then
+    _ZLE_PICKER_PASSIVE_LINES=("${_USB_PICKER_PASSIVE_LINES[@]}")
+    _ZLE_PICKER_PASSIVE_STYLES=("${_USB_PICKER_PASSIVE_STYLES[@]}")
+  fi
   local -i index=0
-  for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
-    _ZLE_PICKER_ACCEPT_LABELS[${_USB_PICKER_VALUES[index]}]=choose
+  for (( index = 1; (show_details || show_highlights) && index <= ${#_USB_PICKER_VALUES}; ++index )); do
     (( show_highlights )) && [[ -n ${_USB_PICKER_HIGHLIGHTS[index]-} ]] &&
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_HIGHLIGHTS[index]}
     if (( show_details )); then
@@ -1602,27 +1584,19 @@ _usb_volume_name_validate() {
   REPLY=$name
 }
 
-_usb_volume_name_query_collect() {
-  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+_usb_read_volume_name() {
+  _zle_ui_view query _usb_volume_name_view "$@"
 }
 
-_usb_read_volume_name() {
+_usb_volume_name_view() {
   emulate -L zsh
   local subtitle=${1:-'Enter a volume name, then press Return'}
   local initial=${2:-}
-  local _ZLE_PICKER_TITLE='Format External Device / Volume name'
-  local _ZLE_PICKER_SUBTITLE=$subtitle _ZLE_PICKER_QUERY_LABEL='Volume name'
-  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=use
-  local _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_BROWSE_LABEL='literal volume name · Return validates'
-  local _ZLE_PICKER_COLLECTOR=_usb_volume_name_query_collect
-  local _ZLE_PICKER_INSPECT_FALLBACK=''
-  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
-  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
-  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=()
-  local -A _ZLE_PICKER_ACCEPT_LABELS=()
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+  _ZLE_PICKER_TITLE='Format External Device / Volume name'
+  _ZLE_PICKER_SUBTITLE=$subtitle _ZLE_PICKER_QUERY_LABEL='Volume name'
+  _ZLE_PICKER_INSPECT_ACTION=use
+  _ZLE_PICKER_BROWSE_LABEL='literal volume name · Return validates'
+  _ZLE_PICKER_EMPTY_LINES=(
     'Enter the initial name for the new volume.'
     'The text is passed to diskutil as one literal argument.'
     'APFS and HFS accept printable names without / or :.'
@@ -1783,8 +1757,8 @@ _usb_windows_unsupported_choose() {
   local -a _USB_PICKER_HIGHLIGHTS=('')
   local -a _USB_PICKER_SEARCH=(done)
   local -a _USB_PICKER_DETAILS=("$summary")
-  local -a _ZLE_PICKER_PASSIVE_LINES=("$boundary" "$boot" "$limit" "$tool" "$safety")
-  local -a _ZLE_PICKER_PASSIVE_STYLES=(
+  local -a _USB_PICKER_PASSIVE_LINES=("$boundary" "$boot" "$limit" "$tool" "$safety")
+  local -a _USB_PICKER_PASSIVE_STYLES=(
     picker-error picker-text picker-text picker-text picker-success)
   _usb_choose 'Flash USB · Windows unsupported' \
     "MEDIA  ›  WINDOWS UNSUPPORTED · ${image:t}" 'Done' 0 0 1
@@ -2223,14 +2197,16 @@ _usb_noop() {
 # Paint one stable stage frame. The caller then performs its synchronous
 # effect while that frame remains visible; dd publishes determinate updates.
 _usb_progress_stage() {
+  (( ${+functions[_zle_ui_view]} && ${+functions[_zle_picker_capture]} )) || return 0
+  _zle_ui_view status _usb_progress_view "$@"
+}
+
+_usb_progress_view() {
   emulate -L zsh
   local stage=$1 style='' line='' integrity_status=''
   local image=${_USB_SELECTED_IMAGE:-} disk_label=${_USB_SELECTED_DISK_LABEL:-}
-  local -i _ZLE_PICKER_STATUS_VIEW=1
   local _ZLE_PICKER_BUSY_LABEL="● ${stage:u}"
-  local -a _ZLE_PICKER_BUSY_LINES=() _ZLE_PICKER_BUSY_STYLES=()
   shift
-  (( ${+functions[_zle_picker_capture]} )) || return 0
   if [[ -n $image ]]; then
     if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == macos-installer ]]; then
       _ZLE_PICKER_BUSY_LINES=(
@@ -4533,14 +4509,14 @@ _usb_execute() {
 _usb_result_choose() {
   emulate -L zsh
 
-  local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_PASSIVE_STYLES=()
+  local -a _USB_PICKER_PASSIVE_LINES=() _USB_PICKER_PASSIVE_STYLES=()
   local -i index=0
   for (( index = 2; index <= ${#_USB_PICKER_LABELS}; ++index )); do
-    _ZLE_PICKER_PASSIVE_LINES+=("${_USB_PICKER_LABELS[index]}")
+    _USB_PICKER_PASSIVE_LINES+=("${_USB_PICKER_LABELS[index]}")
     case ${_USB_PICKER_HIGHLIGHTS[index]-} in
-      (*:picker-success) _ZLE_PICKER_PASSIVE_STYLES+=(picker-success) ;;
-      (*:picker-error) _ZLE_PICKER_PASSIVE_STYLES+=(picker-error) ;;
-      (*) _ZLE_PICKER_PASSIVE_STYLES+=(picker-text) ;;
+      (*:picker-success) _USB_PICKER_PASSIVE_STYLES+=(picker-success) ;;
+      (*:picker-error) _USB_PICKER_PASSIVE_STYLES+=(picker-error) ;;
+      (*) _USB_PICKER_PASSIVE_STYLES+=(picker-text) ;;
     esac
   done
   _USB_PICKER_VALUES=("${_USB_PICKER_VALUES[1]}")
@@ -4855,6 +4831,28 @@ _usb_progress_controller() {
   return $execution_status
 }
 
+# Share the same optional palette boundary for confirmation and native output.
+# Appearance may supply defaults without the output peer; absent roles are plain.
+_usb_output_color() {
+  emulate -L zsh
+  local role=$1 key="output:$1" value=''
+  REPLY=''
+  if (( ${+functions[_output_color]} )); then
+    _output_color "$role"
+    [[ $REPLY == <0-255> ]] && return 0
+    REPLY=''
+    return 1
+  fi
+  if [[ ${(t)ZSH_OUTPUT_COLORS} == association* ]]; then
+    value=${ZSH_OUTPUT_COLORS[$role]-}
+  fi
+  if [[ $value != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
+    value=${_COMPOZSH_COLOR_FALLBACKS[$key]-}
+  fi
+  [[ $value == <0-255> ]] || return 1
+  REPLY=$value
+}
+
 _usb_confirmation_prompt() {
   emulate -L zsh
   local expected=$1 color='' style='' reset=$'\e[0m'
@@ -4862,17 +4860,11 @@ _usb_confirmation_prompt() {
   [[ -t 0 && -t 2 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
   zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
   (( ${terminfo[colors]:-0} >= 256 )) || return 0
-  if (( ${+functions[_output_color]} )); then
-    _output_color warning 221
-    color=$REPLY
-  elif [[ ${(t)ZSH_OUTPUT_COLORS} == association* &&
-          ${ZSH_OUTPUT_COLORS[warning]:-} == <0-255> ]]; then
-    color=${ZSH_OUTPUT_COLORS[warning]}
-  fi
-  [[ $color == <0-255> ]] || {
+  _usb_output_color warning || {
     REPLY="Type exactly $expected to continue: "
     return 0
   }
+  color=$REPLY
   style=$'\e[1;38;5;'"${color}m"
   REPLY="Type exactly ${style}${expected}${reset} to continue: "
 }
@@ -4900,19 +4892,13 @@ _usb_format_confirm() {
 
 _usb_format_color_style() {
   emulate -L zsh
-  local role=$1 fallback=$2 bold=${3:-0} color=''
+  local role=$1 bold=${2:-0} color=''
   REPLY=''
   [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
   zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
   (( ${terminfo[colors]:-0} >= 256 )) || return 0
-  if (( ${+functions[_output_color]} )); then
-    _output_color "$role" "$fallback"
-    color=$REPLY
-  elif [[ ${(t)ZSH_OUTPUT_COLORS} == association* &&
-          ${ZSH_OUTPUT_COLORS[$role]:-} == <0-255> ]]; then
-    color=${ZSH_OUTPUT_COLORS[$role]}
-  fi
-  [[ $color == <0-255> ]] || return 0
+  _usb_output_color "$role" || return 0
+  color=$REPLY
   if (( bold )); then
     REPLY=$'\e[1;38;5;'"${color}m"
   else
@@ -4924,13 +4910,13 @@ _usb_format_output_filter() {
   emulate -L zsh
   local line='' prefix='' remainder='' reset=$'\e[0m'
   local heading='' info='' accent='' success=''
-  _usb_format_color_style heading 75 1
+  _usb_format_color_style heading 1
   heading=$REPLY
-  _usb_format_color_style info 111
+  _usb_format_color_style info
   info=$REPLY
-  _usb_format_color_style accent 81
+  _usb_format_color_style accent
   accent=$REPLY
-  _usb_format_color_style success 71 1
+  _usb_format_color_style success 1
   success=$REPLY
   while IFS= read -r line || [[ -n $line ]]; do
     if [[ -z $heading ]]; then
@@ -4956,7 +4942,7 @@ _usb_format_output_filter() {
 _usb_format_erase_run() {
   emulate -L zsh
   setopt PIPE_FAIL
-  _usb_format_color_style heading 75 1
+  _usb_format_color_style heading 1
   if [[ -z $REPLY ]]; then
     _usb_diskutil_erase_run "$@"
     return $?
@@ -4969,9 +4955,9 @@ _usb_format_print_summary() {
   emulate -L zsh
   local identifier=$1 format_label=$2 volume_name=$3 reset=$'\e[0m'
   local success='' accent=''
-  _usb_format_color_style success 71 1
+  _usb_format_color_style success 1
   success=$REPLY
-  _usb_format_color_style accent 81
+  _usb_format_color_style accent
   accent=$REPLY
   if [[ -z $success ]]; then
     print -r -- "Formatted /dev/$identifier as $format_label."
@@ -4986,13 +4972,17 @@ _usb_format_execute() {
   emulate -L zsh
   local identifier=$1 expected_fingerprint=$2 personality=$3 volume_name=$4
   local captured_size=${5:-0}
+  local -i erase_status=0
   _USB_FORMAT_ERROR=''
   [[ $identifier == disk<-> && -n $expected_fingerprint &&
      -n $personality && ${#personality} -le 128 &&
-     $personality != *[[:cntrl:]]* && -n $volume_name &&
-     ${#volume_name} -le 128 && $volume_name != *[[:cntrl:]]* &&
+     $personality != *[[:cntrl:]]* &&
      $captured_size == <-> ]] || {
     _USB_FORMAT_ERROR='the captured format request is invalid; nothing was erased'
+    return 2
+  }
+  _usb_volume_name_validate "$volume_name" "$personality" || {
+    _USB_FORMAT_ERROR="$_USB_FORMAT_ERROR Nothing was erased."
     return 2
   }
   _usb_target_revalidate "$identifier" "$expected_fingerprint" 1 || {
@@ -5008,8 +4998,9 @@ _usb_format_execute() {
     return 1
   }
   _usb_format_erase_run eraseDisk "$personality" "$volume_name" "/dev/$identifier" || {
+    erase_status=$?
     _USB_FORMAT_ERROR="diskutil could not format /dev/$identifier as $personality; the prior layout may already be changed"
-    return 1
+    return $erase_status
   }
 }
 
@@ -5202,7 +5193,7 @@ _compozsh_help_flash-usb() {
     '  the held session closes; the result describes the captured pre-mount proof.' \
     '' \
     'Requirements and recovery:' \
-    '  Requires macOS, an interactive terminal, the .zsh.editor screen peer,' \
+    '  Requires macOS, an interactive terminal, the .zsh.ui screen peer,' \
     '  and Apple’s diskutil, plutil, hdiutil, codesign, ditto, tar, df, sync, mktemp,' \
     '  rmdir, rm, sleep, cat, dd, cmp, cksum, head, od, tr, shasum, stat, and' \
     '  sudo tools.' \
@@ -5266,8 +5257,8 @@ flash-usb() {
       return 1
     }
     if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
-        (( ! ${+functions[_zle_picker_run]} )); then
-      print -u2 -r -- 'flash-usb: an interactive terminal and the .zsh.editor screen peer are required'
+        (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_matching_compile]} )); then
+      print -u2 -r -- 'flash-usb: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
       return 1
     fi
     _usb_images_capture "$explicit"
@@ -5368,8 +5359,8 @@ _compozsh_help_format-external-device() {
     '  On supported 256-color terminals, the shared semantic palette styles' \
     '  diskutil headings, live stages, field labels, and successful completion.' \
     '  The text, ordering, diagnostics, and diskutil exit status remain unchanged.' \
-    '  NO_COLOR, redirects, pipes, unsupported terminals, and a missing output' \
-    '  peer retain diskutil’s exact plain output and the plain final summary.' \
+    '  NO_COLOR, redirects, pipes, unsupported terminals, and unavailable palette' \
+    '  roles retain diskutil’s exact plain output and the plain final summary.' \
     '' \
     'Safety and recovery:' \
     '  The action always targets the selected whole /dev/diskN. It requires the' \
@@ -5380,7 +5371,7 @@ _compozsh_help_format-external-device() {
     '  Formatting permanently destroys all existing partitions and data on the' \
     '  selected disk. diskutil may already have changed the layout if formatting' \
     '  later fails; Compozsh cannot restore the previous partition map or files.' \
-    '  Requires macOS, an interactive terminal, the .zsh.editor screen peer, and' \
+    '  Requires macOS, an interactive terminal, the .zsh.ui screen peer, and' \
     '  Apple diskutil, plutil, mktemp, rm, and sudo.' \
     '' \
     'Examples:' \
@@ -5416,8 +5407,8 @@ format-external-device() {
     return 1
   }
   if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
-      (( ! ${+functions[_zle_picker_run]} )); then
-    print -u2 -r -- 'format-external-device: an interactive terminal and the .zsh.editor screen peer are required'
+      (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_matching_compile]} )); then
+    print -u2 -r -- 'format-external-device: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
     return 1
   fi
   {

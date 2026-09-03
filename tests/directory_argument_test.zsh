@@ -6,6 +6,9 @@ _test_directory_argument_boundaries() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd -- "$HOME" || exit
     unsetopt AUTO_CD
     local BUFFER="" CURSOR=0 draft=""
@@ -77,6 +80,9 @@ _test_directory_argument_native() {
     export LC_ALL=en_US.UTF-8
     path=("$HOME/bin" "${path[@]}")
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd -- "$HOME" || exit
     unsetopt AUTO_CD
     zmodload zsh/zpty

@@ -10,6 +10,9 @@ _test_picker_resize_automatic_paint() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     zmodload zsh/zpty
     zmodload zsh/zselect
     local prompt_mode=$2

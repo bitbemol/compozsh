@@ -4,7 +4,10 @@ _test_file_layout_snapshot() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _FILE_SEARCH_ROOT=/snapshot
     _FILE_SEARCH_SOURCE=local
     _FILE_SEARCH_VALUES=(/snapshot/docs/readme.md /snapshot/tests/readme.md /snapshot/docs)
@@ -41,6 +44,9 @@ _test_file_layout_widths() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_RESULTS=(/snapshot/docs/report.md /snapshot/tests/report.md)
     _ZLE_PICKER_LABELS=("· report.md" "· report.md")
     _ZLE_PICKER_CONTEXTS=(/snapshot/docs/report.md docs/ /snapshot/tests/report.md tests/)

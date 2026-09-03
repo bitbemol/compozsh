@@ -72,7 +72,20 @@ _test_installer_fresh_symlink() {
   test_assert_equal "$(<"$TEST_REPO_ROOT/templates/init.zsh")" \
     "$(<"$initializer")" 'installed initializer differs from its starter' || return
   test_assert_contains "$output" 'Installation complete' \
-    'successful install omitted its completion message'
+    'successful install omitted its completion message' || return
+
+  output=$(test_run_interactive "$home" '
+    ZSH_COLOR_SCHEME=light
+    source "$HOME/.zshrc" || exit 1
+    source "$HOME/.zshrc" || exit 2
+    (( ${+functions[_zle_ui_view]} && ${+functions[_zle_picker_screen_session]} )) || exit 3
+    _prompt_color path || exit 4
+    [[ $REPLY == 25 ]] || exit 5
+    compozsh --list
+  ' 2> "$TEST_TMP_DIR/load.err") || return
+  [[ ! -s "$TEST_TMP_DIR/load.err" ]] || test_fail 'symlink bootstrap emitted diagnostics' || return
+  test_assert_contains "$output" 'mkcd · ✓ help · .zsh.tools' \
+    'symlink installation did not discover its public tools'
 }
 test_case 'installer creates a fresh recommended symlink installation' \
   _test_installer_fresh_symlink
@@ -164,7 +177,18 @@ _test_installer_copy_is_namespaced() {
     test_fail 'copy mode replaced a private peer' || return
 
   output=$(test_run_interactive "$home" \
-    'source "$HOME/.zshrc"; print -r -- "${+functions[mkcd]}|${PRIVATE_PEER:-missing}"') || return
+    '
+    ZSH_COLOR_SCHEME=light
+    source "$HOME/.zshrc" || exit 1
+    source "$HOME/.zshrc" || exit 2
+    (( ${+functions[_zle_ui_view]} && ${+functions[_zle_picker_screen_session]} )) || exit 3
+    _prompt_color path || exit 4
+    [[ $REPLY == 25 ]] || exit 5
+    local catalog=$(compozsh --list)
+    [[ $catalog == *"mkcd · ✓ help · compozsh/.zsh.tools"* ]] || exit 6
+    print -r -- "${+functions[mkcd]}|${PRIVATE_PEER:-missing}"
+    ' 2> "$TEST_TMP_DIR/load.err") || return
+  [[ ! -s "$TEST_TMP_DIR/load.err" ]] || test_fail 'copied bootstrap emitted diagnostics' || return
   test_assert_equal '1|preserved' "$output" \
     'copied layout did not load shared and private peers together'
 }

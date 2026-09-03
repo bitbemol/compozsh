@@ -1,6 +1,6 @@
 # Read-only Git review. Source-time work is definitions only; navigation opts
 # into these views at runtime. Providers capture, collectors filter, and the
-# editor owns every key, frame and screen transition.
+# UI peer owns every key, frame and screen transition.
 typeset -ga _GIT_REVIEW_CONFIG=() _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=()
 typeset -ga _GIT_REVIEW_KINDS=() _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=()
 typeset -g _GIT_REVIEW_DATA='' _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
@@ -13,6 +13,12 @@ _git_review_git() {
   emulate -L zsh
   local root=$1
   shift
+  # Every provider reads the displayed root. Ambient selectors must not pair
+  # another repository's refs/index with this root's direct file previews.
+  local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
   local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
   local -x GIT_ALLOW_PROTOCOL='' GIT_LITERAL_PATHSPECS=1
   local -x GIT_GLOB_PATHSPECS=0 GIT_NOGLOB_PATHSPECS=0 GIT_ICASE_PATHSPECS=0
@@ -1174,16 +1180,17 @@ _git_review_view() {
 # Small choice lists and text entry use the shared input loop. All state belongs
 # to the caller; opening a child view never re-registers keys or owns a screen.
 _git_review_pick() {
+  _zle_ui_view choice _git_review_choice_view "$@"
+}
+
+_git_review_choice_view() {
   emulate -L zsh
-  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
-  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=choose
-  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_SEARCH_ACTION='' _ZLE_PICKER_INSPECT_FALLBACK=''
-  local _ZLE_PICKER_BROWSE_LABEL=${_git_compare_status:-read-only comparison}
-  local _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_navigation_picker_collect}
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=1
-  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_QUERY_SUBMIT=0 _ZLE_PICKER_DOCUMENT=0
-  local -i _ZLE_PICKER_HIERARCHY_ENABLED=0 _ZLE_PICKER_REFRESH_ENABLED=0 _zle_picker_start_focus=${7:-0}
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
+  _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
+  _ZLE_PICKER_BROWSE_LABEL=${_git_compare_status:-read-only comparison}
+  _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_navigation_picker_collect}
+  _zle_picker_start_focus=${7:-0}
+  _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_git_compare_details}")
+  _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_git_compare_actions}")
   _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
 }
 
@@ -1203,21 +1210,19 @@ _git_review_ref_collect() {
 }
 
 _git_review_revision_text() {
+  _zle_ui_view query _git_review_revision_view "$@"
+}
+
+_git_review_revision_view() {
   emulate -L zsh
   local root=$1 endpoint=$2 draft=${3:-}
+  local -i result=0
   local purpose=Compare opposite="Against: ${_git_compare_from_label:-not chosen}"
   [[ $endpoint == From ]] && { purpose=Against; opposite="Compare: ${_git_compare_to_label:-not chosen}"; }
-  local _ZLE_PICKER_TITLE="${purpose} · enter branch or commit" _ZLE_PICKER_SUBTITLE="${root:t} · $opposite"
-  local _ZLE_PICKER_QUERY_LABEL='Branch or commit' _ZLE_PICKER_INSPECT_ACTION=use _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_COLLECTOR=_zle_picker_query_collect _ZLE_PICKER_SEARCH_ACTION=''
-  local _ZLE_PICKER_BROWSE_LABEL='Enter a branch, tag, HEAD or commit ID'
-  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_DIGIT_SELECT=0 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
-  local -i _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_REFRESH_ENABLED=0 _zle_picker_start_focus=0 result=0
-  local _ZLE_PICKER_INSPECT_FALLBACK=''
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_GUIDE_CONTEXT=()
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -a _ZLE_PICKER_EMPTY_LINES=('Literal names and hexadecimal IDs; no ranges, paths or shell expansion.'
+  _ZLE_PICKER_TITLE="${purpose} · enter branch or commit" _ZLE_PICKER_SUBTITLE="${root:t} · $opposite"
+  _ZLE_PICKER_QUERY_LABEL='Branch or commit' _ZLE_PICKER_INSPECT_ACTION=use
+  _ZLE_PICKER_BROWSE_LABEL='Enter a branch, tag, HEAD or commit ID'
+  _ZLE_PICKER_EMPTY_LINES=('Literal names and hexadecimal IDs; no ranges, paths or shell expansion.'
     'Nothing is fetched. Digits remain text. Escape keeps the previous endpoint.')
   while true; do
     _zle_picker_loop "$draft" 10
@@ -1240,7 +1245,7 @@ _git_review_endpoint_choose() {
   local -i index=0 result=0 focus=0
   local -a _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=() bookmark=('' 1 0)
   local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=(enter enter)
+  local -A _git_compare_details=() _git_compare_actions=(enter enter)
   if _git_review_load _git_review_refs_capture "$root"; then
     _git_compare_status="${#_GIT_REVIEW_REFS} local refs · Enter chooses this side · no checkout"
     (( _GIT_REVIEW_TRUNCATED )) && _git_compare_status+=' · partial at 1,000 refs / 256 KiB'
@@ -1248,13 +1253,13 @@ _git_review_endpoint_choose() {
       value=$_GIT_REVIEW_REFS[index]
       _NAVIGATION_PICKER_VALUES+=("$index") _NAVIGATION_PICKER_INDEXES+=("$index")
       _NAVIGATION_PICKER_LABELS+=("$_GIT_REVIEW_REF_LABELS[index]")
-      _ZLE_PICKER_INSPECT_TEXTS[$index]="$value"$'\n'"$_GIT_REVIEW_REF_OIDS[index]"$'\n\nCaptured locally; no checkout or fetch.'
-      _ZLE_PICKER_ACCEPT_LABELS[$index]=use
+      _git_compare_details[$index]="$value"$'\n'"$_GIT_REVIEW_REF_OIDS[index]"$'\n\nCaptured locally; no checkout or fetch.'
+      _git_compare_actions[$index]=use
     done
   else
     _git_compare_status='Ref capture failed · enter an exact revision or return and retry'
   fi
-  _ZLE_PICKER_INSPECT_TEXTS[enter]='Enter an exact name or commit ID; validation runs only when submitted.'
+  _git_compare_details[enter]='Enter an exact name or commit ID; validation runs only when submitted.'
   while true; do
     _git_review_pick "$purpose · choose branch or commit" "${root:t} · $opposite" 'Find branch or tag' "${bookmark[@]}" "$focus"
     result=$?
@@ -1345,7 +1350,7 @@ _git_review_compare_choose() {
   local exact_text='' ancestor_text='' pair=''
   local -i result=0 focus=0 method_index=1
   local -a bookmark=('' 1 0) _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -A _git_compare_details=() _git_compare_actions=()
   if _git_review_load _git_review_resolve "$root" "${selected:+refs/heads/}${selected:-HEAD}"; then
     _git_compare_to=$REPLY _git_compare_to_label=${selected:-HEAD}
     bookmark[2]=2
@@ -1360,14 +1365,14 @@ _git_review_compare_choose() {
     _NAVIGATION_PICKER_VALUES=(to from method)
     _NAVIGATION_PICKER_LABELS=("Compare · $_git_compare_to_label" "Against · $_git_compare_from_label" "Show · $_git_compare_method_label")
     _NAVIGATION_PICKER_INDEXES=(1 2 3)
-    _ZLE_PICKER_ACCEPT_LABELS=(from change to change method change open review)
-    _ZLE_PICKER_INSPECT_TEXTS=(from "Against: $_git_compare_from_label"$'\n'"$_git_compare_from"$'\n\n'"Enter changes the branch or commit used as the baseline for $_git_compare_to_label."
+    _git_compare_actions=(from change to change method change open review)
+    _git_compare_details=(from "Against: $_git_compare_from_label"$'\n'"$_git_compare_from"$'\n\n'"Enter changes the branch or commit used as the baseline for $_git_compare_to_label."
       to "Compare: $_git_compare_to_label"$'\n'"$_git_compare_to"$'\n\nEnter changes the branch or commit you want to review.\nThe highlighted branch is a starting choice; no checkout occurs.'
       method "$exact_text")
-    [[ $_git_compare_method == ancestor ]] && _ZLE_PICKER_INSPECT_TEXTS[method]=$ancestor_text
+    [[ $_git_compare_method == ancestor ]] && _git_compare_details[method]=$ancestor_text
     if [[ -n $_git_compare_from && -n $_git_compare_to ]]; then
       _NAVIGATION_PICKER_VALUES+=(open) _NAVIGATION_PICKER_LABELS+=('Review differences') _NAVIGATION_PICKER_INDEXES+=(4)
-      _ZLE_PICKER_INSPECT_TEXTS[open]="$pair"$'\n'"$_git_compare_method_label"$'\n\n'"$_git_compare_context"$'\n\nRead-only · captured commits. Ctrl-R keeps their IDs.'
+      _git_compare_details[open]="$pair"$'\n'"$_git_compare_method_label"$'\n\n'"$_git_compare_context"$'\n\nRead-only · captured commits. Ctrl-R keeps their IDs.'
     fi
     _git_review_pick 'Compare branches or commits' "${root:t} · $pair" 'Filter choices' "${bookmark[@]}" "$focus"
     result=$?
@@ -1391,8 +1396,8 @@ _git_review_compare_choose() {
         fi ;;
       (method)
         _NAVIGATION_PICKER_VALUES=(exact ancestor) _NAVIGATION_PICKER_LABELS=('All differences' 'Changes since common ancestor') _NAVIGATION_PICKER_INDEXES=(1 2)
-        _ZLE_PICKER_INSPECT_TEXTS=(exact "$exact_text" ancestor "$ancestor_text")
-        _ZLE_PICKER_ACCEPT_LABELS=(exact use ancestor use)
+        _git_compare_details=(exact "$exact_text" ancestor "$ancestor_text")
+        _git_compare_actions=(exact use ancestor use)
         method_index=1
         [[ $_git_compare_method == ancestor ]] && method_index=2
         _git_review_pick 'Changes to show' "${root:t} · $pair" 'Filter choices' '' "$method_index"; result=$?
@@ -1433,8 +1438,8 @@ _git_review_session() {
     print -u2 -r -- 'g --review: requires an interactive terminal; use git diff for plain output.'
     return 1
   fi
-  if (( !${+functions[_zle_picker_run]} || !${+functions[_zle_picker_capture]} || !${+functions[_navigation_picker_collect]} )); then
-    print -u2 -r -- 'g --review: shared picker unavailable; enable .zsh.editor and .zsh.navigation.'
+  if (( !${+functions[_zle_picker_run]} || !${+functions[_zle_picker_capture]} || !${+functions[_navigation_picker_collect]} || !${+functions[_matching_compile]} )); then
+    print -u2 -r -- 'g --review: shared picker unavailable; keep .zsh.ui, .zsh.matching and .zsh.navigation installed.'
     return 1
   fi
   {
@@ -1473,15 +1478,19 @@ _git_review_session() {
 }
 
 _git_review_options() {
+  _zle_ui_view choice _git_review_options_view "$@"
+}
+
+_git_review_options_view() {
+  emulate -L zsh
   local root=$1 branch=$2
-  local _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_SUBTITLE="${root:t} · choose a read-only view"
-  local _ZLE_PICKER_QUERY_LABEL='Filter views' _ZLE_PICKER_INSPECT_ACTION=open
-  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
-  local _ZLE_PICKER_INSPECT_TITLE=Scope _ZLE_PICKER_BROWSE_LABEL='read-only review'
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=1
+  _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_SUBTITLE="${root:t} · choose a read-only view"
+  _ZLE_PICKER_QUERY_LABEL='Filter views' _ZLE_PICKER_INSPECT_ACTION=open
+  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_INSPECT_TITLE=Scope _ZLE_PICKER_BROWSE_LABEL='read-only review'
   local -a _NAVIGATION_PICKER_VALUES=(working) _NAVIGATION_PICKER_LABELS=('Working tree · Review working changes')
   local -a _NAVIGATION_PICKER_INDEXES=(1) _NAVIGATION_PICKER_SEARCH_LABELS=()
-  local -A _ZLE_PICKER_INSPECT_TEXTS=(working $'Current working tree\nStaged, unstaged and untracked\n\nReviews the currently checked-out tree.\nRead-only · no fetch or writes') _ZLE_PICKER_CONTEXTS=()
+  _ZLE_PICKER_INSPECT_TEXTS=(working $'Current working tree\nStaged, unstaged and untracked\n\nReviews the currently checked-out tree.\nRead-only · no fetch or writes')
   [[ -n $branch ]] && {
     _NAVIGATION_PICKER_VALUES+=(commits) _NAVIGATION_PICKER_LABELS+=("Selected branch · Commits in $branch")
     _NAVIGATION_PICKER_INDEXES+=(2)
@@ -1490,7 +1499,7 @@ _git_review_options() {
   _NAVIGATION_PICKER_VALUES+=(compare) _NAVIGATION_PICKER_LABELS+=('Compare branches or commits…')
   _NAVIGATION_PICKER_INDEXES+=("${#_NAVIGATION_PICKER_VALUES}")
   _ZLE_PICKER_INSPECT_TEXTS[compare]="Compare: ${branch:-HEAD}"$'\nAgainst: choose another branch or commit\n\nBoth choices can be changed. Review differences opens the two-pane reader.\nNo checkout or fetch.'
-  local -i _zle_picker_start_focus=${6:-0}
+  _zle_picker_start_focus=${6:-0}
   _zle_picker_loop "${3:-}" 10 "${4:-1}" "${5:-0}"
 }
 
@@ -1560,11 +1569,16 @@ _git_review_branch_choose() {
 }
 
 _git_review_unavailable() {
-  local _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_BROWSE_LABEL='unavailable'
+  _zle_ui_view notice _git_review_unavailable_view
+}
+
+_git_review_unavailable_view() {
+  emulate -L zsh
+  _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_BROWSE_LABEL='unavailable'
+  _ZLE_PICKER_SUBTITLE="${root:t} · read-only" _ZLE_PICKER_QUERY_LABEL='Filter notice'
+  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
   local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
-  local -a _ZLE_PICKER_EMPTY_LINES=('Unable to establish safe local Git inspection.' 'The branch or configuration may have changed. Escape returns.')
-  local -A _ZLE_PICKER_INSPECT_TEXTS=()
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  _ZLE_PICKER_EMPTY_LINES=('Unable to establish safe local Git inspection.' 'The branch or configuration may have changed. Escape returns.')
   _zle_picker_loop '' 10
 }
 

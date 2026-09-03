@@ -1,5 +1,5 @@
 # Git worktree action workspace. Definitions only at source time. Navigation
-# supplies g; the shared editor owns fuzzy interaction and screen restoration.
+# supplies g; the UI peer owns fuzzy interaction and screen restoration.
 typeset -g _GWT_ROOT='' _GWT_COMMON='' _GWT_ROOT_ID='' _GWT_COMMON_ID=''
 typeset -g _GWT_DATA='' _GWT_ERROR='' _GWT_HEAD='' _GWT_HEAD_REF=''
 typeset -ga _GWT_PATHS=() _GWT_BRANCHES=() _GWT_OIDS=() _GWT_STATES=()
@@ -447,38 +447,34 @@ _git_worktree_bookmark() {
 }
 
 _git_worktree_pick() {
+  _zle_ui_view choice _git_worktree_choice_view "$@"
+}
+
+_git_worktree_choice_view() {
   emulate -L zsh
-  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
-  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=choose
-  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_OPTIONS_KIND=worktree
-  local _ZLE_PICKER_BROWSE_LABEL=${_GWT_NOTICE:-local snapshot}
-  local _ZLE_PICKER_EMPTY_LABEL='no matching choices'
-  local _ZLE_PICKER_INSPECT_FALLBACK=''
-  local _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_SEARCH_ACTION=''
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=${_GWT_OPTIONS:-0}
-  local -i _ZLE_PICKER_HIERARCHY_ENABLED=${_GWT_HIERARCHY:-0}
-  local -i _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_QUERY_SUBMIT=0
-  local -i _ZLE_PICKER_REFRESH_ENABLED=0 _ZLE_PICKER_DOCUMENT=0
-  local -i _zle_picker_start_focus=${_GWT_FOCUS:-0}
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_GWT_DETAILS}")
-  local -A _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_GWT_LABELS}")
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
+  _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
+  _ZLE_PICKER_OPTIONS_KIND=worktree
+  _ZLE_PICKER_BROWSE_LABEL=${_GWT_NOTICE:-local snapshot}
+  _ZLE_PICKER_EMPTY_LABEL='no matching choices'
+  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_WORKSPACE_ACTIONS=${_GWT_OPTIONS:-0}
+  _ZLE_PICKER_HIERARCHY_ENABLED=${_GWT_HIERARCHY:-0}
+  _zle_picker_start_focus=${_GWT_FOCUS:-0}
+  _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_GWT_DETAILS}")
+  _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_GWT_LABELS}")
   _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
 }
 
 _git_worktree_text() {
+  _zle_ui_view query _git_worktree_text_view "$@"
+}
+
+_git_worktree_text_view() {
   emulate -L zsh
-  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$_GWT_ROOT
-  local _ZLE_PICKER_QUERY_LABEL=$2 _ZLE_PICKER_INSPECT_ACTION=continue
-  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_BROWSE_LABEL='Enter literal text, then Return'
-  local _ZLE_PICKER_COLLECTOR=_zle_picker_query_collect _ZLE_PICKER_SEARCH_ACTION=''
-  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_WORKSPACE_ACTIONS=0
-  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
-  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=0
-  local -i _zle_picker_start_focus=0
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=("$4")
+  _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$_GWT_ROOT
+  _ZLE_PICKER_QUERY_LABEL=$2 _ZLE_PICKER_INSPECT_ACTION=continue
+  _ZLE_PICKER_BROWSE_LABEL='Enter literal text, then Return'
+  _ZLE_PICKER_EMPTY_LINES=("$4")
   _zle_picker_loop "${3:-}" 10
 }
 
@@ -924,7 +920,7 @@ _git_worktree_session() {
   {
     _git_worktree_context "$PWD" && _git_worktree_snapshot || return 1
     if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
-        (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_navigation_picker_collect]} )); then
+        (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_navigation_picker_collect]} || !${+functions[_matching_compile]} )); then
       for (( index=1; index<=${#_GWT_PATHS}; ++index )); do
         print -r -- "${(V)_GWT_PATHS[index]} · ${(V)${_GWT_BRANCHES[index]:-detached HEAD}} ${_GWT_STATES[index]}"
       done

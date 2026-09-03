@@ -242,11 +242,14 @@
     .terminal-body { padding-inline: 18px; }
     .demo-tabs { margin-inline: 18px; }
   }
-  @media (max-width: 940px) {
+  /* The two columns need 360 + 600 + 34px, plus 64px of page margins. */
+  @media (max-width: 1058px) {
     .hero { grid-template-columns: 1fr; gap: 36px; }
     .hero-copy h1 { font-size: clamp(68px, 10vw, 92px); max-width: 720px; }
     .hero-description { max-width: 540px; }
     .demo-wrap { padding-top: 0; }
+  }
+  @media (max-width: 940px) {
     .principles-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px; }
     .site-header nav { gap: 22px; }
     .site-header nav a:first-child { display: none; }

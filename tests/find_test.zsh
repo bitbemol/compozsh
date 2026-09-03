@@ -16,6 +16,7 @@ _test_file_search_git_provider() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _file_search_capture_git "$2" "net cli" || exit
     print -r -- "labels:${(j:|:)_FILE_SEARCH_LABELS}"
     print -r -- "ignored:${_FILE_SEARCH_VALUES[(I)*private-cache.bin]}"
@@ -39,6 +40,7 @@ _test_file_search_picker_ranking() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     typeset -ga _FILE_SEARCH_VALUES=(/tmp/one /tmp/two /tmp/three)
     typeset -ga _FILE_SEARCH_LABELS=(
       "· notes/alpha-project.md"
@@ -71,6 +73,7 @@ _test_file_search_candidate_summary() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     typeset -ga _FILE_SEARCH_VALUES=(/tmp/one)
     _FILE_SEARCH_TRUNCATED=0
     _file_search_candidate_summary needle
@@ -101,6 +104,7 @@ _test_file_search_local_boundaries() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _file_search_capture_local "$2" hidden || exit
     print -r -- "hidden:${(j:|:)_FILE_SEARCH_LABELS}"
     _file_search_capture_local "$2" secret
@@ -140,6 +144,7 @@ _test_file_search_spotlight_boundary() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     export FAKE_MDFIND_LOG="$4"
     export FAKE_MDFIND_INSIDE="$HOME/Documents/Final Report.txt"
     export FAKE_MDFIND_OUTSIDE="$3"
@@ -172,6 +177,7 @@ _test_file_search_command_contract() {
   expected_quoted=${(q)selected_path}
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _file_search_capture "$2" "final ready" local
     list_status=$?
     print -rl -- "${_FILE_SEARCH_VALUES[@]}"
@@ -202,6 +208,7 @@ _test_file_search_path_fidelity() {
   test_write_file "$root/$filename" 'result' || return
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     command git -C "$2" init -q || exit
     for provider in local git; do
       _file_search_capture "$2" "notes" "$provider" || exit
@@ -214,19 +221,18 @@ _test_file_search_path_fidelity() {
 test_case 'filesystem and Git capture preserve newline-bearing paths as literal array values' \
   _test_file_search_path_fidelity
 
-_test_editor_owns_command_picker_lifecycle() {
+_test_ui_owns_command_picker_lifecycle() {
   test_make_temp_dir || return
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
-    source "$1/.zsh.addons/.zsh.editor"
-    typeset -a hooks=()
-    zstyle -a zle-line-init widgets hooks
-    (( hooks[(I)*:_zle_picker_line_init] )) && registered=1
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    [[ ${widgets[compozsh-picker-init]} == user:_zle_picker_line_init ]] && registered=1
     print -r -- "${+functions[_zle_picker_run]}|${widgets[compozsh-picker]}|${registered:-0}"
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal '1|user:_zle_picker_widget|1' "$output" \
-    'the editor does not own a reusable order-independent command picker'
+    'UI does not own a reusable order-independent command picker'
 }
-test_case 'shared editor owns the reusable command-picker lifecycle' \
-  _test_editor_owns_command_picker_lifecycle
+test_case 'shared UI owns the reusable command-picker lifecycle' \
+  _test_ui_owns_command_picker_lifecycle

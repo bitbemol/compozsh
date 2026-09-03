@@ -5,6 +5,9 @@ _test_picker_keyboard_escape() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     zmodload zsh/zpty
     zmodload zsh/zselect
     command mkfifo "$HOME/events" || exit 1
@@ -128,6 +131,7 @@ _test_picker_keyboard_help() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.find"
     source "$1/.zsh.addons/.zsh.help"
     local tool="" help=""
@@ -149,6 +153,9 @@ _test_picker_keyboard_shared_contract() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local spec="" footer="" guide="" token=""
     local -a fields=()
     COLUMNS=200 LINES=60

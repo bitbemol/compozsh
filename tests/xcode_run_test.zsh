@@ -22,6 +22,9 @@ _test_xcode_run_log_resize_tail() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local -i _ZLE_PICKER_INSPECT_CLIP_LINES=1
     local text="" width=0 index=0
     for (( index=1; index<=200; ++index )); do
@@ -148,6 +151,9 @@ _test_xcode_run_idle_freezes_reading() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     zmodload zsh/system
     command mkfifo "$HOME/output" || exit 1
@@ -185,6 +191,9 @@ _test_xcode_run_action_continuity() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log=$(print -rl -- row-{001..100})
@@ -239,6 +248,9 @@ _test_xcode_run_quiet_feedback() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log="" _xcode_run_eof=0 _xcode_run_trimmed=0 _xcode_run_context=fixture
@@ -284,6 +296,9 @@ _test_xcode_run_narrow_layout() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log=$(print -rl -- row-{001..100})
@@ -475,6 +490,7 @@ exit 23' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
     typeset -gA ZSH_OUTPUT_COLORS=(heading 123 warning 124 muted 125)
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output"
     source "$1/.zsh.addons/.zsh.output"
     (( ${+functions[_xcode_run_debugger]} )) || { print -u2 missing-debugger-presentation; exit 1; }
@@ -581,6 +597,9 @@ command cat > "$HOME/copied"' || return
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     PROMPT="fixture> " RPROMPT="clock"
     exec {events}<> "$HOME/events"

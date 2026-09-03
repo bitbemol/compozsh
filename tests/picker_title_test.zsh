@@ -5,6 +5,9 @@ _test_picker_titles() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
     _ZLE_PICKER_SUBTITLE="~ › Projects"
     _ZLE_PICKER_BROWSE_LABEL="captured items"
@@ -52,6 +55,9 @@ _test_picker_title_sizing() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_SCREEN_ACTIVE=1 LINES=30
     _ZLE_PICKER_RESULTS=(one) _ZLE_PICKER_LABELS=(one)
     _ZLE_PICKER_TITLE="Directory browser" _ZLE_PICKER_INSPECT_ACTION=insert

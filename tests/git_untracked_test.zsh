@@ -3,6 +3,9 @@ _test_git_untracked_nested_discovery() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     mkdir -p "$HOME/repo" "$HOME/outside"
@@ -166,6 +169,9 @@ _test_git_untracked_cache() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     local -A _git_document_cache=() _git_document_partial=() _git_document_contexts=() _git_document_anchors=()
     local -a _git_document_order=() _GIT_REVIEW_PATHS=(new.zsh) _GIT_REVIEW_KINDS=(untracked)

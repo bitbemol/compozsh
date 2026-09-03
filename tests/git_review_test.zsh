@@ -4,6 +4,7 @@ _test_git_review_capture() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     [[ -f "$1/.zsh.addons/.zsh.git-review" ]] || { print -u2 "missing Git review capability"; exit 1; }
     source "$1/.zsh.addons/.zsh.git-review"
     mkdir -p "$HOME/repo"
@@ -51,6 +52,7 @@ _test_git_review_history() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     [[ -f "$1/.zsh.addons/.zsh.git-review" ]] || { print -u2 "missing commit review capability"; exit 1; }
     source "$1/.zsh.addons/.zsh.git-review"
     mkdir -p "$HOME/repo"
@@ -84,6 +86,9 @@ _test_git_review_render() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     [[ -f "$1/.zsh.addons/.zsh.git-review" ]] || { print -u2 "missing diff review capability"; exit 1; }
     source "$1/.zsh.addons/.zsh.git-review"
@@ -237,6 +242,9 @@ _test_git_review_code_fidelity() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_KEY=one
     _GIT_REVIEW_DATA=$'\''@@ -1 +1 @@\n--- removed text\n+++ added text\n'\''
@@ -265,8 +273,11 @@ _test_git_review_failures() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.git-review"
     local root=/fixture clipboard_binary="" _ZLE_PICKER_TITLE=Branches step=0 scenario=""
+    source "$1/.zsh.addons/support/.zsh.ui"
+    _ZLE_PICKER_TITLE=Branches
     _zle_picker_loop() {
       (( ++step ))
       _ZLE_PICKER_BOOKMARK=("filter" 2 0) _ZLE_PICKER_BOOKMARK_FOCUS=1
@@ -342,6 +353,7 @@ _test_git_review_empty_states() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.git-review"
     _zle_picker_capture() { shift 3; "$@"; }
     _git_review_changes_capture() {

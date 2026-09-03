@@ -6,6 +6,9 @@ _test_directory_navigator_bookmarks() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
     _DIRECTORY_PICKER_INPUT="~/Projects/"
     _DIRECTORY_PICKER_STACK=()
@@ -42,6 +45,9 @@ _test_directory_navigator_hidden() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
     _DIRECTORY_PICKER_INPUT="~/Projects/"
     _DIRECTORY_PICKER_SHOW_HIDDEN=0
@@ -75,6 +81,9 @@ _test_directory_navigator_header() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _directory_picker_breadcrumb "~/Projects/Example & Co/"
     [[ $REPLY == "~ › Projects › Example & Co" ]] || exit 1
     _ZLE_PICKER_SUBTITLE=$REPLY
@@ -123,6 +132,9 @@ _test_directory_navigator_native() {
     PATH="$HOME/bin:$PATH"
     rehash
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
     zmodload zsh/zpty
     zmodload zsh/zselect

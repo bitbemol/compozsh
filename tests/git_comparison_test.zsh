@@ -4,6 +4,7 @@ _test_git_comparison_providers() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.git-review"
     (( ${+functions[_git_review_resolve]} )) || { print -u2 "missing revision comparison"; exit 1; }
     mkdir -p "$HOME/repo"
@@ -85,6 +86,7 @@ _test_git_comparison_entry() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     # Operational helper fails if help probes it; the existing g provider owns help.
     _git_review_session() { print -u2 unexpected-session; return 71; }
     g --review --help > "$HOME/help" 2> "$HOME/error"
@@ -125,6 +127,9 @@ _test_git_comparison_navigation() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     (( ${+functions[_git_review_compare_choose]} )) || exit 1
@@ -170,6 +175,9 @@ _test_git_comparison_guide() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_GUIDE_CONTEXT=("Captured comparison: exact versions" "From: aaaa" "To: bbbb")
     LINES=100
     _zle_picker_guide_render 100

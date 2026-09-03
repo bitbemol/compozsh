@@ -5,6 +5,9 @@ _test_picker_scroll_viewport() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_RESULTS=(item-{01..25})
     _ZLE_PICKER_LABELS=("${_ZLE_PICKER_RESULTS[@]}")
     _ZLE_PICKER_RESULT_INDEXES=({1..25})
@@ -40,6 +43,9 @@ _test_picker_scroll_collectors() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     fc -p /dev/null 50000
     for i in {1..35}; do print -s -- "fixture command-$i"; done
     # Commit the final queued event; the unrelated sentinel is not a match.
@@ -74,6 +80,9 @@ _test_picker_scroll_navigation_and_tools() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.help"
     # d and g share navigation capture; compozsh owns the tool catalog.
@@ -110,6 +119,9 @@ _test_picker_scroll_focused_panels() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_RESULTS=(item-{01..25})
     _ZLE_PICKER_LABELS=("${_ZLE_PICKER_RESULTS[@]}")
     _ZLE_PICKER_VIEW_LIMIT=10
@@ -155,8 +167,11 @@ _test_picker_scroll_native() {
     export LC_ALL=en_US.UTF-8
     path=("$3" "${path[@]}")
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/tests/support.zsh"
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd "$2"
     source "$1/.zsh.addons/.zsh.prompt"
     zmodload zsh/zpty

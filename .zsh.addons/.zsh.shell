@@ -27,20 +27,6 @@ setopt HIST_REDUCE_BLANKS
 setopt HIST_SAVE_NO_DUPS
 
 # Let BSD/macOS tools color semantic output only when stdout is a terminal.
-# LSCOLORS covers directories, links, sockets, pipes, executables, devices,
-# privileged files, writable directories, and dataless files in that order.
 typeset -gx CLICOLOR=${CLICOLOR:-1}
-typeset -gA _COMPOZSH_COLOR_MANAGED _COMPOZSH_COLOR_FALLBACKS
-_COMPOZSH_COLOR_FALLBACKS[lscolors]=${_COMPOZSH_COLOR_FALLBACKS[lscolors]:-ExFxgxDxCxBxbxHbHfadabdx}
-if (( ${+LSCOLORS} )); then
-  if (( !${+_COMPOZSH_COLOR_MANAGED[lscolors]} )) ||
-     [[ -n ${_COMPOZSH_COLOR_MANAGED[lscolors]} &&
-        $LSCOLORS != ${_COMPOZSH_COLOR_MANAGED[lscolors]} ]]; then
-    _COMPOZSH_COLOR_MANAGED[lscolors]=''
-  fi
-else
-  typeset -gx LSCOLORS=ExFxgxDxCxBxbxHbHfadabdx
-  _COMPOZSH_COLOR_MANAGED[lscolors]=$LSCOLORS
-fi
 
 :

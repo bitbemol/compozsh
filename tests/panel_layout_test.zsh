@@ -5,6 +5,9 @@ _test_panel_layout_hierarchy() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_RESULTS=(first second third)
     _ZLE_PICKER_LABELS=(feature/first feature/second feature/third)
     _ZLE_PICKER_RESULT_INDEXES=(0 1 2)
@@ -57,6 +60,9 @@ _test_panel_layout_small_windows() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_RESULTS=(first second third)
     _ZLE_PICKER_LABELS=(first second third)
     _ZLE_PICKER_RESULT_INDEXES=(0 1 2)
@@ -108,6 +114,9 @@ _test_panel_layout_native_resize() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.prompt"
     zmodload zsh/zpty
     functions[_panel_original_show]=$functions[_zle_picker_show]

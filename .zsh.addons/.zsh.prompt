@@ -5,51 +5,48 @@
 zmodload zsh/datetime
 zmodload -F zsh/stat b:zstat
 
-# Public prompt palette. UI structure uses muted colors, identity and location
-# have reserved hues, and state colors keep their conventional meaning. The
-# early local initializer may replace a role; this unit fills missing defaults.
-_prompt_apply_color_defaults() {
-  emulate -L zsh
-  local -A defaults=(
-    frame       240
-    identity    109
-    path        80
-    project     245
-    symbol      87
-    success     71
-    warning     221
-    danger      203
-    info        75
-    detached    170
-    duration    177
-    environment 147
-    jobs        215
-    tool        69
-    framework   176
-    container   44
-  )
-  local role key current
+# Appearance owns defaults; this consumer preserves explicit public roles.
+typeset -gA ZSH_PROMPT_COLORS
 
-  typeset -gA ZSH_PROMPT_COLORS _COMPOZSH_COLOR_MANAGED
-  typeset -gA _COMPOZSH_COLOR_FALLBACKS
-  for role in ${(k)defaults}; do
-    key="prompt:$role"
-    _COMPOZSH_COLOR_FALLBACKS[$key]=${_COMPOZSH_COLOR_FALLBACKS[$key]:-${defaults[$role]}}
-    if (( ${+ZSH_PROMPT_COLORS[$role]} )); then
-      current=${ZSH_PROMPT_COLORS[$role]}
-      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
-         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
-            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
-        _COMPOZSH_COLOR_MANAGED[$key]=''
-      fi
-    else
-      ZSH_PROMPT_COLORS[$role]=${defaults[$role]}
-      _COMPOZSH_COLOR_MANAGED[$key]=${defaults[$role]}
-    fi
-  done
+# Resolve current public roles without installing defaults. A missing appearance
+# peer leaves native text; malformed values never enter prompt expansion.
+_prompt_color() {
+  emulate -L zsh
+  local role=$1 value=''
+  if [[ ${(t)ZSH_PROMPT_COLORS} == association* ]]; then
+    value=${ZSH_PROMPT_COLORS[$role]-}
+  fi
+  if [[ $value != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
+    value=${_COMPOZSH_COLOR_FALLBACKS[prompt:$role]-}
+  fi
+  REPLY=''
+  [[ $value == <0-255> ]] || return 1
+  REPLY=$value
 }
-_prompt_apply_color_defaults
-unfunction _prompt_apply_color_defaults
+
+_prompt_color_text() {
+  local text=$2
+  if _prompt_color "$1"; then
+    REPLY="%F{${REPLY}}${text}%f"
+  else
+    REPLY=$text
+  fi
+}
+
+# Base prompt strings retain their existing live segment references. Resolving
+# colors here avoids a source-time snapshot and introduces no prompt subshell.
+_prompt_base() {
+  emulate -L zsh
+  local frame='' identity='' jobs=''
+  _prompt_color frame || :
+  frame=$REPLY
+  _prompt_color identity || :
+  identity=$REPLY
+  _prompt_color jobs || :
+  jobs=$REPLY
+  PROMPT="%F{${frame:-default}}╭─%f %F{${identity:-default}}%n@%m%f "'${_PROMPT_PATH_SEGMENT}${_PROMPT_ENV_SEGMENT}${_PROMPT_GIT_SEGMENT}${_PROMPT_TIME_SEGMENT}${_PROMPT_EXIT_SEGMENT} '"%(1j.%F{${jobs:-default}}%j jobs%f .)"'${_PROMPT_PROJECT_SEGMENT}'$'\n'"%F{${frame:-default}}╰─%f "'%F{${_PROMPT_SYMBOL_COLOR:-default}}❯%f '
+  RPROMPT="%F{${frame:-default}}%D{%H:%M}%f"
+}
 
 typeset -gF _PROMPT_COMMAND_STARTED=0
 typeset -g _PROMPT_EXIT_SEGMENT=''
@@ -57,12 +54,12 @@ typeset -g _PROMPT_TIME_SEGMENT=''
 typeset -g _PROMPT_ENV_SEGMENT=''
 typeset -g _PROMPT_GIT_SEGMENT=''
 typeset -g _PROMPT_GIT_TEXT=''
-typeset -g _PROMPT_GIT_COLOR=${ZSH_PROMPT_COLORS[success]}
+typeset -g _PROMPT_GIT_COLOR=''
 typeset -g _PROMPT_PATH_SEGMENT=''
 typeset -g _PROMPT_PATH_TEXT=''
 typeset -g _PROMPT_PROJECT_SEGMENT=''
 typeset -g _PROMPT_PROJECT_NAME_TEXT=''
-typeset -g _PROMPT_SYMBOL_COLOR=${ZSH_PROMPT_COLORS[symbol]}
+typeset -g _PROMPT_SYMBOL_COLOR=''
 typeset -gi _PROMPT_TOP_BASE_WIDTH=0
 typeset -ga _PROMPT_PROJECT_ITEMS=()
 typeset -ga _PROMPT_PROJECT_ITEM_WIDTHS=()
@@ -110,11 +107,18 @@ _prompt_abbreviate() {
 
 # Called by custom project-context functions to append a safe, colored item.
 prompt_add_project_segment() {
+  emulate -L zsh
   (( $# >= 1 )) || return 2
-  local text=$1 color=${2:-white}
+  local text=$1 color=${2:-}
+
+  if [[ -z $color ]]; then
+    _prompt_color tool || :
+    color=$REPLY
+  fi
 
   _prompt_escape "$text"
-  _PROMPT_PROJECT_EXTRA_SEGMENTS+=("%F{${color}}${REPLY}%f")
+  [[ -n $color ]] && REPLY="%F{${color}}${REPLY}%f"
+  _PROMPT_PROJECT_EXTRA_SEGMENTS+=("$REPLY")
   _PROMPT_PROJECT_EXTRA_WIDTHS+=("${#text}")
 }
 
@@ -203,14 +207,16 @@ _prompt_git() {
   local git_dir operation=''
   local cache_key="${PWD}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
   local summary=''
-  local color=${ZSH_PROMPT_COLORS[success]}
+  local color=''
+  _prompt_color success || :
+  color=$REPLY
   local -i staged=0 modified=0 untracked=0 conflicted=0 ahead=0 behind=0 stash=0
   local -i detached=0
   local -a fields indicators filter_config
 
   REPLY=''
   _PROMPT_GIT_TEXT=''
-  _PROMPT_GIT_COLOR=${ZSH_PROMPT_COLORS[success]}
+  _PROMPT_GIT_COLOR=$color
   _prompt_has_git_context "$PWD" || return
   _prompt_git_filter_config "$PWD" || return
   filter_config=("${reply[@]}")
@@ -256,7 +262,8 @@ _prompt_git() {
 
   if [[ $branch == '(detached)' ]]; then
     branch="@${oid[1,7]}"
-    color=${ZSH_PROMPT_COLORS[detached]}
+    _prompt_color detached || :
+    color=$REPLY
     detached=1
   elif [[ -z $branch ]]; then
     branch='unknown'
@@ -285,11 +292,14 @@ _prompt_git() {
   (( !detached )) && [[ -z $upstream ]] && indicators+=('no-upstream')
 
   if (( conflicted )) || [[ -n $operation ]]; then
-    color=${ZSH_PROMPT_COLORS[danger]}
+    _prompt_color danger || :
+    color=$REPLY
   elif (( staged || modified || untracked )); then
-    color=${ZSH_PROMPT_COLORS[warning]}
+    _prompt_color warning || :
+    color=$REPLY
   elif (( behind )); then
-    color=${ZSH_PROMPT_COLORS[info]}
+    _prompt_color info || :
+    color=$REPLY
   fi
 
   if (( ${#indicators} == 0 )); then
@@ -301,7 +311,7 @@ _prompt_git() {
   _PROMPT_GIT_TEXT=$summary
   _PROMPT_GIT_COLOR=$color
   _prompt_escape "$summary"
-  REPLY="%F{${color}}${REPLY}%f"
+  REPLY="%F{${color:-default}}${REPLY}%f"
 }
 
 # Reflow the path and already-collected Git summary without launching Git again.
@@ -333,7 +343,8 @@ _prompt_layout() {
   rendered_path=$REPLY
   if [[ -n $rendered_path ]]; then
     _prompt_escape "$rendered_path"
-    _PROMPT_PATH_SEGMENT="%F{${ZSH_PROMPT_COLORS[path]}}${REPLY}%f"
+    _prompt_color_text path "$REPLY"
+    _PROMPT_PATH_SEGMENT=$REPLY
   fi
 
   [[ -n $rendered_summary ]] || return
@@ -345,12 +356,13 @@ _prompt_layout() {
   rendered_summary=$REPLY
 
   _prompt_escape "$rendered_summary"
-  rendered_git="%F{${_PROMPT_GIT_COLOR}}${REPLY}%f"
+  rendered_git="%F{${_PROMPT_GIT_COLOR:-default}}${REPLY}%f"
 
   if (( git_inline )); then
     _PROMPT_GIT_SEGMENT=" ${rendered_git}"
   else
-    _PROMPT_GIT_SEGMENT=$'\n'"%F{${ZSH_PROMPT_COLORS[frame]}}├─%f ${rendered_git}"
+    _prompt_color_text frame '├─'
+    _PROMPT_GIT_SEGMENT=$'\n'"${REPLY} ${rendered_git}"
   fi
 }
 
@@ -383,7 +395,10 @@ _prompt_project_layout() {
 
   _prompt_escape "$project_name"
   rendered_name=$REPLY
-  _PROMPT_PROJECT_SEGMENT=$'\n'"%F{${ZSH_PROMPT_COLORS[frame]}}├─%f %F{${ZSH_PROMPT_COLORS[project]}}${rendered_name}%f"
+  _prompt_color_text project "$rendered_name"
+  rendered_name=$REPLY
+  _prompt_color_text frame '├─'
+  _PROMPT_PROJECT_SEGMENT=$'\n'"${REPLY} ${rendered_name}"
   if (( ${#visible_items} )); then
     _PROMPT_PROJECT_SEGMENT+=" ${(j: · :)visible_items}"
   fi
@@ -393,47 +408,6 @@ _prompt_project_layout() {
 # until the prompt invokes these helpers, so this peer may load before or after
 # the prompt unit without changing the final shell.
 
-typeset -gA _PROMPT_RUNTIME_COLORS=(
-  zsh cyan
-  c-cpp blue
-  objective-c blue
-  asm yellow
-  scheme magenta
-  racket magenta
-  lisp magenta
-  typescript blue
-  deno green
-  php magenta
-  shell green
-  powershell blue
-  kotlin magenta
-  lua blue
-  r blue
-  zig yellow
-  gdscript blue
-  terraform magenta
-  julia magenta
-  perl blue
-  fortran blue
-  ocaml yellow
-  scala red
-  erlang red
-  gleam magenta
-  groovy blue
-  fsharp cyan
-  visual-basic blue
-  swift 208
-  node green
-  python yellow
-  haskell magenta
-  rust 208
-  go cyan
-  ruby red
-  java blue
-  dotnet magenta
-  dart cyan
-  elixir magenta
-)
 typeset -gA _PROMPT_RUNTIME_LABELS=(
   c-cpp 'c/c++'
   objective-c 'objective-c'
@@ -1224,7 +1198,7 @@ _prompt_scan_source_languages() {
     )
     if (( ${#files} >= 129 )); then
       _PROMPT_SOURCE_SCAN_SATURATED=1
-      files=("${files[1,128]}")
+      files=("${(@)files[1,128]}")
     fi
     for file in "${files[@]}"; do
       language=''
@@ -1681,13 +1655,17 @@ _prompt_project_context() {
   for language in "${languages[@]}"; do
     _prompt_runtime_version "$language" "$project_root"
     version=$REPLY
-    color=${_PROMPT_RUNTIME_COLORS[$language]:-white}
-    [[ $version == not-installed || $version == unavailable ||
-       $version == unknown ]] && color=${ZSH_PROMPT_COLORS[danger]}
+    _prompt_color tool || :
+    color=$REPLY
+    if [[ $version == not-installed || $version == unavailable ||
+          $version == unknown ]]; then
+      _prompt_color danger || :
+      color=$REPLY
+    fi
     label=${_PROMPT_RUNTIME_LABELS[$language]:-$language}
     runtime_text="${label} ${version}"
     _prompt_escape "$runtime_text"
-    rendered+=("%F{${color}}${REPLY}%f")
+    rendered+=("%F{${color:-default}}${REPLY}%f")
     rendered_widths+=("${#runtime_text}")
 
     _prompt_expected_runtime_version "$language" "$project_root"
@@ -1697,7 +1675,8 @@ _prompt_project_context() {
        ! _prompt_versions_match "$version" "$expected"; then
       warning_text="⚠ ${label} wants ${expected}"
       _prompt_escape "$warning_text"
-      warnings+=("%F{${ZSH_PROMPT_COLORS[danger]}}${REPLY}%f")
+      _prompt_color_text danger "$REPLY"
+      warnings+=("$REPLY")
       warning_widths+=("${#warning_text}")
     fi
   done
@@ -1920,15 +1899,18 @@ _prompt_project_context() {
   done
 
   for language in "${tools[@]}"; do
-    rendered+=("%F{${ZSH_PROMPT_COLORS[tool]}}${language}%f")
+    _prompt_color_text tool "$language"
+    rendered+=("$REPLY")
     rendered_widths+=("${#language}")
   done
   for language in "${frameworks[@]}"; do
-    rendered+=("%F{${ZSH_PROMPT_COLORS[framework]}}${language}%f")
+    _prompt_color_text framework "$language"
+    rendered+=("$REPLY")
     rendered_widths+=("${#language}")
   done
   for language in "${environment[@]}"; do
-    rendered+=("%F{${ZSH_PROMPT_COLORS[container]}}${language}%f")
+    _prompt_color_text container "$language"
+    rendered+=("$REPLY")
     rendered_widths+=("${#language}")
   done
   for (( index = 1; index <= ${#_PROMPT_PROJECT_EXTRA_SEGMENTS}; index++ )); do
@@ -1953,10 +1935,12 @@ _prompt_update() {
   local -i top_extra_width=0 job_count=0
 
   _PROMPT_EXIT_SEGMENT=''
-  _PROMPT_SYMBOL_COLOR=${ZSH_PROMPT_COLORS[symbol]}
+  _prompt_color symbol || :
+  _PROMPT_SYMBOL_COLOR=$REPLY
   if (( last_status != 0 )); then
-    _PROMPT_EXIT_SEGMENT=" %F{${ZSH_PROMPT_COLORS[danger]}}exit:${last_status}%f"
-    _PROMPT_SYMBOL_COLOR=${ZSH_PROMPT_COLORS[danger]}
+    _prompt_color danger || :
+    _PROMPT_SYMBOL_COLOR=$REPLY
+    _PROMPT_EXIT_SEGMENT=" %F{${REPLY:-default}}exit:${last_status}%f"
     (( top_extra_width += 6 + ${#last_status} ))
   fi
 
@@ -1964,7 +1948,8 @@ _prompt_update() {
   if (( _PROMPT_COMMAND_STARTED > 0 )); then
     elapsed=$(( EPOCHREALTIME - _PROMPT_COMMAND_STARTED ))
     if (( elapsed >= 2.0 )); then
-      _PROMPT_TIME_SEGMENT=" %F{${ZSH_PROMPT_COLORS[duration]}}${elapsed}s%f"
+      _prompt_color_text duration "${elapsed}s"
+      _PROMPT_TIME_SEGMENT=" $REPLY"
       (( top_extra_width += 2 + ${#elapsed} ))
     fi
   fi
@@ -1978,7 +1963,8 @@ _prompt_update() {
   fi
   if [[ -n $env_name ]]; then
     _prompt_escape "$env_name"
-    _PROMPT_ENV_SEGMENT=" %F{${ZSH_PROMPT_COLORS[environment]}}py:${REPLY}%f"
+    _prompt_color_text environment "py:$REPLY"
+    _PROMPT_ENV_SEGMENT=" $REPLY"
     (( top_extra_width += 4 + ${#env_name} ))
   fi
 
@@ -1999,6 +1985,8 @@ _prompt_update() {
     _PROMPT_PROJECT_ITEM_WIDTHS=()
     _PROMPT_PROJECT_SEGMENT=''
   fi
+
+  _prompt_base
 
   # Keep the window/tab title useful without printing anything in the terminal.
   if [[ $TERM != dumb ]]; then
@@ -2065,8 +2053,10 @@ precmd_functions+=(_prompt_update)
 preexec_functions=(${preexec_functions:#_prompt_command_started})
 preexec_functions+=(_prompt_command_started)
 
-PROMPT='%F{${ZSH_PROMPT_COLORS[frame]}}╭─%f %F{${ZSH_PROMPT_COLORS[identity]}}%n@%m%f ${_PROMPT_PATH_SEGMENT}${_PROMPT_ENV_SEGMENT}${_PROMPT_GIT_SEGMENT}${_PROMPT_TIME_SEGMENT}${_PROMPT_EXIT_SEGMENT} %(1j.%F{${ZSH_PROMPT_COLORS[jobs]}}%j jobs%f .)${_PROMPT_PROJECT_SEGMENT}
-%F{${ZSH_PROMPT_COLORS[frame]}}╰─%f %F{${_PROMPT_SYMBOL_COLOR}}❯%f '
-RPROMPT='%F{${ZSH_PROMPT_COLORS[frame]}}%D{%H:%M}%f'
+# The first precmd resolves the selected palette; loading a consumer never
+# snapshots missing or preceding appearance values into the base prompt.
+PROMPT='╭─ %n@%m ${_PROMPT_PATH_SEGMENT}${_PROMPT_ENV_SEGMENT}${_PROMPT_GIT_SEGMENT}${_PROMPT_TIME_SEGMENT}${_PROMPT_EXIT_SEGMENT} %(1j.%j jobs .)${_PROMPT_PROJECT_SEGMENT}
+╰─ ❯ '
+RPROMPT='%D{%H:%M}'
 
 :

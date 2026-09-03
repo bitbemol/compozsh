@@ -124,6 +124,9 @@ _test_xcode_log_paused_source_failure_visibility() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     local _xcode_run_log="" _xcode_run_trimmed=0
     local _xcode_run_context="Fixture app and exact selected Simulator"

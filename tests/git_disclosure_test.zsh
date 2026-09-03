@@ -3,6 +3,9 @@ _test_git_disclosure_transitions() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local mode="" direction="" expected="" focus=0
     for mode in focused full ""; do
       for focus in 0 1; do
@@ -60,6 +63,9 @@ _test_git_document_focus_visibility() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
     _ZLE_PICKER_RESULTS=(README.md AGENTS.md)
     _ZLE_PICKER_LABELS=(README.md AGENTS.md)
@@ -98,6 +104,9 @@ _test_git_disclosure_capabilities() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     local -A _git_document_cache=() _git_document_partial=() _git_document_contexts=() _git_document_anchors=()
     local -a _git_document_order=() _GIT_REVIEW_PATHS=(tracked new binary failed) _GIT_REVIEW_KINDS=(unstaged untracked unstaged unstaged)

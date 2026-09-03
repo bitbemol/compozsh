@@ -16,6 +16,9 @@ _test_file_actions_native() {
     export LC_ALL=en_US.UTF-8
     path=("$3" "${path[@]}")
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.find"
     source "$1/tests/support.zsh"
     builtin cd "${2:A}"
@@ -28,12 +31,18 @@ _test_file_actions_native() {
       # The waiting frame is not an actionable result. Its lifecycle is
       # covered separately by search_capture_test; synchronize on ready views.
       (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
+      if [[ $scenario == empty-menu && $_ZLE_PICKER_TITLE == "File actions" &&
+            $_ZLE_PICKER_QUERY == impossible-action ]]; then
+        [[ ${(j:|:)_ZLE_PICKER_DISPLAY} != *"No matching captured paths"* &&
+           ${(j:|:)_ZLE_PICKER_DISPLAY} != *"Ctrl-F edits the search"* &&
+           ${#_ZLE_PICKER_RESULTS} == 0 ]] || invalid_menu=1
+      fi
       print -r -- "FRAME:$_ZLE_PICKER_TITLE:$_ZLE_PICKER_QUERY:$_ZLE_PICKER_SELECTED:$_ZLE_PICKER_VIEW_OFFSET:$captures:END-ACTION-FRAME"
     }
     _actions_driver() {
       COLUMNS=120 LINES=30
       setopt AUTO_PUSHD PUSHD_SILENT
-      local -i captures=0
+      local -i captures=0 invalid_menu=0
       local original=$PWD actual="" expected="$PWD/note & final.txt"
       case $scenario in
         (directory|directory-digit) test_search_session folder ;;
@@ -59,11 +68,11 @@ _test_file_actions_native() {
           IFS= read -r -z actual || return 5
           _file_search_quote "$expected"
           [[ $actual == "$REPLY" ]] || return 6 ;;
-        (link|resume)
+        (link|resume|empty-menu)
           [[ ! -e "$HOME/opened" && ! -e "$HOME/copied" ]] || return 7 ;;
       esac
       [[ $scenario == directory* || $scenario == linked-directory || $PWD == "$original" ]] || return 8
-      (( captures == 1 && !_ZLE_PICKER_ACTIVE && !${#_ZLE_PICKER_INSPECT_TEXTS} )) || return 9
+      (( captures == 1 && !invalid_menu && !_ZLE_PICKER_ACTIVE && !${#_ZLE_PICKER_INSPECT_TEXTS} )) || return 9
       print -r -- END-ACTION-DONE
     }
     _actions_read() {
@@ -76,7 +85,7 @@ _test_file_actions_native() {
       print -u2 -r -- "file actions ($scenario): missing $1; recent output: ${(V)recent}"
       return 1
     }
-    for scenario in directory directory-digit linked-directory resume link insert copy open reveal; do
+    for scenario in directory directory-digit linked-directory resume link empty-menu insert copy open reveal; do
       zpty actions _actions_driver || exit 1
       {
         _actions_read END-ACTION-FRAME || exit 2
@@ -97,7 +106,12 @@ _test_file_actions_native() {
         if [[ $scenario != directory* ]]; then
           _actions_read END-ACTION-FRAME || exit 6
           [[ $frame == *"FRAME:File actions"* ]] || exit 7
-          if [[ $scenario == resume || $scenario == link ]]; then
+          if [[ $scenario == resume || $scenario == link || $scenario == empty-menu ]]; then
+            if [[ $scenario == empty-menu ]]; then
+              zpty -w -n actions $'\''\e[200~impossible-action\e[201~'\''
+              _actions_read END-ACTION-FRAME || exit 8
+              [[ $frame == *"FRAME:File actions:impossible-action:0:"* ]] || exit 9
+            fi
             zpty -w -n actions $'\''\e'\''
             _actions_read END-ACTION-FRAME || exit 8
             [[ $frame == *"FRAME:Files"* ]] || exit 9
@@ -136,6 +150,8 @@ _test_file_actions_boundaries() {
   command chmod +x "$TEST_TMP_DIR/bin/open" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.ui"
     source "$1/tests/support.zsh"
     root=${2:A}
     selected="$root/"'"'"'-note $(never-run); [x].txt'"'"'

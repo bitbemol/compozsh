@@ -12,6 +12,7 @@ _test_public_commands_support_help() {
     path=("$2" $path)
     rehash
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
@@ -79,6 +80,7 @@ _test_public_command_names_use_kebab_case() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
@@ -136,6 +138,7 @@ _test_file_finder_help_is_static_and_errors_stay_short() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.help"
     builtin cd -- "$HOME" || exit
     path=()
@@ -176,6 +179,7 @@ _test_tool_help_explains_real_boundaries() {
     output=$(test_run_interactive "$TEST_TMP_DIR/home" '
       source "$1/.zsh.addons/.zsh.tools"
       source "$1/.zsh.addons/.zsh.navigation"
+      source "$1/.zsh.addons/support/.zsh.matching"
       source "$1/.zsh.addons/.zsh.sudo-touch-id"
       source "$1/.zsh.addons/.zsh.usb"
       source "$1/.zsh.addons/.zsh.xcode"
@@ -280,6 +284,7 @@ _test_all_tool_help_is_static_without_optional_tools() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
@@ -326,6 +331,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     setopt EXTENDED_GLOB
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
@@ -334,6 +340,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     source "$1/.zsh.addons/.zsh.xcode"
     # Load output last: no help provider may depend on its source order.
     typeset -gA ZSH_OUTPUT_COLORS=(heading 123 accent 124 info 125 warning 126)
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output"
     path=()
     zmodload zsh/zpty || exit 10
@@ -408,6 +415,7 @@ _test_help_color_treats_text_and_overrides_as_data() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     setopt EXTENDED_GLOB PROMPT_SUBST
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output"
     path=()
     _help_test_side_effect() { print -r -- executed > "$HOME/unexpected"; }

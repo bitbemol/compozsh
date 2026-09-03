@@ -280,14 +280,6 @@ _compozsh_tool_show_help() {
   print -r -- "Defined in: ${source}"
 }
 
-_compozsh_tool_escape_pattern() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-
-  local MATCH
-  REPLY=${1//(#m)[\][|()\\*?#<>~^]/\\$MATCH}
-}
-
 _compozsh_tool_append_matches() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -311,7 +303,8 @@ _compozsh_tool_picker_collect() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local query=$1 raw_limit=$2 literal='' pattern='(#i)*' character=''
+  local query=$1 raw_limit=$2 literal='' pattern=''
+  local -a reply=()
   local -i limit=$raw_limit index=0
   typeset -ga _ZLE_PICKER_RESULTS=()
   typeset -ga _ZLE_PICKER_LABELS=()
@@ -327,18 +320,37 @@ _compozsh_tool_picker_collect() {
     return 0
   fi
 
-  _compozsh_tool_escape_pattern "$query"
-  literal=$REPLY
+  (( ${+functions[_matching_compile]} )) || return 1
+  _matching_compile "$query"
+  literal=$reply[1] pattern=$reply[2]
   _compozsh_tool_append_matches "(#i)${literal}*" $limit
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
   _compozsh_tool_append_matches "(#i)*${literal}*" $limit
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
 
-  for character in "${(s::)query}"; do
-    _compozsh_tool_escape_pattern "$character"
-    pattern+="${REPLY}*"
-  done
   _compozsh_tool_append_matches "$pattern" $limit
+}
+
+_compozsh_choose() {
+  _zle_ui_view choice _compozsh_view
+}
+
+_compozsh_view() {
+  emulate -L zsh
+  _ZLE_PICKER_INSPECT_TITLE=Help _ZLE_PICKER_INSPECT_ACTION='print help'
+  _ZLE_PICKER_SUBTITLE='Commands from your loaded add-ons' _ZLE_PICKER_CANCEL_LABEL=''
+  _ZLE_PICKER_TITLE='Tool explorer'
+  _ZLE_PICKER_BROWSE_LABEL='loaded add-on functions'
+  _ZLE_PICKER_EMPTY_LABEL='no matching tools'
+  _ZLE_PICKER_COLLECTOR='_compozsh_tool_picker_collect'
+  {
+    if (( ${+functions[_zle_picker_inspect_render]} )); then
+      _compozsh_tool_inspector_capture
+    fi
+    _zle_picker_run "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}"
+  } always {
+    _ZLE_PICKER_INSPECT_TEXTS=()
+  }
 }
 
 unalias compozsh 2>/dev/null
@@ -365,31 +377,15 @@ compozsh() {
   _compozsh_tool_capture || return
   if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
      (( ! ${+functions[_zle_picker_run]} ||
-        ! ${+functions[_zle_picker_loop]} )); then
+        ! ${+functions[_zle_picker_loop]} || !${+functions[_matching_compile]} )); then
     _compozsh_tool_print_captured
     return 0
   fi
 
   local selected=''
-  local _ZLE_PICKER_INSPECT_TITLE=Help _ZLE_PICKER_INSPECT_ACTION='print help'
-  local _ZLE_PICKER_SUBTITLE='Commands from your loaded add-ons' _ZLE_PICKER_CANCEL_LABEL=''
   local -i picker_status=0
-  _ZLE_PICKER_TITLE='Tool explorer'
-  _ZLE_PICKER_BROWSE_LABEL='loaded add-on functions'
-  _ZLE_PICKER_EMPTY_LABEL='no matching tools'
-  _ZLE_PICKER_COLLECTOR='_compozsh_tool_picker_collect'
-  _ZLE_PICKER_DIGIT_SELECT=1
-  _ZLE_PICKER_COPY_ENABLED=0
-  _ZLE_PICKER_HIERARCHY_ENABLED=0
-  {
-    if (( ${+functions[_zle_picker_inspect_render]} )); then
-      _compozsh_tool_inspector_capture
-    fi
-    _zle_picker_run "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}"
-    picker_status=$?
-  } always {
-    _ZLE_PICKER_INSPECT_TEXTS=()
-  }
+  _compozsh_choose
+  picker_status=$?
   (( picker_status == 1 )) && return 0
   (( picker_status == 0 )) || return $picker_status
 

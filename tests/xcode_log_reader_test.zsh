@@ -31,6 +31,9 @@ _test_xcode_log_reader_navigation() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     local _xcode_logs_snapshot=$'\''first\nERROR here\nlast\n'\'' _xcode_logs_query=ERROR
     local _xcode_logs_offset=4 _xcode_logs_row=2 _xcode_logs_trimmed=0 _xcode_logs_notice=""
@@ -99,6 +102,9 @@ _test_xcode_log_reader_feedback() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     local _xcode_logs_notice="Copy failed: clipboard write failed"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
@@ -184,6 +190,9 @@ _test_xcode_logs_live_publication() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     local _xcode_logs_snapshot="" _xcode_logs_query=ERROR _xcode_logs_notice=""
     local _xcode_logs_text="" _xcode_run_log="" _xcode_run_context=fixture _xcode_run_clipboard=/fixture/pbcopy

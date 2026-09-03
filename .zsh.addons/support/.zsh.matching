@@ -1,0 +1,111 @@
+# -----------------------------------------------------------------------------
+# Literal matching over caller-supplied text
+# -----------------------------------------------------------------------------
+
+# Return an escaped literal and a case-insensitive subsequence pattern in the
+# caller's local reply array. "characters" permits arbitrary gaps; "word"
+# forbids whitespace between required characters. Neither mode splits input.
+_matching_compile() {
+  emulate -L zsh
+  local query=$1 mode=${2:-characters} character='' excluded='' literal=''
+  local pattern='(#i)' gap=''
+  local -i index=0
+  reply=()
+  (( $# >= 1 && $# <= 2 )) || return 2
+  [[ $mode == characters || $mode == word ]] || return 2
+
+  for character in "${(@s::)query}"; do
+    literal=${(b)character}
+    excluded=$character
+    # A bracket class takes a literal character, not its outside-class escape.
+    # Only a backslash needs doubling so it cannot escape the closing bracket.
+    [[ $character == \\ ]] && excluded=$literal
+    if [[ $mode == word ]]; then
+      # The first occurrence can be in an incomplete word; allow a later word
+      # to supply the match. Subsequent gaps stay inside that chosen word.
+      gap='*'
+      (( index )) && gap="[^${excluded}[:space:]]#"
+    else
+      # Consume the earliest possible alignment. Unrestricted * gaps can
+      # backtrack combinatorially when a later character never occurs.
+      gap="[^${excluded}]#"
+    fi
+    pattern+="${gap}${literal}"
+    (( ++index ))
+  done
+  reply=("${(b)query}" "${pattern}*")
+  return 0
+}
+
+# Return one-based indexes into the supplied captured texts, preserving source
+# order, duplicates and empty entries. The pattern comes from trusted caller
+# composition of _matching_compile outputs; no provider or UI state is read.
+# A zero limit returns no indexes; oversized decimal limits mean all matches.
+_matching_filter() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local pattern=$1 raw_limit=$2 text=''
+  local -i index=0 limit=0
+  reply=()
+  (( $# >= 2 )) || return 2
+  shift 2
+  local -i available=$#
+  [[ $raw_limit == <-> ]] || return 2
+  raw_limit=${raw_limit##0#}
+  [[ -n $raw_limit ]] || return 0
+  # Compare decimal text before arithmetic so arbitrary lengths cannot wrap or
+  # print a truncation diagnostic into the terminal during an input loop.
+  if (( ${#raw_limit} > ${#available} )) ||
+      { (( ${#raw_limit} == ${#available} )) && [[ $raw_limit > $available ]]; }; then
+    limit=$available
+  else
+    limit=$raw_limit
+  fi
+  (( limit )) || return 0
+  for text in "$@"; do
+    (( ++index ))
+    [[ $text == ${~pattern} ]] || continue
+    reply+=($index)
+    (( ${#reply} >= limit )) && break
+  done
+  return 0
+}
+
+# Compile every whitespace-separated keyword without imposing their order in
+# the candidate. Return the escaped whole query, literal intersection and fuzzy
+# intersection. Empty/whitespace-only input admits every supplied candidate.
+_matching_compile_fragments() {
+  emulate -L zsh
+  local query=$1 fragment='' literal_pattern='' fuzzy_pattern=''
+  local IFS=$' \t\n'
+  local -a fragments=( ${=query} )
+  reply=()
+  (( $# == 1 )) || return 2
+  for fragment in "${fragments[@]}"; do
+    _matching_compile "$fragment" || return
+    # a~^b is native intersection: a excluding the complement of b.
+    if [[ -n $literal_pattern ]]; then
+      literal_pattern+='~^'
+      fuzzy_pattern+='~^'
+    fi
+    literal_pattern+="(#i)*${reply[1]}*"
+    fuzzy_pattern+=${reply[2]}
+  done
+  reply=("${(b)query}" "${literal_pattern:-(#i)*}" "${fuzzy_pattern:-(#i)*}")
+  return 0
+}
+
+# High-level data-in/results-out matching: providers supply captured text, and
+# callers retain exact targets, ranking and actions. Results are source indexes.
+_matching_search() {
+  emulate -L zsh
+  local query=$1 limit=$2 pattern=''
+  reply=()
+  (( $# >= 2 )) || return 2
+  shift 2
+  _matching_compile_fragments "$query" || return
+  pattern=$reply[3]
+  _matching_filter "$pattern" "$limit" "$@"
+}
+
+:

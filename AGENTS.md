@@ -161,6 +161,12 @@ configuration base.
 - `.zsh.addons/` contains all shared behavior as focused peer units named
   `.zsh.<name>`. There is no privileged core tier. Keep every unit independently
   sourceable, re-source safe, narrow in purpose, and successful after setup.
+- `.zsh.addons/support/` groups repository-managed palette, UI components and
+  adapter assets. Keep these implementations installed and intact during normal
+  customization; public settings belong in the machine-local initializer.
+  Its `.zsh.<name>` files remain ordinary peers under recursive discovery, with
+  no required ordering, special loader treatment or filesystem immutability.
+  Preserve standalone fallbacks when support capabilities are unavailable.
 - `README.md` is user-facing documentation. Keep it synchronized with visible
   behavior, keys, installation steps, extension points, and safety guarantees.
 - `SECURITY.md` is the public trust and self-audit contract. Keep its claims,
@@ -444,6 +450,23 @@ Apply DRY and SOLID as practical design heuristics:
   helpers, hooks, cleanup, and fallbacks. Avoid both unguarded cross-unit calls
   and duplicated frameworks; when optional interaction is valuable, detect the
   peer capability at runtime and preserve useful standalone behavior.
+- `support/.zsh.appearance` alone authors and installs terminal color defaults.
+  Consumers resolve public overrides and selected defaults at invocation; they neither
+  copy palettes nor write fallback keys. Public maps stay writable, and missing
+  appearance uses native text and attributes. Completion owns its deferred
+  style callback; appearance does not install another peer's registrations.
+- `support/.zsh.ui` owns shared terminal components, view defaults, layout, input,
+  painting and screen restoration. Feature peers supply captured content,
+  labels and capabilities; they own matching, transitions and final actions.
+  Scope common defaults around view execution and save caller bookmarks before
+  returning. Keep explicit provider hooks outside frame construction and resize.
+  These private interfaces introduce no required peer, registry or load phase.
+- `support/.zsh.matching` owns query compilation and filtering over supplied
+  captured text. Keep its outputs caller-local and its calculations free of
+  provider reads, UI state and actions. Feature collectors retain task-specific
+  ranking, duplicate policy and capture bounds; display match spans remain a
+  presentation concern. Missing matching support selects existing runtime
+  fallbacks without an ordered load phase or a duplicate matcher.
 - Give each helper one clear responsibility: collect facts, sanitize data,
   calculate layout, render UI, or perform an action. Do not mix all five.
 - Keep detection separate from presentation. Terminal resize handlers may
@@ -661,7 +684,7 @@ never optimize from a single timing sample.
 
 Every Compozsh full-screen tool shares one interaction system while retaining
 its own task context. Follow **Context-preserving composition** for transitions.
-Use the shared editor's renderer, input loop, guide and cleanup; callers supply
+Use the shared UI peer's renderer, input loop, guide and cleanup; callers supply
 captured content, capabilities and the meaning of acceptance. Never fork a
 renderer, key parser or hand-written shortcut bar for an individual tool.
 
@@ -859,7 +882,7 @@ discovered. The keyboard guide must never trigger refresh.
 - `g --worktree` is the sole worktree entry point. The optional
   `.zsh.git-worktree` peer owns capture, temporary choices and actions; `g`
   retains its recent-branch default and transparent ordinary Git arguments.
-- Reuse the navigation fuzzy collector and shared editor, text entry, keys,
+- Reuse the navigation fuzzy collector and shared UI peer, text entry, keys,
   guide, focus and screen lifecycle. Worktree options consume the selected
   registered path. Creation composes branch, captured start commit and a new
   folder into one explicit action after terminal restoration. Parent browsing
@@ -1026,8 +1049,9 @@ discovered. The keyboard guide must never trigger refresh.
   explicit disclosure/refresh requests; only the controller captures their data.
   Start focused with three context lines around each hunk. Context mode remains
   until another disclosure changes it; changing it preserves each file's source
-  anchor rather than reusing a visual offset from a differently sized document. The shared editor
-  maps wrapped rows to logical document lines; Git owns old/new coordinates.
+  anchor rather than reusing a visual offset from a differently sized document.
+  The shared UI peer maps wrapped rows to logical document lines; Git owns
+  old/new coordinates.
   Anchor the first visible code line, resolving a hunk header forward and a
   trailing notice backward. Deletions use old-side coordinates; context and
   additions use new-side coordinates. Collapse into omitted unchanged code
@@ -1191,7 +1215,8 @@ discovered. The keyboard guide must never trigger refresh.
   capability, not a parallel key reader. Secondary menus disable workspace
   actions. Unavailable peers omit their capabilities without source ordering.
 - Search providers and Recents remain private capabilities in focused peers.
-  The editor coordinates views at runtime and owns final screen cleanup.
+  The editor coordinates Files views at runtime; the UI peer owns final screen
+  cleanup.
 - Document filesystem keys/scopes in README and `compozsh --help`; Ctrl-K
   provides the in-view guide. Native scripting tools replace the removed
   `f --list`/`--print0` API; do not leave dead printing/argument-parsing paths.
@@ -1414,7 +1439,7 @@ discovered. The keyboard guide must never trigger refresh.
   directory completion. New pickers must reuse it. Keep cross-feature coverage
   for collectors extending beyond one screen and for detail panes paging without
   changing the selected result; preserve each caller's action and capture bounds.
-- The shared editor owns a paired native alternate-screen session for every
+- The shared UI peer owns a paired native alternate-screen session for every
   picker when terminal output and both terminfo capabilities are available.
   Keep the inline fallback for unsupported terminals. Screen ownership is
   separate from an individual input loop: directory hierarchy changes, previews
@@ -1466,7 +1491,7 @@ discovered. The keyboard guide must never trigger refresh.
   resize. Reuse existing captured facts where possible. Release snapshots on
   exit, visibly report preview limits, and preserve full-help access. These
   limits are not a sandbox: private help providers obey the static-help contract.
-  The caller supplies the panel title and acceptance label; the shared editor
+  The caller supplies the panel title and acceptance label; the shared UI peer
   owns layout, focus, scrolling, and capability-aware copy hints. Preserve each
   tool's information hierarchy: optional secondary labels are presentation
   data; exact action values remain untouched. Keep shared
@@ -1484,7 +1509,7 @@ discovered. The keyboard guide must never trigger refresh.
   wrapping, source bookmarks, guide and input loop. It keeps focus on reading
   while printable input refines the caller's captured document. Enter, copy,
   refresh and Back remain capability-aware caller requests; Enter, refresh and
-  Back still work with zero matching lines. The shared editor owns
+  Back still work with zero matching lines. The shared UI peer owns
   one list-first width policy with a bounded reading column; do not restore
   per-tool proportions or give previews the remaining unbounded screen width.
   Keep passive previews compact beside short lists and visually quiet, while

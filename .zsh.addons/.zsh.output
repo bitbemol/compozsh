@@ -1,56 +1,55 @@
 # Native terminal-aware semantic output.
 
-# Public semantic palette for human-facing command output. The local
-# initializer may replace individual roles; this unit fills only missing
-# defaults and native producers decide when each color is appropriate.
-_output_apply_color_defaults() {
-  emulate -L zsh
-
-  local -A defaults=(
-    heading  75
-    accent   81
-    success  71
-    warning  221
-    error    203
-    info     111
-    muted    242
-    match    199
-    text     252
-  )
-  local role key current
-
-  typeset -gA ZSH_OUTPUT_COLORS _COMPOZSH_COLOR_MANAGED
-  typeset -gA _COMPOZSH_COLOR_FALLBACKS
-  for role in ${(k)defaults}; do
-    key="output:$role"
-    _COMPOZSH_COLOR_FALLBACKS[$key]=${_COMPOZSH_COLOR_FALLBACKS[$key]:-${defaults[$role]}}
-    if (( ${+ZSH_OUTPUT_COLORS[$role]} )); then
-      current=${ZSH_OUTPUT_COLORS[$role]}
-      if (( !${+_COMPOZSH_COLOR_MANAGED[$key]} )) ||
-         [[ -n ${_COMPOZSH_COLOR_MANAGED[$key]} &&
-            $current != ${_COMPOZSH_COLOR_MANAGED[$key]} ]]; then
-        _COMPOZSH_COLOR_MANAGED[$key]=''
-      fi
-    else
-      ZSH_OUTPUT_COLORS[$role]=${defaults[$role]}
-      _COMPOZSH_COLOR_MANAGED[$key]=${defaults[$role]}
-    fi
-  done
-}
-_output_apply_color_defaults
-unfunction _output_apply_color_defaults
+# Appearance owns defaults; this consumer preserves explicit public roles.
+typeset -gA ZSH_OUTPUT_COLORS
 
 # Return a validated 256-color index. A malformed local override falls back
 # instead of making an ordinary command fail inside Git's color parser.
 _output_color() {
   emulate -L zsh
 
-  local fallback=${_COMPOZSH_COLOR_FALLBACKS[output:$1]:-$2}
-  local value=${ZSH_OUTPUT_COLORS[$1]:-$fallback}
-  if [[ $value == <0-255> ]]; then
-    REPLY=$value
+  local role=$1 value=''
+  if [[ ${(t)ZSH_OUTPUT_COLORS} == association* ]]; then
+    value=${ZSH_OUTPUT_COLORS[$role]-}
+  fi
+  if [[ $value != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
+    value=${_COMPOZSH_COLOR_FALLBACKS[output:$role]-}
+  fi
+  REPLY=''
+  [[ $value == <0-255> ]] || return 1
+  REPLY=$value
+}
+
+# Choose black or white by relative luminance for the standard xterm cube and
+# grayscale. ANSI colors 0–15 are profile-defined; callers retain native inverse
+# video there. This calculation runs only for an explicit manual-page request.
+_output_contrasting_foreground() {
+  emulate -L zsh
+  [[ $1 == <16-255> ]] || return 1
+  local -i index=$1 cube=0 component=0 channel=0
+  local -a levels=(0 95 135 175 215 255) channels=()
+  local -a weights=(0.2126 0.7152 0.0722)
+  local -F linear=0 luminance=0
+  if (( index < 232 )); then
+    cube=$(( index - 16 ))
+    channels=( ${levels[cube / 36 + 1]} ${levels[(cube / 6) % 6 + 1]} ${levels[cube % 6 + 1]} )
   else
-    REPLY=$fallback
+    component=$(( 8 + (index - 232) * 10 ))
+    channels=($component $component $component)
+  fi
+  for component in $channels; do
+    (( ++channel, linear = component / 255.0 ))
+    if (( linear <= 0.04045 )); then
+      (( linear /= 12.92 ))
+    else
+      (( linear = ((linear + 0.055) / 1.055) ** 2.4 ))
+    fi
+    (( luminance += linear * weights[channel] ))
+  done
+  if (( (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) )); then
+    REPLY=16
+  else
+    REPLY=231
   fi
 }
 
@@ -71,14 +70,18 @@ _output_print_help() {
   local line='' body='' prefix='' remainder='' style=''
   local -i index=0 examples=0
   local -a rendered=()
-  _output_color heading 75
-  heading=$'\e[1;38;5;'"${REPLY}m"
-  _output_color accent 81
-  accent=$'\e[38;5;'"${REPLY}m"
-  _output_color info 111
-  info=$'\e[38;5;'"${REPLY}m"
-  _output_color warning 221
-  warning=$'\e[1;38;5;'"${REPLY}m"
+  if _output_color heading; then
+    heading=$'\e[1;38;5;'"${REPLY}m"
+  fi
+  if _output_color accent; then
+    accent=$'\e[38;5;'"${REPLY}m"
+  fi
+  if _output_color info; then
+    info=$'\e[38;5;'"${REPLY}m"
+  fi
+  if _output_color warning; then
+    warning=$'\e[1;38;5;'"${REPLY}m"
+  fi
 
   for line in "$@"; do
     (( ++index ))
@@ -109,7 +112,11 @@ _output_print_help() {
         else
           style=$accent
         fi
-        rendered+=("  ${style}${prefix}${reset}${remainder}")
+        if [[ -n $style ]]; then
+          rendered+=("  ${style}${prefix}${reset}${remainder}")
+        else
+          rendered+=("$line")
+        fi
         continue
       fi
     fi
@@ -127,15 +134,15 @@ _output_print_help() {
 # text is interpreted. The Xcode caller owns terminal detection and execution.
 _output_lldb_color_arguments() {
   emulate -L zsh
-  local property='' role='' fallback='' weight='' prefix='' REPLY=''
+  local property='' role='' weight='' prefix='' REPLY=''
   local -a specifications=(
-    prompt heading 75 '1;'
-    stop-show-line warning 221 '1;'
-    show-autosuggestion muted 242 ''
+    prompt heading '1;'
+    stop-show-line warning '1;'
+    show-autosuggestion muted ''
   )
   reply=()
-  for property role fallback weight in "${specifications[@]}"; do
-    _output_color "$role" "$fallback"
+  for property role weight in "${specifications[@]}"; do
+    _output_color "$role" || continue
     prefix=$'\e['"${weight}38;5;${REPLY}m"
     reply+=(
       --one-line-before-file "settings set --exists ${property}-ansi-prefix \"${prefix}\""
@@ -150,70 +157,61 @@ _output_lldb_color_arguments() {
 _output_git_color_arguments() {
   emulate -L zsh
 
-  local heading='' accent='' success='' warning='' error=''
-  local info='' muted='' match='' text=''
-
-  _output_color heading 75
-  heading=$REPLY
-  _output_color accent 81
-  accent=$REPLY
-  _output_color success 71
-  success=$REPLY
-  _output_color warning 221
-  warning=$REPLY
-  _output_color error 203
-  error=$REPLY
-  _output_color info 111
-  info=$REPLY
-  _output_color muted 242
-  muted=$REPLY
-  _output_color match 199
-  match=$REPLY
-  _output_color text 252
-  text=$REPLY
-
-  typeset -ga _OUTPUT_GIT_COLOR_CONFIG=(
-    'color.ui=auto'
-    "color.advice.hint=$muted"
-    "color.branch.current=bold $success"
-    "color.branch.local=$info"
-    "color.branch.remote=$accent"
-    "color.branch.upstream=$heading"
-    "color.branch.plain=$text"
-    "color.decorate.branch=$success"
-    "color.decorate.remoteBranch=$accent"
-    "color.decorate.tag=$warning"
-    "color.decorate.stash=$match"
-    "color.decorate.HEAD=bold $heading"
-    "color.diff.meta=$heading"
-    "color.diff.frag=bold $warning"
-    "color.diff.old=$error"
-    "color.diff.new=$success"
-    "color.diff.commit=bold $heading"
-    "color.diff.whitespace=reverse $error"
-    "color.grep.match=bold $match"
-    "color.grep.filename=$heading"
-    "color.grep.lineNumber=$muted"
-    "color.grep.column=$muted"
-    "color.grep.separator=$muted"
-    "color.grep.context=$text"
-    "color.interactive.prompt=bold $heading"
-    "color.status.header=bold $heading"
-    "color.status.added=bold $success"
-    "color.status.updated=bold $success"
-    "color.status.changed=bold $warning"
-    "color.status.untracked=bold $error"
-    "color.status.unmerged=bold $error"
-    "color.status.nobranch=bold $warning"
-    "color.status.localBranch=$success"
-    "color.status.remoteBranch=$accent"
-    "color.push.error=bold $error"
-    "color.remote.error=bold $error"
-    "color.remote.warning=bold $warning"
-    "color.remote.hint=$muted"
-    "color.remote.success=bold $success"
-    "color.transport.rejected=bold $error"
+  local property='' role='' attributes='' value=''
+  local -A colors=()
+  local -a specifications=(
+    color.advice.hint muted ''
+    color.branch.current success 'bold'
+    color.branch.local info ''
+    color.branch.remote accent ''
+    color.branch.upstream heading ''
+    color.branch.plain text ''
+    color.decorate.branch success ''
+    color.decorate.remoteBranch accent ''
+    color.decorate.tag warning ''
+    color.decorate.stash match ''
+    color.decorate.HEAD heading 'bold'
+    color.diff.meta heading ''
+    color.diff.frag warning 'bold'
+    color.diff.old error ''
+    color.diff.new success ''
+    color.diff.commit heading 'bold'
+    color.diff.whitespace error 'reverse'
+    color.grep.match match 'bold'
+    color.grep.filename heading ''
+    color.grep.lineNumber muted ''
+    color.grep.column muted ''
+    color.grep.separator muted ''
+    color.grep.context text ''
+    color.interactive.prompt heading 'bold'
+    color.status.header heading 'bold'
+    color.status.added success 'bold'
+    color.status.updated success 'bold'
+    color.status.changed warning 'bold'
+    color.status.untracked error 'bold'
+    color.status.unmerged error 'bold'
+    color.status.nobranch warning 'bold'
+    color.status.localBranch success ''
+    color.status.remoteBranch accent ''
+    color.push.error error 'bold'
+    color.remote.error error 'bold'
+    color.remote.warning warning 'bold'
+    color.remote.hint muted ''
+    color.remote.success success 'bold'
+    color.transport.rejected error 'bold'
   )
+  for role in heading accent success warning error info muted match text; do
+    _output_color "$role" && colors[$role]=$REPLY
+  done
+  typeset -ga _OUTPUT_GIT_COLOR_CONFIG=()
+  for property role attributes in "${specifications[@]}"; do
+    value=${colors[$role]-}
+    [[ -n $value ]] || continue
+    _OUTPUT_GIT_COLOR_CONFIG+=("$property=${attributes:+$attributes }$value")
+  done
+  if (( ${#_OUTPUT_GIT_COLOR_CONFIG} )); then
+    _OUTPUT_GIT_COLOR_CONFIG=('color.ui=auto' "${_OUTPUT_GIT_COLOR_CONFIG[@]}")
+  fi
 }
 
 # Find the Git subcommand without interpreting its operands. Unknown global
@@ -326,11 +324,11 @@ grep() {
   fi
 
   if [[ -t 1 ]] && (( _GREP_SUPPORTS_COLOR )); then
-    local match=''
-    _output_color match 199
-    match=$REPLY
-    local -x GREP_COLOR=${GREP_COLOR:-"1;38;5;$match"}
-    local -x GREP_COLORS=${GREP_COLORS:-"ms=1;38;5;$match:mc=1;38;5;$match"}
+    if _output_color match; then
+      local match=$REPLY
+      local -x GREP_COLOR=${GREP_COLOR-"1;38;5;$match"}
+      local -x GREP_COLORS=${GREP_COLORS-"ms=1;38;5;$match:mc=1;38;5;$match"}
+    fi
     command grep --color=auto "$@"
   else
     command grep "$@"
@@ -343,24 +341,32 @@ grep() {
 man() {
   emulate -L zsh
 
-  local heading='' warning='' match='' selected_foreground=16
-  _output_color heading 75
-  heading=$REPLY
-  _output_color warning 221
-  warning=$REPLY
-  _output_color match 199
-  match=$REPLY
-  [[ ${_COMPOZSH_COLOR_SCHEME:-dark} == light ]] && selected_foreground=231
+  local heading_style=$'\e[1m' match_style=$'\e[1m'
+  local warning_style=$'\e[4m' selected_style=$'\e[7m'
+  local heading=''
+  if _output_color heading; then
+    heading=$REPLY
+    heading_style=$'\e[1;38;5;'"${heading}m"
+    if _output_contrasting_foreground "$heading"; then
+      selected_style=$'\e[1;38;5;'"$REPLY;48;5;${heading}m"
+    fi
+  fi
+  if _output_color warning; then
+    warning_style=$'\e[4;38;5;'"${REPLY}m"
+  fi
+  if _output_color match; then
+    match_style=$'\e[1;38;5;'"${REPLY}m"
+  fi
 
   local -x MANCOLOR=${MANCOLOR:-1}
   local -x MANPAGER=${MANPAGER:-'less -sR'}
-  local -x LESS_TERMCAP_mb=${LESS_TERMCAP_mb:-$'\e[1;38;5;'${match}'m'}
-  local -x LESS_TERMCAP_md=${LESS_TERMCAP_md:-$'\e[1;38;5;'${heading}'m'}
-  local -x LESS_TERMCAP_me=${LESS_TERMCAP_me:-$'\e[0m'}
-  local -x LESS_TERMCAP_so=${LESS_TERMCAP_so:-$'\e[1;38;5;'${selected_foreground}';48;5;'${heading}'m'}
-  local -x LESS_TERMCAP_se=${LESS_TERMCAP_se:-$'\e[0m'}
-  local -x LESS_TERMCAP_us=${LESS_TERMCAP_us:-$'\e[4;38;5;'${warning}'m'}
-  local -x LESS_TERMCAP_ue=${LESS_TERMCAP_ue:-$'\e[0m'}
+  local -x LESS_TERMCAP_mb=${LESS_TERMCAP_mb-$match_style}
+  local -x LESS_TERMCAP_md=${LESS_TERMCAP_md-$heading_style}
+  local -x LESS_TERMCAP_me=${LESS_TERMCAP_me-$'\e[0m'}
+  local -x LESS_TERMCAP_so=${LESS_TERMCAP_so-$selected_style}
+  local -x LESS_TERMCAP_se=${LESS_TERMCAP_se-$'\e[0m'}
+  local -x LESS_TERMCAP_us=${LESS_TERMCAP_us-$warning_style}
+  local -x LESS_TERMCAP_ue=${LESS_TERMCAP_ue-$'\e[0m'}
 
   command man "$@"
 }

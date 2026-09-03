@@ -141,6 +141,9 @@ cpdir() {
   local path_color=''
   [[ ${(t)ZSH_PROMPT_COLORS} == association* ]] &&
     path_color=${ZSH_PROMPT_COLORS[path]:-}
+  if [[ $path_color != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
+    path_color=${_COMPOZSH_COLOR_FALLBACKS[prompt:path]-}
+  fi
   if [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} &&
         $path_color == <0-255> ]] &&
      zmodload -F zsh/terminfo p:terminfo 2>/dev/null &&
@@ -169,6 +172,9 @@ _tools_git_operation() {
     REPLY='bisect'
   elif [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
     REPLY='rebase'
+  elif [[ -d "$git_dir/sequencer" ]]; then
+    # --no-commit sequences can stop without CHERRY_PICK_HEAD or REVERT_HEAD.
+    REPLY='cherry-pick/revert'
   fi
 }
 
@@ -226,6 +232,10 @@ git-discard-all() {
     return 2
   }
 
+  # Even the initial HEAD validation can fetch missing promisor objects.
+  # Scope the local-only boundary around every read and mutation in this action.
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
+  local -x GIT_ALLOW_PROTOCOL=''
   local root='' confirmed_root='' display_root='' git_dir='' confirmed_git_dir=''
   local operation='' head='' confirmed_head=''
   local changes='' confirmed_changes='' remaining='' answer=''
@@ -326,7 +336,7 @@ git-discard-all() {
     GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
     -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
-    restore --source="$confirmed_head" --staged --worktree -- . || {
+    restore --source="$confirmed_head" --staged --worktree --no-recurse-submodules -- . || {
     print -u2 'git-discard-all: failed while restoring tracked files'
     return 1
   }

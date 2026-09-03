@@ -22,6 +22,9 @@ _test_abbreviation_and_sanitization_contracts() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.prompt"
     _zle_picker_abbreviate abcdefgh 5; picker=$REPLY
@@ -41,6 +44,7 @@ _test_syntax_classifier_contracts() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     _zle_is_redirection ">>"; redirection=$?
     _zle_is_assignment "items[2]+=value"; assignment=$?
@@ -62,6 +66,7 @@ _test_syntax_highlighter_bounds_redraw_work() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     typeset -gi probes=0
     _zle_command_category() { (( ++probes )); return 1; }
@@ -86,6 +91,9 @@ _test_fuzzy_history_fragment_order() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     print -s -- "git status"
     print -s -- "swift build -c release"
     print -s -- "git switch feature/example"
@@ -117,6 +125,9 @@ _test_autosuggestion_search_is_bounded_and_newest_first() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     HISTSIZE=1000
     fc -p "$2"
     _zle_autosuggest_find old-prefix
@@ -136,6 +147,9 @@ _test_editor_widgets_keep_implementation_private() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     print -r -- "${+functions[history-fuzzy-search]}|${+functions[autosuggest-accept-character]}|${widgets[history-fuzzy-search]}|${widgets[autosuggest-accept-character]}"
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal \
@@ -151,6 +165,9 @@ _test_autosuggestion_reset_owns_only_its_display() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     region_highlight=(
       "0 1 bold memo=fixture"
       "P1 4 fg=242 memo=my-zsh-autosuggestion"
@@ -181,22 +198,28 @@ _test_editor_styles_without_highlighting_peer() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     # An undeclared palette treats a role subscript as arithmetic, including
     # this dynamically scoped query. Standalone fallback must remain literal.
     query="two words"
-    _zle_picker_style picker-query fg=44
+    _zle_picker_style picker-query
     print -r -- "$REPLY"
     ZSH_HIGHLIGHT_STYLES[picker-query]=fg=75
     source "$1/.zsh.addons/.zsh.editor"
-    _zle_picker_style picker-query fg=44
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    _zle_picker_style picker-query
     print -r -- "$REPLY"
   ' "$TEST_REPO_ROOT" 2>&1) || {
     test_fail "standalone picker styles failed: $output"
     return 1
   }
-  test_assert_equal $'fg=44\nfg=75' "$output"
+  test_assert_equal $'fg=16,bg=44,bold\nfg=75' "$output"
 }
-test_case 'editor style fallback works without the highlighting peer and preserves overrides' \
+test_case 'shared UI palette works without the highlighting peer and preserves overrides' \
   _test_editor_styles_without_highlighting_peer
 
 _test_contextual_directory_picker_contract() {
@@ -213,6 +236,9 @@ _test_contextual_directory_picker_contract() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
     builtin cd -- "$HOME" || exit
 
@@ -247,6 +273,9 @@ _test_contextual_directory_picker_fallbacks() {
   command mkdir -p -- "$home/Documents" "$home/git" || return
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd -- "$HOME" || exit
 
     _directory_picker_prepare "Doc" 3; autocd_disabled=$?
@@ -276,6 +305,9 @@ _test_contextual_directory_argument() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd -- "$HOME" || exit
     unsetopt AUTO_CD
     local BUFFER="vim ~/Developer" CURSOR=15
@@ -311,6 +343,9 @@ _test_contextual_directory_picker_hierarchy() {
     "$home/Developer/Empty" || return
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
     builtin cd -- "$HOME" || exit
 
@@ -358,6 +393,7 @@ _test_navigation_fuzzy_ranking() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     typeset -ga _NAVIGATION_PICKER_VALUES=(/tmp/swift-project /tmp/git-tools /tmp/project-swift)
     typeset -ga _NAVIGATION_PICKER_LABELS=(swift-project git-tools project-swift)
     typeset -ga _NAVIGATION_PICKER_INDEXES=(1 2 3)
@@ -390,6 +426,7 @@ _test_git_branch_recency_contract() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _git_recent_branches "$2"
     print -r -- "${(j:|:)_GIT_RECENT_BRANCHES}"
   ' "$TEST_REPO_ROOT" "$repository") || return
@@ -416,6 +453,7 @@ _test_git_branch_recency_tolerates_unvisited_branches() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _git_recent_branches "$2"
     result_status=$?
     print -r -- "$result_status|${(j:|:)_GIT_RECENT_BRANCHES}"
@@ -433,13 +471,14 @@ _test_public_palettes_preserve_initializer_roles() {
     typeset -gA ZSH_HIGHLIGHT_STYLES=(command "fg=123,bold")
     typeset -gA ZSH_PROMPT_COLORS=(identity 124)
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     print -r -- "${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[argument]}|${ZSH_HIGHLIGHT_STYLES[picker-selected-inactive]}|${ZSH_HIGHLIGHT_STYLES[picker-focus]}|${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[path]}"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal 'fg=123,bold|fg=252|fg=252,bg=238|fg=75,bold|124|80' "$output" \
+  test_assert_equal 'fg=123,bold|fg=252|fg=252,bg=237|fg=75,bold|124|80' "$output" \
     'palette defaults replaced an explicit initializer role'
 }
-test_case 'palette owners fill missing roles without replacing local inputs' \
+test_case 'palette owner fills missing roles without replacing local inputs' \
   _test_public_palettes_preserve_initializer_roles
 
 _test_prompt_rejects_project_controlled_runtime() {

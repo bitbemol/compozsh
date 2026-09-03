@@ -5,6 +5,9 @@ _test_editor_reader_render() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local -i _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT=1
     local -i _ZLE_PICKER_DOCUMENT_REFRESH=1 _ZLE_PICKER_COPY_ENABLED=1
     local -i _ZLE_PICKER_DIGIT_SELECT=1
@@ -105,6 +108,9 @@ _test_editor_reader_wrapping() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local -i _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT=1
     local _ZLE_PICKER_DOCUMENT_KEY=logs
     local -a _ZLE_PICKER_DOCUMENT_LINES=() expected_rows=() expected_sources=()
@@ -147,6 +153,9 @@ _test_editor_reader_follow() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local -i _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT=1
     local -i _ZLE_PICKER_DOCUMENT_FOLLOW=1 _ZLE_PICKER_DOCUMENT_REFRESH=0
     local -i _ZLE_PICKER_SCREEN_ACTIVE=1
@@ -218,6 +227,9 @@ _test_editor_reader_keys() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     zmodload zsh/zpty
     zmodload zsh/zselect
     command mkfifo "$HOME/events" || exit 1

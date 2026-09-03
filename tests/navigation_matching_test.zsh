@@ -5,6 +5,7 @@ _test_navigation_matching_literals() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _NAVIGATION_PICKER_VALUES=(fuzzy substring prefix short)
     _NAVIGATION_PICKER_LABELS=(f-o-o aFoo FooBar f-o)
     _NAVIGATION_PICKER_INDEXES=(1 2 3 4)
@@ -40,6 +41,7 @@ _test_navigation_matching_repeated_characters() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _NAVIGATION_PICKER_VALUES=(long repeated)
     _NAVIGATION_PICKER_LABELS=("feature/${(l:130::x:)}" "x-x-x-x-x-x-x-x-z")
     _NAVIGATION_PICKER_INDEXES=(1 2)
@@ -60,6 +62,7 @@ _test_navigation_matching_long_labels() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _NAVIGATION_PICKER_VALUES=(long) _NAVIGATION_PICKER_INDEXES=(1)
     # Each label fits the ref capture byte bound. Near-end matches require
     # character-order matching rather than the earlier substring rank.

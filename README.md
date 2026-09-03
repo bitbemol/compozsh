@@ -157,10 +157,14 @@ Use the diagram as a placement rule:
   basename starts with `.zsh.`, such as `~/.zsh.addons/work/.zsh.company`.
   No manifest or registration step is required; start a new shell with
   `exec zsh` and it appears automatically.
-- Disable an add-on by renaming it so the basename no longer starts with
+- Disable a feature add-on by renaming it so the basename no longer starts with
   `.zsh.`, for example `.zsh.company` to `.disabled.zsh.company`, or remove it.
   Renaming a repository peer is the supported toggle, but it intentionally
   appears as a local change in `git status`; its contents remain untouched.
+- Keep `.zsh.addons/support/` installed and intact. It groups the maintained
+  palette, matching algorithms, shared UI components and adapter assets used across features. Use
+  documented public settings in the local initializer to customize colors;
+  edit support implementations only when contributing to the project.
 
 There is deliberately no “core feature” tier. Shell behavior, line editing,
 prompt rendering, tools, and optional integrations are all add-ons with the
@@ -170,6 +174,12 @@ peers initialize, such as Homebrew, `PATH`, a selected Ruby, trusted early
 agent hooks, environment variables, and documented public defaults.
 Its `init.zsh` basename intentionally does not match `.zsh.<name>`, so peer
 discovery cannot load it twice.
+
+The `support/` folder expresses shared implementation ownership. Its shell files
+follow the same recursive discovery and order-independence rules as other peers;
+the folder gives them no first-load position or separate initialization phase.
+They are part of the normal installation and stay installed when selecting
+feature peers.
 
 Add-ons need no manifest or registration list: a correctly named file beside
 the resolved bootstrap or in the user's add-on directory is enough, and
@@ -190,24 +200,26 @@ compozsh/
 │   └── compozsh-release-draft/
 │       └── SKILL.md       evidence-backed GitHub release drafting
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
-├── .zsh.addons/           all shared peer features
-│   ├── .zsh.appearance    color-scheme selection and light palette
+├── .zsh.addons/           repository-managed peers and support
 │   ├── .zsh.shell         shell options, history, and native tool colors
-│   ├── .zsh.editor        completion, temporary-screen pickers/readers, editing
+│   ├── .zsh.editor        completion, history, filesystem entry, and editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.git-review    read-only working changes, commits and revision comparisons
 │   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery and help snapshots
-│   ├── .zsh.highlighting  command-line syntax and semantic UI palette
+│   ├── .zsh.highlighting  command-line syntax highlighting
 │   ├── .zsh.navigation    directory/branch workspaces, details and copying
-│   ├── .zsh.output        semantic palette, help/LLDB styling, native output wrappers
+│   ├── .zsh.output        help/LLDB styling and native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.sudo-touch-id explicit macOS sudo Touch ID policy management
 │   ├── .zsh.tools         small commands and safe Git cleanup
 │   ├── .zsh.usb           external-disk formatting and bootable-media creation
 │   ├── .zsh.xcode         Xcode actions, live logs, filtered log copying, LLDB, skills
-│   └── support/
+│   └── support/          maintained system-wide components and assets
+│       ├── .zsh.appearance shared light/dark palette and scheme selection
+│       ├── .zsh.matching   pure literal/fuzzy matching over captured text
+│       ├── .zsh.ui         shared views, layout, input, and screen restoration
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
 ├── templates/
 │   └── init.zsh           inert starter copied once for private initialization
@@ -234,20 +246,20 @@ compozsh/
 
 ### Shipped configuration units
 
-The autoloaded convention is `.zsh.<name>`, not `.zshrc.<name>`. Each shipped
-peer owns one focused concern and can still be sourced independently:
+The autoloaded convention is `.zsh.<name>`, not `.zshrc.<name>`. Paths below are
+relative to `.zsh.addons/`. Each shipped peer owns one focused concern and can
+still be sourced independently, including the maintained peers in `support/`:
 
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
-| `.zsh.appearance` | Terminal appearance and adaptive defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, full-width readers with optional live following, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
+| `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
 | `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; shared file → focused diff → full-context reading and Ctrl-R snapshot refresh |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
-| `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
+| `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette |
 | `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, worktree-mode dispatch, copying and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
@@ -255,6 +267,9 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
 | `.zsh.usb` | External-disk preparation | `format-external-device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
 | `.zsh.xcode` | Native Xcode integration | `xcode` selects schemes/destinations, reports test outcomes, and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, a live formatted log reader with filtering/copying, and LLDB actions; `update-xcode-skills` exports Apple-authored skills to detected coding agents |
+| `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
+| `support/.zsh.matching` | Shared matching algorithms | Compiles literal, ordered-character and unordered-keyword filters; returns matching indexes from supplied captured text without discovery, ranking, UI state or actions |
+| `support/.zsh.ui` | Shared terminal components and interaction | Palette-driven title/context, query, choices, details, readers, notices, status, trail and keyboard guide; common view defaults, layout, input, live following and screen restoration; feature peers supply captured content and actions |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -836,7 +851,7 @@ light palette retains each hue family and text attribute with a deeper shade.
 | Bright cyan | Escape sequence |
 | Peach | Number |
 | Gray | Comment |
-| Dim gray | Unaccepted history autosuggestion |
+| Muted gray | Unaccepted history autosuggestion |
 
 The highlighter understands command positions, precommand modifiers, leading
 assignments, declaration assignments, pipelines, boolean lists, redirections,
@@ -845,8 +860,8 @@ declarations, and Zsh's contextual `always` keyword. Literal path arguments are
 checked without evaluating substitutions or globs. Directory-stack paths such
 as `~1` are resolved using Zsh's current stack.
 
-Every shell category has a unique color-and-attribute signature. Related
-concepts stay within recognizable color families, while prompt identity,
+Shell categories use recognizable color families and text attributes together
+with their syntax and position. Prompt identity,
 location, Git state, and project metadata use a separate public palette. An
 unresolved command deliberately keeps the terminal's normal text color; it
 does not turn red merely because the word is still being typed. Git subcommands
@@ -873,7 +888,55 @@ ZSH_COLOR_SCHEME=light  # auto (COLORFGBG hint), light, or dark
 ```
 
 The selection is made for each new shell. Existing shells retain the palette
-they started with.
+they started with. `.zsh.addons/support/.zsh.appearance` owns every shipped
+terminal color default; prompt, highlighting, output and UI peers read the
+current roles when used.
+Removing a public color override immediately restores its selected default for
+rendering; re-sourcing `.zsh.appearance` also fills that key back into the public
+map. The maps remain writable. Re-sourcing a consumer does not write defaults.
+A missing or non-associative public map is treated as unavailable during
+rendering; consumers use the selected defaults without recreating the map.
+
+`.zsh.addons/support/.zsh.ui` owns terminal components and their screen cleanup
+independently of normal editor customization. Features supply captured content,
+labels, capabilities and action logic to those components.
+`.zsh.addons/support/.zsh.matching` owns reusable literal and fuzzy algorithms:
+providers capture candidates, matching filters their text in memory, and views
+display the results while retaining exact action values. These support files
+ship with Compozsh and should stay installed; use the documented palette settings
+instead of editing these implementations.
+
+If support is unavailable, for example when sourcing a feature independently,
+applicable explicit colors still work and missing roles use native text and
+attributes. Shared selection markers, emphasis and diff prefixes remain
+available when UI is loaded. Without UI or matching, normal Tab and Ctrl-R use native
+completion/history; tools retain their plain fallback or report that the shared
+selection components are unavailable. This adds no required load order, registration list or
+persistent UI storage.
+
+Completion reads the current `LS_COLORS` value at invocation, or uses the shared
+file-color defaults. Re-sourcing appearance does not replace a custom completion
+`zstyle`. BSD `LSCOLORS` retains its existing inherited-override behavior.
+
+Both palettes keep primary reading neutral, navigation and focus in cool hues,
+secondary text in readable gray, and warnings/errors in warm hues. Diff syntax
+uses purple keywords, green strings, warm numbers, and gray comments; the
+addition/removal backgrounds and `+`/`−` prefixes remain visible beneath it.
+Selection markers, severity labels, and match underlines preserve meaning
+alongside color.
+
+Defaults are tested against standard xterm indexed colors on black and
+`#1c1c1c` dark surfaces, and white and `#f5f5f5` light surfaces. Meaningful text
+targets at least 4.5:1 contrast; primary reading and selected labels target 7:1.
+These are measured design targets, not a guarantee for remapped colors,
+transparent backgrounds, every font, or custom overrides. BSD `ls` uses the
+profile's ANSI colors. The [palette design evidence](investigations/palette-perception.md)
+records the research, measurements, and limits.
+
+An inherited `LSCOLORS` value remains an explicit override for BSD `ls`, including
+one exported by a parent shell. After changing schemes, use `unset LSCOLORS`
+before `exec zsh` if you want `ls` to receive the new automatic colors. Keep it
+set when you want to retain a custom file-color palette.
 
 A hard link has no unique shell syntax: every linked name is an ordinary file.
 The orange hard-link style therefore means the filesystem reports a regular
@@ -882,7 +945,8 @@ objects and can be identified directly.
 
 Command-line syntax and prompt UI use separate public maps, so changing an
 identity or path color cannot silently change a syntax category. Set only the
-desired role in `~/.zsh.addons/local/init.zsh`. For example:
+desired role in `~/.zsh.addons/local/init.zsh`. This example uses accents for a
+dark terminal profile:
 
 ```zsh
 typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_PROMPT_COLORS
@@ -1225,6 +1289,11 @@ expanded to the repository root. Ctrl-F selects a default once on entry:
 | Exactly home (`~/`) or root (`/`) on macOS | Spotlight index |
 | Other folders, or home/root on other systems | Bounded filesystem walk |
 
+Git discovery uses the displayed folder's repository and index. Inherited Git
+directory, index, object-store and namespace selectors do not redirect this
+workspace. Its read boundary disables filesystem-monitor hooks, optional index
+writes and lazy fetches; these settings remain local to the capture.
+
 **Ctrl-X** offers explicit source choices. The resolved source stays fixed when
 editing or retrying the query. A missing or failed Spotlight command never
 triggers a fallback filesystem walk. To search a home subfolder through Spotlight,
@@ -1412,8 +1481,14 @@ dedicated `Search ‹query›` row keeps user input separate from header metadat
 and prevents the layout from shifting after the first character. Long queries
 use the available row width and abbreviate visually while preserving the full
 value for matching. Query fields, headers, indexes, selected rows, empty states,
-and help rows use separate semantic colors that can be customized from
-`~/.zsh.addons/local/init.zsh` without changing the picker logic:
+and help rows use separate semantic colors. The title, footer and guide show
+Enter only when acceptance is available. Literal-entry views name their
+submission action; an empty or whitespace-only field prompts you to enter text.
+An empty choice list keeps Escape and the applicable navigation controls.
+Secondary file/folder action menus and unavailable notices use the same scoped
+view defaults, so their hints and capabilities belong to the active view.
+You can customize colors from `~/.zsh.addons/local/init.zsh` without changing
+the picker logic:
 
 ```zsh
 typeset -gA ZSH_HIGHLIGHT_STYLES
@@ -1421,8 +1496,8 @@ ZSH_HIGHLIGHT_STYLES[picker-header]='fg=75,bold'
 ZSH_HIGHLIGHT_STYLES[picker-location]='fg=39'
 ZSH_HIGHLIGHT_STYLES[picker-query]='fg=16,bg=44,bold'
 ZSH_HIGHLIGHT_STYLES[picker-index]='fg=44,bold'
-ZSH_HIGHLIGHT_STYLES[picker-selected]='fg=16,bg=75,bold'
-ZSH_HIGHLIGHT_STYLES[picker-selected-inactive]='fg=252,bg=238'
+ZSH_HIGHLIGHT_STYLES[picker-selected]='fg=231,bg=24,bold'
+ZSH_HIGHLIGHT_STYLES[picker-selected-inactive]='fg=252,bg=237'
 ZSH_HIGHLIGHT_STYLES[picker-focus]='fg=75,bold'
 ZSH_HIGHLIGHT_STYLES[picker-match]='fg=81,bold,underline'
 ZSH_HIGHLIGHT_STYLES[picker-text]='fg=252'
@@ -1430,12 +1505,19 @@ ZSH_HIGHLIGHT_STYLES[picker-architecture]='fg=117,bold'
 ZSH_HIGHLIGHT_STYLES[picker-architecture-selected]='fg=231,bold'
 ZSH_HIGHLIGHT_STYLES[picker-size]='fg=221'
 ZSH_HIGHLIGHT_STYLES[picker-size-selected]='fg=229,bold'
-ZSH_HIGHLIGHT_STYLES[picker-muted]='fg=242'
+ZSH_HIGHLIGHT_STYLES[picker-muted]='fg=245'
 ZSH_HIGHLIGHT_STYLES[picker-empty]='fg=203,bold'
 ```
 
-Existing `history-search-*` overrides remain accepted and are migrated to the
-corresponding shared picker role when the shared palette initializes.
+These examples use dark-background colors. Selected metadata uses separate
+`picker-architecture-selected`, `picker-size-selected`, `picker-error-selected`,
+and `picker-success-selected` roles. Their `-inactive` variants apply when focus
+moves to the reader, such as `picker-size-selected-inactive`. Both states retain
+the row's selection background; customize their foregrounds alongside
+`picker-selected` and `picker-selected-inactive` to preserve contrast.
+
+Existing `history-search-*` overrides remain accepted and take precedence when
+the shared renderer resolves the corresponding picker role.
 
 | Key | Action |
 | --- | --- |
@@ -1615,16 +1697,19 @@ ZSH_HISTORY_SEARCH_MAX_RESULTS=12
 ## Colored manual pages
 
 Running `man` uses the native formatting already embedded in each manual page
-and renders it through `less` with the prompt palette:
+and renders it through `less` with the semantic output palette:
 
 ```sh
 man git-switch
 man zshoptions
 ```
 
-Headings and bold terms are cyan, underlined references are yellow, and
-standout or search matches use a cyan background. The colors are scoped to the
-`man` function, so opening an ordinary file with `less` is unaffected.
+Headings use the heading role, underlined references use the warning role, and
+standout or search matches use the heading color as a background. Compozsh
+chooses black or white text from that background's standard indexed luminance.
+For profile-defined ANSI indexes 0–15 it retains native inverse video instead
+of assuming their RGB values. The colors are scoped to the `man` function, so
+opening an ordinary file with `less` is unaffected.
 
 The function respects an existing `MANPAGER`, `MANCOLOR`, or
 `LESS_TERMCAP_*` value. Set one in the local initializer to replace an
@@ -1683,7 +1768,7 @@ grep --color=always TODO README.md | less -R
 
 The public `ZSH_OUTPUT_COLORS` map keeps Git, grep, manual-page, help, and LLDB
 prompt emphasis consistent. Override only desired semantic roles in the local initializer
-before peers load:
+before peers load. This example uses accents for a dark terminal profile:
 
 ```zsh
 typeset -gA ZSH_OUTPUT_COLORS
@@ -1702,6 +1787,15 @@ Set `LSCOLORS` separately for BSD `ls` to replace its adaptive default, or
 unset `CLICOLOR` in the local initializer to disable automatic file-listing
 colors on a particular machine. An existing `LS_COLORS` value retains
 precedence for completion file types.
+
+Completion descriptions and warnings resolve the `heading` and `error` roles
+when completion runs. Compozsh-provided completion colors, including filenames,
+remain uncolored with a nonempty `NO_COLOR` or fewer than 256 terminal colors.
+A replacement completion `zstyle` remains user-owned. Printable directory/branch
+stacks use the same semantic roles when the output peer and a supported terminal
+are available. Their
+redirected output, unsupported terminals, and nonempty `NO_COLOR` remain plain;
+without the output peer, printable stacks also remain plain.
 
 ## Local user and machine settings
 
@@ -1805,9 +1899,17 @@ and rerun `install.zsh --copy`; keep private peers beside it.
 ```
 
 There is no registration list and no core-module list. Create a matching file
-and the next shell loads it automatically. Disable one without deleting it by
+and the next shell loads it automatically. Disable a feature without deleting it by
 changing its prefix, for example from `.zsh.xcode` to
 `.disabled.zsh.xcode`, or remove the file.
+
+Keep the managed `support/` files intact when choosing features. Symlinked
+installations use them in the repository; copied installations include them
+inside `.zsh.addons/compozsh/support/`. Updating through `install.zsh --copy`
+refreshes that managed namespace, including moved support files; private peers
+and the initializer remain outside it. The normal uninstall procedure archives
+the active bootstrap and, for copied installations, the managed namespace
+including `support/`.
 
 Add-ons are executable shell configuration, not data. Keep this directory under
 the same ownership and code-review boundary as `.zshrc`. The loader never
@@ -2137,7 +2239,7 @@ output remains visible so a device or filesystem-driver failure keeps Apple’s
 specific diagnostic. On supported 256-color terminals, the shared semantic
 palette distinguishes the erase heading, live stages, native field labels, and
 successful completion. `NO_COLOR`, redirects, pipes, unsupported terminals,
-and a missing output peer retain the exact plain `diskutil` stream and final
+and unavailable palette roles retain the exact plain `diskutil` stream and final
 summary. Styling does not change native diagnostics or exit status.
 
 ### Bootable external-media workspace
@@ -2771,6 +2873,14 @@ Git arguments delegate directly to `git`. Compozsh reserves `g --help`,
 press a visible digit to switch immediately; after typing a filter, digits are
 search text.
 
+The interactive branch picker, review and worktree modes use the repository
+selected by the current folder. They locally ignore inherited `GIT_DIR`,
+`GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`,
+`GIT_ALTERNATE_OBJECT_DIRECTORIES` and `GIT_NAMESPACE` so captured refs and
+actions share the displayed scope. The caller's environment is restored on
+return. Ordinary Git arguments, such as `g status`, retain native Git environment
+selection.
+
 The **Branch** panel shows the full name, current-branch indicator, latest
 commit ID and subject, and configured upstream. At 100 columns or more it sits
 beside a wider branch list, capped at 48 columns and compact until focused.
@@ -3008,7 +3118,7 @@ objects, absent local ancestry and multiple common ancestors produce an
 explanation; they never silently switch comparison methods. Dirty working
 files are excluded from revision comparisons.
 
-`g --review` requires the shared editor and an interactive terminal; use
+`g --review` requires the shared UI peer and an interactive terminal; use
 `git diff A B` for plain output. `g --review --help` prints the same complete
 guide as `g --help`, without reading the repository.
 
@@ -3246,6 +3356,10 @@ magenta when detached, and red for conflicts or an in-progress operation.
 
 ## Project runtime line
 
+Ordinary runtime/version labels share `ZSH_PROMPT_COLORS[tool]` across languages
+and both appearances. Missing or unavailable runtimes retain their diagnostic
+words and the danger role.
+
 When the current directory is inside a recognized project, the prompt inserts a
 second line and moves the input arrow to a third line:
 
@@ -3402,7 +3516,7 @@ v_prompt_context() {
 
   local version
   version=$(v version 2>/dev/null) || version='not-installed'
-  prompt_add_project_segment "v ${version}" cyan
+  prompt_add_project_segment "v ${version}" "${ZSH_PROMPT_COLORS[tool]}"
 }
 
 PROMPT_PROJECT_CONTEXT_FUNCTIONS+=(v_prompt_context)
@@ -3410,8 +3524,11 @@ PROMPT_PROJECT_CONTEXT_FUNCTIONS+=(v_prompt_context)
 
 `PROMPT_PROJECT_MARKERS` teaches the upward project-root search about a new
 manifest. Each function in `PROMPT_PROJECT_CONTEXT_FUNCTIONS` receives that
-root path. `prompt_add_project_segment` safely escapes and colors the text before
-placing it on the project line. Because the arrays preserve earlier values and
+root path. `prompt_add_project_segment text [color]` safely escapes the text
+before placing it on the project line. An omitted or empty color reads the
+current `ZSH_PROMPT_COLORS[tool]` role, falling back to the selected palette or
+native text when no role is available. An explicit color retains Zsh's native
+prompt-color syntax. Because the arrays preserve earlier values and
 the function runs only during prompt collection, this remains independent of
 peer traversal order.
 
@@ -3461,6 +3578,11 @@ keeps ignored files, stashes, commits, submodule contents, and nested Git
 repositories. It also refuses to run without an existing commit or while a
 merge, rebase, cherry-pick, revert, or bisect operation is active.
 
+Restoration explicitly disables submodule recursion, including when your Git
+configuration enables it. If a preserved submodule remains dirty, final
+verification reports the remaining changes and returns status 1; changes in the
+parent repository have already been discarded.
+
 Inspection and restore disable repository-configured content filters, hooks,
 filesystem monitors, required-filter enforcement, and lazy fetches, so the
 guarded cleanup does not execute project-controlled filter commands. After the
@@ -3468,6 +3590,8 @@ confirmation, Compozsh revalidates the repository root, Git directory, `HEAD`,
 active-operation state, configured filter names, and the listed path states;
 if they changed, it leaves the repository untouched and asks you to run the
 preview again.
+An active Git sequencer is included in that refusal, including multi-commit
+cherry-picks started with `--no-commit`.
 
 This operation is irreversible for changes that have not been committed or
 stashed. Use `git stash --include-untracked` instead when the work may be needed

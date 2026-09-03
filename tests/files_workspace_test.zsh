@@ -8,6 +8,9 @@ _test_files_workspace_boundary() {
     (( ! ${+functions[_compozsh_help_d]} && ! ${+functions[_compozsh_help_f]} )) || exit 12
     for TERM in xterm-256color screen-256color; do
       source "$1/.zsh.addons/.zsh.editor"
+      source "$1/.zsh.addons/support/.zsh.ui"
+      source "$1/.zsh.addons/support/.zsh.matching"
+      source "$1/.zsh.addons/support/.zsh.appearance"
       [[ $(bindkey "^[^I") == *files-recents* ]] || exit 13
       [[ $(bindkey "^I") == *directory-context-complete* ]] || exit 17
       [[ $(bindkey "^X^D") != *files-recents* ]] || exit 18
@@ -27,10 +30,13 @@ _test_files_recents_missing_peer() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local BUFFER=sentinel CURSOR=5 message="" initial_pwd=$PWD
     zle() { [[ $1 == -M ]] && message=$2; }
     _files_recents_widget
-    [[ $? == 1 && $message == *"navigation add-on"* &&
+    [[ $? == 1 && $message == *navigation* && $message == *UI* &&
        $BUFFER == sentinel && $CURSOR == 5 && $PWD == "$initial_pwd" ]] || exit 1
     print unavailable
   ' "$TEST_REPO_ROOT") || return
@@ -75,6 +81,7 @@ _test_files_workspace_scope() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     root=${2:A}
     _file_search_capture "$root/inside" needle local || exit 1
     [[ ${#_FILE_SEARCH_VALUES} == 1 && $_FILE_SEARCH_VALUES[1] == "$root/inside/deeper/needle.txt" ]] || exit 2
@@ -122,6 +129,9 @@ _test_files_workspace_capabilities() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local _FILES_WORKSPACE=1 _DIRECTORY_PICKER_LOCATION=./
     local _directory_browser_clipboard="" _directory_browser_open="" mode=insert
     _directory_browser_pick() {
@@ -132,6 +142,7 @@ _test_files_workspace_capabilities() {
     _directory_browser_actions "" insert
     (( $? == 1 )) || exit 1
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     _file_search_capture() { _file_search_reset; return 2; }
     local -i actions=0
     _zle_picker_loop() {

@@ -5,6 +5,9 @@ _test_search_shortcut_labels() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     [[ $(bindkey "^F") == *autosuggest-accept-character* && $(bindkey "^E") == *autosuggest-accept-all* ]] || exit 1
     local label="" row="" query="long query with fragments" footer=""
     _ZLE_PICKER_RESULTS=(example) _ZLE_PICKER_LABELS=(example)
@@ -105,7 +108,7 @@ _test_search_shortcut_refresh() {
       _ZLE_PICKER_BOOKMARK=(narrow 2 1)
       _ZLE_PICKER_BOOKMARK_FOCUS=1
     }
-    _zle_picker_read_query() {
+    _files_read_query() {
       (( ++queries ))
       [[ $3 == original ]] || return 25
       (( queries == 1 )) && return 1

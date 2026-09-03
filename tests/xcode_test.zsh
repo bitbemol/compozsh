@@ -442,6 +442,9 @@ _test_xcode_digit_select_choosers_limit_each_visible_page_to_ten() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     _XCODE_PICKER_VALUES=({1..11})
     _XCODE_PICKER_LABELS=({1..11})
@@ -465,6 +468,9 @@ _test_xcode_action_option_colors() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     _XCODE_CONTAINERS=(/example/Demo.xcodeproj)
     _XCODE_CONTAINER_KINDS=(project)
@@ -702,6 +708,9 @@ _test_xcode_test_result_screen_uses_shared_semantic_roles() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="iPhone 18 Pro"
     _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=2 _XCODE_TEST_PASSED=1
@@ -742,6 +751,9 @@ _test_xcode_test_success_screen_uses_shared_semantic_role() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Passed _XCODE_TEST_TOTAL=24 _XCODE_TEST_PASSED=24
@@ -852,6 +864,9 @@ _test_xcode_test_result_screen_offers_report_only_with_clipboard() {
   test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh -df\n/bin/cat >/dev/null' || return
   command chmod +x "$fake_bin/pbcopy" || return
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=1 _XCODE_TEST_FAILED=1

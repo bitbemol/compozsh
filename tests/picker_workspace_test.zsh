@@ -5,6 +5,9 @@ _test_picker_workspace_layout() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     typeset -i _ZLE_PICKER_SCREEN_ACTIVE=1
     _ZLE_PICKER_TITLE=Branches
     _ZLE_PICKER_INSPECT_ACTION=select
@@ -69,6 +72,9 @@ _test_picker_workspace_matches() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _zle_picker_match_spans "swift build -c release" "-c SWIFT"
     [[ ${(j:,:)reply} == "12 14,0 5" ]] || exit 1
     _zle_picker_match_spans "git switch" gsw
@@ -92,6 +98,9 @@ _test_picker_workspace_semantic_label_highlights() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     COLUMNS=80 LINES=30
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_RESULTS=(image)
@@ -137,6 +146,9 @@ _test_picker_workspace_native_editor() {
   test_make_temp_dir || return
   test_write_file "$TEST_TMP_DIR/home/session.zsh" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     PROMPT=$'\''fixture line one\nfixture line two\n> '\''
     RPROMPT=fixture-clock
     exec {event_fd}<> "$HOME/events"

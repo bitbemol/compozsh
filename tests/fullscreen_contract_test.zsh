@@ -5,6 +5,9 @@ _test_fullscreen_footer_contract() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_INSPECT_ACTION=switch
     _ZLE_PICKER_COPY_ENABLED=1 _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_INDEXES_VISIBLE=1
@@ -45,6 +48,9 @@ _test_fullscreen_status_view_omits_input_and_bottom_footer() {
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.output"
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     COLUMNS=140 LINES=32
     _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_STATUS_VIEW=1 _ZLE_PICKER_BUSY=1
     _ZLE_PICKER_TITLE="Flash USB · Step 3 of 3"
@@ -74,6 +80,9 @@ _test_fullscreen_passive_rows_are_not_picker_actions() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     COLUMNS=140 LINES=24
     _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_TITLE="Flash USB · Windows unsupported"
@@ -106,6 +115,9 @@ _test_files_primary_action_hints() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_RESULTS=(/example/notes.txt) _ZLE_PICKER_SELECTED=1
     _ZLE_PICKER_ACCEPT_LABELS=(/example/notes.txt "file actions")
     _ZLE_PICKER_INSPECT_ACTION=insert _ZLE_PICKER_CANCEL_LABEL=back
@@ -140,6 +152,9 @@ _test_git_review_shortcut_label() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_RESULTS=(main) _ZLE_PICKER_SELECTED=1
     _ZLE_PICKER_INSPECT_ACTION=switch _ZLE_PICKER_WORKSPACE_ACTIONS=1
     _ZLE_PICKER_OPTIONS_KIND=git
@@ -183,6 +198,9 @@ _test_fullscreen_guide_contract() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_GUIDE_ACTIVE=1
     _ZLE_PICKER_TITLE=Branches _ZLE_PICKER_SUBTITLE="Example repository"
     _ZLE_PICKER_INSPECT_ACTION=switch _ZLE_PICKER_COPY_ENABLED=1
@@ -216,6 +234,9 @@ _test_directory_workspace_snapshot() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$HOME/work/api"
     dirstack=("$HOME/personal/api" "$HOME/missing")
@@ -259,6 +280,9 @@ _test_directory_workspace_native() {
     export LC_ALL=en_US.UTF-8
     path=("$HOME/bin" "${path[@]}")
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$HOME/work/api"
     dirstack=("$HOME/personal/api")

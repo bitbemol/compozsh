@@ -12,7 +12,7 @@ _test_search_default_sources() {
     local root="" expected="" mode=insert
     local _directory_browser_clipboard="" _directory_browser_open=""
     local -i queries=0 captures=0
-    _zle_picker_read_query() {
+    _files_read_query() {
       (( ++queries ))
       [[ $2 == "$expected · $root" && $captures == 0 ]] || return 20
       return 1
@@ -46,13 +46,14 @@ _test_search_provider_failures() {
   test_make_temp_dir || return
   test_write_file "$TEST_TMP_DIR/home/needle.txt" fixture || return
   test_write_file "$TEST_TMP_DIR/home/needle-two.txt" fixture || return
-  test_write_file "$TEST_TMP_DIR/bin/git" $'#!/bin/zsh\n[[ $3 == rev-parse ]] && { print true; exit 0; }\n(( ${EMIT:-0} )) && printf "needle.txt\\0"\nexit "${FAILURE:-0}"' || return
+  test_write_file "$TEST_TMP_DIR/bin/git" $'#!/bin/zsh\nwhile [[ $1 == -C || $1 == -c ]]; do shift 2; done\n[[ $1 == rev-parse ]] && { print true; exit 0; }\n(( ${EMIT:-0} )) && printf "needle.txt\\0"\nexit "${FAILURE:-0}"' || return
   test_write_file "$TEST_TMP_DIR/bin/mdfind" $'#!/bin/zsh\n(( ${EMIT:-0} )) && printf "%s\\0" "$HOME/needle.txt"\n(( ${EMIT:-0} > 1 )) && printf "%s\\0" "$HOME/needle-two.txt"\nexit "${FAILURE:-0}"' || return
   command chmod +x "$TEST_TMP_DIR/bin/git" "$TEST_TMP_DIR/bin/mdfind" || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     path=("$2" "${path[@]}")
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     local provider=""
     export EMIT=0 FAILURE=0
     for provider in git spotlight; do

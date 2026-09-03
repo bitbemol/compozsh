@@ -5,7 +5,8 @@ _test_picker_screen_lifecycle() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
     zmodload zsh/zpty
     zmodload zsh/zselect
     command mkfifo "$HOME/events" || exit 1

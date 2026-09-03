@@ -116,6 +116,52 @@ Appearance selection reads only `ZSH_COLOR_SCHEME` and the optional passive
 It writes no terminal query, reads no terminal input, sends no data, and starts
 no process. An absent or invalid automatic hint retains the dark palette.
 
+Appearance alone installs the selected palette defaults in shell memory. Public
+overrides remain writable; consumers resolve current roles without maintaining
+separate default palettes. Missing or non-associative public maps are treated
+as unavailable instead of interpreting role names as arithmetic. Rendering
+does not recreate them. Palette tuning derives styles from those choices.
+Completion and printable-stack color decisions inspect terminal capabilities and
+`NO_COLOR`; manual-page selection contrast uses fixed indexed-color arithmetic.
+These presentation steps perform no additional project or private-file reads,
+create no retained data, and launch no color-detection process. Inspect
+`.zsh.addons/support/.zsh.appearance`, `.zsh.addons/support/.zsh.ui`,
+`.zsh.addons/.zsh.output`, `.zsh.addons/.zsh.editor`,
+`.zsh.addons/.zsh.navigation` and `.zsh.addons/.zsh.prompt`, and run
+`zsh tests/run.zsh appearance` for isolated contrast, customization,
+terminal/plain-output, and native ZLE checks. Their reference RGB
+colors do not establish contrast for arbitrary user terminal profiles.
+
+The `support/` folder groups maintained implementations shipped in both
+installation modes. Its shell files follow ordinary recursive peer discovery;
+the folder adds no loader privilege, load phase, data storage or enforced
+read-only permissions. Personal customization uses documented public settings
+in the machine-local initializer, preserving the managed implementations.
+
+The `support/.zsh.ui` peer owns reusable terminal views, input, painting and
+screen restoration. Frames derive from captured facts; layout and resize perform no
+provider discovery. View configuration is scoped around the feature callback,
+with caller-owned snapshots and operation/bookmark outputs. Explicit capture
+and input-idle hooks remain effectful and retain their existing limits; final
+actions remain feature-owned. Callback names come from trusted feature code,
+never labels or project data. Repeated semantic styles are calculated once per
+surface and role during each paint, then discarded; the next paint reads current
+palette overrides. Secondary menus and notices scope their own labels and
+capabilities while returning exact action values to the caller. This adds no
+registry, persistent storage or background process. Run `zsh tests/run.zsh UI` and
+`zsh tests/run.zsh 'picker screen'` for view isolation, optional-peer behavior
+and native ZLE cleanup contracts.
+
+`support/.zsh.matching` compiles literal queries and filters caller-supplied
+captured text. Its generic keyword search accepts fragments in any order and
+returns indexes into the supplied candidates. Caller-local outputs are its only
+results: it reads no provider, UI state, filesystem, command metadata or history,
+and creates no persistent cache. Feature collectors retain their documented
+ranking, duplicate policy and capture limits. Query punctuation is literal;
+decimal result limits are checked before arithmetic. Run
+`zsh tests/run.zsh 'matching component'` for query, Unicode, limit and isolation
+contracts. Missing matching support selects existing native/plain fallbacks.
+
 Path + Tab can capture immediate directory entries from a lone path or an
 explicit directory argument such as `vim ~/Developer`. The editor retains the
 command prefix only in invocation-local memory; insertion replaces that
@@ -454,8 +500,14 @@ Compozsh defines no project endpoint and initiates no network request. Its Git
 inspection does not request `clone`, `fetch`, `pull`, `push`, or another remote
 operation: prompt status disables repository-configured clean/process filters,
 filesystem monitors, hooks, required-filter enforcement, and lazy fetches;
-branch views read local refs and reflogs; and Git review applies its own
-equivalent read-only filter boundary. Revision comparisons acquire local refs
+branch snapshot providers disable lazy fetches, prompts, transport and optional
+writes while reading local refs, reflogs and detail subjects; and Git review applies its own
+equivalent read-only filter boundary. Interactive branch, review and worktree
+workspaces use the current folder's repository, temporarily shadowing inherited
+Git directory, worktree, common-directory, index, object-store, alternate-object
+and namespace selectors. Explicit-root review providers apply the same rule.
+The caller's environment survives the operation; transparent `g` arguments and
+the prompt retain their native Git-context behavior. Revision comparisons acquire local refs
 only on chooser entry and resolve literal names/IDs only on submission or direct
 entry. Filtering, scrolling, resizing and the guide do not discover Git data.
 Comparison refresh retains both captured commit IDs and any resolved common
@@ -468,9 +520,25 @@ workspace also disables transport and hooks and refuses checkout filters;
 its checkout/removal boundary is detailed in the local-data inventory above.
 `git-discard-all` applies those controls
 to preview, restore, cleanup, and verification, and revalidates repository,
-HEAD, operation, filter-name, and listed-path state after confirmation. File
+HEAD, operation, filter-name, and listed-path state after confirmation. The same
+local-only controls cover initial HEAD validation.
+Operation checks include Git's sequencer directory before and after confirmation.
+Restore explicitly disables submodule recursion even under `submodule.recurse=true`,
+preserving tracked and untracked child contents. A dirty child can still make
+post-cleanup verification report remaining changes and return status 1 after
+parent changes have been discarded. The disposable-repository regression is
+`zsh tests/run.zsh 'git-discard-all preserves dirty submodule'`. File
 discovery uses bounded filesystem reads, local Git metadata, or the local
-Spotlight index.
+Spotlight index. Files' Git detection and capture use one explicit-folder read
+boundary with the same Git-selector isolation, disabled filesystem monitors,
+optional writes, lazy fetches and transport. Repository-configured fsmonitor
+commands cannot run during `ls-files` enumeration. Inspect `.zsh.addons/.zsh.find`
+and run `zsh tests/run.zsh 'Files Git'` for synthetic monitor and scope regressions;
+`zsh tests/run.zsh 'Git selectors'` covers workspace environment restoration.
+`zsh tests/run.zsh 'promisor fetch'` uses synthetic remote-helper spies to check
+that missing promised objects cannot initiate transport during branch details
+or initial cleanup validation. Branch switching separates options from the exact
+selected ref name; a native PTY regression covers a ref beginning with `--`.
 
 This is the complete external-network boundary disclosure. The following
 independently controlled software can use the network; none is a permission for

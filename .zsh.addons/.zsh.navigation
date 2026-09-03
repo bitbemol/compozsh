@@ -44,17 +44,6 @@ _navigation_abbreviate() {
   REPLY="${text[1,left_width]}…${text[-right_width,-1]}"
 }
 
-# Navigation owns its pattern boundary so this add-on remains independently
-# sourceable. A tiny repeated safety primitive is preferable to a hidden load-
-# order dependency on another peer add-on's private implementation.
-_navigation_escape_pattern() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-
-  local MATCH
-  REPLY=${1//(#m)[\][|()\\*?#<>~^]/\\$MATCH}
-}
-
 _navigation_picker_append_matches() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -74,43 +63,13 @@ _navigation_picker_append_matches() {
   done
 }
 
-# Split one candidate for forward array searches. Combined fuzzy globs can
-# backtrack exponentially; scalar searches and prefix trims rescan long names.
-_navigation_picker_append_fuzzy_matches() {
-  emulate -L zsh
-  local query=${(L)1} label='' value='' searchable='' character=''
-  local last_character=${query[-1]}
-  local -a characters=("${(@s::)query}") search_characters=()
-  characters=("${(@b)characters}")
-  local -i limit=$2 index=0 matched=0 query_length=${#query} position=0 length=0
-  for (( index=1; index<=${#_NAVIGATION_PICKER_VALUES}; ++index )); do
-    value=${_NAVIGATION_PICKER_VALUES[index]}
-    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
-    label=${_NAVIGATION_PICKER_LABELS[index]}
-    searchable=${(L)${_NAVIGATION_PICKER_SEARCH_LABELS[index]:-$label}}
-    length=${#searchable}
-    # Cheap necessary conditions avoid walking long, clearly unrelated names.
-    (( query_length <= length )) && [[ $searchable == *"$last_character"* ]] || continue
-    search_characters=("${(@s::)searchable}")
-    matched=1 position=1
-    for character in "${characters[@]}"; do
-      position=${search_characters[(ib:position:)$character]}
-      (( position <= length )) || { matched=0; break; }
-      (( ++position ))
-    done
-    (( matched )) || continue
-    _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
-    _ZLE_PICKER_RESULT_INDEXES+=("${_NAVIGATION_PICKER_INDEXES[index]}")
-    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-  done
-}
-
 # Rank literal prefix and substring matches before character-ordered fuzzy ones.
 _navigation_picker_collect() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local query=$1 raw_limit=$2 literal=''
+  local query=$1 raw_limit=$2 literal='' pattern=''
+  local -a reply=()
   local -i limit=$raw_limit index=0
   typeset -ga _ZLE_PICKER_RESULTS=()
   typeset -ga _ZLE_PICKER_LABELS=()
@@ -126,22 +85,37 @@ _navigation_picker_collect() {
     return 0
   fi
 
-  _navigation_escape_pattern "$query"
-  literal=$REPLY
+  (( ${+functions[_matching_compile]} )) || return 1
+  _matching_compile "$query"
+  literal=$reply[1] pattern=$reply[2]
   _navigation_picker_append_matches "(#i)${literal}*" $limit
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
   _navigation_picker_append_matches "(#i)*${literal}*" $limit
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
 
-  _navigation_picker_append_fuzzy_matches "$query" $limit
+  _navigation_picker_append_matches "$pattern" $limit
 }
 
-# Print navigation stacks with fixed-width indexes so the selector and its
-# target remain visually obvious even when paths or branch names are long.
+# The optional output peer validates colors at invocation; standalone stacks
+# stay plain without a second palette or a source-time ordering dependency.
+_navigation_color_style() {
+  emulate -L zsh
+  local role=$1
+  REPLY=''
+  [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
+  (( ${+functions[_output_color]} )) || return 0
+  zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
+  (( ${terminfo[colors]:-0} >= 256 )) || return 0
+  _output_color "$role" || return 0
+  REPLY=$'\e[38;5;'"${REPLY}m"
+}
+
+# Fixed-width indexes keep selectors and targets clear beside long labels.
 _stack_print_entry() {
   emulate -L zsh
 
-  local index=$1 marker=$2 label=$3
+  local index=$1 marker=$2 label=$3 index_style='' marker_style='' reset=''
+  local marker_text='↳'
   local -i columns=${COLUMNS:-80} label_width=0
   (( columns > 0 )) || columns=80
   label_width=$(( columns - ${#index} - 5 ))
@@ -151,13 +125,17 @@ _stack_print_entry() {
   _navigation_abbreviate "$label" $label_width
   label=$REPLY
 
-  print -Pn -- "%F{cyan}[${index}]%f "
+  _navigation_color_style accent
+  index_style=$REPLY
   if [[ $marker == current ]]; then
-    print -Pn -- '%F{green}●%f '
+    marker_text='●'
+    _navigation_color_style success
   else
-    print -Pn -- '%F{240}↳%f '
+    _navigation_color_style muted
   fi
-  print -r -- "$label"
+  marker_style=$REPLY
+  [[ -n $index_style || -n $marker_style ]] && reset=$'\e[0m'
+  print -r -- "${index_style}[${index}]${reset} ${marker_style}${marker_text}${reset} $label"
 }
 
 # Capture Zsh's native directory stack once for either the selector or the
@@ -273,6 +251,19 @@ _directory_recents_choose() {
 # Build a most-recently-used list from Git's own checkout reflog. Keeping this
 # derived avoids a second history file and also sees switches made by IDEs or
 # other shells. Deleted branches and detached commit IDs are filtered out.
+# Branch snapshots inspect local objects only. Keep these controls scoped to
+# providers so explicit switching and transparent Git arguments retain semantics.
+_git_branch_read() {
+  emulate -L zsh
+  local root=$1
+  shift
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
+  local -x GIT_ALLOW_PROTOCOL=''
+  command git --no-pager --no-replace-objects -C "$root" \
+    -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+    -c maintenance.auto=false -c gc.auto=0 "$@"
+}
+
 _git_recent_branches() {
   emulate -L zsh
 
@@ -283,7 +274,7 @@ _git_recent_branches() {
   typeset -ga _GIT_RECENT_BRANCHES=()
   typeset -g _GIT_RECENT_CURRENT=''
 
-  refs=$(command git -C "$root" for-each-ref \
+  refs=$(_git_branch_read "$root" for-each-ref \
     --format='%(HEAD)%09%(refname)' refs/heads/ 2>/dev/null) || return 1
   while IFS=$'\t' read -r ref_marker ref; do
     [[ $ref == refs/heads/* ]] || continue
@@ -316,7 +307,7 @@ _git_recent_branches() {
     done
 
     (( ${#_GIT_RECENT_BRANCHES} == ${#local_branches} )) && break
-  done < <(command git -C "$root" reflog show --format='%gs' \
+  done < <(_git_branch_read "$root" reflog show --format='%gs' \
     --grep-reflog='^checkout: moving from ' --max-count=200 HEAD 2>/dev/null)
 
   # Local branches absent from the bounded checkout reflog are simply not
@@ -341,7 +332,7 @@ _git_branch_inspector_capture() {
   (( ${#refs} )) || return 0
   # 200 checkout transitions yield at most 401 distinct recent branches.
   # The byte/character cap also bounds unusually large commit messages.
-  IFS= read -r -u 0 -k 262144 data < <(command git -C "$root" for-each-ref \
+  IFS= read -r -u 0 -k 262144 data < <(_git_branch_read "$root" for-each-ref \
     --count=401 --format='%(refname)%00%(upstream:short)%00%(objectname:short)%00%(subject)%00' \
     "${refs[@]}" 2>/dev/null) || :
   while IFS= read -r -d '' ref && IFS= read -r -d '' upstream &&
@@ -366,7 +357,7 @@ _git_branch_stack_load() {
   emulate -L zsh
 
   local root=''
-  root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
+  root=$(_git_branch_read "$PWD" rev-parse --show-toplevel 2>/dev/null) || {
     print -u2 'g: not inside a Git working tree'
     return 1
   }
@@ -404,10 +395,13 @@ _navigation_copy() {
 _git_branch_stack_print() {
   emulate -L zsh
 
-  local branch='' marker='recent'
+  local branch='' marker='recent' heading_style='' reset=''
   local -i index=0
 
-  print -P '%F{blue}Branch stack%f'
+  _navigation_color_style heading
+  heading_style=$REPLY
+  [[ -n $heading_style ]] && reset=$'\e[0m'
+  print -r -- "${heading_style}Branch stack${reset}"
   for branch in "${_GIT_RECENT_BRANCHES[@]}"; do
     marker='recent'
     [[ $branch == $_GIT_RECENT_CURRENT ]] && marker='current'
@@ -493,6 +487,10 @@ _compozsh_help_g() {
     '  then recent local checkouts from up to 200 matching HEAD reflog entries.' \
     '  IDE and terminal switches recorded there count too. Deleted branches,' \
     '  detached commit IDs, and remote-only branches are excluded.' \
+    '  The current folder scopes branch capture, review and switching.' \
+    '  Workspace modes ignore inherited Git repository/index/object selectors;' \
+    '  caller settings are restored afterward. Ordinary g arguments preserve' \
+    '  Git environment selection and native behavior.' \
     '  A local branch absent from that recent history may not appear. Use' \
     '  g branch to list all local branches; g branch -a also lists remote refs.' \
     '  Detached HEAD has no current-branch row. With the review peer enabled,' \
@@ -674,6 +672,44 @@ _compozsh_help_g() {
     '  g switch --help         Read Git documentation for switch.'
 }
 
+_git_branch_choose() {
+  _zle_ui_view choice _git_branch_view "$@"
+}
+
+_git_branch_view() {
+  emulate -L zsh
+  local root=$1 clipboard_binary=$2 repo=''
+  local -i index=0
+  local -a _NAVIGATION_PICKER_SEARCH_LABELS=()
+  _ZLE_PICKER_INSPECT_TITLE=Branch _ZLE_PICKER_INSPECT_ACTION=switch
+  _ZLE_PICKER_CANCEL_LABEL=''
+  typeset -ga _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+  typeset -ga _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
+  typeset -ga _NAVIGATION_PICKER_INDEXES=()
+  for (( index = 0; index < ${#_GIT_RECENT_BRANCHES}; ++index )); do
+    _NAVIGATION_PICKER_INDEXES+=($index)
+  done
+
+  repo=${root:t}
+  _ZLE_PICKER_TITLE=Branches
+  _ZLE_PICKER_SUBTITLE=$repo
+  [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_SUBTITLE+=' · no current local branch'
+  _ZLE_PICKER_BROWSE_LABEL='recent checkouts'
+  _ZLE_PICKER_EMPTY_LABEL='no matching branches'
+  [[ -n $clipboard_binary ]] && _ZLE_PICKER_COPY_ENABLED=1
+  _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
+  {
+    (( ${+functions[_zle_picker_inspect_render]} )) && _git_branch_inspector_capture "$root"
+    if (( ${+functions[_git_review_branch_choose]} )); then
+      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" '' 1 0 _git_review_branch_choose
+    else
+      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
+    fi
+  } always {
+    _ZLE_PICKER_INSPECT_TEXTS=()
+  }
+}
+
 unalias g 2>/dev/null
 g() {
   emulate -L zsh
@@ -724,47 +760,25 @@ g() {
     return $?
   fi
 
-  local root='' repo='' branch='' clipboard_binary=${commands[pbcopy]:-}
-  local _ZLE_PICKER_INSPECT_TITLE=Branch _ZLE_PICKER_INSPECT_ACTION=switch
-  local _ZLE_PICKER_SUBTITLE='' _ZLE_PICKER_CANCEL_LABEL=''
-  local -a _NAVIGATION_PICKER_SEARCH_LABELS=()
-  local -i index=0 picker_status=0
+  # The visible workspace follows this folder throughout capture, review and
+  # switching. Transparent Git arguments above preserve native environment use.
+  local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+
+  local root='' branch='' clipboard_binary=${commands[pbcopy]:-}
+  local -i picker_status=0
   _git_branch_stack_load || return
   root=$REPLY
 
-  if (( ! ${+functions[_zle_picker_loop]} )); then
+  if (( ! ${+functions[_zle_picker_loop]} || !${+functions[_matching_compile]} )); then
     _git_branch_stack_print
     return 0
   fi
 
-  typeset -ga _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
-  typeset -ga _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
-  typeset -ga _NAVIGATION_PICKER_INDEXES=()
-  for (( index = 0; index < ${#_GIT_RECENT_BRANCHES}; ++index )); do
-    _NAVIGATION_PICKER_INDEXES+=($index)
-  done
-
-  repo=${root:t}
-  _ZLE_PICKER_TITLE=Branches
-  _ZLE_PICKER_SUBTITLE=$repo
-  [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_SUBTITLE+=' · no current local branch'
-  _ZLE_PICKER_BROWSE_LABEL='recent checkouts'
-  _ZLE_PICKER_EMPTY_LABEL='no matching branches'
-  _ZLE_PICKER_COPY_ENABLED=0
-  [[ -n $clipboard_binary ]] && _ZLE_PICKER_COPY_ENABLED=1
-  _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
-  _ZLE_PICKER_DIGIT_SELECT=1
-  {
-    (( ${+functions[_zle_picker_inspect_render]} )) && _git_branch_inspector_capture "$root"
-    if (( ${+functions[_git_review_branch_choose]} )); then
-      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" '' 1 0 _git_review_branch_choose
-    else
-      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
-    fi
-    picker_status=$?
-  } always {
-    _ZLE_PICKER_INSPECT_TEXTS=()
-  }
+  _git_branch_choose "$root" "$clipboard_binary"
+  picker_status=$?
   (( picker_status == 1 )) && return 0
   (( picker_status == 0 )) || return $picker_status
 
@@ -774,7 +788,7 @@ g() {
     return $?
   fi
   [[ $branch == "$_GIT_RECENT_CURRENT" ]] && return 0
-  command git -C "$root" switch --no-guess "$branch"
+  command git -C "$root" switch --no-guess -- "$branch"
 }
 
 # Remove the former static branch-list helper when re-sourcing an older shell.

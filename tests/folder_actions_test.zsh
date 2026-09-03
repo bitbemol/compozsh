@@ -5,6 +5,9 @@ _test_folder_actions_groups() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local _DIRECTORY_PICKER_LOCATION="$HOME/current/"
     local selected="$HOME/selected %F{red}; literal/" choice=""
     local _directory_browser_clipboard=available _directory_browser_open=available
@@ -72,6 +75,7 @@ _test_folder_actions_groups() {
     [[ $_ZLE_PICKER_ACTION == insert && $_ZLE_PICKER_SELECTED_VALUE == "$_DIRECTORY_PICKER_LOCATION" ]] || exit 9
     # The runtime peer supplies app dispatch, including for an empty folder.
     source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/support/.zsh.matching"
     choice=open
     _directory_browser_actions "" insert || exit 10
     [[ $_ZLE_PICKER_ACTION == open && $_ZLE_PICKER_SELECTED_VALUE == "$_DIRECTORY_PICKER_LOCATION" ]] || exit 11
@@ -86,6 +90,9 @@ _test_folder_actions_optional_groups() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local _DIRECTORY_PICKER_LOCATION="$HOME/"
     local _directory_browser_clipboard="" _directory_browser_open=""
     local -i _FILES_WORKSPACE=1

@@ -12,8 +12,6 @@ typeset -ga _FILE_SEARCH_VALUES=()
 typeset -ga _FILE_SEARCH_LABELS=()
 typeset -ga _FILE_SEARCH_MATCH_TEXTS=()
 typeset -ga _FILE_SEARCH_RANKS=()
-typeset -ga _FILE_SEARCH_LITERAL_PATTERNS=()
-typeset -ga _FILE_SEARCH_FUZZY_PATTERNS=()
 typeset -gA _FILE_SEARCH_SEEN=()
 typeset -g _FILE_SEARCH_LITERAL_QUERY=''
 typeset -g _FILE_SEARCH_LITERAL_FILTER_PATTERN=''
@@ -24,54 +22,26 @@ typeset -gi _FILE_SEARCH_TRUNCATED=0
 typeset -gi _FILE_SEARCH_VISITED=0
 
 
-_file_search_escape_pattern() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-
-  local MATCH
-  REPLY=${1//(#m)[\][|()\\*?#<>~^]/\\$MATCH}
-}
-
 _file_search_compile_query() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local query=$1 fragment='' character='' literal='' fuzzy='(#i)*'
-  local -a fragments=( ${=query} )
-  local -i index=0
-  typeset -ga _FILE_SEARCH_LITERAL_PATTERNS=()
-  typeset -ga _FILE_SEARCH_FUZZY_PATTERNS=()
+  local query=$1
+  local -a reply=()
+  _FILE_SEARCH_LITERAL_QUERY=''
   _FILE_SEARCH_LITERAL_FILTER_PATTERN=''
   _FILE_SEARCH_FILTER_PATTERN=''
 
-  _file_search_escape_pattern "$query"
-  _FILE_SEARCH_LITERAL_QUERY=$REPLY
-  for fragment in "${fragments[@]}"; do
-    _file_search_escape_pattern "$fragment"
-    literal=$REPLY
-    _FILE_SEARCH_LITERAL_PATTERNS+=("(#i)*${literal}*")
-    fuzzy='(#i)*'
-    for character in "${(s::)fragment}"; do
-      _file_search_escape_pattern "$character"
-      fuzzy+="${REPLY}*"
-    done
-    _FILE_SEARCH_FUZZY_PATTERNS+=("$fuzzy")
-  done
-
-  # `a~^b` is Zsh's native intersection (a excluding b's complement). One
-  # compiled comparison cheaply rejects nonmatches before any helper call.
-  if (( ${#_FILE_SEARCH_LITERAL_PATTERNS} )); then
-    _FILE_SEARCH_LITERAL_FILTER_PATTERN=${_FILE_SEARCH_LITERAL_PATTERNS[1]}
-    for (( index = 2; index <= ${#_FILE_SEARCH_LITERAL_PATTERNS}; ++index )); do
-      _FILE_SEARCH_LITERAL_FILTER_PATTERN+="~^${_FILE_SEARCH_LITERAL_PATTERNS[index]}"
-    done
+  (( ${+functions[_matching_compile_fragments]} )) || return 1
+  _matching_compile_fragments "$query"
+  _FILE_SEARCH_LITERAL_QUERY=$reply[1]
+  # Files handles empty queries before collection. A whitespace-only filter
+  # retains its existing whole-literal behavior without adding a broad tier.
+  if [[ -n ${query//[$' \t\n']/} ]]; then
+    _FILE_SEARCH_LITERAL_FILTER_PATTERN=$reply[2]
+    _FILE_SEARCH_FILTER_PATTERN=$reply[3]
   fi
-  if (( ${#_FILE_SEARCH_FUZZY_PATTERNS} )); then
-    _FILE_SEARCH_FILTER_PATTERN=${_FILE_SEARCH_FUZZY_PATTERNS[1]}
-    for (( index = 2; index <= ${#_FILE_SEARCH_FUZZY_PATTERNS}; ++index )); do
-      _FILE_SEARCH_FILTER_PATTERN+="~^${_FILE_SEARCH_FUZZY_PATTERNS[index]}"
-    done
-  fi
+  return 0
 }
 
 # Return a stable relevance tier through REPLY: basename prefix, complete
@@ -80,8 +50,7 @@ _file_search_match_rank() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local text=$1 basename=${1:t} pattern=''
-  local -i matched=1
+  local text=$1 basename=${1:t}
   REPLY=0
 
   if [[ -n $_FILE_SEARCH_LITERAL_QUERY &&
@@ -95,25 +64,13 @@ _file_search_match_rank() {
     return 0
   fi
 
-  for pattern in "${_FILE_SEARCH_LITERAL_PATTERNS[@]}"; do
-    [[ $text == ${~pattern} ]] || {
-      matched=0
-      break
-    }
-  done
-  if (( matched && ${#_FILE_SEARCH_LITERAL_PATTERNS} )); then
+  if [[ -n $_FILE_SEARCH_LITERAL_FILTER_PATTERN &&
+        $text == ${~_FILE_SEARCH_LITERAL_FILTER_PATTERN} ]]; then
     REPLY=3
     return 0
   fi
 
-  matched=1
-  for pattern in "${_FILE_SEARCH_FUZZY_PATTERNS[@]}"; do
-    [[ $text == ${~pattern} ]] || {
-      matched=0
-      break
-    }
-  done
-  (( matched && ${#_FILE_SEARCH_FUZZY_PATTERNS} )) || return 1
+  [[ -n $_FILE_SEARCH_FILTER_PATTERN && $text == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || return 1
   REPLY=4
 }
 
@@ -193,16 +150,31 @@ _file_search_sort_matches() {
   done
 }
 
+# Git discovery belongs to the displayed folder. Keep inherited repository
+# selectors and configured monitor hooks from redirecting or executing a read.
+_file_search_git() {
+  emulate -L zsh
+  local root=$1 git_binary=${commands[git]:-}
+  shift
+  [[ -n $git_binary ]] || return 127
+  local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL=''
+  command "$git_binary" -C "$root" -c core.fsmonitor=false "$@"
+}
+
 _file_search_capture_git() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local root=${1:A} query=$2 git_binary=${commands[git]:-}
-  local relative='' path='' parent=''
+  local root=${1:A} query=$2
+  local relative='' candidate_path='' parent=''
   local -i consider_status=0 stop=0 source_status=2
   local completion=''
-  [[ -n $git_binary && -d $root ]] || return 2
-  command "$git_binary" -C "$root" rev-parse --is-inside-work-tree \
+  [[ -d $root ]] || return 2
+  _file_search_git "$root" rev-parse --is-inside-work-tree \
     >/dev/null 2>&1 || return 2
 
   _file_search_reset
@@ -217,8 +189,8 @@ _file_search_capture_git() {
     fi
     [[ -n $relative && $relative != /* ]] || continue
     [[ $relative == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
-    path="$root/$relative"
-    _file_search_consider "$path" "$relative" "$relative"
+    candidate_path="$root/$relative"
+    _file_search_consider "$candidate_path" "$relative" "$relative"
     consider_status=$?
     (( consider_status == 2 )) && {
       stop=1
@@ -238,7 +210,7 @@ _file_search_capture_git() {
       done
     fi
     (( stop )) && break
-  done < <(command "$git_binary" -C "$root" ls-files -z \
+  done < <(_file_search_git "$root" ls-files -z \
     --cached --others --exclude-standard 2>/dev/null
     # Empty paths cannot occur: terminate the NUL stream with its exit status.
     print -rn -- $'\0'"$?"$'\0' 2>/dev/null)
@@ -506,35 +478,32 @@ _file_search_copy() {
 # filtered in memory; dispatch happens only after the line editor is closed.
 _file_search_actions_collect() {
   emulate -L zsh
-  setopt EXTENDED_GLOB
-  local query=$1 character='' pattern='(#i)*'
+  local query=$1
+  local -a reply=()
   local -i limit=$2 index=0
   _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
-  for character in "${(s::)query}"; do
-    _file_search_escape_pattern "$character"
-    pattern+="${REPLY}*"
-  done
-  for (( index=1; index<=${#_file_action_values}; ++index )); do
-    [[ ${_file_action_labels[index]} == ${~pattern} ]] || continue
+  (( ${+functions[_matching_compile]} && ${+functions[_matching_filter]} )) || return 1
+  _matching_compile "$query"
+  _matching_filter "$reply[2]" $limit "${_file_action_labels[@]}"
+  for index in "${reply[@]}"; do
     _ZLE_PICKER_RESULTS+=("${_file_action_values[index]}")
     _ZLE_PICKER_LABELS+=("${_file_action_labels[index]}")
     _ZLE_PICKER_RESULT_INDEXES+=($index)
-    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
   done
   return 0
 }
 
 _file_search_actions() {
+  _zle_ui_view choice _file_search_actions_view "$@"
+}
+
+_file_search_actions_view() {
   emulate -L zsh
-  local _ZLE_PICKER_SEARCH_ACTION='' _ZLE_PICKER_QUERY_LABEL='Filter actions'
-  local -i _zle_picker_start_focus=0
+  _ZLE_PICKER_QUERY_LABEL='Filter actions'
   local selected=$1 clipboard_binary=$2 open_binary=$3 kind=File
   local -a _file_action_values=() _file_action_labels=()
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local _ZLE_PICKER_INSPECT_TITLE=Action _ZLE_PICKER_INSPECT_ACTION=apply
-  local _ZLE_PICKER_CANCEL_LABEL=back
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_DIRECTORY_ACTIONS=0
-  local _ZLE_PICKER_SUBTITLE=${selected:t}
+  _ZLE_PICKER_INSPECT_TITLE=Action _ZLE_PICKER_INSPECT_ACTION=apply
+  _ZLE_PICKER_SUBTITLE=${selected:t}
   local action='' detail='' display_path=${(V)selected}
 
   if [[ -L $selected ]]; then
@@ -572,9 +541,6 @@ _file_search_actions() {
   _ZLE_PICKER_BROWSE_LABEL=$kind
   _ZLE_PICKER_EMPTY_LABEL='no matching actions'
   _ZLE_PICKER_COLLECTOR=_file_search_actions_collect
-  _ZLE_PICKER_DIGIT_SELECT=1
-  _ZLE_PICKER_COPY_ENABLED=0
-  _ZLE_PICKER_HIERARCHY_ENABLED=0
   if (( ${_ZLE_PICKER_SESSION:-0} )); then
     _zle_picker_loop '' 10
   else
@@ -646,9 +612,9 @@ _file_search_capture() {
 # choose a walk explicitly, but a missing/failed index must not trigger one.
 _file_search_default_provider() {
   emulate -L zsh
-  local root=$1 git_binary=${commands[git]:-}
-  if [[ -n $git_binary &&
-        $(command "$git_binary" -C "$root" rev-parse --is-inside-work-tree 2>/dev/null) == true ]]; then
+  local root=$1
+  if (( ${+commands[git]} )) &&
+     [[ $(_file_search_git "$root" rev-parse --is-inside-work-tree 2>/dev/null) == true ]]; then
     REPLY=git
   elif [[ $OSTYPE == darwin* && ( ${root:A} == ${HOME:A} || ${root:A} == / ) ]]; then
     REPLY=spotlight
@@ -677,13 +643,12 @@ _file_search_choose() {
   local _ZLE_PICKER_INSPECT_FALLBACK=''
   local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   local -a _FILE_SEARCH_VALUES=() _FILE_SEARCH_LABELS=() _FILE_SEARCH_MATCH_TEXTS=() _FILE_SEARCH_RANKS=()
-  local -a _FILE_SEARCH_LITERAL_PATTERNS=() _FILE_SEARCH_FUZZY_PATTERNS=()
   local -A _FILE_SEARCH_SEEN=()
   local _FILE_SEARCH_ROOT='' _FILE_SEARCH_SOURCE=''
   local _FILE_SEARCH_LITERAL_QUERY='' _FILE_SEARCH_LITERAL_FILTER_PATTERN='' _FILE_SEARCH_FILTER_PATTERN=''
   local -i _FILE_SEARCH_TRUNCATED=0 _FILE_SEARCH_VISITED=0
   if [[ -z $query ]]; then
-    _zle_picker_read_query 'Search descendants' "$provider · $root" || return $?
+    _files_read_query 'Search descendants' "$provider · $root" || return $?
     query=$_ZLE_PICKER_SELECTED_VALUE
   fi
   while true; do
@@ -731,7 +696,7 @@ _file_search_choose() {
     return_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
     _zle_picker_start_focus=$return_focus
     if [[ $_ZLE_PICKER_ACTION == "search-$provider" ]]; then
-      _zle_picker_read_query 'Search descendants' "$provider · $root" "$query"
+      _files_read_query 'Search descendants' "$provider · $root" "$query"
       result=$?
       (( result == 1 )) && continue
       (( result == 0 )) || return $result
@@ -766,6 +731,28 @@ _file_search_choose() {
     _ZLE_PICKER_SELECTED_VALUE=$selected
     return 0
   done
+}
+
+# Search owns its scope and instructions; UI owns the query interaction.
+_files_read_query() {
+  _zle_ui_view query _files_query_content "$@"
+}
+
+_files_query_content() {
+  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2
+  local _ZLE_PICKER_QUERY_LABEL='Search descendants'
+  local _ZLE_PICKER_INSPECT_ACTION=search
+  local _ZLE_PICKER_BROWSE_LABEL='Enter fragments, then press Return to search'
+  local -a _ZLE_PICKER_EMPTY_LINES=(
+    'Search descendants of the displayed folder'
+    'Space-separated fragments may match in any order, case-insensitively.'
+    'Each fragment may abbreviate characters in order. Example: net cli'
+    'Spotlight seeds filenames with the longest fragment; use recognizable text.'
+    'Filesystem: 20,000 inspected entries; all sources: 2,000 captured matches.'
+    'Unreadable/unindexed locations may be absent. Mounted drives may be slow.'
+    'After capture, Filter results refines that snapshot. Ctrl-F edits the search.'
+    'Ctrl-X in Browse or results chooses another discovery source.')
+  _zle_picker_loop "${3:-}" 10
 }
 
 :

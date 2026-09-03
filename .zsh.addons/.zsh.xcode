@@ -100,12 +100,23 @@ _xcode_safe_arguments() {
 # files are removed before returning.
 _xcode_capture_command() {
   emulate -L zsh
+  setopt EXTENDED_GLOB
 
   local temp_root=${TMPDIR:-/tmp} capture_dir='' stdout_file='' stderr_file=''
   local raw_size='' output='' diagnostic=''
-  local -i command_status=0 max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}
+  local max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}
+  local integer_max=9223372036854775807
+  local -i command_status=0
   _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
   [[ $max_bytes == <-> ]] || max_bytes=262144
+  max_bytes=${max_bytes##0#}
+  [[ -n $max_bytes ]] || max_bytes=0
+  # Validate decimal text before arithmetic can interpret expressions or
+  # truncate beyond the supported Zsh's signed 64-bit integer range.
+  if (( ${#max_bytes} > ${#integer_max} )) ||
+     { (( ${#max_bytes} == ${#integer_max} )) && [[ $max_bytes > $integer_max ]]; }; then
+    max_bytes=262144
+  fi
   (( max_bytes < 4096 )) && max_bytes=4096
 
   capture_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode.XXXXXX") || {
@@ -1312,19 +1323,17 @@ _xcode_logs_idle() {
 }
 
 _xcode_logs_options() {
+  _zle_ui_view choice _xcode_logs_options_view
+}
+
+_xcode_logs_options_view() {
   emulate -L zsh
-  local _ZLE_PICKER_TITLE='Xcode / Logs / Options'
-  local _ZLE_PICKER_SUBTITLE="$_xcode_logs_matches of $_xcode_logs_total captured lines"
-  local _ZLE_PICKER_BROWSE_LABEL='Actions use the logs displayed when Options opened'
-  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_QUERY_LABEL='Filter options' _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
-  local _ZLE_PICKER_IDLE_CALLBACK=_xcode_run_capture_idle
-  local -i _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_DOCUMENT_REFRESH=0 _ZLE_PICKER_DIGIT_SELECT=1 _zle_picker_start_focus=0
-  local -i _ZLE_PICKER_DOCUMENT_FOLLOW=-1
+  _ZLE_PICKER_TITLE='Xcode / Logs / Options'
+  _ZLE_PICKER_SUBTITLE="$_xcode_logs_matches of $_xcode_logs_total captured lines"
+  _ZLE_PICKER_BROWSE_LABEL='Actions use the logs displayed when Options opened'
+  _ZLE_PICKER_QUERY_LABEL='Filter options' _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
+  _ZLE_PICKER_IDLE_CALLBACK=_xcode_run_capture_idle
   local -a _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=()
-  local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   if [[ -n $_xcode_logs_text && -n $_xcode_run_clipboard ]]; then
     _XCODE_PICKER_VALUES+=(copy)
     [[ -n $_xcode_logs_query ]] &&
@@ -1348,23 +1357,24 @@ _xcode_logs_options() {
 }
 
 _xcode_logs_reader() {
+  _zle_ui_view reader _xcode_logs_reader_view
+}
+
+_xcode_logs_reader_view() {
   emulate -L zsh
-  local _ZLE_PICKER_TITLE='Xcode / Logs' _ZLE_PICKER_SUBTITLE='' _ZLE_PICKER_BROWSE_LABEL=''
-  local _ZLE_PICKER_QUERY_LABEL='Filter log lines' _ZLE_PICKER_COLLECTOR=_xcode_logs_collect
-  local _ZLE_PICKER_INSPECT_ACTION=options _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_INSPECT_FIXED_KEY=logs _ZLE_PICKER_DOCUMENT_KEY=logs
-  local _ZLE_PICKER_DOCUMENT_TITLE='App logs' _ZLE_PICKER_DOCUMENT_MODE=''
-  local _ZLE_PICKER_INSPECT_TITLE='App logs' _ZLE_PICKER_IDLE_CALLBACK=_xcode_logs_idle
+  _ZLE_PICKER_TITLE='Xcode / Logs' _ZLE_PICKER_BROWSE_LABEL=''
+  _ZLE_PICKER_QUERY_LABEL='Filter log lines' _ZLE_PICKER_COLLECTOR=_xcode_logs_collect
+  _ZLE_PICKER_INSPECT_ACTION=options
+  _ZLE_PICKER_INSPECT_FIXED_KEY=logs _ZLE_PICKER_DOCUMENT_KEY=logs
+  _ZLE_PICKER_DOCUMENT_TITLE='App logs'
+  _ZLE_PICKER_INSPECT_TITLE='App logs' _ZLE_PICKER_IDLE_CALLBACK=_xcode_logs_idle
   # Capture does not depend on viewport geometry. Publish once per idle frame
   # instead of preparing a second tail before the first can reach the display.
-  local -i _ZLE_PICKER_IDLE_PREPAINT=0
-  local -i _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT_REFRESH=0
-  local -i _ZLE_PICKER_DOCUMENT_FOLLOW=${_xcode_logs_follow:-1}
-  local -i _ZLE_PICKER_INSPECT_CLIP_LINES=0 _ZLE_PICKER_INSPECT_STACKED=0 _ZLE_PICKER_DOCUMENT_PENDING=0
-  local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
-  local -i _ZLE_PICKER_DIGIT_SELECT=0 _ZLE_PICKER_COPY_ENABLED=0 _zle_picker_start_focus=1
-  local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_PASSIVE_LINES=()
-  local -a _ZLE_PICKER_GUIDE_CONTEXT=('Filter: case-insensitive literal substring in each captured line.'
+  _ZLE_PICKER_IDLE_PREPAINT=0
+  _ZLE_PICKER_DOCUMENT_FOLLOW=${_xcode_logs_follow:-1}
+  _zle_picker_start_focus=1
+  local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+  _ZLE_PICKER_GUIDE_CONTEXT=('Filter: case-insensitive literal substring in each captured line.'
     'New matching output appears automatically while following live.'
     'Scroll up to pause; return to the bottom or choose Follow latest to resume.'
     'Copy uses complete displayed matching source lines, including offscreen text.'
@@ -1372,7 +1382,8 @@ _xcode_logs_reader() {
   local -A _ZLE_PICKER_DOCUMENT_OFFSETS=(logs "${_xcode_logs_offset:-100000}")
   local -A _ZLE_PICKER_DOCUMENT_ROWS=(logs "${_xcode_logs_row:-0}")
   local -A _ZLE_PICKER_DOCUMENT_WIDTHS=(logs "${_xcode_logs_width:-0}")
-  local -A _ZLE_PICKER_DOCUMENT_SYNTAX=() _ZLE_PICKER_INSPECT_TEXTS=(logs '') _ZLE_PICKER_ACCEPT_LABELS=()
+  local -A _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  _ZLE_PICKER_INSPECT_TEXTS=(logs '')
   local _xcode_logs_text='' action=''
   local -i _xcode_logs_total=0 _xcode_logs_matches=0 result=0
   while true; do
@@ -1431,33 +1442,37 @@ _xcode_logs_copy() {
 }
 
 _xcode_run_controller() {
+  _zle_ui_view choice _xcode_run_view
+}
+
+_xcode_run_view() {
   emulate -L zsh
   # The shared renderer retains its last frame. Scope this copy so app output
   # cannot survive in shell globals after the run view closes.
   local -a _ZLE_PICKER_DISPLAY=()
-  local _ZLE_PICKER_TITLE='Xcode / Run' _ZLE_PICKER_SUBTITLE=''
-  local _ZLE_PICKER_QUERY_LABEL='Filter actions' _ZLE_PICKER_INSPECT_TITLE='App output'
-  local _ZLE_PICKER_INSPECT_FIXED_KEY=run
-  local _ZLE_PICKER_INSPECT_ACTION=stop _ZLE_PICKER_CANCEL_LABEL=stop
-  local _ZLE_PICKER_BROWSE_LABEL='Enter applies selected action · Escape stops run'
+  _ZLE_PICKER_TITLE='Xcode / Run'
+  _ZLE_PICKER_QUERY_LABEL='Filter actions' _ZLE_PICKER_INSPECT_TITLE='App output'
+  _ZLE_PICKER_INSPECT_FIXED_KEY=run
+  _ZLE_PICKER_INSPECT_ACTION=stop _ZLE_PICKER_CANCEL_LABEL=stop
+  _ZLE_PICKER_BROWSE_LABEL='Enter applies selected action · Escape stops run'
   [[ -n ${_xcode_logs_notice:-} ]] && _ZLE_PICKER_BROWSE_LABEL="$_xcode_logs_notice · Escape stops run"
-  local _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
-  local _ZLE_PICKER_IDLE_CALLBACK=_xcode_run_idle
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_INSPECT_CLIP_LINES=1
-  local -i _ZLE_PICKER_INSPECT_STACKED=1
-  local -i _ZLE_PICKER_DIGIT_SELECT=1 result=0 selected=${_xcode_run_actions_bookmark[2]:-1}
-  local -i _zle_picker_start_focus=0 _xcode_run_open_reader=0 _xcode_run_empty_snapshot=1
+  _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
+  _ZLE_PICKER_IDLE_CALLBACK=_xcode_run_idle
+  _ZLE_PICKER_INSPECT_CLIP_LINES=1
+  _ZLE_PICKER_INSPECT_STACKED=1
+  local -i result=0 selected=${_xcode_run_actions_bookmark[2]:-1}
+  local -i _xcode_run_open_reader=0 _xcode_run_empty_snapshot=1
   local query=${_xcode_run_actions_bookmark[1]-} _xcode_run_empty_output=$'Waiting for app output.\nstdout/stderr + Logger/os_log'
   [[ ${_xcode_run_unified_status:-} == following ]] ||
     _xcode_run_empty_output=$'Waiting for app stdout/stderr.\nLogger capture unavailable.'
   local -a _XCODE_PICKER_VALUES=(stop read)
   local -a _XCODE_PICKER_LABELS=('Stop app and close' 'Read output · Full view, filter and copy')
-  local -a _XCODE_PICKER_SEARCH=() _ZLE_PICKER_PASSIVE_LINES=(
+  local -a _XCODE_PICKER_SEARCH=()
+  _ZLE_PICKER_PASSIVE_LINES=(
     'Output follows automatically; Read output opens the full log view.'
     'stdout/stderr + Logger scoped to this installed app executable.')
-  local -A _ZLE_PICKER_INSPECT_TEXTS=(run "$_xcode_run_empty_output")
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=(stop stop read 'read output')
+  _ZLE_PICKER_INSPECT_TEXTS=(run "$_xcode_run_empty_output")
+  _ZLE_PICKER_ACCEPT_LABELS=(stop stop read 'read output')
   if [[ -n $_xcode_run_lldb && -n $_xcode_run_identity ]]; then
     _XCODE_PICKER_VALUES+=(lldb)
     _XCODE_PICKER_LABELS+=('Enter LLDB · Stop app when debugger exits')
@@ -1658,21 +1673,19 @@ _xcode_run_live() {
   return $result
 }
 
-# Workspace menus own a small source array but reuse the editor's renderer,
+# Workspace menus own a small source array but reuse the shared UI renderer,
 # screen lifecycle, focus language, filtering and resize behavior.
 _xcode_picker_collect() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern='(#i)*' character=''
-  local -i limit=$raw_limit index=0 result_index=0
+  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern=''
+  local -a reply=()
+  local -i limit=$raw_limit index=0
   typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
   [[ $limit == <-> ]] || limit=10
   if [[ -n $query ]]; then
-    for character in "${(s::)query}"; do
-      (( ${+functions[_zle_picker_escape_pattern]} )) || return 1
-      _zle_picker_escape_pattern "$character"
-      pattern+="${REPLY}*"
-    done
+    _matching_compile "$query" || return
+    pattern=${reply[2]}
   fi
   for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
     value=${_XCODE_PICKER_VALUES[index]}
@@ -1681,30 +1694,25 @@ _xcode_picker_collect() {
     [[ -z $query || $searchable == ${~pattern} ]] || continue
     _ZLE_PICKER_RESULTS+=("$value")
     _ZLE_PICKER_LABELS+=("$label")
-    result_index=${#_ZLE_PICKER_RESULTS}
-    (( result_index == 10 )) && result_index=0
-    _ZLE_PICKER_RESULT_INDEXES+=($result_index)
     (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
   done
 }
 
 _xcode_choose() {
+  _zle_ui_view choice _xcode_choice_view "$@"
+}
+
+_xcode_choice_view() {
   emulate -L zsh
   local title=$1 subtitle=$2 query_label=$3
   local label_kind=${4:-} label_prefix=''
-  local _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
-  local _ZLE_PICKER_QUERY_LABEL=$query_label _ZLE_PICKER_INSPECT_TITLE=Details
-  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
-  local _ZLE_PICKER_BROWSE_LABEL='read-only selection'
-  local _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_DIGIT_SELECT=1
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -A _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+  _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
+  _ZLE_PICKER_QUERY_LABEL=$query_label
+  _ZLE_PICKER_BROWSE_LABEL='read-only selection'
+  _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
   local -i index=0
   for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
     _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
-    _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=choose
     if [[ $label_kind == options ]]; then
       # Only Actions owns this separator: names in other views stay literal.
       label_prefix=${_XCODE_PICKER_LABELS[index]%% · *}
@@ -1715,27 +1723,25 @@ _xcode_choose() {
 }
 
 _xcode_test_result_choose() {
+  _zle_ui_view notice _xcode_test_result_view "$@"
+}
+
+_xcode_test_result_view() {
   emulate -L zsh
   local title=$1 subtitle=$2
-  local _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
-  local _ZLE_PICKER_QUERY_LABEL='Filter failures'
-  local _ZLE_PICKER_INSPECT_TITLE='Test result'
-  local _ZLE_PICKER_INSPECT_ACTION=done _ZLE_PICKER_CANCEL_LABEL=done
-  local _ZLE_PICKER_BROWSE_LABEL='captured Xcode result · source locations from xcresult'
-  local _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_DIGIT_SELECT=1
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
-  local -A _ZLE_PICKER_ACCEPT_LABELS=() _ZLE_PICKER_LABEL_HIGHLIGHTS=()
-  local -a _ZLE_PICKER_PASSIVE_LINES=("${_XCODE_TEST_PASSIVE_LINES[@]}")
-  local -a _ZLE_PICKER_PASSIVE_STYLES=("${_XCODE_TEST_PASSIVE_STYLES[@]}")
+  _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
+  _ZLE_PICKER_QUERY_LABEL='Filter failures'
+  _ZLE_PICKER_INSPECT_TITLE='Test result'
+  _ZLE_PICKER_INSPECT_ACTION=done _ZLE_PICKER_CANCEL_LABEL=done
+  _ZLE_PICKER_BROWSE_LABEL='captured Xcode result · source locations from xcresult'
+  _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
+  _ZLE_PICKER_PASSIVE_LINES=("${_XCODE_TEST_PASSIVE_LINES[@]}")
+  _ZLE_PICKER_PASSIVE_STYLES=("${_XCODE_TEST_PASSIVE_STYLES[@]}")
   local -i index=0
   for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
     _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
     if [[ ${_XCODE_PICKER_VALUES[index]} == copy-report ]]; then
       _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]='copy report and done'
-    else
-      _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=done
     fi
     [[ -n ${_XCODE_PICKER_HIGHLIGHTS[index]-} ]] &&
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_HIGHLIGHTS[index]}
@@ -2232,7 +2238,7 @@ xcode() {
     kind=${_XCODE_CONTAINER_KINDS[1]}
     container=${_XCODE_CONTAINERS[1]}
     if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
-        (( ! ${+functions[_zle_picker_run]} )); then
+        (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_matching_compile]} )); then
       _xcode_container_arguments "$kind" "$container" || return
       _xcode_safe_arguments
       command xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" \

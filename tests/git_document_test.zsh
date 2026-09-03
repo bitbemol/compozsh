@@ -5,6 +5,9 @@ _test_git_document_layout() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     _ZLE_PICKER_DOCUMENT=1
     _ZLE_PICKER_DOCUMENT_KEY=one
     _ZLE_PICKER_DOCUMENT_LINES=("  1   1  unchanged" "      2 +added")
@@ -40,6 +43,9 @@ _test_git_document_continuity() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     (( ${+functions[_git_review_document_parse]} )) || { print -u2 "continuous numbered document missing"; exit 1; }
     _GIT_REVIEW_DATA=$'\''diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1,2 +1,400 @@\n keep\n-old\n'\''
@@ -130,6 +136,9 @@ _test_git_document_labels() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     _ZLE_PICKER_DOCUMENT=1
@@ -155,6 +164,9 @@ _test_git_document_selection_settle() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local -i shows=0 keys_read=0 _ZLE_PICKER_SESSION=1 _ZLE_PICKER_DOCUMENT=1
     local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=4
     local _ZLE_PICKER_DOCUMENT_KEY=one _ZLE_PICKER_COLLECTOR=_frame_collect

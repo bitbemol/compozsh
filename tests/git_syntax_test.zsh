@@ -68,6 +68,9 @@ _test_git_syntax_render() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.git-syntax"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_KEY=one
@@ -86,11 +89,11 @@ _test_git_syntax_render() {
     zle() { captured=${(F)region_highlight}; }
     _zle_picker_render "" 1
     _zle_picker_show
-    [[ $captured == *"fg=252,bg=22"* && $captured == *"bg=22,fg=186"* ]] || { print -u2 -- "$captured"; exit 4; }
+    [[ $captured == *"fg=231,bg=22"* && $captured == *"bg=22,fg=151"* ]] || { print -u2 -- "$captured"; exit 4; }
     _ZLE_PICKER_DOCUMENT_ROLES=(error) _ZLE_PICKER_INSPECT_KEY=""
     _zle_picker_render "" 1
     _zle_picker_show
-    [[ $captured == *"fg=252,bg=52"* && $captured == *"bg=52,fg=186"* ]] || { print -u2 -- "removed styles: $captured"; exit 5; }
+    [[ $captured == *"fg=231,bg=52"* && $captured == *"bg=52,fg=151"* ]] || { print -u2 -- "removed styles: $captured"; exit 5; }
     [[ ${(F)_ZLE_PICKER_DOCUMENT_LINES} == "$original" && ${(F)region_highlight} == "0 1 bold memo=fixture" ]] || { print -u2 -- "document or highlight cleanup changed"; exit 6; }
     _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_INSPECT_KEY=""
     _zle_picker_render "" 1
@@ -108,6 +111,9 @@ _test_git_syntax_visible_rows() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local -i index=0 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
     local _ZLE_PICKER_DOCUMENT_KEY=one
     local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
@@ -136,6 +142,9 @@ _test_git_syntax_cache() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     source "$1/.zsh.addons/.zsh.git-syntax"
     local -A _git_document_cache=() _git_document_partial=() _git_document_contexts=() _git_document_anchors=()
@@ -335,6 +344,9 @@ _test_git_syntax_short_document_viewport_schedule() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
     local -i _GIT_REVIEW_DOCUMENT_HAS_CODE=1 _ZLE_PICKER_SELECTED=1
@@ -865,6 +877,9 @@ _test_git_syntax_pending_geometry() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     local -i row=0 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_PENDING=1
     local _ZLE_PICKER_DOCUMENT_KEY=one
     local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
@@ -1201,6 +1216,9 @@ _test_git_syntax_zle() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/.zsh.matching"
+    source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.git-review"
     source "$1/.zsh.addons/.zsh.git-syntax"
@@ -1266,7 +1284,7 @@ _test_git_syntax_zle() {
       _syntax_expect FRAME:1 || exit 3
       zpty -w -n syntax $'\''\e[B'\''
       _syntax_expect FRAME:1 || exit 4
-      [[ $trace == *"48;5;22"* && $trace == *"48;5;52"* && $trace == *"38;5;222"* ]] || { print -u2 "native terminal colors missing"; exit 5; }
+      [[ $trace == *"48;5;22"* && $trace == *"48;5;52"* && $trace == *"38;5;189"* ]] || { print -u2 "native terminal colors missing"; exit 5; }
       [[ $trace == *"$enter"* && ${trace#*"$enter"} != *"$enter"* && $trace != *"$leave"* ]] || exit 6
       zpty -w -n syntax $'\''\e'\''
       _syntax_expect DONE || exit 7
