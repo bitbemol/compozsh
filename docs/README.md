@@ -46,6 +46,26 @@ visitor's filesystem, or access the clipboard. The demo's explicit install
 Copy buttons are the only clipboard users. Keep the simulation visibly labeled;
 it previews captured examples rather than emulating Zsh or discovery timing.
 
+The architecture section gives the peer-loading contract an algebraic model:
+commutativity, associativity, and idempotence. Define `⊕` as combining peer
+configuration and `≈` as equivalent configured behavior after loading the same
+enabled peers under the same prerequisites and ownership rules. The
+[peer configuration algebra](../AGENTS.md#peer-configuration-algebra) is the
+canonical engineering contract; the [README](../README.md#configuration-architecture)
+explains its public meaning. Composition combines smaller pieces; runtime
+composition can depend on operation order. Keep the initializer outside the
+three laws and distinguish re-sourcing unchanged peers from replaying actions.
+These are tested design contracts, not a formal proof for arbitrary shell
+functions. Shared UI has temporary view state and terminal effects, and public
+palette maps remain writable.
+
+`composition.mjs` illustrates the model with three fixed peer labels, six
+user-selected loading orders, and at most one repeated load. It derives the
+configured set from that displayed sequence. This labeled simulation operates
+only on its own page elements and keeps no persistent state. Its equations,
+explanations, and initial example remain useful without JavaScript; interactive
+controls appear only after their handlers are attached.
+
 Keep full-screen identity, source/scope and input visually separate. Preserve
 the product's visible-focus grammar in multi-pane examples: the primary
 navigator and contextual reader remain spatially stable, while selection and
@@ -116,8 +136,9 @@ name a separate output directory for desktop/phone screenshots; keep private
 review artifacts outside the repository. The test stubs clipboard access, never
 runs shell commands, refuses non-local URLs, and checks keyboard behavior,
 literal input, captured file scopes, branch previews, copy success/failure,
-stable tab geometry, responsive overflow, reduced motion,
-no-JavaScript content, and the absence of third-party requests.
+composition permutations and repeated loads, stable tab geometry, responsive
+overflow, reduced motion, no-JavaScript content, and the absence of third-party
+requests.
 
 ## GitHub Pages — only after visual approval
 

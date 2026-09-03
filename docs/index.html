@@ -134,6 +134,40 @@
           <div class="map-group"><div class="map-label"><span class="map-step">2</span><strong>Independent add-ons</strong><span class="map-tag">ANY ORDER</span></div><div class="map-peers"><div><span>Shared · in the repository</span><code>.zsh.prompt<br>.zsh.editor<br>.zsh.find<br><span class="subtle">…</span></code></div><div><span>Private · in your home</span><code>.zsh.work<br>.zsh.postgres<br>.zsh.your-idea<br><span class="subtle">…</span></code></div></div><p>One naming convention. Shared and private files load as peers.</p></div>
         </div>
       </div>
+      <section class="wrap composition" id="composition" aria-labelledby="composition-title" aria-describedby="composition-scope">
+        <div class="composition-heading">
+          <div><p class="eyebrow">The math behind the idea</p><h3 id="composition-title">The algebra of<br>a <em>composed shell.</em></h3></div>
+          <p>Small, independent pieces give us three useful laws. Here, <span class="math-symbol">⊕</span> means combining peer configuration, and <span class="math-symbol">≈</span> means equivalent configured behavior.</p>
+        </div>
+        <div class="composition-laws">
+          <article>
+            <h4>Commutativity</h4>
+            <p class="composition-equation" role="math" aria-label="A combined with B is equivalent to B combined with A"><span aria-hidden="true">A ⊕ B<br><span>≈ B ⊕ A</span></span></p>
+            <p><strong>Change the order.</strong> Loading the same peers in a different order gives you the same configured behavior.</p>
+          </article>
+          <article>
+            <h4>Associativity</h4>
+            <p class="composition-equation" role="math" aria-label="A combined with B, then C, is equivalent to A combined with the combination of B and C"><span aria-hidden="true">(A ⊕ B) ⊕ C<br><span>≈ A ⊕ (B ⊕ C)</span></span></p>
+            <p><strong>Change the grouping.</strong> Organize peers into folders that make sense to you. Grouping adds no loading phase.</p>
+          </article>
+          <article>
+            <h4>Idempotence</h4>
+            <p class="composition-equation" role="math" aria-label="A combined with A is equivalent to A"><span aria-hidden="true">A ⊕ A<br><span>≈ A</span></span></p>
+            <p><strong>Load it again.</strong> Re-sourcing an unchanged peer preserves its setup without stacking duplicate hooks or registrations.</p>
+          </article>
+        </div>
+        <figure class="composition-model" aria-labelledby="composition-model-caption">
+          <div class="composition-model-heading"><p>Same pieces. Same result.</p><span class="map-tag">INTERACTIVE MODEL</span></div>
+          <div class="composition-example" role="status" aria-live="polite" aria-atomic="true">
+            <div><span>Loading order</span><p id="composition-order">A → B → C</p></div>
+            <div><span>Configured peers · 3</span><p id="composition-configured">A · B · C</p></div>
+          </div>
+          <div class="composition-controls" hidden><button type="button" id="composition-reorder">Change order</button><button type="button" id="composition-reload">Load A again</button></div>
+          <figcaption id="composition-model-caption">Illustrative simulation with three fixed peers and unchanged prerequisites. A, B and C stand for independent add-ons. No shell code runs.</figcaption>
+        </figure>
+        <p class="composition-scope" id="composition-scope">Composition combines pieces into a workflow; its steps can depend on order. These laws govern peer setup under the same prerequisites and ownership rules, with capabilities checked at invocation. Compare behavior after loading finishes. The optional initializer still loads first and sits outside these laws. Runtime operations keep their sequence: capture candidates, then filter, then act. Regression tests check the shell contract; this model illustrates it.</p>
+        <a class="text-link" href="https://github.com/bitbemol/compozsh#configuration-architecture">Read the loading contract <span aria-hidden="true">→</span></a>
+      </section>
       <div class="wrap architecture-bottom"><p><strong>A file is the feature.</strong> Name it <code>.zsh.something</code> inside your add-on directory. Rename it to break that prefix, or remove it, to disable it.</p><span class="architecture-glyph" aria-hidden="true">[ + ]</span></div>
     </section>
     <section class="installation wrap" id="install" aria-labelledby="install-title">

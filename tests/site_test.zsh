@@ -1,7 +1,7 @@
 # The website is an optional static surface, never a shell dependency.
 _test_site_static_contract() {
   local site_dir="$TEST_REPO_ROOT/docs" site_file='' html='' css='' script=''
-  for site_file in index.html styles.css app.mjs search.mjs demo-data.mjs .nojekyll; do
+  for site_file in index.html styles.css app.mjs composition.mjs search.mjs demo-data.mjs .nojekyll; do
     [[ -f "$site_dir/$site_file" ]] || {
       test_fail "missing static website file: $site_file"
       return 1
@@ -9,7 +9,9 @@ _test_site_static_contract() {
   done
   html=$(<"$site_dir/index.html")
   css=$(<"$site_dir/styles.css")
-  script=$(<"$site_dir/app.mjs")
+  for site_file in "$site_dir"/*.mjs(N.); do
+    script+=$(<"$site_file")
+  done
   test_assert_contains "$html" 'lang="en"' || return
   test_assert_contains "$html" 'href="#main"' || return
   test_assert_contains "$html" 'src="./app.mjs"' || return
@@ -18,6 +20,10 @@ _test_site_static_contract() {
   test_assert_contains "$html" "connect-src 'none'" || return
   test_assert_contains "$html" 'Browser demo' || return
   test_assert_contains "$html" 'id="git-review-demo"' || return
+  test_assert_contains "$html" 'id="composition"' || return
+  test_assert_contains "$html" 'Commutativity' || return
+  test_assert_contains "$html" 'Associativity' || return
+  test_assert_contains "$html" 'Idempotence' || return
   test_assert_contains "$html" '--symlink --dry-run' || return
   test_assert_contains "$html" 'blob/main/SECURITY.md' || return
   test_assert_contains "$html" 'Local processing. Compozsh never transmits your data.' || return

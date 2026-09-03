@@ -5,6 +5,11 @@ Date: 2026-09-03. Baseline: the 536-test working tree recorded in the
 the request for reusable search over supplied data and another independent
 defect/boundary review.
 
+The [peer configuration algebra](../AGENTS.md#peer-configuration-algebra)
+now states the durable loading and re-sourcing contracts. This report preserves
+the measured evidence for the extraction; the runtime sequence below remains
+ordered and does not inherit commutativity from peer setup.
+
 ## Component boundary
 
 ```text

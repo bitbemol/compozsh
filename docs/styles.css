@@ -84,6 +84,33 @@
   .architecture-copy > p:last-of-type { color: #c3cdc0; font-size: 17px; line-height: 1.7; margin-top: 25px; max-width: 460px; }
   .architecture .text-link { display: inline-block; margin-top: 26px; border-color: #587061; }
   .architecture .text-link:hover { color: #c2dbad; }
+  .architecture :focus-visible { outline-color: #c2dbad; }
+  .composition { border-top: 1px solid #48604d; margin-top: 58px; padding-top: 45px; }
+  .composition-heading { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: end; }
+  .composition-heading h3 { font-size: clamp(32px, 3.4vw, 48px); font-weight: 500; letter-spacing: -1.5px; line-height: 1.1; }
+  .composition-heading h3 em { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; color: #c2dbad; }
+  .composition-heading > p { color: #c3cdc0; font-size: 16px; line-height: 1.75; max-width: 510px; }
+  .math-symbol { font: 24px Georgia, 'Times New Roman', serif; color: #c2dbad; }
+  .composition-laws { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; margin-top: 38px; }
+  .composition-laws article { border-top: 1px solid #587061; padding-top: 20px; }
+  .composition-laws h4 { margin: 0; font: 12px var(--mono); color: #c3cdc0; }
+  .composition-equation { font: 32px/1.4 Georgia, 'Times New Roman', serif; margin-block: 20px; white-space: nowrap; }
+  .composition-equation span span { color: #c2dbad; }
+  .composition-laws article > p:last-child { color: #c3cdc0; font-size: 15px; line-height: 1.75; }
+  .composition-laws strong { display: block; color: #f1f1e4; font-weight: 550; }
+  .composition-model { margin: 38px 0 0; border: 1px solid #587061; padding: 24px; }
+  .composition-model-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+  .composition-model-heading > p { font-size: 17px; font-weight: 550; }
+  .composition-model .map-tag { font-size: 9px; }
+  .composition-example { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-block: 24px; }
+  .composition-example > div > span { font: 11px var(--mono); color: #c3cdc0; }
+  .composition-example p { margin-top: 8px; font: 26px/1.5 var(--mono); }
+  #composition-configured { color: #c2dbad; }
+  .composition-controls { display: flex; flex-wrap: wrap; gap: 12px; }
+  .composition-controls button { min-height: 44px; padding: 10px 16px; border: 1px solid #a7bf98; border-radius: 3px; background: transparent; color: #f1f1e4; font: 12px var(--mono); }
+  .composition-controls button:hover { color: #24392f; background: #c2dbad; }
+  .composition-model figcaption { margin-top: 20px; max-width: 780px; color: #c3cdc0; font-size: 12px; line-height: 1.7; }
+  .composition-scope { color: #c3cdc0; font-size: 14px; line-height: 1.8; margin-top: 24px; max-width: 940px; }
   .architecture-bottom { display: flex; align-items: center; justify-content: space-between; gap: 40px; border-top: 1px solid #48604d; margin-top: 58px; padding-top: 23px; }
   .architecture-bottom p { color: #c3cdc0; font-size: 14px; max-width: 860px; }
   .architecture-bottom strong { color: #f1f1e4; font-weight: 550; }
@@ -260,6 +287,11 @@
     .architecture { padding-top: 62px; }
     .architecture-copy { padding-bottom: 0; }
     .architecture-bottom { margin-top: 38px; }
+    .composition { margin-top: 38px; padding-top: 32px; }
+    .composition-heading, .composition-laws { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    .composition-laws article { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 1fr); column-gap: 30px; }
+    .composition-laws h4 { grid-column: 1 / -1; }
+    .composition-laws article > p:last-child { padding-top: 20px; }
     .closing h2 { font-size: 36px; }
   }
   @media (max-width: 520px) {
@@ -289,6 +321,12 @@
     .map-peers { gap: 14px; }
     .map-peers > div > span { font-size: 10px; }
     .architecture-glyph { display: none; }
+    .composition-laws article { display: block; }
+    .composition-laws article > p:last-child { padding-top: 0; }
+    .composition-model { padding: 20px; }
+    .composition-example { grid-template-columns: minmax(0, 1fr); }
+    .composition-equation { font-size: 30px; }
+    .composition-example p { font-size: 24px; }
     .closing { flex-direction: column; align-items: flex-start; padding-block: 42px; }
     .closing h2 { font-size: 42px; }
     .site-footer { flex-wrap: wrap; gap: 20px; }

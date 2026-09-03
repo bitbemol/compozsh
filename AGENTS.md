@@ -48,6 +48,7 @@ possible. User-facing labels may use simpler language while preserving meaning.
 | Peer / add-on | One focused `.zsh.<name>` unit, enabled by its filename and independently sourceable. These two terms are synonyms. |
 | Repository-managed configuration | Shared product files updated as a unit; personal edits belong in the machine-local space. “Immutable” describes this ownership convention, not enforced filesystem permissions. |
 | Machine-local configuration | The user's private initializer and peers beneath the configuration base. Updates preserve this customization space. |
+| Composition | Combining focused peers or runtime capabilities into a larger system. The [peer configuration algebra](#peer-configuration-algebra) governs setup; runtime composition preserves the input and effect dependencies of each operation. |
 | Order independence | Loading the same enabled peers in any order converges on the same configured behavior under the same prerequisites. Runtime interaction steps can still have dependencies. |
 
 “Configuration base” retains its exact path definition in
@@ -161,9 +162,9 @@ configuration base.
 - `.zsh.addons/` contains all shared behavior as focused peer units named
   `.zsh.<name>`. There is no privileged core tier. Keep every unit independently
   sourceable, re-source safe, narrow in purpose, and successful after setup.
-- `.zsh.addons/support/` groups repository-managed palette, UI components and
-  adapter assets. Keep these implementations installed and intact during normal
-  customization; public settings belong in the machine-local initializer.
+- `.zsh.addons/support/` groups repository-managed palette, matching, UI
+  components and adapter assets. Keep these implementations installed and intact
+  during normal customization; public settings belong in the machine-local initializer.
   Its `.zsh.<name>` files remain ordinary peers under recursive discovery, with
   no required ordering, special loader treatment or filesystem immutability.
   Preserve standalone fallbacks when support capabilities are unavailable.
@@ -457,7 +458,8 @@ Apply DRY and SOLID as practical design heuristics:
   style callback; appearance does not install another peer's registrations.
 - `support/.zsh.ui` owns shared terminal components, view defaults, layout, input,
   painting and screen restoration. Feature peers supply captured content,
-  labels and capabilities; they own matching, transitions and final actions.
+  labels and capabilities; they own task-specific collection, ranking,
+  transitions and final actions.
   Scope common defaults around view execution and save caller bookmarks before
   returning. Keep explicit provider hooks outside frame construction and resize.
   These private interfaces introduce no required peer, registry or load phase.
@@ -485,6 +487,65 @@ Apply DRY and SOLID as practical design heuristics:
   instead of having every helper rediscover ambient state.
 - Remove temporary setup helpers after use when they are not part of the public
   interface.
+
+## Peer configuration algebra
+
+Use this model when designing, reviewing and documenting peer setup. A letter
+denotes a peer or a group of peers; `⊕` combines their configuration, and `≈`
+means equivalent configured behavior. This notation does not introduce a shell
+operator, component registry, dependency graph or loading phase.
+
+| Law | Contract | Engineering consequence |
+| --- | --- | --- |
+| Commutativity | `A ⊕ B ≈ B ⊕ A` | Reordering the same enabled peers must preserve configured behavior. Resolve optional peer capabilities when invoked, rather than capturing their source-time presence or values. |
+| Associativity | `(A ⊕ B) ⊕ C ≈ A ⊕ (B ⊕ C)` | Grouping the same peers must preserve configured behavior. Concern directories organize files and confer no initialization priority or group-level setup. |
+| Idempotence | `A ⊕ A ≈ A` | Re-sourcing unchanged peers must preserve configured behavior without accumulating hooks, registrations or default entries, or replacing documented user overrides. |
+
+Compare after the same enabled peer definitions have finished loading, with
+the same initializer inputs, supported shell/environment and available native
+capabilities. Peer-owned definitions must have distinct ownership; competing
+definitions or private overrides of internal functions violate the contract.
+Grouping preserves the discovered peers and required relative asset paths.
+The optional initializer remains the sole first-load exception and sits outside
+these laws; re-sourcing `.zshrc` can run that initializer again.
+
+`≈` covers supported commands and their behavior, options, aliases, key bindings,
+hook behavior and multiplicity, prompts, effective styles and documented
+fallbacks. A difference affecting those observations is a defect, even when a
+sorted catalog or a function-name list looks equal. Incidental source locations
+or internal scratch layout need not be byte-identical. Compare runtime behavior
+using the same inputs and captured facts; loading a different peer set or
+changing prerequisites is a different comparison.
+
+Composition itself does not imply commutativity. Runtime workflows compose
+providers, matching, UI and actions in meaningful sequences, such as capture →
+filter → display → validated action. The laws describe peer setup and safe
+re-sourcing between interactions, not replaying actions or resetting an active
+screen session. Continue recommending a fresh `exec zsh` to apply updates.
+Palette installation changes shell memory; public color maps remain writable.
+Shared UI owns temporary interaction state, painting and cleanup. Read-only
+consumer conventions and centralized ownership help preserve the laws but do
+not establish purity or order independence on their own.
+
+Treat the equations as engineering contracts supported by regression evidence.
+Finite source-order checks and the website's fixed-data model do not constitute
+a formal proof for every permutation, environment or arbitrary shell function.
+Do not add abstractions merely to make the implementation resemble the notation.
+
+For changes to peer boundaries, defaults, registrations or shared capabilities:
+
+- Exercise normal, reverse and rotated orders in isolated shells; place the
+  peer owning a shared capability before and after consumers. Compare configured
+  observations and representative runtime results after loading finishes.
+- Re-source the affected peer and complete peer set, including a repeated peer
+  separated by other peers. Verify stable hooks/bindings, preserved public
+  overrides and unchanged behavior; do not hide duplicate hooks by sorting them
+  into a set.
+- When placement or discovery changes, cover grouping/renaming inside the
+  supported discovery roots and both installation layouts, preserving assets.
+- Check standalone/missing-peer behavior and capability availability at a later
+  invocation. Include both schemes and documented early overrides when colors
+  are affected. Use existing focused tests and the minimal shared harness.
 
 ## Context-preserving composition
 
@@ -1709,9 +1770,11 @@ assertions on unstable presentation details.
 Keep the harness smaller than the product. Add a shared test helper only for a
 repeated lifecycle, isolation, or assertion rule; do not build a shell testing
 framework inside the repository. Test architectural invariants such as
-standalone sourcing and order convergence directly. Complement automation with
-a real PTY/ZLE check for key sequences, resize behavior, colors, cursor motion,
-and terminal cleanup that a child-shell test cannot establish.
+standalone sourcing and the [peer configuration laws](#peer-configuration-algebra)
+directly; a browser model of those laws cannot validate the Zsh implementation.
+Complement automation with a real PTY/ZLE check for key sequences, resize
+behavior, colors, cursor motion, and terminal cleanup that a child-shell test
+cannot establish.
 For resize regressions, verify the painted editor display and preserved caller
 state, and reject runtime diagnostics. Calculated layout values or a frame
 marker alone cannot prove that a redraw succeeded.
@@ -1786,7 +1849,9 @@ Then select relevant checks from this list:
 - After changing add-on boundaries or shared state, source every enabled unit
   in normal, reverse, and at least one rotated order under isolated shells.
   Compare options, aliases, bindings, styles, hooks, prompts, and public names;
-  all orders must converge on the same state without load diagnostics.
+  checked orders must converge without load diagnostics. Apply the
+  [peer configuration algebra](#peer-configuration-algebra) to repeated sourcing,
+  affected runtime behavior, overrides, fallbacks and any regrouping as well.
 - Inspect final bindings with `bindkey` under `xterm-256color` and
   `screen-256color`; exercise changed keys in a real PTY/ZLE session.
 - Verify standalone Escape, bracketed paste, cancellation, redraw, and resize

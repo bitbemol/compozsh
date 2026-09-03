@@ -1,5 +1,6 @@
 import { findMatches } from './search.mjs';
 import { scenes, fileActions } from './demo-data.mjs';
+import './composition.mjs';
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const panel = document.querySelector('#demo-panel');
 const query = document.querySelector('#demo-query');

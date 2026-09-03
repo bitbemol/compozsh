@@ -42,6 +42,39 @@ try {
     return problems;
   });
   assert.deepEqual(documentProblems, [], 'Semantic document structure must be valid');
+  const composition = page.locator('#composition');
+  assert.equal(await composition.count(), 1, 'The architecture must explain its composition laws');
+  assert.equal(await composition.getByRole('math').count(), 3);
+  const order = page.locator('#composition-order');
+  const configured = page.locator('#composition-configured');
+  const reorder = composition.getByRole('button', { name: 'Change order', exact: true });
+  const reload = composition.getByRole('button', { name: 'Load A again', exact: true });
+  const orders = new Set();
+  const initialTerminal = await page.locator('#demo-command').innerText();
+  for (let index = 0; index < 6; index += 1) {
+    const sequence = await order.innerText();
+    assert.deepEqual(sequence.split(' → ').sort(), ['A', 'B', 'C']);
+    orders.add(sequence);
+    await reload.focus();
+    await page.keyboard.press('Space');
+    assert.equal(await order.innerText(), `${sequence} → A`);
+    for (let repeat = 0; repeat < 3; repeat += 1) await page.keyboard.press('Enter');
+    assert.equal(await order.innerText(), `${sequence} → A`, 'Reload illustration stays bounded');
+    assert.equal(await configured.innerText(), 'A · B · C', 'Repeated loading preserves the configured set');
+    assert.equal(await reload.evaluate(element => element === document.activeElement), true);
+    await reorder.click();
+    assert.equal(await configured.innerText(), 'A · B · C', 'Every loading order gives the same set');
+  }
+  assert.equal(orders.size, 6, 'Change order visits all six permutations');
+  assert.equal(await order.innerText(), 'A → B → C', 'The model cycles back to its initial order');
+  assert.equal(await page.locator('#demo-command').innerText(), initialTerminal,
+    'The architecture model must leave the task demo alone');
+  assert.equal(await page.locator('html').getAttribute('data-copied'), null);
+  await reorder.click();
+  await reload.click();
+  await page.reload();
+  await composition.locator('.composition-controls').waitFor({ state: 'visible' });
+  assert.equal(await order.innerText(), 'A → B → C', 'Page reload clears the illustrative loading state');
   assert.equal(await page.getByRole('tab', { name: 'Files', exact: true }).getAttribute('aria-selected'), 'true');
   assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab');
   assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / Directory browser');
@@ -151,6 +184,22 @@ try {
   const responsiveWidths = [1440, 1100, 1059, 1058, 1024, 1000, 941, 940, 768, 390, 320];
   for (const width of responsiveWidths) {
     await page.setViewportSize({ width, height: 1000 });
+    await reorder.click();
+    const modelHeight = (await composition.locator('.composition-example').boundingBox()).height;
+    await reload.click();
+    assert.ok(await order.evaluate(element => element.scrollWidth <= element.clientWidth),
+      `The repeated-load example must fit at ${width}px`);
+    assert.ok(Math.abs((await composition.locator('.composition-example').boundingBox()).height - modelHeight) <= 1,
+      `Repeating a load must not move the model controls at ${width}px`);
+    assert.ok(await composition.locator('button').evaluateAll(buttons => buttons.every(button => {
+      const rect = button.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= innerWidth && rect.width >= 44 && rect.height >= 44;
+    })), `Composition controls must fit and remain touch-sized at ${width}px`);
+    assert.ok(await composition.getByRole('math').evaluateAll(equations => equations.every(equation =>
+      equation.scrollWidth <= equation.clientWidth)), `Equations must fit at ${width}px`);
+    if (screenshots && [1440, 390].includes(width)) {
+      await composition.screenshot({ path: `${screenshots}/composition-${width}.png` });
+    }
     const heights = [];
     for (const tab of ['Context', 'History', 'Files', 'Git', 'Tools']) {
       await page.getByRole('tab', { name: tab, exact: true }).click();
@@ -231,8 +280,14 @@ try {
   assert.equal(await noJS.locator('#install-command').innerText(), 'zsh "$repo_dir/install.zsh" --symlink');
   assert.equal(await noJS.locator('.demo-tabs').isVisible(), false);
   assert.equal(await noJS.locator('[data-copy]:visible').count(), 0);
+  assert.equal(await noJS.locator('#composition button:visible').count(), 0);
+  for (const law of ['Commutativity', 'Associativity', 'Idempotence']) {
+    assert.equal(await noJS.locator('#composition').getByRole('heading', { name: law }).isVisible(), true);
+  }
+  assert.equal(await noJS.locator('#composition-configured').innerText(), 'A · B · C');
+  assert.match(await noJS.locator('#composition-scope').innerText(), /initializer.*first/);
   await noJS.close();
-  console.log(`PASS: task tabs, captured file scopes, branch previews, keyboard, unordered search, literal input, numeric selection, copy success/failure, disclosure, stable geometry, reduced motion, no-JS, local-only requests, and ${responsiveWidths.length} responsive widths`);
+  console.log(`PASS: composition laws and bounded permutations, task tabs, captured file scopes, branch previews, keyboard, unordered search, literal input, numeric selection, copy success/failure, disclosure, stable geometry, reduced motion, no-JS, local-only requests, and ${responsiveWidths.length} responsive widths`);
 } finally {
   await browser.close();
 }

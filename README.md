@@ -181,6 +181,35 @@ the folder gives them no first-load position or separate initialization phase.
 They are part of the normal installation and stay installed when selecting
 feature peers.
 
+Compozsh composes focused peers into a shell and combines providers, matching
+and UI into useful workflows. Composition allows steps to depend on earlier
+results. Order-independent setup is an additional design contract.
+
+For peer configuration, `⊕` means combining peers or groups of peers and `≈`
+means equivalent configured behavior:
+
+| Law | Model | What it promises |
+| --- | --- | --- |
+| Commutativity | `A ⊕ B ≈ B ⊕ A` | Change the loading order of the same peers without changing configured behavior. |
+| Associativity | `(A ⊕ B) ⊕ C ≈ A ⊕ (B ⊕ C)` | Group the same peers by concern without introducing group-level setup or loading priority. |
+| Idempotence | `A ⊕ A ≈ A` | Re-source unchanged peers without accumulating hooks, registrations or defaults, or replacing documented user overrides. |
+
+The laws assume the same enabled peer definitions and prerequisites, distinct
+ownership of definitions, and runtime checks for optional capabilities. Compare
+after loading finishes: supported commands, options, bindings, hooks, effective
+styles and fallback behavior must agree. Preserve discovery and relative assets
+when regrouping files. The optional initializer runs first and sits outside
+the laws; sourcing `.zshrc` again can run it again. Use a fresh `exec zsh` when
+applying updates.
+
+These are regression-tested engineering contracts; a finite test matrix or the
+website's illustration is not a formal proof for arbitrary shell code. The
+[contributor contract](AGENTS.md#peer-configuration-algebra) defines their scope
+and verification requirements. Runtime operations retain their dependencies:
+capture candidates, filter them, display results, then validate a requested
+action. Shared UI retains temporary view state and terminal effects, and public
+palette maps remain writable.
+
 Add-ons need no manifest or registration list: a correctly named file beside
 the resolved bootstrap or in the user's add-on directory is enough, and
 renaming it disables it. The loader uses lexical traversal only for reproducible
@@ -228,6 +257,7 @@ compozsh/
 │   ├── index.html         accessible page and installation guide
 │   ├── styles.css         responsive visual design
 │   ├── app.mjs            safe browser-only demo interactions
+│   ├── composition.mjs    bounded illustration of the peer configuration laws
 │   ├── demo-data.mjs      synthetic task examples and preview outcomes
 │   ├── search.mjs         small pure demo-search algorithm
 │   └── README.md          local review and GitHub Pages configuration
@@ -278,7 +308,8 @@ loads first. The repository ships a valid, fully commented
 directory, then use the private copy only for inputs or prerequisites that must
 exist before peers load: command paths, Homebrew or language-manager setup,
 runtime selection, trusted early vendor hooks, and documented public defaults.
-The tracked starter remains inert and immutable.
+The tracked starter remains inert and repository-managed; personal edits belong
+in the private copy.
 
 To add a new personal unit, create any regular file beneath
 `~/.zsh.addons` whose basename follows `.zsh.<name>`:
@@ -616,6 +647,11 @@ examples. Choose an example, refine its sample results, and select a file to
 preview its action menu. All outcomes are simulations; sample actions never
 open applications or access your clipboard. The feature guide below each task
 links to its complete documentation.
+
+The architecture section explains the three composition laws with a bounded
+interactive model: change the illustrated peer order or load one again to see
+the same configured set. The laws and their scope remain readable without
+JavaScript.
 
 To review it locally from the repository root, use any static server. If Python
 3 is available as a development tool:
@@ -1825,9 +1861,9 @@ else
 fi
 ```
 
-The starter is copied, never symlinked: the repository version stays immutable,
-and later updates cannot overwrite private machine data. Its examples are all
-commented, so the untouched file is valid Zsh and has no effect.
+The starter is copied, never symlinked: the repository version stays managed,
+and the installer preserves an existing private copy during updates. Its
+examples are all commented, so the untouched file is valid Zsh and has no effect.
 
 Aliases, ordinary functions, and app-specific behavior usually do not need the
 first-load exception. Give them focused private peers instead—for example,
@@ -1921,7 +1957,9 @@ Each file owns its defaults, helpers, hooks, cleanup, and fallback behavior. It
 must not call a peer while being sourced or rely on its filename sorting before
 another. Optional collaboration is checked only when the feature runs, so a
 missing unit degrades cleanly and every permutation of the same enabled files
-converges on the same shell state.
+must converge on equivalent configured behavior under the same prerequisites.
+The [configuration laws](#configuration-architecture) also require safe
+re-sourcing and grouping without extra initialization phases.
 
 ### Creating an add-on
 
@@ -1984,6 +2022,15 @@ Start a clean shell with `exec zsh` after adding or renaming an add-on. Keep onl
 genuine pre-peer prerequisites in `local/init.zsh`; use a focused private peer
 for aliases, functions, apps, defaults, hooks, optional requirements, or other
 behavior that does not require that ordered boundary.
+
+When contributing a feature that uses shared components, keep source capture,
+task-specific ranking, transitions, exact targets and final actions in the
+feature peer. Reuse the maintained palette, matching and UI owners through
+guarded runtime calls. Their underscore-prefixed interfaces remain private
+implementation details; personal add-ons use documented public extension APIs.
+Check independent sourcing, different peer orders, repeated sourcing, early
+overrides and missing capabilities as described in the
+[engineering contract](AGENTS.md#peer-configuration-algebra).
 
 ### Public and internal functions
 

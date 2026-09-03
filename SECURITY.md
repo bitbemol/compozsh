@@ -138,6 +138,15 @@ the folder adds no loader privilege, load phase, data storage or enforced
 read-only permissions. Personal customization uses documented public settings
 in the machine-local initializer, preserving the managed implementations.
 
+The [peer configuration laws](AGENTS.md#peer-configuration-algebra) concern
+equivalent configured behavior after loading the same peers under the same
+prerequisites. They confer no sandbox or permission to replay effects. Sourcing
+configuration changes shell memory, and sourcing `.zshrc` again can rerun the
+optional private initializer. Runtime capture, painting and actions retain the
+effect boundaries and data lifetimes documented here. Native regression tests
+exercise order convergence and re-sourcing; the website's algebraic model is an
+illustration, not evidence that arbitrary add-ons are safe or effect-free.
+
 The `support/.zsh.ui` peer owns reusable terminal views, input, painting and
 screen restoration. Frames derive from captured facts; layout and resize perform no
 provider discovery. View configuration is scoped around the feature callback,
@@ -576,6 +585,11 @@ project, but a network navigation occurs only when the browser loads the hosted
 page or the user follows a link. GitHub or another chosen host may retain normal
 web-server access logs; that hosting boundary is not controlled by the static
 files in this repository.
+
+The website's composition model uses three fixed synthetic peer labels. Its
+loading-order and repeated-load controls change only that illustration in page
+memory; reloading the page resets it. It executes no shell code, reads no user
+configuration, and uses no browser storage or clipboard access.
 
 ## Audit a commit before installing
 

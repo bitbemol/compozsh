@@ -13,6 +13,11 @@ The [shared UI component design](ui-components-design.md) builds on this
 ownership model. Palette centralization and UI extraction are implemented in
 one change, with one color source consumed by the shared components.
 
+The durable setup rules now live in the
+[peer configuration algebra](../AGENTS.md#peer-configuration-algebra).
+The load-order argument below explains how this ownership design supports
+those contracts. The dated validation records remain bounded evidence.
+
 ## Decision
 
 Make `support/.zsh.appearance` the sole author and installer of both schemes'

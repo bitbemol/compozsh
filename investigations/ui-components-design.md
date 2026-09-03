@@ -8,6 +8,13 @@ The approved appearance, key map, task scopes and action policies are the
 behavioral baseline. In the repository glossary, the terminal “windows” are
 views within a screen session; reusable components compose those views.
 
+Use the [peer configuration algebra](../AGENTS.md#peer-configuration-algebra)
+for the durable setup contract. The later
+[shared matching review](shared-matching-review.md) records extraction of the
+generic algorithms; feature collectors continue owning task-specific matching
+semantics and ranking. The dated implementation and validation evidence below
+describes this extraction stage.
+
 ## Decision
 
 Extract the existing shared terminal interaction implementation from
@@ -32,6 +39,7 @@ There is one owner per responsibility:
 | Owner | Responsibility |
 | --- | --- |
 | `support/.zsh.appearance` | Authored light/dark roles and variants |
+| `support/.zsh.matching` | Query compilation and filtering over supplied captured text; introduced in the subsequent matching extraction |
 | `support/.zsh.ui` | Shared components, layout, frame composition, input loop, guide, painting and guaranteed screen restoration |
 | `.zsh.editor` | Normal command-line editing, completion, autosuggestions and existing history/filesystem entry behavior |
 | Feature peers | Source capture, task meaning, exact targets, view transitions, final validation and actions |
