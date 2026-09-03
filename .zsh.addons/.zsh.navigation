@@ -389,16 +389,16 @@ _git_branch_stack_print() {
   done
 }
 
-# Keep ordinary Git arguments transparent; exact -w/--worktree and --help
+# Keep ordinary Git arguments transparent; exact --worktree and --help
 # invocations are Compozsh modes. Bare g opens the recent-branch picker.
 _compozsh_help_g() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
   "${printer[@]}" 'usage: g [git-arguments ...]' \
-    'Open recent branches, manage worktrees with -w or --worktree, or run Git.' \
+    'Open recent branches, manage worktrees with --worktree, or run Git.' \
     '' \
     'Worktrees:' \
-    '  g -w and g --worktree open the same worktree workspace.' \
+    '  g --worktree opens the worktree workspace.' \
     '  Requires .zsh.git-worktree; g worktree ... still delegates to Git.' \
     '  Run inside a working tree with a commit. Scope is its one repository,' \
     '  including all registered linked worktrees. No global directory scan.' \
@@ -589,8 +589,8 @@ _compozsh_help_g() {
     '  slow storage can delay synchronous reads. Failed captures show a notice.' \
     '' \
     'Git shorthand and fallback:' \
-    '  Arguments other than -w/--worktree and --help delegate to Git.' \
-    '  Git status is preserved. -w/--worktree accept no extra arguments.' \
+    '  Arguments other than --worktree and --help delegate to Git.' \
+    '  Git status is preserved. --worktree accepts no extra arguments.' \
     '  g --help is this guide; use git --help for Git itself.' \
     '  There is no Compozsh --list mode: g --list is passed to Git.' \
     '  A noninteractive or dumb-terminal g with no arguments runs plain git.' \
@@ -599,8 +599,7 @@ _compozsh_help_g() {
     '' \
     'Examples:' \
     '  g                       Open recent branches; type to filter.' \
-    '  g -w                    Create, enter, move or remove a worktree.' \
-    '  g --worktree            The same worktree workspace.' \
+    '  g --worktree            Create, enter, move or remove a worktree.' \
     '  g worktree list         Ask Git for its native worktree list.' \
     '  g status                Inspect working-tree changes.' \
     '  g branch                List every local branch.' \
@@ -617,7 +616,7 @@ g() {
     return 0
   fi
 
-  if [[ ${1:-} == (-w|--worktree) ]]; then
+  if [[ ${1:-} == --worktree ]]; then
     (( $# == 1 )) || { print -u2 -r -- 'usage: g [git-arguments ...]'; return 2; }
     (( ${+functions[_git_worktree_session]} )) || {
       print -u2 -r -- 'g: worktrees unavailable; enable .zsh.git-worktree'

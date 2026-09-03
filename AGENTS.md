@@ -337,6 +337,9 @@ both copy-paste sprawl and speculative abstraction.
   underscore-prefixed helpers, Zsh special functions, or documented extension
   APIs such as `prompt_add_project_segment`. The suffix of a command's
   `_compozsh_help_<command>` companion must preserve the command's exact name.
+- Use descriptive long options for Compozsh-owned commands and repository
+  utilities, such as `--help` and `--worktree`, without single-letter aliases.
+  Transparent wrappers preserve the underlying executable's native options.
 - Treat self-documenting help as a hard public-interface contract. Every public
   add-on function intended for direct terminal invocation must accept the exact
   single argument `--help`, even when the command otherwise takes no options.
@@ -853,7 +856,7 @@ discovered. The keyboard guide must never trigger refresh.
 
 ## Git worktree workspace boundary
 
-- `g -w` and `g --worktree` are equivalent exact entry points. The optional
+- `g --worktree` is the sole worktree entry point. The optional
   `.zsh.git-worktree` peer owns capture, temporary choices and actions; `g`
   retains its recent-branch default and transparent ordinary Git arguments.
 - Reuse the navigation fuzzy collector and shared editor, text entry, keys,

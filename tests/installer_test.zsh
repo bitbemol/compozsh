@@ -22,24 +22,40 @@ _test_run_installer() {
 
 _test_installer_help_explains_lifecycle_without_installing() {
   test_make_temp_dir || return
-  local output='' fact='' flag=''
-  for flag in --help -h; do
-    output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-      path=()
-      source "$1/install.zsh" "$2"
-    ' "$TEST_REPO_ROOT" "$flag" 2> "$TEST_TMP_DIR/help.err") || return
-    [[ ! -s "$TEST_TMP_DIR/help.err" ]] || test_fail 'installer help wrote stderr' || return
-    for fact in 'Install Compozsh' 'ZDOTDIR' '--symlink' '--copy' '--clean' \
-        '--dry-run' '--yes' 'local/init.zsh' '.zsh-backups' 'repository' \
-        'exec zsh' 'Examples:' 'tools'; do
-      test_assert_contains "$output" "$fact" "installer help omits guidance: $fact" || return
-    done
+  local output='' fact=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=()
+    source "$1/install.zsh" --help
+  ' "$TEST_REPO_ROOT" 2> "$TEST_TMP_DIR/help.err") || return
+  [[ ! -s "$TEST_TMP_DIR/help.err" ]] || test_fail 'installer help wrote stderr' || return
+  for fact in 'Install Compozsh' 'ZDOTDIR' '--symlink' '--copy' '--clean' \
+      '--dry-run' '--yes' '--help' 'local/init.zsh' '.zsh-backups' 'repository' \
+      'exec zsh' 'Examples:' 'tools'; do
+    test_assert_contains "$output" "$fact" "installer help omits guidance: $fact" || return
   done
+  [[ $output != *' -h '* ]] || test_fail 'installer help advertises a short alias' || return
   local -a installed=("$TEST_TMP_DIR/home"/*(ND))
   test_assert_equal 0 "${#installed}" 'installer help wrote configuration files'
 }
 test_case 'installer help explains installation, updates, and recovery without writes' \
   _test_installer_help_explains_lifecycle_without_installing
+
+_test_installer_rejects_short_help() {
+  test_make_temp_dir || return
+  local output='' result=0
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=()
+    source "$1/install.zsh" --symlink --yes -h
+  ' "$TEST_REPO_ROOT" 2> "$TEST_TMP_DIR/short-help.err") || result=$?
+  test_assert_equal 2 "$result" 'installer accepted the removed short option' || return
+  test_assert_equal '' "$output" 'invalid installer option printed an installation plan' || return
+  test_assert_contains "$(<"$TEST_TMP_DIR/short-help.err")" 'installer: unknown option: -h' || return
+  test_assert_contains "$(<"$TEST_TMP_DIR/short-help.err")" 'usage: zsh install.zsh' || return
+  local -a installed=("$TEST_TMP_DIR/home"/*(ND))
+  test_assert_equal 0 "${#installed}" 'invalid installer option wrote configuration files'
+}
+test_case 'installer rejects short help before inspecting or installing files' \
+  _test_installer_rejects_short_help
 
 _test_installer_fresh_symlink() {
   test_make_temp_dir || return

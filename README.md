@@ -16,7 +16,7 @@ you audit the exact commit yourself.
 | Find a file below a folder | Path + Tab → Ctrl-F | Review the displayed source and scope, enter a discovery query, then press Enter |
 | Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
-| Manage Git worktrees | `g -w` or `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
+| Manage Git worktrees | `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
 | Review Git changes | `g` → Ctrl-X | Read working changes or selected-branch commits, drill into files and colored diffs |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
 | Discover your custom tools | `compozsh` | Explore loaded public functions and their safe help |
@@ -244,7 +244,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
 | `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and single-frame bounded previews |
-| `.zsh.git-worktree` | Git worktree actions | `g -w` / `g --worktree` expose Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
+| `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
@@ -1905,6 +1905,10 @@ functions and state with `_`.
 
 ### Self-documenting commands
 
+Compozsh-owned options use long names such as `--help` and `--worktree`, without
+single-letter aliases. Wrappers preserve the underlying executable's native
+options.
+
 Every public add-on function intended to be run directly supports `--help`, so
 its current usage is discoverable without opening this README. The complete
 shipped add-on command surface is:
@@ -2609,8 +2613,8 @@ Search ‹›
 ```
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and other
-Git arguments delegate directly to `git`. Compozsh reserves `g --help`, `g -w`
-and `g --worktree`; the two worktree aliases accept no extra arguments. With an empty filter,
+Git arguments delegate directly to `git`. Compozsh reserves `g --help`
+and `g --worktree`; worktree mode accepts no extra arguments. With an empty filter,
 press a visible digit to switch immediately; after typing a filter, digits are
 search text.
 
@@ -2660,11 +2664,11 @@ ZSH_NAVIGATION_PICKER_MAX_RESULTS=12
 
 ### Git worktree workspace
 
-Run **`g -w`** or **`g --worktree`** inside any checkout with a commit. Both
-open the same fuzzy workspace, scoped to that repository's registered
+Run **`g --worktree`** inside any checkout with a commit. It
+opens a fuzzy workspace, scoped to that repository's registered
 worktrees. `g worktree list` and other ordinary Git arguments retain native Git
 behavior. Disabling `.zsh.git-worktree` leaves the recent-branch picker intact
-and makes either worktree alias report the missing capability.
+and makes `g --worktree` report the missing capability.
 
 The main menu centers on five operations:
 

@@ -1,3 +1,26 @@
+_test_platform_snapshot_long_help() {
+  test_make_temp_dir || return
+  local script="$TEST_REPO_ROOT/.agents/skills/compozsh-platform-review/scripts/snapshot-platform.zsh"
+  local output='' result=0
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=()
+    source "$1" --help
+  ' "$script" 2> "$TEST_TMP_DIR/help.err") || return
+  test_assert_contains "$output" '--help' || return
+  [[ ! -s "$TEST_TMP_DIR/help.err" ]] || test_fail 'snapshot help wrote stderr' || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=()
+    source "$1" -h
+  ' "$script" 2> "$TEST_TMP_DIR/short-help.err") || result=$?
+  test_assert_equal 2 "$result" 'snapshot accepted the removed short option' || return
+  test_assert_equal '' "$output" 'invalid snapshot option captured platform data' || return
+  test_assert_contains "$(<"$TEST_TMP_DIR/short-help.err")" 'Usage: snapshot-platform.zsh' || return
+  local -a written=("$TEST_TMP_DIR/home"/*(ND))
+  test_assert_equal 0 "${#written}" 'snapshot help or invalid option wrote files'
+}
+test_case 'platform snapshot accepts long help and rejects short help without capture' \
+  _test_platform_snapshot_long_help
+
 _test_platform_review_skill_snapshot() {
   test_make_temp_dir || return
   local skill="$TEST_REPO_ROOT/.agents/skills/compozsh-platform-review"

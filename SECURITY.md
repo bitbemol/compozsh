@@ -104,7 +104,7 @@ state:
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
-| Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g -w` / `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
+| Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, or bounded Xcode test report with local project paths and diagnostics; never read back by Compozsh |
@@ -336,7 +336,7 @@ inspection does not request `clone`, `fetch`, `pull`, `push`, or another remote
 operation: prompt status disables repository-configured clean/process filters,
 filesystem monitors, hooks, required-filter enforcement, and lazy fetches;
 branch views read local refs and reflogs; and Git review applies its own
-equivalent read-only filter boundary. The `g -w` / `g --worktree` action
+equivalent read-only filter boundary. The `g --worktree` action
 workspace also disables transport and hooks and refuses checkout filters;
 its checkout/removal boundary is detailed in the local-data inventory above.
 `git-discard-all` applies those controls

@@ -151,7 +151,7 @@ while (( $# )); do
       }
       mode=${1#--} target=$2
       shift 2 ;;
-    (--help|-h)
+    (--help)
       _platform_snapshot_usage
       return 0 ;;
     (*)

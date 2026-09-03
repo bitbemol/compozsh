@@ -22,7 +22,7 @@ _installer_help() {
     '             then create fresh configuration. Old data stays in backup.' \
     '  --dry-run  Inspect and print the plan without changing files.' \
     '  --yes      Accept the plan without asking; review --dry-run first.' \
-    '  --help, -h Show this guide without inspecting or installing files.' \
+    '  --help     Show this guide without inspecting or installing files.' \
     '  Choose one mode. With neither, an interactive terminal offers a menu;' \
     '  noninteractive use requires an explicit mode. Changes normally require' \
     '  y/Y at [y/N]; unattended installation additionally requires --yes.' \
@@ -126,7 +126,7 @@ _installer_main() {
       --clean) clean=1 ;;
       --dry-run) dry_run=1 ;;
       --yes) assume_yes=1 ;;
-      --help|-h)
+      --help)
         _installer_help
         return 0
         ;;

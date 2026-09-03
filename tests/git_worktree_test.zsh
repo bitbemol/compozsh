@@ -27,14 +27,22 @@ _test_worktree_routes() {
   output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
     source "$1/.zsh.addons/.zsh.navigation"
     _git_worktree_session() { print workspace; }
-    g -w
-    g --worktree
-    g --help | /usr/bin/grep -F -- "g -w"
+    [[ $(g --worktree) == workspace ]] || exit 1
+    command git -w > "$HOME/native-out" 2> "$HOME/native-err"
+    local native_status=$?
+    g -w > "$HOME/wrapper-out" 2> "$HOME/wrapper-err"
+    local wrapper_status=$?
+    [[ $wrapper_status == $native_status &&
+       $(<"$HOME/wrapper-out") == $(<"$HOME/native-out") &&
+       $(<"$HOME/wrapper-err") == $(<"$HOME/native-err") ]] || exit 2
+    local help=$(g --help)
+    [[ $help == *"g --worktree"* && $help != *"g -w"* &&
+       $help != *"-w/--worktree"* && $help != *"with -w "* ]] || exit 3
+    print routed
   ' "$TEST_REPO_ROOT") || return
-  test_assert_contains "$output" $'workspace\nworkspace' || return
-  test_assert_contains "$output" 'g -w'
+  test_assert_equal routed "$output"
 }
-test_case 'worktree aliases route to the same workspace and appear in g help' _test_worktree_routes
+test_case 'worktree entry uses only --worktree and preserves native Git options' _test_worktree_routes
 
 _test_worktree_capture_create() {
   test_make_temp_dir || return
@@ -142,7 +150,7 @@ _test_worktree_fallback() {
     g --worktree > "$HOME/list"
     [[ $(<"$HOME/list") == *feature/occupied* ]] || exit 2
     [[ -d "$HOME/occupied" && $PWD == "$HOME/repo" ]] || exit 3
-    g -w unexpected > "$HOME/out" 2> "$HOME/err"
+    g --worktree unexpected > "$HOME/out" 2> "$HOME/err"
     [[ $? == 2 && $(<"$HOME/err") == "usage: g "* ]] || exit 4
     print fallback
   ' "$TEST_REPO_ROOT") || return
