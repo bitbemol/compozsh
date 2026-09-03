@@ -460,6 +460,67 @@ _test_xcode_digit_select_choosers_limit_each_visible_page_to_ten() {
 test_case 'Xcode digit-select pages expose only reachable 0–9 shortcuts' \
   _test_xcode_digit_select_choosers_limit_each_visible_page_to_ten
 
+_test_xcode_action_option_colors() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_CONTAINERS=(/example/Demo.xcodeproj)
+    _XCODE_CONTAINER_KINDS=(project)
+    _xcode_schemes_capture() { _XCODE_SCHEMES=("Demo · Scheme") }
+    _xcode_destinations_capture() {
+      _XCODE_DESTINATION_IDS=(SIM-123)
+      _XCODE_DESTINATION_PLATFORMS=("iOS Simulator")
+      _XCODE_DESTINATION_NAMES=("iPad · iOS 27")
+    }
+    _zle_picker_loop() {
+      if [[ $_ZLE_PICKER_TITLE == "Xcode / Actions" ]]; then
+        local -i index=0
+        local prefix="" value=""
+        for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
+          value=${_XCODE_PICKER_VALUES[index]}
+          prefix=${_XCODE_PICKER_LABELS[index]%% · *}
+          [[ ${_ZLE_PICKER_LABEL_HIGHLIGHTS[$value]-} == "0:${#prefix}:picker-header" ]] || {
+            print -u2 -- "missing option color: $value"; return 8
+          }
+        done
+        _xcode_picker_collect Destination 10
+        [[ $_ZLE_PICKER_RESULTS[1] == destination &&
+           $_ZLE_PICKER_LABELS[1] == "Destination · iPad · iOS 27" ]] || return 9
+        COLUMNS=36 LINES=18
+        _zle_picker_render Destination 1
+        [[ ${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[1]} == "7:18:picker-header" &&
+           ${_ZLE_PICKER_DISPLAY[1]} != *$'\''\e'\''* ]] || return 10
+        print colored
+      else
+        (( !${#_ZLE_PICKER_LABEL_HIGHLIGHTS} )) || return 11
+        print unstyled
+      fi
+      return 1
+    }
+    _xcode_workspace_controller
+    [[ $? == 1 ]] || exit 1
+    _XCODE_PICKER_VALUES=(1) _XCODE_PICKER_LABELS=("Scheme · Literal name")
+    _XCODE_PICKER_DETAILS=() _XCODE_PICKER_SEARCH=()
+    _xcode_choose "Xcode / Scheme" Demo Filter
+    [[ $? == 1 ]] || exit 2
+    _zle_picker_label_highlight_style picker-header 0
+    [[ $REPLY == fg=75,bold ]] || exit 3
+    ZSH_HIGHLIGHT_STYLES[picker-header]=fg=125,bold
+    _zle_picker_label_highlight_style picker-header 0
+    [[ $REPLY == fg=125,bold ]] || exit 4
+    for selected in "fg=16,bg=75,bold" "fg=231,bg=25,bold" "fg=252,bg=238"; do
+      _zle_picker_label_highlight_style picker-header 1 "$selected"
+      [[ $REPLY == "$selected" ]] || { print -u2 -- "selection contrast changed: $REPLY"; exit 5; }
+    done
+    print contrast
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'colored\nunstyled\ncontrast' "$output"
+}
+test_case 'Xcode action option colors preserve values filtering clipping and selection contrast' \
+  _test_xcode_action_option_colors
+
 _test_xcode_action_builder_preserves_target_and_safety_policy() {
   test_make_temp_dir || return
   local output=''
@@ -1094,23 +1155,32 @@ _test_xcode_simulator_run_uses_one_validated_built_application() {
   local fake_bin="$TEST_TMP_DIR/bin" products="$TEST_TMP_DIR/Products"
   local app="$products/Example App.app" xcode_log="$TEST_TMP_DIR/xcode.log"
   local xcrun_log="$TEST_TMP_DIR/xcrun.log" open_log="$TEST_TMP_DIR/open.log"
+  local developer="$TEST_TMP_DIR/Selected Xcode.app/Contents/Developer"
   command mkdir -p -- "$app" || return
+  test_write_file "$developer/Applications/Simulator.app/Contents/MacOS/Simulator" '#!/bin/zsh' || return
+  command chmod +x "$developer/Applications/Simulator.app/Contents/MacOS/Simulator" || return
   test_write_file "$fake_bin/xcodebuild" $'#!/bin/zsh\nprint -r -- "${(j:|:)@}" >> "$XCODE_TEST_LOG"\nif [[ " ${(j: :)@} " == *" -showBuildSettings "* ]]; then\n  print -r -- "[{\\"buildSettings\\":{\\"WRAPPER_EXTENSION\\":\\"app\\",\\"TARGET_BUILD_DIR\\":\\"$XCODE_PRODUCTS\\",\\"FULL_PRODUCT_NAME\\":\\"Example App.app\\",\\"PRODUCT_BUNDLE_IDENTIFIER\\":\\"com.example.app\\"}}]"\nfi' || return
   test_write_file "$fake_bin/xcrun" $'#!/bin/zsh\nprint -r -- "${(j:|:)@}" >> "$XCRUN_TEST_LOG"' || return
-  test_write_file "$fake_bin/open" $'#!/bin/zsh\nprint -r -- "${(j:|:)@}" >> "$OPEN_TEST_LOG"' || return
-  command chmod +x "$fake_bin/xcodebuild" "$fake_bin/xcrun" "$fake_bin/open" || return
+  test_write_file "$fake_bin/open" $'#!/bin/zsh\nprint -r -- "${(j:|:)@}" >> "$OPEN_TEST_LOG"\nexit ${XCODE_OPEN_STATUS:-0}' || return
+  test_write_file "$fake_bin/xcode-select" $'#!/bin/zsh\nprint -r -- "$XCODE_TEST_DEVELOPER"' || return
+  command chmod +x "$fake_bin/xcodebuild" "$fake_bin/xcrun" "$fake_bin/open" "$fake_bin/xcode-select" || return
 
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     path=("$2" $path)
     export XCODE_PRODUCTS=$3 XCODE_TEST_LOG=$4 XCRUN_TEST_LOG=$5 OPEN_TEST_LOG=$6
+    export XCODE_TEST_DEVELOPER=$7
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
     _xcode_run_simulator project /example/App.xcodeproj App \
       "iOS Simulator" SIM-456 || exit
     _xcode_run_simulator project /example/App.xcodeproj App \
-      "iOS Simulator" SIM-456 rebuild-run
-  ' "$TEST_REPO_ROOT" "$fake_bin" "$products" "$xcode_log" "$xcrun_log" "$open_log") || return
+      "iOS Simulator" SIM-456 rebuild-run || exit
+    export XCODE_OPEN_STATUS=9
+    _xcode_run_simulator project /example/App.xcodeproj App \
+      "iOS Simulator" SIM-456 2> "$HOME/open-error"
+    [[ $? == 9 && $(<"$HOME/open-error") == *"could not open"* ]] || { print -u2 "window failure was hidden"; exit 8; }
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$products" "$xcode_log" "$xcrun_log" "$open_log" "$developer") || return
   test_assert_equal '' "$output" 'simulator coordinator emitted captured provider output' || return
   local -a xcode_invocations=("${(f)$(<"$xcode_log")}")
   [[ ${xcode_invocations[1]} == *'|build' &&
@@ -1129,8 +1199,55 @@ _test_xcode_simulator_run_uses_one_validated_built_application() {
     'exact built app was not installed' || return
   test_assert_contains "$xcrun_invocations" 'simctl|launch|SIM-456|com.example.app' \
     'validated bundle was not launched' || return
-  test_assert_equal $'-a|Simulator\n-a|Simulator' "$(<"$open_log")" \
-    'Apple Simulator app was not opened explicitly for both run modes'
+  local expected_open="-a|$developer/Applications/Simulator.app|--args|-CurrentDeviceUDID|SIM-456"
+  test_assert_equal "$expected_open"$'\n'"$expected_open"$'\n'"$expected_open" "$(<"$open_log")" \
+    'the selected Xcode and exact Simulator were not opened' || return
+  local -a launches=("${(@M)${(f)xcrun_invocations}:#simctl|launch|*}")
+  local -a installs=("${(@M)${(f)xcrun_invocations}:#simctl|install|*}")
+  (( ${#launches} == 2 && ${#installs} == 2 )) ||
+    test_fail 'app installation or launch continued after the window failed to open'
 }
 test_case 'Xcode Simulator incremental and rebuild runs launch one validated app' \
   _test_xcode_simulator_run_uses_one_validated_built_application
+
+_test_xcode_simulator_viewer_uses_selected_xcode() {
+  test_make_temp_dir || return
+  local output
+  test_write_file "$TEST_TMP_DIR/home/bin/xcode-select" '#!/bin/zsh -df
+[[ $1 == --print-path ]] || exit 91
+[[ $DEVELOPER_DIR != invalid ]] || exit 7
+[[ $DEVELOPER_DIR == *.app ]] && { print -r -- "$DEVELOPER_DIR/Contents/Developer"; exit; }
+print -r -- "$DEVELOPER_DIR"' || return
+  test_write_file "$TEST_TMP_DIR/home/bin/open" '#!/bin/zsh -df
+print -r -- "${(j:|:)@}" >> "$HOME/opened"' || return
+  command chmod +x "$TEST_TMP_DIR/home/bin/"* || return
+  test_write_file "$TEST_TMP_DIR/home/Beta Xcode.app/Contents/Applications/DeviceHub.app/Contents/MacOS/DeviceHub" '#!/bin/zsh' || return
+  test_write_file "$TEST_TMP_DIR/home/Beta Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator" '#!/bin/zsh' || return
+  test_write_file "$TEST_TMP_DIR/home/Stable Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator" '#!/bin/zsh' || return
+  command chmod +x "$TEST_TMP_DIR/home/"*Xcode.app/**/MacOS/* || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$HOME/bin" $path); rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    (( ${+functions[_xcode_open_simulator]} )) || { print -u2 "missing selected-Xcode window handoff"; exit 1; }
+    export DEVELOPER_DIR="$HOME/Beta Xcode.app/Contents/Developer"
+    _xcode_open_simulator SIM-456 || exit 2
+    [[ $(<"$HOME/opened") == "-a|$HOME/Beta Xcode.app/Contents/Applications/DeviceHub.app|devices:///manage/select?id=SIM-456" ]] || exit 3
+    export DEVELOPER_DIR="$HOME/Beta Xcode.app"
+    _xcode_open_simulator SIM-456 || exit 9
+    export DEVELOPER_DIR="$HOME/Stable Xcode.app/Contents/Developer"
+    _xcode_open_simulator SIM-789 || exit 4
+    local before=$(<"$HOME/opened")
+    [[ $before == *"-a|$DEVELOPER_DIR/Applications/Simulator.app|--args|-CurrentDeviceUDID|SIM-789" ]] || exit 5
+    export DEVELOPER_DIR=invalid
+    _xcode_open_simulator SIM-456 && exit 6
+    _xcode_open_simulator "bad&id=other" && exit 7
+    export DEVELOPER_DIR="$HOME/Empty Xcode.app/Contents/Developer"
+    command mkdir -p "$DEVELOPER_DIR"
+    _xcode_open_simulator SIM-456 && exit 10
+    [[ $(<"$HOME/opened") == "$before" ]] || exit 8
+    print selected
+  ' "$TEST_REPO_ROOT" 2>"$TEST_TMP_DIR/errors") || return
+  test_assert_equal selected "$output"
+}
+test_case 'Xcode Simulator window uses Device Hub or Simulator from only the selected Xcode' \
+  _test_xcode_simulator_viewer_uses_selected_xcode

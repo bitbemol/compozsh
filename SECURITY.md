@@ -72,10 +72,10 @@ guarantees made by Compozsh.
 - It does not use `sudo -S`, `SUDO_ASKPASS`, a password variable, the login
   keychain, or the macOS `security` credential command.
 - It never reads the clipboard. Explicit Copy actions write only the visibly
-  selected path or branch, current directory, or a bounded Xcode test report
-  assembled from the visible result snapshot through `pbcopy`. The optional
-  website writes a visible installation command only after its Copy button is
-  clicked.
+  selected path or branch, current directory, a bounded Xcode test report,
+  or complete matching lines from the retained Simulator log snapshot through
+  `pbcopy`. The optional website writes a visible installation command only
+  after its Copy button is clicked.
 - The shell configuration, installer, and static site upload nothing. This
   includes shell history, paths, Git data, project metadata, file previews,
   diffs, runtime versions, disk metadata, and installer output.
@@ -107,8 +107,9 @@ state:
 | Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
+| Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
-| Clipboard values | The clipboard of the machine running Zsh | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, or bounded Xcode test report with local project paths and diagnostics; never read back by Compozsh |
+| Clipboard values | The clipboard of the machine running Zsh; may outlive the originating view or run under operating-system/user control | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, bounded Xcode test report, or retained matching Simulator log lines with local paths, diagnostics and sensitive app values; never read back by Compozsh |
 
 Appearance selection reads only `ZSH_COLOR_SCHEME` and the optional passive
 `COLORFGBG` environment hint, then retains a `light` or `dark` classification.
@@ -151,6 +152,123 @@ never those attachments or source files, rejects a symlink substituted for the
 result bundle, and removes the complete bundle before opening the result view.
 An uncatchable termination can leave the local bundle behind under the
 identifiable `compozsh-xcode-test.*` temporary directory.
+
+Simulator Build & Run and Rebuild & Run ask only the exact selected device for
+`SIMULATOR_SHARED_RESOURCES_DIRECTORY` through a bounded `simctl getenv`
+capture. The returned data directory must be a normalized absolute path without
+control characters; it and its `tmp` child must exist and have no symlink leaf.
+A fresh mode-0700
+`data/tmp/compozsh-xcode-run.*` directory contains two mode-0600 FIFOs.
+Launch receives the corresponding Simulator path `/tmp/compozsh-xcode-run.*/output`;
+`simctl` interprets redirection paths within that device's data filesystem.
+Cleanup uses the captured host directory without another provider read.
+Launch uses `--terminate-running-process` to replace the already-running
+selected bundle and bind its new process to this run's stdout/stderr FIFO.
+`SIMCTL_CHILD_NSUnbufferedIO=YES` requests unbuffered output in that child;
+it does not change the parent shell's environment or native log privacy settings.
+The second FIFO carries native unified logs from the selected Simulator.
+Both sources remain in kernel pipes and bounded shell memory until an explicit
+log Copy action writes retained matching text to the clipboard. Compozsh does
+not write app output to a log file. These bounds apply to Compozsh's copies;
+it does not control the Simulator's own log retention. Launch metadata uses
+the existing temporary Xcode capture boundary; app output never
+serves as a PID or command. App identity checks use `ps` to read the
+launch-returned PID's user, start time and executable identity. Those facts are
+checked again immediately before attachment or stopping the exact Simulator
+bundle. The observation and
+action cannot be atomic against concurrent process exit or replacement.
+
+Read output presents a full-width document from the retained tail,
+bounded to 32 KiB/200 source lines and 20,000 wrapped display rows. Its
+case-insensitive literal filter, match counts, and copied text derive only from
+the displayed snapshot; reading and filtering perform no new log discovery.
+The run owner continues draining its existing scoped sources. The reader
+publishes the latest tail automatically while following, with its literal
+filter preserved. Scrolling upward pauses publication; reaching the bottom or
+Follow latest resumes. Returning to Run and reopening preserves that mode,
+filter, and paused reading bookmark. Options and the guide hold the displayed
+text while capture continues; returning resumes the prior mode.
+
+Log formatting derives compact time/severity/scope headers, separate message
+bodies and spacing only from retained text. It performs no provider read or
+execution and keeps regex scratch/results local to the formatter and reader.
+Unrecognized lines remain plain; message words do not establish severity.
+Display controls are sanitized by the shared renderer. Literal filtering and
+clipboard payloads retain the original raw source lines and metadata.
+
+Copy all captured logs, Copy filtered logs, and the reader's Ctrl-Y copy the
+complete matching raw source lines, including offscreen text, without UI labels
+or display wrapping. They do not promise the run's entire history. Empty or
+unmatched output has no Copy action. Opening Options freezes its displayed
+copy scope; direct Ctrl-Y uses the current displayed capture. Acceptance
+freezes the payload, without fetching newer output for the copy; the
+captured `pbcopy` path is rechecked and invoked only after screen restoration,
+without reading the clipboard. Run then reopens with success or failure
+feedback while the app continues. A clipboard failure makes the eventual run
+status nonzero. Clipboard text may contain the native sensitive values
+described below and outlives the run under operating-system and user control,
+including independently enabled clipboard synchronization.
+
+The unified-log observer uses `xcrun simctl spawn` on the exact selected device
+to run the device's `log stream --level debug --style compact --color none`.
+Its native predicate compares `processImagePath` to the canonical installed
+`CFBundleExecutable` path before records reach Compozsh. No broad stream is
+captured and filtered afterward. Framework records emitted within that app
+are included; helpers and extensions with different executable paths are
+excluded. Another launch of the same exact executable can match: the predicate
+identifies an executable path rather than one particular process lifetime.
+The observer
+starts before app launch, with a bounded wait for its native startup header;
+native drops and startup races still prevent exhaustive capture. Records can
+appear in both sources, and their merged read order is not a global timestamp
+order.
+
+Only the log child receives `LOGRC=/dev/null`, preventing personal `.logrc`
+rules from broadening capture. Compozsh never enables private-data logging or
+changes native log privacy settings. Native behavior is retained, without a
+redaction guarantee: a disposable iOS 27 Simulator exposed the probe's
+synthetic `.private` payload under its default settings. Captured logs may
+therefore contain sensitive app data, including values developers marked
+private. Keep that limit distinct from Compozsh's local-only handling and
+ephemeral retention.
+
+The Simulator window opens through the explicit Device Hub or Simulator bundle
+inside the Xcode selected by `xcode-select --print-path`, which honors
+`DEVELOPER_DIR`. Device Hub receives a local `devices:///manage/select` URL with
+only the validated selected device ID; the bundle is specified explicitly, so
+another application's URL registration cannot choose the viewer. A failed
+window-opening command prevents app installation and launch. Opening Apple's
+device viewer is an explicit external-application boundary.
+
+The shared input loop drains at most 32 KiB per idle turn, fairly across the
+two sources, and sanitizes output for display. The combined tail and frozen
+preview/reader snapshots are each bounded to 32 KiB/200 source lines; each
+source has a separate unfinished-line buffer bounded to 8 KiB. Paused reading
+freezes displayed text while the bounded tail continues to update; input priority can cause temporary pipe
+backpressure for a noisy app. A failed source is disclosed and stops polling
+while the other source continues. A closed output pipe does not necessarily
+mean that the app exited.
+Enter LLDB hands the restored terminal to the Xcode-selected debugger for that
+PID, with automatic `.lldbinit` and symbol-script loading disabled. LLDB may
+read the app's memory, symbols and source as part of debugging; its commands,
+macOS authorization, and the app's behavior are separate trust boundaries.
+Debugger presentation uses fixed native settings and validated numeric palette
+values passed only to this invocation. It writes no debugger configuration,
+loads no color plugin, and does not interpret app output or command input for
+coloring. `NO_COLOR` and non-color/non-terminal output disable debugger colors;
+optional presentation support never relaxes the init/symbol-script protections.
+Compozsh neither elevates privileges nor changes app signing. The unified-log
+observer lives only within the run and is stopped and reaped before LLDB
+starts, and during other cleanup paths. While LLDB runs, one temporary native
+Zsh child drains and discards stdout/stderr to avoid blocking the app. LLDB
+exit, Stop, Escape in Run, and handled-error cleanup stop the
+still-identical app, reap owned children, close descriptors and remove the FIFOs
+and directory. An unavailable or changed process identity prevents termination
+and returns a failure with instructions to check or stop the app in Simulator;
+it does not prove that the app remains alive. A failed stop is also reported.
+An uncatchable shell termination or
+system failure can leave an app, observer, drainer, or pipe directory behind;
+Simulator can stop the app. There is no recovery log to retrieve or uninstall.
 
 The worktree workspace reads local refs, commit IDs, registered paths and flags
 from Git, directory identities, and explicitly browsed parent-folder names.
@@ -368,7 +486,7 @@ Compozsh to add a request, destination, or data:
   fixed version argument from `/`. Common auto-install and telemetry controls
   are disabled where supported, but the executable on `PATH` remains
   independently trusted software with its own behavior.
-- Explicit Xcode build, test, analyze, clean, run, and Apple skill-export actions
+- Explicit Xcode build, test, analyze, clean, run, LLDB, and Apple skill-export actions
   invoke Apple's tools. Discovery disables automatic package resolution and
   updates; a chosen build can execute project build phases.
 - Open and Reveal actions can launch Finder or another installed application.
@@ -453,6 +571,32 @@ keyboard/screen behavior. They do not
 prove atomicity against concurrent external writers. Run against the exact
 checkout being audited; before commit, read the corresponding working files
 instead of `git show HEAD:...`.
+
+Audit the Simulator run boundary without launching Xcode or a real app:
+
+```sh
+git show HEAD:.zsh.addons/.zsh.xcode
+zsh tests/run.zsh 'Xcode run'
+zsh tests/run.zsh 'log reader'
+zsh tests/run.zsh 'log copy'
+zsh tests/run.zsh 'editor reader'
+```
+
+Read `_xcode_run_live`, `_xcode_run_identity`, `_xcode_run_idle`, their scoped
+log-observer and `_xcode_logs_*` helpers, and the shared picker's screen cleanup.
+Audit literal snapshot filtering, copy payload bounds, post-screen clipboard
+dispatch, retained failure status, automatic following and paused/Options
+capture boundaries, and full-reader returns that keep the app
+running. Audit the exact
+device and installed-executable predicate, child-only `LOGRC` and unbuffered
+launch settings, readiness bound, fair draining and line bounds, source failure
+disclosure, and observer stop/reap before LLDB and on cleanup. The focused tests
+also cover malformed launch responses, frozen reading, native PTY
+resize/guide/cancellation, identity replacement and failure status. Synthetic
+command spies do not prove Simulator FIFO support, native privacy behavior,
+complete log delivery, signing permission, or LLDB attachment on the host.
+Run against the exact checkout being audited; before commit, read the working
+files instead of `git show HEAD:...`.
 
 Audit website connection primitives and all hard-coded destinations:
 

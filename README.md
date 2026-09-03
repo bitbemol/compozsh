@@ -84,7 +84,7 @@ for full-sized sessions in one Terminal window.
 - Automatic loading of focused, order-independent `.zsh.addons/**/.zsh.<name>`
   files
 - A native Xcode workspace for choosing schemes and destinations, then building,
-  testing, analyzing, cleaning, or launching an app in Simulator
+  testing, analyzing, cleaning, or running a Simulator app with live output and LLDB
 - An Xcode add-on that exports Apple-authored skills for common coding agents
 
 The [`.zshrc`](.zshrc) file is only a tiny bootstrap. Every shared feature lives
@@ -193,7 +193,7 @@ compozsh/
 ├── .zsh.addons/           all shared peer features
 │   ├── .zsh.appearance    color-scheme selection and light palette
 │   ├── .zsh.shell         shell options, history, and native tool colors
-│   ├── .zsh.editor        command/path completion, temporary-screen pickers, editing
+│   ├── .zsh.editor        completion, temporary-screen pickers/readers, editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.git-review    read-only working changes, commits and revision comparisons
 │   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
@@ -201,12 +201,12 @@ compozsh/
 │   ├── .zsh.help          live tool discovery and help snapshots
 │   ├── .zsh.highlighting  command-line syntax and semantic UI palette
 │   ├── .zsh.navigation    directory/branch workspaces, details and copying
-│   ├── .zsh.output        semantic palette, help styling, native output wrappers
+│   ├── .zsh.output        semantic palette, help/LLDB styling, native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
 │   ├── .zsh.sudo-touch-id explicit macOS sudo Touch ID policy management
 │   ├── .zsh.tools         small commands and safe Git cleanup
 │   ├── .zsh.usb           external-disk formatting and bootable-media creation
-│   ├── .zsh.xcode         native Xcode workspace and agent-skill integration
+│   ├── .zsh.xcode         Xcode actions, live logs, filtered log copying, LLDB, skills
 │   └── support/
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
 ├── templates/
@@ -241,7 +241,7 @@ peer owns one focused concern and can still be sourced independently:
 | --- | --- | --- |
 | `.zsh.appearance` | Terminal appearance and adaptive defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
+| `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, full-width readers with optional live following, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
 | `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; shared file → focused diff → full-context reading and Ctrl-R snapshot refresh |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
@@ -249,12 +249,12 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments; shared semantic UI and picker styles |
 | `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, worktree-mode dispatch, copying and small navigation aliases |
-| `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, and optional help styling, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
+| `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication | `compozsh-sudo-touch-id` inspects, enables, or safely disables Apple Touch ID through the system-supported `sudo_local` PAM policy |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
 | `.zsh.usb` | External-disk preparation | `format-external-device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
-| `.zsh.xcode` | Native Xcode integration | `xcode` opens a scheme/destination/action workspace over Apple’s CLI tools and reports bounded test outcomes with failure files; `update-xcode-skills` exports Apple-authored skills to detected coding agents |
+| `.zsh.xcode` | Native Xcode integration | `xcode` selects schemes/destinations, reports test outcomes, and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, a live formatted log reader with filtering/copying, and LLDB actions; `update-xcode-skills` exports Apple-authored skills to detected coding agents |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -1540,7 +1540,7 @@ shortcuts continue to belong to Terminal.app.
 | Fn-Up/Down or Option-Up/Down | Page up/down in the focused view; Option requires Meta |
 | Ctrl-V / Ctrl-D | Page down / up without requiring Option-as-Meta |
 | Tab / Shift-Tab | Switch list/details focus when a panel exists |
-| Ctrl-Y / Option-W | Copy the selected value and close, when available |
+| Ctrl-Y / Option-W | Copy the selected value and close; in Xcode Logs, copy matching captured lines and return to Run, when available |
 | Ctrl-K | Open or close the keyboard guide |
 | Ctrl-L | Redraw |
 | Ctrl-F | Search descendants in Browse; edit discovery query in Search results |
@@ -1549,12 +1549,18 @@ shortcuts continue to belong to Terminal.app.
 | Ctrl-X | Open **review** on Branches; **options** for filesystem actions/sources/views |
 | Right / Left in Git review | Progress files → focused diff → full-file context / reverse those steps |
 | Ctrl-R in Git review | Refresh the selected snapshot, preserving focus and source area |
+| Enter in Xcode Logs | Open options for the displayed logs; log lines are not selectable results |
+| Up/Down in Xcode Logs | Scroll up to pause; return to the bottom to follow live output |
+| Home/End in Xcode Logs | Pause at the beginning / follow the latest output, when sent by the terminal |
 | Ctrl-T | Toggle hidden folders in the browser |
 
 This is the shared Compozsh picker key map. The footer and Ctrl-K guide show
-available actions. The documented Git-reader controls apply only within review:
-Ctrl-R still opens history at the prompt and advances results in other pickers.
-Ctrl-X is inactive in the reader; the arrow flow handles context disclosure.
+available actions. The documented Git-reader controls apply only within review;
+Xcode Logs uses one full-width reader, where typing filters source lines,
+Up/Down scroll, and Escape returns to Run. Xcode Logs updates automatically
+while following. Ctrl-R opens history at the prompt, refreshes Git review,
+and advances results in ordinary pickers without a refresh capability.
+Ctrl-X is inactive in Git review's reader; the arrow flow handles context disclosure.
 
 The directory browser has one explicit hierarchy convention: Right/Tab
 enters a folder and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list.
@@ -1675,8 +1681,8 @@ To intentionally preserve grep colors through a pager, request it explicitly:
 grep --color=always TODO README.md | less -R
 ```
 
-The public `ZSH_OUTPUT_COLORS` map keeps Git, grep, manual-page, and help emphasis
-consistent. Override only desired semantic roles in the local initializer
+The public `ZSH_OUTPUT_COLORS` map keeps Git, grep, manual-page, help, and LLDB
+prompt emphasis consistent. Override only desired semantic roles in the local initializer
 before peers load:
 
 ```zsh
@@ -2358,6 +2364,9 @@ Compozsh walks upward to the nearest directory containing a literal
 `.xcworkspace` or `.xcodeproj`; it does not recursively search the repository.
 When both exist at that scope, the workspace is offered first. The full-screen
 dashboard then uses Xcode to discover shared schemes and concrete destinations.
+Option names use the `ZSH_HIGHLIGHT_STYLES[picker-header]` color and emphasis;
+current settings and descriptions use normal text. The selected row retains
+its configured foreground and background for contrast.
 Choose either setting directly, then apply **Build**, **Rebuild**, **Test**,
 **Rebuild & Test**, **Analyze**, or **Clean**. **Build** and **Test** use Xcode's
 normal incremental graph, so Xcode recompiles products it determines have
@@ -2367,7 +2376,150 @@ product or result appears to use older source: they run ordered `clean build` or
 the entire DerivedData tree or disable Xcode's package and compilation caches.
 Selecting a Simulator also exposes incremental **Build & Run** and recovery
 **Rebuild & Run**; each boots that exact simulator, installs the resulting app,
-and launches its bundle. Physical-device launching remains in Xcode.
+and launches its bundle. Run replaces an already-running instance of that bundle
+on the selected Simulator so the new process uses this run's output pipes.
+It requests unbuffered standard output with `NSUnbufferedIO=YES`; app code can
+still buffer its own output. The window opens in **Device Hub** on Xcode versions
+that include it, or in that Xcode's **Simulator** app. Compozsh uses the Xcode
+selected by `DEVELOPER_DIR` or `xcode-select` and passes the selected device ID.
+If the window-opening command fails, the run reports the failure and stops
+before installing or launching the app. The scheme supplies build settings;
+this UI does not
+add separate Debug/Release, launch-argument, or environment controls. Run remains
+limited to Simulator destinations; macOS-app and physical-device launching
+remain in Xcode.
+
+After launch, **Xcode / Run** combines the app's live stdout/stderr and scoped
+unified logs, including `Logger`/`os_log`, alongside
+**Stop app and close**, **Read output · Full view, filter and copy**, and, when available,
+**Enter LLDB**. Choose an action with arrows and Enter, or its visible digit
+with an empty filter. Text filters action labels with case-insensitive,
+in-order character matching. The selected scheme and Simulator stay visible.
+On narrow terminals, output appears below the actions; filtering or changing
+the selected action preserves the output pane and its latest position.
+Output follows automatically. Tab or Ctrl-E focuses the small output preview;
+arrows and paging scroll its frozen text. Tab or Ctrl-B returns to actions and
+resumes the latest output. The pane title
+shows **Following**, **Paused**, **Closed**, or **Unavailable** as applicable.
+If no output has arrived, the view says it is waiting and names its sources.
+An unavailable source is identified while the other source continues.
+Reading does not request or generate new app logs. In Run, Escape/Ctrl-G or
+Stop closes the screen and stops that exact Simulator bundle. Ctrl-C aborts
+and stops the run from any view.
+
+**Read output** opens **Xcode / Logs**, a full-width, wrapped reader that follows
+new output automatically. Scroll up to pause the displayed text; return to
+the bottom, press End, or choose **Follow latest** to resume. Home pauses at
+the beginning. The title shows **Live** or **Paused**, and the app and bounded
+capture continue while paused. Type a **case-insensitive literal substring**
+to filter each retained source line;
+new matching output appears while following, including after an empty result.
+The count shows matching and total retained source lines, independently of
+wrapping. Digits are filter text. Arrows and paging scroll the document, and
+Ctrl-K opens the shared keyboard guide.
+
+Recognized native compact logs show a time/severity/scope header above the
+message, with space between entries. Default and Info headers use the shared
+information color, Debug is muted, and Error/Fault use the error color;
+severity names remain readable without color. Plain stdout and unrecognized
+lines keep their text. Filtering and copying use the original source lines,
+including metadata omitted from the compact presentation.
+
+Enter opens these options and holds the displayed copy scope until you choose
+an action or return:
+
+- **Copy all captured logs** with an empty filter, or **Copy filtered logs**
+  with a filter: copy complete matching source lines, including offscreen
+  content, and return to Run. Ctrl-Y performs the same action. Copy requires
+  `pbcopy` and nonempty matching output.
+- **Pause display** holds the current reading position when following.
+- **Follow latest** shows the newest retained tail and resumes automatic
+  updates with the same filter.
+- **Go to beginning** pauses at the first matching line. **Clear filter**,
+  when present, shows all retained lines in the current reading mode.
+- **Return to Run** keeps the app running. Escape/Ctrl-G in the reader does
+  the same; Escape in Options returns to the reader.
+
+Returning to Run, reopening Read output, or using Options preserves the filter
+and following/paused mode. Paused reading keeps its text and position;
+following catches up automatically on return. The guide also holds displayed
+text while capture continues. Copy writes the complete matching raw text from
+the displayed capture, without UI labels or display wrapping, after restoring
+the terminal. It then reopens Run with a confirmation or failure notice. A copy
+failure leaves the app running and makes the eventual command status nonzero.
+Compozsh never reads the clipboard. The copied text can contain sensitive app
+values and remains on the clipboard under the operating system's and user's
+control; SSH uses the clipboard of the machine running Zsh.
+
+The combined live tail retains up to **32 KiB and 200 lines** in memory.
+Each source also retains at most **8 KiB of an unfinished line**. Reading keeps
+bounded display snapshots in memory. The full reader updates its snapshot
+while following and retains it while paused. The small preview abbreviates
+long rows; the full reader wraps them up to the shared **20,000 display-row** limit.
+Copy includes all matching lines of that retained snapshot, never the run's
+entire history or uncaptured output. Terminal input takes priority over pipe reads;
+each idle turn drains at most 32 KiB fairly across both sources, so a very noisy
+app can temporarily encounter pipe backpressure. A failed source stops polling
+without stopping capture from the other. A closed stream does not prove that
+the app exited; before its first output arrives, stdout/stderr capture waits
+through launch-time gaps with no writer.
+
+Unified logging uses the selected Simulator's native `log stream`, including
+debug-level messages, filtered before delivery by the exact canonical path of
+the installed app's `CFBundleExecutable`. This includes framework messages
+emitted inside that app. Helpers and extensions with different executable paths
+are excluded; another launch of the same exact executable can match. The
+observer starts before the app, with a bounded wait for its native startup
+header. Native logging can still drop records or miss startup messages. The
+same message can arrive through both sources, and merged rows are not
+guaranteed to be in timestamp order. This view does not reproduce every Xcode
+console feature or collect the Simulator's full log stream.
+
+Compozsh preserves native log privacy behavior and never enables private-data
+logging. That does **not** guarantee redaction: the validated iOS 27 Simulator
+displayed a synthetic `.private` value under its native defaults. Logs may
+therefore contain sensitive app data. The log child uses `LOGRC=/dev/null` so
+personal `.logrc` rules cannot broaden the selected app's filter.
+
+**Enter LLDB** restores the terminal and attaches to the launch-returned PID
+after rechecking its observed user, start time, and executable identity.
+In LLDB, `continue` resumes execution and `quit` returns to Compozsh, which
+stops this run. The unified-log observer is stopped and reaped before LLDB
+starts. App stdout/stderr is drained and discarded during debugging so it
+cannot block the app or overwrite the debugger prompt. Automatic `.lldbinit`
+and symbol-script loading are disabled. LLDB may still refuse attachment under
+macOS permissions or app signing; Compozsh never uses sudo or changes signing.
+The [LLDB command reference](https://lldb.llvm.org/man/lldb.html) documents
+attachment and initialization options.
+
+On color terminals, the debugger enables native source highlighting for
+supported languages and keeps LLDB's diagnostic and stack-location colors.
+With `.zsh.output` and a 256-color terminal, `ZSH_OUTPUT_COLORS[heading]` colors
+the prompt, `warning` marks the current source line, and `muted` styles native
+suggestions when enabled in LLDB. Source-token colors belong to LLDB's language
+highlighter; Swift source may remain plain in the installed Apple LLDB.
+`NO_COLOR`, unsupported terminals, and redirected stdout or stderr
+disable debugger colors. Optional presentation settings are applied only when
+the installed LLDB supports them; no configuration file is written.
+LLDB's native command editor keeps completion, history, and editing keys, but
+does not provide shell-style token highlighting while typing commands or `po`
+expressions. Its [source-highlighting setting](https://lldb.llvm.org/use/settings.html#highlight-source-boolean)
+applies to displayed source code.
+
+The run owns a private `compozsh-xcode-run.*` directory beneath the selected
+Simulator's `data/tmp`, containing two output pipes. Compozsh obtains the data
+directory from that exact Simulator; launch metadata uses the existing host
+`TMPDIR` capture boundary. Compozsh creates no persistent log file or daemon;
+it does not control the Simulator's own log retention.
+The log observer exists only for this run. Normal and handled-error cleanup
+stops and reaps it, removes the pipes, and attempts to
+stop the still-identical app. Process identity checks and actions cannot be
+atomic against external replacement. If identity cannot be verified, Compozsh
+does not terminate an unverified process; it reports the uncertainty and returns
+a failure status. This can also happen if the app has already exited. If stopping
+fails, Compozsh reports it; check or stop the app in Simulator. An uncatchable
+termination can leave the app or a capture child running, or a pipe directory
+behind; see [Security and privacy](SECURITY.md).
 
 Compozsh does not guess build freshness or target membership from Git changes or
 file timestamps. Those signals cannot describe generated files, package inputs,
@@ -2393,7 +2545,8 @@ Closing and reopening `xcode` discards these snapshots and performs fresh
 discovery. No project-specific disk or shell-session cache is created.
 
 The dashboard coordinates the first-party tools already installed with Xcode:
-`xcodebuild`, `xcrun`, `simctl`, `open`, and `plutil`. Its filtering, focus,
+`xcodebuild`, `xcrun`, `simctl`, the Simulator's `log`, `lldb`, `open`, and
+`plutil`. Its filtering, focus,
 resize behavior, guide, and temporary-screen cleanup are the same shared
 Compozsh interaction system used by the other full-screen tools. No additional
 package, daemon, project file, or registration step is introduced.

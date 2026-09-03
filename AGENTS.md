@@ -91,7 +91,7 @@ private. Avoid inventing a privileged core tier through new terminology.
 | Acceptance / action | Acceptance requests the visibly named primary operation. An action applies an explicit effect to a target, including insertion, copying, directory change or application launch. Acceptance can instead open another view. |
 | Renderer / paint | The renderer derives frame text and styles from view state. Painting applies that frame to the terminal through the shared ZLE machinery. |
 | Document workspace | A file navigator paired with a primary, independently scrollable reader, such as Git review. Distinct from a picker with secondary information. |
-| Action workspace | A task workspace that composes captured configuration choices into one explicit post-cleanup action, such as Xcode scheme + destination + Build. It is not a live console or a general workflow engine. |
+| Action workspace | A task workspace that composes captured configuration choices into one explicit post-cleanup action, such as Xcode scheme + destination + Build. An explicit Run can then open a separate view of its scoped output; configuration selection itself does not execute or monitor a process. |
 | Source anchor | A semantic reading position independent of display rows: for Git review, the old/new file side and line number at the top of the reader. Used when changing context density. |
 | Disclosure | Revealing more detail about the same target without changing its task or scope. Reverse disclosure returns to the less detailed presentation using a source anchor; it is distinct from switching pane focus or navigating to another target. |
 | Effect boundary | The point where code reads external facts or changes observable state. Frame construction and filtering derive from captured inputs; painting, provider reads and final actions have their own lifecycle rules. |
@@ -1221,7 +1221,7 @@ discovered. The keyboard guide must never trigger refresh.
   language and temporary-screen cleanup. The dashboard is one shallow
   controller over Container → Scheme → Destination → Action, with configuration
   choices returning to the action dashboard. Do not add a renderer, key parser,
-  background watcher, workflow framework, persistent project state or new
+  persistent background watcher, workflow framework, persistent project state or new
   shortcut. Keep each digit-select Xcode page at ten rows so every visible index
   is reachable with one of 0–9; ordinary paging retains later candidates.
   Dispatch every action only after the screen is restored, and revalidate that
@@ -1246,8 +1246,9 @@ discovered. The keyboard guide must never trigger refresh.
   & Run are explicit code-execution boundaries. Project build scripts, package
   plugins, macros, tests and app code may execute. State this in the dashboard,
   README and `xcode --help`; never run an action merely to populate details.
-  Native Xcode output belongs in the restored terminal, not a captured
-  pseudo-console. Build, Test and Build & Run use Xcode's normal incremental
+  Native build/test output belongs in the restored terminal. An explicit
+  Simulator Run may then open its scoped app-output view as described below.
+  Build, Test and Build & Run use Xcode's normal incremental
   `build`/`test` actions. Do not infer artifact freshness from Git state,
   filesystem timestamps or private DerivedData metadata; Xcode owns the target
   membership, dependency graph and rebuild decision. Rebuild and **Rebuild &
@@ -1271,9 +1272,90 @@ discovered. The keyboard guide must never trigger refresh.
   incrementally, or clean then build only for explicit Rebuild & Run, derive one
   installable `.app` and validated bundle identifier from bounded `xcodebuild
   -showBuildSettings -json`, then use `xcrun simctl` to boot, install and launch
-  it; opening Apple's Simulator app is part of that explicit action. Do not claim
+  it; opening the selected Xcode's Device Hub or Simulator app is part of that
+  explicit action. Do not claim
   physical-device launch, alter signing, choose a generic destination or infer a
   product or target membership from recursive filesystem search.
+- After an explicit Simulator launch, the Run view reuses the shared picker
+  with Stop, Read output, and conditional LLDB actions. Retain only the newest
+  32 KiB/200 lines of combined app stdout/stderr and scoped unified logs as a
+  live tail, plus bounded frozen preview and full-reader snapshots, in memory.
+  Each source may retain at most 8 KiB of an unfinished line. Two private mode-0600
+  FIFOs beneath a mode-0700 invocation directory in the selected Simulator's
+  `data/tmp` carry output; they are never log files. Resolve that exact device's
+  data root with a bounded native capture, validate the root and temporary
+  child, and keep the host FIFO path separate from the Simulator-relative
+  launch path. Cleanup uses the captured host root. Explicit Run replaces an
+  already-running instance of that selected bundle with
+  `--terminate-running-process`, and sets `SIMCTL_CHILD_NSUnbufferedIO=YES` only
+  for launch. App-controlled buffering can still occur. Read at most 32 KiB per
+  shared idle turn, fairly across both sources; never read during paint or
+  resize, and keep input priority. Freeze displayed text while reading or in
+  the guide; returning to Run actions follows the newest tail in its preview.
+  Disclose a failed source while allowing the other to continue. No source-time
+  work, persistent worker, or new key map.
+- Read output composes a reader-only shared document view: full width, wrapped
+  up to the shared 20,000-row bound, with no selectable or numbered log rows.
+  Type a case-insensitive literal substring to filter captured source lines;
+  counts refer to source lines, not wrapped rows. Follow the latest retained
+  tail automatically by default, preserving the literal filter as output
+  arrives. Scroll upward to pause publication; reaching the bottom or Follow
+  latest resumes. Retain the mode, filter and paused snapshot/semantic reading
+  bookmark through Options, Return to Run, reopen, and Copy. Capture continues
+  in the Run owner. Options and the guide hold displayed text and raw copy
+  scope; returning resumes the prior mode. Reuse the shared opt-in document
+  following capability, with no mandatory refresh command or new key map.
+  Unchanged raw output must not trigger formatting or repainting; capture
+  status and limit changes still need visible updates. Enter opens options;
+  Escape/Ctrl-G returns to Run, and Options Escape
+  returns to the reader. Reader-only controls must not expose a phantom list
+  focus, result count or digit action. Reuse the shared key map and guide.
+- Format recognized native compact records using a bounded pure text helper:
+  compact time/severity/scope header, separate message body, and spacing
+  between entries. Keep textual severity and existing semantic palette roles;
+  unrecognized lines stay plain, and message words never infer severity.
+  Matching/counts/copying use the original source lines, including omitted
+  display metadata. Keep formatted rows and regex scratch local, sanitization
+  in the shared renderer, and wrapping under its existing document bound.
+- Explicit Copy all captured logs, Copy filtered logs, or reader Ctrl-Y freezes
+  the complete matching raw lines from the displayed snapshot, including
+  offscreen content, without UI labels or wrapping. Offer copying only for
+  nonempty matching text and a captured clipboard capability. Options copying
+  uses the display captured when Options opened, even as new output arrives;
+  direct reader copy uses the currently displayed capture. Revalidate that
+  executable and write only after screen restoration; never read the
+  clipboard. Reopen Run with visible success/failure feedback and preserve the
+  reader bookmark and running app. Clipboard failure must retain a nonzero run
+  status even after a later successful action. Copied text outlives the run
+  under operating-system/user control and may retain native private payloads;
+  keep that boundary explicit in public privacy documentation.
+- The Run unified-log observer is scoped to the exact selected Simulator and
+  canonical installed `CFBundleExecutable` path. Start the device's native
+  `log stream --level debug --style compact --color none` through
+  `simctl spawn`, with an exact `processImagePath` predicate applied before
+  delivery; never collect a broad stream and filter it afterward. Start the
+  observer before app launch and wait only a bounded time for its native
+  readiness header. Set `LOGRC=/dev/null` only for that log child so personal
+  `.logrc` rules cannot broaden capture. Include framework records emitted
+  inside the app; exclude helpers/extensions with different executable paths.
+  Disclose that another launch of the same exact executable can match, native
+  records can drop, startup capture can race, duplicate messages can reach both
+  sources, and merged read order is not guaranteed timestamp order. Never
+  enable private-data logging or alter native privacy behavior; do not promise
+  redaction, because native Simulator defaults can expose private payloads.
+  The observer belongs only to this run: stop and reap it before LLDB and in
+  normal/error cleanup. There is no persistent logging configuration or daemon.
+- Resolve the Run PID solely from simctl's separate launch response, never app
+  output. Revalidate its observed user/start time/executable before LLDB and
+  before stopping the exact Simulator bundle. Disclose non-atomic exit races.
+  Escape/Stop in Run and handled errors stop the run after screen restoration.
+  Escape in its full log reader returns to Run without stopping the app. LLDB
+  receives the restored terminal with automatic init and symbol-script loading
+  disabled; one scoped native child drains/discards stdout/stderr until LLDB
+  exits, then cleanup stops the run and reaps the drainer. Never change signing, use
+  sudo, attach by a guessed name, or silently launch a different app. A closed
+  output stream is not proof of process exit. Preserve launch/debugger failure
+  status and disclose missing identity, failed stop, and crash cleanup limits.
 - Test discovery order, spaces in literal paths, complete multi-page scheme
   catalogs, bounded/failed JSON, hostile destination text,
   no-scheme/no-destination states, argument delegation, noninteractive fallback,
@@ -1285,7 +1367,16 @@ discovered. The keyboard guide must never trigger refresh.
   successful test totals, assertion and build-stage failures, source locations,
   semantic result colors, bounded report contents, conditional clipboard
   affordance, post-screen copying, native output/status preservation and
-  result-bundle cleanup. Real Xcode/Simulator checks are optional host
+  result-bundle cleanup. Run tests must cover the exact installed-executable
+  log predicate, child environment isolation, bounded observer readiness,
+  fair source draining and partial-line bounds, independent source failure,
+  replacement launch, and observer stop/reap before debugger handoff and on
+  cancellation/error. Cover full-width reader geometry, source anchors after
+  resize/reopen, literal source-line filtering/counts, live no-match recovery,
+  scroll pause/resume, stable guide/Options copying, quiet callbacks,
+  independent action/reader bookmarks, complete matching
+  clipboard payloads, post-screen copying, and visible/sticky clipboard failure.
+  Real Xcode/Simulator checks are optional host
   integration tests and must not read private project data or mutate a user's
   active project.
 
@@ -1386,7 +1477,14 @@ discovered. The keyboard guide must never trigger refresh.
   Preserve search and selection across pane focus and responsive layouts, and
   keep numbered selection restricted to visibly rendered list rows.
 - Information panels are secondary to the result list. Primary document
-  workspaces follow the separate Git review contract above. The shared editor owns
+  workspaces follow the separate Git review contract above. A caller can opt
+  into a reader-only document view with no navigator, selectable candidates,
+  result count or digit actions; the Xcode log-reader contract defines its
+  captured data and actions. Such a view uses the shared full-width document
+  wrapping, source bookmarks, guide and input loop. It keeps focus on reading
+  while printable input refines the caller's captured document. Enter, copy,
+  refresh and Back remain capability-aware caller requests; Enter, refresh and
+  Back still work with zero matching lines. The shared editor owns
   one list-first width policy with a bounded reading column; do not restore
   per-tool proportions or give previews the remaining unbounded screen width.
   Keep passive previews compact beside short lists and visually quiet, while

@@ -796,10 +796,51 @@ _xcode_build_settings_capture() {
   return 1
 }
 
+# Open only the viewer bundled with the same Xcode as the native tools.
+# xcode-select resolves both supported DEVELOPER_DIR forms before returning
+# the Developer directory; a global application-name lookup can choose wrong.
+_xcode_open_simulator() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local identifier=$1 developer='' viewer=''
+  local _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+  local -a arguments=()
+  local -i result=0
+  [[ $identifier == [[:alnum:]][[:alnum:].-]# ]] || return 2
+  _xcode_capture_command xcode-select --print-path || {
+    print -u2 -r -- 'xcode: cannot resolve the selected Xcode for its Simulator window'
+    return 1
+  }
+  developer=$_XCODE_CAPTURE
+  [[ $developer == /*/Contents/Developer && $developer != *[[:cntrl:]]* &&
+     -d $developer ]] || {
+    print -u2 -r -- 'xcode: a full Xcode installation is required to open its Simulator window'
+    return 1
+  }
+  viewer="${developer:h}/Applications/DeviceHub.app"
+  if [[ -x $viewer/Contents/MacOS/DeviceHub ]]; then
+    # This local application URL also selects the device in an existing window.
+    arguments=("devices:///manage/select?id=$identifier")
+  else
+    viewer="$developer/Applications/Simulator.app"
+    [[ -x $viewer/Contents/MacOS/Simulator ]] || {
+      print -u2 -r -- 'xcode: the selected Xcode has no Device Hub or Simulator application'
+      return 1
+    }
+    arguments=(--args -CurrentDeviceUDID "$identifier")
+  fi
+  command open -a "$viewer" "${arguments[@]}" || {
+    result=$?
+    print -u2 -r -- 'xcode: could not open the selected Simulator window; open Device Hub or Simulator and retry'
+    return $result
+  }
+}
+
 _xcode_run_simulator() {
   emulate -L zsh
   local kind=$1 container=$2 scheme=$3 platform=$4 identifier=$5
   local requested_mode=${6:-run} build_action=build
+  local destination=${7:-$platform}
   case $requested_mode in
     (run) ;;
     (rebuild-run) build_action=rebuild ;;
@@ -822,9 +863,799 @@ _xcode_run_simulator() {
   }
   command xcrun simctl boot "$identifier" >/dev/null 2>&1 || true
   command xcrun simctl bootstatus "$identifier" -b || return
-  (( $+commands[open] )) && command open -a Simulator >/dev/null 2>&1
+  _xcode_open_simulator "$identifier" || return
   command xcrun simctl install "$identifier" "$_XCODE_APP_PATH" || return
+  if [[ -o interactive && -t 0 && -t 1 && $TERM != dumb ]] &&
+      (( ${+functions[_zle_picker_run]} )); then
+    _xcode_run_live "$identifier" "$_XCODE_BUNDLE_ID" "$scheme · $destination · $identifier"
+    return $?
+  fi
   command xcrun simctl launch "$identifier" "$_XCODE_BUNDLE_ID"
+}
+
+# One explicit run owns its pipe, process identity and bounded memory tail.
+# App output never shares the launch-response channel used to resolve the PID.
+_xcode_run_log_append() {
+  emulate -L zsh
+  local LC_ALL=C
+  _xcode_run_log+=$1
+  if (( ${#_xcode_run_log} > 32768 )); then
+    _xcode_run_log=${_xcode_run_log[-32768,-1]}
+    _xcode_run_trimmed=1
+  fi
+  local -a lines=("${(@f)_xcode_run_log}")
+  if (( ${#lines} > 200 )); then
+    _xcode_run_log=${(pj:\n:)lines[-200,-1]}
+    _xcode_run_trimmed=1
+  fi
+}
+
+_xcode_run_output_snapshot() {
+  emulate -L zsh
+  local _xcode_run_log=$_xcode_run_log pending=''
+  for pending in "${_xcode_run_pending[@]}"; do
+    [[ -n $pending ]] && _xcode_run_log_append "$pending"$'\n'
+  done
+  REPLY=$_xcode_run_log
+}
+
+# Keep unfinished records separate: a read boundary is not a line boundary,
+# and bytes from the two producers must never form a single mixed record.
+_xcode_run_output_append() {
+  emulate -L zsh
+  local LC_ALL=C source=$1 text="${_xcode_run_pending[$1]-}$2" complete=''
+  local -a records=("${(@f)text}")
+  if (( ${#records} > 1 )); then
+    complete=${(pj:\n:)records[1,-2]}
+    _xcode_run_log_append "$complete"$'\n'
+  fi
+  text=${records[-1]-}
+  if (( ${#text} > 8192 )); then
+    text=${text[-8192,-1]}
+    _xcode_run_trimmed=1
+  fi
+  _xcode_run_pending[$source]=$text
+}
+
+# Subscribe before launch, with a native predicate for this installed executable
+# on this device. Neither user log configuration nor a process-name match may
+# broaden that source. All metadata reads stay outside the input/paint loops.
+_xcode_run_logs_start() {
+  emulate -L zsh
+  unsetopt BG_NICE NOTIFY
+  local identifier=$1 bundle=$2 app='' executable='' predicate='' chunk='' header=''
+  local -i attempt=0 read_status=0
+  local -x SIMCTL_CHILD_LOGRC=/dev/null SIMCTL_CHILD_NSUnbufferedIO=YES LC_ALL=C
+  _xcode_run_unified_status=unavailable
+  zmodload zsh/parameter || return 1
+  _xcode_capture_command xcrun simctl get_app_container "$identifier" "$bundle" app || return 1
+  app=$_XCODE_CAPTURE
+  [[ $app == /* && ${#app} -le 4096 && $app != *[[:cntrl:]]* &&
+     -d $app && ! -L $app && -f $app/Info.plist && ! -L $app/Info.plist ]] || return 1
+  app=${app:A}
+  _xcode_capture_command plutil -extract CFBundleExecutable raw -o - -- "$app/Info.plist" || return 1
+  executable=$_XCODE_CAPTURE
+  [[ -n $executable && ${#executable} -le 255 && $executable != */* &&
+     $executable != *[[:cntrl:]]* && $executable != . && $executable != .. ]] || return 1
+  executable="$app/$executable"
+  [[ -f $executable && -x $executable && ${executable:A:h} == "$app" ]] || return 1
+  executable=${executable:A}
+  predicate=${executable//\\/\\\\}
+  predicate=${predicate//\"/\\\"}
+  predicate="processImagePath == \"$predicate\""
+  _xcode_run_unified_fifo="$_xcode_run_dir/unified"
+  command mkfifo -m 600 -- "$_xcode_run_unified_fifo" || return 1
+  sysopen -r -o nonblock,cloexec -u _xcode_run_unified_fd "$_xcode_run_unified_fifo" || return 1
+  # This invocation's producer owns no terminal job. simctl forwards termination
+  # to its spawned log process; the caller stops and reaps it before closing FIFO.
+  unsetopt MONITOR
+  command xcrun simctl spawn "$identifier" log stream --predicate "$predicate" \
+    --level debug --style compact --color none > "$_xcode_run_unified_fifo" 2>/dev/null &
+  _xcode_run_logger=$!
+  # Native header observation avoids launching before the stream even starts.
+  # It is bounded, and is not a guarantee that the OS delivers every message.
+  for (( attempt=0; attempt<20; ++attempt )); do
+    chunk=''
+    sysread -i $_xcode_run_unified_fd -s 1024 -t 0.1 chunk 2>/dev/null
+    read_status=$?
+    header+=$chunk
+    if [[ $header == *$'\n'* ]]; then
+      [[ $header == 'Filtering the log data using '* && ${#header} -le 8192 ]] || break
+      _xcode_run_unified_status=following
+      return 0
+    fi
+    (( ${#header} <= 8192 )) || break
+    # No writer yet also reports EOF; wait without a subprocess or busy loop.
+    if (( read_status == 5 )); then
+      zmodload zsh/zselect || break
+      zselect -t 10
+    elif (( read_status != 0 && read_status != 4 )); then
+      break
+    fi
+  done
+  return 1
+}
+
+_xcode_run_logs_stop() {
+  emulate -L zsh
+  local job='' state=''
+  if (( ${_xcode_run_logger:-0} > 1 )); then
+    # Zsh can reap an exited producer before this view closes. Verify it is
+    # still our live job, rather than signalling a numeric PID reused later.
+    for job in "${(@k)jobstates}"; do
+      state=${jobstates[$job]}
+      if [[ $state == *":$_xcode_run_logger=running" ||
+            $state == *":$_xcode_run_logger=suspended" ]]; then
+        kill -TERM $_xcode_run_logger 2>/dev/null
+        [[ $state == *'=suspended' ]] && kill -CONT $_xcode_run_logger 2>/dev/null
+        break
+      fi
+    done
+    wait $_xcode_run_logger 2>/dev/null
+    _xcode_run_logger=0
+  fi
+}
+
+_xcode_run_identity() {
+  emulate -L zsh
+  local pid=$1
+  [[ $pid == <-> && ${#pid} -le 10 ]] && (( pid > 1 )) || return 1
+  REPLY=$(LC_ALL=C command ps -p "$pid" -o uid= -o lstart= -o comm= 2>/dev/null) || return 1
+  [[ -n $REPLY && ${#REPLY} -le 4096 && $REPLY != *$'\n'* ]]
+}
+
+_xcode_run_is_current() {
+  _xcode_run_identity "$_xcode_run_pid" &&
+    [[ -n $_xcode_run_identity && $REPLY == "$_xcode_run_identity" ]]
+}
+
+# Called only from the shared loop's idle boundary, never from a renderer or
+# resize handler. Drain at most 32 KiB per turn; input always gets priority.
+_xcode_run_read_sources() {
+  emulate -L zsh
+  local chunk=''
+  local -i attempt=0 read_status=0 changed=0 source=1 fd=-1
+  if (( !_xcode_run_eof || ${_xcode_run_unified_fd:--1} >= 0 )); then
+    for (( attempt=0; attempt<4; ++attempt )); do
+      source=1
+      [[ ${_xcode_run_unified_status:-} == following ]] && source=$(( attempt % 2 + 1 ))
+      if (( source == 2 )); then
+        [[ ${_xcode_run_unified_status:-} == following ]] || continue
+        fd=$_xcode_run_unified_fd
+      else
+        (( !_xcode_run_eof )) || continue
+        fd=$_xcode_run_fd
+      fi
+      chunk=''
+      sysread -i $fd -s 8192 -t 0 chunk 2>/dev/null
+      read_status=$?
+      if [[ -n $chunk ]]; then
+        _xcode_run_output_append $source "$chunk"
+        (( source == 1 )) && _xcode_run_stdout_seen=1
+        changed=1
+      fi
+      if (( read_status == 5 )); then
+        # Launch can return before the app opens its output handles. With no
+        # bytes yet, FIFO EOF is only a writer gap; continue waiting for data.
+        if (( source == 2 )); then
+          _xcode_run_unified_status=closed changed=1
+        elif (( ${_xcode_run_stdout_seen:-0} )); then
+          _xcode_run_eof=1 changed=1
+        fi
+        continue
+      fi
+      if (( read_status != 0 && read_status != 4 )); then
+        if (( source == 2 )); then
+          _xcode_run_unified_status=unavailable
+        else
+          _xcode_run_eof=1 _xcode_run_read_error=1
+        fi
+        changed=1
+      fi
+    done
+  fi
+  REPLY=$changed
+}
+
+_xcode_run_capture_idle() {
+  _xcode_run_read_sources
+  (( _xcode_run_eof )) && [[ ${_xcode_run_unified_status:-} != following ]] && return 2
+  return 1
+}
+
+_xcode_run_idle() {
+  emulate -L zsh
+  local previous_subtitle=$_ZLE_PICKER_SUBTITLE
+  local previous_title=${_ZLE_PICKER_INSPECT_TITLE:-} output_state='' source_state=''
+  local -i changed=0 max_offset=0
+  local -i reading=$(( _ZLE_PICKER_INSPECT_FOCUS || _ZLE_PICKER_GUIDE_ACTIVE ))
+  local -i open_reader=${_xcode_run_open_reader:-0}
+  _xcode_run_read_sources
+  changed=$REPLY
+  _ZLE_PICKER_SUBTITLE="$_xcode_run_context · stdout/stderr"
+  case ${_xcode_run_unified_status:-} in
+    following) _ZLE_PICKER_SUBTITLE+=' + Logger' ;;
+    closed) _ZLE_PICKER_SUBTITLE+=' · Logger closed'; source_state='Logger closed' ;;
+    unavailable) _ZLE_PICKER_SUBTITLE+=' · Logger unavailable'; source_state='Logger unavailable' ;;
+  esac
+  if (( ${_xcode_run_read_error:-0} )); then
+    if [[ ${_xcode_run_unified_status:-} == following ]]; then
+      _ZLE_PICKER_SUBTITLE+=' · stdout/stderr unavailable'
+      _ZLE_PICKER_PASSIVE_LINES[2]='stdout/stderr unavailable; Logger continues.'
+      source_state='stdout unavailable'
+    else
+      _ZLE_PICKER_SUBTITLE+=' · output unavailable'
+      output_state=Unavailable
+    fi
+  elif (( _xcode_run_eof )); then
+    if [[ ${_xcode_run_unified_status:-} == following ]]; then
+      _ZLE_PICKER_SUBTITLE+=' · stdout/stderr closed'
+      _ZLE_PICKER_PASSIVE_LINES[2]='stdout/stderr closed; Logger continues.'
+      source_state='stdout closed'
+    else
+      _ZLE_PICKER_SUBTITLE+=' · output closed'
+      output_state=Closed
+    fi
+  fi
+  _ZLE_PICKER_INSPECT_TITLE='App output · Following'
+  # Opening Read output seeds a frozen snapshot at the tail after the shared
+  # loop has prepared its new reader geometry. Later reads leave it stable.
+  if (( (!reading && (changed || _xcode_run_publish)) || open_reader )); then
+    _xcode_run_output_snapshot
+    local output=$REPLY
+    _xcode_run_empty_snapshot=0
+    [[ -z $output ]] && _xcode_run_empty_snapshot=1
+    _ZLE_PICKER_INSPECT_TEXTS[run]=${output:-${_xcode_run_empty_output:-'Waiting for app output.'}}
+    _ZLE_PICKER_INSPECT_WIDTH=0
+    _ZLE_PICKER_INSPECT_OFFSET=100000
+    _xcode_run_publish=0
+    changed=1
+  elif (( reading )); then
+    changed=0
+  fi
+  case ${_xcode_run_unified_status:-} in
+    closed|unavailable)
+      _ZLE_PICKER_PASSIVE_LINES[2]="Logger $_xcode_run_unified_status; stdout/stderr follows when available."
+      ;;
+  esac
+  # Capture status remains live even while an empty reading snapshot is frozen.
+  # Invalidate its prepared rows; never replace actual frozen app messages.
+  if (( ${_xcode_run_empty_snapshot:-0} )) && [[ -n $source_state ]]; then
+    local empty_output=''
+    if [[ $source_state == Logger* ]]; then
+      empty_output="Logger capture $_xcode_run_unified_status."$'\n'
+      if (( ${_xcode_run_read_error:-0} )); then
+        empty_output+='stdout/stderr unavailable.'
+      elif (( _xcode_run_eof )); then
+        empty_output+='stdout/stderr closed.'
+      else
+        empty_output+='Waiting for app stdout/stderr.'
+      fi
+    else
+      empty_output="$source_state."$'\nWaiting for Logger/os_log.'
+    fi
+    if [[ ${_ZLE_PICKER_INSPECT_TEXTS[run]} != "$empty_output" ]]; then
+      _ZLE_PICKER_INSPECT_TEXTS[run]=$empty_output
+      _ZLE_PICKER_INSPECT_WIDTH=0
+      changed=1
+    fi
+  fi
+  if (( reading )); then
+    _ZLE_PICKER_INSPECT_TITLE='App output · Paused'
+    _ZLE_PICKER_SUBTITLE+=' · reading paused'
+    _xcode_run_publish=1
+  elif [[ -n $output_state ]]; then
+    _ZLE_PICKER_INSPECT_TITLE='App output'
+  fi
+  [[ -n $output_state ]] && _ZLE_PICKER_INSPECT_TITLE+=" · $output_state"
+  if [[ -z $output_state && -n $source_state ]]; then
+    _ZLE_PICKER_INSPECT_TITLE="$source_state · Following"
+    (( reading )) && _ZLE_PICKER_INSPECT_TITLE="$source_state · Paused"
+  fi
+  (( open_reader )) && _xcode_run_open_reader=0
+  if (( !changed && _ZLE_PICKER_INSPECT_WIDTH > 0 &&
+        !_ZLE_PICKER_INSPECT_FOCUS && !_ZLE_PICKER_GUIDE_ACTIVE )); then
+    # A taller or shorter pane changes the tail position even without new
+    # bytes. The shared renderer has already supplied its current geometry.
+    max_offset=$(( ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE ))
+    (( max_offset < 0 )) && max_offset=0
+    if (( _ZLE_PICKER_INSPECT_OFFSET != max_offset )); then
+      _ZLE_PICKER_INSPECT_OFFSET=$max_offset
+      changed=1
+    fi
+  fi
+  (( _xcode_run_trimmed )) && _ZLE_PICKER_SUBTITLE+=' · older output dropped'
+  [[ $previous_subtitle != "$_ZLE_PICKER_SUBTITLE" ||
+     $previous_title != "$_ZLE_PICKER_INSPECT_TITLE" ]] && changed=1
+  (( changed )) && return 0
+  (( _xcode_run_eof )) && [[ ${_xcode_run_unified_status:-} != following ]] && return 2
+  return 1
+}
+
+# The displayed tail follows capture until reading pauses it. Filtering,
+# formatting and copying derive only from that published text.
+_xcode_logs_capture() {
+  _xcode_run_read_sources
+  _xcode_run_output_snapshot
+  _xcode_logs_snapshot=$REPLY
+  _xcode_logs_trimmed=$_xcode_run_trimmed
+  _xcode_logs_captured=1
+  _xcode_logs_offset=100000 _xcode_logs_row=0 _xcode_logs_width=0
+}
+
+_xcode_logs_status() {
+  emulate -L zsh
+  # Keep actionable failures before counts so narrow headers disclose them.
+  _ZLE_PICKER_BROWSE_LABEL=''
+  _ZLE_PICKER_SUBTITLE=$_xcode_run_context
+  case ${_xcode_run_unified_status:-} in
+    closed|unavailable) _ZLE_PICKER_BROWSE_LABEL+="Logger $_xcode_run_unified_status · " ;;
+  esac
+  if (( ${_xcode_run_read_error:-0} )); then
+    _ZLE_PICKER_BROWSE_LABEL+='stdout unavailable · '
+  elif (( ${_xcode_run_eof:-0} )); then
+    _ZLE_PICKER_BROWSE_LABEL+='stdout closed · '
+  fi
+  [[ -n ${_xcode_logs_notice:-} ]] && _ZLE_PICKER_BROWSE_LABEL+="$_xcode_logs_notice · "
+  _ZLE_PICKER_BROWSE_LABEL+="$_xcode_logs_matches of $_xcode_logs_total retained lines"
+  (( ${_xcode_logs_trimmed:-0} )) && _ZLE_PICKER_BROWSE_LABEL+=' · older logs dropped'
+  return 0
+}
+
+# Derive presentation from one captured line. Results belong to the caller;
+# copying and literal matching retain the original snapshot independently.
+_xcode_logs_format_line() {
+  emulate -L zsh
+  local raw=$1 time='' level='' scope='' body='' label='' role=''
+  local MATCH=''
+  local -a match=() mbegin=() mend=()
+  local -i MBEGIN=0 MEND=0
+  local record_pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:blank:]]+([0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?)[[:blank:]]+(Df|Db|In|Er|Ft)[[:blank:]]+([^][]+)\[[0-9]+:[[:xdigit:]]+\]([[:blank:]](.*))?$'
+  local scope_pattern='^\[([^][]+:[^][]+)\]([[:blank:]](.*))?$'
+  _xcode_logs_format_lines=("$raw") _xcode_logs_format_roles=(text)
+  REPLY=0
+  [[ $raw =~ $record_pattern ]] || return 0
+  time=${match[1][1,12]} level=$match[3] scope=$match[4] body=$match[6]
+  if [[ $body =~ $scope_pattern ]]; then
+    scope=$match[1] body=$match[3]
+  fi
+  case $level in
+    Df) label=Default role=info ;;
+    Db) label=Debug role=muted ;;
+    In) label=Info role=info ;;
+    Er) label=Error role=error ;;
+    Ft) label=Fault role=error ;;
+  esac
+  _xcode_logs_format_lines=("$time · $label · $scope" "$body")
+  _xcode_logs_format_roles=("$role" text)
+  REPLY=1
+  return 0
+}
+
+_xcode_logs_collect() {
+  emulate -L zsh
+  local query=$1 line='' lower=${1:l} previous_text=${_xcode_logs_text-}
+  local -a lines=("${(@f)_xcode_logs_snapshot}") matched=()
+  local -a _xcode_logs_format_lines=() _xcode_logs_format_roles=()
+  local -i index=0 final_newline=0 changed=0 previous_total=${_xcode_logs_total:-0}
+  [[ $_xcode_logs_snapshot == *$'\n' ]] && final_newline=1
+  if [[ -z $_xcode_logs_snapshot ]]; then
+    lines=()
+  elif (( final_newline )); then
+    lines[-1]=()
+  fi
+  _xcode_logs_total=${#lines} _xcode_logs_matches=0 _xcode_logs_text=''
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  for line in "${lines[@]}"; do
+    (( ++index ))
+    [[ ${line:l} == *"$lower"* ]] || continue
+    (( ++_xcode_logs_matches ))
+    matched+=("$line")
+    _xcode_logs_text+=$line
+    (( index < ${#lines} || final_newline )) && _xcode_logs_text+=$'\n'
+  done
+  _ZLE_PICKER_COPY_ENABLED=$(( ${#_xcode_logs_text} > 0 && ${#_xcode_run_clipboard} > 0 ))
+  # A noisy app can change the raw tail without changing any filter matches.
+  # Keep prepared formatting/wrapping in that case; only status may need paint.
+  if [[ $previous_text != "$_xcode_logs_text" ]] ||
+     (( !${#_ZLE_PICKER_DOCUMENT_LINES} || (previous_total == 0) != (_xcode_logs_total == 0) )); then
+    changed=1
+    _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+    for line in "${matched[@]}"; do
+      _xcode_logs_format_line "$line"
+      if (( ${#_ZLE_PICKER_DOCUMENT_LINES} && REPLY )); then
+        _ZLE_PICKER_DOCUMENT_LINES+=('')
+        _ZLE_PICKER_DOCUMENT_ROLES+=(text)
+      fi
+      _ZLE_PICKER_DOCUMENT_LINES+=("${_xcode_logs_format_lines[@]}")
+      _ZLE_PICKER_DOCUMENT_ROLES+=("${_xcode_logs_format_roles[@]}")
+    done
+    if (( !_xcode_logs_matches )); then
+      if (( _xcode_logs_total )); then
+        _ZLE_PICKER_DOCUMENT_LINES=('No retained lines match this filter.' 'New matching output appears while following live.')
+      else
+        _ZLE_PICKER_DOCUMENT_LINES=('Waiting for app output.' 'New messages appear automatically while following live.')
+      fi
+      _ZLE_PICKER_DOCUMENT_ROLES=(info text)
+    fi
+    _ZLE_PICKER_INSPECT_WIDTH=0
+  fi
+  if [[ $query != "$_xcode_logs_query" ]]; then
+    _xcode_logs_notice=''
+    _ZLE_PICKER_INSPECT_OFFSET=0
+    _ZLE_PICKER_DOCUMENT_OFFSETS[logs]=0 _ZLE_PICKER_DOCUMENT_ROWS[logs]=0
+    _ZLE_PICKER_DOCUMENT_WIDTHS[logs]=0
+  fi
+  _xcode_logs_query=$query
+  _xcode_logs_status
+  REPLY=$changed
+}
+
+_xcode_logs_idle() {
+  emulate -L zsh
+  local before=$_ZLE_PICKER_BROWSE_LABEL
+  local -i changed=0
+  _xcode_run_read_sources
+  if (( ${_ZLE_PICKER_DOCUMENT_FOLLOW:-1} == 1 && !${_ZLE_PICKER_GUIDE_ACTIVE:-0} )); then
+    _xcode_run_output_snapshot
+    _xcode_logs_trimmed=$_xcode_run_trimmed
+    if [[ $REPLY != "$_xcode_logs_snapshot" ]]; then
+      _xcode_logs_snapshot=$REPLY
+      _xcode_logs_collect "$_xcode_logs_query" 0
+      changed=$REPLY
+    fi
+  fi
+  _xcode_logs_status
+  (( changed )) || [[ $before != "$_ZLE_PICKER_BROWSE_LABEL" ]] && return 0
+  (( _xcode_run_eof )) && [[ ${_xcode_run_unified_status:-} != following ]] && return 2
+  return 1
+}
+
+_xcode_logs_options() {
+  emulate -L zsh
+  local _ZLE_PICKER_TITLE='Xcode / Logs / Options'
+  local _ZLE_PICKER_SUBTITLE="$_xcode_logs_matches of $_xcode_logs_total captured lines"
+  local _ZLE_PICKER_BROWSE_LABEL='Actions use the logs displayed when Options opened'
+  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_QUERY_LABEL='Filter options' _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
+  local _ZLE_PICKER_IDLE_CALLBACK=_xcode_run_capture_idle
+  local -i _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_DOCUMENT_REFRESH=0 _ZLE_PICKER_DIGIT_SELECT=1 _zle_picker_start_focus=0
+  local -i _ZLE_PICKER_DOCUMENT_FOLLOW=-1
+  local -a _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=()
+  local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  if [[ -n $_xcode_logs_text && -n $_xcode_run_clipboard ]]; then
+    _XCODE_PICKER_VALUES+=(copy)
+    [[ -n $_xcode_logs_query ]] &&
+      _XCODE_PICKER_LABELS+=("Copy filtered logs · $_xcode_logs_matches lines; return to Run") ||
+      _XCODE_PICKER_LABELS+=("Copy all captured logs · $_xcode_logs_matches lines; return to Run")
+  fi
+  if (( _xcode_logs_follow )); then
+    _XCODE_PICKER_VALUES+=(pause)
+    _XCODE_PICKER_LABELS+=('Pause display · Keep this reading position')
+  fi
+  _XCODE_PICKER_VALUES+=(last first)
+  _XCODE_PICKER_LABELS+=('Follow latest · Show new output automatically'
+    'Go to beginning · Pause and read the first matching line')
+  if [[ -n $_xcode_logs_query ]]; then
+    _XCODE_PICKER_VALUES+=(clear)
+    _XCODE_PICKER_LABELS+=('Clear filter · Show all captured lines')
+  fi
+  _XCODE_PICKER_VALUES+=(back)
+  _XCODE_PICKER_LABELS+=('Return to Run · Keep the app running')
+  _zle_picker_loop '' 10
+}
+
+_xcode_logs_reader() {
+  emulate -L zsh
+  local _ZLE_PICKER_TITLE='Xcode / Logs' _ZLE_PICKER_SUBTITLE='' _ZLE_PICKER_BROWSE_LABEL=''
+  local _ZLE_PICKER_QUERY_LABEL='Filter log lines' _ZLE_PICKER_COLLECTOR=_xcode_logs_collect
+  local _ZLE_PICKER_INSPECT_ACTION=options _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_INSPECT_FIXED_KEY=logs _ZLE_PICKER_DOCUMENT_KEY=logs
+  local _ZLE_PICKER_DOCUMENT_TITLE='App logs' _ZLE_PICKER_DOCUMENT_MODE=''
+  local _ZLE_PICKER_INSPECT_TITLE='App logs' _ZLE_PICKER_IDLE_CALLBACK=_xcode_logs_idle
+  # Capture does not depend on viewport geometry. Publish once per idle frame
+  # instead of preparing a second tail before the first can reach the display.
+  local -i _ZLE_PICKER_IDLE_PREPAINT=0
+  local -i _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT_REFRESH=0
+  local -i _ZLE_PICKER_DOCUMENT_FOLLOW=${_xcode_logs_follow:-1}
+  local -i _ZLE_PICKER_INSPECT_CLIP_LINES=0 _ZLE_PICKER_INSPECT_STACKED=0 _ZLE_PICKER_DOCUMENT_PENDING=0
+  local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+  local -i _ZLE_PICKER_DIGIT_SELECT=0 _ZLE_PICKER_COPY_ENABLED=0 _zle_picker_start_focus=1
+  local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_PASSIVE_LINES=()
+  local -a _ZLE_PICKER_GUIDE_CONTEXT=('Filter: case-insensitive literal substring in each captured line.'
+    'New matching output appears automatically while following live.'
+    'Scroll up to pause; return to the bottom or choose Follow latest to resume.'
+    'Copy uses complete displayed matching source lines, including offscreen text.'
+    'Options and the guide keep displayed text stable while capture continues.')
+  local -A _ZLE_PICKER_DOCUMENT_OFFSETS=(logs "${_xcode_logs_offset:-100000}")
+  local -A _ZLE_PICKER_DOCUMENT_ROWS=(logs "${_xcode_logs_row:-0}")
+  local -A _ZLE_PICKER_DOCUMENT_WIDTHS=(logs "${_xcode_logs_width:-0}")
+  local -A _ZLE_PICKER_DOCUMENT_SYNTAX=() _ZLE_PICKER_INSPECT_TEXTS=(logs '') _ZLE_PICKER_ACCEPT_LABELS=()
+  local _xcode_logs_text='' action=''
+  local -i _xcode_logs_total=0 _xcode_logs_matches=0 result=0
+  while true; do
+    if (( _ZLE_PICKER_DOCUMENT_FOLLOW == 1 )); then
+      _xcode_logs_capture
+    fi
+    _ZLE_PICKER_DOCUMENT_OFFSETS[logs]=${_xcode_logs_offset:-100000}
+    _ZLE_PICKER_DOCUMENT_ROWS[logs]=${_xcode_logs_row:-0}
+    _ZLE_PICKER_DOCUMENT_WIDTHS[logs]=${_xcode_logs_width:-0}
+    _zle_picker_loop "$_xcode_logs_query" 20
+    result=$?
+    _xcode_logs_follow=$_ZLE_PICKER_DOCUMENT_FOLLOW
+    _xcode_logs_query=${_ZLE_PICKER_BOOKMARK[1]-$_xcode_logs_query}
+    _xcode_logs_offset=${_ZLE_PICKER_DOCUMENT_OFFSETS[logs]:-0}
+    _xcode_logs_row=${_ZLE_PICKER_DOCUMENT_ROWS[logs]:-0}
+    _xcode_logs_width=${_ZLE_PICKER_DOCUMENT_WIDTHS[logs]:-0}
+    (( result == 0 )) || return $result
+    action=$_ZLE_PICKER_ACTION
+    if [[ $action == select ]]; then
+      _xcode_logs_options
+      result=$?
+      (( result > 1 )) && return $result
+      (( result == 1 )) && continue
+      action=$_ZLE_PICKER_SELECTED_VALUE
+    fi
+    case $action in
+      copy)
+        [[ -n $_xcode_logs_text && -n $_xcode_run_clipboard ]] || continue
+        _xcode_logs_copy_payload=$_xcode_logs_text _xcode_logs_copy_count=$_xcode_logs_matches
+        _ZLE_PICKER_SELECTED_VALUE=copy-logs
+        return 0 ;;
+      pause) _ZLE_PICKER_DOCUMENT_FOLLOW=0 ;;
+      first)
+        _ZLE_PICKER_DOCUMENT_FOLLOW=0
+        _xcode_logs_offset=0 _xcode_logs_row=0 _xcode_logs_width=0 ;;
+      last) _ZLE_PICKER_DOCUMENT_FOLLOW=1 ;;
+      clear) _xcode_logs_query='' _xcode_logs_offset=0 _xcode_logs_row=0 _xcode_logs_width=0 ;;
+      back) return 1 ;;
+    esac
+  done
+}
+
+# The Run owner invokes this only after the screen session has restored the
+# terminal. The payload is frozen by explicit acceptance, never a fresh capture.
+_xcode_logs_copy() {
+  emulate -L zsh
+  if [[ -z $_xcode_logs_copy_payload || ! -x $_xcode_run_clipboard || -d $_xcode_run_clipboard ]]; then
+    _xcode_logs_notice='Copy failed: clipboard unavailable'
+    return 1
+  fi
+  if ! print -rn -- "$_xcode_logs_copy_payload" | command "$_xcode_run_clipboard"; then
+    _xcode_logs_notice='Copy failed: clipboard write failed'
+    return 1
+  fi
+  _xcode_logs_notice="Copied $_xcode_logs_copy_count captured lines"
+}
+
+_xcode_run_controller() {
+  emulate -L zsh
+  # The shared renderer retains its last frame. Scope this copy so app output
+  # cannot survive in shell globals after the run view closes.
+  local -a _ZLE_PICKER_DISPLAY=()
+  local _ZLE_PICKER_TITLE='Xcode / Run' _ZLE_PICKER_SUBTITLE=''
+  local _ZLE_PICKER_QUERY_LABEL='Filter actions' _ZLE_PICKER_INSPECT_TITLE='App output'
+  local _ZLE_PICKER_INSPECT_FIXED_KEY=run
+  local _ZLE_PICKER_INSPECT_ACTION=stop _ZLE_PICKER_CANCEL_LABEL=stop
+  local _ZLE_PICKER_BROWSE_LABEL='Enter applies selected action · Escape stops run'
+  [[ -n ${_xcode_logs_notice:-} ]] && _ZLE_PICKER_BROWSE_LABEL="$_xcode_logs_notice · Escape stops run"
+  local _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
+  local _ZLE_PICKER_IDLE_CALLBACK=_xcode_run_idle
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_INSPECT_CLIP_LINES=1
+  local -i _ZLE_PICKER_INSPECT_STACKED=1
+  local -i _ZLE_PICKER_DIGIT_SELECT=1 result=0 selected=${_xcode_run_actions_bookmark[2]:-1}
+  local -i _zle_picker_start_focus=0 _xcode_run_open_reader=0 _xcode_run_empty_snapshot=1
+  local query=${_xcode_run_actions_bookmark[1]-} _xcode_run_empty_output=$'Waiting for app output.\nstdout/stderr + Logger/os_log'
+  [[ ${_xcode_run_unified_status:-} == following ]] ||
+    _xcode_run_empty_output=$'Waiting for app stdout/stderr.\nLogger capture unavailable.'
+  local -a _XCODE_PICKER_VALUES=(stop read)
+  local -a _XCODE_PICKER_LABELS=('Stop app and close' 'Read output · Full view, filter and copy')
+  local -a _XCODE_PICKER_SEARCH=() _ZLE_PICKER_PASSIVE_LINES=(
+    'Output follows automatically; Read output opens the full log view.'
+    'stdout/stderr + Logger scoped to this installed app executable.')
+  local -A _ZLE_PICKER_INSPECT_TEXTS=(run "$_xcode_run_empty_output")
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=(stop stop read 'read output')
+  if [[ -n $_xcode_run_lldb && -n $_xcode_run_identity ]]; then
+    _XCODE_PICKER_VALUES+=(lldb)
+    _XCODE_PICKER_LABELS+=('Enter LLDB · Stop app when debugger exits')
+    _ZLE_PICKER_ACCEPT_LABELS[lldb]='enter LLDB'
+  elif [[ -z $_xcode_run_identity ]]; then
+    _ZLE_PICKER_PASSIVE_LINES+=('Process identity unavailable; check or stop the app in Simulator.')
+  else
+    _ZLE_PICKER_PASSIVE_LINES+=('LLDB unavailable.')
+  fi
+  while true; do
+    _xcode_run_publish=1
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _zle_picker_loop "$query" 10 "$selected"
+    result=$?
+    (( result == 0 )) || return $result
+    [[ $_ZLE_PICKER_SELECTED_VALUE == read ]] || return 0
+    query=${_ZLE_PICKER_BOOKMARK[1]-}
+    selected=${_ZLE_PICKER_BOOKMARK[2]:-2}
+    _xcode_run_actions_bookmark=("$query" "$selected" "${_ZLE_PICKER_BOOKMARK[3]:-0}")
+    (( ${_xcode_logs_captured:-0} )) || _xcode_logs_capture
+    _xcode_logs_reader
+    result=$?
+    (( result == 0 || result > 1 )) && return $result
+    _zle_picker_start_focus=0
+  done
+}
+
+# LLDB owns the real terminal. Drain output during that handoff so a full pipe
+# cannot stall the debuggee; do not echo untrusted app control bytes into LLDB.
+_xcode_run_drain() {
+  emulate -L zsh
+  local chunk='' result=0
+  while true; do
+    sysread -i $_xcode_run_fd -s 8192 -t 1 chunk 2>/dev/null
+    result=$?
+    (( result == 0 || result == 4 )) || return 0
+  done
+}
+
+# The caller revalidates the launched process and restores the screen first.
+# Keep native LLDB input, completion, signals and exit status; style only its
+# supported presentation settings, without loading user/project init scripts.
+_xcode_run_debugger() {
+  emulate -L zsh
+  local -a arguments=(--no-use-colors) reply=()
+  if [[ -t 1 && -t 2 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] &&
+     zmodload -F zsh/terminfo p:terminfo 2>/dev/null &&
+     (( ${terminfo[colors]:-0} >= 8 )); then
+    arguments=(
+      --one-line-before-file 'settings set --exists use-color true'
+      --one-line-before-file 'settings set --exists highlight-source true'
+    )
+    if (( ${terminfo[colors]:-0} >= 256 && ${+functions[_output_lldb_color_arguments]} )); then
+      _output_lldb_color_arguments
+      arguments+=("${reply[@]}")
+    fi
+  fi
+  command "$1" --no-lldbinit --source-quietly --one-line-before-file \
+    'settings set target.load-script-from-symbol-file false' \
+    "${arguments[@]}" --attach-pid "$2"
+}
+
+_xcode_run_live() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  unsetopt BG_NICE NOTIFY
+  local identifier=$1 bundle=$2 _xcode_run_context=$3 REPLY=''
+  [[ $identifier == [[:alnum:]][[:alnum:].-]# &&
+     $bundle == [[:alnum:]][[:alnum:].-]# ]] || return 2
+  zmodload zsh/system || return 1
+  local _xcode_run_dir='' _xcode_run_fifo='' _xcode_run_log=''
+  local _xcode_run_root='' _xcode_run_tmp='' guest_fifo=''
+  local _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+  local _xcode_run_identity='' _xcode_run_lldb='' request='' monitor_enabled=''
+  local _xcode_run_unified_fifo='' _xcode_run_unified_status=''
+  local _xcode_run_clipboard='' _xcode_logs_snapshot='' _xcode_logs_query='' _xcode_logs_notice=''
+  local _xcode_logs_copy_payload=''
+  local -a _xcode_run_actions_bookmark=('' 1 0)
+  # Filters can contain app data. Keep shared input-loop return state inside
+  # this run even when an interrupt exits directly from the full reader.
+  local -a _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
+  local -i _xcode_logs_captured=0 _xcode_logs_trimmed=0 _xcode_logs_offset=100000 _xcode_logs_follow=1
+  local -i _xcode_logs_row=0 _xcode_logs_width=0 _xcode_logs_copy_count=0
+  local -a _xcode_run_pending=('' '')
+  local -i _xcode_run_unified_fd=-1 _xcode_run_logger=0 _xcode_run_stdout_seen=0
+  local -i _xcode_run_fd=-1 writer=-1 _xcode_run_pid=0 drainer=0
+  local -i _xcode_run_trimmed=0 _xcode_run_eof=0 _xcode_run_publish=1
+  local -i _xcode_run_read_error=0
+  local -i result=0 screen_result=0
+  # simctl interprets output paths inside this Simulator's data filesystem.
+  # Resolve only the selected device; host TMPDIR is not its guest /tmp.
+  _xcode_capture_command xcrun simctl getenv "$identifier" SIMULATOR_SHARED_RESOURCES_DIRECTORY || {
+    print -u2 -r -- 'xcode: cannot resolve the selected Simulator output directory'
+    return 1
+  }
+  _xcode_run_root=$_XCODE_CAPTURE
+  [[ $_xcode_run_root == /* && $_xcode_run_root != *[[:cntrl:]]* &&
+     $_xcode_run_root == ${_xcode_run_root:a} &&
+     ${#_xcode_run_root} -le 4096 && -d $_xcode_run_root && ! -L $_xcode_run_root &&
+     -d $_xcode_run_root/tmp && ! -L $_xcode_run_root/tmp ]] || {
+    print -u2 -r -- 'xcode: selected Simulator has no safe temporary output directory'
+    return 1
+  }
+  _xcode_run_root=${_xcode_run_root:A}
+  _xcode_run_tmp=${_xcode_run_root}/tmp
+  [[ ${_xcode_run_tmp:A:h} == "$_xcode_run_root" ]] || return 1
+  _xcode_run_dir=$(command mktemp -d "$_xcode_run_tmp/compozsh-xcode-run.XXXXXXXX") || return 1
+  _xcode_run_fifo="$_xcode_run_dir/output"
+  guest_fifo="/tmp/${_xcode_run_dir:t}/output"
+  {
+    command mkfifo -m 600 -- "$_xcode_run_fifo" || return 1
+    sysopen -r -o nonblock,cloexec -u _xcode_run_fd "$_xcode_run_fifo" || return 1
+    # Keep an initial writer until simctl has opened the app's output handles.
+    sysopen -w -o nonblock,cloexec -u writer "$_xcode_run_fifo" || return 1
+    _xcode_run_logs_start "$identifier" "$bundle" || _xcode_run_logs_stop
+    local -x SIMCTL_CHILD_NSUnbufferedIO=YES
+    _xcode_capture_command xcrun simctl launch "--stdout=$guest_fifo" \
+      "--stderr=$guest_fifo" --terminate-running-process "$identifier" "$bundle" || {
+      result=$?
+      print -u2 -r -- "xcode: ${(V)_XCODE_CAPTURE_ERROR}"
+      return $result
+    }
+    exec {writer}>&-
+    writer=-1
+    request=${_XCODE_CAPTURE#"$bundle: "}
+    [[ $_XCODE_CAPTURE == "$bundle: $request" && $request == <-> &&
+       ${#request} -le 10 ]] && (( request > 1 )) || {
+      print -u2 -r -- 'xcode: launch returned no exact PID; manage the app in Simulator'
+      return 1
+    }
+    _xcode_run_pid=$request
+    _xcode_run_identity "$_xcode_run_pid" && _xcode_run_identity=$REPLY
+    _xcode_run_lldb=$(command xcrun --find lldb 2>/dev/null)
+    [[ $_xcode_run_lldb == /* && -x $_xcode_run_lldb && ! -d $_xcode_run_lldb ]] || _xcode_run_lldb=''
+    _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
+    while true; do
+      _zle_picker_run 20 '' 1 0 _xcode_run_controller
+      screen_result=$?
+      request=$_ZLE_PICKER_SELECTED_VALUE
+      (( screen_result == 0 )) && [[ $request == copy-logs ]] || break
+      # Screen restoration precedes the clipboard effect; the app and observer
+      # keep their existing owner as Run reopens with the frozen reader bookmark.
+      _xcode_logs_copy || result=1
+      _xcode_logs_copy_payload=''
+    done
+    _xcode_run_logs_stop
+    if (( screen_result == 0 )) && [[ $request == lldb ]]; then
+      if [[ -x $_xcode_run_lldb ]] && _xcode_run_is_current; then
+        # Keep the drainer alive even if the app closes stdout while debugging.
+        # Its owned PID then remains a cleanup target until we reap it.
+        sysopen -w -o nonblock,cloexec -u writer "$_xcode_run_fifo" || return 1
+        # The pipe drainer needs no terminal job. Restore the caller's job
+        # control before starting LLDB so debugger interrupts remain native.
+        monitor_enabled=$options[monitor]
+        unsetopt MONITOR
+        _xcode_run_drain &
+        drainer=$!
+        [[ $monitor_enabled == on ]] && setopt MONITOR
+        print -r -- 'LLDB: continue resumes; quit returns and stops this run. App output is discarded while debugging.'
+        _xcode_run_debugger "$_xcode_run_lldb" "$_xcode_run_pid" || result=$?
+      else
+        print -u2 -r -- 'xcode: the launched process ended or changed, or LLDB is unavailable'
+        result=1
+      fi
+    elif (( screen_result > 1 )); then
+      result=$screen_result
+    fi
+  } always {
+    _xcode_run_logs_stop
+    # Stop only the still-identical launched process on this exact Simulator.
+    # Identity revalidation narrows, but cannot atomically eliminate, exit races.
+    if (( _xcode_run_pid > 1 )); then
+      if _xcode_run_is_current; then
+        command xcrun simctl terminate "$identifier" "$bundle" || {
+          print -u2 -r -- 'xcode: could not stop the app; stop it in Simulator'
+          (( result == 0 )) && result=1
+        }
+      else
+        print -u2 -r -- 'xcode: could not verify the launched process; check or stop the app in Simulator'
+        (( result == 0 )) && result=1
+      fi
+    fi
+    if (( drainer > 0 )); then
+      kill -KILL $drainer 2>/dev/null
+      wait $drainer 2>/dev/null
+    fi
+    (( writer >= 0 )) && exec {writer}>&-
+    (( _xcode_run_fd >= 0 )) && exec {_xcode_run_fd}<&-
+    (( _xcode_run_unified_fd >= 0 )) && exec {_xcode_run_unified_fd}<&-
+    if [[ ${_xcode_run_dir:t} == compozsh-xcode-run.* &&
+          ${_xcode_run_dir:h:A} == "$_xcode_run_tmp" && ! -L $_xcode_run_dir ]]; then
+      command rm -f -- "$_xcode_run_fifo"
+      [[ -n $_xcode_run_unified_fifo ]] && command rm -f -- "$_xcode_run_unified_fifo"
+      command rmdir -- "$_xcode_run_dir"
+    fi
+  }
+  return $result
 }
 
 # Workspace menus own a small source array but reuse the editor's renderer,
@@ -860,6 +1691,7 @@ _xcode_picker_collect() {
 _xcode_choose() {
   emulate -L zsh
   local title=$1 subtitle=$2 query_label=$3
+  local label_kind=${4:-} label_prefix=''
   local _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
   local _ZLE_PICKER_QUERY_LABEL=$query_label _ZLE_PICKER_INSPECT_TITLE=Details
   local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
@@ -868,10 +1700,16 @@ _xcode_choose() {
   local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
   local -i _ZLE_PICKER_DIGIT_SELECT=1
   local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -A _ZLE_PICKER_LABEL_HIGHLIGHTS=()
   local -i index=0
   for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
     _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
     _ZLE_PICKER_ACCEPT_LABELS[${_XCODE_PICKER_VALUES[index]}]=choose
+    if [[ $label_kind == options ]]; then
+      # Only Actions owns this separator: names in other views stay literal.
+      label_prefix=${_XCODE_PICKER_LABELS[index]%% · *}
+      _ZLE_PICKER_LABEL_HIGHLIGHTS[${_XCODE_PICKER_VALUES[index]}]="0:${#label_prefix}:picker-header"
+    fi
   done
   _zle_picker_loop '' 10
 }
@@ -1140,10 +1978,10 @@ _xcode_workspace_controller() {
       _XCODE_PICKER_SEARCH+=('simulator launch run incremental changed modified'
         'rebuild clean simulator launch stale older source')
       _XCODE_PICKER_DETAILS+=(
-        'Build & Run'$'\n\nAsks Xcode to incrementally build changed products, then boots the selected Simulator, installs the app and launches it. No physical-device launch.'
-        'Rebuild & Run'$'\n\nRuns Xcode clean and build for this scheme and destination, then boots the selected Simulator, installs the app and launches it. This is a slower stale-product recovery.')
+        'Build & Run'$'\n\nAsks Xcode to incrementally build changed products, then boots the selected Simulator, installs the app and launches it. Opens live app output with Stop and Enter LLDB actions. Escape stops this run. No physical-device launch.'
+        'Rebuild & Run'$'\n\nRuns Xcode clean and build for this scheme and destination, then boots the selected Simulator, installs the app and opens live output with Stop and Enter LLDB actions. Escape stops this run. This is a slower stale-product recovery.')
     fi
-    _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions'
+    _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions' options
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
@@ -1234,17 +2072,21 @@ _compozsh_help_xcode() {
     '  runtimes change. Closing and reopening xcode performs fresh discovery.' \
     '' \
     'Actions:' \
+    '  Option names use the picker-header palette; settings and descriptions' \
+    '  use normal text. Selected rows retain their configured contrast.' \
     '  Choose a scheme and destination, then Build, Rebuild, Test,' \
     '  Rebuild & Test, Analyze, or Clean. Build and Test use Xcode incremental' \
     '  dependency decisions. Rebuild actions run clean first as slower recovery.' \
     '  A concrete Simulator also offers Build & Run and Rebuild & Run; each' \
     '  boots Simulator, installs the resulting app, and launches its bundle.' \
+    '  Opens Device Hub or Simulator from the Xcode selected by DEVELOPER_DIR' \
+    '  or xcode-select. A window-opening failure stops before install or launch.' \
     '  Add new project sources to a target built or tested by the selected scheme,' \
     '  either explicitly or through an Xcode buildable folder assigned to it.' \
     '  Compozsh does not infer target membership from filesystem or Git.' \
     '  Physical-device launch and signing configuration are outside this UI.' \
     '  The screen closes before xcodebuild or Simulator performs the action.' \
-    '  Native output remains in the terminal. After either test action, the' \
+    '  Native build output remains in the terminal. After either test action, the' \
     '  screen reopens with the mode, passed/failed totals and, for failures,' \
     '  reasons and involved files.' \
     '  Failure selection shows up to 20 tests and 20 build-stage errors. Some' \
@@ -1256,6 +2098,81 @@ _compozsh_help_xcode() {
     '  involved files, build errors, and capture limits as plain text after cleanup.' \
     '  It uses the clipboard of the machine running Zsh; in SSH that is' \
     '  the remote host. Compozsh never reads the clipboard or source-file content.' \
+    '' \
+    'Simulator run view:' \
+    '  Build & Run and Rebuild & Run reopen a view for stdout/stderr and' \
+    '  Logger/os_log. A live Run replaces the selected bundle’s running copy' \
+    '  and requests NSUnbufferedIO=YES for prompt Foundation/Swift stdout.' \
+    '  Other libraries can still buffer output.' \
+    '  The selected scheme supplies build settings; no separate Debug/Release,' \
+    '  launch-argument, environment, macOS-app, or physical-device editor is added.' \
+    '  The live tail retains up to 32 KiB and 200 lines; long rows abbreviate.' \
+    '  Each source keeps up to 8 KiB of an unfinished line before merging.' \
+    '  Read output keeps one additional bounded displayed tail for this run.' \
+    '  Narrow terminals show output below actions; action changes preserve it.' \
+    '  Native log stream includes debug messages and filters the exact installed' \
+    '  executable on this Simulator before capture. Framework messages inside' \
+    '  that app are included; helpers and other app executables are excluded.' \
+    '  Another launch of the same executable can match while this view is open.' \
+    '  The log child uses LOGRC=/dev/null and starts before app launch.' \
+    '  Native delivery may drop or miss records; cross-source order can differ.' \
+    '  Native privacy behavior is retained; Simulator may expose private fields.' \
+    '  A source closing is not proof that the app exited. Source failures are' \
+    '  disclosed independently; the other source continues when available.' \
+    '  Before the first output, launch-time writer gaps keep waiting for data.' \
+    '  A failed pipe read is labeled unavailable and stops that source’s polling.' \
+    '  Output follows automatically in Run and the full-width Read output view.' \
+    '  Native records show compact metadata, textual severity and message bodies,' \
+    '  with spacing between records and the existing semantic output palette.' \
+    '  Plain stdout and unrecognized records retain their text. Original dates,' \
+    '  process/thread IDs and metadata remain in original source lines for copy' \
+    '  and filtering; recognized display headers show time, severity and scope.' \
+    '  Type a case-insensitive literal substring to filter each captured line.' \
+    '  New matching messages appear automatically, including after no matches.' \
+    '  Scroll up pauses the display; capture continues. Reaching the bottom or' \
+    '  End follows live again. Home pauses at the beginning. Resizing keeps mode.' \
+    '  Enter opens options: Pause display, Follow latest, Go to beginning,' \
+    '  Clear filter, and Return to Run. Options and the guide hold displayed' \
+    '  text steady, then resume the prior live/paused mode when closed.' \
+    '  Copy all captured logs / Copy filtered logs appears when pbcopy is' \
+    '  available and matching text is nonempty. Ctrl-Y or Option-W also copies.' \
+    '  Copy writes complete captured matching lines, including offscreen text,' \
+    '  without UI labels or wrapping, after screen restoration; Run then reopens.' \
+    '  No filter copies all retained displayed text; a filter copies only matches.' \
+    '  Copy failures are visible and keep the eventual command status nonzero.' \
+    '  Copied logs can contain sensitive values and outlive the run in the clipboard.' \
+    '  In the full reader, Escape returns to Run without stopping the app.' \
+    '  Escape in options returns to the reader; its filter and position persist.' \
+    '  In Run, Tab or Ctrl-E focuses the preview; arrows and paging scroll.' \
+    '  Tab or Ctrl-B returns to actions and resumes the latest preview output.' \
+    '  The pane title shows Following, Paused, Closed, or Unavailable.' \
+    '  Waiting for app output means no captured messages are available yet.' \
+    '  Arrows choose actions; Enter applies the visible action. Empty-filter' \
+    '  digits choose visible rows; ordinary text filters actions in character order.' \
+    '  Ctrl-K opens the shared guide. In Run, Escape/Ctrl-G or Stop app and close' \
+    '  stops this exact Simulator bundle after screen cleanup. Ctrl-C aborts' \
+    '  and stops from Run, the reader, or its options.' \
+    '  Enter LLDB is available when Xcode supplies lldb and the launched PID' \
+    '  has an observed identity. Identity is checked again before attaching.' \
+    '  LLDB owns the restored terminal; continue resumes, quit returns and stops' \
+    '  this run. The log observer stops before LLDB; app stdout/stderr is' \
+    '  drained and discarded while debugging.' \
+    '  Color terminals enable native source highlighting for supported languages.' \
+    '  Swift source may remain plain in the installed Apple LLDB.' \
+    '  With the output peer and 256 colors, ZSH_OUTPUT_COLORS styles the prompt' \
+    '  (heading), current source line (warning), and enabled suggestions (muted).' \
+    '  NO_COLOR, unsupported terminals, and redirected output disable colors.' \
+    '  LLDB keeps its native editing/completion; typed commands and expressions' \
+    '  do not receive shell-style token highlighting. No LLDB config is written.' \
+    '  Automatic .lldbinit and symbol-script loading are disabled; macOS signing' \
+    '  and debugger permissions still apply. Compozsh does not elevate privileges' \
+    '  or change signing.' \
+    '  Pipes live in a private compozsh-xcode-run.* directory under the selected' \
+    '  Simulator data/tmp directory. Normal/error cleanup removes them;' \
+    '  a crash can leave the directory or app. Launch metadata uses host TMPDIR.' \
+    '  Concurrent process replacement cannot be excluded atomically. A failed' \
+    '  stop or unverifiable identity returns a failure; check or stop the app' \
+    '  in Simulator. Missing identity can also mean the app already exited.' \
     '' \
     'Safety and reproducibility:' \
     '  Captures and item counts are bounded; automatic package resolution and' \
@@ -1371,7 +2288,7 @@ xcode() {
         fi
         _xcode_run_simulator "$_XCODE_SELECTED_KIND" "$_XCODE_SELECTED_CONTAINER" \
           "$_XCODE_SELECTED_SCHEME" "$_XCODE_SELECTED_PLATFORM" \
-          "$_XCODE_SELECTED_ID" "$request" ;;
+          "$_XCODE_SELECTED_ID" "$request" "$_XCODE_SELECTED_DESTINATION" ;;
       (*) return 0 ;;
     esac
   } always {

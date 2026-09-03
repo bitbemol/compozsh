@@ -122,6 +122,28 @@ _output_print_help() {
   print -rl -- "${rendered[@]}"
 }
 
+# Return native LLDB presentation arguments in the caller's local reply array.
+# Only validated color indexes enter these fixed commands; no app or project
+# text is interpreted. The Xcode caller owns terminal detection and execution.
+_output_lldb_color_arguments() {
+  emulate -L zsh
+  local property='' role='' fallback='' weight='' prefix='' REPLY=''
+  local -a specifications=(
+    prompt heading 75 '1;'
+    stop-show-line warning 221 '1;'
+    show-autosuggestion muted 242 ''
+  )
+  reply=()
+  for property role fallback weight in "${specifications[@]}"; do
+    _output_color "$role" "$fallback"
+    prefix=$'\e['"${weight}38;5;${REPLY}m"
+    reply+=(
+      --one-line-before-file "settings set --exists ${property}-ansi-prefix \"${prefix}\""
+      --one-line-before-file "settings set --exists ${property}-ansi-suffix \""$'\e[0m'"\""
+    )
+  done
+}
+
 # Build Git's native semantic color configuration from the shared output
 # palette. Values are separate argv elements; no shell source or output text is
 # constructed from them.
