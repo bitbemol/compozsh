@@ -104,6 +104,7 @@ state:
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
+| Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `update-xcode-skills` invocation and marked for safe refresh |
@@ -336,7 +337,15 @@ inspection does not request `clone`, `fetch`, `pull`, `push`, or another remote
 operation: prompt status disables repository-configured clean/process filters,
 filesystem monitors, hooks, required-filter enforcement, and lazy fetches;
 branch views read local refs and reflogs; and Git review applies its own
-equivalent read-only filter boundary. The `g --worktree` action
+equivalent read-only filter boundary. Revision comparisons acquire local refs
+only on chooser entry and resolve literal names/IDs only on submission or direct
+entry. Filtering, scrolling, resizing and the guide do not discover Git data.
+Comparison refresh retains both captured commit IDs and any resolved common
+ancestor. Missing objects and ambiguous ancestry fail visibly without fetching
+or choosing another method. The new ref catalog contains no author identities
+or commit subjects. Its bounds and immutable targets are covered by
+`zsh tests/run.zsh 'Git comparison'` in disposable repositories.
+The `g --worktree` action
 workspace also disables transport and hooks and refuses checkout filters;
 its checkout/removal boundary is detailed in the local-data inventory above.
 `git-discard-all` applies those controls

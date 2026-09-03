@@ -189,8 +189,11 @@ _test_git_review_native() {
       _review_test_key $'\''\e'\'' "FRAME|Branches||2|0|70|16" || exit 25
       zpty -w -n review $'\''\e'\''
       _review_test_expect DONE || exit 26
-      [[ $trace == *"$enter"*"$leave"* && ${trace#*"$leave"} != *"$leave"* &&
+      [[ $trace == *"$enter"*"$leave"* &&
          $trace != *$'\''\e[3J'\''* && $trace != *"read-only variable"* ]] || exit 27
+      # Literal substitution counts the boundary without shortest-prefix glob
+      # removal, which becomes quadratic over a long Unicode terminal trace.
+      (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 27
       [[ $(git symbolic-ref --short HEAD) == main && $(git hash-object --no-filters .git/index) == "$index_before" ]] || exit 28
     } always {
       zpty -d review
@@ -238,7 +241,8 @@ _test_git_review_native() {
         fi
         if [[ $scenario == abort ]]; then _review_test_expect RESTORED || exit 40
         else _review_test_expect DONE || exit 41; fi
-        [[ $trace == *"$enter"*"$leave"* && ${trace#*"$leave"} != *"$leave"* ]] || exit 42
+        [[ $trace == *"$enter"*"$leave"* ]] || exit 42
+        (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 42
         if [[ $scenario == switch ]]; then
           [[ $(git symbolic-ref --short HEAD) == feature/review ]] || exit 43
         fi

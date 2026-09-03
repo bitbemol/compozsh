@@ -110,7 +110,8 @@ _test_picker_screen_lifecycle() {
           [[ $trace == *"$enter"*"$leave"* ]] || exit 9
           before=${trace%%"$enter"*}
           screen=${${trace#*"$enter"}%%"$leave"*}
-          after=${trace#*"$leave"}
+          (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 10
+          after=${trace##*"$leave"}
           [[ $before != *$'\''\e[2J'\''* && $after != *$'\''\e[2J'\''* &&
              $screen == *$'\''\e[2J'\''* && $screen != *"$enter"* &&
              $after != *"$leave"* ]] || exit 10

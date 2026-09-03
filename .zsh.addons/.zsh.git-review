@@ -6,6 +6,8 @@ typeset -ga _GIT_REVIEW_KINDS=() _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() 
 typeset -g _GIT_REVIEW_DATA='' _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
 typeset -gi _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DOCUMENT_HAS_CODE=0
 typeset -ga _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+typeset -g _GIT_REVIEW_ERROR=''
+typeset -ga _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=()
 
 _git_review_git() {
   emulate -L zsh
@@ -123,6 +125,117 @@ _git_review_valid_oid() {
   [[ -n $1 && $1 != *[^[:xdigit:]]* ]] && (( ${#1} == 40 || ${#1} == 64 ))
 }
 
+# Resolve only the documented input forms. Successful rev-parse alone can
+# silently prefer a tag to a same-named branch, so check namespaces explicitly.
+_git_review_resolve() {
+  emulate -L zsh
+  local root=$1 value=$2 ref='' object=''
+  local -a refs=() matches=() objects=()
+  local -i result=0
+  REPLY='' _GIT_REVIEW_ERROR=''
+  if [[ -z $value || $value == -* || $value == *[[:cntrl:]]* ]] || (( ${#value} > 512 )); then
+    _GIT_REVIEW_ERROR='Enter a branch, tag, HEAD or unambiguous commit ID (at most 512 characters).'
+    return 1
+  fi
+  if [[ $value == HEAD ]]; then
+    object=HEAD
+  else
+    if [[ $value == refs/(heads|tags|remotes)/* ]]; then
+      refs=("$value")
+    else
+      refs=("refs/heads/$value" "refs/tags/$value" "refs/remotes/$value")
+    fi
+    _git_review_capture "$root" check-ref-format "${refs[1]}" || {
+      _GIT_REVIEW_ERROR='Unsupported revision: use a name or commit ID; ranges, paths and revision expressions are not accepted.'
+      return 1
+    }
+    for ref in "${refs[@]}"; do
+      _git_review_capture "$root" show-ref --verify --quiet "$ref"
+      result=$?
+      (( result <= 1 && !_GIT_REVIEW_TRUNCATED )) || {
+        _GIT_REVIEW_ERROR='Unable to read local refs.'; return 1
+      }
+      (( result == 0 )) && matches+=("$ref")
+    done
+    if [[ $value != *[^[:xdigit:]]* ]] && (( ${#value} >= 4 && ${#value} <= 64 )); then
+      _git_review_capture "$root" rev-parse "--disambiguate=$value" || {
+        _GIT_REVIEW_ERROR='Unable to resolve this object locally.'; return 1
+      }
+      objects=("${(@f)${_GIT_REVIEW_DATA%$'\n'}}")
+      [[ -z ${objects[1]} ]] && objects=()
+      (( !_GIT_REVIEW_TRUNCATED && ${#objects} <= 1 )) || {
+        _GIT_REVIEW_ERROR='This object ID is ambiguous; enter more hexadecimal characters.'; return 1
+      }
+      matches+=("${objects[@]}")
+    fi
+    (( ${#matches} == 1 )) || {
+      if (( ${#matches} )); then
+        _GIT_REVIEW_ERROR='This name is ambiguous; choose a ref or enter refs/heads/name, refs/tags/name or refs/remotes/name.'
+      else
+        _GIT_REVIEW_ERROR='Revision unavailable locally. Choose another ref or commit ID; nothing is fetched.'
+      fi
+      return 1
+    }
+    object=$matches[1]
+  fi
+  _git_review_capture "$root" rev-parse --verify --end-of-options "$object^{commit}" || {
+    _GIT_REVIEW_ERROR='Revision does not resolve to an available local commit.'; return 1
+  }
+  object=${_GIT_REVIEW_DATA%$'\n'}
+  (( !_GIT_REVIEW_TRUNCATED )) && _git_review_valid_oid "$object" || {
+    _GIT_REVIEW_ERROR='Invalid or incomplete commit resolution.'; return 1
+  }
+  REPLY=$object
+}
+
+_git_review_compare_base() {
+  emulate -L zsh
+  local root=$1 method=$2 from=$3 to=$4
+  local -a bases=()
+  REPLY='' _GIT_REVIEW_ERROR=''
+  _git_review_valid_oid "$from" && _git_review_valid_oid "$to" || return 2
+  [[ $method == exact ]] && { REPLY=$from; return 0; }
+  [[ $method == ancestor ]] || return 2
+  _git_review_capture "$root" merge-base --all "$from" "$to" || {
+    _GIT_REVIEW_ERROR='No common ancestor available in local history. Choose All differences or different revisions.'
+    return 1
+  }
+  bases=("${(@f)${_GIT_REVIEW_DATA%$'\n'}}")
+  if (( _GIT_REVIEW_TRUNCATED || ${#bases} != 1 )); then
+    _GIT_REVIEW_ERROR='Incomplete or multiple common ancestors. Choose an explicit Against commit with All differences.'
+    return 1
+  fi
+  _git_review_valid_oid "$bases[1]" || {
+    _GIT_REVIEW_ERROR='No common ancestor available in local history.'; return 1
+  }
+  REPLY=$bases[1]
+}
+
+# Capture names and object IDs without author identities or commit subjects.
+# Annotated tag objects remain pinned and are peeled only on acceptance.
+_git_review_refs_capture() {
+  emulate -L zsh
+  local root=$1 ref='' kind='' oid='' label=''
+  local -i count=0
+  _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=()
+  _git_review_capture "$root" for-each-ref --count=1001 --sort=refname \
+    '--format=%(refname)%00%(objecttype)%00%(objectname)%00' \
+    refs/heads/ refs/tags/ refs/remotes/ || return 2
+  while IFS= read -r -d '' ref && IFS= read -r -d '' kind && IFS= read -r -d '' oid; do
+    (( ++count <= 1000 )) || { _GIT_REVIEW_TRUNCATED=1; break; }
+    ref=${ref#$'\n'}
+    [[ $kind == (commit|tag) ]] && _git_review_valid_oid "$oid" || continue
+    case $ref in
+      (refs/heads/*) label="${ref#refs/heads/} · branch" ;;
+      (refs/tags/*) label="${ref#refs/tags/} · tag" ;;
+      (refs/remotes/*) label="${ref#refs/remotes/} · remote-tracking" ;;
+      (*) continue ;;
+    esac
+    _GIT_REVIEW_REFS+=("$ref") _GIT_REVIEW_REF_OIDS+=("$oid") _GIT_REVIEW_REF_LABELS+=("$label")
+  done <<< "$_GIT_REVIEW_DATA"
+  return 0
+}
+
 _git_review_commits_capture() {
   emulate -L zsh
   local root=$1 oid=$2 hash='' short='' date='' subject='' parents=''
@@ -145,16 +258,16 @@ _git_review_commits_capture() {
   return 0
 }
 
-_git_review_commit_files_capture() {
+_git_review_committed_files_capture() {
   emulate -L zsh
-  local root=$1 oid=$2 parent=$3 record='' added='' removed='' name='' summary=''
+  local root=$1 oid=$2 before=$3 kind=$4 record='' added='' removed='' name='' summary=''
   local -a args=(diff)
   _git_review_reset
   _git_review_valid_oid "$oid" || return 2
-  [[ -z $parent ]] || _git_review_valid_oid "$parent" || return 2
-  [[ -n $parent ]] || args=(diff-tree --root --no-commit-id -r)
+  [[ -z $before ]] || _git_review_valid_oid "$before" || return 2
+  [[ -n $before ]] || args=(diff-tree --root --no-commit-id -r)
   args+=(--numstat -z --no-renames --no-ext-diff --no-textconv --ignore-submodules=all)
-  [[ -n $parent ]] && args+=("$parent")
+  [[ -n $before ]] && args+=("$before")
   args+=("$oid" --)
   _git_review_capture "$root" "${args[@]}" || return 2
   while IFS= read -r -d '' record; do
@@ -163,14 +276,25 @@ _git_review_commit_files_capture() {
     removed=${record%%$'\t'*} name=${record#*$'\t'}
     summary="+$added -$removed"
     [[ $added == '-' ]] && summary=Binary
-    _GIT_REVIEW_PATHS+=("$name") _GIT_REVIEW_KINDS+=(commit)
+    _GIT_REVIEW_PATHS+=("$name") _GIT_REVIEW_KINDS+=("$kind")
     _GIT_REVIEW_LABELS+=("$name") _GIT_REVIEW_CONTEXTS+=("$summary")
-    _GIT_REVIEW_DETAILS+=("$name"$'\n'"$summary"$'\n\nEnter reads the captured commit diff.\nRead-only · no checkout')
+    _GIT_REVIEW_DETAILS+=("$name"$'\n'"$summary"$'\n\nEnter reads the committed diff.\nRead-only · no checkout')
     (( ${#_GIT_REVIEW_PATHS} >= 1000 )) && { _GIT_REVIEW_TRUNCATED=1; break; }
   done <<< "$_GIT_REVIEW_DATA"
-  _GIT_REVIEW_SUMMARY="${oid[1,12]} · first-parent changes · read-only"
+  _GIT_REVIEW_SUMMARY="${#_GIT_REVIEW_PATHS} captured files · read-only"
   (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · partial snapshot'
   return 0
+}
+
+_git_review_commit_files_capture() {
+  _git_review_committed_files_capture "$1" "$2" "$3" commit || return $?
+  _GIT_REVIEW_SUMMARY="${2[1,12]} · first-parent changes · $_GIT_REVIEW_SUMMARY"
+}
+
+_git_review_comparison_files_capture() {
+  _git_review_valid_oid "$3" || return 2
+  _git_review_committed_files_capture "$1" "$2" "$3" comparison || return $?
+  _GIT_REVIEW_SUMMARY="${_git_compare_method_label:-All differences} · ${1:t} · $_GIT_REVIEW_SUMMARY"
 }
 
 # Read only the selected regular file, never Git filters or an executable.
@@ -275,8 +399,9 @@ _git_review_diff_capture() {
         _GIT_REVIEW_DATA='Unavailable: unsafe or special working-tree path.'
         return 2
       fi ;;
-    (commit)
+    (commit|comparison)
       _git_review_valid_oid "$oid" || return 2
+      [[ $kind != comparison || -n $parent ]] || return 2
       [[ -z $parent ]] || _git_review_valid_oid "$parent" || return 2
       if [[ -n $parent ]]; then args+=("$parent" "$oid")
       else args=(show --format= --root "$oid"); fi ;;
@@ -286,7 +411,10 @@ _git_review_diff_capture() {
          --no-relative --default-prefix --word-diff=none --diff-algorithm=myers
          "--unified=$context" --inter-hunk-context=0 -- "$name")
   _git_review_capture "$root" "${args[@]}" || return 2
-  [[ -n $_GIT_REVIEW_DATA ]] || _GIT_REVIEW_DATA='No diff remains for this selection. The working tree may have changed.'
+  if [[ -z $_GIT_REVIEW_DATA ]]; then
+    if [[ $kind == comparison ]]; then _GIT_REVIEW_DATA='No differences between these captured versions for this file.'
+    else _GIT_REVIEW_DATA='No diff remains for this selection. The working tree may have changed.'; fi
+  fi
   return 0
 }
 
@@ -757,6 +885,7 @@ _git_review_document_load() {
   _ZLE_PICKER_SUBTITLE="${root:t} · $kind · full-file context · captured on selection"
   [[ $context == 3 ]] && _ZLE_PICKER_SUBTITLE="${root:t} · $kind · focused diff · 3 context lines · captured on selection"
   [[ $kind == untracked ]] && _ZLE_PICKER_SUBTITLE="${root:t} · untracked · new-file preview · captured on selection"
+  [[ $kind == comparison ]] && _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${root:t}"
   _git_syntax_status_note=${_git_document_syntax_notes[$cache_key]-}
   [[ -n $_git_syntax_status_note ]] && _ZLE_PICKER_SUBTITLE+=" · $_git_syntax_status_note"
   (( ${+functions[_git_syntax_prepare_input]} && _GIT_REVIEW_DOCUMENT_HAS_CODE )) &&
@@ -813,6 +942,8 @@ _git_review_recapture() {
   _git_review_reads_blocked=0
   if [[ $2 == working ]]; then
     _git_review_changes_capture "$1"
+  elif [[ $2 == comparison ]]; then
+    _git_review_comparison_files_capture "$1" "$3" "$4"
   else
     _git_review_commit_files_capture "$1" "$3" "$4"
   fi
@@ -867,6 +998,7 @@ _git_review_refresh() {
   _GIT_REVIEW_DOCUMENT_HAS_CODE=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _GIT_REVIEW_DOCUMENT_SUMMARY=''
   _git_review_refresh_status='refreshed · Ctrl-R updates snapshot'
   _ZLE_PICKER_SUBTITLE="${root:t} · read-only snapshot"
+  [[ $view_kind == comparison ]] && _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${root:t}"
   _ZLE_PICKER_EMPTY_LINES=()
   if (( !${#_GIT_REVIEW_PATHS} )); then
     _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Ctrl-R refreshes; Escape returns.' "$_GIT_REVIEW_NOTICE")
@@ -911,6 +1043,7 @@ _git_review_view() {
   setopt EXTENDED_GLOB
   local root=$1 kind=$2 target=${3:-} oid=${4:-} parent=${5:-}
   local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
+  local _ZLE_PICKER_SUBTITLE_RENDERER=''
   local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=diff
   local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_QUERY_LABEL='Filter files'
   local _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_BROWSE_LABEL=''
@@ -950,6 +1083,7 @@ _git_review_view() {
   local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
   local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   local -a _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_TRAIL=() bookmark=('' 1 0)
+  local -a _ZLE_PICKER_GUIDE_CONTEXT=()
   case $kind in
     (working)
       _git_review_load _git_review_changes_capture "$root"; result=$?
@@ -963,9 +1097,20 @@ _git_review_view() {
     (files)
       _git_review_load _git_review_commit_files_capture "$root" "$oid" "$parent"; result=$?
       _ZLE_PICKER_TITLE='Commit files' ;;
+    (comparison)
+      _git_review_load _git_review_comparison_files_capture "$root" "$oid" "$parent"; result=$?
+      _ZLE_PICKER_TITLE='Git comparison'
+      _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${root:t}"
+      _ZLE_PICKER_SUBTITLE_RENDERER=_git_review_comparison_subtitle
+      _ZLE_PICKER_GUIDE_CONTEXT=("$_git_compare_method_label · ${root:t} · committed content"
+        "Against (From): $_git_compare_from_label" "$_git_compare_from"
+        "Compare (To): $_git_compare_to_label" "$_git_compare_to"
+        'Actual old endpoint:' "$parent" 'Actual new endpoint:' "$oid"
+        'Ctrl-R rereads these same IDs; it does not follow moving branches.'
+        'Choose a ref again in setup, or rerun g --review, to acquire a newer tip.') ;;
     (*) return 2 ;;
   esac
-  if [[ $kind == working || $kind == files ]]; then
+  if [[ $kind == (working|files|comparison) ]]; then
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1
     _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff
     _git_review_refresh_status='snapshot · Ctrl-R refresh'
@@ -1026,6 +1171,307 @@ _git_review_view() {
   }
 }
 
+# Small choice lists and text entry use the shared input loop. All state belongs
+# to the caller; opening a child view never re-registers keys or owns a screen.
+_git_review_pick() {
+  emulate -L zsh
+  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
+  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=choose
+  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_SEARCH_ACTION='' _ZLE_PICKER_INSPECT_FALLBACK=''
+  local _ZLE_PICKER_BROWSE_LABEL=${_git_compare_status:-read-only comparison}
+  local _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_navigation_picker_collect}
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_DIGIT_SELECT=1
+  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_QUERY_SUBMIT=0 _ZLE_PICKER_DOCUMENT=0
+  local -i _ZLE_PICKER_HIERARCHY_ENABLED=0 _ZLE_PICKER_REFRESH_ENABLED=0 _zle_picker_start_focus=${7:-0}
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
+  _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
+}
+
+_git_review_ref_collect() {
+  emulate -L zsh
+  # Enter accepts the best ref. Keep literal input in a stable second slot;
+  # appending it to a growing result prefix would move it during pagination.
+  _navigation_picker_collect "$1" "$(( $2 > 1 ? $2 - 1 : 1 ))"
+  (( $2 > 1 )) || { _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=(); }
+  if (( ${#_ZLE_PICKER_RESULTS} )); then
+    _ZLE_PICKER_RESULTS=("$_ZLE_PICKER_RESULTS[1]" enter "${_ZLE_PICKER_RESULTS[@]:1}")
+    _ZLE_PICKER_LABELS=("$_ZLE_PICKER_LABELS[1]" 'Enter branch or commit…' "${_ZLE_PICKER_LABELS[@]:1}")
+    _ZLE_PICKER_RESULT_INDEXES=("$_ZLE_PICKER_RESULT_INDEXES[1]" 0 "${_ZLE_PICKER_RESULT_INDEXES[@]:1}")
+  else
+    _ZLE_PICKER_RESULTS=(enter) _ZLE_PICKER_LABELS=('Enter branch or commit…') _ZLE_PICKER_RESULT_INDEXES=(0)
+  fi
+}
+
+_git_review_revision_text() {
+  emulate -L zsh
+  local root=$1 endpoint=$2 draft=${3:-}
+  local purpose=Compare opposite="Against: ${_git_compare_from_label:-not chosen}"
+  [[ $endpoint == From ]] && { purpose=Against; opposite="Compare: ${_git_compare_to_label:-not chosen}"; }
+  local _ZLE_PICKER_TITLE="${purpose} · enter branch or commit" _ZLE_PICKER_SUBTITLE="${root:t} · $opposite"
+  local _ZLE_PICKER_QUERY_LABEL='Branch or commit' _ZLE_PICKER_INSPECT_ACTION=use _ZLE_PICKER_CANCEL_LABEL=back
+  local _ZLE_PICKER_COLLECTOR=_zle_picker_query_collect _ZLE_PICKER_SEARCH_ACTION=''
+  local _ZLE_PICKER_BROWSE_LABEL='Enter a branch, tag, HEAD or commit ID'
+  local -i _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_DIGIT_SELECT=0 _ZLE_PICKER_COPY_ENABLED=0
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_HIERARCHY_ENABLED=0
+  local -i _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_REFRESH_ENABLED=0 _zle_picker_start_focus=0 result=0
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_GUIDE_CONTEXT=()
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  local -a _ZLE_PICKER_EMPTY_LINES=('Literal names and hexadecimal IDs; no ranges, paths or shell expansion.'
+    'Nothing is fetched. Digits remain text. Escape keeps the previous endpoint.')
+  while true; do
+    _zle_picker_loop "$draft" 10
+    result=$?
+    (( result == 0 )) || return $result
+    draft=$_ZLE_PICKER_SELECTED_VALUE
+    if _git_review_load _git_review_resolve "$root" "$draft"; then
+      _git_compare_label=$draft
+      return 0
+    fi
+    _ZLE_PICKER_BROWSE_LABEL=$_GIT_REVIEW_ERROR
+  done
+}
+
+_git_review_endpoint_choose() {
+  emulate -L zsh
+  local root=$1 endpoint=$2 value='' oid='' _git_compare_status='' _git_compare_collector=_git_review_ref_collect
+  local purpose=Compare opposite="Against: ${_git_compare_from_label:-not chosen}"
+  [[ $endpoint == From ]] && { purpose=Against; opposite="Compare: ${_git_compare_to_label:-not chosen}"; }
+  local -i index=0 result=0 focus=0
+  local -a _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=() bookmark=('' 1 0)
+  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=(enter enter)
+  if _git_review_load _git_review_refs_capture "$root"; then
+    _git_compare_status="${#_GIT_REVIEW_REFS} local refs · Enter chooses this side · no checkout"
+    (( _GIT_REVIEW_TRUNCATED )) && _git_compare_status+=' · partial at 1,000 refs / 256 KiB'
+    for (( index=1; index<=${#_GIT_REVIEW_REFS}; ++index )); do
+      value=$_GIT_REVIEW_REFS[index]
+      _NAVIGATION_PICKER_VALUES+=("$index") _NAVIGATION_PICKER_INDEXES+=("$index")
+      _NAVIGATION_PICKER_LABELS+=("$_GIT_REVIEW_REF_LABELS[index]")
+      _ZLE_PICKER_INSPECT_TEXTS[$index]="$value"$'\n'"$_GIT_REVIEW_REF_OIDS[index]"$'\n\nCaptured locally; no checkout or fetch.'
+      _ZLE_PICKER_ACCEPT_LABELS[$index]=use
+    done
+  else
+    _git_compare_status='Ref capture failed · enter an exact revision or return and retry'
+  fi
+  _ZLE_PICKER_INSPECT_TEXTS[enter]='Enter an exact name or commit ID; validation runs only when submitted.'
+  while true; do
+    _git_review_pick "$purpose · choose branch or commit" "${root:t} · $opposite" 'Find branch or tag' "${bookmark[@]}" "$focus"
+    result=$?
+    (( result == 0 )) || return $result
+    value=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    if [[ $value == enter ]]; then
+      _git_review_revision_text "$root" "$endpoint" "${bookmark[1]}"
+      result=$?
+      (( result == 1 )) && continue
+      return $result
+    fi
+    oid=${_GIT_REVIEW_REF_OIDS[value]}
+    if _git_review_valid_oid "$oid" &&
+       _git_review_load _git_review_capture "$root" rev-parse --verify --end-of-options "$oid^{commit}"; then
+      oid=${_GIT_REVIEW_DATA%$'\n'}
+      if (( !_GIT_REVIEW_TRUNCATED )) && _git_review_valid_oid "$oid"; then
+        REPLY=$oid
+        if [[ $_GIT_REVIEW_REFS[value] == refs/heads/* ]]; then
+          _git_compare_label=${_GIT_REVIEW_REFS[value]#refs/heads/}
+        else
+          _git_compare_label=$_GIT_REVIEW_REF_LABELS[value]
+        fi
+        return 0
+      fi
+    fi
+    _git_compare_status='Selected ref has no available local commit. Choose another revision.'
+  done
+}
+
+_git_review_comparison_context() {
+  emulate -L zsh
+  _git_compare_method_label='All differences'
+  _git_compare_context="From $_git_compare_from_label @ ${_git_compare_from[1,12]} → To $_git_compare_to_label @ ${_git_compare_to[1,12]}"
+  if [[ $_git_compare_method == ancestor ]]; then
+    _git_compare_method_label='Changes since common ancestor'
+    if [[ -n $_git_compare_before ]]; then
+      _git_compare_context="Ancestor ${_git_compare_before[1,12]} of $_git_compare_from_label → To $_git_compare_to_label @ ${_git_compare_to[1,12]}"
+    else
+      _git_compare_context="Common ancestor of $_git_compare_from_label and $_git_compare_to_label → To $_git_compare_to_label"
+    fi
+  fi
+}
+
+# Pure, cell-aware presentation of captured endpoints. Preserve the direction
+# and both IDs before secondary labels; the summary keeps repository/method.
+_git_review_comparison_subtitle() {
+  emulate -L zsh
+  local -i width=$1 available=0 left_width=0 right_width=0
+  local from=${(V)_git_compare_from_label} to=${(V)_git_compare_to_label}
+  local old=${_git_compare_from[1,12]} new=${_git_compare_to[1,12]}
+  local prefix='From ' middle='' suffix=" @ $new" text=${(V)_ZLE_PICKER_SUBTITLE}
+  if (( ${(m)#text} <= width )); then
+    REPLY=$text
+    return 0
+  fi
+  if [[ $_git_compare_method == ancestor ]]; then
+    prefix="Ancestor ${_git_compare_before[1,12]} → To "
+    available=$(( width - ${(m)#prefix} - ${(m)#suffix} ))
+    _zle_picker_abbreviate "$to" "$available"
+    _zle_picker_fit "$prefix$REPLY$suffix" "$width"
+    return 0
+  fi
+  middle=" @ $old → To "
+  available=$(( width - ${(m)#prefix} - ${(m)#middle} - ${(m)#suffix} ))
+  if (( available < 2 )); then
+    # Extremely narrow windows retain the target and direction first.
+    _zle_picker_fit "→ To $to$suffix" "$width"
+    return 0
+  fi
+  left_width=$(( available / 2 ))
+  (( left_width > ${(m)#from} )) && left_width=${(m)#from}
+  right_width=$(( available - left_width ))
+  if (( right_width > ${(m)#to} )); then
+    right_width=${(m)#to}
+    left_width=$(( available - right_width ))
+  fi
+  _zle_picker_abbreviate "$from" "$left_width"
+  text="$prefix$REPLY$middle"
+  _zle_picker_abbreviate "$to" "$right_width"
+  _zle_picker_fit "$text$REPLY$suffix" "$width"
+}
+
+_git_review_compare_choose() {
+  emulate -L zsh
+  local root=$1 selected=$2 choice='' _git_compare_status='Choose Against; both choices can be changed with Enter'
+  local _git_compare_from='' _git_compare_to='' _git_compare_from_label='Choose branch or commit…' _git_compare_to_label='Choose branch or commit…'
+  local _git_compare_method=exact _git_compare_before='' _git_compare_method_label='' _git_compare_context='' _git_compare_label=''
+  local exact_text='' ancestor_text='' pair=''
+  local -i result=0 focus=0 method_index=1
+  local -a bookmark=('' 1 0) _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  if _git_review_load _git_review_resolve "$root" "${selected:+refs/heads/}${selected:-HEAD}"; then
+    _git_compare_to=$REPLY _git_compare_to_label=${selected:-HEAD}
+    bookmark[2]=2
+  else
+    _git_compare_status='Choose Compare, then Against; both choices can be changed'
+  fi
+  while true; do
+    _git_review_comparison_context
+    pair="Compare $_git_compare_to_label against $_git_compare_from_label"
+    exact_text="Compare the committed content of $_git_compare_from_label and $_git_compare_to_label."$'\n'"Additions are in $_git_compare_to_label; removals are from $_git_compare_from_label."
+    ancestor_text="Show changes toward $_git_compare_to_label since its common ancestor with $_git_compare_from_label."$'\n'"Later changes only on $_git_compare_from_label are excluded. This does not simulate a merge."
+    _NAVIGATION_PICKER_VALUES=(to from method)
+    _NAVIGATION_PICKER_LABELS=("Compare · $_git_compare_to_label" "Against · $_git_compare_from_label" "Show · $_git_compare_method_label")
+    _NAVIGATION_PICKER_INDEXES=(1 2 3)
+    _ZLE_PICKER_ACCEPT_LABELS=(from change to change method change open review)
+    _ZLE_PICKER_INSPECT_TEXTS=(from "Against: $_git_compare_from_label"$'\n'"$_git_compare_from"$'\n\n'"Enter changes the branch or commit used as the baseline for $_git_compare_to_label."
+      to "Compare: $_git_compare_to_label"$'\n'"$_git_compare_to"$'\n\nEnter changes the branch or commit you want to review.\nThe highlighted branch is a starting choice; no checkout occurs.'
+      method "$exact_text")
+    [[ $_git_compare_method == ancestor ]] && _ZLE_PICKER_INSPECT_TEXTS[method]=$ancestor_text
+    if [[ -n $_git_compare_from && -n $_git_compare_to ]]; then
+      _NAVIGATION_PICKER_VALUES+=(open) _NAVIGATION_PICKER_LABELS+=('Review differences') _NAVIGATION_PICKER_INDEXES+=(4)
+      _ZLE_PICKER_INSPECT_TEXTS[open]="$pair"$'\n'"$_git_compare_method_label"$'\n\n'"$_git_compare_context"$'\n\nRead-only · captured commits. Ctrl-R keeps their IDs.'
+    fi
+    _git_review_pick 'Compare branches or commits' "${root:t} · $pair" 'Filter choices' "${bookmark[@]}" "$focus"
+    result=$?
+    (( result == 0 )) || return $result
+    choice=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    case $choice in
+      (from|to)
+        _git_review_endpoint_choose "$root" "${(C)choice}"; result=$?
+        if (( result == 0 )); then
+          if [[ $choice == from ]]; then _git_compare_from=$REPLY _git_compare_from_label=$_git_compare_label
+          else _git_compare_to=$REPLY _git_compare_to_label=$_git_compare_label; fi
+          _git_compare_before=''
+          bookmark=('' 1 0) focus=0
+          if [[ -z $_git_compare_to ]]; then
+            _git_compare_status='Choose Compare; Against is retained'
+          elif [[ -z $_git_compare_from ]]; then
+            bookmark[2]=2 _git_compare_status='Choose Against; Compare is retained'
+          else
+            bookmark[2]=4 _git_compare_status='Both choices can be changed; Review differences opens the reader'
+          fi
+        fi ;;
+      (method)
+        _NAVIGATION_PICKER_VALUES=(exact ancestor) _NAVIGATION_PICKER_LABELS=('All differences' 'Changes since common ancestor') _NAVIGATION_PICKER_INDEXES=(1 2)
+        _ZLE_PICKER_INSPECT_TEXTS=(exact "$exact_text" ancestor "$ancestor_text")
+        _ZLE_PICKER_ACCEPT_LABELS=(exact use ancestor use)
+        method_index=1
+        [[ $_git_compare_method == ancestor ]] && method_index=2
+        _git_review_pick 'Changes to show' "${root:t} · $pair" 'Filter choices' '' "$method_index"; result=$?
+        if (( result == 0 )); then
+          _git_compare_method=$_ZLE_PICKER_SELECTED_VALUE _git_compare_before=''
+        fi ;;
+      (open)
+        if _git_review_load _git_review_prepare "$root" &&
+           _git_review_load _git_review_compare_base "$root" "$_git_compare_method" "$_git_compare_from" "$_git_compare_to"; then
+          _git_compare_before=$REPLY
+          _git_review_comparison_context
+          _git_review_view "$root" comparison '' "$_git_compare_to" "$_git_compare_before"; result=$?
+        else
+          _git_compare_status=${_GIT_REVIEW_ERROR:-Unable to establish safe local Git inspection.}
+          result=1
+        fi ;;
+    esac
+    (( result > 1 )) && return $result
+  done
+}
+
+_git_review_direct_choose() {
+  if (( ${#_git_compare_direct} )); then
+    _git_review_view "$root" comparison '' "$_git_compare_to" "$_git_compare_before"
+  else
+    _git_review_menu "$root" "$_git_compare_branch" 1
+  fi
+}
+
+_git_review_session() {
+  emulate -L zsh
+  local root='' _git_compare_branch='' _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
+  local _git_compare_method=${1:-exact} _git_compare_from='' _git_compare_to='' _git_compare_before=''
+  local _git_compare_from_label=${2:-} _git_compare_to_label=${3:-} _git_compare_context='' _git_compare_method_label=''
+  local -a _GIT_REVIEW_CONFIG=() _git_compare_direct=("$@")
+  local -i _GIT_REVIEW_TRUNCATED=0 result=0
+  if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]]; then
+    print -u2 -r -- 'g --review: requires an interactive terminal; use git diff for plain output.'
+    return 1
+  fi
+  if (( !${+functions[_zle_picker_run]} || !${+functions[_zle_picker_capture]} || !${+functions[_navigation_picker_collect]} )); then
+    print -u2 -r -- 'g --review: shared picker unavailable; enable .zsh.editor and .zsh.navigation.'
+    return 1
+  fi
+  {
+    _git_review_capture "$PWD" rev-parse --show-toplevel || {
+      _GIT_REVIEW_ERROR='Run inside a Git working tree.'; return 1
+    }
+    root=${_GIT_REVIEW_DATA%$'\n'}
+    (( !_GIT_REVIEW_TRUNCATED )) && [[ -d $root ]] || return 1
+    _git_review_prepare "$root" || { _GIT_REVIEW_ERROR='Unable to establish safe local Git inspection.'; return 1; }
+    if (( $# )); then
+      _git_review_resolve "$root" "$2" || return 1
+      _git_compare_from=$REPLY
+      _git_review_resolve "$root" "$3" || return 1
+      _git_compare_to=$REPLY
+      _git_review_compare_base "$root" "$1" "$_git_compare_from" "$_git_compare_to" || return 1
+      _git_compare_before=$REPLY
+      _git_review_comparison_context
+    elif _git_review_capture "$root" symbolic-ref --quiet HEAD; then
+      _git_compare_branch=${_GIT_REVIEW_DATA%$'\n'}
+      if (( _GIT_REVIEW_TRUNCATED )) || [[ $_git_compare_branch != refs/heads/* ]]; then
+        _git_compare_branch=''
+      else
+        _git_compare_branch=${_git_compare_branch#refs/heads/}
+      fi
+      _git_review_resolve "$root" HEAD || _git_compare_branch=''
+    fi
+    _GIT_REVIEW_ERROR=''
+    _zle_picker_run 10 '' 1 0 _git_review_direct_choose
+    result=$?
+    (( result == 1 )) && return 0
+    return $result
+  } always {
+    [[ -n $_GIT_REVIEW_ERROR ]] && print -u2 -r -- "g --review: ${(V)_GIT_REVIEW_ERROR}"
+    _ZLE_PICKER_SELECTED_VALUE='' _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
+  }
+}
+
 _git_review_options() {
   local root=$1 branch=$2
   local _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_SUBTITLE="${root:t} · choose a read-only view"
@@ -1041,7 +1487,44 @@ _git_review_options() {
     _NAVIGATION_PICKER_INDEXES+=(2)
     _ZLE_PICKER_INSPECT_TEXTS[commits]="$branch"$'\nLocal branch history\n\nCommits → files → diff\nNo checkout; selected tip is resolved once.'
   }
-  _zle_picker_loop '' 10
+  _NAVIGATION_PICKER_VALUES+=(compare) _NAVIGATION_PICKER_LABELS+=('Compare branches or commits…')
+  _NAVIGATION_PICKER_INDEXES+=("${#_NAVIGATION_PICKER_VALUES}")
+  _ZLE_PICKER_INSPECT_TEXTS[compare]="Compare: ${branch:-HEAD}"$'\nAgainst: choose another branch or commit\n\nBoth choices can be changed. Review differences opens the two-pane reader.\nNo checkout or fetch.'
+  local -i _zle_picker_start_focus=${6:-0}
+  _zle_picker_loop "${3:-}" 10 "${4:-1}" "${5:-0}"
+}
+
+_git_review_menu() {
+  emulate -L zsh
+  # These errors are presented inside guided views; cancellation is not a
+  # failed direct invocation and must not leak their diagnostics to the shell.
+  local root=$1 selected=$2 choice='' oid='' _GIT_REVIEW_ERROR=''
+  local -i stay=${3:-0} result=0 focus=0
+  local -a bookmark=('' 1 0)
+  while true; do
+    _git_review_options "$root" "$selected" "${bookmark[@]}" "$focus"
+    result=$?
+    (( result == 0 )) || return $result
+    choice=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    if ! _git_review_prepare "$root"; then
+      _git_review_unavailable; result=$?
+    elif [[ $choice == compare ]]; then
+      _git_review_compare_choose "$root" "$selected"; result=$?
+    elif [[ $choice == commits ]]; then
+      if _git_review_resolve "$root" "refs/heads/$selected"; then
+        oid=$REPLY
+        _git_review_view "$root" commits "$selected" "$oid"; result=$?
+      else
+        _git_review_unavailable; result=$?
+      fi
+    else
+      _git_review_view "$root" working; result=$?
+    fi
+    (( result > 1 )) && return $result
+    # Preserve the original branch-review Back route. A comparison returns to
+    # its setup and menu; the direct review menu remains the caller of all views.
+    [[ $choice == compare || $stay == 1 ]] || return 1
+  done
 }
 
 # Called inside g's existing screen owner. Branch accept/copy returns unchanged
@@ -1050,10 +1533,10 @@ _git_review_branch_choose() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local -i _ZLE_PICKER_WORKSPACE_ACTIONS=1 focus=0 result=0
-  local _ZLE_PICKER_OPTIONS_KIND=git selected='' choice='' oid=''
+  local _ZLE_PICKER_OPTIONS_KIND=git selected=''
   local -a bookmark=('' 1 0) _GIT_REVIEW_CONFIG=()
   local -a _ZLE_PICKER_EMPTY_LINES=()
-  local _GIT_REVIEW_DATA=''
+  local _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
   local -i _GIT_REVIEW_TRUNCATED=0 _zle_picker_start_focus=0
   if (( !${#_NAVIGATION_PICKER_VALUES} )); then
     _ZLE_PICKER_EMPTY_LINES=('No recent local branches'
@@ -1070,29 +1553,7 @@ _git_review_branch_choose() {
     [[ $_ZLE_PICKER_ACTION == actions ]] || return 0
     selected=$_ZLE_PICKER_SELECTED_VALUE
     bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
-    _git_review_options "$root" "$selected"
-    result=$?
-    (( result == 1 )) && continue
-    (( result == 0 )) || return $result
-    choice=$_ZLE_PICKER_SELECTED_VALUE
-    if ! _git_review_prepare "$root"; then
-      _git_review_unavailable
-      result=$?
-      (( result > 1 )) && return $result
-      continue
-    fi
-    if [[ $choice == commits ]]; then
-      _git_review_capture "$root" rev-parse --verify --end-of-options "refs/heads/$selected^{commit}" || {
-        _git_review_unavailable
-        result=$?
-        (( result > 1 )) && return $result
-        continue
-      }
-      oid=${_GIT_REVIEW_DATA%$'\n'}
-      _git_review_view "$root" commits "$selected" "$oid"
-    else
-      _git_review_view "$root" working
-    fi
+    _git_review_menu "$root" "$selected"
     result=$?
     (( result > 1 )) && return $result
   done

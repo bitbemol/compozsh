@@ -17,7 +17,7 @@ you audit the exact commit yourself.
 | Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
 | Manage Git worktrees | `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
-| Review Git changes | `g` → Ctrl-X | Read working changes or selected-branch commits, drill into files and colored diffs |
+| Review Git changes | `g` → Ctrl-X or `g --review` | Read working changes, branch commits or a chosen revision pair in the two-pane reader |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
 | Discover your custom tools | `compozsh` | Explore loaded public functions and their safe help |
 
@@ -195,7 +195,7 @@ compozsh/
 │   ├── .zsh.shell         shell options, history, and native tool colors
 │   ├── .zsh.editor        command/path completion, temporary-screen pickers, editing
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
-│   ├── .zsh.git-review    read-only working changes, commits, files and diffs
+│   ├── .zsh.git-review    read-only working changes, commits and revision comparisons
 │   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery and help snapshots
@@ -243,7 +243,7 @@ peer owns one focused concern and can still be sourced independently:
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; shared screen lifecycle, layout, Control shortcuts, responsive Escape and keyboard guide; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X opens working changes or selected-branch commits; arrow-driven file → focused diff → full-context reading, Ctrl-R file-list/diff refresh, individual untracked files inside new directories, and single-frame bounded previews |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; shared file → focused diff → full-context reading and Ctrl-R snapshot refresh |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
@@ -2613,8 +2613,8 @@ Search ‹›
 ```
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and other
-Git arguments delegate directly to `git`. Compozsh reserves `g --help`
-and `g --worktree`; worktree mode accepts no extra arguments. With an empty filter,
+Git arguments delegate directly to `git`. Compozsh reserves `g --help`,
+`g --review` and `g --worktree`; worktree mode accepts no extra arguments. With an empty filter,
 press a visible digit to switch immediately; after typing a filter, digits are
 search text.
 
@@ -2776,15 +2776,90 @@ data and execution boundary.
 
 ### Read-only Git review
 
-Run **`g` → Ctrl-X review** to choose a review context:
+Run **`g` → Ctrl-X review**, or **`g --review`**, to choose a review context:
 
 | View | Scope | Enter does |
 | --- | --- | --- |
 | Working changes | The current checkout, independent of the highlighted branch | Focus the selected staged or unstaged diff |
 | Branch commits | Captured local history of the selected branch | List that commit's changed files |
 | Commit files | Selected commit versus its first parent, or the empty tree for a root commit | Focus the selected file's diff |
+| Compare branches or commits | Two chosen local branches, tags or commit IDs | Change either choice, then Review differences opens the two-pane reader |
 
-Working changes and Commit files use a **two-pane review workspace**. A narrow
+**Compare branches or commits** shows both choices together:
+
+```text
+[1] Compare · feature/search
+[2] Against · Choose branch or commit…
+[3] Show · All differences
+```
+
+**Compare** starts at the branch highlighted in `g`, or the current checkout
+with `g --review` (`HEAD` when detached). **Against** is the other branch or
+commit. It starts unset and focused. Press Enter, type its branch name, then
+press Enter to choose the best matching ref. To change the first branch, select
+**Compare** and repeat. Both choices remain editable; neither changes your
+checkout. Each chooser keeps the opposite choice visible.
+
+Once both choices are valid, **[4] Review differences** appears and receives
+focus. The summary reads “Compare feature/search against release/next”, for
+example. **Show** changes which differences are included. The original
+Working changes and Branch commits entries keep their positions and behavior.
+
+| Method | Question answered | Old → new content |
+| --- | --- | --- |
+| All differences (default) | What differs between the committed content of these branches or commits? | Against → Compare; additions belong to Compare |
+| Changes since common ancestor | What changed toward Compare since the histories diverged? | Unique common ancestor of both choices → Compare; later changes only on Against are excluded |
+
+Git does not retain a reliable “branch created from” field. A commit's **first
+parent** is another commit; on a merge it normally follows the receiving
+branch. First-parent comparison remains the rule for inspecting one commit.
+For a branch contribution, choose the intended baseline under Against and
+**Changes since common ancestor**. No branch name such as `develop` or `main` is assumed.
+This compares committed content and does not simulate a merge.
+
+When you already know the pair, enter the reader directly:
+
+```sh
+g --review release/next feature/search
+g --review v1.0.0 v1.1.0
+g --review a1b2c3d e4f5a6b
+g --review --merge-base release/next feature/search
+```
+
+The command order remains old → new: `g --review A B` means **Compare B against
+A**. The example hashes must be replaced with locally available IDs. Accepted inputs
+are branch/tag/remote-tracking names, `HEAD`, full commit IDs and unambiguous
+hexadecimal abbreviations of at least four characters, up to 512 input
+characters. Annotated tags must resolve to commits. Ambiguous names require a
+choice from the ref list or a qualified name such as `refs/heads/release`,
+`refs/tags/release` or `refs/remotes/origin/release`. Revision expressions,
+ranges, path operands and extra flags are not accepted by this mode. Use normal
+Git for those forms. One endpoint alone is a usage error.
+
+The ref chooser captures at most 1,000 refs and 256 KiB in ref-name order;
+excluded non-commit refs still count toward discovery. Its literal text filter
+uses the existing navigation matching rules and never calls Git while typing.
+**Enter branch or commit…** opens literal input for a name or hash. It stays
+second, after the best matching ref, or first when no refs match. Digits in
+the text-entry view remain text. Validation runs on submission. Reopening the
+chooser acquires another bounded snapshot. Remote-tracking refs are local
+observations: review never fetches missing refs or objects.
+
+Both endpoints resolve to full object IDs. The reader shows direction and
+short IDs; **Ctrl-K** includes full IDs and the actual old/new endpoints.
+**Ctrl-R rereads the same IDs**, including the same common ancestor. To follow
+a moving branch, return to setup and select that endpoint again, or rerun the
+command. Escape from the reader restores setup; Escape from a direct comparison
+returns to the prompt. Identical versions show an empty snapshot. Missing
+objects, absent local ancestry and multiple common ancestors produce an
+explanation; they never silently switch comparison methods. Dirty working
+files are excluded from revision comparisons.
+
+`g --review` requires the shared editor and an interactive terminal; use
+`git diff A B` for plain output. `g --review --help` prints the same complete
+guide as `g --help`, without reading the repository.
+
+Working changes, Commit files and comparisons use a **two-pane review workspace**. A narrow
 file navigator sits on the left; the selected file's continuous diff occupies
 most of the width on the right. Selecting another file updates the reader
 directly. Focus is visible independently from selection: the active file list
@@ -2995,7 +3070,8 @@ is a defensive read-only workflow, not a sandbox for Git or the filesystem.
 
 The optional `.zsh.git-review` peer supplies these views. Disabling it leaves
 `g` switching and copying unchanged. **`g --help`** includes this workflow and
-its limits; `g <arguments>` continues to delegate to ordinary Git.
+its limits; arguments outside `--help`, `--review` and `--worktree` continue
+to delegate to ordinary Git.
 
 ## Prompt legend
 

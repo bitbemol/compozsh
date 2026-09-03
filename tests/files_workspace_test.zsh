@@ -353,12 +353,13 @@ cat > "$HOME/copied-path"' || return
           zpty -w -n workspace $'\''\r'\''
           _workspace_expect DONE || exit 14
         fi
-        [[ $trace == *"$enter"*"$leave"* && ${trace#*"$leave"} != *"$leave"* &&
+        [[ $trace == *"$enter"*"$leave"* &&
            $trace != *"read-only variable"* ]] || exit 15
+        (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 15
         if [[ $scenario == recents || $scenario == recents-empty || $scenario == recents-enter || $scenario == menu-recents ]]; then
           # Verify actual terminal painting after the alternate screen closes,
           # not just BUFFER: this regression presented as an invisible path.
-          [[ ${trace#*"$leave"} == *"Previous\\ \\&\\ notes"* ]] || exit 26
+          [[ ${trace##*"$leave"} == *"Previous\\ \\&\\ notes"* ]] || exit 26
         fi
       } always { zpty -d workspace; }
     done

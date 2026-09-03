@@ -963,12 +963,29 @@ discovered. The keyboard guide must never trigger refresh.
   cancellation, hostile config/modelines, cache/refresh and native ZLE cleanup.
   Apple's OS updates may change grammar coverage; do not promise automatic
   support for every language or make a beta Vim version a requirement.
-- Ctrl-X on Branches selects **current working changes** or **selected branch
-  commits**. Distinguish their scopes explicitly. Commits open a file-and-diff
+- Ctrl-X on Branches selects **current working changes**, **selected branch
+  commits**, or **Compare branches or commits**. `g --review` opens the same choices for
+  the current checkout. Distinguish their scopes explicitly. Commits open a file-and-diff
   document workspace; working changes opens that workspace directly.
   Resolve a branch tip once to a full hex object ID and retain first-parent
   IDs for stable commit review. A root commit compares with the empty tree.
   Disable replacement refs so captured IDs refer to literal objects.
+- Revision comparisons use the existing document workspace. Setup reads
+  Compare (To) against Against (From); both choices are explicitly editable.
+  All differences compares From → To; Changes since common ancestor compares
+  their unique local merge base → To. No inferred branch of origin or fixed branch name. Accept only
+  explicit local branch/tag/remote-tracking names, HEAD, or unambiguous commit
+  IDs; reject ambiguity, revision expressions and ranges. Capture at most
+  1,000 refs/256 KiB, counting excluded refs toward discovery, and retain typed
+  input as literal text until submission. Ref selection accepts the best match;
+  literal entry retains a stable second slot, first when no refs match. Resolve full IDs once, expose the
+  actual endpoints in the guide, and retain them on Ctrl-R. Re-selecting a ref
+  explicitly acquires its newer tip. Missing objects, absent ancestry or
+  multiple merge bases never change the method silently. Setup and direct
+  `g --review [--merge-base] A B` share the same providers and reader; Back
+  restores setup or exits the direct entry. No checkout, index mutation, fetch
+  or persistent comparison state. Design evidence:
+  [General Git comparison](investigations/git-comparison-design.md).
 - Review is read-only. No stage/discard/commit/checkout, clipboard or app
   action is dispatched from these views. The main branch picker retains its
   original actions after terminal cleanup. Do not add mutation shortcuts

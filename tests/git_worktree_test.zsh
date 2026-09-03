@@ -536,8 +536,9 @@ _test_worktree_native() {
       fi
       _worktree_test_expect DONE || exit 19
       while zpty -r worktree chunk; do trace+=$chunk; done
-      [[ $trace == *"$leave"* && ${trace#*"$leave"} != *"$leave"* &&
+      [[ $trace == *"$leave"* &&
          $trace != *"command not found"* && $trace != *"bad math"* ]] || exit 20
+      (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 20
     } always {
       zpty -d worktree 2>/dev/null
       exec {efd}>&-

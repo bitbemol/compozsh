@@ -101,6 +101,7 @@ typeset -ga _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
 typeset -g _ZLE_PICKER_TITLE=''
 # Optional caller-owned location, separate from the title and editable filter.
 typeset -g _ZLE_PICKER_SUBTITLE=''
+typeset -g _ZLE_PICKER_SUBTITLE_RENDERER=''
 typeset -g _ZLE_PICKER_SUBTITLE_ROW=''
 typeset -g _ZLE_PICKER_BROWSE_LABEL='items'
 typeset -g _ZLE_PICKER_EMPTY_LABEL='no matches'
@@ -140,6 +141,7 @@ typeset -ga _ZLE_PICKER_BUSY_STYLES=()
 # Optional folder-workspace capabilities: 1 browser, 2 recent locations.
 typeset -gi _ZLE_PICKER_DIRECTORY_ACTIONS=0
 typeset -ga _ZLE_PICKER_TRAIL=()
+typeset -ga _ZLE_PICKER_GUIDE_CONTEXT=()
 typeset -ga _ZLE_PICKER_DISPLAY_PREFIX_ENDS=()
 typeset -g _ZLE_PICKER_ACTION='select'
 typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
@@ -1088,7 +1090,7 @@ _zle_picker_guide_render() {
     lines+=('Ctrl-O               Browse inside the selected recent location')
   fi
   if (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )) && [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == git ]]; then
-    lines+=('Ctrl-X               Review: working changes or selected branch commits'
+    lines+=('Ctrl-X               Review: working changes, branch commits or comparisons'
             'Review               Read-only; select files to read their continuous diff'
             'Scope                Working changes belong to the current worktree'
             'History              The selected branch is inspected without switching')
@@ -1110,11 +1112,11 @@ _zle_picker_guide_render() {
             'Ctrl-E / Ctrl-B      Focus diff reader / file navigator'
             'Line numbers         Old file on the left; new file on the right'
             'Reading              Scroll stays within this file; Escape returns'
-            'Snapshot             Read-only; staged and unstaged are separate rows')
+            'Snapshot             Read-only captured content; scope is shown above')
     (( _ZLE_PICKER_DOCUMENT_REFRESH )) && lines+=(
       'Ctrl-R               Refresh file list and diff; also works with no results'
       'Refresh              Retains filter, file/change kind and source area when available'
-      'Updates              Manual snapshots; refresh while another tool edits files')
+      'Updates              Manual snapshots; Ctrl-R rereads this view’s scope')
   elif (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )); then
     lines+=(
     'Ctrl-X               Options: actions, sources, Browse and Recents'
@@ -1143,6 +1145,8 @@ _zle_picker_guide_render() {
           'Escape cancels; it is not a command prefix.'
           'Fn-Up/Down and Option-Up/Down page; optional Meta key Option-V pages up,'
           'Option-Delete deletes a word; Option-W copies where available.')
+  # Optional caller-owned facts; guide rendering never acquires new data.
+  (( ${#_ZLE_PICKER_GUIDE_CONTEXT} )) && lines+=("${_ZLE_PICKER_GUIDE_CONTEXT[@]}")
   _zle_picker_body_height
   height=$REPLY
   (( height < 2 )) && height=2
@@ -1274,7 +1278,15 @@ _zle_picker_render() {
   fi
 
   if [[ -n $_ZLE_PICKER_SUBTITLE ]] && (( LINES >= 10 )); then
-    _zle_picker_abbreviate "${(V)_ZLE_PICKER_SUBTITLE}" $row_width
+    # A caller may preserve semantic boundaries using captured facts only.
+    # Busy chrome owns a different context; missing/failed formatters fall back.
+    if (( !${_ZLE_PICKER_BUSY:-0} )) &&
+       [[ -n ${_ZLE_PICKER_SUBTITLE_RENDERER:-} && ${+functions[$_ZLE_PICKER_SUBTITLE_RENDERER]} == 1 ]] &&
+       "$_ZLE_PICKER_SUBTITLE_RENDERER" "$row_width"; then
+      _zle_picker_fit "${(V)REPLY}" $row_width
+    else
+      _zle_picker_abbreviate "${(V)_ZLE_PICKER_SUBTITLE}" $row_width
+    fi
     _ZLE_PICKER_SUBTITLE_ROW=$REPLY
   fi
 

@@ -151,8 +151,9 @@ _test_directory_transition_screen() {
         zpty -w -n transition $'\''\x07'\''
         _transition_expect DONE || exit 14
         fi
-        [[ $trace == *"$enter"*"$leave"* && ${trace#*"$leave"} != *"$leave"* &&
+        [[ $trace == *"$enter"*"$leave"* &&
            $trace != *$'\''\e[3J'\''* && $trace != *"read-only variable"* ]] || exit 15
+        (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 15
       } always {
         zpty -d transition
       }

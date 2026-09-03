@@ -109,7 +109,8 @@ _test_picker_resize_automatic_paint() {
         print -u2 -r -- "picker did not enter and restore its alternate screen"
         exit 19
       }
-      local before=${trace%%"$enter"*} after=${trace#*"$leave"}
+      (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 20
+      local before=${trace%%"$enter"*} after=${trace##*"$leave"}
       local screen=${${trace#*"$enter"}%%"$leave"*}
       [[ $before != *$'\''\e[2J'\''* && $after != *$'\''\e[2J'\''* &&
          $trace != *$'\''\e[3J'\''* && $screen != *"$enter"* &&

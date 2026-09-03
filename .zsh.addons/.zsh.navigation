@@ -74,13 +74,43 @@ _navigation_picker_append_matches() {
   done
 }
 
-# Navigation lists are intentionally small and already ordered by recency.
+# Split one candidate for forward array searches. Combined fuzzy globs can
+# backtrack exponentially; scalar searches and prefix trims rescan long names.
+_navigation_picker_append_fuzzy_matches() {
+  emulate -L zsh
+  local query=${(L)1} label='' value='' searchable='' character=''
+  local last_character=${query[-1]}
+  local -a characters=("${(@s::)query}") search_characters=()
+  characters=("${(@b)characters}")
+  local -i limit=$2 index=0 matched=0 query_length=${#query} position=0 length=0
+  for (( index=1; index<=${#_NAVIGATION_PICKER_VALUES}; ++index )); do
+    value=${_NAVIGATION_PICKER_VALUES[index]}
+    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
+    label=${_NAVIGATION_PICKER_LABELS[index]}
+    searchable=${(L)${_NAVIGATION_PICKER_SEARCH_LABELS[index]:-$label}}
+    length=${#searchable}
+    # Cheap necessary conditions avoid walking long, clearly unrelated names.
+    (( query_length <= length )) && [[ $searchable == *"$last_character"* ]] || continue
+    search_characters=("${(@s::)searchable}")
+    matched=1 position=1
+    for character in "${characters[@]}"; do
+      position=${search_characters[(ib:position:)$character]}
+      (( position <= length )) || { matched=0; break; }
+      (( ++position ))
+    done
+    (( matched )) || continue
+    _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
+    _ZLE_PICKER_RESULT_INDEXES+=("${_NAVIGATION_PICKER_INDEXES[index]}")
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
+  done
+}
+
 # Rank literal prefix and substring matches before character-ordered fuzzy ones.
 _navigation_picker_collect() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local query=$1 raw_limit=$2 literal='' pattern='(#i)*' character=''
+  local query=$1 raw_limit=$2 literal=''
   local -i limit=$raw_limit index=0
   typeset -ga _ZLE_PICKER_RESULTS=()
   typeset -ga _ZLE_PICKER_LABELS=()
@@ -103,11 +133,7 @@ _navigation_picker_collect() {
   _navigation_picker_append_matches "(#i)*${literal}*" $limit
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
 
-  for character in "${(s::)query}"; do
-    _navigation_escape_pattern "$character"
-    pattern+="${REPLY}*"
-  done
-  _navigation_picker_append_matches "$pattern" $limit
+  _navigation_picker_append_fuzzy_matches "$query" $limit
 }
 
 # Print navigation stacks with fixed-width indexes so the selector and its
@@ -258,9 +284,10 @@ _git_recent_branches() {
   typeset -g _GIT_RECENT_CURRENT=''
 
   refs=$(command git -C "$root" for-each-ref \
-    --format='%(HEAD)%09%(refname:short)' refs/heads 2>/dev/null) || return 1
+    --format='%(HEAD)%09%(refname)' refs/heads/ 2>/dev/null) || return 1
   while IFS=$'\t' read -r ref_marker ref; do
-    [[ -n $ref ]] || continue
+    [[ $ref == refs/heads/* ]] || continue
+    ref=${ref#refs/heads/}
     local_branches+=("$ref")
     local_branch_set[$ref]=1
     [[ $ref_marker == '*' ]] && current=$ref
@@ -389,13 +416,13 @@ _git_branch_stack_print() {
   done
 }
 
-# Keep ordinary Git arguments transparent; exact --worktree and --help
+# Keep ordinary Git arguments transparent; --review, --worktree and --help
 # invocations are Compozsh modes. Bare g opens the recent-branch picker.
 _compozsh_help_g() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
   "${printer[@]}" 'usage: g [git-arguments ...]' \
-    'Open recent branches, manage worktrees with --worktree, or run Git.' \
+    'Open branches, review comparisons, manage worktrees, or run Git.' \
     '' \
     'Worktrees:' \
     '  g --worktree opens the worktree workspace.' \
@@ -515,6 +542,42 @@ _compozsh_help_g() {
     '' \
     'Read-only Git review:' \
     '  Ctrl-X review opens the Git review chooser when .zsh.git-review is enabled.' \
+    '  g --review opens these choices directly in the current checkout.' \
+    '  Compare branches or commits shows Compare, Against, Show and Review differences.' \
+    '  Compare starts at the highlighted branch, or the current checkout with' \
+    '  g --review. Choose Against as the other branch or commit.' \
+    '  Both choices can be changed: select Compare or Against and press Enter.' \
+    '  Type a branch name, then Enter chooses the best matching ref on that side.' \
+    '  Show defaults to All differences; Review differences opens the two-pane reader.' \
+    '  No default comparison branch or upstream is assumed.' \
+    '  g --review A B opens All differences directly: committed A -> committed B.' \
+    '  In the setup this is Compare B against A. Additions belong to B.' \
+    '  g --review --merge-base A B uses Changes since common ancestor: their unique' \
+    '  local common ancestor -> B. This is not a merge/conflict preview.' \
+    '  Names can be local branches, tags, remote-tracking refs or HEAD; full' \
+    '  and unambiguous abbreviated commit IDs work too. Tags peel to commits.' \
+    '  Input is limited to 512 characters; hex abbreviations need at least four.' \
+    '  Remote-tracking refs are local observations; nothing is fetched.' \
+    '  Ambiguous names require a full refs/heads/, refs/tags/ or refs/remotes/' \
+    '  name, or choosing its exact ref. Noncommits and missing objects fail.' \
+    '  One endpoint, ranges, revision expressions, paths and extra diff options' \
+    '  are unsupported. Both endpoints belong to this one repository; a call' \
+    '  from a subdirectory still compares the full repository. Dirty working' \
+    '  files are excluded; Working changes remains the separate checkout view.' \
+    '  The ref chooser captures at most 1,000 refs / 256 KiB, with partial notices.' \
+    '  It uses the same case-insensitive character-ordered matching as g.' \
+    '  Enter branch or commit stays second after the best ref, first with no matches.' \
+    '  It opens literal input for a name or ID; its text entry preserves' \
+    '  digits and paste, validates on Return, and keeps invalid input editable.' \
+    '  Compare displays the method and actual captured endpoints.' \
+    '  Ctrl-K includes full object IDs. Ctrl-R keeps these IDs, including after a branch' \
+    '  moves. Choose a ref again in setup or rerun the command for newer tips.' \
+    '  Missing or multiple common ancestors require another explicit choice;' \
+    '  no automatic switch to All differences or fetch is performed.' \
+    '  Escape from a guided comparison returns to setup with choices retained;' \
+    '  a direct pair returns to the prompt. No checkout or confirmation occurs.' \
+    '  --review requires an interactive non-dumb terminal and the shared picker;' \
+    '  otherwise it fails clearly. Use git diff for plain output.' \
     '  Working changes belongs to the current checkout, even if you highlight' \
     '  another branch. Staged and unstaged changes are separate rows.' \
     '  Status codes: M modified, A added, D deleted, T file-type change.' \
@@ -589,7 +652,7 @@ _compozsh_help_g() {
     '  slow storage can delay synchronous reads. Failed captures show a notice.' \
     '' \
     'Git shorthand and fallback:' \
-    '  Arguments other than --worktree and --help delegate to Git.' \
+    '  Arguments other than --worktree, --review and --help delegate to Git.' \
     '  Git status is preserved. --worktree accepts no extra arguments.' \
     '  g --help is this guide; use git --help for Git itself.' \
     '  There is no Compozsh --list mode: g --list is passed to Git.' \
@@ -600,6 +663,10 @@ _compozsh_help_g() {
     'Examples:' \
     '  g                       Open recent branches; type to filter.' \
     '  g --worktree            Create, enter, move or remove a worktree.' \
+    '  g --review              Choose working changes, commits or comparisons.' \
+    '  g --review main feature/search  Compare two committed versions.' \
+    '  g --review 4e12ab7 93cd201  Compare two known commit IDs.' \
+    '  g --review --merge-base main feature/search  Review since their ancestor.' \
     '  g worktree list         Ask Git for its native worktree list.' \
     '  g status                Inspect working-tree changes.' \
     '  g branch                List every local branch.' \
@@ -611,9 +678,31 @@ unalias g 2>/dev/null
 g() {
   emulate -L zsh
 
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
+  if { (( $# == 1 )) && [[ $1 == --help ]]; } ||
+     { (( $# == 2 )) && [[ $1 == --review && $2 == --help ]]; }; then
     _compozsh_help_g
     return 0
+  fi
+
+  if [[ ${1:-} == --review ]]; then
+    shift
+    local review_method=exact
+    if [[ ${1:-} == --merge-base ]]; then
+      review_method=ancestor
+      shift
+      (( $# == 2 )) || { print -u2 -r -- 'usage: g [git-arguments ...]'; return 2; }
+    fi
+    if (( $# != 0 && $# != 2 )) || [[ ${1:-} == -* || ${2:-} == -* ]]; then
+      print -u2 -r -- 'usage: g [git-arguments ...]'
+      return 2
+    fi
+    (( ${+functions[_git_review_session]} )) || {
+      print -u2 -r -- 'g: review unavailable; enable .zsh.git-review'
+      return 1
+    }
+    if (( $# )); then _git_review_session "$review_method" "$@"
+    else _git_review_session; fi
+    return $?
   fi
 
   if [[ ${1:-} == --worktree ]]; then
