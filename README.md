@@ -285,7 +285,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
 | `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; fuzzy `Ctrl-R` and history autosuggestions |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; shared file → focused diff → full-context reading and Ctrl-R snapshot refresh |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; shared file → focused diff → full-context reading; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
@@ -358,7 +358,7 @@ communicate—such as Git during `push`, `fetch`, `pull`, or `clone`—remain
 separate trust boundaries. Compozsh does not configure those destinations or
 add data, endpoints, or requests to external commands.
 
-Compozsh has no telemetry, analytics, automatic update check, project server,
+Compozsh has no telemetry, analytics, automatic software update check, project server,
 or runtime network client. It does retain expected local shell state, including
 history and installer recovery backups. Administrator access occurs only in the
 two explicitly confirmed external-media tools and the explicit
@@ -1666,6 +1666,7 @@ shortcuts continue to belong to Terminal.app.
 | Ctrl-O | Browse a selected recent location; inside the browser, preview a folder |
 | Ctrl-X | Open **review** on Branches; **options** for filesystem actions/sources/views |
 | Right / Left in Git review | Progress files → focused diff → full-file context / reverse those steps |
+| Ctrl-A in Working changes | Pause or resume automatic local refresh for this review screen |
 | Ctrl-R in Git review | Refresh the selected snapshot, preserving focus and source area |
 | Enter in Xcode Logs | Open options for the displayed logs; log lines are not selectable results |
 | Up/Down in Xcode Logs | Scroll up to pause; return to the bottom to follow live output |
@@ -1676,7 +1677,8 @@ This is the shared Compozsh picker key map. The footer and Ctrl-K guide show
 available actions. The documented Git-reader controls apply only within review;
 Xcode Logs uses one full-width reader, where typing filters source lines,
 Up/Down scroll, and Escape returns to Run. Xcode Logs updates automatically
-while following. Ctrl-R opens history at the prompt, refreshes Git review,
+while following. Ctrl-A retains its normal beginning-of-line meaning at the
+prompt and is a refresh toggle only in Working changes. Ctrl-R opens history at the prompt, refreshes Git review,
 and advances results in ordinary pickers without a refresh capability.
 Ctrl-X is inactive in Git review's reader; the arrow flow handles context disclosure.
 
@@ -3274,11 +3276,27 @@ current context mode; Right from the file navigator always enters focused diff.
 The context mode stays until changed through disclosure; new workspaces start
 focused. This also works in the single-pane layout on narrower terminals.
 
-**Ctrl-R refreshes the file list and selected diff**, preserving your filter,
-exact file/change kind, pane focus and source area when still available.
-It also works with an empty list or a filter that currently has no matches.
+**Working changes refreshes automatically by default** while that review screen
+is open. Its status keeps two clocks distinct: **checked now / 5m ago** says
+when the last local Git check completed, while **updated now / 5m ago** says
+when a refreshed snapshot was last published. Press **Ctrl-A** to pause or resume
+automatic refresh for this screen session. **Ctrl-R refreshes now**, including
+while automatic refresh is paused, and preserves your filter, exact file/change
+kind, pane focus and source area when still available. It also works with an
+empty list or a filter that currently has no matches. Commit and comparison
+views remain fixed to their captured object IDs and refresh only with Ctrl-R.
+Ctrl-R resumes automatic checks after an automatic failure; a pause you chose
+with Ctrl-A or the initializer remains paused after either manual success or
+failure.
 **Ctrl-X** remains **review** on the main Branches screen and is
 inactive inside the reader. **Ctrl-K** shows the complete keyboard guide.
+
+To make new Working changes sessions start paused, set the public default in
+your private initializer; Ctrl-A can still enable it inside any one review:
+
+```zsh
+ZSH_GIT_REVIEW_AUTO_REFRESH=0
+```
 
 Expanding keeps the current source area visible, using the first visible code
 line as its anchor (including wrapped continuations). Collapsing retains that
@@ -3323,19 +3341,31 @@ reused until refresh or workspace exit. Selecting a file through filtering may
 load its diff too. Optional syntax arrives independently for the visible region,
 whether the file list or reader owns keyboard focus. Scrolling can request the
 next overlapping syntax window; guide and resize reuse captured Git facts.
-To follow edits from an AI or another editor, keep **Working changes** open and
-press **Ctrl-R** whenever you want the latest observation. New and removed
-changes update the navigator; only the selected diff is loaded immediately.
-Other files are captured when selected. Refresh clears all cached diff/syntax
-views and other files' reading bookmarks, so changing context mode cannot bring
-back an older snapshot. Updates are manual; there is no background watcher or
-automatic movement while you read.
+While **Working changes** is open, one input-idle worker/provider pair rechecks
+the same bounded local Git facts. It starts at a two-second floor, backs off
+from capture cost when Git is slow, never overlaps another check, and stops a
+check that exceeds thirty seconds. A validated change replaces the navigator,
+selected diff and related caches in one ordinary repaint—there is no busy
+screen, clear-screen flash or intermediate empty document. A surviving target
+keeps its pane focus, filtered rank, viewport slot and semantic source anchor.
+Other files are captured when selected. The worker, exact Git provider, and
+their private pipes and bounded in-memory payloads exist only for this review
+screen and are reaped/removed on pause, timeout or exit. The screen session and
+worker enforce the thirty-second deadline even while terminal input remains queued; there is
+no daemon, persistent project cache, hook, fetch or network request.
 
-If the selected path/change kind is no longer among the filtered results, the
-status explains the change and focus returns to the file list at its first
-match (or an empty state). Your filter is retained; **Ctrl-U** clears it.
-A failed file-list refresh retains the previous snapshot with a visible retry
-message. **Ctrl-R** retries; **Ctrl-L** only redraws existing data.
+If the selected path/change kind disappears or leaves the filtered results
+while the right pane has focus, Compozsh keeps the old reader and source position
+visible and shows **update ready**. Returning to the list with Left, Ctrl-B,
+Shift-Tab or Tab applies the completed snapshot; automatic refresh never yanks
+focus away while you read. With list focus, the new snapshot selects its first
+filtered match (or the empty state). Your filter is retained; **Ctrl-U** clears
+it. Changing focused/full disclosure while an update is pending keeps the old
+snapshot and obtains the new context on the next normally paced check. A failed
+automatic file-list or selected-diff refresh retains the previous
+snapshot, pauses automatic checks and shows a visible retry message. **Ctrl-R**
+retries immediately and resumes after that transient failure; **Ctrl-L** only
+redraws existing data.
 If Git's safety configuration cannot be refreshed, cached documents remain
 readable and new captures wait for a successful retry.
 Commit-file refresh keeps the captured commit ID; reopen branch history to see
@@ -3356,7 +3386,9 @@ Coverage is deliberately bounded and labeled:
   labeled; choose focused diff or use ordinary Git for larger files.
 - At most four raw diff snapshots (up to **1 MiB** combined) are cached for the
   current workspace, plus bounded syntax metadata, the selected document and
-  small reading bookmarks. Refresh replaces both diff and token snapshots.
+  small reading bookmarks. Each automatic candidate is also capped at 1 MiB
+  and retained only until validation/publication. Refresh replaces both diff
+  and token snapshots.
 - Binary diffs and conflicts show notices. For untracked previews, a NUL byte
   in the captured prefix produces a binary notice; this is a bounded content
   check, not a universal file-format detector. Empty files have their own notice.
@@ -3377,6 +3409,8 @@ Git network transport for its own calls. Repository configuration is untouched.
 Files that normally use filters can consequently look different from your
 configured command-line diff; review shows Git's unfiltered comparison. This
 is a defensive read-only workflow, not a sandbox for Git or the filesystem.
+Because Git's `-c key=value` form cannot unambiguously override a filter driver
+name containing `=`, review fails closed when it discovers one.
 
 The optional `.zsh.git-review` peer supplies these views. Disabling it leaves
 `g` switching and copying unchanged. **`g --help`** includes this workflow and

@@ -22,10 +22,13 @@ _zle_ui_view() {
   local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_SEARCH_ACTION=''
   local _ZLE_PICKER_INSPECT_FALLBACK='' _ZLE_PICKER_INSPECT_FIXED_KEY=''
   local _ZLE_PICKER_INSPECT_EXPAND_KEY='' _ZLE_PICKER_OPTIONS_KIND=''
-  local _ZLE_PICKER_IDLE_CALLBACK='' _ZLE_PICKER_DOCUMENT_KEY=''
+  local _ZLE_PICKER_IDLE_CALLBACK='' _ZLE_PICKER_IDLE_ACTION=''
+  local _ZLE_PICKER_DEADLINE_CALLBACK=''
+  local _ZLE_PICKER_DOCUMENT_KEY=''
   local _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
   local -i _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT_FOLLOW=-1
   local -i _ZLE_PICKER_DOCUMENT_REFRESH=0 _ZLE_PICKER_DOCUMENT_PENDING=0
+  local -i _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0 _ZLE_PICKER_AUTO_REFRESH=-1
   local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
   local -i _ZLE_PICKER_INSPECT_STACKED=0 _ZLE_PICKER_INSPECT_CLIP_LINES=0
   local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_REFRESH_ENABLED=0
@@ -33,6 +36,7 @@ _zle_ui_view() {
   local -i _ZLE_PICKER_HIERARCHY_ENABLED=0 _ZLE_PICKER_QUERY_SUBMIT=0
   local -i _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_STATUS_VIEW=0 _ZLE_PICKER_BUSY=0
   local -i _ZLE_PICKER_IDLE_PREPAINT=1 _zle_picker_start_focus=0
+  local -F _ZLE_PICKER_IDLE_WAIT=0 _ZLE_PICKER_DEADLINE_AT=0
   local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
   local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_PASSIVE_STYLES=()
   local -a _ZLE_PICKER_BUSY_LINES=() _ZLE_PICKER_BUSY_STYLES=()
@@ -149,6 +153,8 @@ typeset -gi _ZLE_PICKER_READER_ONLY=0
 typeset -gi _ZLE_PICKER_DOCUMENT_FOLLOW=-1
 typeset -g _ZLE_PICKER_DOCUMENT_MODE=''
 typeset -gi _ZLE_PICKER_DOCUMENT_REFRESH=0
+typeset -gi _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+typeset -gi _ZLE_PICKER_AUTO_REFRESH=-1
 typeset -g _ZLE_PICKER_DOCUMENT_KEY=''
 typeset -g _ZLE_PICKER_DOCUMENT_TITLE=''
 typeset -gi _ZLE_PICKER_DOCUMENT_PENDING=0
@@ -156,6 +162,10 @@ typeset -gi _ZLE_PICKER_DOCUMENT_PENDING=0
 # Zero preserves immediate controller handoff; Git review opts into a small
 # input-idle settlement measured in the loop's native 30 ms ticks.
 typeset -gi _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=0
+typeset -g _ZLE_PICKER_IDLE_ACTION=''
+typeset -gF _ZLE_PICKER_IDLE_WAIT=0
+typeset -g _ZLE_PICKER_DEADLINE_CALLBACK=''
+typeset -gF _ZLE_PICKER_DEADLINE_AT=0
 typeset -ga _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
 typeset -gA _ZLE_PICKER_DOCUMENT_SYNTAX=()
 # The renderer publishes the source-row interval currently visible in the
@@ -949,6 +959,9 @@ _zle_picker_footer() {
     fi
     (( (_ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_REFRESH) ||
        _ZLE_PICKER_REFRESH_ENABLED )) && hints+=('^R refresh')
+    if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+      (( _ZLE_PICKER_AUTO_REFRESH )) && hints+=('^A pause auto') || hints+=('^A resume auto')
+    fi
     # Put the available disclosure steps ahead of convenience shortcuts.
     if (( _ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY )) && [[ -n $value ]]; then
       local footer=$REPLY
@@ -1089,7 +1102,12 @@ _zle_picker_guide_render() {
     (( _ZLE_PICKER_DOCUMENT_REFRESH )) && lines+=(
       'Ctrl-R               Refresh file list and diff; also works with no results'
       'Refresh              Retains filter, file/change kind and source area when available'
-      'Updates              Manual snapshots; Ctrl-R rereads this view’s scope')
+      'Updates              Ctrl-R rereads this view’s scope')
+    if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+      lines+=(
+        'Ctrl-A               Pause or resume automatic Working changes refresh'
+        'Auto-refresh         Checks locally while idle; Ctrl-R still refreshes now')
+    fi
   elif (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )); then
     lines+=(
     'Ctrl-X               Options: actions, sources, Browse and Recents'
@@ -1869,6 +1887,7 @@ _zle_picker_loop() {
   _ZLE_PICKER_BOOKMARK_FOCUS=0
   _ZLE_PICKER_ACCEPTED=0
   _ZLE_PICKER_ACTION='select'
+  _ZLE_PICKER_IDLE_ACTION=''
   _ZLE_PICKER_GUIDE_ACTIVE=0
   _ZLE_PICKER_GUIDE_OFFSET=0
   _ZLE_PICKER_ACTIVE=1
@@ -1887,6 +1906,16 @@ _zle_picker_loop() {
     (( ${_ZLE_PICKER_IDLE_PREPAINT:-1} )) && idle_prepaint=1
   {
     while (( !accepted && !cancelled && !aborted )); do
+      # A caller may own a strict lifecycle deadline independently from its
+      # ordinary input-idle work. Check it once per key-loop turn even while
+      # bytes remain queued; the callback may stop an existing provider but
+      # must not start discovery or perform foreground capture.
+      if [[ -n ${_ZLE_PICKER_DEADLINE_CALLBACK:-} &&
+            ${+functions[$_ZLE_PICKER_DEADLINE_CALLBACK]} == 1 ]] &&
+         (( ${_ZLE_PICKER_DEADLINE_AT:-0} > 0 &&
+            EPOCHREALTIME >= _ZLE_PICKER_DEADLINE_AT )); then
+        "$_ZLE_PICKER_DEADLINE_CALLBACK" || true
+      fi
       # Query editing retains the primary reader. Ordinary pickers continue to
       # return focus to their result list through the same key handlers.
       (( _ZLE_PICKER_READER_ONLY )) && _ZLE_PICKER_INSPECT_FOCUS=1
@@ -1968,6 +1997,11 @@ _zle_picker_loop() {
           else
             idle_result=$?
           fi
+          if [[ -n ${_ZLE_PICKER_IDLE_ACTION:-} ]]; then
+            _ZLE_PICKER_ACTION=$_ZLE_PICKER_IDLE_ACTION
+            accepted=1
+            break
+          fi
           if (( idle_result == 0 )); then
             _zle_picker_render "$query" $selected
           fi
@@ -2017,13 +2051,29 @@ _zle_picker_loop() {
             else
               idle_result=$?
             fi
+            if [[ -n ${_ZLE_PICKER_IDLE_ACTION:-} ]]; then
+              _ZLE_PICKER_ACTION=$_ZLE_PICKER_IDLE_ACTION
+              accepted=1
+              break
+            fi
             if (( idle_result == 0 )); then
               idle_repaint=1
               break
             elif (( idle_result == 2 )); then
               # The caller has no pending work for this frame. Return to a true
-              # blocking read until the next key or resize changes the viewport.
-              if ! IFS= read -r -k 1 key; then
+              # blocking read unless it supplied a future idle deadline. A
+              # timed wait wakes exactly once for that deadline; it does not
+              # turn the native 30 ms pending-work poll into a permanent timer.
+              if (( ${_ZLE_PICKER_IDLE_WAIT:-0} > 0 )); then
+                if IFS= read -r -t $_ZLE_PICKER_IDLE_WAIT -k 1 key; then
+                  :
+                elif (( COLUMNS != read_columns || LINES != read_lines )); then
+                  idle_repaint=1
+                  break
+                else
+                  continue
+                fi
+              elif ! IFS= read -r -k 1 key; then
                 if (( COLUMNS != read_columns || LINES != read_lines )); then
                   idle_repaint=1
                 else
@@ -2035,6 +2085,7 @@ _zle_picker_loop() {
           done
         fi
         (( idle_repaint )) && continue
+        (( accepted )) && continue
         (( cancelled )) && break
       elif [[ -z $key ]] && ! IFS= read -r -k 1 key; then
         # A terminal resize may interrupt read before ZLE's resize callback can
@@ -2058,7 +2109,16 @@ _zle_picker_loop() {
           (*) zle beep; continue ;;
         esac
       fi
+      local -i focus_before=$_ZLE_PICKER_INSPECT_FOCUS
       case $key in
+        ($'\x01')
+          if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+            _ZLE_PICKER_ACTION=document-auto-toggle
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
         ($'\x0b')
           _ZLE_PICKER_GUIDE_ACTIVE=1
           _ZLE_PICKER_GUIDE_OFFSET=0
@@ -2442,6 +2502,11 @@ _zle_picker_loop() {
           fi
           ;;
       esac
+      if (( !accepted && _ZLE_PICKER_DOCUMENT_UPDATE_PENDING &&
+            focus_before && !_ZLE_PICKER_INSPECT_FOCUS )); then
+        _ZLE_PICKER_ACTION=document-auto-apply
+        accepted=1
+      fi
     done
 
     if (( accepted )); then

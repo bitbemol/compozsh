@@ -60,7 +60,7 @@ guarantees made by Compozsh.
 ## What the shipped project does not do
 
 - It has no telemetry, analytics, crash-reporting service, account, project
-  server, background daemon, automatic update check, or runtime package
+  server, background daemon, automatic Compozsh software update check, or runtime package
   download.
 - The tracked shell and installer define no project endpoint and initiate no
   network request. Updates happen only when the user runs Git themselves.
@@ -105,6 +105,7 @@ state:
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh-sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, and temporary view snapshots; discarded with the shell or view |
 | Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
+| Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | Carries one framed local status/selected-diff candidate at a time, capped at 1 MiB; the worker-owned exact provider and worker are terminated and reaped on pause, timeout, manual refresh, review close or handled error, then the FIFO is removed, with no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
@@ -157,7 +158,9 @@ never labels or project data. Repeated semantic styles are calculated once per
 surface and role during each paint, then discarded; the next paint reads current
 palette overrides. Secondary menus and notices scope their own labels and
 capabilities while returning exact action values to the caller. This adds no
-registry, persistent storage or background process. Run `zsh tests/run.zsh UI` and
+registry, persistent storage or shared background process. A feature may use an
+explicitly documented, bounded input-idle child for one screen session; the Git
+Working changes transport below is the only current instance. Run `zsh tests/run.zsh UI` and
 `zsh tests/run.zsh 'picker screen'` for view isolation, optional-peer behavior
 and native ZLE cleanup contracts.
 
@@ -197,7 +200,11 @@ Protect and eventually archive or remove those backups according to your own
 retention policy. Compozsh deliberately does not delete them automatically.
 An uncatchable process termination or system failure can also leave a temporary
 capture behind; its validated `compozsh-*` name makes it identifiable in
-`${TMPDIR:-/tmp}`.
+`${TMPDIR:-/tmp}`. For Git review this can be an empty mode-0700
+`compozsh-review.*` directory containing its mode-0600 FIFO; provider output is
+streamed through pipes and is not persisted there. Normal exit removes both;
+after an uncatchable termination, the user may inspect and remove the
+identifiable directory under their own temporary directory.
 
 The Xcode dashboard's Test and Rebuild & Test actions ask Xcode to create a
 transient result bundle while disabling verbose test-diagnostic collection.
@@ -519,6 +526,20 @@ The caller's environment survives the operation; transparent `g` arguments and
 the prompt retain their native Git-context behavior. Revision comparisons acquire local refs
 only on chooser entry and resolve literal names/IDs only on submission or direct
 entry. Filtering, scrolling, resizing and the guide do not discover Git data.
+Working changes alone performs automatic local rechecks while its review screen
+is open. It keeps one bounded screen-session worker/provider pair in flight,
+tracks the exact Git provider in worker memory, carries the result
+through private pipes and bounded shell memory, and applies the same
+disabled-filter, hook, lazy-fetch, prompt and transport controls as manual
+review refresh. Checks start enabled by default, can be paused with Ctrl-A or by setting
+`ZSH_GIT_REVIEW_AUTO_REFRESH=0` before peers load, adapt from a two-second floor
+to the capture cost measured inside the worker, and time out after thirty
+seconds even while terminal input remains queued. They create
+no daemon, persistent cache, Git hook, fetch or other
+network operation. Filter discovery and its generated inert override argv share
+a 4,096-entry bound in manual and automatic refresh. A filter driver name that
+contains `=` is refused because Git's command-line configuration form cannot
+unambiguously override that key.
 Comparison refresh retains both captured commit IDs and any resolved common
 ancestor. Missing objects and ambiguous ancestry fail visibly without fetching
 or choosing another method. The new ref catalog contains no author identities

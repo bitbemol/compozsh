@@ -44,6 +44,7 @@
 # HISTSIZE=75000
 # SAVEHIST=75000
 # ZSH_COLOR_SCHEME=light  # auto (COLORFGBG hint), light, or dark
+# ZSH_GIT_REVIEW_AUTO_REFRESH=0  # Start Working changes paused; 1 is the default.
 # typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_OUTPUT_COLORS ZSH_PROMPT_COLORS
 # ZSH_HIGHLIGHT_STYLES[command]='fg=118,bold'
 # ZSH_OUTPUT_COLORS[success]=118

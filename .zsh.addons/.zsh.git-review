@@ -8,6 +8,9 @@ typeset -gi _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DOCUMENT_HAS_CODE=0
 typeset -ga _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
 typeset -g _GIT_REVIEW_ERROR=''
 typeset -ga _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=()
+typeset -g ZSH_GIT_REVIEW_AUTO_REFRESH=${ZSH_GIT_REVIEW_AUTO_REFRESH-1}
+typeset -gF _GIT_REVIEW_AUTO_REFRESH_INTERVAL=2.0
+typeset -gF _GIT_REVIEW_AUTO_REFRESH_TIMEOUT=30.0
 
 _git_review_git() {
   emulate -L zsh
@@ -17,14 +20,100 @@ _git_review_git() {
   # another repository's refs/index with this root's direct file previews.
   local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
   local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  local git_binary=${commands[git]:-git}
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
   unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
   local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
   local -x GIT_ALLOW_PROTOCOL='' GIT_LITERAL_PATHSPECS=1
   local -x GIT_GLOB_PATHSPECS=0 GIT_NOGLOB_PATHSPECS=0 GIT_ICASE_PATHSPECS=0
+  if (( ${_GIT_REVIEW_WORKER_EXEC:-0} )); then
+    # The automatic worker launches this function as a direct asynchronous
+    # child, records that PID, then replaces it with Git. Cancellation can
+    # therefore terminate the actual provider before reaping its Zsh parent.
+    exec "$git_binary" --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
+      -c core.untrackedCache=false -c core.hooksPath=/dev/null \
+      "${_GIT_REVIEW_CONFIG[@]}" "$@"
+  fi
   command git --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
     -c core.untrackedCache=false -c core.hooksPath=/dev/null \
     "${_GIT_REVIEW_CONFIG[@]}" "$@"
+}
+
+# Automatic providers stream through a private coprocess pipe so the worker
+# owns the exact Git PID rather than an opaque command-substitution process
+# tree. Only the established 256 KiB payload plus one lookahead byte is retained.
+_git_review_capture_worker() {
+  emulate -L zsh
+  unsetopt BG_NICE
+  zmodload zsh/system || return 2
+  zmodload zsh/zselect || return 2
+  zmodload zsh/datetime || return 2
+  local root=$1
+  shift
+  local chunk=''
+  local -i pid=0 result=0 fd=-1 amount=0 total=0 remaining=0 read_result=0
+  _GIT_REVIEW_DATA='' _GIT_REVIEW_TRUNCATED=0
+  _git_review_worker_forking=1
+  local -i _GIT_REVIEW_WORKER_EXEC=1
+  # A dynamically allocated descriptor above Git's documented trace-fd range
+  # is a liveness duplicate inherited across the direct exec. A wrapper may
+  # close stdout, but the capture pipe reaches EOF only when the provider exits
+  # and closes every inherited descriptor. This keeps wait bounded by the same
+  # deadline/cancellation loop without adding a timer or PID handoff file.
+  coproc {
+    local -i liveness_fd=-1
+    exec {liveness_fd}>&1 || exit 2
+    _git_review_git "$root" "$@" 2>/dev/null
+  }
+  pid=$!
+  _git_review_worker_active_pid=$pid
+  _git_review_worker_forking=0
+  (( pid > 0 )) || return 2
+  exec {fd}<&p || { _git_review_auto_worker_terminate; return 2; }
+  (( _git_review_worker_cancelled )) && _git_review_auto_worker_terminate
+  while true; do
+    if (( EPOCHREALTIME >= _GIT_REVIEW_WORKER_DEADLINE )); then
+      _git_review_worker_timed_out=1
+      _git_review_auto_worker_terminate
+    fi
+    if ! zselect -r $fd -t 10 2>/dev/null; then
+      continue
+    fi
+    remaining=$(( 262145 - total ))
+    chunk='' amount=0
+    sysread -i $fd -s $remaining -c amount chunk 2>/dev/null
+    read_result=$?
+    if (( read_result == 0 && amount > 0 )); then
+      _GIT_REVIEW_DATA+=$chunk
+      (( total += amount ))
+      if (( total > 262144 )); then
+        _GIT_REVIEW_DATA=${_GIT_REVIEW_DATA[1,262144]}
+        _GIT_REVIEW_TRUNCATED=1
+        exec {fd}<&-
+        trap '_git_review_auto_worker_defer_terminate' TERM
+        kill -KILL $pid 2>/dev/null
+        wait $pid 2>/dev/null
+        _git_review_worker_active_pid=0
+        trap '_git_review_auto_worker_terminate' TERM
+        (( _git_review_worker_cancelled )) && _git_review_auto_worker_terminate
+        return 0
+      fi
+      continue
+    fi
+    # The provider and its liveness duplicate are closed; reap its stored exit
+    # status while TERM is masked only across the nonblocking ownership clear.
+    trap '_git_review_auto_worker_defer_terminate' TERM
+    wait $pid 2>/dev/null
+    result=$?
+    _git_review_worker_active_pid=0
+    trap '_git_review_auto_worker_terminate' TERM
+    (( _git_review_worker_cancelled )) && _git_review_auto_worker_terminate
+    break
+  done
+  exec {fd}<&-
+  (( result == 0 )) && return 0
+  (( result == 1 )) && return 1
+  return 2
 }
 
 # Bound retained output, including one lookahead byte. The private trailing
@@ -35,6 +124,10 @@ _git_review_capture() {
   local -x LC_ALL=C
   local packet='' tail=''
   _GIT_REVIEW_DATA='' _GIT_REVIEW_TRUNCATED=0
+  if [[ -n ${_GIT_REVIEW_WORKER_DIR:-} ]]; then
+    _git_review_capture_worker "$@"
+    return $?
+  fi
   packet=$( { _git_review_git "$@" 2>/dev/null; print -rn -- $'\0'"$?"; } |
     { local chunk=''; IFS= read -r -u 0 -k 262145 chunk || :; print -rn -- "$chunk"; } )
   if (( ${#packet} > 262144 )); then
@@ -65,7 +158,15 @@ _git_review_prepare() {
   while IFS= read -r -d '' key; do
     driver=${${key#filter.}%.*}
     [[ -n $driver && -z ${seen[$driver]-} ]] || continue
+    # Git's `-c key=value` transport splits at the first equals sign. A valid
+    # config subsection can contain `=`, but its exact filter key cannot then
+    # be overridden through this argv form. Fail closed before any diff read.
+    [[ $driver != *'='* ]] || return 2
     seen[$driver]=1
+    # The same bound applies to manual and automatic refresh. Besides keeping
+    # the argv below the native exec limit, this prevents an untrusted local
+    # repository from turning filter discovery into an unbounded UI parse.
+    (( ${#_GIT_REVIEW_CONFIG} + 6 <= 4096 )) || return 2
     _GIT_REVIEW_CONFIG+=(-c "filter.${driver}.clean=" -c "filter.${driver}.process=" -c "filter.${driver}.required=false")
   done <<< "$_GIT_REVIEW_DATA"
   return 0
@@ -77,13 +178,11 @@ _git_review_reset() {
   _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
 }
 
-_git_review_changes_capture() {
+_git_review_changes_parse() {
   emulate -L zsh
-  local root=$1 record='' name='' xy='' kind='' state=''
+  local record='' name='' xy='' kind='' state=''
   local -i staged=0 unstaged=0 untracked=0 conflicts=0 index=0
   _git_review_reset
-  _git_review_capture "$root" status --porcelain=v1 -z --no-renames \
-    --untracked-files=all --ignore-submodules=all || return 2
   while IFS= read -r -d '' record; do
     (( ${#record} >= 4 )) || continue
     xy=${record[1,2]} name=${record[4,-1]}
@@ -125,6 +224,17 @@ _git_review_changes_capture() {
   (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · partial snapshot'
   _GIT_REVIEW_NOTICE='Renames appear as add/delete. Submodules and ignored files are excluded; untracked files are listed individually.'
   return 0
+}
+
+_git_review_changes_capture() {
+  emulate -L zsh
+  local root=$1
+  # A failed provider is not a successful empty snapshot, but it must not
+  # leave arrays from an unrelated prior capture available to a caller.
+  _git_review_reset
+  _git_review_capture "$root" status --porcelain=v1 -z --no-renames \
+    --untracked-files=all --ignore-submodules=all || return 2
+  _git_review_changes_parse
 }
 
 _git_review_valid_oid() {
@@ -304,8 +414,38 @@ _git_review_comparison_files_capture() {
 }
 
 # Read only the selected regular file, never Git filters or an executable.
-# Pin its physical parent in a subshell; relative no-follow open and descriptor
-# stat guard replacements without changing the caller directory or running hooks.
+# Pin its physical parent in an isolated process; relative no-follow open and
+# descriptor stat guard replacements without changing the caller directory or
+# running hooks.
+_git_review_untracked_read() {
+  emulate -L zsh
+  local absolute=$1 parent=$2 chunk='' data=''
+  local -i fd=-1 result=0 total=0 amount=0
+  local -A facts=()
+  REPLY=''
+  zmodload -F zsh/system b:sysopen b:sysread || return 2
+  zmodload -F zsh/stat b:zstat || return 2
+  builtin cd -q -P -- "$parent" 2>/dev/null || return 2
+  [[ $PWD == "$parent" ]] || return 2
+  {
+    sysopen -r -o cloexec,nofollow,nonblock -u fd "./${absolute:t}" 2>/dev/null || return 2
+    zstat -H facts -f $fd 2>/dev/null || return 2
+    (( (facts[mode] & 8#170000) == 8#100000 )) || return 2
+    while (( total < 262145 )); do
+      chunk='' amount=0
+      sysread -i $fd -s $(( 262145 - total )) -c amount chunk
+      result=$?
+      (( result == 5 )) && break
+      (( result == 0 && amount > 0 )) || return 2
+      data+=$chunk
+      (( total += amount ))
+    done
+    REPLY=$data
+  } always {
+    (( fd >= 0 )) && exec {fd}<&-
+  }
+}
+
 _git_review_untracked_capture() {
   emulate -L zsh
   local -x LC_ALL=C
@@ -326,36 +466,25 @@ _git_review_untracked_capture() {
     _GIT_REVIEW_DATA='Unavailable: the untracked path is missing or is not a regular file.'
     return 2
   fi
-  # The child appends a NUL to protect real trailing newlines from substitution.
-  packet=$(
-    zmodload -F zsh/system b:sysopen b:sysread || return 2
-    zmodload -F zsh/stat b:zstat || return 2
-    builtin cd -q -P -- "$parent" 2>/dev/null || return 2
-    [[ $PWD == "$parent" ]] || return 2
-    local -i fd=-1 result=0 total=0 amount=0
-    local chunk='' data=''
-    local -A facts=()
-    {
-      sysopen -r -o cloexec,nofollow,nonblock -u fd "./${absolute:t}" 2>/dev/null || return 2
-      zstat -H facts -f $fd 2>/dev/null || return 2
-      (( (facts[mode] & 8#170000) == 8#100000 )) || return 2
-      while (( total < 262145 )); do
-        sysread -i $fd -s $(( 262145 - total )) -c amount chunk
-        result=$?
-        (( result == 5 )) && break
-        (( result == 0 && amount > 0 )) || return 2
-        data+=$chunk
-        (( total += amount ))
-      done
-      print -rn -- "$data"$'\0'
-    } always {
-      (( fd >= 0 )) && exec {fd}<&-
+  if [[ -n ${_GIT_REVIEW_WORKER_DIR:-} ]]; then
+    # The automatic worker is already isolated from the caller. Read directly
+    # in that owned process so timeout/cancellation cannot orphan a nested file
+    # reader; changing its private cwd has no effect on the review shell.
+    _git_review_untracked_read "$absolute" "$parent" || {
+      _GIT_REVIEW_DATA='Unavailable: the untracked file could not be read safely. Use Ctrl-R to refresh.'
+      return 2
     }
-  ) || {
-    _GIT_REVIEW_DATA='Unavailable: the untracked file could not be read safely. Use Ctrl-R to refresh.'
-    return 2
-  }
-  body=${packet%$'\0'}
+    body=$REPLY
+  else
+    # Manual foreground capture still isolates its physical-parent cwd. The
+    # child appends a NUL to protect real trailing newlines from substitution.
+    packet=$( _git_review_untracked_read "$absolute" "$parent" || return 2
+      print -rn -- "$REPLY"$'\0' ) || {
+      _GIT_REVIEW_DATA='Unavailable: the untracked file could not be read safely. Use Ctrl-R to refresh.'
+      return 2
+    }
+    body=${packet%$'\0'}
+  fi
   if [[ $body == *$'\0'* ]]; then
     _GIT_REVIEW_DATA='Binary untracked file · a NUL byte was detected in the bounded capture. Content preview omitted.'
     return 0
@@ -886,8 +1015,7 @@ _git_review_document_load() {
   _git_document_contexts[$index]=$context
   _ZLE_PICKER_DOCUMENT_KEY=$index
   _ZLE_PICKER_DOCUMENT_TITLE=$name
-  _ZLE_PICKER_BROWSE_LABEL="$_GIT_REVIEW_SUMMARY · $_GIT_REVIEW_DOCUMENT_SUMMARY"
-  [[ -n ${_git_review_refresh_status:-} ]] && _ZLE_PICKER_BROWSE_LABEL+=" · $_git_review_refresh_status"
+  _git_review_status_apply >/dev/null
   _ZLE_PICKER_SUBTITLE="${root:t} · $kind · full-file context · captured on selection"
   [[ $context == 3 ]] && _ZLE_PICKER_SUBTITLE="${root:t} · $kind · focused diff · 3 context lines · captured on selection"
   [[ $kind == untracked ]] && _ZLE_PICKER_SUBTITLE="${root:t} · untracked · new-file preview · captured on selection"
@@ -955,6 +1083,889 @@ _git_review_recapture() {
   fi
 }
 
+# Automatic Working changes refresh is screen-session state. The public switch
+# selects the initial state; Ctrl-A changes only the active workspace. Checks
+# and candidate snapshots stay local, bounded and ephemeral.
+_git_review_age() {
+  emulate -L zsh
+  local -i timestamp=${1:-0} now=${EPOCHSECONDS:-0} age=0
+  REPLY='unknown'
+  (( timestamp > 0 && now >= timestamp )) || return 0
+  age=$(( now - timestamp ))
+  if (( age < 60 )); then
+    REPLY=now
+  elif (( age < 3600 )); then
+    REPLY="$(( age / 60 ))m ago"
+  elif (( age < 86400 )); then
+    REPLY="$(( age / 3600 ))h ago"
+  else
+    REPLY="$(( age / 86400 ))d ago"
+  fi
+}
+
+_git_review_status_apply() {
+  emulate -L zsh
+  local previous=${_git_review_refresh_status:-} indicator='' checked='' updated=''
+  local indicator_state='' indicator_details=''
+  local base=$_GIT_REVIEW_SUMMARY
+  [[ -n ${_ZLE_PICKER_DOCUMENT_KEY:-} && -n ${_GIT_REVIEW_DOCUMENT_SUMMARY:-} ]] &&
+    base+=" · $_GIT_REVIEW_DOCUMENT_SUMMARY"
+  if (( ${_ZLE_PICKER_AUTO_REFRESH:--1} >= 0 )); then
+    _git_review_age "${_git_auto_checked_at:-0}"; checked=$REPLY
+    _git_review_age "${_git_auto_updated_at:-0}"; updated=$REPLY
+    if (( ${_git_auto_failed:-0} )); then
+      if (( ${_git_auto_updated_at:-0} > 0 )); then
+        indicator="auto paused · checked $checked · snapshot updated $updated"
+      else
+        indicator="auto paused · checked $checked · snapshot unavailable"
+      fi
+    elif (( ${_ZLE_PICKER_DOCUMENT_UPDATE_PENDING:-0} )); then
+      indicator="auto on · update ready · current snapshot updated $updated"
+    elif (( _ZLE_PICKER_AUTO_REFRESH )); then
+      if (( ${_git_auto_updated_at:-0} > 0 )); then
+        indicator="auto on · checked $checked · updated $updated"
+      else
+        indicator="auto on · checked $checked · snapshot unavailable"
+      fi
+    else
+      if (( ${_git_auto_updated_at:-0} > 0 )); then
+        indicator="auto off · snapshot updated $updated"
+      else
+        indicator='auto off · snapshot unavailable'
+      fi
+    fi
+  fi
+  if [[ -n ${_git_review_event_status:-} ]]; then
+    if (( ${_ZLE_PICKER_DOCUMENT_UPDATE_PENDING:-0} )); then
+      indicator+="${indicator:+ · }$_git_review_event_status"
+    elif (( ${_ZLE_PICKER_AUTO_REFRESH:--1} >= 0 )) && [[ $indicator == *' · '* ]]; then
+      indicator_state=${indicator%% · *}
+      indicator_details=${indicator#* · }
+      indicator="$indicator_state · $_git_review_event_status · $indicator_details"
+    else
+      indicator="${_git_review_event_status}${indicator:+ · $indicator}"
+    fi
+  fi
+  _git_review_refresh_status=$indicator
+  # Refresh state is the time-sensitive fact. Keep it at the left edge so
+  # narrow document layouts retain auto/pending/failure status before counters.
+  _ZLE_PICKER_BROWSE_LABEL="${indicator}${indicator:+ · }$base"
+  [[ $indicator != "$previous" ]]
+}
+
+_git_review_status_wait() {
+  emulate -L zsh
+  local -i timestamp=${_git_auto_updated_at:-0} now=${EPOCHSECONDS:-0} age=0 wait=60
+  (( ${_git_auto_failed:-0} )) && timestamp=${_git_auto_checked_at:-0}
+  if (( timestamp > 0 && now >= timestamp )); then
+    age=$(( now - timestamp ))
+    if (( age < 3600 )); then
+      wait=$(( 60 - age % 60 ))
+    elif (( age < 86400 )); then
+      wait=$(( 3600 - age % 3600 ))
+    else
+      wait=$(( 86400 - age % 86400 ))
+    fi
+  fi
+  (( wait < 1 )) && wait=1
+  _ZLE_PICKER_IDLE_WAIT=$wait
+}
+
+# Length-prefix every field so hostile paths, controls and newlines remain data
+# without eval, quoting reconstruction or a delimiter that repository content
+# could forge. Git paths and retained diffs cannot contain NUL in shell memory.
+_git_review_packet_add() {
+  emulate -L zsh
+  local LC_ALL=C value=$1
+  _git_auto_packet+="${#value}:$value"
+}
+
+_git_review_auto_worker() {
+  emulate -L zsh
+  unsetopt MONITOR NOTIFY BG_NICE
+  setopt PIPE_FAIL
+  umask 077
+  zmodload zsh/datetime 2>/dev/null || return 2
+  local LC_ALL=C root=$1 generation=$2 request_name=$3 request_kind=$4
+  local request_context=$5 status_data='' diff_data='' config_data=''
+  local _GIT_REVIEW_WORKER_DIR=$6
+  local _git_auto_packet=$'compozsh-review-1\n'
+  local -a config=()
+  local -i result=0 prepare_result=0 list_truncated=0 diff_result=4 diff_truncated=0
+  local -i index=0 match=0
+  local -F started_at=$EPOCHREALTIME capture_duration=0
+  local -F _GIT_REVIEW_WORKER_DEADLINE=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_TIMEOUT ))
+  local -i _git_review_worker_active_pid=0
+  local -i _git_review_worker_cancelled=0 _git_review_worker_timed_out=0
+  local -i _git_review_worker_forking=0
+  # Only this worker ever signals its direct Git child. TERM closes the fork
+  # handoff race by recording cancellation until `$!` is assigned. Natural
+  # completion is observed through pipe EOF before the still-owned PID is reaped.
+  _git_review_auto_worker_defer_terminate() {
+    _git_review_worker_cancelled=1
+  }
+  _git_review_auto_worker_terminate() {
+    _git_review_worker_cancelled=1
+    if (( _git_review_worker_active_pid > 0 )); then
+      kill -KILL $_git_review_worker_active_pid 2>/dev/null
+      wait $_git_review_worker_active_pid 2>/dev/null
+      _git_review_worker_active_pid=0
+    fi
+    (( _git_review_worker_forking )) && return 0
+    (( _git_review_worker_timed_out )) && exit 124
+    exit 129
+  }
+  trap '_git_review_auto_worker_terminate' TERM
+
+  _git_review_prepare "$root" || { prepare_result=2; result=2; }
+  if (( !prepare_result )); then
+    config=("${_GIT_REVIEW_CONFIG[@]}")
+  fi
+  if (( !result )); then
+    _git_review_changes_capture "$root" || result=2
+  fi
+  if (( !result )); then
+    status_data=$_GIT_REVIEW_DATA
+    list_truncated=$_GIT_REVIEW_TRUNCATED
+    if [[ -n $request_name ]]; then
+      for (( index=1; index<=${#_GIT_REVIEW_PATHS}; ++index )); do
+        if [[ ${_GIT_REVIEW_PATHS[index]} == "$request_name" &&
+              ${_GIT_REVIEW_KINDS[index]} == "$request_kind" ]]; then
+          match=$index
+          break
+        fi
+      done
+      if (( match )); then
+        _git_review_diff_capture "$root" "$request_kind" "$request_name" '' '' "$request_context"
+        diff_result=$?
+        diff_data=$_GIT_REVIEW_DATA
+        diff_truncated=$_GIT_REVIEW_TRUNCATED
+      else
+        diff_result=3
+      fi
+    fi
+  fi
+
+  capture_duration=$(( EPOCHREALTIME - started_at ))
+  _git_review_packet_add "$result"
+  _git_review_packet_add "$generation"
+  _git_review_packet_add "$prepare_result"
+  _git_review_packet_add "${#config}"
+  (( ${#config} )) && config_data=${(pj:\0:)config}
+  _git_review_packet_add "$config_data"
+  _git_review_packet_add "$capture_duration"
+  if (( !result )); then
+    _git_review_packet_add "$list_truncated"
+    _git_review_packet_add "$status_data"
+    _git_review_packet_add "$request_name"
+    _git_review_packet_add "$request_kind"
+    _git_review_packet_add "$request_context"
+    _git_review_packet_add "$match"
+    _git_review_packet_add "$diff_result"
+    _git_review_packet_add "$diff_truncated"
+    _git_review_packet_add "$diff_data"
+  fi
+  _git_auto_packet+=$'compozsh-review-end-1\n'
+  if (( ${#_git_auto_packet} > 1048576 )); then
+    _git_auto_packet=$'compozsh-review-1\n'
+    _git_review_packet_add 3
+    _git_review_packet_add "$generation"
+    _git_review_packet_add 2
+    _git_review_packet_add 0
+    _git_review_packet_add ''
+    _git_review_packet_add "$capture_duration"
+    _git_auto_packet+=$'compozsh-review-end-1\n'
+  fi
+  print -rn -- "$_git_auto_packet"
+}
+
+_git_review_packet_take() {
+  # Hot parser primitive: its sole caller already owns an emulated Zsh scope
+  # and bytewise LC_ALL. Re-entering emulate for thousands of safe-filter
+  # fields adds hundreds of milliseconds on the UI thread.
+  local length_text=''
+  local -i colon=$_git_auto_parse_pos length=0 start=0 end=0 total=${#_git_auto_parse_packet}
+  # A length prefix has at most seven digits. Scan those bytes in place rather
+  # than copying the complete remaining packet for every field; large but
+  # valid filter configurations must remain linear-time UI work.
+  while (( colon <= total && colon - _git_auto_parse_pos <= 7 )); do
+    [[ ${_git_auto_parse_packet[colon]} == : ]] && break
+    (( ++colon ))
+  done
+  (( colon - _git_auto_parse_pos <= 7 )) || return 1
+  (( colon <= total )) || return 2
+  [[ ${_git_auto_parse_packet[colon]} == : ]] || return 1
+  length_text=${_git_auto_parse_packet[_git_auto_parse_pos,$(( colon - 1 ))]}
+  # Check decimal width before integer assignment so a corrupted private
+  # packet cannot print an arithmetic-overflow diagnostic into the screen.
+  [[ $length_text == <-> && ${#length_text} -le 7 ]] || return 1
+  length=$length_text
+  (( length <= 1048576 )) || return 1
+  start=$(( colon + 1 ))
+  if (( length )); then
+    end=$(( start + length - 1 ))
+    (( end <= total )) || return 2
+    REPLY=${_git_auto_parse_packet[start,end]}
+    _git_auto_parse_pos=$(( end + 1 ))
+  else
+    REPLY=''
+    _git_auto_parse_pos=$start
+  fi
+  return 0
+}
+
+_git_review_config_packet_valid() {
+  emulate -L zsh
+  local driver='' clean=''
+  local -i index=0
+  (( ${#config} % 6 == 0 )) || return 1
+  for (( index=1; index<=${#config}; index+=6 )); do
+    clean=${config[index + 1]}
+    [[ $clean == filter.*.clean= ]] || return 1
+    driver=${${clean#filter.}%.clean=}
+    [[ -n $driver && $driver != *'='* && $clean == "filter.${driver}.clean=" ]] || return 1
+    [[ ${config[index]} == -c && ${config[index + 2]} == -c && ${config[index + 4]} == -c ]] || return 1
+    [[ ${config[index + 3]} == "filter.${driver}.process=" ]] || return 1
+    [[ ${config[index + 5]} == "filter.${driver}.required=false" ]] || return 1
+  done
+  return 0
+}
+
+_git_review_auto_parse() {
+  emulate -L zsh
+  local LC_ALL=C header=$'compozsh-review-1\n' suffix=$'compozsh-review-end-1\n'
+  local _git_auto_parse_packet=$_git_auto_session_buffer value='' status_data=''
+  local request_name='' request_kind='' request_context='' diff_data='' config_data=''
+  local -i _git_auto_parse_pos=1 result=0 generation=0 prepare_result=0 count=0 index=0
+  local -i list_truncated=0 match=0 diff_result=0 diff_truncated=0 take_result=0
+  local -F capture_duration=0
+  local -a config=()
+  local -a paths=() labels=() kinds=() contexts=() details=() parents=()
+  local summary='' notice=''
+  [[ $_git_auto_parse_packet == "$header"* ]] || {
+    [[ $header == "$_git_auto_parse_packet"* ]] && return 2
+    return 1
+  }
+  _git_auto_parse_pos=$(( ${#header} + 1 ))
+  _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+  [[ $REPLY == (0|2|3) ]] || return 1
+  result=$REPLY
+  _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+  [[ $REPLY == <-> && ${#REPLY} -le 10 ]] || return 1
+  generation=$REPLY
+  _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+  [[ $REPLY == (0|2) ]] || return 1
+  prepare_result=$REPLY
+  _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+  [[ $REPLY == <-> && ${#REPLY} -le 4 ]] || return 1
+  count=$REPLY
+  (( count <= 4096 )) || return 1
+  (( prepare_result == 0 || count == 0 )) || return 1
+  _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+  config_data=$REPLY
+  if (( count )); then
+    config=("${(@0)config_data}")
+  else
+    [[ -z $config_data ]] || return 1
+    config=()
+  fi
+  (( ${#config} == count )) || return 1
+  _git_review_config_packet_valid || return 1
+  _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+  [[ $REPLY == <-> || $REPLY == <->.<-> ]] || return 1
+  (( ${#REPLY} <= 20 )) || return 1
+  capture_duration=$REPLY
+  (( capture_duration >= 0.0 && capture_duration <= _GIT_REVIEW_AUTO_REFRESH_TIMEOUT )) || return 1
+  if (( !result )); then
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    [[ $REPLY == 0 || $REPLY == 1 ]] || return 1
+    list_truncated=$REPLY
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    status_data=$REPLY
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    request_name=$REPLY
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    request_kind=$REPLY
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    request_context=$REPLY
+    [[ $request_context == (3|1000000000) ]] || return 1
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    [[ $REPLY == <-> && ${#REPLY} -le 4 ]] || return 1
+    match=$REPLY
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    [[ $REPLY == <-> && ${#REPLY} -le 3 ]] || return 1
+    diff_result=$REPLY
+    (( diff_result <= 255 )) || return 1
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    [[ $REPLY == 0 || $REPLY == 1 ]] || return 1
+    diff_truncated=$REPLY
+    _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
+    diff_data=$REPLY
+
+    # Parse the bounded status payload under local shadows; publish none of it
+    # until the complete outer packet and every field have validated.
+    local _GIT_REVIEW_DATA=$status_data _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
+    local -i _GIT_REVIEW_TRUNCATED=$list_truncated
+    local -a _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=() _GIT_REVIEW_KINDS=()
+    local -a _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=()
+    _git_review_changes_parse || return 1
+    paths=("${_GIT_REVIEW_PATHS[@]}") labels=("${_GIT_REVIEW_LABELS[@]}")
+    kinds=("${_GIT_REVIEW_KINDS[@]}") contexts=("${_GIT_REVIEW_CONTEXTS[@]}")
+    details=("${_GIT_REVIEW_DETAILS[@]}") parents=("${_GIT_REVIEW_PARENTS[@]}")
+    summary=$_GIT_REVIEW_SUMMARY notice=$_GIT_REVIEW_NOTICE
+    (( match <= ${#paths} )) || return 1
+    if (( match )); then
+      [[ ${paths[match]} == "$request_name" && ${kinds[match]} == "$request_kind" ]] || return 1
+    fi
+  fi
+  local remaining=${_git_auto_parse_packet[_git_auto_parse_pos,-1]}
+  if [[ $remaining != "$suffix" ]]; then
+    [[ $suffix == "$remaining"* ]] && return 2
+    return 1
+  fi
+
+  _git_auto_candidate_result=$result
+  _git_auto_candidate_generation=$generation
+  _git_auto_candidate_prepare_result=$prepare_result
+  _git_auto_candidate_capture_duration=$capture_duration
+  _git_auto_candidate_config=("${config[@]}")
+  _git_auto_candidate_paths=("${paths[@]}")
+  _git_auto_candidate_labels=("${labels[@]}")
+  _git_auto_candidate_kinds=("${kinds[@]}")
+  _git_auto_candidate_contexts=("${contexts[@]}")
+  _git_auto_candidate_details=("${details[@]}")
+  _git_auto_candidate_parents=("${parents[@]}")
+  _git_auto_candidate_summary=$summary
+  _git_auto_candidate_notice=$notice
+  _git_auto_candidate_list_truncated=$list_truncated
+  _git_auto_candidate_request_name=$request_name
+  _git_auto_candidate_request_kind=$request_kind
+  _git_auto_candidate_request_context=$request_context
+  _git_auto_candidate_match=$match
+  _git_auto_candidate_diff_result=$diff_result
+  _git_auto_candidate_diff_truncated=$diff_truncated
+  _git_auto_candidate_diff_data=$diff_data
+  return 0
+}
+
+_git_review_auto_candidate_clear() {
+  _git_auto_candidate_ready=0
+  _git_auto_candidate_result=0 _git_auto_candidate_generation=0
+  _git_auto_candidate_prepare_result=0 _git_auto_candidate_capture_duration=0
+  _git_auto_candidate_config=() _git_auto_candidate_paths=() _git_auto_candidate_labels=()
+  _git_auto_candidate_kinds=() _git_auto_candidate_contexts=()
+  _git_auto_candidate_details=() _git_auto_candidate_parents=()
+  _git_auto_candidate_summary='' _git_auto_candidate_notice=''
+  _git_auto_candidate_request_name='' _git_auto_candidate_request_kind=''
+  _git_auto_candidate_request_context='' _git_auto_candidate_diff_data=''
+  _git_auto_candidate_list_truncated=0 _git_auto_candidate_match=0
+  _git_auto_candidate_diff_result=0 _git_auto_candidate_diff_truncated=0
+}
+
+_git_review_auto_worker_stop() {
+  emulate -L zsh
+  local chunk=''
+  local -i amount=0
+  if (( ${_git_auto_session_pid:-0} > 0 )); then
+    kill -TERM -- ${_git_auto_session_pid} 2>/dev/null
+    # TERM is handled by the worker, which kills and reaps its exact in-memory
+    # provider before exiting. Waiting here cannot outlive the worker's own
+    # strict capture deadline and never signals a parent-visible provider PID.
+    wait ${_git_auto_session_pid} 2>/dev/null
+  fi
+  # The parent holds the FIFO read/write so a killed writer does not produce
+  # EOF. Discard any partial packet before this screen session launches a new
+  # generation; otherwise resume could prepend stale bytes to its response.
+  if (( ${_git_auto_session_fd:--1} >= 0 )) &&
+     zmodload zsh/system 2>/dev/null && zmodload zsh/zselect 2>/dev/null; then
+    while zselect -r $_git_auto_session_fd -t 0 2>/dev/null; do
+      chunk='' amount=0
+      sysread -i $_git_auto_session_fd -s 8192 -c amount chunk 2>/dev/null
+      (( $? == 0 && amount > 0 )) || break
+    done
+  fi
+  _git_auto_session_pid=0
+  _ZLE_PICKER_DEADLINE_AT=0
+  _git_auto_session_buffer=''
+}
+
+_git_review_auto_session_stop() {
+  emulate -L zsh
+  _git_review_auto_worker_stop
+  if (( ${_git_auto_session_fd:--1} >= 0 )); then
+    exec {_git_auto_session_fd}<&-
+    _git_auto_session_fd=-1
+  fi
+  [[ -n ${_git_auto_session_fifo:-} ]] && command rm -f -- "$_git_auto_session_fifo"
+  [[ -n ${_git_auto_session_dir:-} ]] && command rmdir -- "$_git_auto_session_dir" 2>/dev/null
+  _git_auto_session_fifo='' _git_auto_session_dir=''
+  _git_review_auto_candidate_clear
+  return 0
+}
+
+_git_review_auto_session_start() {
+  emulate -L zsh
+  (( ${_git_auto_session_fd:--1} < 0 )) || return 0
+  _git_auto_session_dir=$(command mktemp -d "${TMPDIR:-/tmp}/compozsh-review.XXXXXXXX") || return 1
+  command chmod 700 "$_git_auto_session_dir" || { _git_review_auto_session_stop; return 1; }
+  _git_auto_session_fifo="$_git_auto_session_dir/response.fifo"
+  command mkfifo -m 600 -- "$_git_auto_session_fifo" || { _git_review_auto_session_stop; return 1; }
+  exec {_git_auto_session_fd}<>"$_git_auto_session_fifo" || {
+    _git_review_auto_session_stop
+    return 1
+  }
+  return 0
+}
+
+_git_review_auto_launch() {
+  emulate -L zsh
+  unsetopt BG_NICE
+  local selected=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} name='' kind=''
+  _git_review_auto_session_start || return 1
+  (( ${_git_auto_session_pid:-0} == 0 )) || return 0
+  if [[ $selected == <-> ]] && (( selected > 0 )); then
+    name=${_GIT_REVIEW_PATHS[selected]-}
+    kind=${_GIT_REVIEW_KINDS[selected]-}
+  fi
+  (( ++_git_auto_generation ))
+  _git_auto_request_name=$name _git_auto_request_kind=$kind
+  _git_auto_request_context=$context
+  _git_auto_session_buffer=''
+  _git_auto_started_at=$EPOCHREALTIME
+  _git_auto_deadline_at=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_TIMEOUT ))
+  _ZLE_PICKER_DEADLINE_AT=$_git_auto_deadline_at
+  ( _git_review_auto_worker "$root" $_git_auto_generation "$name" "$kind" "$context" "$_git_auto_session_dir" \
+      < /dev/null > "$_git_auto_session_fifo" 2>/dev/null ) &
+  _git_auto_session_pid=$!
+  (( _git_auto_session_pid > 0 ))
+}
+
+_git_review_auto_poll() {
+  emulate -L zsh
+  zmodload zsh/system || return 3
+  zmodload zsh/zselect || return 3
+  local chunk=''
+  local -i amount=0 read_result=0 parse_result=0 pid=${_git_auto_session_pid:-0}
+  (( pid > 0 && ${_git_auto_session_fd:--1} >= 0 )) || return 2
+  while zselect -r $_git_auto_session_fd -t 0 2>/dev/null; do
+    chunk='' amount=0
+    sysread -i $_git_auto_session_fd -s 8192 -c amount chunk
+    read_result=$?
+    (( read_result == 0 && amount > 0 )) || break
+    _git_auto_session_buffer+=$chunk
+    (( ${#_git_auto_session_buffer} <= 1048576 )) || {
+      _git_review_auto_worker_stop
+      return 3
+    }
+  done
+  _git_review_auto_parse
+  parse_result=$?
+  case $parse_result in
+    (0)
+      wait $pid 2>/dev/null
+      _git_auto_session_pid=0 _git_auto_session_buffer=''
+      _ZLE_PICKER_DEADLINE_AT=0
+      _git_auto_candidate_ready=1
+      return 0 ;;
+    (1)
+      _git_review_auto_worker_stop
+      return 3 ;;
+  esac
+  kill -0 $pid 2>/dev/null && return 1
+  wait $pid 2>/dev/null
+  _git_auto_session_pid=0 _git_auto_session_buffer=''
+  _ZLE_PICKER_DEADLINE_AT=0
+  return 3
+}
+
+_git_review_arrays_equal() {
+  emulate -L zsh
+  local left_name=$1 right_name=$2
+  local -a left=("${(@P)left_name}") right=("${(@P)right_name}")
+  local -i index=0
+  (( ${#left} == ${#right} )) || return 1
+  for (( index=1; index<=${#left}; ++index )); do
+    [[ ${left[index]} == "${right[index]}" ]] || return 1
+  done
+  return 0
+}
+
+_git_review_auto_candidate_changed() {
+  emulate -L zsh
+  local pair=''
+  local -a pairs=(
+    '_GIT_REVIEW_PATHS _git_auto_candidate_paths'
+    '_GIT_REVIEW_LABELS _git_auto_candidate_labels'
+    '_GIT_REVIEW_KINDS _git_auto_candidate_kinds'
+    '_GIT_REVIEW_CONTEXTS _git_auto_candidate_contexts'
+    '_GIT_REVIEW_DETAILS _git_auto_candidate_details'
+    '_GIT_REVIEW_PARENTS _git_auto_candidate_parents')
+  for pair in "${pairs[@]}"; do
+    _git_review_arrays_equal ${=pair} || return 0
+  done
+  [[ $_GIT_REVIEW_SUMMARY == "$_git_auto_candidate_summary" &&
+     $_GIT_REVIEW_NOTICE == "$_git_auto_candidate_notice" ]] || return 0
+  if [[ -n $_git_auto_candidate_request_name && $_git_auto_candidate_match != 0 ]]; then
+    local current=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} cache_key=''
+    [[ $current == <-> ]] || return 0
+    _git_review_document_cache_key "$current" "$context"
+    cache_key=$REPLY
+    [[ ${_git_document_cache[$cache_key]-} == "$_git_auto_candidate_diff_data" &&
+       ${_git_document_partial[$cache_key]:-0} == $_git_auto_candidate_diff_truncated ]] || return 0
+  fi
+  return 1
+}
+
+_git_review_auto_candidate_visible() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local query=${_ZLE_PICKER_QUERY:-} label='' literal='' pattern=''
+  local -a reply=()
+  local -i match=${_git_auto_candidate_match:-0}
+  (( match > 0 )) || return 1
+  [[ -z $query ]] && return 0
+  (( ${+functions[_matching_compile]} )) || return 1
+  label="${_git_auto_candidate_labels[match]} ${_git_auto_candidate_contexts[match]-}"
+  _matching_compile "$query" || return 1
+  literal=$reply[1] pattern=$reply[2]
+  [[ $label == (#i)${literal}* || $label == (#i)*${literal}* || $label == ${~pattern} ]]
+}
+
+_git_review_auto_forget_other_documents() {
+  emulate -L zsh
+  local current=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} keep='' key='' failure=''
+  local saved_context='' saved_anchor=''
+  local -i saved_offset=0 saved_row=0
+  [[ $current == <-> ]] && { _git_review_document_cache_key "$current" "$context"; keep=$REPLY; }
+  if [[ $current == <-> ]]; then
+    saved_context=${_git_document_contexts[$current]-}
+    saved_anchor=${_git_document_anchors[$current]-}
+    saved_offset=${_ZLE_PICKER_DOCUMENT_OFFSETS[$current]:-0}
+    saved_row=${_ZLE_PICKER_DOCUMENT_ROWS[$current]:-0}
+  fi
+  for key in ${(k)_git_document_cache}; do
+    [[ $key == "$keep" ]] && continue
+    unset "_git_document_cache[$key]" "_git_document_partial[$key]" \
+      "_git_document_syntax_cache[$key]" "_git_document_syntax_notes[$key]" \
+      "_git_document_syntax_first[$key]" "_git_document_syntax_last[$key]"
+    for failure in ${(k)_git_document_syntax_failures}; do
+      [[ $failure == "$key:"* ]] && unset "_git_document_syntax_failures[$failure]"
+    done
+  done
+  [[ -n $keep ]] && _git_document_order=("$keep") || _git_document_order=()
+  # A successful external observation retires bookmarks for every other file,
+  # even when labels and the selected diff compare equal. Only the active
+  # reader can prove that its source anchor still belongs to retained bytes.
+  _git_document_contexts=() _git_document_anchors=()
+  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+  if [[ $current == <-> ]]; then
+    [[ -n $saved_context ]] && _git_document_contexts[$current]=$saved_context
+    [[ -n $saved_anchor ]] && _git_document_anchors[$current]=$saved_anchor
+    _ZLE_PICKER_DOCUMENT_OFFSETS[$current]=$saved_offset
+    _ZLE_PICKER_DOCUMENT_ROWS[$current]=$saved_row
+  fi
+}
+
+_git_review_auto_safety_adopt() {
+  emulate -L zsh
+  if (( ${_git_auto_candidate_ready:-0} && ${_git_auto_candidate_prepare_result:-2} == 0 )); then
+    _GIT_REVIEW_CONFIG=("${_git_auto_candidate_config[@]}")
+    _git_review_reads_blocked=0
+    return 0
+  fi
+  _git_review_reads_blocked=1
+  return 1
+}
+
+_git_review_auto_fail() {
+  emulate -L zsh
+  local safety_known=${2:-0}
+  _git_review_auto_worker_stop
+  _git_review_auto_candidate_clear
+  (( safety_known )) || _git_review_reads_blocked=1
+  _ZLE_PICKER_AUTO_REFRESH=0
+  _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+  _git_auto_failed=1
+  _git_auto_checked_at=$EPOCHSECONDS
+  _git_review_event_status=${1:-'automatic refresh failed'}
+  _git_review_status_apply
+  return 0
+}
+
+_git_review_auto_deadline() {
+  emulate -L zsh
+  (( ${_git_auto_session_pid:-0} > 0 && ${_git_auto_deadline_at:-0} > 0 &&
+     EPOCHREALTIME >= _git_auto_deadline_at )) || return 1
+  _git_review_auto_fail 'automatic refresh timed out'
+  return 0
+}
+
+_git_review_auto_schedule_context_check() {
+  emulate -L zsh
+  local -F earliest=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_INTERVAL ))
+  (( ${_git_auto_next_at:-0} >= earliest )) || _git_auto_next_at=$earliest
+}
+
+_git_review_auto_idle() {
+  emulate -L zsh
+  local old_status=$_git_review_refresh_status current='' current_name='' current_kind=''
+  local -F now=$EPOCHREALTIME duration=0 interval=$_GIT_REVIEW_AUTO_REFRESH_INTERVAL
+  local -i poll_result=2 changed=0 candidate_visible=0
+  _ZLE_PICKER_IDLE_WAIT=0
+  (( _ZLE_PICKER_AUTO_REFRESH >= 0 )) || return 2
+
+  # A guide never initiates Git discovery. Drain a request that was already in
+  # flight so its pipe cannot block, then hold the validated candidate until
+  # the user returns to the unchanged review context.
+  if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    if (( _git_auto_session_pid > 0 )); then
+      _git_review_auto_poll; poll_result=$?
+      if (( poll_result == 1 )); then
+        if (( EPOCHREALTIME >= _git_auto_deadline_at )); then
+          _git_review_auto_fail 'automatic refresh timed out'
+          return 0
+        fi
+        _ZLE_PICKER_IDLE_WAIT=0.10
+        return 2
+      fi
+      if (( poll_result == 3 )); then
+        (( EPOCHREALTIME >= _git_auto_deadline_at )) &&
+          _git_review_auto_fail 'automatic refresh timed out' || _git_review_auto_fail
+        return 0
+      fi
+    fi
+    return 2
+  fi
+  if (( _ZLE_PICKER_DOCUMENT_UPDATE_PENDING )); then
+    if [[ $context != "$_git_auto_candidate_request_context" ]]; then
+      # A pending diff is bound to the disclosure mode captured by its worker.
+      # Keep the old observation and obtain the new context on the next normal
+      # check instead of caching full bytes under a focused key (or vice versa).
+      _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+      _git_review_auto_candidate_clear
+      _git_review_auto_schedule_context_check
+      _git_review_event_status='context changed · checking again'
+      _git_review_status_apply
+      return 0
+    fi
+    _git_review_status_apply
+    changed=$?
+    _git_review_status_wait
+    (( changed == 0 )) && return 0
+    return 2
+  fi
+  if (( !_ZLE_PICKER_AUTO_REFRESH )); then
+    _git_review_status_apply
+    changed=$?
+    _git_review_status_wait
+    (( changed == 0 )) && return 0
+    return 2
+  fi
+
+  if (( _git_auto_session_pid > 0 )); then
+    _git_review_auto_poll; poll_result=$?
+    if (( poll_result == 1 )); then
+      if (( EPOCHREALTIME >= _git_auto_deadline_at )); then
+        _git_review_auto_fail 'automatic refresh timed out'
+        return 0
+      fi
+      _ZLE_PICKER_IDLE_WAIT=0.10
+      return 2
+    fi
+    if (( poll_result == 3 )); then
+      (( EPOCHREALTIME >= _git_auto_deadline_at )) &&
+        _git_review_auto_fail 'automatic refresh timed out' || _git_review_auto_fail
+      return 0
+    fi
+    if (( poll_result == 0 )); then
+      duration=$_git_auto_candidate_capture_duration
+      (( duration * 4.0 > interval )) && interval=$(( duration * 4.0 ))
+      (( interval > 30.0 )) && interval=30.0
+      _git_auto_next_at=$(( EPOCHREALTIME + interval ))
+      _git_auto_checked_at=$EPOCHSECONDS
+    fi
+  fi
+
+  if (( _git_auto_candidate_ready )); then
+    local -i safety_known=0
+    _git_review_auto_safety_adopt && safety_known=1
+    (( _git_auto_candidate_generation == _git_auto_generation &&
+       !_git_auto_candidate_result )) || {
+      _git_review_auto_fail 'automatic refresh returned an invalid snapshot' $safety_known
+      return 0
+    }
+    current=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
+    if [[ $current == <-> ]] && (( current > 0 )); then
+      current_name=${_GIT_REVIEW_PATHS[current]-}
+      current_kind=${_GIT_REVIEW_KINDS[current]-}
+    fi
+    if [[ $current_name != "$_git_auto_candidate_request_name" ||
+          $current_kind != "$_git_auto_candidate_request_kind" ||
+          $context != "$_git_auto_candidate_request_context" ]]; then
+      # Selection or disclosure won while Git was working. Its result is a
+      # valid local check but cannot replace another document; request the new
+      # exact target on the already scheduled check without bypassing the
+      # configured/adaptive pacing floor.
+      _git_review_auto_candidate_clear
+      _git_review_event_status=''
+      _git_review_status_apply
+      [[ $_git_review_refresh_status != "$old_status" ]] && return 0
+    else
+      if [[ -n $current_name && $_git_auto_candidate_match != 0 &&
+            $_git_auto_candidate_diff_result != 0 ]]; then
+        _git_review_auto_fail 'automatic diff refresh failed' $safety_known
+        return 0
+      fi
+      if _git_review_auto_candidate_changed; then changed=1; fi
+      _git_review_auto_candidate_visible && candidate_visible=1
+      if (( !changed )); then
+        _git_review_auto_forget_other_documents
+        _git_review_auto_candidate_clear
+        _git_review_event_status=''
+        _git_review_status_apply
+        [[ $_git_review_refresh_status != "$old_status" ]] && return 0
+      elif (( _ZLE_PICKER_INSPECT_FOCUS && current > 0 && !candidate_visible )); then
+        _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=1
+        if (( _git_auto_candidate_match )); then
+          _git_review_event_status='selected change no longer matches filter'
+        else
+          _git_review_event_status='selected change resolved or moved'
+        fi
+        _git_review_status_apply
+        return 0
+      else
+        _ZLE_PICKER_IDLE_ACTION=document-auto-refresh
+        return 0
+      fi
+    fi
+  fi
+
+  now=$EPOCHREALTIME
+  if (( now >= _git_auto_next_at )); then
+    _git_review_auto_launch || { _git_review_auto_fail 'automatic refresh could not start'; return 0; }
+    _ZLE_PICKER_IDLE_WAIT=0.10
+    return 2
+  fi
+  _ZLE_PICKER_IDLE_WAIT=$(( _git_auto_next_at - now ))
+  (( _ZLE_PICKER_IDLE_WAIT < 0.03 )) && _ZLE_PICKER_IDLE_WAIT=0.03
+  return 2
+}
+
+_git_review_idle() {
+  emulate -L zsh
+  local -i auto_result=2 syntax_result=2
+  local -F auto_wait=0
+  _git_review_auto_idle; auto_result=$?
+  auto_wait=$_ZLE_PICKER_IDLE_WAIT
+  [[ -n ${_ZLE_PICKER_IDLE_ACTION:-} ]] && return 0
+  _git_review_syntax_idle; syntax_result=$?
+  (( auto_result == 0 || syntax_result == 0 )) && return 0
+  (( auto_result == 1 || syntax_result == 1 )) && return 1
+  _ZLE_PICKER_IDLE_WAIT=$auto_wait
+  return 2
+}
+
+# Publish one fully validated candidate after the picker has returned its exact
+# bookmark. No busy frame or provider call occurs here: the worker already
+# captured both the list and the surviving selected diff. State changes once,
+# then the normal ZLE repaint replaces the complete frame in place.
+_git_review_auto_publish() {
+  emulate -L zsh
+  local root=$1 selected=${_ZLE_PICKER_DOCUMENT_KEY:-0} anchor='' cache_key=''
+  # The focus-return key may also edit the filter and reset its visible
+  # selection. Bind publication to the exact path/kind the worker captured,
+  # never to that post-key numeric slot from the older observation.
+  local name=$_git_auto_candidate_request_name
+  local change_kind=$_git_auto_candidate_request_kind
+  local diff_data=$_git_auto_candidate_diff_data
+  local -i diff_truncated=$_git_auto_candidate_diff_truncated
+  local -i match=0 rank=0 row=0 old_slot=$(( bookmark[2] - bookmark[3] ))
+
+  if [[ $context != "$_git_auto_candidate_request_context" ]]; then
+    _git_review_auto_safety_adopt || true
+    _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+    _git_review_auto_candidate_clear
+    _git_review_auto_schedule_context_check
+    _git_review_event_status='context changed · checking again'
+    _git_review_status_apply >/dev/null
+    return 0
+  fi
+
+  if [[ $selected == <-> && ${_GIT_REVIEW_PATHS[selected]-} == "$name" &&
+        ${_GIT_REVIEW_KINDS[selected]-} == "$change_kind" ]]; then
+    _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$selected]:-0}"
+    anchor=$REPLY
+  fi
+
+  _GIT_REVIEW_CONFIG=("${_git_auto_candidate_config[@]}")
+  _GIT_REVIEW_PATHS=("${_git_auto_candidate_paths[@]}")
+  _GIT_REVIEW_LABELS=("${_git_auto_candidate_labels[@]}")
+  _GIT_REVIEW_KINDS=("${_git_auto_candidate_kinds[@]}")
+  _GIT_REVIEW_CONTEXTS=("${_git_auto_candidate_contexts[@]}")
+  _GIT_REVIEW_DETAILS=("${_git_auto_candidate_details[@]}")
+  _GIT_REVIEW_PARENTS=("${_git_auto_candidate_parents[@]}")
+  _GIT_REVIEW_SUMMARY=$_git_auto_candidate_summary
+  _GIT_REVIEW_NOTICE=$_git_auto_candidate_notice
+  _GIT_REVIEW_TRUNCATED=$_git_auto_candidate_list_truncated
+
+  _git_document_cache=() _git_document_partial=() _git_document_order=()
+  _git_document_syntax_cache=() _git_document_syntax_notes=()
+  _git_document_syntax_first=() _git_document_syntax_last=()
+  _git_document_syntax_failures=()
+  _git_document_contexts=() _git_document_anchors=()
+  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+  _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
+  _ZLE_PICKER_DOCUMENT_PENDING=0
+  (( ++_git_review_snapshot_epoch ))
+  _git_review_syntax_cleanup
+  _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+  _GIT_REVIEW_DOCUMENT_HAS_CODE=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+  _GIT_REVIEW_DOCUMENT_SUMMARY=''
+  _ZLE_PICKER_EMPTY_LINES=()
+  if (( !${#_GIT_REVIEW_PATHS} )); then
+    _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Automatic refresh is active; Ctrl-R refreshes now.' "$_GIT_REVIEW_NOTICE")
+  fi
+  for (( row=1; row<=${#_GIT_REVIEW_PATHS}; ++row )); do
+    if [[ ${_GIT_REVIEW_PATHS[row]} == "$name" &&
+          ${_GIT_REVIEW_KINDS[row]} == "$change_kind" ]]; then
+      match=$row
+      break
+    fi
+  done
+  _git_review_rows
+  _navigation_picker_collect "${bookmark[1]}" 1000
+  (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
+  if (( rank )); then
+    bookmark[2]=$rank
+    (( old_slot < 1 )) && old_slot=1
+    bookmark[3]=$(( rank - old_slot ))
+    (( bookmark[3] < 0 )) && bookmark[3]=0
+    _git_document_contexts[$match]=refresh
+    _git_document_anchors[$match]=$anchor
+    _git_review_document_cache_key "$match" "$context"
+    cache_key=$REPLY
+    _git_document_cache[$cache_key]=$diff_data
+    _git_document_partial[$cache_key]=$diff_truncated
+    _git_document_order=("$cache_key")
+    _git_review_refresh_status=''
+    _git_review_document_load "$root" "$match" '' '' "$context" || return $?
+  else
+    bookmark[2]=1 bookmark[3]=0 focus=0 context=3
+    [[ -n $name ]] && _git_review_event_status='updated automatically · previous selection no longer in results' ||
+      _git_review_event_status='updated automatically'
+  fi
+  if (( rank )); then
+    _git_review_event_status='updated automatically'
+  fi
+  _git_auto_updated_at=$EPOCHSECONDS
+  _git_auto_failed=0
+  _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+  _git_review_auto_candidate_clear
+  _git_review_status_apply >/dev/null
+  return 0
+}
+
 # Explicit whole-workspace refresh, owned by _git_review_view. Keep the old
 # observation on a failed list read. Numeric IDs can change, so successful
 # refresh retires every raw/token cache and rebinds only the active source anchor
@@ -962,13 +1973,16 @@ _git_review_recapture() {
 _git_review_refresh() {
   emulate -L zsh
   local root=$1 view_kind=$2 oid=$3 parent=$4 selected=$5
-  local name=${_GIT_REVIEW_PATHS[selected]-} change_kind=${_GIT_REVIEW_KINDS[selected]-} anchor=''
+  local name='' change_kind='' anchor=''
+  name=${_GIT_REVIEW_PATHS[selected]-}
+  change_kind=${_GIT_REVIEW_KINDS[selected]-}
   local summary=$_GIT_REVIEW_SUMMARY notice=$_GIT_REVIEW_NOTICE
   local -a saved_paths=("${_GIT_REVIEW_PATHS[@]}") saved_kinds=("${_GIT_REVIEW_KINDS[@]}")
   local -a saved_labels=("${_GIT_REVIEW_LABELS[@]}") saved_contexts=("${_GIT_REVIEW_CONTEXTS[@]}")
   local -a saved_details=("${_GIT_REVIEW_DETAILS[@]}") saved_parents=("${_GIT_REVIEW_PARENTS[@]}")
   local -a saved_config=("${_GIT_REVIEW_CONFIG[@]}")
   local -i result=0 match=0 rank=0 row=0
+  _git_review_refresh_succeeded=0
   if [[ -n $selected && $selected == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
     _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$selected]:-0}"
     anchor=$REPLY
@@ -984,8 +1998,7 @@ _git_review_refresh() {
     (( _git_review_reads_blocked )) && _GIT_REVIEW_CONFIG=("${saved_config[@]}")
     _GIT_REVIEW_SUMMARY=$summary _GIT_REVIEW_NOTICE=$notice
     (( result == 129 || result == 130 || result == 143 )) && return $result
-    _git_review_refresh_status='refresh failed · previous snapshot · Ctrl-R retry'
-    _ZLE_PICKER_BROWSE_LABEL="$_GIT_REVIEW_SUMMARY · $_git_review_refresh_status"
+    _git_review_event_status='refresh failed · previous snapshot · Ctrl-R retry'
     return 0
   fi
 
@@ -1002,12 +2015,12 @@ _git_review_refresh() {
   _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
   _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
   _GIT_REVIEW_DOCUMENT_HAS_CODE=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _GIT_REVIEW_DOCUMENT_SUMMARY=''
-  _git_review_refresh_status='refreshed · Ctrl-R updates snapshot'
+  _git_review_event_status='refreshed'
   _ZLE_PICKER_SUBTITLE="${root:t} · read-only snapshot"
   [[ $view_kind == comparison ]] && _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${root:t}"
   _ZLE_PICKER_EMPTY_LINES=()
   if (( !${#_GIT_REVIEW_PATHS} )); then
-    _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Ctrl-R refreshes; Escape returns.' "$_GIT_REVIEW_NOTICE")
+    _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Ctrl-R refreshes now; Escape returns.' "$_GIT_REVIEW_NOTICE")
   fi
   for (( row=1; row<=${#_GIT_REVIEW_PATHS}; ++row )); do
     if [[ ${_GIT_REVIEW_PATHS[row]} == "$name" && ${_GIT_REVIEW_KINDS[row]} == "$change_kind" ]]; then
@@ -1027,13 +2040,29 @@ _git_review_refresh() {
   else
     bookmark[2]=1 bookmark[3]=0 focus=0 context=3
     match=${_ZLE_PICKER_RESULTS[1]:-0}
-    [[ -n $name ]] && _git_review_refresh_status+=' · previous selection no longer in results'
+    [[ -n $name ]] && _git_review_event_status+=' · previous selection no longer in results'
   fi
-  _ZLE_PICKER_BROWSE_LABEL="$_GIT_REVIEW_SUMMARY · $_git_review_refresh_status"
+  _git_review_refresh_status=''
   if (( match )); then
     _git_review_document_load "$root" "$match" "$oid" "$parent" "$context" || return $?
   fi
+  _git_review_refresh_succeeded=1
   return 0
+}
+
+_git_review_manual_refresh_auto_state() {
+  emulate -L zsh
+  local -i succeeded=$1 resume_after_failure=$2 auto_was_enabled=$3
+  _git_auto_checked_at=$EPOCHSECONDS
+  if (( succeeded )); then
+    _git_auto_updated_at=$EPOCHSECONDS
+    _git_auto_failed=0
+    (( resume_after_failure )) && _ZLE_PICKER_AUTO_REFRESH=1
+    _git_auto_next_at=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_INTERVAL ))
+  elif (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+    _ZLE_PICKER_AUTO_REFRESH=0
+    (( resume_after_failure || auto_was_enabled )) && _git_auto_failed=1 || _git_auto_failed=0
+  fi
 }
 
 # Scope file snapshots and reading bookmarks to this review workspace.
@@ -1047,6 +2076,7 @@ _git_review_view() {
   # user's MONITOR/NOTIFY options as soon as the workspace exits.
   unsetopt MONITOR NOTIFY
   setopt EXTENDED_GLOB
+  zmodload zsh/datetime || return 2
   local root=$1 kind=$2 target=${3:-} oid=${4:-} parent=${5:-}
   local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
   local _ZLE_PICKER_SUBTITLE_RENDERER=''
@@ -1055,15 +2085,19 @@ _git_review_view() {
   local _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_BROWSE_LABEL=''
   local _ZLE_PICKER_EMPTY_LABEL='no matching entries'
   local _ZLE_PICKER_SEARCH_ACTION=''
-  local _ZLE_PICKER_IDLE_CALLBACK=_git_review_syntax_idle
+  local _ZLE_PICKER_IDLE_CALLBACK=_git_review_idle _ZLE_PICKER_IDLE_ACTION=''
   local _ZLE_PICKER_INSPECT_FALLBACK='' _ZLE_PICKER_INSPECT_EXPAND_KEY=''
   local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _zle_picker_start_focus=0
   local -i result=0 index=0 focus=0 _git_review_reads_blocked=0
   local -i _ZLE_PICKER_DOCUMENT=0 context=3 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _ZLE_PICKER_DOCUMENT_REFRESH=0
-  local -i _ZLE_PICKER_DOCUMENT_PENDING=0
+  local -i _ZLE_PICKER_DOCUMENT_PENDING=0 _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+  local -i _ZLE_PICKER_AUTO_REFRESH=-1 _git_review_refresh_succeeded=0
   local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=4
+  local -F _ZLE_PICKER_IDLE_WAIT=0
+  local -F _ZLE_PICKER_DEADLINE_AT=0
+  local _ZLE_PICKER_DEADLINE_CALLBACK=''
   local _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _GIT_REVIEW_DOCUMENT_SUMMARY='' _ZLE_PICKER_DOCUMENT_MODE=''
-  local _git_review_refresh_status=''
+  local _git_review_refresh_status='' _git_review_event_status=''
   local _git_syntax_session_dir='' _git_syntax_session_request_fifo=''
   local _git_syntax_session_response_fifo='' _git_syntax_session_buffer=''
   local -i _git_syntax_session_fd=-1 _git_syntax_session_pid=0
@@ -1074,6 +2108,20 @@ _git_review_view() {
   local -F _git_syntax_session_deadline=0
   local _git_syntax_active_key='' _git_syntax_active_note=''
   local _git_syntax_status_note=''
+  local _git_auto_session_dir='' _git_auto_session_fifo='' _git_auto_session_buffer=''
+  local _git_auto_request_name='' _git_auto_request_kind='' _git_auto_request_context=''
+  local _git_auto_candidate_summary='' _git_auto_candidate_notice=''
+  local _git_auto_candidate_request_name='' _git_auto_candidate_request_kind=''
+  local _git_auto_candidate_request_context='' _git_auto_candidate_diff_data=''
+  local -i _git_auto_session_fd=-1 _git_auto_session_pid=0 _git_auto_generation=0
+  local -i _git_auto_candidate_ready=0 _git_auto_candidate_result=0
+  local -i _git_auto_candidate_generation=0 _git_auto_candidate_prepare_result=0
+  local -i _git_auto_candidate_list_truncated=0
+  local -i _git_auto_candidate_match=0 _git_auto_candidate_diff_result=0
+  local -i _git_auto_candidate_diff_truncated=0 _git_auto_failed=0
+  local -i _git_auto_checked_at=0 _git_auto_updated_at=0
+  local -F _git_auto_started_at=0 _git_auto_deadline_at=0 _git_auto_next_at=0
+  local -F _git_auto_candidate_capture_duration=0
   local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _git_document_order=()
   local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _git_document_cache=() _git_document_partial=()
   local -A _ZLE_PICKER_DOCUMENT_SYNTAX=() _git_document_syntax_cache=() _git_document_syntax_notes=()
@@ -1083,6 +2131,10 @@ _git_review_view() {
   local -a _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
   local -a _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=() _GIT_REVIEW_KINDS=()
   local -a _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=()
+  local -a _git_auto_candidate_config=() _git_auto_candidate_paths=()
+  local -a _git_auto_candidate_labels=() _git_auto_candidate_kinds=()
+  local -a _git_auto_candidate_contexts=() _git_auto_candidate_details=()
+  local -a _git_auto_candidate_parents=()
   local _GIT_REVIEW_DATA='' _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
   local -i _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DOCUMENT_HAS_CODE=0
   local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
@@ -1094,7 +2146,12 @@ _git_review_view() {
     (working)
       _git_review_load _git_review_changes_capture "$root"; result=$?
       _ZLE_PICKER_TITLE='Working changes'
-      _ZLE_PICKER_SUBTITLE="${root:t} · current working tree · read-only" ;;
+      _ZLE_PICKER_SUBTITLE="${root:t} · current working tree · read-only"
+      [[ $ZSH_GIT_REVIEW_AUTO_REFRESH == 0 ]] && _ZLE_PICKER_AUTO_REFRESH=0 || _ZLE_PICKER_AUTO_REFRESH=1
+      _ZLE_PICKER_DEADLINE_CALLBACK=_git_review_auto_deadline
+      _git_auto_checked_at=$EPOCHSECONDS
+      (( result == 0 )) && _git_auto_updated_at=$EPOCHSECONDS
+      _git_auto_next_at=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_INTERVAL )) ;;
     (commits)
       _git_review_load _git_review_commits_capture "$root" "$oid"; result=$?
       _ZLE_PICKER_TITLE='Branch commits' _ZLE_PICKER_QUERY_LABEL='Filter commits'
@@ -1119,19 +2176,27 @@ _git_review_view() {
   if [[ $kind == (working|files|comparison) ]]; then
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1
     _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff
-    _git_review_refresh_status='snapshot · Ctrl-R refresh'
   fi
   _ZLE_PICKER_BROWSE_LABEL=$_GIT_REVIEW_SUMMARY
   if (( !${#_GIT_REVIEW_LABELS} )); then
     _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Escape returns to the previous view.' "$_GIT_REVIEW_NOTICE")
-    (( _ZLE_PICKER_DOCUMENT_REFRESH )) && _ZLE_PICKER_EMPTY_LINES[2]='Ctrl-R refreshes; Escape returns.'
+    (( _ZLE_PICKER_DOCUMENT_REFRESH )) && _ZLE_PICKER_EMPTY_LINES[2]='Ctrl-R refreshes now; Escape returns.'
   fi
   if (( result )); then
     _ZLE_PICKER_EMPTY_LINES=('Unavailable: Git could not capture this view.' 'No changes were made. Escape returns to the previous view.')
     _ZLE_PICKER_BROWSE_LABEL='capture failed · read-only'
     _git_review_reset
+    if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+      if (( _ZLE_PICKER_AUTO_REFRESH )); then
+        _ZLE_PICKER_AUTO_REFRESH=0 _git_auto_failed=1
+      else
+        _git_auto_failed=0
+      fi
+      _git_review_event_status='initial capture failed'
+    fi
   fi
   _git_review_rows
+  _git_review_status_apply >/dev/null
   {
   if (( _ZLE_PICKER_DOCUMENT && ${+functions[_git_syntax_session_start]} )); then
     _git_syntax_session_start || true
@@ -1145,8 +2210,37 @@ _git_review_view() {
     bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     index=$_ZLE_PICKER_SELECTED_VALUE
     if (( _ZLE_PICKER_DOCUMENT )); then
+      if [[ $_ZLE_PICKER_ACTION == document-auto-toggle ]]; then
+        if (( _ZLE_PICKER_AUTO_REFRESH )); then
+          _ZLE_PICKER_AUTO_REFRESH=0
+          _git_auto_failed=0
+          _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+          _git_review_auto_worker_stop
+          _git_review_auto_candidate_clear
+          _git_review_event_status=''
+        else
+          _ZLE_PICKER_AUTO_REFRESH=1
+          _git_auto_failed=0
+          _git_auto_next_at=$EPOCHREALTIME
+          _git_review_event_status=''
+        fi
+        _git_review_status_apply >/dev/null
+        continue
+      fi
+      if [[ $_ZLE_PICKER_ACTION == (document-auto-refresh|document-auto-apply) ]]; then
+        _git_review_auto_publish "$root" || return $?
+        continue
+      fi
       if [[ $_ZLE_PICKER_ACTION == document-refresh ]]; then
+        local -i resume_after_failure=$_git_auto_failed
+        local -i auto_was_enabled=$_ZLE_PICKER_AUTO_REFRESH
+        _git_review_auto_worker_stop
+        _git_review_auto_candidate_clear
+        _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
         _git_review_refresh "$root" "$kind" "$oid" "$parent" "$index" || return $?
+        _git_review_manual_refresh_auto_state $_git_review_refresh_succeeded \
+          $resume_after_failure $auto_was_enabled
+        _git_review_status_apply >/dev/null
         continue
       fi
       if (( index > 0 )); then
@@ -1173,6 +2267,7 @@ _git_review_view() {
     (( result > 1 )) && return $result
   done
   } always {
+    _git_review_auto_session_stop
     _git_review_syntax_cleanup
   }
 }

@@ -698,6 +698,9 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
 - Do not add a project-specific disk cache, cache daemon, background worker,
   timer loop, or eager startup scan without an explicit architectural decision
   from the user. Zsh's native completion dump is not feature-state storage.
+- Working-changes auto-refresh in the Git review screen is the narrowly approved
+  screen-session worker exception. Its ownership, bounds, lifecycle and local-only
+  behavior are defined by the Git review workspace boundary below.
 - Do not recursively scan entire repositories. Use bounded upward searches,
   exact marker checks, and shallow conventional source directories.
 - Recursive add-on discovery is allowed only inside the shared `.zsh.addons`
@@ -804,6 +807,7 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
 | Ctrl-X | Open **review** on Branches or **options** in filesystem/worktree views; inactive in document readers |
 | Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence |
+| Ctrl-A in an auto-refresh document workspace | Pause/resume automatic refresh for the current screen session |
 | Ctrl-R in a document workspace | Refresh the file list and selected diff, retaining available selection/focus/source area |
 | Ctrl-T | Toggle hidden folders in the browser |
 
@@ -819,7 +823,9 @@ Collectors and tool providers must not implement their own key parsers or hints.
 Ctrl-R's refresh meaning is limited to document workspaces. Preserve prompt
 history search and the existing next-result alias in other pickers. Refresh is
 available with empty/filtered-out document lists, allowing new changes to be
-discovered. The keyboard guide must never trigger refresh.
+discovered. Ctrl-A remains beginning-of-line at the prompt and is advertised
+only when the active document workspace provides automatic refresh. The
+keyboard guide must never trigger refresh or an automatic provider check.
 
 - Preserve spatial landmarks when results shrink. Blank space is acceptable;
   do not fill the screen with unrelated widgets, repeated paths or decoration.
@@ -1123,12 +1129,15 @@ discovered. The keyboard guide must never trigger refresh.
   claim content tracking through concurrent edits. Test wrapped lines, gaps,
   deleted/new files, truncation, cache visits and native mode-switch journeys.
   Refresh rechecks Git filter-safety configuration, recaptures the file list,
-  and reloads only the selected diff eagerly, outside the input loop. Keep the
+  and reloads only the selected diff eagerly, outside the input loop. Manual
+  Ctrl-R does this synchronously; Working changes also performs it through the
+  bounded automatic-refresh path below. Keep the
   filter and identify the selection by literal path AND change kind, then find
   its new filtered rank; numeric IDs are valid only within one observation.
   Retain pane focus, context mode and source anchor for a surviving selection.
-  If it leaves the filtered results, visibly explain and focus the first match
-  in the file list, in focused mode. Empty lists remain refreshable.
+  Manual refresh may explain a selection that left the filtered results and
+  focus the first match in the file list, in focused mode. Empty lists remain
+  refreshable.
   Invalidate every raw/token/context cache and other-file reading bookmark on
   successful refresh; never let cached full context resurrect an older diff.
   On list/configuration failure, retain the previous observation with a retry
@@ -1136,8 +1145,40 @@ discovered. The keyboard guide must never trigger refresh.
   diff reads until retry, while allowing already captured documents. Keep newly
   validated filter overrides even if the following list read fails.
   Commit-file refresh retains immutable IDs.
-  Advertise manual snapshots and Ctrl-R in shared chrome/help. No background
-  watcher or polling; reopening branch history discovers new commits.
+  Working changes starts automatic refresh unless the initializer set
+  `ZSH_GIT_REVIEW_AUTO_REFRESH=0`. Ctrl-A pauses or resumes it for only the
+  current review screen; Ctrl-R checks immediately and resumes after an
+  automatic failure, while an intentional pause remains paused after manual
+  success or failure. Commit and comparison workspaces remain immutable-ID
+  snapshots and refresh only on Ctrl-R; reopening branch history discovers new
+  commits. Show separate relative ages for the last completed local check and
+  the last published snapshot, so an unchanged automatic check never implies
+  a snapshot update.
+  Automatic checks are input-idle and keep at most one owned worker/provider
+  pair in flight. Use a private mode-0700 invocation directory, mode-0600 FIFO,
+  bounded in-memory provider streams, a framed literal-data
+  protocol and the existing 1 MiB snapshot cap. Start no daemon, hook or
+  persistent watcher/cache. The worker performs only the same bounded,
+  transport-disabled local status and selected-diff reads as manual refresh.
+  The worker must own the exact Git provider PID in memory so pause, manual
+  refresh, timeout and screen cleanup terminate and reap the provider without
+  signalling a parent-visible handoff PID. Pace checks
+  no faster than two seconds and at least four times the capture duration
+  measured inside the worker, capped at thirty seconds. Give one check a
+  screen-session thirty-second deadline that does not depend on ordinary
+  picker-idle callbacks or an empty terminal-input queue. A failed or timed-out
+  automatic check retains the old
+  observation, pauses further checks and exposes Ctrl-R as retry.
+  Parse and validate a complete worker result before publishing it. Publish a
+  changed snapshot with one repaint and no busy/blank intermediate frame,
+  preserving filter, exact path and change kind, filtered rank, viewport slot,
+  pane focus, context mode and semantic source anchor. If that target disappears
+  or leaves the active filter while the reader is focused, retain the old reader,
+  show `update ready`, and publish only when focus returns to the file list; do
+  not move focus automatically. A disclosure change invalidates a pending diff
+  candidate and waits for the next normally paced check. Guide, resize,
+  scrolling and filtering remain
+  provider-free, though ordinary input-idle time can make a due automatic check.
   Working-file lists and later diffs are
   separate observations, not an atomic transaction. Failed reads must be
   distinguished from successful empty snapshots. Preserve abort propagation.
@@ -1145,7 +1186,11 @@ discovered. The keyboard guide must never trigger refresh.
   and network protocols, external diffs and textconv. Discover configured
   clean/process filter names and override them to inert values per invocation;
   disable required-filter enforcement too. Never change repository/global
-  configuration. Refuse a capped/failed filter-name discovery. Explain the
+  configuration. Refuse a capped/failed filter-name discovery and any driver
+  containing `=`, which Git's `-c key=value` form cannot address unambiguously;
+  bound the generated override argv to 4,096 entries in both manual and
+  automatic paths.
+  Explain the
   unfiltered comparison in help. These measures are not an OS sandbox.
   References: [Git diff](https://git-scm.com/docs/git-diff),
   [Git status](https://git-scm.com/docs/git-status),

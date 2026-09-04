@@ -95,17 +95,17 @@ export const scenes = {
   },
   'git-review': {
     mode: 'git', label: 'Review changes', layout: 'review', command: 'g → Ctrl-X',
-    title: 'Working changes', query: '', scope: 'Working changes · read-only snapshot',
+    title: 'Working changes', query: '', scope: 'Working changes · auto on · checked now · updated now',
     input: 'Filter files', benefit: 'Review the change. Keep your flow.',
-    description: 'A focused file navigator and independently scrollable reader bring working changes into one native workspace. Ctrl-R refreshes the snapshot while you review AI or editor work.',
-    hint: 'In Zsh: → focuses the diff; → again reveals full-file context; Ctrl-R refreshes.',
+    description: 'A focused file navigator and independently scrollable reader bring working changes into one native workspace. Local changes refresh automatically without moving your reading focus.',
+    hint: 'In Zsh: → focuses the diff; → again reveals full-file context; Ctrl-A pauses auto and Ctrl-R refreshes now.',
     docs: `${readme}read-only-git-review`,
     items: [
       {
         label: 'README.md', status: 'Unstaged M', preview: [
           { old: '2171', next: '2171', kind: 'context', text: 'The selected file stays anchored while the reader moves.' },
           { old: '2172', next: '', kind: 'removed', text: 'Ctrl-R refreshes the selected snapshot.' },
-          { old: '', next: '2172', kind: 'added', text: 'Ctrl-R refreshes the file list and selected diff.' },
+          { old: '', next: '2172', kind: 'added', text: 'Working changes refreshes automatically.' },
           { old: '', next: '2173', kind: 'added', text: 'Focus and source position remain visible.' },
           { old: '2173', next: '2174', kind: 'context', text: 'Arrow disclosure keeps the same selected file.' },
         ],

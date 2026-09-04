@@ -602,12 +602,25 @@ _compozsh_help_g() {
     '  Up/Down and page keys scroll each pane independently. Typing filters files.' \
     '  Reading never crosses into another file; each file remembers its position.' \
     '  Below 90 columns the focused pane uses the full width.' \
-    '  Ctrl-R refreshes the file list and selected diff, even with no results.' \
-    '  Use it while an AI/editor changes files; updates are manual, not polled.' \
-    '  It retains the filter, exact file/change kind, focus and source area when' \
-    '  available. New/removed files appear; all cached diff/syntax views expire.' \
-    '  If the selection disappears, focus returns to files at the first match.' \
-    '  Failed list refresh keeps the previous snapshot and offers Ctrl-R retry.' \
+    '  Working changes rechecks local Git automatically while its screen is open.' \
+    '  The status distinguishes the last completed check from the last snapshot' \
+    '  update. Ctrl-A pauses/resumes automatic refresh for this screen session;' \
+    '  set ZSH_GIT_REVIEW_AUTO_REFRESH=0 to make new sessions start paused.' \
+    '  A changed surviving diff publishes in one repaint, retaining the filter,' \
+    '  exact file/change kind, pane focus and source area. New/removed files' \
+    '  replace the navigator and every older diff/syntax cache.' \
+    '  If the selection disappears while reading, the old reader remains visible' \
+    '  with update ready; returning to files applies the new snapshot. No focus' \
+    '  is moved automatically. With list focus, the first filtered match is used.' \
+    '  Ctrl-R refreshes immediately, even with no results or while auto is paused.' \
+    '  Failed automatic refresh keeps the previous snapshot and pauses checks;' \
+    '  Ctrl-R retries and resumes after a transient automatic failure. A pause' \
+    '  you chose stays paused after either manual success or failure.' \
+    '  Automatic checks use one bounded worker/provider pair and a private pipe.' \
+    '  They are input-idle, time out at 30 seconds, adapt to slow Git, and stop' \
+    '  on pause or when review closes. No daemon, persistent cache, hook, fetch' \
+    '  or network request is introduced.' \
+    '  Commit and comparison views keep captured IDs and refresh only on Ctrl-R.' \
     '  Failed safety-configuration refresh blocks uncached reads until retry.' \
     '  Ctrl-X is inactive here; it opens review only on the main branch screen.' \
     '  Each workspace starts focused; context mode stays until disclosure changes.' \
@@ -645,7 +658,9 @@ _compozsh_help_g() {
     '  submodules are excluded and renames appear as add/delete pairs.' \
     '  Review disables external diff/textconv, clean/process filters, fsmonitor,' \
     '  optional index writes and Git network transport. Filtered files may' \
-    '  therefore differ from your usual configured diff. No settings change.' \
+    '  therefore differ from your usual configured diff. A filter driver name' \
+    '  containing = cannot be overridden unambiguously, so review fails closed.' \
+    '  No settings change.' \
     '  Bounds limit retained output, not elapsed time: large repositories or' \
     '  slow storage can delay synchronous reads. Failed captures show a notice.' \
     '' \
