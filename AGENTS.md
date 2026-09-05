@@ -830,6 +830,13 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
   request. This does not describe every independent ZLE pre-redraw hook: syntax
   highlighting retains its bounded checks of literal path tokens. Ordinary
   `precmd` remains the prompt fact-capture boundary.
+- The highlighter may share its existing lone-directory observation with the
+  optional Interaction lens, keyed to the exact bounded buffer and current
+  folder. Capture the caller's AUTO_CD option before local emulation; normal
+  command categories retain precedence. Clear the observation before skipped
+  or changed highlighting and never resolve paths again from prompt code.
+  Missing/stale observations retain the lexical fallback; this is not a
+  CDPATH resolver, provider catalog, or new per-redraw discovery pass.
 - Context lens automation is event driven. Do not add a dismissal timer,
   polling loop, worker or background refresh. Its trigger fingerprint contains
   only recognized-project-root or raw-Git-branch appearances and changes, the
@@ -946,6 +953,11 @@ never optimize from a single timing sample.
   `STEPS`, and `CONTROL` summarize pipeline or `&&`, `||`, `;`, and `&` chain
   structure as applicable. Every `ACTION` row is deliberately advisory and must
   retain qualifying language such as `likely`, `appears` or `may`.
+- A matching highlighter observation of a single existing directory with
+  AUTO_CD enabled uses NAVIGATE, its usual path-colored outline, DESTINATION
+  TEXT and an advisory AUTO_CD action. Preserve command/alias/function/builtin
+  precedence and actual shell execution unchanged; do not infer navigation
+  merely from a slash or tilde prefix, or expand a draft to classify it.
 - `ABOUT` is a captured manual NAME description, not an ACTION prediction.
   Generic RUN replaces its filler ACTION with ABOUT plus SOURCE attribution;
   specific action cues and owned same-source-help commands retain priority.

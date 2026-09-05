@@ -5,6 +5,10 @@
 # Appearance owns defaults; this consumer preserves explicit public roles.
 typeset -gA ZSH_HIGHLIGHT_STYLES
 
+# Optional prompt consumers reuse this exact edit-time directory observation.
+# Empty means unavailable; retain no catalog or facts for another draft/folder.
+typeset -g _ZLE_AUTOCD_BUFFER='' _ZLE_AUTOCD_PWD=''
+
 # zstat recognizes hard links without launching an external process while the
 # user is typing. It is part of the standard Zsh 5.9 installation.
 zmodload -F zsh/stat b:zstat
@@ -150,8 +154,11 @@ _zle_path_category() {
 # lexer supplies the tokens; this function only tracks their source positions
 # and enough command state to distinguish commands from arguments.
 _zle_syntax_highlight() {
+  local autocd_enabled=${options[autocd]:-off}
   emulate -L zsh
   setopt EXTENDED_GLOB
+
+  _ZLE_AUTOCD_BUFFER='' _ZLE_AUTOCD_PWD=''
 
   # Zsh 5.9 memo tags let this highlighter replace only its own regions while
   # preserving selection colors and highlights added by other native widgets.
@@ -425,6 +432,12 @@ _zle_syntax_highlight() {
         elif [[ $REPLY == directory || $REPLY == 'symlink-directory' ]]; then
           category=$REPLY
           _zle_add_highlight $start $end $category
+          # AUTO_CD applies only to a lone directory command, after normal
+          # command lookup. Reuse this path check; never probe again in paint.
+          if [[ $autocd_enabled == on && $plain != *[\{\}\!]* ]] &&
+             (( ${#tokens} == 1 )); then
+            _ZLE_AUTOCD_BUFFER=$BUFFER _ZLE_AUTOCD_PWD=$PWD
+          fi
         fi
       fi
 

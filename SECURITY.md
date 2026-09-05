@@ -277,6 +277,13 @@ ZLE pre-redraw hook chain. The independent syntax highlighter retains bounded
 filesystem checks for literal path tokens and does not evaluate substitutions or
 globs from the buffer.
 
+For a lone directory with AUTO_CD enabled, the highlighter shares only the
+exact bounded draft and current-folder key of its existing observation. The
+optional prompt uses this shell-memory fact for an advisory NAVIGATE cue,
+without another filesystem read. It is cleared on the next highlighting pass,
+including skipped passes; a changed draft or folder cannot reuse it. It is not
+a command resolver or guarantee that the directory remains available at Return.
+
 The optional `.zsh.manual` peer adds one first-TTY-`precmd` capture of local
 manual NAME descriptions. It reads no project or personal configuration: the
 fixed roots are `/usr/share/man`,

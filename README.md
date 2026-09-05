@@ -304,7 +304,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery, topic help and maintenance entry | `compozsh` explores loaded functions; owned terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently |
-| `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette |
+| `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette; shares its exact bare-directory observation with the optional prompt lens |
 | `.zsh.manual` | Local manual summaries | Captures bounded, inert NAME descriptions once before interactive editing; supplies memory-only ABOUT rows without invoking commands or a manual formatter |
 | `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
@@ -3831,7 +3831,7 @@ pretending to understand every shell program:
 | `COMMENT` | An interactive comment; show `COMMENT TEXT` and `likely remain an interactive shell comment` |
 | `RUN` | A general command that has no more specific recognized form |
 | `GIT` | A `git` operation, or Compozsh's `g` branch/review/worktree/help interaction |
-| `NAVIGATE` | A shell-location command such as `cd`, `pushd`, `j`, or `mkcd` |
+| `NAVIGATE` | A shell-location command such as `cd`, `pushd`, `j`, or `mkcd`, or an observed lone directory with `AUTO_CD` enabled |
 | `SEARCH` | A local search command such as `rg`, `grep`, `find`, or `mdfind` |
 | `BUILD` / `TEST` | A recognized project build or test form |
 | `ENVIRONMENT` | An assignment or a recognized environment-changing command |
@@ -3886,6 +3886,18 @@ That no-read guarantee applies specifically to Context/Interaction prompt
 derivation and repaint. Syntax highlighting is an independent hook in the same
 ZLE redraw cycle and retains its bounded filesystem checks for literal path
 tokens; it still does not evaluate substitutions or globs from the buffer.
+
+With `AUTO_CD` enabled (the shipped default), a lone existing directory such
+as `~/Projects/`, `./folder`, or `folder` receives the NAVIGATE lens and a
+`DESTINATION TEXT` row. The lens reuses the optional syntax highlighter's
+existing directory observation for the exact draft and current folder; it
+performs no additional path check. Normal command, alias, function, builtin,
+reserved-word and suffix-alias classifications take precedence. Executable
+paths remain commands; extra arguments, missing paths, expansion-dependent
+forms and disabled `AUTO_CD` do not receive this automatic navigation cue.
+Without the highlighting peer or a matching observation, the lens keeps its
+ordinary lexical presentation. The cue is advisory: filesystem state can
+change before Return, and this is not a complete CDPATH or command resolver.
 
 When a native history autosuggestion is already active for the exact buffer,
 the lens may show only a bounded visible prefix as `SUGGESTION`. It reuses the

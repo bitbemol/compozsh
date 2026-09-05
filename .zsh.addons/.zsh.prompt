@@ -666,7 +666,10 @@ _prompt_interaction_model() {
   local -i index=0 command_index=0 operation_index=0 token_count=0
   local -i pipe_count=0 chain_count=0 expect_flow=0
   local -i caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0
-  local -i precommand_options=0 env_precommand=0
+  local -i precommand_options=0 env_precommand=0 autocd=0
+  [[ -n ${_ZLE_AUTOCD_BUFFER:-} &&
+     ${_ZLE_AUTOCD_BUFFER:-} == "$buffer" &&
+     ${_ZLE_AUTOCD_PWD:-} == "$PWD" ]] && autocd=1
 
   _PROMPT_INTERACTION_KIND=ready
   _PROMPT_INTERACTION_LABELS=()
@@ -783,6 +786,8 @@ _prompt_interaction_model() {
   fi
   # Command and subcommand names remain case-sensitive, just like Zsh.
   command_lower=$command_name
+  # An observed directory is not an executable with a familiar tool name.
+  (( autocd )) && command_lower=''
 
   # Capture the first semantic word and literal operands without interpreting
   # option values or shell expansions.
@@ -1136,12 +1141,16 @@ _prompt_interaction_model() {
       _prompt_interaction_add BRANCH "$_PROMPT_GIT_BRANCH_TEXT" git
     [[ -n $_PROMPT_PROJECT_NAME_TEXT ]] &&
       _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
-  elif [[ $command_lower == (cd|pushd|popd|j|z|mkcd) ]]; then
+  elif [[ $command_lower == (cd|pushd|popd|j|z|mkcd) || $autocd == 1 ]]; then
     _PROMPT_INTERACTION_KIND=navigate
+    action='likely change shell location · Tab can browse'
+    if (( autocd )); then
+      first_operand=$command_name
+      action='likely change shell location via AUTO_CD · Tab can browse'
+    fi
     [[ -n $first_operand ]] &&
       _prompt_interaction_add "DESTINATION TEXT" "$first_operand" path
-    _prompt_interaction_add ACTION \
-      'likely change shell location · Tab can browse' info
+    _prompt_interaction_add ACTION "$action" info
     [[ -n $_PROMPT_FULL_PATH_TEXT ]] &&
       _prompt_interaction_add FROM "$_PROMPT_FULL_PATH_TEXT" path
     _prompt_interaction_add_context
@@ -1260,7 +1269,7 @@ _prompt_interaction_model() {
   # Manual metadata is ABOUT the tool, never a prediction of draft effects.
   # Keep owned/specific ACTION cues; replace only the generic filler. This
   # optional lookup does no capture, path resolution or filesystem access.
-  if (( ${+functions[_manual_summary_lookup]} )) &&
+  if (( !autocd && ${+functions[_manual_summary_lookup]} )) &&
      _manual_summary_lookup "$command_name"; then
     local manual_summary=$REPLY
     local -i action_index=${_PROMPT_INTERACTION_LABELS[(i)ACTION]}
