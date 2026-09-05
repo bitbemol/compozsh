@@ -1,5 +1,6 @@
 import { findMatches } from './search.mjs';
 import { scenes, fileActions } from './demo-data.mjs';
+import { showJourney } from './journeys.mjs';
 import './composition.mjs';
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const panel = document.querySelector('#demo-panel');
@@ -10,6 +11,10 @@ const example = document.querySelector('#demo-example');
 const review = document.querySelector('#git-review-demo');
 const reviewFiles = document.querySelector('#review-files');
 const reviewLines = document.querySelector('#review-lines');
+const shellPrompt = document.querySelector('.shell-prompt');
+const interactionMode = document.querySelector('#interaction-mode');
+const interactionRows = document.querySelector('#interaction-rows');
+const promptBuffer = document.querySelector('#prompt-buffer');
 let scene = scenes.history;
 let matches = [];
 let selected = 0;
@@ -20,7 +25,7 @@ function highlight(index) {
   [...results.children].forEach((row, rowIndex) => {
     row.classList.toggle('selected', rowIndex === selected);
     const cursor = row.querySelector('.result-cursor');
-    if (cursor) cursor.textContent = rowIndex === selected ? '●' : ' ';
+    if (cursor) cursor.textContent = rowIndex === selected ? '▸' : ' ';
   });
 }
 
@@ -43,9 +48,12 @@ function preview(index) {
 
 function renderResults() {
   selected = 0;
-  const labels = findMatches(scene.items.map((item) => item.label), query.value);
+  const labels = scene.matching === 'literal'
+    ? scene.items.filter((item) => `${item.label} ${item.preview}`.toLowerCase().includes(query.value.toLowerCase())).map((item) => item.label)
+    : findMatches(scene.items.map((item) => item.label), query.value);
   // Bound visible choices; refining always searches every item in the sample.
   matches = labels.slice(0, 5).map((label) => scene.items.find((item) => item.label === label));
+  document.querySelector('.picker-primary').hidden = matches.length === 0;
   results.replaceChildren();
   document.querySelector('#match-count').textContent = `${labels.length} ${labels.length === 1 ? 'match' : 'matches'}${labels.length > matches.length ? ' · 5 shown' : ''}`;
   if (!matches.length) {
@@ -76,6 +84,12 @@ function renderResults() {
       text.append(glyph);
     }
     text.append(item.label);
+    if (item.description) {
+      const description = document.createElement('span');
+      description.className = 'result-description';
+      description.textContent = item.description;
+      text.append(description);
+    }
     row.append(text);
     row.addEventListener('focus', () => highlight(index));
     row.addEventListener('click', () => preview(index));
@@ -158,14 +172,68 @@ function renderReview() {
   selectReviewFile(0);
 }
 
+const promptRoleClasses = {
+  danger: 'danger', environment: 'runtime', git: 'git', info: 'command',
+  path: 'path', project: 'runtime', success: 'git', tool: 'runtime',
+  warning: 'warning',
+};
+
+function renderInteractionRow(item) {
+  const row = document.createElement('div');
+  row.className = 'interaction-row';
+  row.dataset.source = item.source;
+  const label = document.createElement('span');
+  const tree = document.createElement('span');
+  tree.className = 'tree';
+  tree.setAttribute('aria-hidden', 'true');
+  tree.textContent = '│';
+  label.append(tree, ` ${item.label}`);
+  const value = document.createElement('strong');
+  value.className = promptRoleClasses[item.role] ?? 'command';
+  value.textContent = item.value;
+  row.append(label, value);
+  return row;
+}
+
+function renderPrompt() {
+  if (scene.mode !== 'prompt') return;
+  shellPrompt.setAttribute('aria-label', `Fixed synthetic ${scene.label} prompt example`);
+  if (scene.promptState === 'interaction') {
+    interactionMode.textContent = scene.promptKind;
+    interactionMode.className = `mode-${scene.promptKind.toLowerCase()}`;
+    interactionRows.replaceChildren(...scene.rows.map(renderInteractionRow));
+    promptBuffer.textContent = scene.buffer;
+  } else if (scene.promptState === 'transcript') {
+    document.querySelector('#transcript-time').textContent = scene.transcript.time;
+    document.querySelector('#transcript-command').textContent = scene.transcript.command;
+    document.querySelector('#transcript-output').textContent = scene.transcript.output;
+    const outcome = document.querySelector('#transcript-outcome');
+    outcome.replaceChildren();
+    const outcomeText = document.createElement('span');
+    outcomeText.className = scene.transcript.outcome.startsWith('×') ? 'danger' : 'git';
+    outcomeText.textContent = scene.transcript.outcome;
+    outcome.append(outcomeText);
+  }
+}
+
 function showScene() {
   const isReview = scene.layout === 'review';
-  document.querySelector('#picker-demo').hidden = scene.mode === 'prompt' || isReview;
+  const isJourney = scene.layout === 'journey';
+  const journey = document.querySelector('#journey-demo');
+  journey.onkeydown = null;
+  journey.hidden = !isJourney;
+  journey.replaceChildren();
+  document.querySelector('#picker-demo').hidden = scene.mode === 'prompt' || isReview || isJourney;
   review.hidden = !isReview;
   document.querySelector('#context-demo').hidden = scene.mode !== 'prompt';
-  document.querySelector('.shell-prompt').hidden = scene.mode !== 'prompt';
+  shellPrompt.hidden = scene.mode !== 'prompt';
+  for (const state of document.querySelectorAll('[data-prompt-state]')) {
+    state.hidden = state.dataset.promptState !== scene.promptState;
+  }
+  renderPrompt();
+  document.querySelector('#demo-command-label').textContent = scene.entryLabel ?? 'ENTRY';
   document.querySelector('#demo-command').textContent = scene.command;
-  document.querySelector('#picker-title').textContent = `Compozsh / ${scene.title}`;
+  document.querySelector('#picker-title').textContent = scene.title;
   document.querySelector('#demo-scope').textContent = scene.scope ?? '';
   document.querySelector('#demo-input-label').textContent = scene.input ?? 'Search';
   document.querySelector('#demo-back-hint').textContent = bookmark ? 'Esc back' : 'Esc cancel';
@@ -174,7 +242,8 @@ function showScene() {
   document.querySelector('#demo-docs').href = scene.docs;
   query.value = scene.query;
   output.textContent = scene.hint;
-  if (isReview) renderReview();
+  if (isJourney) showJourney(journey, scene, scenes, output);
+  else if (isReview) renderReview();
   else if (scene.mode !== 'prompt') renderResults();
 }
 
@@ -185,7 +254,7 @@ function selectScene(id) {
 }
 
 function selectMode(mode) {
-  // The Context panel contains static text; give keyboard users a focus stop.
+  // Context uses fixed synthetic states; give keyboard users a focus stop.
   panel.tabIndex = mode === 'prompt' ? 0 : -1;
   for (const tab of tabs) {
     const active = tab.dataset.mode === mode;
@@ -195,16 +264,39 @@ function selectMode(mode) {
   }
   const choices = Object.entries(scenes).filter(([, item]) => item.mode === mode);
   example.replaceChildren();
+  const groups = new Map();
   for (const [id, item] of choices) {
     const option = document.createElement('option');
     option.value = id;
     option.textContent = item.label ?? item.title;
-    example.append(option);
+    if (!item.group) {
+      example.append(option);
+      continue;
+    }
+    if (!groups.has(item.group)) {
+      const group = document.createElement('optgroup');
+      group.label = item.group;
+      groups.set(item.group, group);
+      example.append(group);
+    }
+    groups.get(item.group).append(option);
   }
   document.querySelector('#demo-example-control').hidden = choices.length < 2;
   selectScene(choices[0][0]);
 }
 example.addEventListener('change', () => selectScene(example.value));
+
+for (const link of document.querySelectorAll('[data-demo-scene]')) {
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    const id = link.dataset.demoScene;
+    selectMode(scenes[id].mode);
+    example.value = id;
+    selectScene(id);
+    document.querySelector('#experience').scrollIntoView({ block: 'nearest' });
+    document.querySelector('#journey-demo button, #journey-demo input')?.focus({ preventScroll: true });
+  });
+}
 
 for (const [index, tab] of tabs.entries()) {
   tab.addEventListener('click', () => selectMode(tab.dataset.mode));

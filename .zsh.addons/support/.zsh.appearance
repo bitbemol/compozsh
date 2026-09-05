@@ -121,24 +121,27 @@ _appearance_apply_defaults() {
       autosuggestion     'fg=242'
       picker-header       "fg=${output_defaults[heading]},bold"
       picker-location     'fg=25'
-      picker-query        'fg=231,bg=24,bold'
+      picker-title        'fg=236,bold'
+      picker-surface      'fg=236,bg=255'
+      picker-action       'fg=231,bg=24,bold'
+      picker-query        'fg=236,bg=255,bold'
       picker-match        'fg=25,bold,underline'
       picker-index        'fg=23,bold'
-      picker-selected     'fg=231,bg=24,bold'
+      picker-selected     'fg=235,bg=189,bold'
       picker-selected-inactive 'fg=236,bg=253'
       picker-focus        "fg=${output_defaults[heading]},bold"
       picker-text         "fg=${output_defaults[text]}"
       picker-architecture 'fg=25,bold'
-      picker-architecture-selected 'fg=231,bold'
+      picker-architecture-selected 'fg=24,bold'
       picker-architecture-selected-inactive 'fg=24,bold'
       picker-size         'fg=94'
-      picker-size-selected 'fg=229,bold'
+      picker-size-selected 'fg=58,bold'
       picker-size-selected-inactive 'fg=58,bold'
       picker-error        "fg=${output_defaults[error]},bold"
-      picker-error-selected 'fg=224,bold'
+      picker-error-selected 'fg=88,bold'
       picker-error-selected-inactive 'fg=88,bold'
       picker-success      "fg=${output_defaults[success]},bold"
-      picker-success-selected 'fg=120,bold'
+      picker-success-selected 'fg=22,bold'
       picker-success-selected-inactive 'fg=22,bold'
       picker-muted        'fg=242'
       picker-empty        "fg=${output_defaults[error]},bold"
@@ -228,11 +231,14 @@ _appearance_apply_defaults() {
       autosuggestion     "fg=${output_defaults[muted]}"
       picker-header       "fg=${output_defaults[heading]},bold"
       picker-location     'fg=39'
-      picker-query        'fg=16,bg=44,bold'
+      picker-title        'fg=252,bold'
+      picker-surface      'fg=252,bg=235'
+      picker-action       'fg=16,bg=81,bold'
+      picker-query        'fg=87,bg=235,bold'
       picker-match        "fg=${output_defaults[accent]},bold,underline"
       picker-index        'fg=44,bold'
-      picker-selected     'fg=231,bg=24,bold'
-      picker-selected-inactive 'fg=252,bg=237'
+      picker-selected     'fg=255,bg=238,bold'
+      picker-selected-inactive 'fg=252,bg=235'
       picker-focus        "fg=${output_defaults[heading]},bold"
       picker-text         "fg=${output_defaults[text]}"
       picker-architecture 'fg=117,bold'

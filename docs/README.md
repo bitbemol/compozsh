@@ -13,12 +13,25 @@ real features; they are not a shell emulator or an exact copy of Zsh's ranker.
 ## Showcase structure and voice
 
 One terminal contains five task tabs: Context, History, Files, Git, and
-Tools. Files and Git reveal an **Example** selector for their specialized
-scenarios. Git includes the two-pane, read-only Working changes workspace:
+Tools. Context uses an **Example** selector to move through fixed living-prompt
+moments grouped as Orientation, Live draft, and After Return. They cover the
+expanded Context lens; READY; RUN; comment, Git, navigation, search, build,
+test, environment, remote, pipeline, command-chain, redirection, and caution
+Interaction lenses;
+the command/outcome receipt; and the following READY frame with its captured
+LAST outcome. Nothing autoplays. Files and Git reveal the same selector for
+their specialized scenarios. Git includes the
+two-pane, read-only Working changes workspace:
 changed files remain visible on the left while the selected focused diff stays
 independently readable on the right. Each scenario has a benefit, short explanation, useful
 starting hint, and a link to the corresponding product documentation.
 Secondary features live in an expandable section below the hero.
+
+The **Try a flow** links enter Help → Compose, the Command composer, and the
+Change atlas inside that same terminal. A three-part section explains their
+benefits and boundaries in static HTML, also usable without JavaScript. Links
+fall back to that explanation when scripting is unavailable. These are shipped
+capabilities, not a roadmap or a promise of arbitrary-command composition.
 
 This uses [recognition over recall](https://www.nngroup.com/articles/recognition-and-recall/)
 and [progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/):
@@ -31,15 +44,24 @@ and selection behavior.
 
 `demo-data.mjs` holds synthetic examples, documentation links, and safe preview
 outcomes. `app.mjs` shares rendering, search, and keyboard behavior across them.
-The browser shows at most five choices and refines across the entire small
-sample. These are illustrative fixtures, not Compozsh's actual search limits.
+Ordinary picker examples show at most five choices and refine across the entire
+small sample. The Help journey retains six scrollable topics. These are
+illustrative fixtures, not Compozsh's actual search limits.
 File search starts with a captured sample and an empty refinement field, as
 the workspace Search view does. Path + Tab opens Browse, Ctrl-F explicitly
 opens descendant Search, and Return submits discovery with the displayed source:
 Git within a worktree, Spotlight for home/root on macOS, bounded filesystem
 elsewhere. Ctrl-X can choose a source explicitly; the demos name their sources.
 The Files tab groups Browse, Recents, project search and home search. Git has
-its own tab, alongside Context, History and Tools. File selections open a
+its own tab, alongside Context, History and Tools. The Context moments use only
+fixed synthetic path, branch, runtime, session identity, command structure,
+timestamp and outcome text. Switching them never observes the visitor's
+command line, filesystem, Git state, environment or network. `TEXT`-suffixed
+rows repeat bounded literal draft pieces; rows such as `PROJECT`, `PATH`,
+`GIT`, `TOOLCHAIN`, `CURRENT`, `SCOPE` and `LAST` represent prompt-boundary
+facts in the fixture; `ACTION` is explicitly advisory and uses qualified
+language such as “likely”, “appears” or “may”. No scene claims that a command
+has executed or that a destination, match, connection or file exists. File selections open a
 four-action simulation; Escape restores the exact prior filter and selection.
 Those actions describe outcomes only: they never open an app, navigate the
 visitor's filesystem, or access the clipboard. The demo's explicit install
@@ -67,11 +89,42 @@ explanations, and initial example remain useful without JavaScript; interactive
 controls appear only after their handlers are attached.
 
 Keep full-screen identity, source/scope and input visually separate. Preserve
-the product's visible-focus grammar in multi-pane examples: the primary
+the bottom input/action dock and neutral selected surface in choice examples;
+the footer describes browser preview actions, never an executable shell action.
+Use breathing room between choices while preserving the bounded sample list.
+Tools includes fixed help-topic, Draft inspector, Xcode action, USB review, external-device
+task selection, Xcode skill-export review and worktree
+plan examples. Their secondary descriptions and exact synthetic targets explain
+the next step; selecting a row only displays its consequence. The native
+Option-Return bridge and tool help workspace are described, not executed by the
+page. Preserve the separate USB confirmation boundary in all examples.
+
+`journeys.mjs` owns only the connected browser demonstrations, using shared page
+tokens and a small split-pane layout. Help retains its description, colors
+arguments in both panes, filters literal text and returns from Compose to the
+same help selection/filter. The prominent Compose shortcut is a browser aid;
+native Help exposes its authored Compose example topic. The composer illustrates
+literal entry for Git review and `mkcd`, including exact/common-ancestor choice,
+quoted draft preview, empty-field refusal and an explicit simulated prompt
+handoff. Browser fields are capped at 120 characters (the native composer uses
+4,096); single-quoted browser examples are valid literal shell spelling, not a
+byte-for-byte reproduction of native Zsh quoting. It performs no ref lookup,
+submission, clipboard or persistent-storage operation. Template selection is a
+demo control, not an additional native command or template registry.
+
+The atlas uses six synthetic entries with unequal folder counts and separate
+staged/unstaged entries for one path. Folder → file → diff → Back preserves the
+return target; arrows move choices, native Tab changes focus, and Escape goes
+Back. The demo does not implement the native reader's full-file disclosure,
+automatic refresh or provider timing. Keep those limitations distinct from the
+real product, whose review position, capture bounds and partial notices remain
+documented in README. Pane scrolling and inputs remain accessible on phones;
+all five task tabs preserve the terminal's frame size.
+Preserve the product's visible-focus grammar in multi-pane examples: the primary
 navigator and contextual reader remain spatially stable, while selection and
 pane headings make the active task legible. The entry
 row teaches the real key sequence; the demo footer describes browser controls.
-Website Escape clears its sample filter or returns from its action menu, while
+Website Escape displays cancellation feedback or returns from its action menu, while
 the product's Escape cancels/returns. All task tabs retain the same frame size.
 
 Spotlight examples acknowledge index incompleteness. Keep entry-point copy
@@ -101,11 +154,20 @@ Opening the HTML directly with `file://` does not reliably load browser modules.
 The server is only a development convenience and is never part of installation.
 
 Before the first publication, get the owner's local visual approval. Check the
-layout at desktop and narrow phone widths, every demo tab and Example option, reordered query
-fragments, arrow/Enter and numeric selection, Copy buttons, and copy-mode
+layout at desktop and narrow phone widths, every demo tab and Example option,
+every living-prompt mode, reordered query fragments, arrow/Enter and
+numeric selection, Copy buttons, and copy-mode
 disclosure. Ensure that links, setup instructions, and synthetic examples are
 still meaningful without JavaScript. Automatic tests complement this review;
 they do not substitute for it.
+
+For the connected journeys, check keyboard topic selection updates the right
+pane immediately; filter by explanation text and recover from no matches;
+compose both templates with spaces and literal punctuation; clear a required
+field; return from the simulated prompt and from Compose to filtered Help.
+In the atlas, compare folder counts, open both staged and unstaged entries for
+the same file, and go Back twice. Check all three at 320px, 390px and desktop
+widths, including independently scrollable panes and unchanged terminal height.
 
 ## Tests
 
@@ -134,11 +196,12 @@ node tests/site.browser.mjs
 a different localhost URL, including a project subpath. `SITE_SCREENSHOTS` can
 name a separate output directory for desktop/phone screenshots; keep private
 review artifacts outside the repository. The test stubs clipboard access, never
-runs shell commands, refuses non-local URLs, and checks keyboard behavior,
-literal input, captured file scopes, branch previews, copy success/failure,
-composition permutations and repeated loads, stable tab geometry, responsive
-overflow, reduced motion, no-JavaScript content, and the absence of third-party
-requests.
+runs shell commands, refuses non-local URLs, and checks the fixed living-prompt
+Interaction modes, literal/captured/advisory row distinction, transcript and
+next READY/LAST frame, keyboard behavior, literal input, captured file scopes, branch
+previews, copy success/failure, composition permutations and repeated loads,
+stable tab geometry, responsive overflow, reduced motion, no-JavaScript
+content, and the absence of third-party requests.
 
 ## GitHub Pages — only after visual approval
 

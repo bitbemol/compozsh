@@ -262,6 +262,8 @@ _history_fuzzy_search_view() {
   _ZLE_PICKER_EMPTY_LABEL='no matches'
   _ZLE_PICKER_COLLECTOR='_history_search_picker_collect'
   _ZLE_PICKER_DIGIT_SELECT=0
+  _ZLE_PICKER_VALUE_INSPECT=1 _ZLE_PICKER_INSPECT_TITLE='Editable command'
+  _ZLE_PICKER_SUBTITLE='Captured shell history · Enter inserts for editing; never executes'
 
   if _zle_picker_loop "$original_buffer" \
        "${ZSH_HISTORY_SEARCH_MAX_RESULTS:-8}"; then
@@ -273,6 +275,134 @@ _history_fuzzy_search_view() {
 
 zle -N history-fuzzy-search _history_fuzzy_search_widget
 bindkey '^R' history-fuzzy-search
+
+# Explicit disclosure of a literal draft. Captures are bounded and live only in
+# this widget. No token is expanded, validated as a command, or executed.
+_draft_inspect_widget() {
+  emulate -L zsh
+  if (( !${+functions[_zle_picker_screen_session]} ||
+        !${+functions[_zle_ui_read_text]} || _ZLE_PICKER_ACTIVE )); then
+    zle -M 'Draft inspection needs the shared UI; your draft is unchanged.'
+    return 0
+  fi
+  local _DRAFT_INSPECT_BUFFER=${BUFFER[1,32768]} _DRAFT_INSPECT_SCOPE=$PWD
+  local _COMPOZSH_COMPOSE_RESULT=''
+  # Keep the user's leading-space history policy even through Help → Compose.
+  local _COMPOZSH_COMPOSE_PREFIX=${BUFFER%%[^ ]*}
+  local _compose_recipe='' _compose_method='' _compose_base='' _compose_head='' _compose_path=''
+  local -a _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_BOOKMARK=()
+  local _ZLE_PICKER_SELECTED_VALUE=''
+  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
+  local _DRAFT_INSPECT_NEXT='' original_buffer=$BUFFER
+  local -i _DRAFT_INSPECT_CURSOR=$CURSOR _DRAFT_INSPECT_LENGTH=${#BUFFER} original_cursor=$CURSOR
+  (( _DRAFT_INSPECT_LENGTH > 32768 )) &&
+    _DRAFT_INSPECT_BUFFER+=$'\n[Draft preview limited to 32,768 characters.]'
+  local -a _DRAFT_INSPECT_VALUES=(read)
+  (( ${+functions[_directory_browser_session]} )) && _DRAFT_INSPECT_VALUES+=(files)
+  (( ${+functions[_history_fuzzy_search_widget]} )) && _DRAFT_INSPECT_VALUES+=(history)
+  (( ${+functions[_compozsh_choose]} )) && _DRAFT_INSPECT_VALUES+=(tools)
+  if (( ${+functions[_git_review_menu]} && ${+functions[_navigation_picker_collect]} )); then
+    _DRAFT_INSPECT_VALUES+=(git)
+  fi
+  if (( ${+functions[_compozsh_compose_open]} )); then
+    _compozsh_compose_seed "$BUFFER"
+    [[ -n $_compose_recipe ]] && _DRAFT_INSPECT_VALUES+=(compose)
+  fi
+  _DRAFT_INSPECT_VALUES+=(back)
+  _zle_picker_screen_session _draft_inspect_controller
+  # Navigation/reading never changes the shell draft. An explicitly chosen
+  # insertion workspace gets ownership only after this screen has restored ZLE.
+  BUFFER=$original_buffer CURSOR=$original_cursor
+  if [[ -n $_COMPOZSH_COMPOSE_RESULT ]]; then
+    BUFFER=$_COMPOZSH_COMPOSE_RESULT CURSOR=${#_COMPOZSH_COMPOSE_RESULT}
+  fi
+  case $_DRAFT_INSPECT_NEXT in
+    files) _directory_browser_session ./ insert widget browse ;;
+    history) _history_fuzzy_search_widget ;;
+  esac
+  zle redisplay
+  return 0
+}
+
+_draft_inspect_collect() {
+  emulate -L zsh
+  local query=${1:l} value='' label=''
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  for value in "${_DRAFT_INSPECT_VALUES[@]}"; do
+    case $value in
+      read) label='Read this draft' ;;
+      files) label='Choose a path here' ;;
+      history) label='Recall a command' ;;
+      tools) label='Explore tool help' ;;
+      git) label='Review this working tree' ;;
+      compose) label='Compose this command…' ;;
+      back) label='Keep editing' ;;
+    esac
+    [[ ${label:l} == *"$query"* ]] || continue
+    _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
+  done
+}
+
+_draft_inspect_choose() {
+  emulate -L zsh
+  _ZLE_PICKER_TITLE='Draft / Inspect' _ZLE_PICKER_SUBTITLE=$_DRAFT_INSPECT_SCOPE
+  _ZLE_PICKER_QUERY_LABEL='Filter next steps' _ZLE_PICKER_COLLECTOR=_draft_inspect_collect
+  _ZLE_PICKER_BROWSE_LABEL='Explicit inspection · nothing executes'
+  _ZLE_PICKER_ACTION_CONTEXT="DRAFT"$'\n'"Cursor $_DRAFT_INSPECT_CURSOR of $_DRAFT_INSPECT_LENGTH characters"$'\n\nFOLDER\n'"$_DRAFT_INSPECT_SCOPE"
+  _ZLE_PICKER_DESCRIPTIONS=(
+    read 'Read and filter the literal text; keep your cursor'
+    files 'Browse this folder; selecting a path replaces the draft'
+    history 'Recall into the editor; nothing executes'
+    tools 'Read the guides of loaded Compozsh tools'
+    git 'Inspect the current folder; ignore paths or flags in the draft'
+    compose 'Edit structured fields; explicitly replace the draft without execution'
+    back 'Return to the exact draft and cursor')
+  _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_ZLE_PICKER_DESCRIPTIONS}")
+  _ZLE_PICKER_ACCEPT_LABELS=(read read files 'browse folder' history recall tools 'open guides' git review compose compose back 'keep editing')
+  _zle_picker_start_focus=${4:-0}
+  _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}"
+}
+
+_draft_inspect_controller() {
+  emulate -L zsh
+  local -a bookmark=('' 1 0)
+  local -i focus=0 result=0
+  local selected='' root='' _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
+  local -a _GIT_REVIEW_CONFIG=()
+  local -i _GIT_REVIEW_TRUNCATED=0
+  while true; do
+    _zle_ui_view action _draft_inspect_choose "${bookmark[@]}" "$focus"
+    result=$?
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    case $selected in
+      back) return 0 ;;
+      files|history) _DRAFT_INSPECT_NEXT=$selected; return 0 ;;
+      read) _zle_ui_read_text 'Draft / Read' 'Literal text · Enter or Escape returns to Inspect' "$_DRAFT_INSPECT_BUFFER" ;;
+      tools) _compozsh_tool_capture && _compozsh_choose ;;
+      compose) _compozsh_compose_open "$_DRAFT_INSPECT_BUFFER" "$_DRAFT_INSPECT_SCOPE" ;;
+      git)
+        if _git_review_capture "$_DRAFT_INSPECT_SCOPE" rev-parse --show-toplevel &&
+           (( !_GIT_REVIEW_TRUNCATED )); then
+          root=${_GIT_REVIEW_DATA%$'\n'}
+          if [[ -d $root ]] && _git_review_prepare "$root"; then
+            _git_review_menu "$root" '' 1
+          else
+            _zle_ui_read_text 'Git / Unavailable' "$_DRAFT_INSPECT_SCOPE" 'Unable to establish safe local Git inspection.'
+          fi
+        else
+          _zle_ui_read_text 'Git / Unavailable' "$_DRAFT_INSPECT_SCOPE" 'This folder is not in a Git working tree. Your draft is unchanged.'
+        fi ;;
+    esac
+    result=$?
+    (( result > 1 )) && return $result
+    [[ -n ${_COMPOZSH_COMPOSE_RESULT:-} ]] && return 0
+  done
+}
+
+zle -N compozsh-inspect _draft_inspect_widget
+bindkey '^[^M' compozsh-inspect
 
 # Match immediate child directories through the shared picker without scanning
 # recursively or invoking external commands. The path fragment already present
@@ -700,7 +830,7 @@ _directory_browser_actions_collect() {
 }
 
 _directory_browser_actions() {
-  _zle_ui_view choice _directory_browser_actions_view "$@"
+  _zle_ui_view action _directory_browser_actions_view "$@"
 }
 
 _directory_browser_actions_view() {
@@ -805,6 +935,18 @@ _directory_browser_actions_view() {
       _ZLE_PICKER_INSPECT_TEXTS[$action]=$'Go to\n\nVisited locations from this shell directory stack.\nChoosing this view does not change directory.'
     fi
     _directory_action_labels[index]="$group · ${_directory_action_labels[index]}"
+    _ZLE_PICKER_DESCRIPTIONS[$action]=$action_target
+    case $action in
+      (copy) _ZLE_PICKER_ACCEPT_LABELS[$action]=copy ;;
+      (open) _ZLE_PICKER_ACCEPT_LABELS[$action]=open ;;
+      (reveal) _ZLE_PICKER_ACCEPT_LABELS[$action]=reveal ;;
+      (cd|current-cd|enter-link) _ZLE_PICKER_ACCEPT_LABELS[$action]='change directory' ;;
+      (select|current) _ZLE_PICKER_ACCEPT_LABELS[$action]=${primary_label:l} ;;
+      (insert) _ZLE_PICKER_ACCEPT_LABELS[$action]=insert ;;
+      (view-browse) _ZLE_PICKER_ACCEPT_LABELS[$action]=browse ;;
+      (view-recents) _ZLE_PICKER_ACCEPT_LABELS[$action]='open recents' ;;
+      (search-*) _ZLE_PICKER_ACCEPT_LABELS[$action]='set up search' ;;
+    esac
   done
   _directory_browser_pick 10 || return $?
   _ZLE_PICKER_ACTION=$_ZLE_PICKER_SELECTED_VALUE
@@ -1299,25 +1441,102 @@ _zle_autosuggest_accept_all() {
   fi
 }
 
+# Prompt presentation remains owned by the optional prompt peer. These small
+# editor adapters resolve its capabilities only while the ordinary top-level
+# line editor is active, so peer source order cannot change their behavior and
+# nested/full-screen task workspaces retain exact ownership of their display.
+_zle_prompt_is_shell_editor() {
+  [[ ${CONTEXT:-} == start ]] || return 1
+  (( ${ZLE_RECURSIVE:-0} == 0 &&
+     !${_ZLE_PICKER_ACTIVE:-0} &&
+     !${_ZLE_PICKER_SCREEN_ACTIVE:-0} ))
+}
+
+typeset -gi _ZLE_PROMPT_RESETTING=0
+
+_zle_prompt_pre_redraw() {
+  emulate -L zsh
+
+  _zle_prompt_is_shell_editor || return 0
+  (( !_ZLE_PROMPT_RESETTING )) || return 0
+
+  local -i frame_changed=1
+  if (( ${+functions[_prompt_interaction_update]} )); then
+    _prompt_interaction_update "$BUFFER"
+    frame_changed=$?
+  elif [[ -n $BUFFER ]] &&
+       (( ${+functions[_prompt_editing_started]} )); then
+    _prompt_editing_started
+    frame_changed=$?
+  fi
+
+  if (( frame_changed == 0 )); then
+    _ZLE_PROMPT_RESETTING=1
+    {
+      zle reset-prompt || :
+    } always {
+      _ZLE_PROMPT_RESETTING=0
+    }
+  fi
+  # A no-op must not stop later line-pre-redraw hooks.
+  return 0
+}
+
+_zle_prompt_line_finish() {
+  emulate -L zsh
+
+  if _zle_prompt_is_shell_editor &&
+     (( ${+functions[_prompt_prepare_transcript]} )) &&
+     _prompt_prepare_transcript; then
+    # The transcript must contain only the accepted BUFFER. In particular, an
+    # unaccepted autosuggestion in POSTDISPLAY must never enter scrollback.
+    _zle_autosuggest_reset
+    _ZLE_AUTOSUGGEST_SUSPENDED=1
+    PREDISPLAY=''
+    POSTDISPLAY=''
+    zle reset-prompt || :
+  fi
+  # A no-op must not stop another independently registered finish hook.
+  return 0
+}
+
+_zle_prompt_toggle_widget() {
+  emulate -L zsh
+
+  if _zle_prompt_is_shell_editor &&
+     (( ${+functions[_prompt_toggle_lens]} )) &&
+     _prompt_toggle_lens; then
+    zle reset-prompt || :
+  fi
+  return 0
+}
+
 zle -N autosuggest-accept-character _zle_autosuggest_accept_character
 zle -N autosuggest-accept-word _zle_autosuggest_accept_word
 zle -N autosuggest-accept-all _zle_autosuggest_accept_all
+zle -N compozsh-context-lens _zle_prompt_toggle_widget
 _bind_zle_keys autosuggest-accept-character \
   '^F' "${terminfo[kcuf1]:-}" $'\e[C' $'\eOC'
 _bind_zle_keys autosuggest-accept-word \
   $'\ef' $'\e[1;3C'
 _bind_zle_keys autosuggest-accept-all \
   '^E' "${terminfo[kend]:-}" $'\e[F' $'\eOF' $'\e[4~'
+_bind_zle_keys compozsh-context-lens $'\ei'
 unfunction _bind_zle_keys
 
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget -d line-init _zle_autosuggest_reset 2>/dev/null
 add-zle-hook-widget line-init _zle_autosuggest_reset
 
+add-zle-hook-widget -d line-pre-redraw _zle_prompt_pre_redraw 2>/dev/null
 add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight 2>/dev/null
 add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update 2>/dev/null
 (( ${+functions[_zle_syntax_highlight]} )) &&
   add-zle-hook-widget line-pre-redraw _zle_syntax_highlight
 add-zle-hook-widget line-pre-redraw _zle_autosuggest_update
+add-zle-hook-widget line-pre-redraw _zle_prompt_pre_redraw
+
+add-zle-hook-widget -d line-finish _zle_prompt_line_finish 2>/dev/null
+add-zle-hook-widget line-finish _zle_prompt_line_finish
 
 :

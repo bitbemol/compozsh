@@ -1,0 +1,231 @@
+# Guided literal drafts. Source-owned templates opt in; no command is executed.
+# Every field, snapshot and result is owned by the calling interaction.
+_compozsh_compose_capability() {
+  emulate -L zsh
+  local name=$1 provider="_compozsh_template_$1" help="_compozsh_help_$1"
+  zmodload -F zsh/parameter p:functions_source 2>/dev/null || return 1
+  local source=${functions_source[$name]-}
+  REPLY=''
+  [[ -n $source && $source == */.zsh.addons/* &&
+     ${functions_source[$provider]-} == "$source" &&
+     ${functions_source[$help]-} == "$source" ]] || return 1
+  "$provider"
+  [[ $REPLY == (git-review|directory) ]]
+}
+
+_compozsh_compose_seed() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local draft=$1
+  local -a words=()
+  _compose_recipe='' _compose_method=exact _compose_base=main _compose_head=HEAD _compose_path=''
+  # Deliberately narrow prefill: complicated shell syntax stays in the editor.
+  # Quoted/metacharacter-containing fields can be entered literally in the form.
+  [[ ${#draft} -le 4096 && $draft != *[^a-zA-Z0-9_./:@+\ -]* ]] || return 0
+  words=(${=draft})
+  case ${words[1]-} in
+    g)
+      _compozsh_compose_capability g || return 0
+      [[ ${words[2]-} == --review && ${#words} -ge 2 ]] || return 0
+      if [[ ${words[3]-} == --merge-base ]]; then
+        (( ${#words} == 5 )) || return 0
+        _compose_method=ancestor _compose_base=$words[4] _compose_head=$words[5]
+      elif (( ${#words} == 4 )); then
+        _compose_base=$words[3] _compose_head=$words[4]
+      elif (( ${#words} != 2 )); then
+        return 0
+      fi
+      _compose_recipe=git-review ;;
+    mkcd)
+      _compozsh_compose_capability mkcd || return 0
+      if (( ${#words} == 3 )) && [[ $words[2] == -- ]]; then
+        _compose_path=$words[3]
+      elif (( ${#words} <= 2 )); then
+        _compose_path=${words[2]-}
+      else
+        return 0
+      fi
+      _compose_recipe=directory ;;
+  esac
+}
+
+_compozsh_compose_build() {
+  emulate -L zsh
+  REPLY=''
+  case $_compose_recipe in
+    git-review)
+      [[ -n $_compose_base && -n $_compose_head &&
+         ${#_compose_base} -le 4096 && ${#_compose_head} -le 4096 &&
+         $_compose_base != -* && $_compose_head != -* ]] || return 1
+      REPLY='g --review'
+      [[ $_compose_method == ancestor ]] && REPLY+=' --merge-base'
+      REPLY+=" ${(q)_compose_base} ${(q)_compose_head}" ;;
+    directory)
+      [[ -n $_compose_path && ${#_compose_path} -le 4096 ]] || return 1
+      REPLY="mkcd -- ${(q)_compose_path}" ;;
+    *) return 1 ;;
+  esac
+  REPLY="${_compose_prefix:-}$REPLY"
+}
+
+_compozsh_compose_collect() {
+  emulate -L zsh
+  local value='' label='' query=${1:l}
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  for value in "${_compose_values[@]}"; do
+    label=${_compose_labels[$value]}
+    [[ ${label:l} == *"$query"* ]] || continue
+    _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
+    (( ${#_ZLE_PICKER_RESULTS} >= $2 )) && break
+  done
+  return 0
+}
+
+_compozsh_compose_form() {
+  emulate -L zsh
+  local -a _compose_values=()
+  local -A _compose_labels=()
+  local draft='Choose the missing fields to create a draft.'
+  [[ $_compose_recipe == directory ]] && draft='mkcd <directory> · choose a path'
+  if _compozsh_compose_build; then draft=$REPLY; fi
+  _ZLE_PICKER_TITLE='Compose / g --review'
+  _ZLE_PICKER_SUBTITLE=$_compose_scope
+  _ZLE_PICKER_QUERY_LABEL='Find a field or action'
+  _ZLE_PICKER_BROWSE_LABEL='Literal draft · nothing executes'
+  _ZLE_PICKER_COLLECTOR=_compozsh_compose_collect
+  _ZLE_PICKER_ACTION_CONTEXT="DRAFT"$'\n'"$draft"$'\n\nFOLDER\n'"$_compose_scope"$'\n\nReplace draft returns to the ordinary prompt.\nReview it there before pressing Return.'
+  if [[ $_compose_recipe == git-review ]]; then
+    _compose_values=(method base head)
+    _compose_labels=(method "Comparison · ${${_compose_method/exact/All differences}/ancestor/Since common ancestor}"
+      base "Against · ${_compose_base_label:-$_compose_base}" head "Compare · ${_compose_head_label:-$_compose_head}")
+    _ZLE_PICKER_DESCRIPTIONS=(method 'Switch exact / common-ancestor comparison'
+      base 'Choose a local branch, tag or literal revision'
+      head 'Choose the new side of the comparison')
+  else
+    _ZLE_PICKER_TITLE='Compose / mkcd'
+    _compose_values=(path)
+    _compose_labels=(path "Directory · ${_compose_path:-Choose a path…}")
+    _ZLE_PICKER_DESCRIPTIONS=(path 'Enter a literal path; no expansion or filesystem discovery')
+  fi
+  _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_ZLE_PICKER_DESCRIPTIONS}")
+  _ZLE_PICKER_ACCEPT_LABELS=(method change base choose head choose path edit apply 'replace draft')
+  if _compozsh_compose_build; then
+    _compose_values+=(apply) _compose_labels[apply]='Replace draft → keep editing'
+    _ZLE_PICKER_DESCRIPTIONS[apply]='Replace the current draft with this exact command; do not run it'
+    _ZLE_PICKER_INSPECT_TEXTS[apply]='Explicit editor insertion only. Escape from the composer keeps the original draft.'
+  fi
+  _zle_picker_start_focus=${4:-0}
+  _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}"
+}
+
+_compozsh_compose_field_collect() {
+  emulate -L zsh
+  local _compose_path=$_compose_path _compose_base=$_compose_base _compose_head=$_compose_head
+  case $_compose_field in
+    path) _compose_path=${1[1,4096]} ;;
+    base) _compose_base=${1[1,4096]} ;;
+    head) _compose_head=${1[1,4096]} ;;
+  esac
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  if _compozsh_compose_build; then
+    _ZLE_PICKER_BROWSE_LABEL="Draft · ${(V)REPLY}"
+  else
+    _ZLE_PICKER_BROWSE_LABEL='A nonempty literal value is required'
+  fi
+  (( ${#1} > 4096 )) && _ZLE_PICKER_BROWSE_LABEL='Too long · maximum 4,096 characters; shorten to accept'
+  return 0
+}
+
+_compozsh_compose_field_view() {
+  emulate -L zsh
+  _ZLE_PICKER_TITLE="Compose / ${${${_compose_field/path/Directory}/base/Against}/head/Compare}"
+  _ZLE_PICKER_SUBTITLE=$_compose_scope _ZLE_PICKER_QUERY_LABEL='Literal value'
+  _ZLE_PICKER_COLLECTOR=_compozsh_compose_field_collect
+  _ZLE_PICKER_EMPTY_LINES=('Enter saves this field; Escape keeps its previous value.')
+  if [[ $_compose_field == path ]]; then
+    _ZLE_PICKER_EMPTY_LINES+=('Text is quoted literally. Use an absolute path or ./relative; ~ is not expanded.')
+  else
+    _ZLE_PICKER_EMPTY_LINES+=('Local ref browsing is unavailable. Enter a literal revision; it is not validated here.')
+  fi
+  _ZLE_PICKER_EMPTY_LINES+=('No command, substitution, variable or glob is evaluated.')
+  local draft=$1 result=0
+  while true; do
+    _zle_picker_loop "$draft" 10
+    result=$?
+    (( result == 0 )) || return $result
+    draft=$_ZLE_PICKER_SELECTED_VALUE
+    [[ -n $draft && ${#draft} -le 4096 ]] && return 0
+  done
+}
+
+_compozsh_compose_endpoint() {
+  emulate -L zsh
+  local _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR='' root=''
+  local -a _GIT_REVIEW_CONFIG=()
+  local -i _GIT_REVIEW_TRUNCATED=0
+  local _git_compare_from_label=${_compose_base_label:-$_compose_base} _git_compare_to_label=${_compose_head_label:-$_compose_head} _git_compare_label=''
+  local -i result=0
+  _compose_endpoint_label=''
+  if (( ${+functions[_git_review_endpoint_choose]} && ${+functions[_navigation_picker_collect]} &&
+        ${+functions[_matching_compile]} )); then
+    if _git_review_capture "$_compose_scope" rev-parse --show-toplevel && (( !_GIT_REVIEW_TRUNCATED )); then
+      root=${_GIT_REVIEW_DATA%$'\n'}
+      if [[ -d $root ]] && _git_review_prepare "$root"; then
+        _git_review_endpoint_choose "$root" "$1"
+        result=$?
+        (( result == 0 )) && _compose_endpoint_label="$_git_compare_label @ ${REPLY[1,12]}"
+        return $result
+      fi
+    fi
+  fi
+  _zle_ui_view query _compozsh_compose_field_view "$2" || return $?
+  REPLY=$_ZLE_PICKER_SELECTED_VALUE
+  _compose_endpoint_label=$REPLY
+}
+
+_compozsh_compose_open() {
+  emulate -L zsh
+  local REPLY=''
+  local _compose_prefix=${_COMPOZSH_COMPOSE_PREFIX-${1%%[^ ]*}}
+  local _compose_scope=$2 _compose_recipe='' _compose_method='' _compose_base='' _compose_head='' _compose_path=''
+  local _compose_field='' selected='' value='' result=0 focus=0
+  local -a bookmark=('' 1 0)
+  _compozsh_compose_seed "$1"
+  [[ -n $_compose_recipe ]] || return 1
+  local _compose_base_label=$_compose_base _compose_head_label=$_compose_head _compose_endpoint_label=''
+  while true; do
+    _zle_ui_view action _compozsh_compose_form "${bookmark[@]}" "$focus"
+    result=$?
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    case $selected in
+      method) [[ $_compose_method == exact ]] && _compose_method=ancestor || _compose_method=exact ;;
+      base|head)
+        _compose_field=$selected
+        if [[ $selected == base ]]; then value=$_compose_base; else value=$_compose_head; fi
+        _compozsh_compose_endpoint "${${selected/base/From}/head/To}" "$value"
+        result=$?
+        if (( result == 0 )); then
+          if [[ $selected == base ]]; then
+            _compose_base=$REPLY _compose_base_label=$_compose_endpoint_label
+          else
+            _compose_head=$REPLY _compose_head_label=$_compose_endpoint_label
+          fi
+        elif (( result > 1 )); then return $result; fi ;;
+      path)
+        _compose_field=path
+        _zle_ui_view query _compozsh_compose_field_view "$_compose_path"
+        result=$?
+        if (( result == 0 )); then _compose_path=$_ZLE_PICKER_SELECTED_VALUE
+        elif (( result > 1 )); then return $result; fi ;;
+      apply)
+        [[ $PWD == "$_compose_scope" ]] || return 2
+        _compozsh_compose_build || continue
+        _COMPOZSH_COMPOSE_RESULT=$REPLY
+        return 0 ;;
+    esac
+  done
+}
+
+:

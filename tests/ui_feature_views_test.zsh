@@ -29,7 +29,8 @@ _test_ui_feature_choice_scopes() {
         xcode)
           [[ ${_ZLE_PICKER_INSPECT_TEXTS[key]} == detail &&
              ${_ZLE_PICKER_LABEL_HIGHLIGHTS[key]} == "0:6:picker-header" &&
-             ${_ZLE_PICKER_ACCEPT_LABELS[key]:-$_ZLE_PICKER_INSPECT_ACTION} == choose ]] || return 32 ;;
+             ${_ZLE_PICKER_ACCEPT_LABELS[key]} == option &&
+             ${_ZLE_PICKER_DESCRIPTIONS[key]} == setting && $_ZLE_PICKER_ACTION_VIEW == 1 ]] || return 32 ;;
         usb)
           [[ ${_ZLE_PICKER_INSPECT_TEXTS[key]} == detail &&
              ${_ZLE_PICKER_LABEL_HIGHLIGHTS[key]} == "0:6:picker-success" &&

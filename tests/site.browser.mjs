@@ -77,7 +77,15 @@ try {
   assert.equal(await order.innerText(), 'A → B → C', 'Page reload clears the illustrative loading state');
   assert.equal(await page.getByRole('tab', { name: 'Files', exact: true }).getAttribute('aria-selected'), 'true');
   assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab');
-  assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / Directory browser');
+  assert.equal(await page.locator('#picker-title').innerText(), 'Directory browser');
+  const dockGeometry = await page.evaluate(() => ({
+    resultsBottom: document.querySelector('#demo-results').getBoundingClientRect().bottom,
+    inputTop: document.querySelector('.search-line').getBoundingClientRect().top,
+    inputBottom: document.querySelector('.search-line').getBoundingClientRect().bottom,
+    actionsTop: document.querySelector('.picker-keys').getBoundingClientRect().top,
+  }));
+  assert.ok(dockGeometry.resultsBottom <= dockGeometry.inputTop &&
+    dockGeometry.inputBottom <= dockGeometry.actionsTop, 'Input must sit between results and actions');
   assert.equal(await page.locator('#demo-back-hint').innerText(), 'Esc cancel');
   assert.equal(await page.locator('.shell-prompt').isVisible(), false);
   await page.getByRole('tab', { name: 'History', exact: true }).click();
@@ -100,9 +108,12 @@ try {
     'Typing after arrow selection must keep refining the query');
   await page.locator('#demo-query').fill('<img src=x onerror=alert(1)>');
   assert.equal(await page.locator('#match-count').innerText(), '0 matches');
+  assert.equal(await page.locator('.picker-primary').isVisible(), false,
+    'Empty results must not advertise a primary action');
   assert.equal(await page.locator('#demo-results img').count(), 0);
   await page.locator('#demo-query').fill('npm');
   assert.equal(await page.locator('.result-row').count(), 1);
+  assert.equal(await page.locator('.picker-primary').isVisible(), true);
   assert.match(await page.locator('.result-row').innerText(), /npm run test/,
     'Refining must search sample items beyond the first five displayed');
   await page.locator('#demo-query').press('Escape');
@@ -117,7 +128,7 @@ try {
   assert.equal(await page.locator('.result-row').count(), 3);
   await page.locator('#demo-query').fill('plan');
   await page.getByRole('button', { name: 'Preview file Notes/Network client plan.md', exact: true }).click();
-  assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / File actions');
+  assert.equal(await page.locator('#picker-title').innerText(), 'File actions');
   assert.equal(await page.locator('.result-row').count(), 4);
   await page.getByRole('button', { name: 'Preview Reveal in Finder', exact: true }).click();
   assert.match(await page.locator('#demo-output').innerText(), /Finder selects this exact item/);
@@ -127,7 +138,7 @@ try {
     'Selecting a sample must not access the clipboard');
   await page.locator('#demo-query').press('Escape');
   assert.equal(await page.locator('#demo-query').inputValue(), 'plan');
-  assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / Files');
+  assert.equal(await page.locator('#picker-title').innerText(), 'Files');
   assert.equal(await page.locator('.result-row').count(), 1);
   await page.getByLabel('Example', { exact: true }).selectOption('files-home');
   assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab → Ctrl-F');
@@ -155,8 +166,45 @@ try {
   assert.equal(await page.locator('.review-file-row.selected').innerText(), lastReviewFile,
     'Git navigator movement must stop at the last file');
   await page.getByRole('tab', { name: 'Tools', exact: true }).click();
-  assert.equal(await page.getByLabel('Example', { exact: true }).isVisible(), false,
-    'Specialized options should only appear inside relevant tasks');
+  assert.equal(await page.getByLabel('Example', { exact: true }).isVisible(), true,
+    'Tools exposes its related help and action examples');
+  await page.getByLabel('Example', { exact: true }).selectOption('help-topics');
+  await page.getByRole('button', { name: 'Overview', exact: true }).focus();
+  await page.keyboard.press('ArrowDown');
+  assert.match(await page.locator('.journey-text').innerText(), /^--review/,
+    'Moving to an argument must update its explanation without a second click');
+  await page.getByLabel('Find a help topic').fill('rollback');
+  assert.equal(await page.locator('.journey-choice').count(), 1);
+  assert.match(await page.locator('.journey-choice').innerText(), /Safety/,
+    'Help must find literal text inside explanations, not only labels');
+  await page.getByRole('button', { name: 'Safety', exact: true }).click();
+  assert.match(await page.locator('.journey-text').innerText(), /Simulation only/);
+  await page.getByLabel('Find a help topic').fill('rllbck');
+  assert.equal(await page.locator('.journey-choice').count(), 0,
+    'Help uses literal substring matching rather than fuzzy abbreviations');
+  await page.getByLabel('Find a help topic').fill('compose');
+  await page.getByRole('button', { name: 'Compose example…', exact: true }).click();
+  await page.getByLabel('Command template').selectOption('directory');
+  await page.getByLabel('Directory', { exact: true }).fill('');
+  assert.equal(await page.getByRole('button', { name: 'Replace draft → keep editing' }).isEnabled(), false);
+  await page.getByLabel('Directory', { exact: true }).fill('./Design notes');
+  assert.equal(await page.locator('pre.journey-draft').innerText(), "mkcd -- './Design notes'");
+  await page.getByRole('button', { name: 'Replace draft → keep editing' }).click();
+  assert.equal(await page.getByLabel('Simulated editable prompt').inputValue(), "mkcd -- './Design notes'");
+  assert.match(await page.locator('#demo-output').innerText(), /No command executed/);
+  await page.getByRole('button', { name: 'Back to composer' }).click();
+  assert.equal(await page.getByLabel('Directory', { exact: true }).inputValue(), './Design notes');
+  await page.getByRole('button', { name: 'Back to Help' }).click();
+  assert.equal(await page.getByLabel('Find a help topic').inputValue(), 'compose');
+  await page.getByRole('link', { name: 'Change atlas', exact: true }).click();
+  await page.getByRole('button', { name: /▸ Sources\// }).click();
+  await page.getByRole('button', { name: /Search.zsh · Staged M/ }).click();
+  assert.match(await page.getByRole('region', { name: 'Focused diff', exact: true }).innerText(), /local query/);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  assert.match(await page.locator('.journey-trail').innerText(), /Repository/);
+  await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+  await page.getByLabel('Example', { exact: true }).selectOption('tools');
   await page.locator('#demo-query').focus();
   await page.keyboard.press('2');
   assert.match(await page.locator('#demo-output').innerText(), /usage: cpdir/);
@@ -165,7 +213,39 @@ try {
   assert.equal(await page.getByRole('tab', { name: 'Context', exact: true }).getAttribute('aria-selected'), 'true');
   await page.keyboard.press('Tab');
   assert.equal(await page.locator('#demo-panel').evaluate((element) => element === document.activeElement), true,
-    'The static Context panel must be reachable from its tab');
+    'The synthetic Context panel must be reachable from its tab');
+  const contextExample = page.getByLabel('Example', { exact: true });
+  assert.equal(await contextExample.isVisible(), true);
+  assert.equal(await contextExample.inputValue(), 'prompt-context');
+  assert.equal(await page.locator('[data-prompt-state="lens"]').isVisible(), true);
+  await contextExample.selectOption('prompt-git');
+  assert.equal(await page.locator('[data-prompt-state="interaction"]').isVisible(), true);
+  assert.equal(await page.locator('[data-prompt-state="lens"]').isVisible(), false);
+  assert.equal(await page.locator('#interaction-mode').innerText(), 'GIT');
+  assert.equal(await page.locator('#prompt-buffer').innerText(), 'git switch feature/search');
+  assert.match(await page.locator('#interaction-rows').innerText(), /OPERATION TEXT.*switch/s);
+  assert.match(await page.locator('#interaction-rows').innerText(), /ACTION.*likely/s);
+  assert.equal(await page.locator('#interaction-rows [data-source="literal"]').count(), 1);
+  assert.ok(await page.locator('#interaction-rows [data-source="captured"]').count() >= 1);
+  assert.equal(await page.locator('#interaction-rows [data-source="advisory"]').count(), 1);
+  await contextExample.selectOption('prompt-comment');
+  assert.equal(await page.locator('#interaction-mode').innerText(), 'COMMENT');
+  assert.match(await page.locator('#interaction-rows').innerText(),
+    /COMMENT TEXT.*explain this migration.*ACTION.*likely remain/s);
+  await contextExample.selectOption('prompt-chain');
+  assert.equal(await page.locator('#interaction-mode').innerText(), 'CHAIN');
+  assert.match(await page.locator('#interaction-rows').innerText(), /CONTROL.*&&/s);
+  await contextExample.selectOption('prompt-remote');
+  assert.match(await page.locator('#interaction-rows').innerText(),
+    /ENDPOINT TEXT.*deploy@example\.invalid/s);
+  await contextExample.selectOption('prompt-transcript');
+  assert.equal(await page.locator('[data-prompt-state="transcript"]').isVisible(), true);
+  assert.match(await page.locator('[data-prompt-state="transcript"]').innerText(),
+    /14:26.*›.*swift test --filter ParserTests.*Test Suite.*✓.*2\.9s/s);
+  assert.match(await page.locator('#demo-output').innerText(), /normal Zsh history/);
+  await contextExample.selectOption('prompt-ready-last');
+  assert.equal(await page.locator('#interaction-mode').innerText(), 'READY');
+  assert.match(await page.locator('#interaction-rows').innerText(), /LAST.*✓ 2\.9s/s);
   await page.getByRole('tab', { name: 'History', exact: true }).click();
   await page.getByRole('button', { name: 'Copy preview command' }).click();
   assert.equal(await page.locator('html').getAttribute('data-copied'), 'zsh "$repo_dir/install.zsh" --symlink --dry-run');
@@ -184,6 +264,14 @@ try {
   const responsiveWidths = [1440, 1100, 1059, 1058, 1024, 1000, 941, 940, 768, 390, 320];
   for (const width of responsiveWidths) {
     await page.setViewportSize({ width, height: 1000 });
+    for (const link of ['Help → Compose', 'Build a draft', 'Change atlas']) {
+      await page.getByRole('link', { name: link, exact: true }).click();
+      assert.ok(await page.locator('#journey-demo').evaluate(element =>
+        element.scrollWidth <= element.clientWidth), `${link} must fit at ${width}px`);
+      assert.ok(await page.locator('.journey-footer button').evaluateAll(buttons =>
+        buttons.every(button => button.getBoundingClientRect().height >= 44)),
+      `${link} actions must remain touch-sized at ${width}px`);
+    }
     await reorder.click();
     const modelHeight = (await composition.locator('.composition-example').boundingBox()).height;
     await reload.click();
@@ -228,6 +316,23 @@ try {
         }), `Example labels must fit their control at ${width}px`);
       }
     }
+    await page.getByRole('tab', { name: 'Context', exact: true }).click();
+    for (const id of [
+      'prompt-context', 'prompt-ready', 'prompt-run', 'prompt-comment', 'prompt-git', 'prompt-navigate',
+      'prompt-search', 'prompt-build', 'prompt-test', 'prompt-environment',
+      'prompt-remote', 'prompt-pipeline', 'prompt-chain', 'prompt-redirect', 'prompt-caution',
+      'prompt-transcript', 'prompt-ready-last',
+    ]) {
+      await page.getByLabel('Example', { exact: true }).selectOption(id);
+      const state = page.locator('[data-prompt-state]:visible');
+      assert.equal(await state.count(), 1, `${id} must expose one prompt state`);
+      assert.ok(await state.evaluate(element => element.scrollWidth <= element.clientWidth),
+        `${id} must fit the Context terminal at ${width}px`);
+    }
+    if (screenshots && [1440, 390].includes(width)) {
+      await page.getByLabel('Example', { exact: true }).selectOption('prompt-git');
+      await page.locator('.terminal').screenshot({ path: `${screenshots}/living-prompt-${width}.png` });
+    }
     // All filesystem examples and the secondary action menu must fit too.
     await page.getByRole('tab', { name: 'Files', exact: true }).click();
     for (const id of ['files-browse', 'files-recents', 'files-project', 'files-home']) {
@@ -240,7 +345,7 @@ try {
     await page.getByLabel('Example', { exact: true }).selectOption('files-project');
     await page.locator('#demo-query').fill('plan');
     await page.locator('#demo-query').press('Enter');
-    assert.equal(await page.locator('#picker-title').innerText(), 'Compozsh / File actions');
+    assert.equal(await page.locator('#picker-title').innerText(), 'File actions');
     assert.ok(await page.locator('#demo-results').evaluate(list => {
       const bounds = list.getBoundingClientRect();
       return [...list.children].every(row => row.getBoundingClientRect().bottom <= bounds.bottom + 1);
@@ -285,6 +390,7 @@ try {
     assert.equal(await noJS.locator('#composition').getByRole('heading', { name: law }).isVisible(), true);
   }
   assert.equal(await noJS.locator('#composition-configured').innerText(), 'A · B · C');
+  assert.equal(await noJS.locator('#new-flows article').count(), 3);
   assert.match(await noJS.locator('#composition-scope').innerText(), /initializer.*first/);
   await noJS.close();
   console.log(`PASS: composition laws and bounded permutations, task tabs, captured file scopes, branch previews, keyboard, unordered search, literal input, numeric selection, copy success/failure, disclosure, stable geometry, reduced motion, no-JS, local-only requests, and ${responsiveWidths.length} responsive widths`);

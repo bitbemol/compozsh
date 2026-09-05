@@ -37,13 +37,20 @@ _test_privilege_and_credential_surface_stays_bounded() {
   setopt EXTENDED_GLOB
   local usb="$TEST_REPO_ROOT/.zsh.addons/.zsh.usb"
   local touch_id="$TEST_REPO_ROOT/.zsh.addons/.zsh.sudo-touch-id"
+  local help="$TEST_REPO_ROOT/.zsh.addons/.zsh.help" prompt="$TEST_REPO_ROOT/.zsh.addons/.zsh.prompt"
   local file='' line='' trimmed='' invocation='' contents=''
   _security_runtime_files
 
   for file in "${_SECURITY_RUNTIME_FILES[@]}"; do
     contents=$(<"$file")
-    if [[ $file != "$usb" && $file != "$touch_id" && $contents == *sudo* ]]; then
+    if [[ $file != "$usb" && $file != "$touch_id" && $file != "$help" && $file != "$prompt" && $contents == *sudo* ]]; then
       test_fail "sudo reference escaped the documented privilege peers: ${file#$TEST_REPO_ROOT/}"
+      return 1
+    fi
+    # Help owns grouped dispatch/documentation and prompt owns literal hints;
+    # neither is allowed to acquire the actual sudo invocation boundary.
+    if [[ $file != "$usb" && $file != "$touch_id" && $contents == *'command /usr/bin/sudo'* ]]; then
+      test_fail "sudo invocation escaped the privilege peers: ${file#$TEST_REPO_ROOT/}"
       return 1
     fi
     if [[ $contents == *'sudo -S'* || $contents == *'sudo --stdin'* ||

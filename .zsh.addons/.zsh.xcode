@@ -1323,7 +1323,7 @@ _xcode_logs_idle() {
 }
 
 _xcode_logs_options() {
-  _zle_ui_view choice _xcode_logs_options_view
+  _zle_ui_view action _xcode_logs_options_view
 }
 
 _xcode_logs_options_view() {
@@ -1353,6 +1353,18 @@ _xcode_logs_options_view() {
   fi
   _XCODE_PICKER_VALUES+=(back)
   _XCODE_PICKER_LABELS+=('Return to Run · Keep the app running')
+  _ZLE_PICKER_ACTION_CONTEXT="CAPTURED LOGS"$'\n'"$_xcode_logs_matches of $_xcode_logs_total lines"$'\n\nThe app remains running while you read.'
+  local -i index=0
+  local value='' label='' detail=''
+  for (( index=1; index<=${#_XCODE_PICKER_VALUES}; ++index )); do
+    value=$_XCODE_PICKER_VALUES[index] label=$_XCODE_PICKER_LABELS[index]
+    detail=${label#* · } label=${label%% · *}
+    _XCODE_PICKER_LABELS[index]=$label
+    _XCODE_PICKER_SEARCH[index]="$label $detail"
+    _ZLE_PICKER_DESCRIPTIONS[$value]=$detail
+    _ZLE_PICKER_INSPECT_TEXTS[$value]=$detail
+    _ZLE_PICKER_ACCEPT_LABELS[$value]=${label:l}
+  done
   _zle_picker_loop '' 10
 }
 
@@ -1699,13 +1711,19 @@ _xcode_picker_collect() {
 }
 
 _xcode_choose() {
-  _zle_ui_view choice _xcode_choice_view "$@"
+  local view_kind=choice
+  [[ ${4:-} == options ]] && view_kind=action
+  _zle_ui_view "$view_kind" _xcode_choice_view "$@"
 }
 
 _xcode_choice_view() {
   emulate -L zsh
   local title=$1 subtitle=$2 query_label=$3
   local label_kind=${4:-} label_prefix=''
+  local initial_query=${5:-} initial_value=${6:-} value=''
+  local -i initial_index=1
+  local -a _XCODE_PICKER_LABELS=("${_XCODE_PICKER_LABELS[@]}")
+  local -a _XCODE_PICKER_SEARCH=("${_XCODE_PICKER_SEARCH[@]}")
   _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
   _ZLE_PICKER_QUERY_LABEL=$query_label
   _ZLE_PICKER_BROWSE_LABEL='read-only selection'
@@ -1716,10 +1734,29 @@ _xcode_choice_view() {
     if [[ $label_kind == options ]]; then
       # Only Actions owns this separator: names in other views stay literal.
       label_prefix=${_XCODE_PICKER_LABELS[index]%% · *}
+      value=${_XCODE_PICKER_VALUES[index]}
+      _XCODE_PICKER_SEARCH[index]+=" ${_XCODE_PICKER_LABELS[index]}"
+      _ZLE_PICKER_DESCRIPTIONS[$value]=${_XCODE_PICKER_LABELS[index]#* · }
+      _XCODE_PICKER_LABELS[index]=$label_prefix
+      case $value in
+        (scheme|destination) _ZLE_PICKER_ACCEPT_LABELS[$value]="choose $value" ;;
+        (refresh-destinations) _ZLE_PICKER_ACCEPT_LABELS[$value]=refresh ;;
+        (*) _ZLE_PICKER_ACCEPT_LABELS[$value]=${label_prefix:l} ;;
+      esac
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_XCODE_PICKER_VALUES[index]}]="0:${#label_prefix}:picker-header"
     fi
   done
-  _zle_picker_loop '' 10
+  if [[ $label_kind == options ]]; then
+    _ZLE_PICKER_ACTION_CONTEXT=${_XCODE_ACTION_CONTEXT:-$subtitle}
+    _ZLE_PICKER_BROWSE_LABEL='Choose an action · inspect before applying'
+  fi
+  if [[ -n $initial_value ]]; then
+    _xcode_picker_collect "$initial_query" 1000
+    initial_index=${_ZLE_PICKER_RESULTS[(Ie)$initial_value]}
+    (( initial_index > 0 )) || initial_index=1
+  fi
+  _zle_picker_start_focus=${8:-0}
+  _zle_picker_loop "$initial_query" 10 $initial_index "${7:-0}"
 }
 
 _xcode_test_result_choose() {
@@ -1919,6 +1956,8 @@ _xcode_workspace_controller() {
   local -a _XCODE_DESTINATION_CACHE_IDS=()
   local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
   local -a _XCODE_DESTINATION_CACHE_NAMES=()
+  local _XCODE_ACTION_CONTEXT='' action_query='' action_value=''
+  local -i action_offset=0 action_focus=0
 
   if (( ${#_XCODE_CONTAINERS} > 1 )); then
     _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
@@ -1987,10 +2026,14 @@ _xcode_workspace_controller() {
         'Build & Run'$'\n\nAsks Xcode to incrementally build changed products, then boots the selected Simulator, installs the app and launches it. Opens live app output with Stop and Enter LLDB actions. Escape stops this run. No physical-device launch.'
         'Rebuild & Run'$'\n\nRuns Xcode clean and build for this scheme and destination, then boots the selected Simulator, installs the app and opens live output with Stop and Enter LLDB actions. Escape stops this run. This is a slower stale-product recovery.')
     fi
-    _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions' options
+    _XCODE_ACTION_CONTEXT="PROJECT"$'\n'"$container"$'\n\nSCHEME  '"$scheme"$'\nDESTINATION  '"$destination"$'\n'"$platform · $identifier"
+    _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions' options \
+      "$action_query" "$action_value" "$action_offset" "$action_focus"
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
+    action_query=${_ZLE_PICKER_BOOKMARK[1]-} action_value=$selected
+    action_offset=${_ZLE_PICKER_BOOKMARK[3]:-0} action_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
     case $selected in
       (scheme)
         _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
@@ -2059,10 +2102,19 @@ _xcode_workspace_controller() {
 }
 
 _compozsh_help_xcode() {
+  if [[ ${1:-} == export-skills ]]; then
+    _xcode_export_help
+    return
+  fi
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
   "${printer[@]}" 'usage: xcode [xcodebuild-arguments ...]' \
     'Open a native Xcode action workspace, or delegate arguments to xcodebuild.' \
+    '' \
+    'Options:' \
+    '  --export-skills  Review and export Apple skills for detected local agents.' \
+    '  --help  Read this guide without project discovery or Xcode execution.' \
+    '  Other arguments retain native xcodebuild syntax; use xcodebuild -help.' \
     '' \
     'Workspace discovery:' \
     '  With no arguments, finds the nearest directory on the upward path that' \
@@ -2196,7 +2248,8 @@ _compozsh_help_xcode() {
     '  are not read. The native xcodebuild status remains the command status.' \
     '' \
     'Direct xcodebuild access and fallback:' \
-    '  Any arguments delegate directly to xcodebuild and preserve its status.' \
+    '  --export-skills exports Apple-authored skills; see the guide below.' \
+    '  Other arguments delegate directly to xcodebuild and preserve its status.' \
     '  Direct arguments do not add a result bundle or result window.' \
     '  In a noninteractive/dumb terminal, no arguments run a safe xcodebuild -list' \
     '  for the nearest container. Full Xcode must be selected with xcode-select.' \
@@ -2205,6 +2258,7 @@ _compozsh_help_xcode() {
     '  xcode                              Open the native action workspace.' \
     '  xcode -version                     Ask xcodebuild for its version.' \
     '  xcode -showBuildSettings -scheme App  Delegate an advanced query.'
+  _xcode_export_help section
 }
 
 unalias xcode 2>/dev/null
@@ -2219,8 +2273,24 @@ xcode() {
   local _XCODE_TEST_CLIPBOARD_BINARY=''
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_xcode
+    local -a help=(_compozsh_help_xcode)
+    (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+    "${help[@]}"
     return 0
+  fi
+  if [[ ${1:-} == --export-skills ]]; then
+    if (( $# == 2 )) && [[ $2 == --help ]]; then
+      local -a help=(_compozsh_help_xcode export-skills)
+      (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+      "${help[@]}"
+      return 0
+    fi
+    (( $# == 1 )) || {
+      print -u2 -r -- 'usage: xcode [xcodebuild-arguments ...]'
+      return 2
+    }
+    _xcode_export_skills
+    return $?
   fi
   {
     (( $# == 0 )) || {
@@ -2495,10 +2565,15 @@ _install_xcode_skills_for_agent() {
 # Export Apple's portable Xcode skills once, then make them discoverable to the
 # common local coding agents. No Xcode process or filesystem write occurs until
 # this function is explicitly invoked.
-_compozsh_help_update-xcode-skills() {
+_xcode_export_help() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: update-xcode-skills' \
+  if [[ ${1:-} == section ]]; then
+    "${printer[@]}" '' 'Skill export: xcode --export-skills'
+  else
+    "${printer[@]}" 'usage: xcode --export-skills'
+  fi
+  "${printer[@]}" \
     'Export Apple-authored Xcode skills to detected coding agents.' \
     '' \
     'Prerequisites and detection:' \
@@ -2524,8 +2599,11 @@ _compozsh_help_update-xcode-skills() {
     '  agent or no compatible Xcode exporter, it fails before installing.' \
     '' \
     'Refresh and recovery:' \
-    '  Running this command writes immediately; there is no confirmation or' \
-    '  dry-run mode. Rerun after changing Xcode to refresh exported skills.' \
+    '  An interactive terminal with UI/matching peers opens an installation plan.' \
+    '  Review the detected destinations; Enter on Export skills closes the screen' \
+    '  before exporting or writing. Escape cancels without creating staging data.' \
+    '  Pipes, dumb terminals, and missing UI keep direct immediate execution.' \
+    '  There is no dry-run mode. Rerun after changing Xcode to refresh skills.' \
     '  Only existing skills marked .xcode-skill-export are replaced. Personal' \
     '  same-name directories, symlinks, and other conflicts are kept/reported.' \
     '  Replacement is staged per skill; the whole multi-agent update is not' \
@@ -2536,20 +2614,33 @@ _compozsh_help_update-xcode-skills() {
     '  remove other skill directories absent from the new export.' \
     '  Start a new agent session afterward. Gemini CLI can use /skills reload.' \
     '  Exported guidance does not connect live Xcode tools or configure MCP.' \
-    '  No arguments are accepted; --help shows this guide without detection,' \
+    '  No extra arguments are accepted; --export-skills --help works without detection,' \
     '  invoking Xcode, or writing files.' \
     '' \
     'Examples:' \
-    '  update-xcode-skills    Export from the currently selected Xcode.'
+    '  xcode --export-skills    Export from the currently selected Xcode.'
 }
 
-update-xcode-skills() {
-  emulate -L zsh
+unfunction update-xcode-skills _compozsh_help_update-xcode-skills 2>/dev/null
+unalias update-xcode-skills 2>/dev/null
 
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_update-xcode-skills
-    return 0
-  fi
+_xcode_export_review() {
+  emulate -L zsh
+  local -a _XCODE_PICKER_VALUES=(export)
+  local -a _XCODE_PICKER_LABELS=('Export skills · Install Apple guidance for the detected agents')
+  local -a _XCODE_PICKER_SEARCH=('export install update skills')
+  local -a _XCODE_PICKER_DETAILS=(
+    $'Export once, then install real copies in the displayed destinations.\n\nOnly skills marked .xcode-skill-export may be replaced. Personal conflicts and symlinks are kept and reported.\nReplacement is staged per skill, not one transaction: a later failure can leave earlier updates installed.\nNo export or installation has started. Escape returns without writing.')
+  local _XCODE_ACTION_CONTEXT="SOURCE"$'\n'"$agent_path"$'\n\nDESTINATIONS'
+  local -i index=0
+  for (( index = 1; index <= ${#agent_names}; ++index )); do
+    _XCODE_ACTION_CONTEXT+=$'\n'"${agent_names[index]}"$'\n'"${skill_dirs[index]}"
+  done
+  _xcode_choose 'Xcode / Export skills' 'Detected local agents · review installation targets' 'Filter actions' options
+}
+
+_xcode_export_skills() {
+  emulate -L zsh
 
   local agent_path='' xcode_version='' xcode_build='' stage_dir=''
   local shared_agent_name=''
@@ -2560,11 +2651,6 @@ update-xcode-skills() {
   local -a exported_skills=()
   local -a detected_vendors=() agent_names=() skill_dirs=()
   local -i index=0
-
-  if (( $# != 0 )); then
-    print -u2 -r -- 'usage: update-xcode-skills'
-    return 2
-  fi
 
   if _detect_xcode_skill_vendor codex; then
     codex_installed=1
@@ -2618,7 +2704,7 @@ update-xcode-skills() {
   fi
 
   if (( ${#agent_names} == 0 )); then
-    print -u2 -r -- 'update-xcode-skills: no supported local coding agent found'
+    print -u2 -r -- 'xcode --export-skills: no supported local coding agent found'
     print -u2 -r -- \
       'Install Codex, Claude Code, Gemini CLI, Antigravity, or Kiro first.'
     return 1
@@ -2628,16 +2714,28 @@ update-xcode-skills() {
       ! agent_path=$(command xcrun --find agent 2>/dev/null) || \
       [[ -z $agent_path ]]; then
     print -u2 -r -- \
-      "update-xcode-skills: Xcode's agent command is unavailable"
+      "xcode --export-skills: Xcode's agent command is unavailable"
     print -u2 -r -- \
       'Select a compatible Xcode with xcode-select, then try again.'
     return 1
   fi
 
+  if [[ -t 0 && -t 1 && $TERM != dumb ]] &&
+     (( ${+functions[_zle_picker_run]} && ${+functions[_zle_ui_view]} && ${+functions[_matching_compile]} )); then
+    local _ZLE_PICKER_SELECTED_VALUE=''
+    local -a _ZLE_PICKER_BOOKMARK=()
+    local -i _ZLE_PICKER_BOOKMARK_FOCUS=0 review_status=0
+    _zle_picker_run 10 '' 1 0 _xcode_export_review
+    review_status=$?
+    (( review_status == 1 )) && return 0
+    (( review_status == 0 )) || return $review_status
+    [[ $_ZLE_PICKER_SELECTED_VALUE == export ]] || return 1
+  fi
+
   print -r -- "Detected: ${(j:, :)detected_vendors}"
 
   stage_dir=$(command mktemp -d "${temp_root%/}/xcode-skills.XXXXXX") || {
-    print -u2 -r -- 'update-xcode-skills: cannot create a temporary directory'
+    print -u2 -r -- 'xcode --export-skills: cannot create a temporary directory'
     return 1
   }
 
@@ -2653,7 +2751,7 @@ update-xcode-skills() {
     else
       exported_skills=("$stage_dir"/*/SKILL.md(N.))
       if (( ${#exported_skills} == 0 )); then
-        print -u2 -r -- 'update-xcode-skills: Xcode exported no usable skills'
+        print -u2 -r -- 'xcode --export-skills: Xcode exported no usable skills'
         overall_status=1
       else
         print -r -- \

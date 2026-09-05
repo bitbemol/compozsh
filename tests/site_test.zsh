@@ -1,7 +1,7 @@
 # The website is an optional static surface, never a shell dependency.
 _test_site_static_contract() {
   local site_dir="$TEST_REPO_ROOT/docs" site_file='' html='' css='' script=''
-  for site_file in index.html styles.css app.mjs composition.mjs search.mjs demo-data.mjs .nojekyll; do
+  for site_file in index.html styles.css app.mjs composition.mjs search.mjs demo-data.mjs journeys.mjs .nojekyll; do
     [[ -f "$site_dir/$site_file" ]] || {
       test_fail "missing static website file: $site_file"
       return 1
@@ -19,6 +19,20 @@ _test_site_static_contract() {
   test_assert_contains "$html" 'Content-Security-Policy' || return
   test_assert_contains "$html" "connect-src 'none'" || return
   test_assert_contains "$html" 'Browser demo' || return
+  test_assert_contains "$html" 'data-prompt-state="lens"' || return
+  test_assert_contains "$html" 'data-prompt-state="interaction"' || return
+  test_assert_contains "$html" 'data-prompt-state="transcript"' || return
+  test_assert_contains "$html" 'CONTEXT · entered project' || return
+  test_assert_contains "$html" 'id="interaction-rows"' || return
+  test_assert_contains "$html" 'LITERAL DRAFT' || return
+  test_assert_contains "$html" 'CAPTURED FACT' || return
+  test_assert_contains "$html" 'ADVISORY' || return
+  test_assert_contains "$html" 'ACTION' || return
+  test_assert_contains "$script" 'COMMENT TEXT' || return
+  test_assert_contains "$html" '⌥I pin' || return
+  test_assert_contains "$html" 'SESSION' || return
+  test_assert_contains "$html" '2.9s' || return
+  test_assert_contains "$html" 'Option-I pins the Context lens' || return
   test_assert_contains "$html" 'id="git-review-demo"' || return
   test_assert_contains "$html" 'id="composition"' || return
   test_assert_contains "$html" 'Commutativity' || return

@@ -1,6 +1,106 @@
 # Native bootable external-media creation. This peer unit is loaded by the .zshrc
 # bootstrap only while its name matches .zsh.<name> inside an add-on directory.
 
+# Retire the former public entries on re-source; there is one task family.
+unfunction flash-usb format-external-device _compozsh_help_flash-usb _compozsh_help_format-external-device 2>/dev/null
+unalias flash-usb format-external-device external-device 2>/dev/null
+
+_compozsh_help_external-device() {
+  emulate -L zsh
+  case ${1:-} in
+    flash) _usb_help_flash; return ;;
+    format) _usb_help_format; return ;;
+  esac
+  local -a printer=(print -rl --)
+  (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  "${printer[@]}" 'usage: external-device [--flash [media] | --format]' \
+    'Choose a task for one whole external physical disk.' \
+    '' \
+    'Tasks:' \
+    '  No arguments opens the task chooser without reading disks or images.' \
+    '  --flash [media]  Create bootable media from an image or macOS installer.' \
+    '  --format  Choose a drive, filesystem, and volume name.' \
+    '  Enter or an empty-filter digit opens the displayed task, never an erase.' \
+    '  Filter tasks by name; arrows move, Ctrl-E/B focuses plan/list, Escape exits.' \
+    '  Ctrl-K shows the shared keys. Narrow screens retain explicit plan access.' \
+    '  Every write requires its own exact-device typed confirmation afterward.' \
+    '  Requires an interactive terminal and the UI/matching peers for tasks.' \
+    '  Pipes, dumb terminals, and missing UI return an error without discovery.' \
+    '  --help, --flash --help, and --format --help read nothing and write nothing.' \
+    '' \
+    'Bootable media guide:'
+  _usb_help_flash
+  "${printer[@]}" '' 'Formatting guide:'
+  _usb_help_format
+}
+
+_usb_task_choose() {
+  emulate -L zsh
+  local -a _USB_PICKER_VALUES=(flash format)
+  local -a _USB_PICKER_LABELS=('Create bootable media' 'Format a drive')
+  local -a _USB_PICKER_SEARCH=('flash bootable image iso img installer' 'format erase filesystem volume')
+  local -a _USB_PICKER_DETAILS=(
+    $'Create bootable media\n\nChoose an image or macOS installer, then an external drive.\n\nReview the exact media, disk identity, and verification plan.\nThe separate ERASE diskN confirmation is required before authorization.\nNo media or disk has been read yet.'
+    $'Format a drive\n\nChoose a whole external physical disk, filesystem, and volume name.\n\nReview the exact disk identity and format.\nThe separate ERASE diskN confirmation is required before authorization.\nFormatting destroys existing partitions and data; no disk has been read yet.')
+  _usb_choose 'External device / Tasks' 'Choose a task · no device selected' 'Filter tasks' 1 0 0 '' '' '' action
+}
+
+external-device() {
+  emulate -L zsh
+  local selected='' result=0
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    local -a help=(_compozsh_help_external-device)
+    (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+    "${help[@]}"
+    return 0
+  fi
+  case ${1:-} in
+    --flash|--format)
+      selected=${1#--}
+      if (( $# == 2 )) && [[ $2 == --help ]]; then
+        local -a help=(_compozsh_help_external-device "$selected")
+        (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+        "${help[@]}"
+        return 0
+      fi
+      if { [[ $selected == flash && ${2:-} != --* ]] && (( $# <= 2 )); } ||
+         { [[ $selected == format ]] && (( $# == 1 )); }; then
+        if [[ $selected == flash ]]; then
+          _usb_flash "${@:2}"
+        else
+          _usb_format
+        fi
+        return $?
+      fi
+      ;;
+    '')
+      if (( $# == 0 )); then
+        if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
+           (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_zle_ui_view]} || ! ${+functions[_matching_compile]} )); then
+          print -u2 -r -- 'external-device: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
+          return 1
+        fi
+        local _ZLE_PICKER_SELECTED_VALUE=''
+        local -a _ZLE_PICKER_BOOKMARK=()
+        local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
+        _zle_picker_run 20 '' 1 0 _usb_task_choose
+        result=$?
+        (( result == 1 )) && return 0
+        (( result == 0 )) || return $result
+        selected=$_ZLE_PICKER_SELECTED_VALUE
+        # Task dispatch occurs after the chooser relinquishes the terminal.
+        case $selected in
+          flash) _usb_flash; return $? ;;
+          format) _usb_format; return $? ;;
+          *) return 1 ;;
+        esac
+      fi
+      ;;
+  esac
+  print -u2 -r -- 'usage: external-device [--flash [media] | --format]'
+  return 2
+}
+
 typeset -ga _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
 typeset -ga _USB_IMAGE_HIGHLIGHTS=()
 typeset -ga _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
@@ -805,7 +905,7 @@ _usb_read_image_path() {
 _usb_image_path_view() {
   emulate -L zsh
   local subtitle=${1:-'Drop an .iso, .img, or full Install macOS app, then press Return'}
-  _ZLE_PICKER_TITLE='Flash USB / Add media' _ZLE_PICKER_SUBTITLE=$subtitle
+  _ZLE_PICKER_TITLE='External device / Flash / Add media' _ZLE_PICKER_SUBTITLE=$subtitle
   _ZLE_PICKER_QUERY_LABEL='Media path' _ZLE_PICKER_INSPECT_ACTION=add
   _ZLE_PICKER_BROWSE_LABEL='drop or paste one exact path · Return validates'
   _ZLE_PICKER_EMPTY_LINES=(
@@ -846,7 +946,7 @@ _usb_checksum_view() {
   emulate -L zsh
   local subtitle=${1:-'Paste one SHA-256 or SHA-512 checksum, then press Return'}
   local initial=${2:-}
-  _ZLE_PICKER_TITLE='Flash USB / Image checksum' _ZLE_PICKER_SUBTITLE=$subtitle
+  _ZLE_PICKER_TITLE='External device / Flash / Image checksum' _ZLE_PICKER_SUBTITLE=$subtitle
   _ZLE_PICKER_QUERY_LABEL='Checksum' _ZLE_PICKER_INSPECT_ACTION=add
   _ZLE_PICKER_BROWSE_LABEL='optional integrity check · Return validates'
   _ZLE_PICKER_EMPTY_LINES=(
@@ -947,7 +1047,7 @@ _usb_browse_choose() {
 _usb_browse_image_path() {
   emulate -L zsh
   local location=${HOME:A} selected='' display_path='' path_subtitle=''
-  local _ZLE_PICKER_TITLE='Flash USB · Step 1 of 3'
+  local _ZLE_PICKER_TITLE='External device / Flash · Step 1 of 3'
   local _ZLE_PICKER_SUBTITLE=''
   local -i _USB_BROWSER_PARTIAL=0 _USB_BROWSER_SHOW_HIDDEN=0
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
@@ -1368,13 +1468,22 @@ _usb_picker_collect() {
 }
 
 _usb_choose() {
-  _zle_ui_view choice _usb_choice_view "$@"
+  _zle_ui_view "${10:-choice}" _usb_choice_view "$@"
 }
 
 _usb_choice_view() {
   emulate -L zsh
   local title=$1 subtitle=$2 query_label=$3
   local -i show_details=${4:-0}
+  if (( _ZLE_PICKER_ACTION_VIEW )); then
+    show_details=1
+    _ZLE_PICKER_ACTION_CONTEXT="PLAN"$'\n'"$2"$'\n\nWrites require a separate confirmation.'
+    _ZLE_PICKER_ACCEPT_LABELS=(flash-verify 'review confirmation' flash-only 'review confirmation'
+      flash 'choose media' format 'choose drive'
+      default-name 'review confirmation' custom-name 'enter name' image 'choose media'
+      target 'choose drive' checksum 'enter checksum' remove-checksum 'remove checksum'
+      retry 'retry capture' back back done done source inspect info inspect)
+  fi
   _ZLE_PICKER_REFRESH_ENABLED=${5:-0}
   local -i show_highlights=${6:-0}
   local refresh_label=${7:-'captured external disks · Ctrl-R refresh'}
@@ -1396,6 +1505,11 @@ _usb_choice_view() {
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_HIGHLIGHTS[index]}
     if (( show_details )); then
       _ZLE_PICKER_INSPECT_TEXTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_DETAILS[index]-}
+      if (( _ZLE_PICKER_ACTION_VIEW )); then
+        local detail=${_USB_PICKER_DETAILS[index]-}
+        [[ $detail == *$'\n\n'* ]] && detail=${detail#*$'\n\n'}
+        _ZLE_PICKER_DESCRIPTIONS[${_USB_PICKER_VALUES[index]}]=${detail%%$'\n'*}
+      fi
     fi
   done
   if [[ -n $initial_value ]]; then
@@ -1435,7 +1549,7 @@ _usb_external_device_capture_retry() {
     _USB_PICKER_DETAILS=(
       "$retry_detail"
       "$back_label"$'\n\n''Return without discarding the established image or performing an action.')
-    _usb_choose "$title" "$subtitle" 'Filter choices' 0 1
+    _usb_choose "$title" "$subtitle" 'Filter choices' 0 1 0 '' '' '' action
     result=$?
     (( result == 1 )) && return 1
     (( result == 0 )) || return $result
@@ -1450,7 +1564,7 @@ _usb_disks_capture_retry() {
   local image_size=$1 image_label=$2 back_value=$3 back_label=$4
   local excluded_disk=${5:-} media_kind=${6:-raw-image}
   _usb_external_device_capture_retry _usb_disks_capture "$image_size" \
-    "$excluded_disk" "$media_kind" 'Flash USB · Step 2 of 3' \
+    "$excluded_disk" "$media_kind" 'External device / Flash · Step 2 of 3' \
     "$back_value" "$back_label"
 }
 
@@ -1482,7 +1596,7 @@ _usb_target_choose() {
   local excluded_disk=${5:-} subtitle=${6:-"Image  ›  DRIVE  ›  Flash · $image_label"}
   local media_kind=${7:-raw-image}
   _usb_external_device_choose _usb_disks_capture "$image_size" "$excluded_disk" \
-    "$media_kind" 'Flash USB · Step 2 of 3' "$subtitle" 'Filter drives' \
+    "$media_kind" 'External device / Flash · Step 2 of 3' "$subtitle" 'Filter drives' \
     "$back_value" "$back_label"
 }
 
@@ -1592,7 +1706,7 @@ _usb_volume_name_view() {
   emulate -L zsh
   local subtitle=${1:-'Enter a volume name, then press Return'}
   local initial=${2:-}
-  _ZLE_PICKER_TITLE='Format External Device / Volume name'
+  _ZLE_PICKER_TITLE='External device / Format / Volume name'
   _ZLE_PICKER_SUBTITLE=$subtitle _ZLE_PICKER_QUERY_LABEL='Volume name'
   _ZLE_PICKER_INSPECT_ACTION=use
   _ZLE_PICKER_BROWSE_LABEL='literal volume name · Return validates'
@@ -1614,7 +1728,7 @@ _usb_format_workspace_controller() {
   local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
   while true; do
     _usb_external_device_choose _usb_format_disks_capture 1 '' format \
-      'Format External Device · Step 1 of 3' \
+      'External device / Format · Step 1 of 3' \
       'DRIVE  ›  Format · whole external physical disks only' \
       'Filter drives' cancel 'Cancel formatting'
     result=$?
@@ -1642,7 +1756,7 @@ _usb_format_workspace_controller() {
           _USB_PICKER_DETAILS+=("${_USB_FORMAT_DETAILS[index]}"$'\n\n'"This personality is outside diskutil's reported size bounds for the selected $size_label drive. Selecting it will not erase the disk.")
         fi
       done
-      _usb_choose 'Format External Device · Step 2 of 3' "$format_subtitle" \
+      _usb_choose 'External device / Format · Step 2 of 3' "$format_subtitle" \
         'Filter formats' 1
       result=$?
       (( result == 1 )) && break
@@ -1668,9 +1782,9 @@ _usb_format_workspace_controller() {
         _USB_PICKER_DETAILS=(
           'Use default name'$'\n\n''Continue with External as the initial volume name.'
           'Custom volume name'$'\n\n''Enter one literal name. It is validated for the selected filesystem before confirmation.')
-        _usb_choose 'Format External Device · Step 3 of 3' \
+        _usb_choose 'External device / Format · Step 3 of 3' \
           "Drive  ›  Format  ›  NAME · ${_USB_FORMAT_LABELS[format_index]} · /dev/$disk" \
-          'Filter choices' 1
+          'Filter choices' 1 0 0 '' '' '' action
         result=$?
         (( result == 1 )) && break
         (( result == 0 )) || return $result
@@ -1716,7 +1830,7 @@ _usb_image_source_disk_retry() {
     _USB_PICKER_DETAILS=(
       'Retry image-volume access'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter resolves the source again so it cannot be selected as the write target.'
       'Choose another image'$'\n\n''Return to the captured image choices without performing an action.')
-    _usb_choose 'Flash USB · Step 1 of 3' "IMAGE unavailable · $error" 'Filter choices'
+    _usb_choose 'External device / Flash · Step 1 of 3' "IMAGE unavailable · $error" 'Filter choices'
     result=$?
     (( result == 1 )) && return 1
     (( result == 0 )) || return $result
@@ -1739,7 +1853,7 @@ _usb_media_attention_choose() {
   local -a _USB_PICKER_HIGHLIGHTS=('' "0:${#headline}:picker-error")
   local -a _USB_PICKER_SEARCH=(back media unsupported inspect)
   local -a _USB_PICKER_DETAILS=("$detail" "$detail")
-  _usb_choose 'Flash USB · Media compatibility' \
+  _usb_choose 'External device / Flash · Media compatibility' \
     "MEDIA  ›  ${image:t}" 'Choose another media' 1 0 1
 }
 
@@ -1760,7 +1874,7 @@ _usb_windows_unsupported_choose() {
   local -a _USB_PICKER_PASSIVE_LINES=("$boundary" "$boot" "$limit" "$tool" "$safety")
   local -a _USB_PICKER_PASSIVE_STYLES=(
     picker-error picker-text picker-text picker-text picker-success)
-  _usb_choose 'Flash USB · Windows unsupported' \
+  _usb_choose 'External device / Flash · Windows unsupported' \
     "MEDIA  ›  WINDOWS UNSUPPORTED · ${image:t}" 'Done' 0 0 1
 }
 
@@ -1782,9 +1896,9 @@ _usb_macos_review_choose() {
     'Apple signature verified'$'\n\n''The full installer application and its createinstallmedia executable passed validation. Their captured filesystem identities are checked again before erasing the drive.'
     "${_USB_IMAGE_DETAILS[${_USB_IMAGE_PATHS[(Ie)$installer]}]}"
     "${_USB_DISK_DETAILS[disk_index]}")
-  _usb_choose 'Flash USB · Step 3 of 3' \
+  _usb_choose 'External device / Flash · Step 3 of 3' \
     "Media  ›  Drive  ›  CREATE · macOS · ${installer:t} → /dev/$disk" \
-    'Filter choices' 0 0 1
+    'Filter choices' 1 0 1 '' '' '' action
 }
 
 _usb_step3_checksum_progress() {
@@ -1829,7 +1943,7 @@ _usb_workspace_controller() {
       _USB_PICKER_SEARCH+=("${_USB_IMAGE_PATHS[index]}")
       _USB_PICKER_DETAILS+=("${_USB_IMAGE_DETAILS[index]}")
     done
-    _usb_choose 'Flash USB · Step 1 of 3' \
+    _usb_choose 'External device / Flash · Step 1 of 3' \
       "MEDIA  ›  Drive  ›  Flash · newest first · ${_USB_IMAGE_CAPTURE_SCOPE}" \
       'Filter media' 1 1 1 'captured media · Ctrl-R refresh Spotlight' \
       "$image_query" "$image_initial_value"
@@ -2056,9 +2170,9 @@ _usb_workspace_controller() {
       review_breadcrumb="Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk"
       [[ $media_kind == windows-installer ]] &&
         review_breadcrumb="Media  ›  Drive  ›  CREATE WINDOWS · $architecture_label · ${image:t} → /dev/$disk"
-      _usb_choose 'Flash USB · Step 3 of 3' \
+      _usb_choose 'External device / Flash · Step 3 of 3' \
         "$review_breadcrumb" \
-        'Filter choices' 0 0 1
+        'Filter choices' 1 0 1 '' '' '' action
       result=$?
       (( result == 1 )) && break
       (( result == 0 )) || return $result
@@ -2259,7 +2373,7 @@ _usb_progress_view() {
     _ZLE_PICKER_BUSY_LINES+=("$line")
     _ZLE_PICKER_BUSY_STYLES+=("picker-status-$style")
   done
-  _zle_picker_capture 'Flash USB · Step 3 of 3' 'Image  ›  Drive  ›  FLASH' '' _usb_noop
+  _zle_picker_capture 'External device / Flash · Step 3 of 3' 'Image  ›  Drive  ›  FLASH' '' _usb_noop
 }
 
 _usb_dd_progress_read() {
@@ -4588,7 +4702,7 @@ _usb_result_screen() {
         _USB_PICKER_DETAILS+=('The complete image-sized primary and backup GPT structures matched at their original image bounds. The physical tail outside the image was cleared and verified, the hybrid MBR partition records matched, and every compared boot and installer byte matched. Extra drive capacity remains intentionally unused.' '') ;;
       (*) _USB_PICKER_DETAILS+=('' '') ;;
     esac
-    _usb_result_choose 'Flash USB · Complete' 'Image  ›  Drive  ›  DONE'
+    _usb_result_choose 'External device / Flash · Complete' 'Image  ›  Drive  ›  DONE'
   else
     if (( !_USB_RESULT_STARTED )); then
       eject_label='Nothing was written · drive remains mounted'
@@ -4658,7 +4772,7 @@ _usb_result_screen() {
     fi
     _USB_PICKER_SEARCH+=(recovery)
     _USB_PICKER_DETAILS+=('')
-    _usb_result_choose 'Flash USB · Couldn’t complete' 'Image  ›  Drive  ›  FAILED'
+    _usb_result_choose 'External device / Flash · Couldn’t complete' 'Image  ›  Drive  ›  FAILED'
   fi
 }
 
@@ -4692,7 +4806,7 @@ _usb_macos_result_screen() {
       ''
       'The installer application and its createinstallmedia executable passed Apple signature validation before the target was erased.'
       '')
-    _usb_result_choose 'Flash USB · Complete' 'Media  ›  Drive  ›  DONE'
+    _usb_result_choose 'External device / Flash · Complete' 'Media  ›  Drive  ›  DONE'
     return
   fi
   if (( !_USB_RESULT_STARTED )); then
@@ -4723,7 +4837,7 @@ _usb_macos_result_screen() {
     _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-error"
   _USB_PICKER_SEARCH=(done failed source recovery)
   _USB_PICKER_DETAILS=('' "${_USB_RESULT_ERROR:-No additional diagnostic was retained.}" '' '')
-  _usb_result_choose 'Flash USB · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
+  _usb_result_choose 'External device / Flash · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
 }
 
 _usb_windows_result_screen() {
@@ -4775,7 +4889,7 @@ _usb_windows_result_screen() {
       'A publisher checksum proves the selected ISO origin only when one was provided and matched.'
       'Every captured regular source file matched the corresponding finished USB file exactly.'
       '')
-    _usb_result_choose 'Flash USB · Complete' 'Media  ›  Drive  ›  DONE'
+    _usb_result_choose 'External device / Flash · Complete' 'Media  ›  Drive  ›  DONE'
     return
   fi
   if (( !_USB_RESULT_STARTED )); then
@@ -4806,7 +4920,7 @@ _usb_windows_result_screen() {
     "${_USB_RESULT_ERROR:-No additional diagnostic was retained.}"
     'ISO integrity and finished USB fidelity are independent evidence.'
     '')
-  _usb_result_choose 'Flash USB · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
+  _usb_result_choose 'External device / Flash · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
 }
 
 _usb_media_result_screen() {
@@ -5060,15 +5174,16 @@ _usb_confirm() {
   }
 }
 
-_compozsh_help_flash-usb() {
+_usb_help_flash() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: flash-usb [media]' \
+  "${printer[@]}" 'usage: external-device --flash [media]' \
     'Open a native workspace that creates bootable external installation media.' \
     '' \
     'Image capture:' \
     '  An explicit path selects one readable regular .iso or .img file, or a' \
     '  full Install macOS application containing Apple createinstallmedia.' \
+    '  Quote paths with spaces; prefix a name beginning with -- using ./.' \
     '  With no path, Step 1 merges up to 500 Finder-indexed matches beneath ~' \
     '  with shallow current-folder and ~/Downloads captures of up to 200 each.' \
     '  The direct captures help include fresh files Spotlight has not indexed.' \
@@ -5080,7 +5195,7 @@ _compozsh_help_flash-usb() {
     '  Step 1 Ctrl-R replaces the snapshot with a fresh Spotlight capture under' \
     '  ~ plus fresh shallow current-folder and ~/Downloads reads. It retains the' \
     '  active filter and exact selected image while that image remains available.' \
-    '  A completed download can therefore appear without restarting flash-usb' \
+    '  A completed download can therefore appear without restarting external-device --flash' \
     '  or waiting for Spotlight to index it.' \
     '  Step 1 keeps Custom path first and shows captured format, size, creation,' \
     '  modification, filename-derived architecture, and exact path details.' \
@@ -5093,7 +5208,7 @@ _compozsh_help_flash-usb() {
     '  opens a folder, and Return on a visible .iso or .img selects it.' \
     '  Typing refines the current folder with prefix, substring, then in-order' \
     '  fuzzy matching, consistent with Compozsh Tab path navigation.' \
-    '  For Finder drag and drop, type flash-usb followed by a space, drop the' \
+    '  For Finder drag and drop, type external-device --flash followed by a space, drop the' \
     '  image into Terminal, and press Return. Custom path also offers a literal' \
     '  drop/paste field for files outside the visible folder.' \
     '  Dropped text is decoded as a path without evaluating shell commands.' \
@@ -5203,14 +5318,13 @@ _compozsh_help_flash-usb() {
     '  rewritten or reformatted. Compozsh cannot roll back overwritten bytes.' \
     '' \
     'Examples:' \
-    '  flash-usb                         Choose a captured image and target.' \
-    '  flash-usb ~/Downloads/Linux.iso  Select this exact raw image.' \
-    '  flash-usb ~/Downloads/Windows.iso  Explain why Windows media is unsupported.' \
-    '  flash-usb "/Applications/Install macOS Tahoe.app"  Use Apple’s handler.'
+    '  external-device --flash                         Choose a captured image and target.' \
+    '  external-device --flash ~/Downloads/Linux.iso  Select this exact raw image.' \
+    '  external-device --flash ~/Downloads/Windows.iso  Explain why Windows media is unsupported.' \
+    '  external-device --flash "/Applications/Install macOS Tahoe.app"  Use Apple’s handler.'
 }
 
-unalias flash-usb 2>/dev/null
-flash-usb() {
+_usb_flash() {
   emulate -L zsh
   local explicit=${1:-} picker_status=0 capture_status=0 progress_status=0
   local _USB_REQUEST='' _USB_WORKSPACE_ERROR=''
@@ -5233,17 +5347,9 @@ flash-usb() {
   local -i _USB_SELECTED_IMAGE_SIZE=0
   local -i _USB_SELECTED_DISK_SIZE=0
 
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_flash-usb
-    return 0
-  fi
-  (( $# <= 1 )) || {
-    print -u2 -r -- 'usage: flash-usb [media]'
-    return 2
-  }
   {
     [[ $OSTYPE == darwin* ]] || {
-      print -u2 -r -- 'flash-usb: this workspace requires macOS'
+      print -u2 -r -- 'external-device --flash: this workspace requires macOS'
       return 1
     }
     [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil && -x /bin/df &&
@@ -5253,25 +5359,25 @@ flash-usb() {
        -x /usr/bin/shasum && -x /usr/bin/stat && -x /usr/bin/sudo &&
        -x /usr/bin/hdiutil && -x /usr/bin/codesign && -x /usr/bin/ditto &&
        -x /bin/sync && -x /bin/rmdir ]] || {
-      print -u2 -r -- 'flash-usb: required Apple command-line tools are unavailable'
+      print -u2 -r -- 'external-device --flash: required Apple command-line tools are unavailable'
       return 1
     }
     if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
         (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_matching_compile]} )); then
-      print -u2 -r -- 'flash-usb: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
+      print -u2 -r -- 'external-device --flash: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
       return 1
     fi
     _usb_images_capture "$explicit"
     capture_status=$?
     (( capture_status == 0 )) || {
-      print -u2 -r -- "flash-usb: ${_USB_CAPTURE_ERROR:-cannot capture the image}"
+      print -u2 -r -- "external-device --flash: ${_USB_CAPTURE_ERROR:-cannot capture the image}"
       return $capture_status
     }
     _zle_picker_run 20 '' 1 0 _usb_workspace_controller
     picker_status=$?
     (( picker_status == 1 )) && return 0
     if (( picker_status != 0 )); then
-      [[ -n $_USB_WORKSPACE_ERROR ]] && print -u2 -r -- "flash-usb: $_USB_WORKSPACE_ERROR"
+      [[ -n $_USB_WORKSPACE_ERROR ]] && print -u2 -r -- "external-device --flash: $_USB_WORKSPACE_ERROR"
       return $picker_status
     fi
     _usb_confirm "$_USB_SELECTED_IMAGE" "$_USB_SELECTED_DISK" \
@@ -5282,7 +5388,7 @@ flash-usb() {
       return 0
     }
     _usb_authorize || {
-      print -u2 -r -- 'flash-usb: administrator authorization failed; nothing was written'
+      print -u2 -r -- 'external-device --flash: administrator authorization failed; nothing was written'
       return 1
     }
     _zle_picker_run 20 '' 1 0 _usb_progress_controller
@@ -5320,10 +5426,10 @@ flash-usb() {
   }
 }
 
-_compozsh_help_format-external-device() {
+_usb_help_format() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: format-external-device' \
+  "${printer[@]}" 'usage: external-device --format' \
     'Format one whole external physical disk with Apple diskutil.' \
     '' \
     'Drive capture:' \
@@ -5375,11 +5481,10 @@ _compozsh_help_format-external-device() {
     '  Apple diskutil, plutil, mktemp, rm, and sudo.' \
     '' \
     'Examples:' \
-    '  format-external-device  Choose an external drive and advertised format.'
+    '  external-device --format  Choose an external drive and advertised format.'
 }
 
-unalias format-external-device 2>/dev/null
-format-external-device() {
+_usb_format() {
   emulate -L zsh
   local picker_status=0 format_status=0
   local _USB_SELECTED_DISK='' _USB_SELECTED_DISK_LABEL=''
@@ -5389,26 +5494,18 @@ format-external-device() {
   local _USB_FORMAT_ERROR='' _USB_CONFIRM_ERROR=''
   local -i _USB_SELECTED_DISK_SIZE=0
 
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_format-external-device
-    return 0
-  fi
-  (( $# == 0 )) || {
-    print -u2 -r -- 'usage: format-external-device'
-    return 2
-  }
   [[ $OSTYPE == darwin* ]] || {
-    print -u2 -r -- 'format-external-device: this tool requires macOS'
+    print -u2 -r -- 'external-device --format: this tool requires macOS'
     return 1
   }
   [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil &&
      -x /usr/bin/mktemp && -x /bin/rm && -x /usr/bin/sudo ]] || {
-    print -u2 -r -- 'format-external-device: required Apple command-line tools are unavailable'
+    print -u2 -r -- 'external-device --format: required Apple command-line tools are unavailable'
     return 1
   }
   if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
       (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_matching_compile]} )); then
-    print -u2 -r -- 'format-external-device: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
+    print -u2 -r -- 'external-device --format: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
     return 1
   fi
   {
@@ -5416,7 +5513,7 @@ format-external-device() {
     picker_status=$?
     (( picker_status == 1 )) && return 0
     if (( picker_status != 0 )); then
-      print -u2 -r -- "format-external-device: ${_USB_FORMAT_ERROR:-the format workspace failed}"
+      print -u2 -r -- "external-device --format: ${_USB_FORMAT_ERROR:-the format workspace failed}"
       return $picker_status
     fi
     _usb_format_confirm "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_LABEL" \
@@ -5430,7 +5527,7 @@ format-external-device() {
       "$_USB_SELECTED_DISK_SIZE"
     format_status=$?
     if (( format_status != 0 )); then
-      print -u2 -r -- "format-external-device: ${_USB_FORMAT_ERROR:-diskutil formatting failed}"
+      print -u2 -r -- "external-device --format: ${_USB_FORMAT_ERROR:-diskutil formatting failed}"
       return $format_status
     fi
     _usb_format_print_summary "$_USB_SELECTED_DISK" \

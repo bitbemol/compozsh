@@ -17,7 +17,7 @@ _test_action_ui_acceptance_defaults() {
       [[ ${_ZLE_PICKER_RESULTS[-1]} == "$expected_value" ]] || return 20
       _ZLE_PICKER_QUERY=""
       _zle_picker_titlebar 160
-      [[ $_ZLE_PICKER_TITLEBAR == *"Enter: $expected_action · Results"* ]] || return 21
+      [[ $_ZLE_PICKER_TITLEBAR != *"Enter:"* && $_ZLE_PICKER_TITLEBAR == *COMPOZSH ]] || return 21
       _zle_picker_footer 160 ""
       [[ $REPLY == "⏎ $expected_action · Esc "* ]] || return 22
       case $fixture in

@@ -16,30 +16,30 @@ _test_picker_titles() {
     for title in History "Recent directories" Branches Files "Tool explorer" "Directory browser" "File actions" "Folder actions"; do
       _ZLE_PICKER_TITLE=$title
       _zle_picker_render "" 1
-      [[ $_ZLE_PICKER_TITLEBAR == "Compozsh / $title"* && $_ZLE_PICKER_TITLEBAR == *"Enter: insert · Results" ]] || {
+      [[ $_ZLE_PICKER_TITLEBAR == "  $title"* && $_ZLE_PICKER_TITLEBAR == *COMPOZSH ]] || {
         print -u2 -- "missing dedicated title bar for $title"; exit 1;
       }
       [[ $_ZLE_PICKER_HEADER == "captured items · 2 shown" && $_ZLE_PICKER_SUBTITLE_ROW == "~ › Projects" ]] || exit 2
       (( ${#_ZLE_PICKER_DISPLAY} == LINES - 5 && _ZLE_PICKER_VISIBLE_COUNT == 2 )) || exit 3
       (( _ZLE_PICKER_TITLEBAR_META_START > ${#title} )) || exit 4
-      [[ ${_ZLE_PICKER_TITLEBAR[$(( _ZLE_PICKER_TITLEBAR_META_START + 1 )),-1]} == "Enter: insert · Results" ]] || exit 5
+      [[ ${_ZLE_PICKER_TITLEBAR[$(( _ZLE_PICKER_TITLEBAR_META_START + 1 )),-1]} == COMPOZSH && $_ZLE_PICKER_DISPLAY[-1] == *"⏎ insert"* ]] || exit 5
       saved_title=$_ZLE_PICKER_TITLEBAR
       _zle_picker_render "typed query" 2
       [[ $_ZLE_PICKER_TITLEBAR == "$saved_title" ]] || exit 6
     done
     _ZLE_PICKER_ACCEPT_LABELS=(two "file actions")
     _zle_picker_render "" 2
-    [[ $_ZLE_PICKER_TITLEBAR == *"Enter: file actions · Results" ]] || exit 7
+    [[ $_ZLE_PICKER_TITLEBAR == "$saved_title" && $_ZLE_PICKER_DISPLAY[-1] == *"⏎ file actions"* ]] || exit 7
     _ZLE_PICKER_INSPECT_TITLE=Preview _ZLE_PICKER_INSPECT_FOCUS=1
     _zle_picker_render "" 2
-    [[ $_ZLE_PICKER_TITLEBAR == *"Enter: file actions · Preview" ]] || exit 8
+    [[ $_ZLE_PICKER_TITLEBAR == "$saved_title" && $_ZLE_PICKER_DISPLAY[-1] == *"⏎ file actions"* ]] || exit 8
     _ZLE_PICKER_GUIDE_ACTIVE=1
     _zle_picker_render "" 2
-    [[ $_ZLE_PICKER_TITLEBAR == *"Keyboard guide" && $_ZLE_PICKER_TITLEBAR != *"Enter:"* ]] || exit 9
+    [[ $_ZLE_PICKER_TITLEBAR == "$saved_title" && $_ZLE_PICKER_DISPLAY[1] == *"Keyboard guide"* ]] || exit 9
     _ZLE_PICKER_GUIDE_ACTIVE=0 _ZLE_PICKER_INSPECT_FOCUS=0
     _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     _zle_picker_render "" 0
-    [[ $_ZLE_PICKER_TITLEBAR == *"No selection" && $_ZLE_PICKER_TITLEBAR != *"Enter:"* ]] || exit 10
+    [[ $_ZLE_PICKER_TITLEBAR == "$saved_title" && $_ZLE_PICKER_DISPLAY[-1] != *⏎* ]] || exit 10
     _ZLE_PICKER_SCREEN_ACTIVE=0
     _zle_picker_render "" 0
     [[ -z $_ZLE_PICKER_TITLEBAR && $_ZLE_PICKER_HEADER == "Folder actions · captured items · 0 shown" ]] || exit 11
@@ -65,9 +65,9 @@ _test_picker_title_sizing() {
       _zle_picker_render "" 1
       (( ${(m)#_ZLE_PICKER_TITLEBAR} == COLUMNS - 1 )) || { print -u2 "title width mismatch: $COLUMNS"; exit 1; }
       if (( COLUMNS == 20 )); then
-        [[ $_ZLE_PICKER_TITLEBAR == "Directory browser"* && $_ZLE_PICKER_TITLEBAR != *Compozsh* ]] || exit 2
+        [[ $_ZLE_PICKER_TITLEBAR == *"Directory browser"* && $_ZLE_PICKER_TITLEBAR != *COMPOZSH* ]] || exit 2
       fi
-      if (( COLUMNS <= 40 )); then
+      if (( COLUMNS <= 20 )); then
         (( _ZLE_PICKER_TITLEBAR_META_START == -1 )) || exit 3
       fi
     done

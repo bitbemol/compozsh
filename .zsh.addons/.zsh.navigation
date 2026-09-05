@@ -410,13 +410,55 @@ _git_branch_stack_print() {
   done
 }
 
-# Keep ordinary Git arguments transparent; --review, --worktree and --help
+# Keep ordinary Git arguments transparent; --review, --worktree, --discard-all and --help
 # invocations are Compozsh modes. Bare g opens the recent-branch picker.
+_compozsh_template_g() { REPLY=git-review; }
+
 _compozsh_help_g() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
   "${printer[@]}" 'usage: g [git-arguments ...]' \
-    'Open branches, review comparisons, manage worktrees, or run Git.' \
+    'Open branches, review changes, manage worktrees, discard edits, or run Git.' \
+    '' \
+    'Options:' \
+    '  --review [base head]  Open read-only review; optionally compare two local refs.' \
+    '  --review --merge-base <base> <head>  Compare their common ancestor to head.' \
+    '  --worktree  Create, enter, move, or remove a linked worktree.' \
+    '  --discard-all  Preview and confirm loss of tracked edits and untracked files.' \
+    '  --help  Read this guide without inspecting or changing a repository.' \
+    '  Other arguments retain native Git syntax; use git --help for that reference.' \
+    '' \
+    'Discard all changes:' \
+    '  g --discard-all requires .zsh.tools and accepts no extra action arguments.' \
+    '  g --discard-all --help shows this complete guide without reads or writes.' \
+    '  Operates from this folder’s repository root, including from a subfolder.' \
+    '  Inherited Git directory/index/object selectors cannot redirect this task.' \
+    '  Restores tracked files and the index to HEAD, discarding both staged' \
+    '  and unstaged edits, then deletes untracked files and directories.' \
+    '  Prints Git status before asking [y/N]; only y or Y confirms.' \
+    '  With shared UI in an interactive terminal, confirmation uses a scoped' \
+    '  screen and a bounded status inspector. Empty Return or Escape cancels.' \
+    '  The complete status remains in scrollback. Without UI, confirmation is plain.' \
+    '  Empty Return or any other answer cancels. No force/yes option is provided.' \
+    '  A clean working tree needs no confirmation and returns success.' \
+    '' \
+    'Safety and limitations:' \
+    '  Keeps ignored files, commits, stashes, nested repositories, and' \
+    '  submodule contents. Refuses a repository with no HEAD commit or an' \
+    '  active merge, rebase, cherry-pick, revert, or bisect operation.' \
+    '  Repository content filters, hooks, filesystem monitors, lazy fetches,' \
+    '  and required-filter enforcement are disabled for inspection/restore.' \
+    '  After confirmation, the target, HEAD, operation, filter names, and' \
+    '  listed path states are revalidated before any change is applied.' \
+    '  Discarded work has no automatic backup or rollback. If a later step' \
+    '  fails, earlier changes can already have been applied; inspect status.' \
+    '  Remaining nested-repository/submodule changes are reported as failure.' \
+    '  Requires Git. Cancellation or failure returns nonzero.' \
+    '  --help shows this guide without inspecting or modifying a repository.' \
+    '' \
+    'Examples:' \
+    '  g --discard-all              Preview and confirm repository-wide loss.' \
+    '  git stash --include-untracked  Use instead to save work for later.' \
     '' \
     'Worktrees:' \
     '  g --worktree opens the worktree workspace.' \
@@ -502,7 +544,9 @@ _compozsh_help_g() {
     '  returns to the same filter and selection. A plain ? filters normally.' \
     '  Terminal.app uses a temporary alternate screen; closing restores' \
     '  your previous terminal output. Unsupported terminals stay inline.' \
-    '  Search stays at the top, shortcuts at the bottom. Visible matches' \
+    '  On usable full screens, search and its real typing cursor sit above' \
+    '  the bottom action bar. Short and inline views keep search above results.' \
+    '  Choices gain spacing when all visible slots still fit. Visible matches' \
     '  are emphasized as you filter; row limits and number keys stay the same.' \
     '  Type to filter case-insensitively, in character order; literal prefix' \
     '  and substring matches rank before abbreviated ones.' \
@@ -528,6 +572,9 @@ _compozsh_help_g() {
     '  The list gets most of the width; details are capped at 48 columns' \
     '  and stay compact until focused. Height adapts to the window and list.' \
     '  Focused details can use the full body height of the temporary screen.' \
+    '  On that screen, focus expands reading width beside the retained branch' \
+    '  selection. Returning restores the compact preview; the navigation strip' \
+    '  marks focus. Rewrapping retains the source paragraph being read.' \
     '  Right / Ctrl-E focuses details; Left / Ctrl-B returns to the list.' \
     '  Tab switches panes; Up/Down scrolls the focused details. In narrower' \
     '  windows, details use a full-width view. Typing returns to filtering.' \
@@ -541,6 +588,13 @@ _compozsh_help_g() {
     'Read-only Git review:' \
     '  Ctrl-X review opens the Git review chooser when .zsh.git-review is enabled.' \
     '  g --review opens these choices directly in the current checkout.' \
+    '  Change atlas groups captured working changes by folder. Ctrl-X inside' \
+    '  any file-review view opens an atlas of that captured list, including comparisons.' \
+    '  Bars count change entries, not lines; staged/unstaged changes stay separate.' \
+    '  Enter opens folders or reads one file; Right expands full context.' \
+    '  Escape restores each map level and the original review position.' \
+    '  The map inherits list bounds and partial notices. It performs no discovery' \
+    '  or automatic refresh; return to review for Ctrl-R and automatic updates.' \
     '  Compare branches or commits shows Compare, Against, Show and Review differences.' \
     '  Compare starts at the highlighted branch, or the current checkout with' \
     '  g --review. Choose Against as the other branch or commit.' \
@@ -576,6 +630,14 @@ _compozsh_help_g() {
     '  a direct pair returns to the prompt. No checkout or confirmation occurs.' \
     '  --review requires an interactive non-dumb terminal and the shared picker;' \
     '  otherwise it fails clearly. Use git diff for plain output.' \
+    '' \
+    'Compose a comparison:' \
+    '  Option-Return on a simple g --review draft offers Compose this command.' \
+    '  Compose example in this help opens the same authored template when enabled.' \
+    '  Edit Comparison, Against and Compare. The initial main / HEAD values are' \
+    '  editable placeholders, not discovered defaults. Ref choices pin local IDs.' \
+    '  Replace draft returns the quoted command to the prompt; it never runs it.' \
+    '  Escape preserves the previous draft. Templates require .zsh.compose.' \
     '  Working changes belongs to the current checkout, even if you highlight' \
     '  another branch. Staged and unstaged changes are separate rows.' \
     '  Status codes: M modified, A added, D deleted, T file-type change.' \
@@ -665,7 +727,7 @@ _compozsh_help_g() {
     '  slow storage can delay synchronous reads. Failed captures show a notice.' \
     '' \
     'Git shorthand and fallback:' \
-    '  Arguments other than --worktree, --review and --help delegate to Git.' \
+    '  Arguments other than --worktree, --review, --discard-all and --help delegate to Git.' \
     '  Git status is preserved. --worktree accepts no extra arguments.' \
     '  g --help is this guide; use git --help for Git itself.' \
     '  There is no Compozsh --list mode: g --list is passed to Git.' \
@@ -730,8 +792,10 @@ g() {
   emulate -L zsh
 
   if { (( $# == 1 )) && [[ $1 == --help ]]; } ||
-     { (( $# == 2 )) && [[ $1 == --review && $2 == --help ]]; }; then
-    _compozsh_help_g
+     { (( $# == 2 )) && [[ $1 == (--review|--discard-all) && $2 == --help ]]; }; then
+    local -a help=(_compozsh_help_g)
+    (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+    "${help[@]}"
     return 0
   fi
 
@@ -753,6 +817,22 @@ g() {
     }
     if (( $# )); then _git_review_session "$review_method" "$@"
     else _git_review_session; fi
+    return $?
+  fi
+
+  if [[ ${1:-} == --discard-all ]]; then
+    (( $# == 1 )) || { print -u2 -r -- 'usage: g [git-arguments ...]'; return 2; }
+    (( ${+functions[_tools_git_discard_all]} )) || {
+      print -u2 -r -- 'g: discard unavailable; enable .zsh.tools'
+      return 1
+    }
+    # Like the other explicit g workspaces, target this folder's repository.
+    # An inherited selector must not redirect a destructive task elsewhere.
+    local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+    local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+    unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+    _tools_git_discard_all
     return $?
   fi
 

@@ -176,7 +176,7 @@ _test_picker_keyboard_shared_contract() {
       _ZLE_PICKER_GUIDE_ACTIVE=0
       _zle_picker_footer 199 ""
       footer=$REPLY
-      for token in "Esc cancel" "^K keys" "Fn/⌥ ↑↓ page"; do
+      for token in "Esc cancel" "^K keys"; do
         [[ $footer == *"$token"* ]] || exit 1
       done
       _ZLE_PICKER_GUIDE_ACTIVE=1 _ZLE_PICKER_GUIDE_OFFSET=0
@@ -193,7 +193,7 @@ _test_picker_keyboard_shared_contract() {
       done
       [[ $guide == *"Option-Up/Down"* && $guide == *"one-line overlap"* ]] || exit 11
       if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
-        [[ $footer == *"^O preview"* && $footer == *"^X options"* && $footer == *"^T hidden"* &&
+        [[ $footer == *"^O preview"* && $footer == *"^X options"* &&
            $guide == *Ctrl-O* && $guide == *Ctrl-X* && $guide == *Ctrl-T* ]] || exit 3
       elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 )); then
         [[ $footer == *"^O browse"* && $guide == *Ctrl-O* && $guide != *Ctrl-X* ]] || exit 4

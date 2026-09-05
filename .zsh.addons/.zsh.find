@@ -494,7 +494,7 @@ _file_search_actions_collect() {
 }
 
 _file_search_actions() {
-  _zle_ui_view choice _file_search_actions_view "$@"
+  _zle_ui_view action _file_search_actions_view "$@"
 }
 
 _file_search_actions_view() {
@@ -505,6 +505,7 @@ _file_search_actions_view() {
   _ZLE_PICKER_INSPECT_TITLE=Action _ZLE_PICKER_INSPECT_ACTION=apply
   _ZLE_PICKER_SUBTITLE=${selected:t}
   local action='' detail='' display_path=${(V)selected}
+  _ZLE_PICKER_ACTION_CONTEXT="TARGET"$'\n'"$selected"
 
   if [[ -L $selected ]]; then
     kind='Symbolic link'
@@ -536,6 +537,11 @@ _file_search_actions_view() {
       (insert) detail='Insert a shell-quoted path for composing a command. Review the line before running it.' ;;
     esac
     _ZLE_PICKER_INSPECT_TEXTS[$action]="$kind"$'\n\n'"$detail"$'\n\n  '"$display_path"
+    _ZLE_PICKER_DESCRIPTIONS[$action]=$detail
+    case $action in
+      (enter-link) _ZLE_PICKER_ACCEPT_LABELS[$action]='follow link' ;;
+      (*) _ZLE_PICKER_ACCEPT_LABELS[$action]=$action ;;
+    esac
   done
   _ZLE_PICKER_TITLE='File actions'
   _ZLE_PICKER_BROWSE_LABEL=$kind

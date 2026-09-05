@@ -16,12 +16,14 @@ _test_search_shortcut_labels() {
     for label in "Filter folders" "Search descendants" "Filter results"; do
       _ZLE_PICKER_QUERY_LABEL=$label
       _zle_picker_render "$query" 1
-      [[ $_ZLE_PICKER_QUERY_ROW == "$label "* &&
-         $_ZLE_PICKER_QUERY_START == $(( ${#label} + 1 )) ]] || exit 2
+      [[ $_ZLE_PICKER_QUERY_ROW == "  $label  › "* &&
+         $_ZLE_PICKER_QUERY_START == $(( ${#label} + 6 )) &&
+         ${_ZLE_PICKER_QUERY_ROW[$(( _ZLE_PICKER_QUERY_START + 1 )),$_ZLE_PICKER_QUERY_END]} == "$query" ]] || exit 2
       for COLUMNS in 4 12 24 40 120; do
         _zle_picker_render "$query" 1
         (( ${(m)#_ZLE_PICKER_QUERY_ROW} < COLUMNS )) || exit 3
-        (( _ZLE_PICKER_QUERY_END == ${#_ZLE_PICKER_QUERY_ROW} )) || exit 4
+        (( _ZLE_PICKER_QUERY_START <= _ZLE_PICKER_QUERY_END &&
+           _ZLE_PICKER_QUERY_END <= ${#_ZLE_PICKER_QUERY_ROW} )) || exit 4
       done
     done
     _ZLE_PICKER_SEARCH_ACTION=search-local

@@ -21,6 +21,8 @@ _test_abbreviation_and_sanitization_contracts() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    export LC_ALL=en_US.UTF-8
+    setopt MULTIBYTE
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/support/.zsh.ui"
     source "$1/.zsh.addons/support/.zsh.matching"
@@ -31,10 +33,12 @@ _test_abbreviation_and_sanitization_contracts() {
     _navigation_abbreviate abcdefgh 5; navigation=$REPLY
     _prompt_abbreviate abcdefgh 5 tail; prompt_tail=$REPLY
     _prompt_abbreviate abcdefgh 5 head; prompt_head=$REPLY
+    _prompt_abbreviate 漢字abcdef 6 tail; prompt_wide=$REPLY
+    _prompt_abbreviate $\'e\\u0301abc\' 4 tail; prompt_combining=$REPLY
     _prompt_sanitize $\'a\\nb\'; sanitized=$REPLY
-    print -r -- "$picker|$navigation|$prompt_tail|$prompt_head|$sanitized"
+    print -r -- "$picker|$navigation|$prompt_tail|$prompt_head|$prompt_wide|${(m)#prompt_wide}|$prompt_combining|${(m)#prompt_combining}|$sanitized"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal 'a…fgh|a…fgh|a…fgh|ab…gh|a?b' "$output" \
+  test_assert_equal 'a…fgh|a…fgh|a…fgh|ab…gh|…cdef|5|éabc|4|a?b' "$output" \
     'responsive text helpers changed semantics'
 }
 test_case 'shared display helpers abbreviate and sanitize deterministically' \
@@ -217,7 +221,7 @@ _test_editor_styles_without_highlighting_peer() {
     test_fail "standalone picker styles failed: $output"
     return 1
   }
-  test_assert_equal $'fg=16,bg=44,bold\nfg=75' "$output"
+  test_assert_equal $'fg=87,bg=235,bold\nfg=75' "$output"
 }
 test_case 'shared UI palette works without the highlighting peer and preserves overrides' \
   _test_editor_styles_without_highlighting_peer
@@ -475,7 +479,7 @@ _test_public_palettes_preserve_initializer_roles() {
     source "$1/.zsh.addons/.zsh.highlighting"
     print -r -- "${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[argument]}|${ZSH_HIGHLIGHT_STYLES[picker-selected-inactive]}|${ZSH_HIGHLIGHT_STYLES[picker-focus]}|${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[path]}"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal 'fg=123,bold|fg=252|fg=252,bg=237|fg=75,bold|124|80' "$output" \
+  test_assert_equal 'fg=123,bold|fg=252|fg=252,bg=235|fg=75,bold|124|80' "$output" \
     'palette defaults replaced an explicit initializer role'
 }
 test_case 'palette owner fills missing roles without replacing local inputs' \
@@ -651,6 +655,30 @@ _test_prompt_metadata_stays_inside_project() {
 test_case 'prompt reads bounded direct metadata but rejects symlinked files' \
   _test_prompt_metadata_stays_inside_project
 
+_test_prompt_project_widths_follow_sanitized_terminal_cells() {
+  test_make_temp_dir || return
+  local project="$TEST_TMP_DIR/project" output=''
+  test_write_file "$project/Package.swift" '// fixture' || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    export LC_ALL=en_US.UTF-8
+    setopt MULTIBYTE
+    source "$1/.zsh.addons/.zsh.prompt"
+    _prompt_runtime_version() { REPLY=6.0; }
+    _prompt_expected_runtime_version() { REPLY=$\'9\\u202e\'; }
+    builtin cd -- "$2" || exit 1
+    _prompt_project_context
+    _prompt_sanitize $\'⚠ swift wants 9\\u202e\'
+    local -i expected_width=${(m)#REPLY}
+    print -r -- "${_PROMPT_PROJECT_ITEM_WIDTHS[-1]}|$expected_width"
+  ' "$TEST_REPO_ROOT" "$project") || return
+
+  test_assert_equal '16|16' "$output" \
+    'project item width was measured before display sanitization'
+}
+test_case 'prompt project widths follow sanitized terminal cells' \
+  _test_prompt_project_widths_follow_sanitized_terminal_cells
+
 _test_prompt_preserves_existing_winch_handler() {
   test_make_temp_dir || return
   local output=''
@@ -667,6 +695,32 @@ _test_prompt_preserves_existing_winch_handler() {
 }
 test_case 'prompt preserves a preexisting WINCH signal handler' \
   _test_prompt_preserves_existing_winch_handler
+
+_test_prompt_resourcing_preserves_a_later_winch_wrapper() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    FUNCNEST=20
+    typeset -gi VENDOR_WINCH_CALLS=0
+    source "$1/.zsh.addons/.zsh.prompt"
+    functions[_vendor_previous_winch]=${functions[TRAPWINCH]}
+    TRAPWINCH() {
+      (( ++VENDOR_WINCH_CALLS ))
+      _vendor_previous_winch "$@"
+    }
+    local vendor_body=${functions[TRAPWINCH]}
+    source "$1/.zsh.addons/.zsh.prompt"
+    [[ ${functions[TRAPWINCH]} == "$vendor_body" ]] || exit 1
+    TRAPWINCH || exit 2
+    print -r -- "$VENDOR_WINCH_CALLS"
+  ' "$TEST_REPO_ROOT" 2>/dev/null) || return
+
+  test_assert_equal 1 "$output" \
+    'prompt re-source recursively rewrapped a later WINCH owner'
+}
+test_case 'prompt re-source preserves a later WINCH wrapper without recursion' \
+  _test_prompt_resourcing_preserves_a_later_winch_wrapper
 
 _test_prompt_source_detection_is_bounded() {
   test_make_temp_dir || return

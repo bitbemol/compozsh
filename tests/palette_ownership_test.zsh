@@ -16,9 +16,9 @@ _test_palette_owner_provisions_both_schemes() {
       print -r -- "${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[picker-selected]}|${ZSH_PROMPT_COLORS[success]}|${ZSH_OUTPUT_COLORS[text]}|$LSCOLORS"
     ' "$TEST_REPO_ROOT" "$scheme") || return
     if [[ $scheme == dark ]]; then
-      expected='fg=77,bold|fg=231,bg=24,bold|71|252|ExFxgxDxCxBxbxHbHfadabdx'
+      expected='fg=77,bold|fg=255,bg=238,bold|71|252|ExFxgxDxCxBxbxHbHfadabdx'
     else
-      expected='fg=22,bold|fg=231,bg=24,bold|22|236|exfxgxdxcxbxbxhbhfadabdx'
+      expected='fg=22,bold|fg=235,bg=189,bold|22|236|exfxgxdxcxbxbxhbhfadabdx'
     fi
     test_assert_equal "$expected" "$output" || return
   done
@@ -148,7 +148,10 @@ _test_palette_late_appearance_updates_existing_renderers() {
     ZSH_PROMPT_COLORS[identity]="%F{red}"
     _prompt_layout || :
     _prompt_base
-    [[ $_PROMPT_PATH_SEGMENT == "%F{25}sample%%path%f" && $PROMPT == *"%F{240}╭─%f %F{24}"* ]] || exit 6
+    [[ $_PROMPT_PATH_SEGMENT == "%F{25}sample%%path%f" &&
+       $PROMPT == *'${_PROMPT_CONTEXT_SEGMENT}'* &&
+       $PROMPT == *'${_PROMPT_INPUT_SEGMENT}'* &&
+       $PROMPT != *"%F{red}"* && -z $RPROMPT ]] || exit 6
     (( !${+ZSH_PROMPT_COLORS[frame]} && !${+ZSH_PROMPT_COLORS[path]} )) || exit 7
     print -r -- late-appearance
   ' "$TEST_REPO_ROOT") || return

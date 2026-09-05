@@ -567,6 +567,7 @@ _test_xcode_run_native_screen() {
   local home="$TEST_TMP_DIR/home" output
   command mkdir -p "$home/simulator data/tmp" || return
   test_write_file "$home/bin/xcrun" '#!/bin/zsh -df
+[[ $1 == --fixture-ready ]] && exit 0
 if [[ $2 == getenv ]]; then print -r -- "$HOME/simulator data"; exit; fi
 if [[ $1 == --find ]]; then
   [[ -f $HOME/enable-lldb ]] || exit 1
@@ -584,15 +585,26 @@ elif [[ $2 == terminate ]]; then
   print -r -- "${(j:|:)@}" > "$HOME/stopped"
 fi' || return
   test_write_file "$home/bin/lldb" '#!/bin/zsh -df
+[[ $1 == --fixture-ready ]] && exit 0
 [[ -f $HOME/screen-closed ]] || exit 92
 print -r -- "${(j:|:)@}" > "$HOME/debugged"
 exit 23' || return
   test_write_file "$home/bin/ps" '#!/bin/zsh -df
+[[ $1 == --fixture-ready ]] && exit 0
 print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
   test_write_file "$home/bin/pbcopy" '#!/bin/zsh -df
+[[ $1 == --fixture-ready ]] && exit 0
 [[ -f $HOME/screen-closed && ! -f $HOME/stopped ]] || exit 93
 command cat > "$HOME/copied"' || return
   command chmod +x "$home/bin/"* || return
+  # A first exec of a freshly written spy can stall outside the UI (observed
+  # both before PIPE and after LLDB handoff). Complete that fixture setup before
+  # the timed ZLE journey; retain every three-second event/cleanup assertion.
+  local spy
+  for spy in xcrun lldb ps pbcopy; do
+    command env -i HOME="$home" ZDOTDIR="$home" PATH=/usr/bin:/bin \
+      "$home/bin/$spy" --fixture-ready || return
+  done
   test_write_file "$home/session.zsh" '
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME
@@ -683,7 +695,7 @@ command cat > "$HOME/copied"' || return
         while zpty -r run chunk; do trace+=$chunk; done
         IFS= read -r -t 0 -u $events event && return 0
       done
-      print -u2 -- "run event timed out: $event"
+      print -u2 -r -- "run event timed out: $event; trace ${(V)trace[-1600,-1]}"
       return 1
     }
     _frame() {

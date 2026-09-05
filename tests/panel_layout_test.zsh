@@ -123,13 +123,22 @@ _test_panel_layout_native_resize() {
     # Inspect the payload when ZLE is asked to paint it, rather than requiring
     # the width-dependent frame to remain installed while read waits.
     zle() {
-      if [[ $1 == -R && -n ${POSTDISPLAY:-} && $POSTDISPLAY == "$_ZLE_PICKER_POSTDISPLAY" ]]; then
-        local expected="$_ZLE_PICKER_TITLEBAR"$'\''\n'\''"$_ZLE_PICKER_HEADER"$'\''\n'\''"$_ZLE_PICKER_QUERY_ROW"$'\''\n'\''"${(F)_ZLE_PICKER_DISPLAY}"
-        [[ $POSTDISPLAY == "$expected" && -z $BUFFER && $CURSOR == 0 &&
-           -z $PREDISPLAY && $_ZLE_PICKER_QUERY == "feature query" &&
+      if [[ $1 == -R && -n ${POSTDISPLAY:-} && $PREDISPLAY$POSTDISPLAY == "$_ZLE_PICKER_POSTDISPLAY" ]]; then
+        local expected="$_ZLE_PICKER_TITLEBAR"$'\''\n'\''"$_ZLE_PICKER_HEADER"$'\''\n'\''"${(F)_ZLE_PICKER_DISPLAY[1,-2]}"$'\''\n'\''"$_ZLE_PICKER_QUERY_ROW"$'\''\n'\''"$_ZLE_PICKER_DISPLAY[-1]"
+        [[ $PREDISPLAY$POSTDISPLAY == "$expected" && -z $BUFFER && $CURSOR == 0 &&
+           $PREDISPLAY == *"feature query" && $_ZLE_PICKER_QUERY == "feature query" &&
            -z ${region_highlight[(r)*memo=fixture]} &&
            -n ${region_highlight[(r)*memo=my-zsh-picker]} ]] ||
           print -u2 -r -- "PANEL-ERROR: resize lost editor state or failed to paint the calculated layout"
+        if (( COLUMNS >= 70 )); then
+          if (( _ZLE_PICKER_INSPECT_FOCUS )); then
+            [[ $_ZLE_PICKER_DISPLAY[1] == *"Results  ›  ▸ Branch"* ]] ||
+              print -u2 -r -- "PANEL-ERROR: navigation did not follow reading focus"
+          else
+            [[ $_ZLE_PICKER_DISPLAY[1] == *"▸ Results  ›  Branch"* ]] ||
+              print -u2 -r -- "PANEL-ERROR: navigation did not restore list focus"
+          fi
+        fi
       fi
       builtin zle "$@"
     }
@@ -190,7 +199,7 @@ _test_panel_layout_native_resize() {
       [[ $frame == *"FRAME:160:18:0:2:108:14:1:"* ]] || exit 9
       zpty -w -n panel $'\''\x05'\''
       _panel_read END-PANEL-FRAME || exit 10
-      [[ $frame == *"FRAME:160:18:1:2:108:14:1:"* ]] || exit 11
+      [[ $frame == *"FRAME:160:18:1:2:42:14:1:"* ]] || exit 11
       command stty rows 18 cols 70 < "$device" || exit 12
       _panel_read END-PANEL-FRAME || exit 13
       [[ $frame == *"FRAME:70:18:1:2:0:14:1:"* ]] || exit 14

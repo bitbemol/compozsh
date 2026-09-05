@@ -3,7 +3,6 @@
 # -----------------------------------------------------------------------------
 
 setopt PROMPT_SUBST          # Expand variables in the prompt.
-unsetopt TRANSIENT_RPROMPT   # Preserve the clock on completed prompts.
 setopt INTERACTIVE_COMMENTS  # Allow comments at the command line.
 setopt AUTO_CD               # Enter a directory by typing its path.
 setopt AUTO_PUSHD            # Keep visited directories in a stack.

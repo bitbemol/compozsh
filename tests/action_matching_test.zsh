@@ -58,9 +58,9 @@ _test_action_matching_missing_capability_fallbacks() {
     _action_fallback_fixture() {
       xcode
       print -r -- "xcode-status:$?"
-      flash-usb
+      external-device --flash
       print -r -- "flash-status:$?"
-      format-external-device
+      external-device --format
       print -r -- "format-status:$?"
       print END-FALLBACK
     }

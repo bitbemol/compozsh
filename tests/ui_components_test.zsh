@@ -204,6 +204,7 @@ _test_ui_palette_source_order_and_resource_convergence() {
           esac
           _ui_state() {
             local role=""
+            local -a prompt_pre_redraw_hooks=() prompt_finish_hooks=()
             for role in ${(ok)_COMPOZSH_COLOR_FALLBACKS}; do
               print -r -- "$role=${_COMPOZSH_COLOR_FALLBACKS[$role]}"
             done
@@ -222,11 +223,18 @@ _test_ui_palette_source_order_and_resource_convergence() {
             print -r -- "${(j:|:)colors}"
             print -r -- "$LSCOLORS|${widgets[compozsh-picker-init]}|${widgets[compozsh-picker]}"
             print -r -- "${precmd_functions[*]}|${preexec_functions[*]}|${zle_line_init_functions[*]}|${zle_line_pre_redraw_functions[*]}"
+            zstyle -a zle-line-pre-redraw widgets prompt_pre_redraw_hooks
+            zstyle -a zle-line-finish widgets prompt_finish_hooks
+            prompt_pre_redraw_hooks=("${(@)prompt_pre_redraw_hooks#<->:}")
+            prompt_finish_hooks=("${(@)prompt_finish_hooks#<->:}")
+            print -r -- "${(j:,:)prompt_pre_redraw_hooks}|${(j:,:)prompt_finish_hooks}|${widgets[compozsh-context-lens]-}"
             bindkey "^R"
             bindkey "^I"
+            bindkey "^[i"
           }
           local file="" first="" second=""
           for file in "${files[@]}"; do source "$file" || exit 1; done
+          zmodload zsh/parameter
           first=$(_ui_state)
           for file in "${files[@]}"; do source "$file" || exit 2; done
           second=$(_ui_state)

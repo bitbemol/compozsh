@@ -165,7 +165,7 @@ _test_appearance_native_selection_and_status() {
           }
           frame_event=STATUS
         elif (( _ZLE_PICKER_INSPECT_FOCUS )); then
-          expected=237
+          expected=235
           [[ $ZSH_COLOR_SCHEME == light ]] && expected=253
           [[ ${(j:|:)region_highlight} == *"bg=$expected,underline"* ]] || {
             print -r -u $event_fd -- BAD-INACTIVE-MATCH
@@ -179,7 +179,9 @@ _test_appearance_native_selection_and_status() {
           }
           frame_event=INACTIVE
         else
-          [[ ${(j:|:)region_highlight} == *"fg=224,bg=24,bold"* ]] || {
+          expected='fg=224,bg=238,bold'
+          [[ $ZSH_COLOR_SCHEME == light ]] && expected='fg=88,bg=189,bold'
+          [[ ${(j:|:)region_highlight} == *"$expected"* ]] || {
             print -r -u $event_fd -- BAD-ACTIVE-METADATA
             return 1
           }
@@ -261,9 +263,9 @@ _test_appearance_native_selection_and_status() {
           zpty -w -n appearance $'\''\x07'\''
           _appearance_event && [[ $event == RESTORED ]] || exit 9
           while zpty -r appearance chunk; do trace+=$chunk; done
-          [[ $trace == *$'\''\e[48;5;24m'\''* ]] || { print -u2 -- "active selection was not painted"; exit 10; }
-          local inactive_background=237 status_foreground=75
-          [[ $4 == light ]] && inactive_background=253 status_foreground=25
+          local active_background=238 inactive_background=235 status_foreground=75
+          [[ $4 == light ]] && active_background=189 inactive_background=253 status_foreground=25
+          [[ $trace == *$'\''\e[48;5;'\''"${active_background}m"* ]] || { print -u2 -- "active selection was not painted"; exit 10; }
           [[ $trace == *$'\''\e[48;5;'\''"${inactive_background}m"* &&
              $trace == *$'\''\e[38;5;'\''"${status_foreground}m"* ]] || {
             print -u2 -- "native palette colors were not painted"

@@ -378,7 +378,7 @@ _test_usb_workspace_ends_on_windows_media_before_target_capture() {
         _ZLE_PICKER_SELECTED_VALUE=image:1 _ZLE_PICKER_ACTION=accept
         return 0
       fi
-      if [[ $1 == "Flash USB · Windows unsupported" ]]; then
+      if [[ $1 == "External device / Flash · Windows unsupported" ]]; then
         screen_values=${(j:,:)_USB_PICKER_VALUES}
         screen_labels=${(j:|:)_USB_PICKER_LABELS}
         done_detail=${_USB_PICKER_DETAILS[1]}
@@ -397,7 +397,7 @@ _test_usb_workspace_ends_on_windows_media_before_target_capture() {
   ' "$TEST_REPO_ROOT" "$image") || return
 
   test_assert_contains "$output" \
-    'status:1|trace:screen:Flash USB · Step 1 of 3,screen:Flash USB · Windows unsupported' \
+    'status:1|trace:screen:External device / Flash · Step 1 of 3,screen:External device / Flash · Windows unsupported' \
     'recognized Windows media did not end through its dedicated terminal screen' || return
   test_assert_contains "$output" 'values:done' \
     'the Windows unsupported screen did not make Done its only action' || return
@@ -886,7 +886,7 @@ _test_usb_partial_inspection_cleanup_is_retriable_and_wired_outermost() {
     detach_status=0
     _usb_inspect_cleanup >/dev/null 2>&1
     print -r -- "retried:$?|device:$_USB_INSPECT_DEVICE|mount:$_USB_INSPECT_MOUNT"
-    print -r -- "wired:$([[ ${functions[flash-usb]} == *_usb_inspect_cleanup* ]] && print yes || print no)"
+    print -r -- "wired:$([[ ${functions[_usb_flash]} == *_usb_inspect_cleanup* ]] && print yes || print no)"
   ' "$TEST_REPO_ROOT" "$mount") || return
 
   test_assert_contains "$output" "failed:1|device:disk77|mount:$mount" \
@@ -1329,7 +1329,7 @@ _test_usb_step_one_alone_has_secondary_image_details() {
       print -r -- "details:${#_ZLE_PICKER_INSPECT_TEXTS}|${_ZLE_PICKER_INSPECT_TEXTS[image:1]-}"
       print -r -- "row-style:${_ZLE_PICKER_LABEL_HIGHLIGHTS[image:1]-}"
     }
-    _usb_choose "Flash USB · Step 1 of 3" "IMAGE  ›  Drive  ›  Flash" "Filter images" 1 0 1
+    _usb_choose "External device / Flash · Step 1 of 3" "IMAGE  ›  Drive  ›  Flash" "Filter images" 1 0 1
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'details:2|Linux image' \
@@ -1614,10 +1614,10 @@ _test_usb_steps_use_clean_single_pane_choices() {
       print -r -- "subtitle:${_ZLE_PICKER_SUBTITLE}"
       print -r -- "details:${#_ZLE_PICKER_INSPECT_TEXTS}"
     }
-    _usb_choose "Flash USB · Step 1 of 3" "IMAGE  ›  Drive  ›  Flash" "Filter images"
+    _usb_choose "External device / Flash · Step 1 of 3" "IMAGE  ›  Drive  ›  Flash" "Filter images"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'title:Flash USB · Step 1 of 3' \
+  test_assert_contains "$output" 'title:External device / Flash · Step 1 of 3' \
     'step title did not expose the staged workflow' || return
   test_assert_contains "$output" 'subtitle:IMAGE  ›  Drive  ›  Flash' \
     'step subtitle did not expose progress through the workflow' || return
@@ -2805,14 +2805,14 @@ _test_usb_format_workspace_reloads_drives_then_selects_a_format() {
     print -r -- "selected:$_USB_SELECTED_DISK|$_USB_SELECTED_FORMAT|$_USB_SELECTED_FORMAT_LABEL|$_USB_SELECTED_VOLUME_NAME"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'view1:Format External Device · Step 1 of 3|1|refresh:1' \
+  test_assert_contains "$output" 'view1:External device / Format · Step 1 of 3|1|refresh:1' \
     'format drive selection did not expose Ctrl-R refresh' || return
-  test_assert_contains "$output" 'view2:Format External Device · Step 1 of 3|1|refresh:1' \
+  test_assert_contains "$output" 'view2:External device / Format · Step 1 of 3|1|refresh:1' \
     'format refresh did not return to a fresh external-device snapshot' || return
-  test_assert_contains "$output" 'view3:Format External Device · Step 2 of 3|1,2|refresh:0' \
+  test_assert_contains "$output" 'view3:External device / Format · Step 2 of 3|1,2|refresh:0' \
     'format selection did not follow exact drive selection' || return
   test_assert_contains "$output" \
-    'view4:Format External Device · Step 3 of 3|default-name,custom-name|refresh:0' \
+    'view4:External device / Format · Step 3 of 3|default-name,custom-name|refresh:0' \
     'format selection did not offer default and custom volume-name choices' || return
   test_assert_contains "$output" 'captures:2' \
     'Ctrl-R did not perform exactly one fresh format-target capture' || return
@@ -4026,7 +4026,7 @@ _test_usb_outer_cleanup_ejects_only_an_started_exact_target() {
     _USB_SELECTED_DISK="not-a-disk" _USB_RESULT_EJECTED=0
     _usb_cleanup_eject
     print -r -- "bounded:${(j:,:)trace}"
-    print -r -- "wired:$([[ ${functions[flash-usb]} == *_usb_cleanup_eject* ]] && print yes || print no)"
+    print -r -- "wired:$([[ ${functions[_usb_flash]} == *_usb_cleanup_eject* ]] && print yes || print no)"
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'before:' \
@@ -4036,7 +4036,7 @@ _test_usb_outer_cleanup_ejects_only_an_started_exact_target() {
   test_assert_contains "$output" 'bounded:eject:disk7' \
     'cleanup retried an ejected target or accepted an invalid identifier' || return
   test_assert_contains "$output" 'wired:yes' \
-    'flash-usb interruption cleanup is not connected to its always boundary'
+    'external-device --flash interruption cleanup is not connected to its always boundary'
 }
 test_case 'USB outer cleanup attempts safe eject after interruption' \
   _test_usb_outer_cleanup_ejects_only_an_started_exact_target

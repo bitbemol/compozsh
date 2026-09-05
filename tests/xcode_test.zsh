@@ -493,7 +493,9 @@ _test_xcode_action_option_colors() {
         done
         _xcode_picker_collect Destination 10
         [[ $_ZLE_PICKER_RESULTS[1] == destination &&
-           $_ZLE_PICKER_LABELS[1] == "Destination · iPad · iOS 27" ]] || return 9
+           $_ZLE_PICKER_LABELS[1] == Destination &&
+           $_ZLE_PICKER_DESCRIPTIONS[destination] == "iPad · iOS 27" &&
+           $_ZLE_PICKER_ACTION_CONTEXT == *SIM-123* ]] || return 9
         COLUMNS=36 LINES=18
         _zle_picker_render Destination 1
         [[ ${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[1]} == "7:18:picker-header" &&

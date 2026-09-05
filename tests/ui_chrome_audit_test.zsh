@@ -16,11 +16,11 @@ _test_ui_chrome_acceptance() {
       _zle_picker_render "$query" 1
       local title=$_ZLE_PICKER_TITLEBAR footer=${_ZLE_PICKER_DISPLAY[-1]}
       if [[ $scenario == query ]]; then
-        [[ $title == *"Enter: use · Query"* && $title != *"No selection"* ]] || {
+        [[ $title != *"Enter:"* && $_ZLE_PICKER_DISPLAY[1] == *"▸ Query"* && $_ZLE_PICKER_QUERY_ROW == *draft* ]] || {
           print -u2 -- "literal query title loses acceptance meaning: $title"; return 1
         }
       elif [[ $scenario == blank ]]; then
-        [[ $title == *"Enter text"* && $title != *"No selection"* ]] || {
+        [[ $title != *"Enter:"* && $_ZLE_PICKER_DISPLAY[1] == *"▸ Query"* ]] || {
           print -u2 -- "empty literal field presents a selection: $title"; return 2
         }
       fi

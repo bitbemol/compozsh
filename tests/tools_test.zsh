@@ -2,7 +2,8 @@ _test_mkcd_contract() {
   test_make_temp_dir || return
   local target="$TEST_TMP_DIR/new/nested" output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" \
-    'source "$1/.zsh.addons/.zsh.tools"; mkcd "$2"; print -r -- "$PWD|${PWD:P}"' \
+    'source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"; mkcd "$2"; print -r -- "$PWD|${PWD:P}"' \
     "$TEST_REPO_ROOT" "$target") || return
   test_assert_equal "$target|${target:P}" "$output" \
     'mkcd did not create and enter the requested directory'
@@ -22,6 +23,7 @@ _test_cpdir_contract() {
     PATH="$2"
     rehash
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$3" || exit
     cpdir
   ' "$TEST_REPO_ROOT" "$fake_bin" "$target") || return
@@ -47,6 +49,7 @@ _test_cpdir_path_color() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     path=("$2" /usr/bin /bin)
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     # The palette is a runtime input; it can be loaded after this peer.
     typeset -A ZSH_PROMPT_COLORS=(path 123)
     local leaf=$'\''literal %F{red} $(cpdir_probe)\n\e'\''
@@ -119,6 +122,7 @@ _test_cpdir_missing_clipboard() {
     PATH="$2"
     rehash
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     cpdir
   ' "$TEST_REPO_ROOT" "$empty_bin" 2>&1) || exit_status=$?
 
@@ -149,16 +153,17 @@ _test_git_discard_all_scope() {
 
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$2" || exit
-    git-discard-all <<< y >/dev/null 2>&1 || exit
+    g --discard-all <<< y >/dev/null 2>&1 || exit
     [[ -e untracked.txt ]]; untracked_exists=$(( !$? ))
     [[ -e ignored/keep.txt ]]; ignored_exists=$(( !$? ))
     print -r -- "$(<tracked.txt)|$untracked_exists|$ignored_exists"
   ' "$TEST_REPO_ROOT" "$repo") || return
   test_assert_equal 'baseline|0|1' "$output" \
-    'git-discard-all changed data outside its documented scope'
+    'g --discard-all changed data outside its documented scope'
 }
-test_case 'git-discard-all restores tracked data and preserves ignored files' \
+test_case 'g --discard-all restores tracked data and preserves ignored files' \
   _test_git_discard_all_scope
 
 _test_git_discard_all_disables_repository_filters() {
@@ -183,17 +188,18 @@ _test_git_discard_all_disables_repository_filters() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     export FILTER_PROBE=$2
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     builtin cd -- "$3" || exit
-    git-discard-all <<< y >/dev/null 2>&1
+    g --discard-all <<< y >/dev/null 2>&1
     discard_status=$?
     [[ -e $2 ]]; filter_ran=$(( !$? ))
     print -r -- "$discard_status|$filter_ran|$(<tracked.txt)"
   ' "$TEST_REPO_ROOT" "$probe" "$repo") || return
 
   test_assert_equal '0|0|baseline' "$output" \
-    'git-discard-all executed a repository content filter'
+    'g --discard-all executed a repository content filter'
 }
-test_case 'git-discard-all restores without repository filter execution' \
+test_case 'g --discard-all restores without repository filter execution' \
   _test_git_discard_all_disables_repository_filters
 
 _test_git_discard_all_revalidates_after_confirmation() {
@@ -210,26 +216,27 @@ _test_git_discard_all_revalidates_after_confirmation() {
 
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     builtin cd -- "$2" || exit
     read() {
       [[ $* == *"answer?"* ]] && print -r -- late >| unpreviewed.txt
       builtin read "$@"
     }
-    git-discard-all <<< y
+    g --discard-all <<< y
   ' "$TEST_REPO_ROOT" "$repo" 2>&1) || exit_status=$?
 
   (( exit_status != 0 )) || {
-    test_fail 'git-discard-all accepted changes introduced after its preview'
+    test_fail 'g --discard-all accepted changes introduced after its preview'
     return
   }
   [[ -f "$repo/unpreviewed.txt" && $(<"$repo/tracked.txt") == changed ]] || {
-    test_fail 'git-discard-all modified the repository after revalidation failed'
+    test_fail 'g --discard-all modified the repository after revalidation failed'
     return
   }
   test_assert_contains "$output" 'changed after the preview' \
-    'git-discard-all omitted its post-confirmation revalidation diagnostic'
+    'g --discard-all omitted its post-confirmation revalidation diagnostic'
 }
-test_case 'git-discard-all revalidates the preview before effects' \
+test_case 'g --discard-all revalidates the preview before effects' \
   _test_git_discard_all_revalidates_after_confirmation
 
 _test_git_discard_all_refuses_without_commit() {
@@ -241,11 +248,12 @@ _test_git_discard_all_refuses_without_commit() {
 
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$2" || exit
-    git-discard-all
+    g --discard-all
   ' "$TEST_REPO_ROOT" "$repo" 2>&1) || exit_status=$?
   (( exit_status != 0 )) || {
-    test_fail 'git-discard-all succeeded in a repository without a commit'
+    test_fail 'g --discard-all succeeded in a repository without a commit'
     return
   }
   test_assert_contains "$output" 'no commit to restore' \
@@ -253,7 +261,7 @@ _test_git_discard_all_refuses_without_commit() {
   [[ -f "$repo/untracked.txt" ]] ||
     test_fail 'refused discard removed an untracked file'
 }
-test_case 'git-discard-all refuses repositories without a restorable commit' \
+test_case 'g --discard-all refuses repositories without a restorable commit' \
   _test_git_discard_all_refuses_without_commit
 
 _test_prompt_refresh_invalidates_memory_only() {
@@ -265,11 +273,13 @@ _test_prompt_refresh_invalidates_memory_only() {
     typeset -gi _GREP_SUPPORTS_COLOR=1
     typeset -g _GREP_COLOR_BINARY=/usr/bin/grep
     source "$1/.zsh.addons/.zsh.tools"
-    prompt-refresh
+    source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.help"
+    compozsh --refresh
     print -r -- "${#_PROMPT_RUNTIME_VERSION_CACHE}|${#_PROMPT_GIT_DIR_CACHE}|$_GREP_SUPPORTS_COLOR|${#_GREP_COLOR_BINARY}"
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal '0|0|-1|0' "$output" \
-    'prompt-refresh did not invalidate all documented in-memory caches'
+    'compozsh --refresh did not invalidate all documented in-memory caches'
 }
-test_case 'prompt-refresh clears runtime, Git, and output capability caches' \
+test_case 'compozsh --refresh clears runtime, Git, and output capability caches' \
   _test_prompt_refresh_invalidates_memory_only

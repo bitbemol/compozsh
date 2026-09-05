@@ -33,33 +33,90 @@ _prompt_color_text() {
   fi
 }
 
-# Base prompt strings retain their existing live segment references. Resolving
-# colors here avoids a source-time snapshot and introduces no prompt subshell.
+# The active prompt has three presentations of one captured snapshot. Compact
+# is the private state behind the live Interaction lens, lens expands Context,
+# and transcript is the fixed prefix painted by zle-line-finish immediately
+# before acceptance.
 _prompt_base() {
   emulate -L zsh
-  local frame='' identity='' jobs=''
-  _prompt_color frame || :
-  frame=$REPLY
-  _prompt_color identity || :
-  identity=$REPLY
-  _prompt_color jobs || :
-  jobs=$REPLY
-  PROMPT="%F{${frame:-default}}╭─%f %F{${identity:-default}}%n@%m%f "'${_PROMPT_PATH_SEGMENT}${_PROMPT_ENV_SEGMENT}${_PROMPT_GIT_SEGMENT}${_PROMPT_TIME_SEGMENT}${_PROMPT_EXIT_SEGMENT} '"%(1j.%F{${jobs:-default}}%j jobs%f .)"'${_PROMPT_PROJECT_SEGMENT}'$'\n'"%F{${frame:-default}}╰─%f "'%F{${_PROMPT_SYMBOL_COLOR:-default}}❯%f '
-  RPROMPT="%F{${frame:-default}}%D{%H:%M}%f"
+  local symbol=${_PROMPT_SYMBOL_COLOR:-default} frame=''
+
+  [[ $_PROMPT_VIEW == transcript ]] && return 0
+
+  _PROMPT_INPUT_SEGMENT="%F{${symbol}}❯%f "
+  RPROMPT=''
+  if (( LINES == 1 )); then
+    PROMPT=$_PROMPT_INPUT_SEGMENT
+    return 0
+  fi
+  if [[ $_PROMPT_VIEW == lens && -n $_PROMPT_LENS_SEGMENT ]]; then
+    PROMPT="${_PROMPT_LENS_SEGMENT}"$'\n'"${_PROMPT_INPUT_SEGMENT}"
+  elif (( _PROMPT_INTERACTION_ACTIVE )) &&
+       [[ -n $_PROMPT_INTERACTION_SEGMENT ]]; then
+    _prompt_color_text frame '╰─'
+    frame=$REPLY
+    _PROMPT_INPUT_SEGMENT="${frame} %F{${symbol}}❯%f "
+    PROMPT="${_PROMPT_INTERACTION_SEGMENT}"$'\n'"${_PROMPT_INPUT_SEGMENT}"
+  else
+    PROMPT="${_PROMPT_CONTEXT_SEGMENT}"$'\n'"${_PROMPT_INPUT_SEGMENT}"
+  fi
 }
 
-typeset -gF _PROMPT_COMMAND_STARTED=0
+if (( ${+_PROMPT_COMMAND_STARTED} )); then
+  typeset -gF _PROMPT_COMMAND_STARTED
+else
+  typeset -gF _PROMPT_COMMAND_STARTED=0
+fi
+# Legacy segment names remain private compatibility surfaces for focused tests
+# and existing internal callers; the unified context renderer composes them.
 typeset -g _PROMPT_EXIT_SEGMENT=''
 typeset -g _PROMPT_TIME_SEGMENT=''
 typeset -g _PROMPT_ENV_SEGMENT=''
+typeset -g _PROMPT_ENV_TEXT=''
+typeset -g _PROMPT_ENV_KEY=''
 typeset -g _PROMPT_GIT_SEGMENT=''
 typeset -g _PROMPT_GIT_TEXT=''
 typeset -g _PROMPT_GIT_COLOR=''
+typeset -g _PROMPT_GIT_BRANCH_TEXT=''
+typeset -g _PROMPT_GIT_UPSTREAM_TEXT=''
+typeset -g _PROMPT_GIT_OPERATION_TEXT=''
+typeset -g _PROMPT_GIT_ATTENTION=''
 typeset -g _PROMPT_PATH_SEGMENT=''
 typeset -g _PROMPT_PATH_TEXT=''
+typeset -g _PROMPT_FULL_PATH_TEXT=''
 typeset -g _PROMPT_PROJECT_SEGMENT=''
 typeset -g _PROMPT_PROJECT_NAME_TEXT=''
+typeset -g _PROMPT_PROJECT_ROOT_TEXT=''
+typeset -g _PROMPT_PROJECT_ATTENTION=''
+typeset -g _PROMPT_IDENTITY_TEXT=''
+typeset -g _PROMPT_SESSION_TEXT=''
+typeset -g _PROMPT_JOBS_TEXT=''
 typeset -g _PROMPT_SYMBOL_COLOR=''
+typeset -g _PROMPT_CONTEXT_SEGMENT=''
+typeset -g _PROMPT_LENS_SEGMENT=''
+typeset -g _PROMPT_INTERACTION_SEGMENT=''
+typeset -g _PROMPT_INPUT_SEGMENT=''
+typeset -g _PROMPT_VIEW=compact
+typeset -g _PROMPT_LENS_REASON=''
+typeset -gi _PROMPT_LENS_PINNED=0
+typeset -gi _PROMPT_INTERACTION_ACTIVE=0
+typeset -g _PROMPT_INTERACTION_KIND=ready
+typeset -ga _PROMPT_INTERACTION_LABELS=()
+typeset -ga _PROMPT_INTERACTION_VALUES=()
+typeset -ga _PROMPT_INTERACTION_ROLES=()
+if (( ${+_PROMPT_LAST_OUTCOME_TEXT} )); then
+  typeset -g _PROMPT_LAST_OUTCOME_TEXT
+  typeset -g _PROMPT_LAST_OUTCOME_ROLE
+else
+  typeset -g _PROMPT_LAST_OUTCOME_TEXT=''
+  typeset -g _PROMPT_LAST_OUTCOME_ROLE=''
+fi
+typeset -gi _PROMPT_CONTEXT_READY=0
+typeset -g _PROMPT_LAST_PROJECT_ROOT=''
+typeset -g _PROMPT_LAST_GIT_BRANCH=''
+typeset -g _PROMPT_LAST_ENVIRONMENT=''
+typeset -g _PROMPT_LAST_GIT_ATTENTION=''
+typeset -g _PROMPT_LAST_PROJECT_ATTENTION=''
 typeset -gi _PROMPT_TOP_BASE_WIDTH=0
 typeset -ga _PROMPT_PROJECT_ITEMS=()
 typeset -ga _PROMPT_PROJECT_ITEM_WIDTHS=()
@@ -71,55 +128,136 @@ _prompt_sanitize() {
   REPLY=${1//[[:cntrl:]]/?}
 }
 
-# Sanitize dynamic text and escape Zsh's prompt-expansion character.
+# Sanitize dynamic text and preserve it literally through any prompt options the
+# user enabled. PROMPT_SUBST would otherwise make draft `$()` or backticks
+# executable when ZLE paints the prompt; PROMPT_BANG would rewrite `!`.
 _prompt_escape() {
   _prompt_sanitize "$1"
+  if [[ -o promptsubst ]]; then
+    REPLY=${REPLY//\\/\\\\}
+    REPLY=${REPLY//\$/\\\$}
+    REPLY=${REPLY//\`/\\\`}
+  fi
+  [[ -o promptbang ]] && REPLY=${REPLY//\!/!!}
   REPLY=${REPLY//\%/%%}
 }
 
 # Abbreviate text to a visible width while preserving useful context at both
 # ends. "head" favors the beginning; "tail" favors the end.
 _prompt_abbreviate() {
-  local text=$1 bias=${3:-tail}
-  local -i max_width=$2 left_width=0 right_width=0
+  emulate -L zsh
+  setopt localoptions multibyte
+  local text=$1 bias=${3:-tail} marker='…'
+  local prefix='' suffix='' char=''
+  local -i max_width=$2 total_width=${(m)#text}
+  local -i content_width=0 left_width=0 right_width=0
+  local -i used=0 char_width=0 index=0 char_count=${#text}
 
   if (( max_width <= 0 )); then
     REPLY=''
     return
   fi
-  if (( ${#text} <= max_width )); then
+  if (( total_width <= max_width )); then
     REPLY=$text
     return
   fi
   if (( max_width < 5 )); then
-    REPLY='…'
+    REPLY=$marker
     return
   fi
 
+  content_width=$(( max_width - ${(m)#marker} ))
   if [[ $bias == head ]]; then
-    left_width=$(( (max_width - 1) * 2 / 3 ))
+    left_width=$(( content_width * 2 / 3 ))
   else
-    left_width=$(( (max_width - 1) / 3 ))
+    left_width=$(( content_width / 3 ))
   fi
-  right_width=$(( max_width - 1 - left_width ))
-  REPLY="${text[1,left_width]}…${text[-right_width,-1]}"
+  right_width=$(( content_width - left_width ))
+
+  for (( index = 1; index <= char_count; index++ )); do
+    char=$text[index]
+    char_width=${(m)#char}
+    (( used + char_width <= left_width )) || break
+    prefix+=$char
+    (( used += char_width ))
+  done
+
+  used=0
+  for (( index = char_count; index >= 1; index-- )); do
+    char=$text[index]
+    char_width=${(m)#char}
+    (( used + char_width <= right_width )) || break
+    suffix=$char$suffix
+    (( used += char_width ))
+  done
+  # If a wide base character missed the suffix boundary, do not leave its
+  # leading zero-width combining marks attached to the ellipsis.
+  while [[ -n $suffix ]]; do
+    char=$suffix[1]
+    (( ${(m)#char} == 0 )) || break
+    suffix=$suffix[2,-1]
+  done
+  REPLY="${prefix}${marker}${suffix}"
+}
+
+# Keep only a bounded visible prefix. This is used for an already-painted
+# autosuggestion: preserving its distant tail would disclose history text that
+# ZLE has not otherwise revealed beside the current BUFFER.
+_prompt_prefix_abbreviate() {
+  emulate -L zsh
+  setopt localoptions multibyte
+  local text=$1 marker='…' prefix='' char=''
+  local -i max_width=$2 total_width=${(m)#text}
+  local -i content_width=0 used=0 char_width=0 index=0
+
+  if (( max_width <= 0 )); then
+    REPLY=''
+    return
+  fi
+  if (( total_width <= max_width )); then
+    REPLY=$text
+    return
+  fi
+  if (( max_width <= ${(m)#marker} )); then
+    REPLY=$marker
+    return
+  fi
+
+  content_width=$(( max_width - ${(m)#marker} ))
+  for (( index = 1; index <= ${#text}; index++ )); do
+    char=$text[index]
+    char_width=${(m)#char}
+    (( used + char_width <= content_width )) || break
+    prefix+=$char
+    (( used += char_width ))
+  done
+  REPLY="${prefix}${marker}"
 }
 
 # Called by custom project-context functions to append a safe, colored item.
 prompt_add_project_segment() {
   emulate -L zsh
+  setopt localoptions multibyte
   (( $# >= 1 )) || return 2
-  local text=$1 color=${2:-}
+  local text=$1 color=${2:-} rendered='' safe_text=''
 
-  if [[ -z $color ]]; then
+  # A custom color becomes prompt syntax, so accept only the bounded numeric
+  # palette contract and Zsh's fixed basic color names. Malformed extension
+  # input falls back through the same validated role as an omitted color.
+  if [[ -z $color ||
+        $color != (<0-255>|black|red|green|yellow|blue|magenta|cyan|white|default) ]]; then
     _prompt_color tool || :
     color=$REPLY
   fi
 
   _prompt_escape "$text"
-  [[ -n $color ]] && REPLY="%F{${color}}${REPLY}%f"
-  _PROMPT_PROJECT_EXTRA_SEGMENTS+=("$REPLY")
-  _PROMPT_PROJECT_EXTRA_WIDTHS+=("${#text}")
+  rendered=$REPLY
+  [[ -n $color ]] && rendered="%F{${color}}${rendered}%f"
+  _PROMPT_PROJECT_EXTRA_SEGMENTS+=("$rendered")
+  _prompt_sanitize "$text"
+  safe_text=$REPLY
+  _PROMPT_PROJECT_EXTRA_WIDTHS+=("${(m)#safe_text}")
+  REPLY=$rendered
 }
 
 _prompt_git_operation() {
@@ -217,6 +355,10 @@ _prompt_git() {
   REPLY=''
   _PROMPT_GIT_TEXT=''
   _PROMPT_GIT_COLOR=$color
+  _PROMPT_GIT_BRANCH_TEXT=''
+  _PROMPT_GIT_UPSTREAM_TEXT=''
+  _PROMPT_GIT_OPERATION_TEXT=''
+  _PROMPT_GIT_ATTENTION=''
   _prompt_has_git_context "$PWD" || return
   _prompt_git_filter_config "$PWD" || return
   filter_config=("${reply[@]}")
@@ -303,105 +445,1171 @@ _prompt_git() {
   fi
 
   if (( ${#indicators} == 0 )); then
-    summary="git:${branch} ✓"
+    summary="${branch} ✓"
   else
-    summary="git:${branch} ${(j: :)indicators}"
+    summary="${branch} ${(j: :)indicators}"
   fi
 
   _PROMPT_GIT_TEXT=$summary
   _PROMPT_GIT_COLOR=$color
+  _PROMPT_GIT_BRANCH_TEXT=$branch
+  _PROMPT_GIT_UPSTREAM_TEXT=$upstream
+  _PROMPT_GIT_OPERATION_TEXT=$operation
+  if (( conflicted )) || [[ -n $operation ]]; then
+    _PROMPT_GIT_ATTENTION="operation:${operation}|conflict:$(( conflicted > 0 ))"
+  fi
   _prompt_escape "$summary"
   REPLY="%F{${color:-default}}${REPLY}%f"
 }
 
-# Reflow the path and already-collected Git summary without launching Git again.
-# This is also safe to call for every live terminal resize.
-_prompt_layout() {
-  local rendered_path=$_PROMPT_PATH_TEXT
-  local rendered_summary=$_PROMPT_GIT_TEXT
-  local rendered_git=''
-  local -i max_path_width=0 max_summary_width=0
-  local -i line_limit=0 top_width=0 git_inline=0
+# Render sanitized text to a bounded visible width. `reply` returns the styled
+# prompt string followed by its plain visible text so callers never count color
+# escapes as columns.
+_prompt_render_abbreviated() {
+  emulate -L zsh
+  setopt localoptions multibyte
+  local role=$1 text=$2 bias=${4:-tail}
+  local -i max_width=$3
+  local plain='' styled=''
 
-  _PROMPT_PATH_SEGMENT=''
-  _PROMPT_GIT_SEGMENT=''
-  line_limit=$(( COLUMNS > 0 ? COLUMNS - 3 : 77 ))
-
-  # Prefer moving Git to its own row before shortening the location.
-  if [[ -n $rendered_summary ]]; then
-    top_width=$((
-      _PROMPT_TOP_BASE_WIDTH + ${#_PROMPT_PATH_TEXT} +
-      1 + ${#_PROMPT_GIT_TEXT}
-    ))
-    (( top_width <= line_limit )) && git_inline=1
-  fi
-
-  # If the first row alone cannot fit, preserve both the location prefix and
-  # the current-directory end while abbreviating only the middle.
-  max_path_width=$(( line_limit - _PROMPT_TOP_BASE_WIDTH ))
-  _prompt_abbreviate "$rendered_path" "$max_path_width" tail
-  rendered_path=$REPLY
-  if [[ -n $rendered_path ]]; then
-    _prompt_escape "$rendered_path"
-    _prompt_color_text path "$REPLY"
-    _PROMPT_PATH_SEGMENT=$REPLY
-  fi
-
-  [[ -n $rendered_summary ]] || return
-
-  # Once Git has its own line, keep even very narrow terminals from wrapping.
-  # Preserve the beginning and status-bearing end with a middle ellipsis.
-  max_summary_width=$(( COLUMNS > 0 ? COLUMNS - 7 : 73 ))
-  _prompt_abbreviate "$rendered_summary" "$max_summary_width" head
-  rendered_summary=$REPLY
-
-  _prompt_escape "$rendered_summary"
-  rendered_git="%F{${_PROMPT_GIT_COLOR:-default}}${REPLY}%f"
-
-  if (( git_inline )); then
-    _PROMPT_GIT_SEGMENT=" ${rendered_git}"
+  _prompt_sanitize "$text"
+  plain=$REPLY
+  _prompt_abbreviate "$plain" "$max_width" "$bias"
+  plain=$REPLY
+  _prompt_escape "$plain"
+  if [[ $role == git ]]; then
+    styled="%F{${_PROMPT_GIT_COLOR:-default}}${REPLY}%f"
   else
-    _prompt_color_text frame '├─'
-    _PROMPT_GIT_SEGMENT=$'\n'"${REPLY} ${rendered_git}"
+    _prompt_color_text "$role" "$REPLY"
+    styled=$REPLY
+  fi
+  reply=("$styled" "$plain")
+}
+
+# Return one semantic lens row. Labels and dynamic values are styled only after
+# the raw value has been sanitized, abbreviated, and measured.
+_prompt_lens_row() {
+  emulate -L zsh
+  local label=$1 text=$2 role=$3 prefix=''
+  local -i value_width=$(( ${4:-80} - 13 ))
+
+  (( value_width > 0 )) || return 1
+  _prompt_render_abbreviated "$role" "$text" "$value_width" tail
+  [[ -n $reply[2] ]] || return 1
+  _prompt_color_text frame "│  ${(r:9:)label}"
+  prefix=$REPLY
+  REPLY="${prefix} ${reply[1]}"
+}
+
+# Project items are already safe prompt strings with separately captured
+# visible widths. Fit a prefix of them without reading providers during resize.
+_prompt_lens_toolchain_row() {
+  emulate -L zsh
+  local label=TOOLCHAIN prefix='' row='' separator=''
+  local -i line_limit=${1:-80} available=$(( ${1:-80} - 13 ))
+  local -i index=0 used=0 item_width=0
+
+  (( available > 0 && ${#_PROMPT_PROJECT_ITEMS} )) || return 1
+  for (( index = 1; index <= ${#_PROMPT_PROJECT_ITEMS}; index++ )); do
+    item_width=${_PROMPT_PROJECT_ITEM_WIDTHS[index]:-0}
+    separator=$(( used > 0 ? 3 : 0 ))
+    (( used + separator + item_width <= available )) || break
+    (( used > 0 )) && row+=' · '
+    row+="${_PROMPT_PROJECT_ITEMS[index]}"
+    (( used += separator + item_width ))
+  done
+  if [[ -z $row ]]; then
+    _prompt_color_text tool '…'
+    row=$REPLY
+  fi
+  _prompt_color_text frame "│  ${(r:9:)label}"
+  prefix=$REPLY
+  REPLY="${prefix} ${row}"
+}
+
+# Append one raw Interaction-lens row. Values remain literal/captured data until
+# layout sanitizes, bounds, escapes, and styles them.
+_prompt_interaction_add() {
+  [[ -n $2 ]] || return 1
+  _PROMPT_INTERACTION_LABELS+=("$1")
+  _PROMPT_INTERACTION_VALUES+=("$2")
+  _PROMPT_INTERACTION_ROLES+=("${3:-info}")
+}
+
+_prompt_interaction_is_assignment() {
+  emulate -L zsh
+  local word=${(Q)1}
+  [[ $word =~ '^[A-Za-z_][A-Za-z0-9_]*(\[[^]]+\])?(\+)?=' ]]
+}
+
+_prompt_interaction_is_redirection() {
+  emulate -L zsh
+  setopt localoptions extendedglob
+  local operator=${1##[0-9]##}
+  case $operator in
+    '<'|'<>'|'>'|'>|'|'>!'|'>>'|'>>|'|'>>!'|\
+    '<<'|'<<-'|'<<<'|'<&'|'>&'|'>&|'|'>&!'|\
+    '&>'|'&>|'|'&>!'|'>>&'|'>>&|'|'>>&!'|'&>>'|'&>>|'|'&>>!')
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+# Return whether one recognized option consumes the following lexical word.
+# This is deliberately small and conservative: its only purpose is to avoid
+# presenting an option value as a search query or remote endpoint.
+_prompt_interaction_option_takes_value() {
+  emulate -L zsh
+  local command_name=$1 option=$2
+
+  case $command_name in
+    rg)
+      case $option in
+        -A|-B|-C|-E|-e|-f|-g|-j|-M|-m|-r|-t|-T|--after-context|\
+        --before-context|--context|--dfa-size-limit|--encoding|--engine|\
+        --file|--glob|--iglob|--max-columns|--max-columns-preview|\
+        --max-count|--max-depth|--mmap|--path-separator|--pre|--pre-glob|\
+        --regex-size-limit|--regexp|--replace|--sort|--sortr|--type|\
+        --type-add|--type-clear)
+          return 0
+          ;;
+      esac
+      ;;
+    grep|egrep|fgrep)
+      case $option in
+        -A|-B|-C|-D|-d|-e|-f|-m|--after-context|--before-context|\
+        --binary-files|--context|--directories|--devices|--exclude|\
+        --exclude-from|--exclude-dir|--include|--label|--max-count|\
+        --regexp|--file)
+          return 0
+          ;;
+      esac
+      ;;
+    ssh|sftp)
+      case $option in
+        -B|-b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-O|-o|-p|-Q|-R|\
+        -S|-W|-w)
+          return 0
+          ;;
+      esac
+      ;;
+    scp)
+      case $option in
+        -c|-D|-F|-i|-J|-l|-o|-P|-S|-X)
+          return 0
+          ;;
+      esac
+      ;;
+    rsync)
+      case $option in
+        -B|-e|-f|-M|-T|--backup-dir|--block-size|--bwlimit|--checksum-choice|\
+        --chmod|--compare-dest|--compress-choice|--compress-level|--copy-as|\
+        --debug|--exclude|--exclude-from|--files-from|--filter|--groupmap|\
+        --iconv|--include|--include-from|--info|--link-dest|--log-file|\
+        --log-file-format|--max-alloc|--max-delete|--max-size|--min-size|\
+        --modify-window|--out-format|--password-file|--port|--protocol|\
+        --remote-option|--rsync-path|--skip-compress|--suffix|--temp-dir|\
+        --timeout|--usermap)
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# Add the smallest useful captured anchor after operation-specific rows.
+_prompt_interaction_add_context() {
+  if [[ -n $_PROMPT_PROJECT_NAME_TEXT ]]; then
+    _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
+  elif [[ -n $_PROMPT_FULL_PATH_TEXT ]]; then
+    _prompt_interaction_add PATH "$_PROMPT_FULL_PATH_TEXT" path
+  fi
+  [[ -n $_PROMPT_GIT_TEXT && $_PROMPT_INTERACTION_KIND != git ]] &&
+    _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
+}
+
+# Derive an interaction model from literal editor text and already-captured
+# prompt/editor facts. Zsh's lexer identifies structure without evaluating,
+# expanding, resolving, or executing anything from BUFFER.
+_prompt_interaction_model() {
+  emulate -L zsh
+  setopt localoptions extendedglob multibyte
+
+  local buffer=$1 bounded_buffer='' token='' plain=''
+  local command_name='' command_lower=''
+  local operation='' operation_lower='' first_operand='' last_operand=''
+  local query_text='' task_text='' environment_text='' remote_text=''
+  local redirect_operator='' redirect_text='' flow_text='' assignment_name=''
+  local action='' suggestion='' control_text='' caution_command=''
+  local comment_text=''
+  local endpoint_scheme='' endpoint_authority=''
+  local redirect_label='OUTPUT TEXT'
+  local redirect_action='likely redirect command output'
+  local -a tokens=() plain_tokens=() flow_heads=() flow_operators=()
+  local -i index=0 command_index=0 operation_index=0 token_count=0
+  local -i pipe_count=0 chain_count=0 expect_flow=0
+  local -i caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0
+  local -i precommand_options=0 env_precommand=0
+
+  _PROMPT_INTERACTION_KIND=ready
+  _PROMPT_INTERACTION_LABELS=()
+  _PROMPT_INTERACTION_VALUES=()
+  _PROMPT_INTERACTION_ROLES=()
+
+  # Work from a fixed prefix regardless of paste size. The complete BUFFER
+  # remains owned by ZLE and is never copied into interaction state.
+  bounded_buffer=${buffer[1,512]}
+  if (( ${#buffer} > 512 )) &&
+     [[ -z ${bounded_buffer//[[:space:]]/} ]]; then
+    _PROMPT_INTERACTION_KIND=run
+    _prompt_interaction_add ANALYSIS 'first 512 characters only' warning
+    _prompt_interaction_add ACTION \
+      'may contain shell structure beyond the lens bound' warning
+    _prompt_interaction_add_context
+    return 0
+  fi
+  if [[ -z ${bounded_buffer//[[:space:]]/} ]]; then
+    [[ -n $_PROMPT_PROJECT_NAME_TEXT ]] &&
+      _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
+    [[ -n $_PROMPT_FULL_PATH_TEXT ]] &&
+      _prompt_interaction_add PATH "$_PROMPT_FULL_PATH_TEXT" path
+    [[ -n $_PROMPT_GIT_TEXT ]] &&
+      _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
+    [[ -n $_PROMPT_ENV_TEXT ]] &&
+      _prompt_interaction_add ENV "$_PROMPT_ENV_TEXT" environment
+    [[ -n $_PROMPT_LAST_OUTCOME_TEXT ]] &&
+      _prompt_interaction_add LAST "$_PROMPT_LAST_OUTCOME_TEXT" \
+        "${_PROMPT_LAST_OUTCOME_ROLE:-info}"
+    if (( ! ${#_PROMPT_INTERACTION_LABELS} )) &&
+       [[ -n $_PROMPT_SESSION_TEXT ]]; then
+      _prompt_interaction_add SESSION "$_PROMPT_SESSION_TEXT" identity
+    fi
+    return 0
+  fi
+
+  tokens=("${(@Z+c+)bounded_buffer}") 2>/dev/null
+  if (( ! ${#tokens} )); then
+    tokens=("${bounded_buffer%%[[:space:]]*}")
+  elif (( ${#tokens} > 64 )); then
+    tokens=("${tokens[@]:0:64}")
+  fi
+  token_count=${#tokens}
+  for token in "${tokens[@]}"; do
+    plain_tokens+=("${(Q)token}")
+  done
+
+  if [[ ${tokens[1]} == \#* ]]; then
+    _PROMPT_INTERACTION_KIND=comment
+    comment_text=${plain_tokens[1]#\#}
+    comment_text=${comment_text# }
+    _prompt_interaction_add "COMMENT TEXT" \
+      "${comment_text:-comment}" info
+    _prompt_interaction_add ACTION \
+      'likely remain an interactive shell comment' info
+    _prompt_interaction_add_context
+    return 0
+  fi
+
+  # Leading assignments and native precommand modifiers do not define the
+  # command. Assignment values are never copied into presentation state.
+  for (( index = 1; index <= token_count; index++ )); do
+    token=${tokens[index]}
+    plain=${plain_tokens[index]}
+    if _prompt_interaction_is_assignment "$token"; then
+      [[ -z $assignment_name ]] && assignment_name=${plain%%=*}
+      continue
+    fi
+    if (( env_precommand )); then
+      if (( skip_next )); then
+        skip_next=0
+        continue
+      fi
+      case $plain in
+        -u|--unset|-C|--chdir|-S|--split-string)
+          skip_next=1
+          continue
+          ;;
+        -*)
+          continue
+          ;;
+      esac
+    fi
+    case $plain in
+      command|builtin|exec|noglob|nocorrect|time)
+        precommand_options=1
+        continue
+        ;;
+      env)
+        env_precommand=1
+        precommand_options=1
+        continue
+        ;;
+      '|'|'|&'|'&&'|'||'|';'|'&')
+        continue
+        ;;
+    esac
+    if (( precommand_options )) && [[ $plain == -* ]]; then
+      continue
+    fi
+    command_name=$plain
+    command_index=$index
+    break
+  done
+
+  if (( ! command_index )); then
+    _PROMPT_INTERACTION_KIND=environment
+    _prompt_interaction_add "ARGUMENT TEXT" \
+      "${assignment_name:-shell assignment}" environment
+    _prompt_interaction_add ACTION 'likely update shell environment' info
+    _prompt_interaction_add_context
+    return 0
+  fi
+  # Command and subcommand names remain case-sensitive, just like Zsh.
+  command_lower=$command_name
+
+  # Capture the first semantic word and literal operands without interpreting
+  # option values or shell expansions.
+  for (( index = command_index + 1; index <= token_count; index++ )); do
+    plain=${plain_tokens[index]}
+    case $plain in
+      '|'|'|&'|'&&'|'||'|';'|'&') continue ;;
+    esac
+    _prompt_interaction_is_assignment "${tokens[index]}" && continue
+    _prompt_interaction_is_redirection "$plain" && continue
+    if [[ -z $operation && $plain != -* ]]; then
+      operation=$plain
+      operation_index=$index
+    fi
+    if [[ $plain != -* ]]; then
+      [[ -z $first_operand ]] && first_operand=$plain
+      last_operand=$plain
+    fi
+  done
+  # Git accepts global options before its subcommand. Skip the small native
+  # set with separate operands so `git -C repo status` still reads as status.
+  if [[ $command_lower == (git|g) ]]; then
+    operation=''
+    operation_index=0
+    skip_next=0
+    for (( index = command_index + 1; index <= token_count; index++ )); do
+      plain=${plain_tokens[index]}
+      if (( skip_next )); then
+        skip_next=0
+        continue
+      fi
+      if [[ $plain == --help ||
+            ( $command_lower == g && $plain == (--review|--discard-all) &&
+              ${plain_tokens[index + 1]:-} == --help ) ]]; then
+        operation=help
+        operation_index=$index
+        break
+      fi
+      if [[ $command_lower == g && $plain == (--review|--worktree|--discard-all) ]]; then
+        operation=${plain#--}
+        operation_index=$index
+        break
+      fi
+      case $plain in
+        -C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--config-env)
+          skip_next=1
+          continue
+          ;;
+        --git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*|--config-env=*|-*)
+          continue
+          ;;
+        --)
+          continue
+          ;;
+      esac
+      operation=$plain
+      operation_index=$index
+      break
+    done
+    [[ $command_lower == g && -z $operation ]] && operation=branches
+  fi
+  operation_lower=$operation
+
+  # Capture command heads and their literal connectors across both pipelines
+  # and conditional/sequential chains. Mixed forms retain the whole visible
+  # plan instead of dropping everything after the first pipeline.
+  flow_heads=("$command_name")
+  for (( index = 1; index <= token_count; index++ )); do
+    plain=${plain_tokens[index]}
+    if [[ $plain == ('|'|'|&') ]]; then
+      (( ++pipe_count ))
+      flow_operators+=("$plain")
+      expect_flow=1
+      continue
+    fi
+    if [[ $plain == ('&&'|'||'|';'|'&') ]]; then
+      (( ++chain_count ))
+      flow_operators+=("$plain")
+      expect_flow=1
+      continue
+    fi
+    if (( expect_flow )); then
+      if _prompt_interaction_is_assignment "${tokens[index]}"; then
+        continue
+      fi
+      case $plain in
+        command|builtin|exec|noglob|nocorrect|time) continue ;;
+        -*|'#'*) continue ;;
+      esac
+      _prompt_interaction_is_redirection "$plain" && continue
+      flow_heads+=("$plain")
+      expect_flow=0
+    fi
+    if _prompt_interaction_is_redirection "$plain"; then
+      redirect_operator=$plain
+      if (( index < token_count )); then
+        redirect_text=${plain_tokens[index + 1]}
+      fi
+    fi
+  done
+
+  if [[ -n $redirect_operator ]]; then
+    case ${redirect_operator##[0-9]##} in
+      '<&'|'>&'|'>&|'|'>&!')
+        redirect_label='DESCRIPTOR TEXT'
+        redirect_action='likely duplicate or close a shell file descriptor'
+        ;;
+      '<'|'<<'|'<<-'|'<<<')
+        redirect_label='INPUT TEXT'
+        redirect_action='likely redirect command input'
+        ;;
+      '<>')
+        redirect_label='RESOURCE TEXT'
+        redirect_action='likely open literal redirection input and output'
+        ;;
+    esac
+  fi
+
+  case $command_lower in
+    rm|rmdir|dd|eval|kill|pkill)
+      caution=1
+      ;;
+  esac
+  (( caution )) && caution_command=$command_name
+  if (( ! caution && ${#flow_heads} > 1 )); then
+    for token in "${flow_heads[@]:1}"; do
+      case $token in
+        rm|rmdir|dd|eval|kill|pkill)
+          caution=1
+          caution_command=$token
+          break
+          ;;
+      esac
+    done
+  fi
+  if [[ $command_lower == external-device ]] &&
+     (( ! ${plain_tokens[(Ie)--help]} )) &&
+     (( ${plain_tokens[(Ie)--flash]} || ${plain_tokens[(Ie)--format]} )); then
+    caution=1
+    caution_command=$command_name
+  fi
+  if [[ $command_lower == (git|g) ]]; then
+    case $operation_lower in
+      discard-all) caution=1 ;;
+      reset)
+        (( ${plain_tokens[(Ie)--hard]} )) && caution=1
+        ;;
+      clean)
+        if (( ! ${plain_tokens[(Ie)-n]} &&
+              ! ${plain_tokens[(Ie)--dry-run]} )); then
+          caution=1
+        fi
+        ;;
+      push)
+        if (( ${plain_tokens[(Ie)-f]} ||
+              ${plain_tokens[(Ie)--force]} ||
+              ${plain_tokens[(Ie)--force-with-lease]} )); then
+          caution=1
+        fi
+        ;;
+      branch)
+        (( ${plain_tokens[(Ie)-D]} )) && caution=1
+        ;;
+    esac
+  fi
+
+  if (( caution )); then
+    _PROMPT_INTERACTION_KIND=caution
+    _prompt_interaction_add "COMMAND TEXT" \
+      "${caution_command:-$command_name}" danger
+    if [[ ${caution_command:-$command_name} == "$command_name" &&
+          $command_lower == (git|g) && -n $operation ]]; then
+      _prompt_interaction_add "OPERATION TEXT" "$operation" warning
+    fi
+    [[ ${caution_command:-$command_name} == "$command_name" &&
+       -n $last_operand &&
+       ( $command_lower != (git|g) || $last_operand != "$operation" ) ]] &&
+      _prompt_interaction_add "ARGUMENT TEXT" "$last_operand" warning
+    _prompt_interaction_add ACTION \
+      'appears caution-worthy · review literal text before Return' danger
+    _prompt_interaction_add_context
+  elif (( chain_count )); then
+    _PROMPT_INTERACTION_KIND=chain
+    flow_text=${(j: → :)flow_heads}
+    control_text=${(j: :)flow_operators}
+    _prompt_interaction_add FLOW "$flow_text" info
+    _prompt_interaction_add STEPS "$(( chain_count + pipe_count + 1 ))" info
+    _prompt_interaction_add CONTROL "$control_text" warning
+    _prompt_interaction_add ACTION \
+      'likely sequence literal shell commands' info
+    _prompt_interaction_add_context
+  elif (( pipe_count )); then
+    _PROMPT_INTERACTION_KIND=pipeline
+    flow_text=${(j: → :)flow_heads}
+    _prompt_interaction_add FLOW "$flow_text" info
+    _prompt_interaction_add STAGES "$(( pipe_count + 1 ))" info
+    [[ -n $redirect_text ]] &&
+      _prompt_interaction_add "$redirect_label" "$redirect_text" warning
+    _prompt_interaction_add ACTION \
+      'likely compose literal command output' info
+    _prompt_interaction_add_context
+  elif [[ -n $redirect_operator ]]; then
+    _PROMPT_INTERACTION_KIND=redirect
+    _prompt_interaction_add "OPERATOR TEXT" "$redirect_operator" warning
+    [[ -n $redirect_text ]] &&
+      _prompt_interaction_add "$redirect_label" "$redirect_text" warning
+    _prompt_interaction_add ACTION "$redirect_action" info
+    _prompt_interaction_add_context
+  elif [[ $command_lower == (compozsh|external-device) ]] ||
+       { [[ $command_lower == xcode ]] &&
+         (( token_count == command_index || ${plain_tokens[(Ie)--export-skills]} || ${plain_tokens[(Ie)--help]} )); }; then
+    local task_action='likely open a task workspace' task_operation=''
+    _PROMPT_INTERACTION_KIND=run
+    if (( ${plain_tokens[(Ie)--help]} )) ||
+       [[ $command_lower == compozsh && $first_operand == help ]]; then
+      task_action='likely show task help'
+      task_operation=help
+      (( ${plain_tokens[(Ie)--help]} )) && task_operation=--help
+    elif [[ $command_lower == xcode ]] && (( ${plain_tokens[(Ie)--export-skills]} )); then
+      _PROMPT_INTERACTION_KIND=environment
+      task_operation=--export-skills
+      task_action='likely review or export Apple skills for local agents'
+    elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--sudo-touch-id]} )); then
+      _PROMPT_INTERACTION_KIND=environment
+      task_operation=--sudo-touch-id
+      task_action='likely inspect or manage Touch ID authentication for sudo'
+    elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--refresh]} )); then
+      _PROMPT_INTERACTION_KIND=environment
+      task_operation=--refresh
+      task_action='likely refresh this shell’s cached capabilities'
+    elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--list]} )); then
+      task_operation=--list
+      task_action='likely list loaded Compozsh tools'
+    else
+      case $command_lower in
+        xcode) task_action='likely open the Xcode action workspace' ;;
+        external-device) task_action='likely open the external-device task chooser' ;;
+        compozsh) task_action='likely explore loaded tools and their help' ;;
+      esac
+    fi
+    _prompt_interaction_add 'COMMAND TEXT' "$command_name" info
+    [[ -n $task_operation ]] && _prompt_interaction_add 'OPERATION TEXT' "$task_operation" info
+    _prompt_interaction_add ACTION "$task_action" info
+    _prompt_interaction_add_context
+  elif [[ $command_lower == (ssh|scp|sftp|rsync|curl|wget) ]]; then
+    _PROMPT_INTERACTION_KIND=remote
+    case $command_lower in
+      ssh|sftp)
+        skip_next=0
+        for (( index = command_index + 1; index <= token_count; index++ )); do
+          plain=${plain_tokens[index]}
+          if (( skip_next )); then
+            skip_next=0
+            continue
+          fi
+          if _prompt_interaction_option_takes_value "$command_lower" "$plain"; then
+            skip_next=1
+            continue
+          fi
+          [[ $plain == -- ]] && continue
+          [[ $plain == -* ]] && continue
+          remote_text=$plain
+          break
+        done
+        ;;
+      scp|rsync)
+        skip_next=0
+        for (( index = command_index + 1; index <= token_count; index++ )); do
+          plain=${plain_tokens[index]}
+          if (( skip_next )); then
+            skip_next=0
+            continue
+          fi
+          if _prompt_interaction_option_takes_value "$command_lower" "$plain"; then
+            skip_next=1
+            continue
+          fi
+          [[ $plain == -* ]] && continue
+          if [[ $plain == *://* || $plain == [^/]##:* ||
+                $plain == *@*:* ]]; then
+            remote_text=$plain
+            break
+          fi
+        done
+        ;;
+      curl|wget)
+        saw_option=0
+        for (( index = command_index + 1; index <= token_count; index++ )); do
+          plain=${plain_tokens[index]}
+          if [[ $plain == -* ]]; then
+            saw_option=1
+            continue
+          fi
+          if [[ $plain == *://* ]]; then
+            remote_text=$plain
+            continue
+          fi
+          (( ! saw_option )) && [[ -z $remote_text ]] && remote_text=$plain
+        done
+        # Curl and wget have large evolving option grammars. With any option
+        # present, omit the excerpt rather than risk repeating a header, token,
+        # output file, or other option value under a misleading endpoint label.
+        (( saw_option )) && remote_text=''
+        ;;
+    esac
+    if [[ -n $remote_text && $remote_text == *://* ]]; then
+      endpoint_scheme=${remote_text%%://*}
+      endpoint_authority=${remote_text#*://}
+      endpoint_authority=${endpoint_authority%%/*}
+      endpoint_authority=${endpoint_authority%%\?*}
+      endpoint_authority=${endpoint_authority%%\#*}
+      endpoint_authority=${endpoint_authority##*@}
+      if [[ -n $endpoint_scheme && -n $endpoint_authority ]]; then
+        remote_text="${endpoint_scheme}://${endpoint_authority}"
+      else
+        remote_text=''
+      fi
+    elif [[ -n $remote_text && $command_lower == (curl|wget) ]]; then
+      remote_text=${remote_text%%\?*}
+      remote_text=${remote_text%%\#*}
+      remote_text=${remote_text##*@}
+      remote_text=${remote_text%%/*}
+    fi
+    _prompt_interaction_add "COMMAND TEXT" "$command_name" info
+    [[ -n $remote_text ]] &&
+      _prompt_interaction_add "ENDPOINT TEXT" "$remote_text" warning
+    _prompt_interaction_add ACTION \
+      'command may contact a remote system' warning
+    _prompt_interaction_add_context
+  elif [[ $command_lower == (git|g) ]]; then
+    _PROMPT_INTERACTION_KIND=git
+    _prompt_interaction_add "OPERATION TEXT" \
+      "${operation:-repository command}" git
+    case $operation_lower in
+      branches) action='likely open the local recent-branch workspace' ;;
+      help) action='likely show Git or Compozsh Git help' ;;
+      review) action='likely open the local Git review workspace' ;;
+      worktree) action='likely open local Git worktree actions' ;;
+      status) action='likely inspect working tree' ;;
+      diff|show|log) action='likely review repository history or changes' ;;
+      add) action='likely stage selected changes' ;;
+      commit) action='likely record staged changes' ;;
+      switch|checkout) action='likely change repository position' ;;
+      pull|fetch) action='may contact a remote to update repository data' ;;
+      push) action='may contact a remote to publish commits' ;;
+      merge|rebase|cherry-pick) action='likely integrate repository history' ;;
+      *) action='likely run a Git operation' ;;
+    esac
+    _prompt_interaction_add ACTION "$action" info
+    [[ -n $_PROMPT_GIT_BRANCH_TEXT ]] &&
+      _prompt_interaction_add BRANCH "$_PROMPT_GIT_BRANCH_TEXT" git
+    [[ -n $_PROMPT_PROJECT_NAME_TEXT ]] &&
+      _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
+  elif [[ $command_lower == (cd|pushd|popd|j|z|mkcd) ]]; then
+    _PROMPT_INTERACTION_KIND=navigate
+    [[ -n $first_operand ]] &&
+      _prompt_interaction_add "DESTINATION TEXT" "$first_operand" path
+    _prompt_interaction_add ACTION \
+      'likely change shell location · Tab can browse' info
+    [[ -n $_PROMPT_FULL_PATH_TEXT ]] &&
+      _prompt_interaction_add FROM "$_PROMPT_FULL_PATH_TEXT" path
+    _prompt_interaction_add_context
+  elif [[ $command_lower == (rg|grep|egrep|fgrep|find|mdfind|ag|ack) ]]; then
+    _PROMPT_INTERACTION_KIND=search
+    skip_next=0
+    if [[ $command_lower == find ]]; then
+      for (( index = command_index + 1; index < token_count; index++ )); do
+        plain=${plain_tokens[index]}
+        if [[ $plain == (-name|-iname|-path|-ipath|-regex|-iregex) ]]; then
+          query_text=${plain_tokens[index + 1]}
+          break
+        fi
+      done
+    else
+      for (( index = command_index + 1; index <= token_count; index++ )); do
+        plain=${plain_tokens[index]}
+        if (( skip_next )); then
+          skip_next=0
+          continue
+        fi
+        if _prompt_interaction_option_takes_value "$command_lower" "$plain"; then
+          skip_next=1
+          continue
+        fi
+        [[ $plain == -* ]] && continue
+        query_text=$plain
+        break
+      done
+    fi
+    [[ -n $query_text ]] &&
+      _prompt_interaction_add "QUERY TEXT" "$query_text" info
+    _prompt_interaction_add ACTION 'likely search literal local input' info
+    if [[ -n $_PROMPT_PROJECT_NAME_TEXT ]]; then
+      _prompt_interaction_add SCOPE "$_PROMPT_PROJECT_NAME_TEXT" project
+    else
+      _prompt_interaction_add SCOPE "$_PROMPT_FULL_PATH_TEXT" path
+    fi
+    [[ -n $_PROMPT_GIT_TEXT ]] &&
+      _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
+  elif [[ $command_lower == (conda|pyenv|rbenv|nvm|mise|direnv|export|unset|source|.) ]]; then
+    _PROMPT_INTERACTION_KIND=environment
+    environment_text=$last_operand
+    if [[ $command_lower == (export|unset) && -n $environment_text ]]; then
+      environment_text=${environment_text%%=*}
+    fi
+    [[ -n $environment_text ]] &&
+      _prompt_interaction_add "ARGUMENT TEXT" "$environment_text" environment
+    _prompt_interaction_add ACTION \
+      'likely change the current shell environment' info
+    [[ -n $_PROMPT_ENV_TEXT ]] &&
+      _prompt_interaction_add CURRENT "$_PROMPT_ENV_TEXT" environment
+    _prompt_interaction_add_context
+  else
+    # Exact high-signal test/build forms. Unknown tools remain the neutral RUN
+    # lens rather than receiving a guessed purpose.
+    if [[ $command_lower == (pytest|bats|rspec|jest|vitest) ]]; then
+      is_test=1
+      task_text=${operation:-$command_name}
+    elif [[ $operation_lower == test &&
+            $command_lower == (swift|cargo|go|npm|pnpm|yarn|bun|make|just|task|gradle|mvn|mix|dotnet|xcodebuild) ]]; then
+      is_test=1
+      task_text=$operation
+    elif [[ $command_lower == zsh ]]; then
+      for (( index = command_index + 1; index <= token_count; index++ )); do
+        plain=${plain_tokens[index]}
+        if [[ $plain == *tests/* || $plain == *test*.zsh ]]; then
+          is_test=1
+          task_text=$plain
+          break
+        fi
+      done
+    fi
+    if (( is_test )) && [[ $operation_lower == test ]]; then
+      for (( index = operation_index + 1; index < token_count; index++ )); do
+        if [[ ${plain_tokens[index]} == (--filter|-F|-t|--test) ]]; then
+          task_text=${plain_tokens[index + 1]}
+          break
+        fi
+      done
+    fi
+    if [[ $operation_lower == build &&
+          $command_lower == (swift|cargo|go|npm|pnpm|yarn|bun|gradle|mvn|mix|dotnet|xcodebuild) ]]; then
+      is_build=1
+      task_text=$operation
+    elif [[ $command_lower == (make|cmake|ninja|xcode|xcodebuild) ]] &&
+         (( ! is_test )); then
+      is_build=1
+      task_text=${operation:-build}
+    fi
+
+    if (( is_test )); then
+      _PROMPT_INTERACTION_KIND=test
+      _prompt_interaction_add "TASK TEXT" "${task_text:-test}" tool
+      _prompt_interaction_add ACTION 'likely run project tests' info
+      (( ${#_PROMPT_PROJECT_ITEMS} )) &&
+        _prompt_interaction_add @TOOLCHAIN available tool
+      _prompt_interaction_add_context
+    elif (( is_build )); then
+      _PROMPT_INTERACTION_KIND=build
+      _prompt_interaction_add "TASK TEXT" "${task_text:-build}" tool
+      _prompt_interaction_add ACTION 'likely build the current project' info
+      (( ${#_PROMPT_PROJECT_ITEMS} )) &&
+        _prompt_interaction_add @TOOLCHAIN available tool
+      _prompt_interaction_add_context
+    else
+      _PROMPT_INTERACTION_KIND=run
+      _prompt_interaction_add "COMMAND TEXT" "$command_name" info
+      [[ -n $first_operand ]] &&
+        _prompt_interaction_add "ARGUMENT TEXT" "$first_operand" info
+      _prompt_interaction_add ACTION 'likely run a shell command' info
+      _prompt_interaction_add_context
+    fi
+  fi
+
+  # The suffix is already owned and displayed by the editor. Repeat only its
+  # bounded visible prefix; never search history or preserve the unseen tail.
+  if [[ -n ${_ZLE_AUTOSUGGEST_SUFFIX:-} &&
+        ${_ZLE_AUTOSUGGEST_CACHE_BUFFER:-} == "$buffer" &&
+        ${POSTDISPLAY:-} == "${_ZLE_AUTOSUGGEST_DISPLAY:-}" ]]; then
+    _prompt_sanitize "$_ZLE_AUTOSUGGEST_SUFFIX"
+    suggestion=$REPLY
+    _prompt_prefix_abbreviate "$suggestion" 36
+    [[ -n $REPLY ]] &&
+      _prompt_interaction_add SUGGESTION "$REPLY" info
   fi
 }
 
-# Keep complete project facts from left to right and hide the least-important
-# trailing items when the context row becomes too narrow. All data is cached in
-# memory by _prompt_project_context, so resizing performs no detection work.
-_prompt_project_layout() {
-  local project_name=$_PROMPT_PROJECT_NAME_TEXT
-  local rendered_name=''
-  local -a visible_items
-  local -i line_limit=0 max_name_width=0 used_width=0
-  local -i item_width=0 separator_width=0 index=0
+_prompt_interaction_row() {
+  emulate -L zsh
+  setopt localoptions multibyte
+  local label=$1 text=$2 role=$3 prefix_plain='' prefix=''
+  local -i line_limit=${4:-80} label_width=${(m)#label}
+  local -i slot_width=0 prefix_width=0 value_width=0
 
-  _PROMPT_PROJECT_SEGMENT=''
-  [[ -n $project_name ]] || return
+  if (( line_limit >= 42 )); then
+    slot_width=16
+    (( label_width > slot_width )) && slot_width=$label_width
+  else
+    slot_width=$label_width
+  fi
+  prefix_plain="│  ${(r:$slot_width:)label}"
+  prefix_width=${(m)#prefix_plain}
+  value_width=$(( line_limit - prefix_width - 1 ))
+  (( value_width > 0 )) || return 1
+  _prompt_render_abbreviated "$role" "$text" "$value_width" tail
+  [[ -n $reply[2] ]] || return 1
+  _prompt_escape "$prefix_plain"
+  _prompt_color_text frame "$REPLY"
+  prefix=$REPLY
+  REPLY="${prefix} ${reply[1]}"
+}
 
-  line_limit=$(( COLUMNS > 0 ? COLUMNS - 3 : 77 ))
-  max_name_width=$(( line_limit - 3 ))
-  _prompt_abbreviate "$project_name" "$max_name_width" head
-  project_name=$REPLY
+_prompt_interaction_layout() {
+  emulate -L zsh
+  setopt localoptions multibyte
+  local kind=${(U)_PROMPT_INTERACTION_KIND} label='' value='' role=''
+  local header_plain="╭─ ${kind}" header='' row=''
+  local -a rows=()
+  local -i line_limit=$(( COLUMNS > 0 ? COLUMNS : 80 ))
+  local -i max_body=$(( LINES > 0 ? LINES - 2 : 5 ))
+  local -i index=0
 
-  used_width=$(( 3 + ${#project_name} ))
-  for (( index = 1; index <= ${#_PROMPT_PROJECT_ITEMS}; index++ )); do
-    item_width=${_PROMPT_PROJECT_ITEM_WIDTHS[index]:-0}
-    separator_width=$(( ${#visible_items} ? 3 : 1 ))
-    (( used_width + separator_width + item_width <= line_limit )) || break
-    visible_items+=("${_PROMPT_PROJECT_ITEMS[index]}")
-    (( used_width += separator_width + item_width ))
+  _PROMPT_INTERACTION_SEGMENT=''
+  (( line_limit >= 12 && max_body >= 1 )) || return 0
+  (( max_body > 5 )) && max_body=5
+
+  _prompt_abbreviate "$header_plain" "$line_limit" head
+  _prompt_escape "$REPLY"
+  case $_PROMPT_INTERACTION_KIND in
+    caution) _prompt_color_text danger "$REPLY" ;;
+    ready) _prompt_color_text success "$REPLY" ;;
+    git) _prompt_color_text git "$REPLY" ;;
+    navigate) _prompt_color_text path "$REPLY" ;;
+    environment) _prompt_color_text environment "$REPLY" ;;
+    build|test) _prompt_color_text tool "$REPLY" ;;
+    *) _prompt_color_text info "$REPLY" ;;
+  esac
+  header=$REPLY
+
+  if (( ${+widgets[compozsh-inspect]} && line_limit >= 56 )); then
+    local hint='⌥↵ inspect draft' padding=''
+    local -i gap=$(( line_limit - ${(m)#header_plain} - ${(m)#hint} ))
+    if (( gap > 0 )); then
+      padding=${(l:$gap:: :)padding}
+      _prompt_color_text frame "$hint"
+      header+="$padding$REPLY"
+    fi
+  fi
+
+  for (( index = 1;
+         index <= ${#_PROMPT_INTERACTION_LABELS} &&
+         ${#rows} < max_body;
+         index++ )); do
+    label=${_PROMPT_INTERACTION_LABELS[index]}
+    value=${_PROMPT_INTERACTION_VALUES[index]}
+    role=${_PROMPT_INTERACTION_ROLES[index]:-info}
+    if [[ $label == @TOOLCHAIN ]]; then
+      _prompt_lens_toolchain_row "$line_limit" && rows+=("$REPLY")
+    elif _prompt_interaction_row "$label" "$value" "$role" "$line_limit"; then
+      rows+=("$REPLY")
+    fi
   done
 
-  _prompt_escape "$project_name"
-  rendered_name=$REPLY
-  _prompt_color_text project "$rendered_name"
-  rendered_name=$REPLY
-  _prompt_color_text frame '├─'
-  _PROMPT_PROJECT_SEGMENT=$'\n'"${REPLY} ${rendered_name}"
-  if (( ${#visible_items} )); then
-    _PROMPT_PROJECT_SEGMENT+=" ${(j: · :)visible_items}"
+  _PROMPT_INTERACTION_SEGMENT=$header
+  for row in "${rows[@]}"; do
+    _PROMPT_INTERACTION_SEGMENT+=$'\n'"$row"
+  done
+}
+
+# Build the expanded presentation from the same in-memory snapshot as compact.
+# Height is bounded so the empty lens cannot push its own header into scrollback
+# before ZLE gets a chance to contract it.
+_prompt_lens_layout() {
+  emulate -L zsh
+  setopt localoptions multibyte
+  local reason=${_PROMPT_LENS_REASON:-context changed}
+  local hint=$(( _PROMPT_LENS_PINNED ? 1 : 0 ))
+  local hint_text='' left_plain='' header='' footer='' padding=''
+  local git_text='' row=''
+  local -a rows priorities selected visible_rows
+  local -i line_limit=$(( COLUMNS > 0 ? COLUMNS : 80 ))
+  local -i max_body=$(( LINES > 0 ? LINES - 3 : 7 ))
+  local -i index=0 priority=0 selected_count=0 left_width=0 padding_width=0
+  local -i left_plain_width=0 hint_width=0
+
+  _PROMPT_LENS_SEGMENT=''
+  (( line_limit >= 18 && max_body >= 1 )) || return 0
+
+  if (( hint )); then
+    hint_text='⌥I close'
+  else
+    hint_text='⌥I pin'
   fi
+  left_plain="╭─ CONTEXT · ${reason}"
+  left_plain_width=${(m)#left_plain}
+  hint_width=${(m)#hint_text}
+  if (( left_plain_width + 1 + hint_width > line_limit )); then
+    left_width=$(( line_limit - hint_width - 1 ))
+    _prompt_abbreviate "$left_plain" "$left_width" head
+    left_plain=$REPLY
+    left_plain_width=${(m)#left_plain}
+  fi
+  _prompt_escape "$left_plain"
+  _prompt_color_text frame "$REPLY"
+  header=$REPLY
+  if (( left_plain_width + 1 + hint_width <= line_limit )); then
+    padding_width=$(( line_limit - left_plain_width - hint_width ))
+    padding=${(l:$padding_width:: :)padding}
+    header+=$padding
+    _prompt_escape "$hint_text"
+    _prompt_color_text frame "$REPLY"
+    header+=$REPLY
+  fi
+
+  if [[ -n $_PROMPT_PROJECT_ROOT_TEXT ]]; then
+    _prompt_lens_row PROJECT "${_PROMPT_PROJECT_ROOT_TEXT:t}" project "$line_limit" && {
+      rows+=("$REPLY")
+      priorities+=(3)
+    }
+  fi
+  _prompt_lens_row PATH "$_PROMPT_FULL_PATH_TEXT" path "$line_limit" && {
+    rows+=("$REPLY")
+    priorities+=(1)
+  }
+  if [[ -n $_PROMPT_GIT_TEXT ]]; then
+    git_text=$_PROMPT_GIT_TEXT
+    [[ -n $_PROMPT_GIT_UPSTREAM_TEXT ]] &&
+      git_text+=" · tracks ${_PROMPT_GIT_UPSTREAM_TEXT}"
+    _prompt_lens_row GIT "$git_text" git "$line_limit" && {
+      rows+=("$REPLY")
+      priorities+=(2)
+    }
+  fi
+  _prompt_lens_toolchain_row "$line_limit" && {
+    rows+=("$REPLY")
+    priorities+=(5)
+  }
+  if [[ -n $_PROMPT_ENV_TEXT ]]; then
+    _prompt_lens_row ENV "$_PROMPT_ENV_TEXT" environment "$line_limit" && {
+      rows+=("$REPLY")
+      priorities+=(4)
+    }
+  fi
+  if [[ -n $_PROMPT_JOBS_TEXT ]]; then
+    _prompt_lens_row JOBS "$_PROMPT_JOBS_TEXT" jobs "$line_limit" && {
+      rows+=("$REPLY")
+      priorities+=(6)
+    }
+  fi
+  if [[ -n $_PROMPT_SESSION_TEXT ]]; then
+    _prompt_lens_row SESSION "$_PROMPT_SESSION_TEXT" identity "$line_limit" && {
+      rows+=("$REPLY")
+      priorities+=(7)
+    }
+  fi
+
+  # Select rows by information priority, then paint them in stable visual order.
+  for priority in {1..7}; do
+    (( selected_count < max_body )) || break
+    for (( index = 1; index <= ${#rows}; index++ )); do
+      if (( priorities[index] == priority )); then
+        selected[index]=1
+        (( ++selected_count ))
+        break
+      fi
+    done
+  done
+  for (( index = 1; index <= ${#rows}; index++ )); do
+    (( ${selected[index]:-0} )) && visible_rows+=("${rows[index]}")
+  done
+  (( ${#visible_rows} )) || return 0
+
+  # A pinned Context lens retains its captured disclosure while one compact
+  # live section follows the current BUFFER. Reserve space instead of growing
+  # beyond the terminal-height budget.
+  if (( _PROMPT_LENS_PINNED && _PROMPT_INTERACTION_ACTIVE &&
+        max_body >= 3 && ${#_PROMPT_INTERACTION_LABELS} )) &&
+     [[ $_PROMPT_INTERACTION_KIND != ready ]]; then
+    while (( ${#visible_rows} > max_body - 2 )); do
+      visible_rows[-1]=()
+    done
+    _prompt_escape "├─ ${(U)_PROMPT_INTERACTION_KIND}"
+    _prompt_color_text frame "$REPLY"
+    visible_rows+=("$REPLY")
+    if _prompt_interaction_row \
+         "${_PROMPT_INTERACTION_LABELS[1]}" \
+         "${_PROMPT_INTERACTION_VALUES[1]}" \
+         "${_PROMPT_INTERACTION_ROLES[1]:-info}" \
+         "$line_limit"; then
+      visible_rows+=("$REPLY")
+    fi
+  fi
+
+  _prompt_color_text frame '╰─'
+  footer=$REPLY
+  _PROMPT_LENS_SEGMENT=$header
+  for row in "${visible_rows[@]}"; do
+    _PROMPT_LENS_SEGMENT+=$'\n'"$row"
+  done
+  _PROMPT_LENS_SEGMENT+=$'\n'"$footer"
+}
+
+# Reflow the captured snapshot without launching Git, language tools, or project
+# detection. The compact row always retains path and applicable Git; remaining
+# width is assigned to environment, jobs, then project facts by priority.
+_prompt_layout() {
+  emulate -L zsh
+  setopt localoptions multibyte
+  local path_text='' git_text='' identity_text=''
+  local env_text='' jobs_text=''
+  local path_plain='' git_plain='' identity_plain=''
+  local path_rendered='' git_rendered='' identity_rendered=''
+  local optional='' separator='  ·  ' env_rendered='' jobs_rendered=''
+  local -i line_limit=$(( COLUMNS > 0 ? COLUMNS : 80 ))
+  local -i path_budget=0 git_budget=0 identity_budget=0 available=0
+  local -i mandatory_width=0 used_width=0 index=0 item_width=0 optional_open=1
+  local -i path_width=0 git_width=0 identity_width=0 separator_width=0
+
+  _PROMPT_CONTEXT_SEGMENT=''
+  _PROMPT_PATH_SEGMENT=''
+  _PROMPT_GIT_SEGMENT=''
+  _PROMPT_ENV_SEGMENT=''
+  _PROMPT_PROJECT_SEGMENT=''
+
+  _prompt_sanitize "$_PROMPT_PATH_TEXT"; path_text=$REPLY
+  _prompt_sanitize "$_PROMPT_GIT_TEXT"; git_text=$REPLY
+  if (( EUID == 0 )) || [[ -n ${SSH_CONNECTION:-}${SSH_TTY:-} ]]; then
+    _prompt_sanitize "$_PROMPT_IDENTITY_TEXT"; identity_text=$REPLY
+  fi
+
+  path_width=${(m)#path_text}
+  git_width=${(m)#git_text}
+  identity_width=${(m)#identity_text}
+  separator_width=${(m)#separator}
+  mandatory_width=$(( path_width + git_width + identity_width ))
+  [[ -n $git_text ]] && (( mandatory_width += 2 ))
+  [[ -n $identity_text ]] && (( mandatory_width += 2 ))
+
+  if (( mandatory_width <= line_limit )); then
+    path_budget=$path_width
+    git_budget=$git_width
+    identity_budget=$identity_width
+  else
+    available=$line_limit
+    if [[ -n $identity_text ]] && (( line_limit >= 24 )); then
+      identity_budget=$(( identity_width < line_limit / 5 ? identity_width : line_limit / 5 ))
+      (( available -= identity_budget + 2 ))
+    fi
+    if [[ -n $git_text ]]; then
+      git_budget=$(( git_width < available / 3 ? git_width : available / 3 ))
+      (( git_budget < 1 )) && git_budget=1
+      path_budget=$(( available - git_budget - 2 ))
+      if (( path_budget < 1 )); then
+        path_budget=1
+        git_budget=$(( available - 3 ))
+      fi
+    else
+      path_budget=$available
+    fi
+  fi
+
+  if (( identity_budget > 0 )); then
+    _prompt_render_abbreviated identity "$identity_text" "$identity_budget" head
+    identity_rendered=$reply[1]
+    identity_plain=$reply[2]
+  fi
+  _prompt_render_abbreviated path "$path_text" "$path_budget" tail
+  path_rendered=$reply[1]
+  path_plain=$reply[2]
+  _PROMPT_PATH_SEGMENT=$path_rendered
+  if [[ -n $git_text ]] && (( git_budget > 0 )); then
+    _prompt_render_abbreviated git "$git_text" "$git_budget" head
+    git_rendered=$reply[1]
+    git_plain=$reply[2]
+    _PROMPT_GIT_SEGMENT="  ${git_rendered}"
+  fi
+
+  [[ -n $identity_rendered ]] && _PROMPT_CONTEXT_SEGMENT+="${identity_rendered}  "
+  _PROMPT_CONTEXT_SEGMENT+=$path_rendered
+  [[ -n $git_rendered ]] && _PROMPT_CONTEXT_SEGMENT+="  ${git_rendered}"
+  used_width=$(( ${(m)#identity_plain} + ${(m)#path_plain} + ${(m)#git_plain} ))
+  [[ -n $identity_plain ]] && (( used_width += 2 ))
+  [[ -n $git_plain ]] && (( used_width += 2 ))
+  _PROMPT_TOP_BASE_WIDTH=$used_width
+
+  if [[ -n $_PROMPT_ENV_TEXT ]]; then
+    _prompt_sanitize "$_PROMPT_ENV_TEXT"
+    env_text=$REPLY
+    _prompt_escape "py:${env_text}"
+    _prompt_color_text environment "$REPLY"
+    env_rendered=$REPLY
+    item_width=$(( 3 + ${(m)#env_text} ))
+    if (( used_width + separator_width + item_width <= line_limit )); then
+      _PROMPT_ENV_SEGMENT="${separator}${env_rendered}"
+      _PROMPT_CONTEXT_SEGMENT+=$_PROMPT_ENV_SEGMENT
+      (( used_width += separator_width + item_width ))
+    else
+      optional_open=0
+    fi
+  fi
+  if (( optional_open )) && [[ -n $_PROMPT_JOBS_TEXT ]]; then
+    _prompt_sanitize "$_PROMPT_JOBS_TEXT"
+    jobs_text=$REPLY
+    _prompt_escape "$jobs_text"
+    _prompt_color_text jobs "$REPLY"
+    jobs_rendered=$REPLY
+    item_width=${(m)#jobs_text}
+    if (( used_width + separator_width + item_width <= line_limit )); then
+      _PROMPT_CONTEXT_SEGMENT+="${separator}${jobs_rendered}"
+      (( used_width += separator_width + item_width ))
+    else
+      optional_open=0
+    fi
+  fi
+  if (( optional_open )); then
+    for (( index = 1; index <= ${#_PROMPT_PROJECT_ITEMS}; index++ )); do
+      item_width=${_PROMPT_PROJECT_ITEM_WIDTHS[index]:-0}
+      (( used_width + separator_width + item_width <= line_limit )) || break
+      optional="${separator}${_PROMPT_PROJECT_ITEMS[index]}"
+      _PROMPT_PROJECT_SEGMENT+=$optional
+      _PROMPT_CONTEXT_SEGMENT+=$optional
+      (( used_width += separator_width + item_width ))
+    done
+  fi
+
+  if (( _PROMPT_INTERACTION_ACTIVE )); then
+    _prompt_interaction_model "${BUFFER:-}"
+    _prompt_interaction_layout
+  else
+    _PROMPT_INTERACTION_SEGMENT=''
+  fi
+
+  if [[ $_PROMPT_VIEW == lens ]]; then
+    _prompt_lens_layout
+  else
+    _PROMPT_LENS_SEGMENT=''
+  fi
+}
+
+# Compatibility entry used by existing resize callers and focused tests.
+_prompt_project_layout() {
+  _prompt_layout
 }
 
 # Optional project and toolchain context for the prompt. All setup is deferred
@@ -1328,17 +2536,21 @@ _prompt_resolve_project_root() {
 # Find the nearest project directory and render every runtime identified there.
 _prompt_project_context() {
   emulate -L zsh
+  setopt localoptions multibyte
 
   local dir='' project_root=''
   local language version expected color label
   local runtime_text warning_text
   local marker hook
   local -i custom_project=0 large_project=0 index=0
+  local -i runtime_width=0 warning_width=0
   local -a languages rendered rendered_widths wildcard_matches root_entries
-  local -a tools frameworks environment warnings warning_widths
+  local -a tools frameworks environment warnings warning_widths attention
 
   _PROMPT_PROJECT_SEGMENT=''
   _PROMPT_PROJECT_NAME_TEXT=''
+  _PROMPT_PROJECT_ROOT_TEXT=''
+  _PROMPT_PROJECT_ATTENTION=''
   _PROMPT_PROJECT_ITEMS=()
   _PROMPT_PROJECT_ITEM_WIDTHS=()
 
@@ -1651,22 +2863,26 @@ _prompt_project_context() {
   fi
 
   [[ -z $project_root ]] && return
+  _PROMPT_PROJECT_ROOT_TEXT=$project_root
 
   for language in "${languages[@]}"; do
     _prompt_runtime_version "$language" "$project_root"
     version=$REPLY
+    label=${_PROMPT_RUNTIME_LABELS[$language]:-$language}
     _prompt_color tool || :
     color=$REPLY
     if [[ $version == not-installed || $version == unavailable ||
           $version == unknown ]]; then
       _prompt_color danger || :
       color=$REPLY
+      attention+=("runtime:${label}:${version}")
     fi
-    label=${_PROMPT_RUNTIME_LABELS[$language]:-$language}
     runtime_text="${label} ${version}"
+    _prompt_sanitize "$runtime_text"
+    runtime_width=${(m)#REPLY}
     _prompt_escape "$runtime_text"
     rendered+=("%F{${color:-default}}${REPLY}%f")
-    rendered_widths+=("${#runtime_text}")
+    rendered_widths+=("$runtime_width")
 
     _prompt_expected_runtime_version "$language" "$project_root"
     expected=$REPLY
@@ -1674,10 +2890,13 @@ _prompt_project_context() {
           $version != unavailable && $version != unknown ]] &&
        ! _prompt_versions_match "$version" "$expected"; then
       warning_text="⚠ ${label} wants ${expected}"
+      _prompt_sanitize "$warning_text"
+      warning_width=${(m)#REPLY}
       _prompt_escape "$warning_text"
       _prompt_color_text danger "$REPLY"
       warnings+=("$REPLY")
-      warning_widths+=("${#warning_text}")
+      warning_widths+=("$warning_width")
+      attention+=("mismatch:${label}:${expected}")
     fi
   done
 
@@ -1699,7 +2918,7 @@ _prompt_project_context() {
     _PROMPT_PROJECT_NAME_TEXT=${project_root:t}
     _PROMPT_PROJECT_ITEMS=("${rendered[@]}")
     _PROMPT_PROJECT_ITEM_WIDTHS=("${rendered_widths[@]}")
-    _prompt_project_layout
+    _PROMPT_PROJECT_ATTENTION="${(j:|:)attention}"
     return 0
   fi
 
@@ -1901,17 +3120,17 @@ _prompt_project_context() {
   for language in "${tools[@]}"; do
     _prompt_color_text tool "$language"
     rendered+=("$REPLY")
-    rendered_widths+=("${#language}")
+    rendered_widths+=("${(m)#language}")
   done
   for language in "${frameworks[@]}"; do
     _prompt_color_text framework "$language"
     rendered+=("$REPLY")
-    rendered_widths+=("${#language}")
+    rendered_widths+=("${(m)#language}")
   done
   for language in "${environment[@]}"; do
     _prompt_color_text container "$language"
     rendered+=("$REPLY")
-    rendered_widths+=("${#language}")
+    rendered_widths+=("${(m)#language}")
   done
   for (( index = 1; index <= ${#_PROMPT_PROJECT_EXTRA_SEGMENTS}; index++ )); do
     rendered+=("${_PROMPT_PROJECT_EXTRA_SEGMENTS[index]}")
@@ -1923,73 +3142,269 @@ _prompt_project_context() {
   _PROMPT_PROJECT_NAME_TEXT=${project_root:t}
   _PROMPT_PROJECT_ITEMS=("${rendered[@]}")
   _PROMPT_PROJECT_ITEM_WIDTHS=("${rendered_widths[@]}")
-  _prompt_project_layout
+  _PROMPT_PROJECT_ATTENTION="${(j:|:)attention}"
+}
+
+# Compare only canonical high-signal facts. Rendered colors, width-dependent
+# abbreviations, and routine Git dirt counts deliberately stay out of this
+# fingerprint so repaint and ordinary work never make the lens bloom.
+_prompt_context_observe() {
+  emulate -L zsh
+  local reason=''
+
+  [[ $_PROMPT_VIEW == transcript ]] && _PROMPT_VIEW=compact
+  # Expanded prompt presentation is useful only when the editor peer can
+  # contract it, finish it into a transcript, and expose its manual control.
+  # Resolve this optional capability at prompt time so peer source order is
+  # irrelevant and prompt-only installations retain a truthful compact view.
+  if (( ! ${+functions[_zle_prompt_pre_redraw]} ||
+        ! ${+functions[_zle_prompt_line_finish]} ||
+        ! ${+functions[_zle_prompt_toggle_widget]} )); then
+    _PROMPT_INTERACTION_ACTIVE=0
+    _PROMPT_VIEW=compact
+    _PROMPT_LENS_PINNED=0
+    _PROMPT_LAST_PROJECT_ROOT=$_PROMPT_PROJECT_ROOT_TEXT
+    _PROMPT_LAST_GIT_BRANCH=$_PROMPT_GIT_BRANCH_TEXT
+    _PROMPT_LAST_ENVIRONMENT=$_PROMPT_ENV_KEY
+    _PROMPT_LAST_GIT_ATTENTION=$_PROMPT_GIT_ATTENTION
+    _PROMPT_LAST_PROJECT_ATTENTION=$_PROMPT_PROJECT_ATTENTION
+    return 0
+  fi
+  _PROMPT_INTERACTION_ACTIVE=1
+  if (( !_PROMPT_CONTEXT_READY )); then
+    if [[ -n $_PROMPT_PROJECT_ROOT_TEXT ]]; then
+      reason='entered project'
+    elif [[ -n $_PROMPT_GIT_BRANCH_TEXT ]]; then
+      reason='entered repository'
+    fi
+    _PROMPT_CONTEXT_READY=1
+  elif [[ -n $_PROMPT_PROJECT_ROOT_TEXT &&
+          $_PROMPT_PROJECT_ROOT_TEXT != $_PROMPT_LAST_PROJECT_ROOT ]]; then
+    reason='project changed'
+  elif [[ -n $_PROMPT_GIT_BRANCH_TEXT &&
+          $_PROMPT_GIT_BRANCH_TEXT != $_PROMPT_LAST_GIT_BRANCH ]]; then
+    reason='branch changed'
+  elif [[ $_PROMPT_ENV_KEY != $_PROMPT_LAST_ENVIRONMENT ]]; then
+    if [[ -z $_PROMPT_ENV_KEY ]]; then
+      reason='environment cleared'
+    elif [[ -z $_PROMPT_LAST_ENVIRONMENT ]]; then
+      reason='environment activated'
+    else
+      reason='environment changed'
+    fi
+  elif [[ $_PROMPT_GIT_ATTENTION != $_PROMPT_LAST_GIT_ATTENTION ]]; then
+    if [[ -n $_PROMPT_GIT_ATTENTION ]]; then
+      reason='Git needs attention'
+    else
+      reason='Git attention cleared'
+    fi
+  elif [[ $_PROMPT_PROJECT_ATTENTION != $_PROMPT_LAST_PROJECT_ATTENTION ]]; then
+    if [[ -n $_PROMPT_PROJECT_ATTENTION ]]; then
+      reason='runtime needs attention'
+    else
+      reason='runtime attention cleared'
+    fi
+  fi
+
+  _PROMPT_LAST_PROJECT_ROOT=$_PROMPT_PROJECT_ROOT_TEXT
+  _PROMPT_LAST_GIT_BRANCH=$_PROMPT_GIT_BRANCH_TEXT
+  _PROMPT_LAST_ENVIRONMENT=$_PROMPT_ENV_KEY
+  _PROMPT_LAST_GIT_ATTENTION=$_PROMPT_GIT_ATTENTION
+  _PROMPT_LAST_PROJECT_ATTENTION=$_PROMPT_PROJECT_ATTENTION
+
+  if [[ -n $reason ]]; then
+    _PROMPT_VIEW=lens
+    _PROMPT_LENS_PINNED=0
+    _PROMPT_LENS_REASON=$reason
+  fi
+  return 0
+}
+
+# The first actual edit consumes an automatic lens. Erasing that draft does not
+# recreate it; only the next captured high-signal change may do so.
+_prompt_interaction_update() {
+  emulate -L zsh
+  local buffer=${1:-${BUFFER:-}}
+  local old_prompt=$PROMPT old_segment=$_PROMPT_INTERACTION_SEGMENT
+  local old_lens=$_PROMPT_LENS_SEGMENT old_view=$_PROMPT_VIEW
+  local old_kind=$_PROMPT_INTERACTION_KIND
+
+  _PROMPT_INTERACTION_ACTIVE=1
+  if [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED -eq 0 &&
+        -n ${buffer//[[:space:]]/} ]]; then
+    _PROMPT_VIEW=compact
+  elif [[ $_PROMPT_VIEW == transcript ]]; then
+    _PROMPT_VIEW=compact
+  fi
+  _prompt_layout
+  _prompt_base
+  [[ $PROMPT != "$old_prompt" ||
+     $_PROMPT_INTERACTION_SEGMENT != "$old_segment" ||
+     $_PROMPT_LENS_SEGMENT != "$old_lens" ||
+     $_PROMPT_VIEW != "$old_view" ||
+     $_PROMPT_INTERACTION_KIND != "$old_kind" ]]
+}
+
+_prompt_editing_started() {
+  _prompt_interaction_update "${BUFFER:-}"
+  return $?
+}
+
+# Manual disclosure has three intuitive states: automatic becomes pinned,
+# pinned closes, and compact opens pinned. It changes presentation only.
+_prompt_toggle_lens() {
+  emulate -L zsh
+  if [[ $_PROMPT_VIEW == lens ]]; then
+    if (( _PROMPT_LENS_PINNED )); then
+      _PROMPT_VIEW=compact
+      _PROMPT_LENS_PINNED=0
+    else
+      _PROMPT_LENS_PINNED=1
+    fi
+  else
+    _PROMPT_VIEW=lens
+    _PROMPT_LENS_PINNED=1
+    _PROMPT_LENS_REASON='pinned context'
+  fi
+  _PROMPT_INTERACTION_ACTIVE=1
+  _prompt_layout
+  _prompt_base
+  return 0
+}
+
+# Prepare only an inert prefix. Native ZLE paints the unchanged BUFFER beside
+# it, avoiding prompt expansion of command text and preserving shell semantics.
+_prompt_prepare_transcript() {
+  emulate -L zsh
+  [[ -n ${BUFFER//[[:space:]]/} ]] || return 1
+  _PROMPT_VIEW=transcript
+  _PROMPT_LENS_PINNED=0
+  _PROMPT_INTERACTION_KIND=ready
+  _PROMPT_INTERACTION_SEGMENT=''
+  _PROMPT_INTERACTION_LABELS=()
+  _PROMPT_INTERACTION_VALUES=()
+  _PROMPT_INTERACTION_ROLES=()
+  PROMPT='%D{%H:%M} › '
+  RPROMPT=''
+  return 0
+}
+
+# Print a compact post-command result only for failures and existing slow-command
+# threshold. The strings contain trusted numeric state only.
+_prompt_capture_outcome() {
+  emulate -L zsh
+  local -i command_status=$1 milliseconds=0
+  local -F 3 elapsed=$2
+  local duration=''
+
+  if (( elapsed < 1.0 )); then
+    milliseconds=$(( elapsed * 1000 + 0.5 ))
+    (( milliseconds < 0 )) && milliseconds=0
+    duration="${milliseconds}ms"
+  else
+    local -F 1 rounded=$elapsed
+    duration="${rounded}s"
+  fi
+
+  if (( command_status == 0 )); then
+    _PROMPT_LAST_OUTCOME_TEXT="✓ ${duration}"
+    _PROMPT_LAST_OUTCOME_ROLE=success
+  else
+    _PROMPT_LAST_OUTCOME_TEXT="× exit ${command_status} · ${duration}"
+    _PROMPT_LAST_OUTCOME_ROLE=danger
+  fi
+}
+
+_prompt_outcome_receipt() {
+  emulate -L zsh
+  local -i command_status=$1
+  local -F 1 elapsed=$2
+  local text='' role=''
+
+  if (( command_status != 0 )); then
+    text="× exit ${command_status}"
+    role=danger
+    (( elapsed >= 2.0 )) && text+=" · ${elapsed}s"
+  elif (( elapsed >= 2.0 )); then
+    text="✓ ${elapsed}s"
+    role=success
+  else
+    return 1
+  fi
+  _prompt_color_text "$role" "$text"
+  print -P -r -- "$REPLY"
 }
 
 _prompt_update() {
   local last_status=$?
   emulate -L zsh
 
-  local -F 1 elapsed=0
+  local -F 3 elapsed=0
   local env_name='' prompt_identity='' prompt_path='' title_path=''
-  local -i top_extra_width=0 job_count=0
+  local -i job_count=0
 
   _PROMPT_EXIT_SEGMENT=''
+  _PROMPT_TIME_SEGMENT=''
   _prompt_color symbol || :
   _PROMPT_SYMBOL_COLOR=$REPLY
   if (( last_status != 0 )); then
     _prompt_color danger || :
     _PROMPT_SYMBOL_COLOR=$REPLY
-    _PROMPT_EXIT_SEGMENT=" %F{${REPLY:-default}}exit:${last_status}%f"
-    (( top_extra_width += 6 + ${#last_status} ))
   fi
 
-  _PROMPT_TIME_SEGMENT=''
   if (( _PROMPT_COMMAND_STARTED > 0 )); then
     elapsed=$(( EPOCHREALTIME - _PROMPT_COMMAND_STARTED ))
-    if (( elapsed >= 2.0 )); then
-      _prompt_color_text duration "${elapsed}s"
-      _PROMPT_TIME_SEGMENT=" $REPLY"
-      (( top_extra_width += 2 + ${#elapsed} ))
-    fi
+    _prompt_capture_outcome "$last_status" "$elapsed"
+    # Receipts are terminal presentation, never stdout protocol. A deliberately
+    # forced interactive shell with redirected output remains byte-clean.
+    [[ -t 1 ]] && _prompt_outcome_receipt "$last_status" "$elapsed" || :
   fi
   _PROMPT_COMMAND_STARTED=0
 
-  _PROMPT_ENV_SEGMENT=''
+  _PROMPT_ENV_TEXT=''
+  _PROMPT_ENV_KEY=''
   if [[ -n ${VIRTUAL_ENV:-} ]]; then
     env_name=${VIRTUAL_ENV:t}
+    _PROMPT_ENV_KEY="venv:${VIRTUAL_ENV}"
   elif [[ -n ${CONDA_DEFAULT_ENV:-} && ${CONDA_DEFAULT_ENV} != base ]]; then
     env_name=$CONDA_DEFAULT_ENV
+    _PROMPT_ENV_KEY="conda:${CONDA_DEFAULT_ENV}"
   fi
-  if [[ -n $env_name ]]; then
-    _prompt_escape "$env_name"
-    _prompt_color_text environment "py:$REPLY"
-    _PROMPT_ENV_SEGMENT=" $REPLY"
-    (( top_extra_width += 4 + ${#env_name} ))
-  fi
+  _PROMPT_ENV_TEXT=$env_name
 
   _prompt_git
   prompt_identity=${(%):-%n@%m}
   prompt_path=${(%):-%4~}
+  _PROMPT_IDENTITY_TEXT=$prompt_identity
+  _PROMPT_SESSION_TEXT="${prompt_identity} · zsh ${ZSH_VERSION}"
   _PROMPT_PATH_TEXT=$prompt_path
+  _PROMPT_FULL_PATH_TEXT=${(%):-%~}
   job_count=${#jobstates}
-  (( job_count )) && (( top_extra_width += 6 + ${#job_count} ))
-  _PROMPT_TOP_BASE_WIDTH=$(( 3 + ${#prompt_identity} + 1 + top_extra_width ))
-  _prompt_layout
+  if (( job_count == 1 )); then
+    _PROMPT_JOBS_TEXT='1 job'
+  elif (( job_count > 1 )); then
+    _PROMPT_JOBS_TEXT="${job_count} jobs"
+  else
+    _PROMPT_JOBS_TEXT=''
+  fi
 
   if (( ${+functions[_prompt_project_context]} )); then
     _prompt_project_context
   else
     _PROMPT_PROJECT_NAME_TEXT=''
+    _PROMPT_PROJECT_ROOT_TEXT=''
+    _PROMPT_PROJECT_ATTENTION=''
     _PROMPT_PROJECT_ITEMS=()
     _PROMPT_PROJECT_ITEM_WIDTHS=()
     _PROMPT_PROJECT_SEGMENT=''
   fi
 
+  _prompt_context_observe
+  _prompt_layout
   _prompt_base
 
   # Keep the window/tab title useful without printing anything in the terminal.
-  if [[ $TERM != dumb ]]; then
+  if [[ $TERM != dumb && -t 1 ]]; then
     title_path=${(%):-%~}
     _prompt_sanitize "${prompt_identity}: ${title_path}"
     print -rn -- $'\e]0;'"${REPLY}"$'\a'
@@ -2001,7 +3416,7 @@ _prompt_command_started() {
 
   _PROMPT_COMMAND_STARTED=$EPOCHREALTIME
 
-  if [[ $TERM != dumb ]]; then
+  if [[ $TERM != dumb && -t 1 ]]; then
     local command_name=${1%% *} title_identity=''
     title_identity=${(%):-%n@%m}
     _prompt_sanitize "${title_identity}: ${command_name[1,60]}"
@@ -2011,10 +3426,17 @@ _prompt_command_started() {
 
 # SIGWINCH is sent when the window or font size changes. Preserve an existing
 # initializer/vendor handler before installing the prompt's composable wrapper.
-# Re-sourcing recognizes its own body and never chains the wrapper recursively.
+# If a later owner has wrapped or replaced that installed body, a re-source
+# leaves its chain intact: wrapping it again could make a saved copy of our old
+# body call back through the new shared predecessor and recurse.
 typeset _prompt_existing_TRAPWINCH=${functions[TRAPWINCH]:-}
-if [[ -n $_prompt_existing_TRAPWINCH &&
-      $_prompt_existing_TRAPWINCH != ${_PROMPT_TRAPWINCH_BODY:-} ]]; then
+typeset -i _prompt_install_TRAPWINCH=1
+if [[ -n ${_PROMPT_TRAPWINCH_BODY:-} &&
+      -n $_prompt_existing_TRAPWINCH &&
+      $_prompt_existing_TRAPWINCH != $_PROMPT_TRAPWINCH_BODY ]]; then
+  _prompt_install_TRAPWINCH=0
+elif [[ -n $_prompt_existing_TRAPWINCH &&
+        $_prompt_existing_TRAPWINCH != ${_PROMPT_TRAPWINCH_BODY:-} ]]; then
   functions[_prompt_previous_TRAPWINCH]=$_prompt_existing_TRAPWINCH
 elif [[ -z $_prompt_existing_TRAPWINCH ]]; then
   unfunction _prompt_previous_TRAPWINCH 2>/dev/null
@@ -2022,28 +3444,30 @@ fi
 
 # Redraw only the layout of cached facts; do not rerun Git or project/toolchain
 # detection while a window edge is being dragged.
-TRAPWINCH() {
-  local -i previous_status=0
-  if (( ${+functions[_prompt_previous_TRAPWINCH]} )); then
-    _prompt_previous_TRAPWINCH "$@" || previous_status=$?
-  fi
-  zle || return $previous_status
-  emulate -L zsh
+if (( _prompt_install_TRAPWINCH )); then
+  TRAPWINCH() {
+    local -i previous_status=0
+    if (( ${+functions[_prompt_previous_TRAPWINCH]} )); then
+      _prompt_previous_TRAPWINCH "$@" || previous_status=$?
+    fi
+    zle || return $previous_status
+    emulate -L zsh
 
-  if (( (${_ZLE_PICKER_ACTIVE:-0} || ${_ZLE_PICKER_SCREEN_ACTIVE:-0}) && ${+functions[_zle_picker_redraw]} )); then
-    # ZLE parameters are read-only in traps; the editor owns the writable
-    # widget context as well as the cached picker layout and painting.
-    zle compozsh-picker-redraw
+    if (( (${_ZLE_PICKER_ACTIVE:-0} || ${_ZLE_PICKER_SCREEN_ACTIVE:-0}) && ${+functions[_zle_picker_redraw]} )); then
+      # ZLE parameters are read-only in traps; the editor owns the writable
+      # widget context as well as the cached picker layout and painting.
+      zle compozsh-picker-redraw
+      return $previous_status
+    fi
+    _prompt_layout
+    _prompt_base
+    zle reset-prompt
+    zle -R
     return $previous_status
-  fi
-  _prompt_layout
-  _prompt_project_layout
-  zle reset-prompt
-  zle -R
-  return $previous_status
-}
-typeset -g _PROMPT_TRAPWINCH_BODY=${functions[TRAPWINCH]}
-unset _prompt_existing_TRAPWINCH
+  }
+  typeset -g _PROMPT_TRAPWINCH_BODY=${functions[TRAPWINCH]}
+fi
+unset _prompt_existing_TRAPWINCH _prompt_install_TRAPWINCH
 
 # Re-sourcing the file should not stack duplicate hooks.
 precmd_functions=("${precmd_functions[@]-}")
@@ -2053,10 +3477,10 @@ precmd_functions+=(_prompt_update)
 preexec_functions=(${preexec_functions:#_prompt_command_started})
 preexec_functions+=(_prompt_command_started)
 
-# The first precmd resolves the selected palette; loading a consumer never
-# snapshots missing or preceding appearance values into the base prompt.
-PROMPT='╭─ %n@%m ${_PROMPT_PATH_SEGMENT}${_PROMPT_ENV_SEGMENT}${_PROMPT_GIT_SEGMENT}${_PROMPT_TIME_SEGMENT}${_PROMPT_EXIT_SEGMENT} %(1j.%j jobs .)${_PROMPT_PROJECT_SEGMENT}
-╰─ ❯ '
-RPROMPT='%D{%H:%M}'
+# The first precmd captures the complete snapshot. Until then, leave a useful
+# native two-line fallback that has no dependency on another peer or palette.
+PROMPT='%4~
+❯ '
+RPROMPT=''
 
 :

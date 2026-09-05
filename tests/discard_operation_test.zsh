@@ -5,6 +5,7 @@ _test_discard_sequencer_guard() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     local repo="$HOME/repository" first="" second="" before="" after=""
     command git init -qb main "$repo" || exit 1
     command git -C "$repo" config user.name Fixture
@@ -43,7 +44,7 @@ _test_discard_sequencer_guard() {
         builtin read "$@"
       }
     fi
-    git-discard-all <<< y > "$HOME/output" 2> "$HOME/error"
+    g --discard-all <<< y > "$HOME/output" 2> "$HOME/error"
     local -i result=$?
     after=$(command git status --porcelain=v1)
     (( result != 0 )) && [[ $before == "$after" && -d .git/sequencer && -f untracked ]] &&
@@ -63,9 +64,9 @@ _test_discard_sequencer_guard() {
 }
 
 _test_discard_existing_sequencer() { _test_discard_sequencer_guard entry; }
-test_case 'git-discard-all refuses native no-commit cherry-pick sequencers before preview' \
+test_case 'g --discard-all refuses native no-commit cherry-pick sequencers before preview' \
   _test_discard_existing_sequencer
 
 _test_discard_late_sequencer() { _test_discard_sequencer_guard confirmation; }
-test_case 'git-discard-all revalidates sequencer state after confirmation without changing conflicted data' \
+test_case 'g --discard-all revalidates sequencer state after confirmation without changing conflicted data' \
   _test_discard_late_sequencer

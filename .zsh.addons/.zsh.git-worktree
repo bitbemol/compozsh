@@ -447,7 +447,9 @@ _git_worktree_bookmark() {
 }
 
 _git_worktree_pick() {
-  _zle_ui_view choice _git_worktree_choice_view "$@"
+  local kind=action
+  (( ${_GWT_HIERARCHY:-0} || ${_GWT_OPTIONS:-0} )) && kind=choice
+  _zle_ui_view "$kind" _git_worktree_choice_view "$@"
 }
 
 _git_worktree_choice_view() {
@@ -462,6 +464,14 @@ _git_worktree_choice_view() {
   _zle_picker_start_focus=${_GWT_FOCUS:-0}
   _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_GWT_DETAILS}")
   _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_GWT_LABELS}")
+  if (( _ZLE_PICKER_ACTION_VIEW )); then
+    _ZLE_PICKER_ACTION_CONTEXT="SCOPE"$'\n'"$2"
+    local value='' detail=''
+    for value in "${(@k)_GWT_DETAILS}"; do
+      detail=${_GWT_DETAILS[$value]}
+      _ZLE_PICKER_DESCRIPTIONS[$value]=${detail%%$'\n'*}
+    done
+  fi
   _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
 }
 

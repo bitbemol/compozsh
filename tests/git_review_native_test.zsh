@@ -147,7 +147,21 @@ _test_git_review_native() {
       _review_test_key $'\''\eOD'\'' "FRAME|Working changes||1|1|120|30" || exit 53
       [[ $doc_event == *\|3\|* ]] || exit 54
       [[ $doc_event == DOC\|1\|0\|* ]] || exit 55
-      _review_test_key $'\''\x18'\'' "FRAME|Working changes||1|1|120|30" || exit 56
+      captures=$(<"$HOME/captures")
+      saved_doc=$doc_event
+      _review_test_key $'\''\x18'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 56
+      _review_test_key new-dir "FRAME|Git / Change atlas|new-dir|1|0|120|30" || exit 96
+      _review_test_key $'\''\r'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 97
+      _review_test_key $'\''\e'\'' "FRAME|Git / Change atlas|new-dir|1|0|120|30" || exit 98
+      [[ $(<"$HOME/captures") == "$captures" ]] || exit 99
+      _review_test_key $'\''\x15'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 100
+      _review_test_key $'\''\r'\'' "FRAME|Atlas / Read change||1|1|120|30" || exit 101
+      [[ $doc_event == *\|3\|* ]] || exit 102
+      _review_test_key $'\''\e[C'\'' "FRAME|Atlas / Read change||1|1|120|30" || exit 103
+      [[ $doc_event == *\|1000000000\|* ]] || exit 104
+      _review_test_key $'\''\e'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 105
+      _review_test_key $'\''\e'\'' "FRAME|Working changes||1|1|120|30" || exit 106
+      [[ $doc_event == "$saved_doc" ]] || exit 107
       _review_test_key $'\''\e[D'\'' "FRAME|Working changes||1|0|120|30" || exit 57
       _review_test_key $'\''\e[D'\'' "FRAME|Working changes||1|0|120|30" || exit 58
       _review_test_key new.txt "FRAME|Working changes|new.txt|1|0|120|30" || exit 63
@@ -201,7 +215,7 @@ _test_git_review_native() {
     } always {
       zpty -d review
     }
-    for scenario in switch abort unborn fallback; do
+    for scenario in atlas switch abort unborn fallback; do
       if [[ $scenario == unborn ]]; then
         mkdir -p "$HOME/unborn"
         cd "$HOME/unborn"
@@ -231,7 +245,14 @@ _test_git_review_native() {
         else
           _review_test_expect "FRAME|Branches||1|0|120|30" || exit 35
         fi
-        if [[ $scenario == switch ]]; then
+        if [[ $scenario == atlas ]]; then
+          _review_test_key $'\''\x18'\'' "FRAME|Git review||1|0|120|30" || exit 108
+          _review_test_key atlas "FRAME|Git review|atlas|1|0|120|30" || exit 109
+          _review_test_key $'\''\r'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 110
+          _review_test_key $'\''\e'\'' "FRAME|Git review|atlas|1|0|120|30" || exit 111
+          _review_test_key $'\''\e'\'' "FRAME|Branches||1|0|120|30" || exit 112
+          zpty -w -n review $'\''\e'\''
+        elif [[ $scenario == switch ]]; then
           _review_test_key $'\''\e[B'\'' "FRAME|Branches||2|0|120|30" || exit 36
           zpty -w -n review $'\''\r'\''
         elif [[ $scenario == abort ]]; then

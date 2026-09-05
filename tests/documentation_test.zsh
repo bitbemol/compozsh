@@ -144,6 +144,40 @@ _test_security_contract_is_public_and_auditable() {
 test_case 'security and privacy contract stays public and auditable' \
   _test_security_contract_is_public_and_auditable
 
+_test_living_prompt_contract_is_synchronized() {
+  local readme="$(<"$TEST_REPO_ROOT/README.md")"
+  local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
+  local site="$(<"$TEST_REPO_ROOT/docs/index.html")"
+  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+
+  test_assert_contains "$readme" '## Living prompt' \
+    'README omits the living prompt behavior' || return
+  test_assert_contains "$readme" 'Option-I' \
+    'README omits the manual Context lens entry point' || return
+  test_assert_contains "$readme" '14:26 › swift build' \
+    'README omits the timestamped transcript contract' || return
+  test_assert_contains "$readme" '× exit 1 · 2.3s' \
+    'README omits the slow-failure outcome receipt' || return
+  test_assert_contains "$readme" 'SESSION   user@host · zsh 5.9' \
+    'README omits the lens-only local session identity' || return
+  test_assert_contains "$readme" 'do not reopen the lens by themselves' \
+    'README does not distinguish attention changes from dirty-count noise' || return
+  test_assert_contains "$agents" '`compact`, `lens`, and `transcript`' \
+    'agent contract omits the living prompt state model' || return
+  test_assert_contains "$agents" '`compozsh-context-lens`' \
+    'agent contract omits the Context lens widget boundary' || return
+  test_assert_contains "$security" 'Living prompt receipts' \
+    'security inventory omits terminal receipt data' || return
+  test_assert_contains "$security" 'privacy or redaction boundary' \
+    'security contract presents prompt compaction as redaction' || return
+  test_assert_contains "$site" 'data-prompt-state="lens"' \
+    'website omits the fixed Context lens example' || return
+  test_assert_contains "$site" 'data-prompt-state="transcript"' \
+    'website omits the fixed transcript example'
+}
+test_case 'living prompt documentation stays synchronized across public surfaces' \
+  _test_living_prompt_contract_is_synchronized
+
 _test_picker_index_affordance_is_documented() {
   local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
 

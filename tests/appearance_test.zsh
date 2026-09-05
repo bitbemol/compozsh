@@ -63,7 +63,7 @@ _test_automatic_light_palette_is_order_independent() {
   done
 
   test_assert_equal \
-    'light|fg=231,bg=24,bold|fg=236,bg=194|22|25|160|exfxgxdxcxbxbxhbhfadabdx' \
+    'light|fg=235,bg=189,bold|fg=236,bg=194|22|25|160|exfxgxdxcxbxbxhbhfadabdx' \
     "$expected" 'terminal light signal did not select the coherent light palette'
 }
 test_case 'automatic light palette converges in every peer load order' \

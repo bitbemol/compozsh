@@ -65,6 +65,13 @@ private. Avoid inventing a privileged core tier through new terminology.
 | Tool | A user-facing task capability, reached through a command or widget; it can use several views and peer units. |
 | Task workspace | Related views composed around a task. A shared renderer or screen session can also host explicitly labeled navigation to a different task context. |
 | Entry point | The command or key gesture that establishes the initial context, such as path + Tab or the prompt shortcut for Recents. |
+| Living prompt | The ordinary ZLE prompt system whose Context lens, Interaction lens and transcript presentations respond to captured shell/project state and the editing lifecycle. It does not describe a background monitor. |
+| Context lens | Temporary expanded disclosure of the living prompt's current captured facts. It is prompt presentation, not an independent View, provider capture or input loop. |
+| Interaction lens | The living prompt's active edit-time disclosure. `READY` presents the current captured context while the buffer is empty; operation-specific presentations derive bounded structural excerpts from the literal buffer and combine them with captured facts. It performs no action and is not an independent View, command validator or provider boundary. |
+| Draft inspector | An explicitly opened task workspace over a bounded literal copy of the current draft and its cursor/folder context. Option-Return opens reading and labeled tool navigation; it is separate from the automatic Interaction lens and never executes or validates the draft. |
+| Command composer | An explicit task workspace over authored literal fields and a generated, shell-quoted command draft. Replace draft applies editor insertion after screen cleanup, never command execution. Same-source templates currently cover Git review and directory creation; help prose is not a template source. |
+| Change atlas | A hierarchical view derived from a Git review's captured change entries, grouped by exact path prefixes. Bars represent entry counts, not line counts; opening a file enters the existing diff reader. No filesystem discovery or list refresh occurs inside the map. |
+| Receipt | A compact line intentionally left in ordinary terminal scrollback. A command receipt replaces active prompt decoration at acceptance while retaining the exact submitted buffer; an outcome receipt reports a slow success or any failure after command output. Neither is a shell-history record. |
 | Path-led / concrete entry | Starts from an explicit known location, such as `~/Projects/` + Tab. The path establishes the initial folder scope. |
 | Recall-led / diffuse entry | Starts from remembered fragments within a named source, such as Option-Tab over the shell's directory stack. “Diffuse” describes the user's starting knowledge; source and coverage still have explicit boundaries. |
 | View | One presentation of a context with a defined purpose and applicable operations. Browse, Search and Recents are named views with distinct sources or intents. |
@@ -276,6 +283,10 @@ audit installation, updating, and uninstall instructions together.
   data. Never execute commands or discover files on a visitor's machine. Copy
   only the exact visible command, following an explicit click, with a readable
   failure path. Do not copy an install-and-execute chain automatically.
+- The website Context demo may illustrate Context lens, Interaction lens and
+  transcript prompt moments only through user-selected fixed synthetic data.
+  Do not read the visitor's clock, terminal, command line, filesystem, Git
+  state or environment, and do not autoplay the state sequence.
 - Organize the showcase by recognizable tasks in one user-controlled terminal.
   Reveal specialized examples within their task and secondary features on
   request. Keep tab changes spatially stable; avoid autoplay and competing
@@ -311,6 +322,80 @@ When concerns conflict, prefer them in this order:
 Small, native, understandable code is preferred to a clever framework. Avoid
 both copy-paste sprawl and speculative abstraction.
 
+## Adopted interaction design
+
+This is the design map for the implemented experience, not a roadmap or a
+promise that every command has a graphical flow. Read it before changing a
+user-facing entry point, then follow the linked behavioral contract. The
+[Domain glossary](#domain-glossary) remains canonical for terminology.
+
+| Surface | Adopted decision | Detailed contract |
+| --- | --- | --- |
+| Living prompt | One active frame responds to captured context and literal editing; acceptance leaves a command receipt. Preserve useful context without repeating inactive decoration | [Prompt and terminal UI](#prompt-and-terminal-ui) |
+| Shared workspaces | Stable task identity, visible scope, bottom input dock, capability-derived hints and official semantic colors across both panes. Selection, focus, disclosure and navigation are distinct | [Full-screen interaction standard](#full-screen-interaction-standard) |
+| Help | Keep the description visible; topics and explanations share one captured guide. Reading is the default; Compose example is a separately labeled capability | [Keyboard and ZLE behavior](#keyboard-and-zle-behavior) |
+| Command composer | Authored literal fields produce a visible quoted draft. Replace draft returns to ordinary editing after cleanup; it never submits the command | [Prompt and terminal UI](#prompt-and-terminal-ui) |
+| Change atlas | Navigate captured Git change entries by folder, then read the selected diff. Bars count entries, not changed lines; Back preserves the review position | [Git review workspace boundary](#git-review-workspace-boundary) |
+| Action workspaces | Choices compose an explicit target and plan; the named final action retains its own validation, confirmation and recovery rules | [Context-preserving composition](#context-preserving-composition) |
+
+“Reactive” describes a specified trigger, not unrestricted monitoring. Prompt
+edits, filters, pane focus and resize derive presentation from available inputs.
+Provider capture stays at its documented boundary; Git Working changes has
+its explicitly scoped automatic-refresh policy. Do not add polling, bulk
+reads or animation merely to make another view appear alive.
+
+### Entry points and effects
+
+Organize related operations under the existing task family: `g` for repository
+work, `compozsh` for discovery/maintenance, `external-device` for device tasks,
+and `xcode` for Xcode tasks. Keep direct primitives such as `mkcd` and `cpdir`,
+native wrappers, and contextual keyboard entries when their targets or intent
+differ. Grouping commands does not merge privilege or confirmation boundaries.
+The [task-oriented command audit](investigations/tool-entry-points.md) records
+the adopted consolidations. Do not reintroduce retired commands or parallel
+compatibility flows without an explicit migration decision; retain one owning
+implementation and update help, discovery and call sites together.
+
+The composer currently supports **Git review and directory creation only**:
+
+```text
+Supported draft → Option-Return → Compose this command ─┐
+g / mkcd Help → Compose example ────────────────────────┤
+                                                      ↓
+                           Edit fields → Replace draft → ordinary prompt
+```
+
+These are optional entries, not mandatory wizard steps. Only a later ordinary
+prompt submission executes the draft. Help prose is never executable template
+authority. New recipes require their own same-source capability, literal-field
+contract and tests; a shared renderer does not establish feature coverage.
+See [composer and atlas evidence](investigations/composer-and-atlas.md).
+
+### Experience completion gate
+
+For a UI change, review the complete affected journey, including secondary views
+and fallbacks, rather than approving a single attractive screen:
+
+- State the entry, source/scope, capture trigger, exact target, visible action,
+  Back/cancel result and post-cleanup effect before implementation.
+- Reuse shared layout, palette roles, key handling and screen ownership. Check
+  both panes, selected/unselected states, passive versus actionable rows, and
+  complete hints; color must not be the only way to identify state or danger.
+- Exercise empty, partial, unavailable and failed states; narrow/short resize;
+  focus and reading-position restoration; and the actual native PTY journey.
+  Preserve plain/NO_COLOR and missing-peer behavior where applicable.
+- Cover changed behavior through the [TDD contract](#test-driven-development),
+  including literal quoting, no unintended effects and peer-order independence.
+  Synchronize public help, README, SECURITY and any affected canonical rule.
+- Report automated results, timing failures, native PTY evidence and manual
+  Terminal.app acceptance separately. Do not label a partial implementation a
+  complete experience or treat a rerun as an entirely green original run.
+
+Further ideas belong in explicitly labeled proposals until adopted and
+implemented. Historical investigations record their original scope and results;
+mark superseded decisions and link forward instead of treating them as current
+requirements or silently rewriting their evidence.
+
 ## Zsh conventions
 
 - Write native Zsh, not lowest-common-denominator POSIX shell or Bash-shaped
@@ -339,7 +424,7 @@ both copy-paste sprawl and speculative abstraction.
   document it in `README.md`. Keep orchestration public only when users need to
   invoke it; prefix its detectors, renderers, installers, and state with `_`.
 - Name Compozsh-owned public terminal commands in lowercase kebab-case: use
-  hyphens between words, as in `format-external-device`, and never underscores.
+  hyphens between words, as in `external-device --format`, and never underscores.
   One-word commands remain one word. This naming rule does not apply to private
   underscore-prefixed helpers, Zsh special functions, or documented extension
   APIs such as `prompt_add_project_segment`. The suffix of a command's
@@ -380,11 +465,22 @@ both copy-paste sprawl and speculative abstraction.
     freezing entire paragraphs. Update help and README together when a
     behavior, default, key, limit, or failure policy changes. Keep ordinary
     usage errors concise instead of dumping the complete guide to stderr.
-  - A help request returns status 0, writes no diagnostics to stderr, and
+  - A help request normally returns status 0, writes no diagnostics to stderr, and
     performs no project/configuration reads, mutations, navigation, clipboard
-    access, operational tool detection, network access, or prompts. Never add
-    a pager. Presentation alone may inspect stdout, TERM, NO_COLOR, and native
-    terminfo capabilities; it must not launch subprocesses.
+    access, operational tool detection, or network access. Direct owned help may
+    open the shared topic workspace when stdin/stdout and terminfo support its
+    alternate screen. Ordinary topics only read. The separately labeled Compose
+    example action may hand off to an authored Command composer; only its
+    explicit Replace draft accepts insertion after cleanup, never execution.
+    Optional revision capture belongs to that explicit composer interaction,
+    not help capture or topic navigation. Follow the composer contract below;
+    do not launch an external pager.
+    Capture the static companion once through a bounded native Zsh pipe before
+    entering ZLE. Presentation may inspect stdin/stdout, TERM, NO_COLOR and
+    native terminfo; paint/filter/resize launch no subprocess or provider.
+    Pipes, redirects, NO_COLOR, missing help/UI peers and unsupported terminals
+    retain printable help without interaction. Companions themselves always
+    print; they must never recursively open a workspace.
   - Color help through the optional `_output_print_help` renderer owned by
     `.zsh.output`, using validated `ZSH_OUTPUT_COLORS` roles. A same-source
     help provider selects that capability at invocation time and otherwise
@@ -408,7 +504,9 @@ both copy-paste sprawl and speculative abstraction.
   test. Add every new public command to its inventory in the same TDD unit of
   work, and assert success, the canonical usage and description lines, empty
   stderr, freedom from side effects, presence of the same-source companion, and
-  byte-identical direct/provider output. Keep the README command inventory in
+    byte-identical printable direct/provider output. Cover interactive direct
+    help separately with native capture-once, resize, Back and cleanup tests.
+    Keep the README command inventory in
   sync with that test.
 - Keep tool discovery stateless and derived from Zsh's live `functions_source`
   metadata only when `compozsh` runs. Restrict it to public command-like names
@@ -473,6 +571,13 @@ Apply DRY and SOLID as practical design heuristics:
   calculate layout, render UI, or perform an action. Do not mix all five.
 - Keep detection separate from presentation. Terminal resize handlers may
   recompute layout from captured facts but must not rediscover Git or runtimes.
+- `.zsh.prompt` owns ordinary-prompt fact capture, its trigger fingerprint,
+  the private compact/lens/transcript modes, Context and Interaction lens
+  derivation/rendering, and outcome receipts.
+  `.zsh.editor` owns the optional ZLE adapters, hook registrations and
+  `compozsh-context-lens` binding that invoke those prompt capabilities. Both
+  peers must preserve existing widget state without depending on add-on order.
+  Shared full-screen components remain owned by `support/.zsh.ui`.
 - Extend project support through marker data, focused detector branches, and
   the documented `PROMPT_PROJECT_*` extension points. The add-on loader is not
   a plugin manager: do not add dependency resolution, remote installation,
@@ -690,11 +795,25 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
   perform no network access, write no files, and avoid unbounded scans.
 - A live resize must only recalculate presentation from in-memory facts. It
   must not rerun Git, language tools, or project detection.
+- The Context/Interaction derivation and repaint capabilities owned by
+  `.zsh.prompt`, including calls from the editor's line-init, pre-redraw,
+  line-finish and manual Context adapters, must derive from the current prompt
+  snapshot and ZLE state. Those prompt capabilities must launch no subprocess,
+  read no filesystem or project metadata, write no file, or make a network
+  request. This does not describe every independent ZLE pre-redraw hook: syntax
+  highlighting retains its bounded checks of literal path tokens. Ordinary
+  `precmd` remains the prompt fact-capture boundary.
+- Context lens automation is event driven. Do not add a dismissal timer,
+  polling loop, worker or background refresh. Its trigger fingerprint contains
+  only recognized-project-root or raw-Git-branch appearances and changes, the
+  active virtual/Conda environment, Git operation/conflict attention, and
+  runtime unknown/missing/unavailable/mismatch attention. Dirty-count-only changes update
+  display without reopening the lens.
 - Prompt code should minimize external commands and never add a per-prompt
   subprocess when native Zsh state or an existing command result is enough.
 - Runtime/tool versions may be cached only in memory for the current shell.
   Cache keys must include every environment selector that can change the
-  answer, and `prompt-refresh` must invalidate the relevant caches.
+  answer, and `compozsh --refresh` must invalidate the relevant caches.
 - Do not add a project-specific disk cache, cache daemon, background worker,
   timer loop, or eager startup scan without an explicit architectural decision
   from the user. Zsh's native completion dump is not feature-state storage.
@@ -722,15 +841,136 @@ never optimize from a single timing sample.
 
 ## Prompt and terminal UI
 
-- Keep the prompt compact: two lines normally and an additional project line
-  only when it conveys real context.
+- Option-Return (`ESC CR`) may open the Draft inspector through the editor peer.
+  Normal Return retains shell acceptance. Scope its at-most-32,768-character
+  reading copy, frames and filters to the widget; exact restoration uses the
+  existing native screen owner. Reading/help/review preserve the draft and
+  return bookmark. Files and History are explicit post-cleanup handoffs whose
+  insertion can replace the draft. A supported Command composer can explicitly
+  replace the draft after cleanup; ordinary Help navigation remains read-only.
+  Git review uses the current folder, never
+  an inferred target from shell text. Do not add automatic capture, evaluation,
+  command validation or execution to this bridge. The prompt's capability hint
+  is captured presentation only. Keep optional-peer fallbacks and Meta guidance.
+- Composer templates opt in with a private `_compozsh_template_<command>` in
+  the same source as that command and its help companion. Resolve the capability
+  from loaded `functions_source` metadata, never files, a registry or help prose.
+  Source-owned providers return a supported recipe ID only. Prefill only bounded
+  simple literal drafts; preserve unsupported shell syntax untouched. Fields are
+  invocation-local, bounded to 4,096 characters, and quoted with native Zsh
+  parameter expansion. No evaluation, command validation or execution occurs.
+  Explicit revision-field selection may use the established safe local Git ref
+  chooser; preview/filter/render steps perform no provider reads. Validate the
+  captured folder still matches before exporting the draft. Export through a
+  caller-local result, unwind all screen owners, then insert in BUFFER or the
+  ordinary prompt buffer stack. Retain an editor draft's leading-space prefix
+  so composition does not remove its history preference. Cancellation exports nothing. Preserve optional
+  peers, inert printable help, source-order independence and exact quoting tests.
+- The living prompt has exactly three presentation modes in `_PROMPT_VIEW`:
+  `compact`, `lens`, and `transcript`. Keep this private state inside
+  `.zsh.prompt`; it is not a public configuration surface or a new lifecycle
+  framework. Do not add `interaction` as a fourth mode: the private `compact`
+  mode renders the active Interaction lens when the editor adapters are
+  available, and retains the responsive one-context-row fallback when they are
+  absent. Private `lens` renders Context; `transcript` is acceptance-time paint.
+- Treat Context lens, Interaction lens and transcript as the three public
+  moments of one ordinary prompt. Repaint the active frame in place as state or
+  `BUFFER` changes; do not accumulate superseded prompt frames in scrollback.
+  Acceptance alone replaces the frame with one timestamped command receipt.
+- The Interaction lens renders `READY` while the buffer is empty. It may show
+  captured `PROJECT`, `PATH`, `GIT`, `ENV` and the active `LAST` outcome; use
+  `SESSION` only when no more relevant captured fact exists. `LAST` is mutable
+  shell-memory state for the most recently completed command, including a fast
+  success that has no separate outcome receipt. It disappears with or is
+  replaced in the active prompt; it is not a durable scrollback record.
+- While editing, morph the Interaction lens among `COMMENT`, `RUN`, `GIT`,
+  `NAVIGATE`, `SEARCH`, `BUILD`, `TEST`, `ENVIRONMENT`, `REMOTE`, `PIPELINE`,
+  `CHAIN`, `REDIRECT` and `CAUTION`. Derive these kinds from bounded lexical
+  structure, without command evaluation, expansion, resolution or execution.
+  Preserve the exact buffer, cursor, undo/history state, autosuggestion display
+  and shell semantics.
+- Labels ending in ` TEXT` identify sanitized, width-bounded excerpts derived
+  from literal editor text. They do not assert that a path exists, a target
+  resolves, a connection was made or the command will have the described
+  effect. Rows such as `PROJECT`, `PATH`, `GIT`, `BRANCH`, `TOOLCHAIN`, `FROM`,
+  `SCOPE`, `CURRENT` and `LAST` reuse captured prompt facts. `FLOW`, `STAGES`,
+  `STEPS`, and `CONTROL` summarize pipeline or `&&`, `||`, `;`, and `&` chain
+  structure as applicable. Every `ACTION` row is deliberately advisory and must
+  retain qualifying language such as `likely`, `appears` or `may`.
+- `COMMENT` exposes the bounded comment body as `COMMENT TEXT` with the advisory
+  `likely remain an interactive shell comment`. `REDIRECT` pairs its literal
+  `OPERATOR TEXT` with `OUTPUT TEXT`, `INPUT TEXT`, `DESCRIPTOR TEXT`, or
+  `RESOURCE TEXT` according to the recognized lexical operator; these labels do
+  not validate or open the named target.
+- Treat the shipped `g` command as Git interaction. A bare `g` describes its
+  local branch workspace; `g --review`, `g --worktree`, and applicable `--help`
+  forms expose review, worktree, or help cues. Preserve the same literal,
+  advisory distinction as ordinary `git`; classification must not invoke `g`.
+  `g --discard-all` receives the advisory CAUTION presentation; its `--help`
+  form remains help. This mode is the sole public discard entry: no legacy
+  alias or duplicate command/help companion. Navigation owns dispatch and the
+  canonical `g` help, while the optional tools peer owns the private operation.
+- Keep the remaining owned task entries similarly cohesive: `external-device`
+  owns flash/format, `xcode --export-skills` owns Apple skill export, and
+  `compozsh --refresh` dispatches the optional tools peer's current-shell cache
+  invalidation. Remove superseded public names/help companions instead of
+  retaining aliases. Bare external-device selection reads no provider; task
+  dispatch occurs after screen restoration. Help remains same-source and inert.
+  The Interaction lens distinguishes task entry, export/refresh, help and
+  destructive device modes using literal text only; bare Xcode is not a build.
+- Never copy a leading assignment's value into Interaction-lens presentation
+  state; a name may help locate or describe the command. This minimizes a
+  second display of a potentially sensitive value but does not redact the ZLE
+  buffer, accepted transcript, history or process arguments. A `SUGGESTION` row
+  may repeat only a bounded visible prefix from matching editor-owned
+  autosuggestion state; it must not search history or retain the unseen tail.
+- Validate the optional `prompt_add_project_segment` color before composing
+  prompt syntax. Accept only a `0`–`255` index or Zsh's fixed basic color names;
+  malformed values use the validated `tool` role or native text.
+- `CAUTION` is a deliberately incomplete cue for a small set of recognizable,
+  high-confidence literal forms. It is not authorization, validation,
+  confirmation, policy enforcement or proof that any unmarked command is safe.
+  It must neither block Return nor weaken an operation's own safety boundary.
+- The Context lens is progressive disclosure of the same captured snapshot. On
+  the first prompt inside a recognized project or Git repository, open it
+  automatically. Reopen it only when a recognized project root or raw Git
+  branch appears or changes, or when the virtual/Conda environment,
+  Git operation/conflict attention, or runtime
+  unknown/missing/unavailable/mismatch attention changes. Staged, modified,
+  untracked, stash, ahead and behind count changes must not reopen it alone.
+- Render the expanded lens with a `CONTEXT · reason` header and its current
+  `⌥I pin`/`⌥I close` affordance. Use semantic `PROJECT`, `PATH`, `GIT`,
+  `TOOLCHAIN`, `ENV`, `JOBS`, and `SESSION` rows when their facts and height
+  budget apply; `SESSION` is where local user/host and Zsh-version identity
+  belong.
+- An automatic lens remains while `BUFFER` is empty. The first nonempty edit or
+  paste replaces it with the Interaction lens and consumes that disclosure for
+  the current trigger fingerprint; returning to an empty buffer does not reopen
+  Context. Option-I maps to the `compozsh-context-lens` widget and toggles a
+  pinned Context lens. A pinned Context lens survives editing and reserves a
+  small live interaction section that follows the buffer; accepting a command
+  clears the pin.
+- Line finish must leave `HH:MM › ` as the transcript prompt while preserving
+  the exact accepted buffer. After command output, render an outcome receipt
+  for every failure and for successful commands meeting the two-second duration
+  threshold: `× exit N`, add ` · 2.3s` for a slow failure, and use `✓ 2.3s`
+  for a slow success. Fast successes add no outcome row. Receipt painting must not
+  change command bytes, normal history insertion, output, or the captured exit
+  status represented by the next prompt.
 - Layout must respond to `$COLUMNS`, avoid wrapping the active prompt, preserve
   the highest-value facts first, and restore hidden facts when space returns.
-- Never claim completed scrollback can be dynamically relaid out after resize.
+  Interaction morphing, Context replacement/pinning, transcript repaint and
+  resize operate only on the literal buffer, bounded editor-owned suggestion
+  state and captured facts; none is a provider or effect boundary.
+- Completed receipts are ordinary terminal scrollback. Never claim they can be
+  dynamically relaid out after resize, cleared as a privacy feature, or removed
+  from terminal-owned retention.
 - Use `…` for width-aware abbreviation and keep useful beginning/end context.
-- Sanitize control characters and escape `%` before placing dynamic text in a
-  prompt-expanded string. Route all such values through the established prompt
-  sanitation helpers.
+- Sanitize control characters and preserve dynamic text literally before placing
+  it in a prompt-expanded string. Escape `%` for prompt escapes; when
+  `PROMPT_SUBST` is enabled, also escape backslash, `$`, and backticks; when
+  `PROMPT_BANG` is enabled, also escape `!` into its literal prompt form. Route
+  all dynamic values through the established prompt sanitation/escaping helpers.
 - Measure visible characters, not color escape bytes. Keep color application
   outside width calculations.
 - Preserve the semantic, collision-resistant palette. A color should identify
@@ -763,13 +1003,14 @@ sources prove a particular column ratio or key assignment is optimal.
 
 | Region | Contract |
 | --- | --- |
-| Title bar | Stable tool identity (`Compozsh / Tool name`); optional right-aligned Enter action and focused view from captured state |
+| Title bar | Stable tool identity on the left; quiet right-aligned COMPOZSH branding when space permits, or captured busy status |
 | Status | Separate, quieter snapshot/result status; keep scope visible while filtering |
 | Context | One separate location/source row, abbreviated as needed and omitted only in very short windows |
-| Search/filter input | Dedicated, visibly delimited input; label the operation (`Filter folders`, `Search descendants`, `Filter results`); ordinary printable characters remain searchable |
+| Search/filter input | Bottom input dock above the footer on usable full screens, with the real ZLE caret at the literal query end; label the operation (`Filter folders`, `Search descendants`, `Filter results`). Inline and very short fallbacks retain top input |
+| Navigation strip | Passive disclosure map in the existing separator row; highlight current focus and show a whole next-gesture hint when it fits. Derive stages from current capabilities, never infer available actions from a tool name |
 | Main body | Pickers prioritize results; document workspaces prioritize the selected document beside a stable navigator. Preserve exact values separately from labels |
 | Details / reader | Secondary information or a primary document, respectively; explicit focus and independent scroll, no provider calls during repaint. In a document workspace, distinguish selected content from keyboard focus |
-| Footer | Shared capability-derived hints; acceptance, Escape and keyboard-guide access get first priority |
+| Footer | Emphasized real acceptance action, Escape, then at most five complete capability hints on the full screen; keyboard-guide access gets first priority and the guide retains all applicable keys |
 
 The visible `[n]` prefix is reserved for actionable candidates: directories,
 files, menu operations, or other exact values that the input loop can select and
@@ -805,7 +1046,7 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-E / Ctrl-B | Focus details/list, when available |
 | Tab / Shift-Tab | Switch list/details focus; in the browser, enter/go Back |
 | Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
-| Ctrl-X | Open **review** on Branches or **options** in filesystem/worktree views; inactive in document readers |
+| Ctrl-X | Open **review** on Branches, **options** in filesystem/worktree views, or **atlas** in Git file-review views that expose it; otherwise inactive |
 | Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence |
 | Ctrl-A in an auto-refresh document workspace | Pause/resume automatic refresh for the current screen session |
 | Ctrl-R in a document workspace | Refresh the file list and selected diff, retaining available selection/focus/source area |
@@ -829,6 +1070,27 @@ keyboard guide must never trigger refresh or an automatic provider check.
 
 - Preserve spatial landmarks when results shrink. Blank space is acceptable;
   do not fill the screen with unrelated widgets, repeated paths or decoration.
+- Ordinary choice lists use a blank row between choices only when twice the
+  configured visible-slot budget fits. Filtering alone cannot change density.
+  Documents, passive information and stacked output retain compact rows; narrow
+  height falls back without losing selectable slots. Spacers have no indexes.
+- The input dock temporarily splits the captured frame across PREDISPLAY and
+  POSTDISPLAY at the query end during paint. Never put the query in the caller's
+  BUFFER or change its cursor; restore both display parameters after paint and
+  the complete caller editing state on screen exit.
+- On the owned full screen, focusing an ordinary inspector at 100 columns or
+  wider expands reading width beside a retained navigator (roughly one third,
+  at most 42 cells). Returning to results restores the compact preview
+  (one third, at most 48 cells). Preserve selection and the source paragraph
+  across rewrapping; captured text and its existing 256-row bound stay unchanged.
+  Inline fallback retains stable pane widths. Document workspaces already
+  prioritize reading and retain their existing geometry and source anchors.
+- Navigation strips describe disclosure, not an execution plan. Generic
+  choices show Results and only an available inspector; readers show only
+  their reading surface. Files → Focused diff → Full file requires the selected
+  document's corresponding captured mode. Query, guide and capture states
+  replace the map, and narrow screens retain the active stage first. Never
+  give these passive labels indexes or reduce result capacity to fit them.
 - Treat selection and pane focus as separate state in every split-pane tool.
   List focus uses the normal high-emphasis selected row. Detail/reader focus
   retains that selection with a subdued background and marks the active pane
@@ -839,7 +1101,7 @@ keyboard guide must never trigger refresh or an automatic provider check.
   palette roles rather than embedding terminal escapes or tool-specific colors.
 - Full-screen titles use the existing first screen row, without reducing result
   capacity. Hide optional metadata, then branding, before truncating tool identity.
-  Reuse semantic header/muted colors. Derive action labels from the shared
+  Reuse semantic title/muted colors. Derive dock action labels from the shared
   capability state (including per-result actions), show keyboard-guide mode,
   and never imply an actionable selection when there is none. Keep title/status
   generation provider-free; inline fallback retains its compact combined header.
@@ -850,8 +1112,9 @@ keyboard guide must never trigger refresh or an automatic provider check.
   context-specific Ctrl-X hint after acceptance, Escape and guide access, ahead of
   convenience shortcuts: it exposes distinct context operations and review views.
   Name its actual destination: `^X review` on Branches and `^X options` for
-  filesystem context menus. Document readers instead expose their available
-  arrow disclosure steps and `^R refresh`; omit Ctrl-X and keep it inert.
+  filesystem context menus. Document readers expose their available arrow
+  disclosure steps and `^R refresh`; add `^X atlas` only with the explicit Git
+  atlas capability. Other readers keep Ctrl-X inert and omit its hint.
   Derive these hints from the same capability state/transition rules used by
   key dispatch. Do not offer expansion for single-level previews or notices.
   Derive context-menu labels from the existing capability/kind in the shared
@@ -885,9 +1148,10 @@ keyboard guide must never trigger refresh or an automatic provider check.
 - Keep task semantics explicit: history, the Tab directory browser and Recents
   insert; `g` switches branch; Files search inserts directories
   and offers explicit file/link actions;
-  `compozsh` prints help; Git review acceptance drills into files/diffs or
-  focuses reading. Shared interaction must never turn insertion or a
-  preview into execution. Digits apply visible slots only with an empty filter
+  `compozsh` opens captured help with a printable fallback; Git review acceptance
+  drills into files/diffs or focuses reading. Help's explicit Compose action
+  follows the separate draft-insertion contract. Shared interaction must never
+  turn insertion or a preview into execution. Digits apply visible slots only with an empty filter
   and list focus; the history picker retains ordinary numeric input.
 - The directory browser is the deliberate hierarchy exception: Right/Tab
   enters and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list. Its guide
@@ -1110,7 +1374,8 @@ keyboard guide must never trigger refresh or an automatic provider check.
   Right discloses file navigator → focused diff → full-file context; Left
   reverses the sequence. At either boundary the arrow is inert. Untracked
   previews and metadata/notices have one reading level. Ctrl-R refreshes the
-  file workspace; Ctrl-X has no reader action or menu.
+  file workspace. Ctrl-X opens the captured Change atlas only where that
+  capability is present; an atlas child reader does not recursively offer it.
   Tab/Shift-Tab and Ctrl-E/B change only pane focus and preserve context mode;
   Right from the navigator always enters focused diff. The shared loop returns
   explicit disclosure/refresh requests; only the controller captures their data.
@@ -1145,6 +1410,15 @@ keyboard guide must never trigger refresh or an automatic provider check.
   diff reads until retry, while allowing already captured documents. Keep newly
   validated filter overrides even if the following list read fails.
   Commit-file refresh retains immutable IDs.
+  Ctrl-X may navigate to a Change atlas derived solely from the captured list.
+  Keep original numeric file/change-kind identities beneath directory-prefix
+  grouping. Expose source bounds and partial notices; bars count entries and
+  must not imply content analysis. Child folders and file readers preserve Back
+  bookmarks, and returning to review preserves its filter/focus/source anchor.
+  Stop pending automatic-refresh work while this child workspace is open;
+  resume its schedule only after return. Read selected files through existing
+  bounded safe providers, retaining commit/comparison IDs; never discover child
+  paths or bulk-read contents to paint the atlas.
   Working changes starts automatic refresh unless the initializer set
   `ZSH_GIT_REVIEW_AUTO_REFRESH=0`. Ctrl-A pauses or resumes it for only the
   current review screen; Ctrl-R checks immediately and resumes after an
@@ -1332,12 +1606,17 @@ keyboard guide must never trigger refresh or an automatic provider check.
 - `.zsh.xcode` owns both the native Xcode action workspace and Apple skill export.
   Source-time behavior remains definitions only: never probe Xcode, enumerate
   projects, start Simulator, export skills, or write files while loading the
-  peer. Keep `xcode` and `update-xcode-skills` as separate public operations
-  with independent help providers and tests.
+  peer. `xcode` owns workspace and `--export-skills` modes through its one
+  same-source help companion; no separate public skill-export command remains.
+  Interactive export reviews captured agent destinations in the shared action
+  view before staging or writing. Escape cancels. Noninteractive/dumb/missing-UI
+  export retains direct execution, explicitly documented. No project discovery
+  is required for export, and no exporter runs while its plan is painted.
 - Bare `xcode` discovers only literal `.xcworkspace` and `.xcodeproj`
   directories while walking upward from PWD. Stop at the nearest scope, offer
   workspaces before projects there, reject symlink containers, and never scan
-  descendants. With arguments, delegate directly to `xcodebuild` and preserve
+  descendants. Except for the owned `--export-skills` mode and help, arguments
+  delegate directly to `xcodebuild` and preserve
   its status. A dumb/noninteractive bare call may print the nearest container's
   safe native list; it must not open the modal workspace.
 - Xcode owns scheme, destination, build, test and settings semantics. Request
@@ -1526,6 +1805,11 @@ keyboard guide must never trigger refresh or an automatic provider check.
 - Outside a modal picker, do not steal a standard editing key for unrelated behavior. A wrapped key may
   add contextual behavior only when its fallback exactly preserves the native
   widget's meaning.
+- At the ordinary prompt, Option-I (`Meta-I`) is the explicit Context lens
+  control and must invoke the `compozsh-context-lens` widget. It toggles only
+  the pinned disclosure state, preserves the draft and cursor, and is inactive
+  as a prompt shortcut inside modal picker input. Automatic lens behavior must
+  not depend on the Terminal Option-as-Meta preference.
 - Interactive pickers should consistently support arrows and `Ctrl-P/N`, Enter
   to accept, Escape/`Ctrl-G` to cancel, `Ctrl-C` to abort, `Ctrl-U` to clear,
   and macOS-style Option-Backspace/`Ctrl-W` word deletion. History selection
@@ -1561,10 +1845,13 @@ keyboard guide must never trigger refresh or an automatic provider check.
   Preserve the original edit state, use a registered ZLE widget for resize,
   and keep ordinary selection redraws incremental. Cover the emitted control
   stream, input failures, interrupts, and fallbacks with isolated native tests.
-- In the owned screen, keep title/search at the top and shortcuts anchored near
-  the bottom, independent of result count or detail focus. Hide the original
+- In the owned screen, keep identity at the top and input/action dock anchored
+  near the bottom, independent of result count or detail focus. Hide the original
   prompt and multiline draft during the modal session and restore their exact
-  editing state on exit. Keep a spare terminal row to avoid scrolling the frame.
+  editing state on exit. Preserve the living prompt's pinned/consumed disclosure
+  state and derive the correct compact or lens presentation for the restored
+  buffer; never turn a picker transition into a transcript receipt. Keep a
+  spare terminal row to avoid scrolling the frame.
   Workspace padding must preserve alignment of all parallel row metadata.
   Compact inline fallbacks retain their existing layout.
 - Optional location/breadcrumb rows are captured caller data, sanitized and
@@ -1624,6 +1911,41 @@ keyboard guide must never trigger refresh or an automatic provider check.
   Respect both terminal dimensions, preserve visible list capacity, and retain
   the narrow-window focus switch. Test all inspector callers and real resize
   signals; changing layout must not rerun providers or lose the selected value.
+- An action workspace is the explicit exception to secondary-preview geometry:
+  on an owned screen at least 90 columns wide, use one shared 45%-width choice
+  pane capped at 52 columns, with the remaining width for the captured plan.
+  The plan may fill the body before focus. Narrow screens retain the shared
+  focus switch. Optional descriptive second rows must not reduce visible choice
+  capacity, receive digits, change matching or become action values. Use known
+  plan labels for emphasis; prose and literal commands remain ordinary text.
+- Direct owned help and tool-catalog Enter share a topic workspace over one
+  bounded static help capture. The description stays in the context row and
+  Overview retains complete captured usage/description. Derive at most 128
+  topics from headings and documented argument/mode prefixes, with a Complete
+  guide entry preserving unclassified text. Numeric topic IDs are navigation
+  targets, never command arguments. Match literal case-insensitive substrings
+  in labels/text; do not infer executable semantics or evaluate examples.
+  Shared reference geometry gives the explanation primary width from 90 columns,
+  with narrow focus switching, without inheriting Git-specific document keys.
+  Accent documented arguments in both the topic navigator and explanation,
+  including the full-width topic reader, using shared semantic palette roles.
+  Derive bounded spans from literal help structure; keep prose neutral and
+  do not apply help-specific accents to arbitrary draft or log readers.
+  Enter opens a full-width topic reader; Back restores topic position, then
+  the catalog bookmark without recapture. Direct help captures at most 32,768
+  characters with a partial notice; pipe it for the complete printable guide.
+  An additional Compose example action requires an explicit trusted command
+  identity and its same-source template capability. Label that handoff and its
+  editor effect separately from ordinary topics. It opens the composer and
+  returns to the same help bookmark on cancellation; it never parses or runs
+  example prose. Only explicit Replace draft may leave help with an insertion
+  request, applied after screen restoration. Do not expose it in plain output
+  or infer authority from the usage line of arbitrary captured text.
+  Static text readers filter literal lines case-insensitively,
+  retain no selectable rows, and scope their text/frame/source maps on exit.
+  History's optional inspector reads at most 32,768 characters of the exact
+  captured candidate; acceptance still inserts its complete value. All preview
+  bounds and truncation must remain visible and documented.
 - File search selection is type-aware: ordinary directories insert an editable
   path; files and symbolic links require an explicit action picker. Keep action dispatch
   outside ZLE, recheck mutable filesystem facts, pass literal absolute paths
@@ -1636,9 +1958,12 @@ keyboard guide must never trigger refresh or an automatic provider check.
   mode, Shift-Tab, Option chords, forward Delete, and bracketed paste without
   leaking bytes into the command buffer.
 - Preserve other widgets' `region_highlight`, `PREDISPLAY`, and `POSTDISPLAY`
-  state. Use Zsh 5.9 memo tags to remove only highlights owned here.
-- Re-sourcing must not stack hooks or duplicate widgets. A fresh `exec zsh`
-  remains the recommended way to apply changes.
+  state. Living-prompt repaint must additionally preserve `BUFFER`, `CURSOR`,
+  undo/history behavior and prompt disclosure state. Use Zsh 5.9 memo tags to
+  remove only highlights owned here.
+- Re-sourcing must not stack hooks, wrap a widget recursively, or duplicate
+  widget definitions/bindings. A fresh `exec zsh` remains the recommended way
+  to apply changes.
 
 ## Safety and security
 
@@ -1747,6 +2072,11 @@ keyboard guide must never trigger refresh or an automatic provider check.
   current working directory or project metadata.
 - Never interpolate unsanitized branch names, paths, history, or tool output
   into prompt syntax, glob patterns, terminal control sequences, or shell code.
+- Treat receipt compaction as presentation, never redaction. The transcript
+  prefix may change prompt decoration but must retain the exact submitted
+  command as ZLE input, create no second persistent command copy, and make no
+  claim to remove it from terminal scrollback, process exposure, invoked-tool
+  logs or normal Zsh history.
 - Explicit add-on installers may write only to documented, fixed user-level
   integration directories. Stage generated content first, mark installed units,
   and never replace a same-named directory that lacks the installer's marker.

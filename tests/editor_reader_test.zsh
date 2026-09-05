@@ -42,8 +42,8 @@ _test_editor_reader_render() {
     done
     COLUMNS=140
     _zle_picker_render "" 0
-    [[ $_ZLE_PICKER_TITLEBAR == *"Enter: options"* ]] || exit 6
-    [[ ${_ZLE_PICKER_DISPLAY[-1]} == *"type filter"* &&
+    [[ $_ZLE_PICKER_TITLEBAR != *"Enter:"* && $_ZLE_PICKER_DISPLAY[-1] == *"⏎ options"* ]] || exit 6
+    [[ $_ZLE_PICKER_QUERY_ROW == *"Filter lines"* &&
        ${_ZLE_PICKER_DISPLAY[-1]} == *"^Y copy"* ]] || exit 7
     _ZLE_PICKER_INSPECT_OFFSET=$(( ${_ZLE_PICKER_INSPECT_SOURCE_LINES[(i)9]} - 1 ))
     (( ++_ZLE_PICKER_INSPECT_OFFSET ))

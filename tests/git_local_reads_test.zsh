@@ -30,8 +30,9 @@ _test_git_missing_object_reads() {
       [[ ${_ZLE_PICKER_INSPECT_TEXTS[main]} == *"Commit details unavailable"* ]] || exit 7
     else
       source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
       builtin cd "$repo" || exit 8
-      git-discard-all <<< y > "$HOME/output" 2> "$HOME/error"
+      g --discard-all <<< y > "$HOME/output" 2> "$HOME/error"
       result=$?
       (( result != 0 )) && [[ $(<"$HOME/error") == *"no commit to restore"* ]] || exit 9
     fi
@@ -51,5 +52,5 @@ test_case 'branch navigation captures missing-commit metadata without promisor f
   _test_navigation_missing_commit_local_only
 
 _test_discard_missing_commit_local_only() { _test_git_missing_object_reads discard; }
-test_case 'git-discard-all validates missing HEAD locally without promisor fetch or transport' \
+test_case 'g --discard-all validates missing HEAD locally without promisor fetch or transport' \
   _test_discard_missing_commit_local_only

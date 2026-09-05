@@ -25,14 +25,9 @@ _test_public_commands_support_help() {
     typeset -a public_commands=(
       mkcd
       cpdir
-      git-discard-all
-      prompt-refresh
-      compozsh-sudo-touch-id
       g
-      flash-usb
-      format-external-device
+      external-device
       xcode
-      update-xcode-skills
       compozsh
     )
     for public_command in "${public_commands[@]}"; do
@@ -54,8 +49,7 @@ _test_public_commands_support_help() {
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
 
   local public_command='' output_line='' record=''
-  for public_command in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format-external-device xcode \
-      update-xcode-skills compozsh; do
+  for public_command in mkcd cpdir g external-device xcode compozsh; do
     record=''
     for output_line in ${(f)output}; do
       if [[ $output_line == "$public_command|"* ]]; then
@@ -174,8 +168,7 @@ _test_tool_help_explains_real_boundaries() {
   test_make_temp_dir || return
   local output='' tool='' fact=''
   local -a facts=()
-  for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format-external-device xcode \
-      update-xcode-skills compozsh; do
+  for tool in mkcd cpdir "compozsh --sudo-touch-id" g external-device xcode compozsh; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home" '
       source "$1/.zsh.addons/.zsh.tools"
       source "$1/.zsh.addons/.zsh.navigation"
@@ -184,16 +177,13 @@ _test_tool_help_explains_real_boundaries() {
       source "$1/.zsh.addons/.zsh.usb"
       source "$1/.zsh.addons/.zsh.xcode"
       source "$1/.zsh.addons/.zsh.help"
-      "$2" --help
+      local -a invocation=( ${=2} )
+      "${invocation[@]}" --help
     ' "$TEST_REPO_ROOT" "$tool") || return
     case $tool in
       (mkcd) facts=('parent directories' 'existing directory' 'spaces' './--help' 'Examples:') ;;
       (cpdir) facts=('logical' 'newline' 'shell-quoted' 'pbcopy' 'SSH' 'Examples:') ;;
-      (git-discard-all) facts=('repository root' 'HEAD' 'staged' 'untracked'
-        '[y/N]' 'ignored' 'submodule' 'rebase' 'rollback' 'stash'
-        'content filters' 'After confirmation' 'Examples:') ;;
-      (prompt-refresh) facts=('current shell' 'next use' 'exec zsh' 'reload' 'Examples:') ;;
-      (compozsh-sudo-touch-id) facts=('/etc/pam.d/sudo_local' 'default' 'root-owned'
+      ("compozsh --sudo-touch-id") facts=('/etc/pam.d/sudo_local' 'default' 'root-owned'
         'Custom PAM policy' 'pam_opendirectory.so authenticator' 'sudo permission' 'SSH'
         'macOS Sonoma 14' 'ACL-free' '/usr/bin/sudo -v' 'timestamp' 'sudo -n'
         'persists' 'No backup' 'uncertain enable error' 'Apple-supported'
@@ -205,7 +195,9 @@ _test_tool_help_explains_real_boundaries() {
         'never other links' \
         'does not verify that a command is safe' 'never enabled automatically'
         'Examples:') ;;
-      (g) facts=('200' 'reflog' 'remote' 'g branch' 'character order'
+      (g) facts=('repository root' 'HEAD' 'staged' 'untracked'
+        '[y/N]' 'ignored' 'submodule' 'rebase' 'rollback' 'stash'
+        'content filters' 'After confirmation' 'Examples:' '200' 'reflog' 'remote' 'g branch' 'character order'
         'git switch --no-guess' 'worktree' 'pbcopy' 'Ctrl-Y' 'SSH'
         'empty' 'Ctrl-U' 'noninteractive' 'Examples:' 'Ctrl-X review' 'read-only'
         'Right: files' 'Left reverses' 'Ctrl-A pauses/resumes' 'Ctrl-R refreshes'
@@ -223,7 +215,7 @@ _test_tool_help_explains_real_boundaries() {
         'untracked regular text' 'NUL' 'Symlinks' 'new-file snapshot'
         'inside new directories' 'Ignored files remain excluded'
         'Nested repositories stay separate') ;;
-      (flash-usb) facts=('regular .iso or .img' 'Finder-indexed' '500' 'current-folder' '~/Downloads' 'drag'
+      (external-device) facts=('regular .iso or .img' 'Finder-indexed' '500' 'current-folder' '~/Downloads' 'drag'
         'creation time' 'newest first' 'format, size' 'in-order' 'Spotlight exclusions'
         'Custom path' 'bounded browser' 'Left moves' 'Right or Return'
         'Removable Volumes' 'Retry' 'source during dd'
@@ -238,8 +230,7 @@ _test_tool_help_explains_real_boundaries() {
         'Windows Setup media' 'Windows unsupported' 'FAT32' '4 GiB' 'DISM'
         'install.swm' 'bounded archive table' 'attach fallback'
         'Nothing was written or targeted' 'Apple code signature'
-        'cannot roll back' 'Examples:') ;;
-      (format-external-device) facts=('whole external physical' 'Internal' 'virtual'
+        'cannot roll back' 'Examples:' 'whole external physical' 'Internal' 'virtual'
         'read-only' 'partition-slice' '1 MiB' '4,096' '64 whole' 'Ctrl-R'
         'temporary snapshot' 'listFilesystems -plist' 'every filesystem personality'
         'Free Space' 'size bounds' 'passed unchanged' 'eraseDisk' 'External'
@@ -266,12 +257,11 @@ _test_tool_help_explains_real_boundaries() {
         'native source highlighting' 'NO_COLOR'
         'typed commands and expressions' 'Swift source may remain plain'
         'No LLDB config is written'
-        'target membership' 'test mode' 'slower recovery' 'Examples:') ;;
-      (update-xcode-skills) facts=('xcode-select' 'DEVELOPER_DIR' 'PATH'
+        'target membership' 'test mode' 'slower recovery' 'Examples:' 'xcode-select' 'DEVELOPER_DIR' 'PATH'
         '~/.agents/skills' '~/.claude/skills' '~/.gemini/config/skills'
         '~/.kiro/skills' 'CodingAssistant/codex/skills/__xcode'
         '.xcode-skill-export' 'conflicts' 'per skill' 'session' 'Examples:') ;;
-      (compozsh) facts=('loaded' '.zsh.addons' 'same file' 'no help'
+      (compozsh) facts=("current shell" "next use" "exec zsh" "reload" 'loaded' '.zsh.addons' 'same file' 'no help'
         'never runs' 'character order' 'empty' 'Ctrl-U' '--list'
         'ZSH_TOOL_PICKER_MAX_RESULTS' 'Examples:') ;;
     esac
@@ -303,8 +293,7 @@ _test_all_tool_help_is_static_without_optional_tools() {
         _detect_xcode_skill_vendor _compozsh_tool_capture; do
       functions[$helper]="print -u2 -- unexpected-operation; return 99"
     done
-    for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format-external-device xcode \
-        update-xcode-skills compozsh; do
+    for tool in mkcd cpdir g external-device xcode compozsh; do
       "$tool" --help >| "$HOME/help.out" 2>| "$HOME/help.err" || exit 10
       help_text=$(<"$HOME/help.out")
       [[ ! -s "$HOME/help.err" && $PWD == $HOME ]] || exit 11
@@ -350,10 +339,10 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     zmodload zsh/zpty || exit 10
     _help_test_driver() {
       local tool
-      for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format-external-device xcode \
-          update-xcode-skills compozsh; do
+      for tool in mkcd cpdir g external-device xcode compozsh; do
         "$tool" --help || return
       done
+      compozsh --sudo-touch-id --help
       compozsh help g
       print -r -- END-HELP-COLOR-TEST
     }
@@ -377,8 +366,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     [[ $plain != *$'\''\e'\''* ]] || exit 12
     _help_test_capture || exit 13
     colored=$REPLY
-    for tool in mkcd cpdir git-discard-all prompt-refresh compozsh-sudo-touch-id g flash-usb format-external-device xcode \
-        update-xcode-skills compozsh; do
+    for tool in mkcd cpdir g external-device xcode compozsh; do
       [[ $colored == *$'\''\e[1;38;5;123m'\''"usage: $tool"* ]] || {
         print -u2 -- "$tool help is missing the heading palette color"
         exit 14

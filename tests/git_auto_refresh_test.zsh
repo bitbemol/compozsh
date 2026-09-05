@@ -591,9 +591,7 @@ test_case 'Git hung automatic checks time out and fail closed' \
 _test_git_auto_refresh_worker_deadline() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/bin" "$TEST_TMP_DIR/home/repo" || return
-  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/zsh
-print -r -- $$ >| "$COMPOZSH_SPY_PID"
-exec 1>&-
+  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/zsh -df
 exec /bin/sleep 30' || return
   command chmod 700 "$TEST_TMP_DIR/bin/git" || return
   local output
@@ -601,6 +599,17 @@ exec /bin/sleep 30' || return
     PATH="$2/bin:$PATH"
     export COMPOZSH_SPY_PID="$2/provider.pid"
     source "$1/.zsh.addons/.zsh.git-review"
+    # Observe the worker-owned provider before exec. A first launch of a newly
+    # written script can itself exceed this deliberately short deadline; the
+    # deadline correctly kills it before the script can publish a sentinel.
+    # Closing stdout here still exercises the liveness descriptor, even then.
+    functions[_deadline_provider_git]=$functions[_git_review_git]
+    _git_review_git() {
+      zmodload zsh/system || return
+      print -r -- $sysparams[pid] >| "$COMPOZSH_SPY_PID"
+      exec 1>&-
+      _deadline_provider_git "$@"
+    }
     zmodload zsh/datetime
     zmodload zsh/zselect
     _GIT_REVIEW_AUTO_REFRESH_TIMEOUT=0.5
@@ -639,9 +648,7 @@ test_case 'Git automatic worker enforces its deadline without picker-idle pollin
 _test_git_auto_refresh_provider_cancellation() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/bin" "$TEST_TMP_DIR/home/repo" || return
-  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/zsh
-print -r -- $$ >| "$COMPOZSH_SPY_PID"
-exec 1>&-
+  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/zsh -df
 exec /bin/sleep 30' || return
   command chmod 700 "$TEST_TMP_DIR/bin/git" || return
   local output
@@ -649,6 +656,15 @@ exec /bin/sleep 30' || return
     PATH="$2/bin:$PATH"
     export COMPOZSH_SPY_PID="$2/provider.pid"
     source "$1/.zsh.addons/.zsh.git-review"
+    # Publish the exact owned PID before a potentially slow first exec, as in
+    # the deadline fixture. No grandchild or parent-visible PID inference.
+    functions[_cancel_provider_git]=$functions[_git_review_git]
+    _git_review_git() {
+      zmodload zsh/system || return
+      print -r -- $sysparams[pid] >| "$COMPOZSH_SPY_PID"
+      exec 1>&-
+      _cancel_provider_git "$@"
+    }
     zmodload zsh/datetime
     zmodload zsh/zselect
     local root="$HOME/repo" context=3

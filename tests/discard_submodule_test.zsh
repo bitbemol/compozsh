@@ -4,6 +4,7 @@ _test_discard_preserves_submodule_edits() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
     local parent="$HOME/parent" child="$HOME/parent/child" repo=""
     command mkdir -p "$child"
     for repo in "$parent" "$child"; do
@@ -26,10 +27,10 @@ _test_discard_preserves_submodule_edits() {
     print -r -- child-edit > "$child/tracked"
     print -r -- preserve > "$child/untracked"
     builtin cd "$parent"
-    git-discard-all <<< y > "$HOME/output" 2> "$HOME/error"
+    g --discard-all <<< y > "$HOME/output" 2> "$HOME/error"
     local -i result=$?
     [[ $(<child/tracked) == child-edit && $(<child/untracked) == preserve ]] || {
-      print -u2 -- "git-discard-all changed submodule contents when recursion was configured"; exit 5
+      print -u2 -- "g --discard-all changed submodule contents when recursion was configured"; exit 5
     }
     [[ $(<tracked) == baseline && $result == 1 &&
        $(<"$HOME/error") == *"Some changes remain"* &&
@@ -38,5 +39,5 @@ _test_discard_preserves_submodule_edits() {
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal preserved "$output"
 }
-test_case 'git-discard-all preserves dirty submodule contents when Git recursion is configured' \
+test_case 'g --discard-all preserves dirty submodule contents when Git recursion is configured' \
   _test_discard_preserves_submodule_edits

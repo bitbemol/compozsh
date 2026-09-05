@@ -2066,6 +2066,144 @@ _git_review_manual_refresh_auto_state() {
 }
 
 # Scope file snapshots and reading bookmarks to this review workspace.
+# Derive a folder map from the current captured list, never the filesystem.
+# Directory IDs are exact prefixes; file IDs remain original snapshot indexes.
+_git_review_atlas_rows() {
+  emulate -L zsh
+  local prefix=$1 name='' tail='' directory='' value='' members='' label='' bar=''
+  local -i index=0 count=0 maximum=1 cells=0 staged=0 unstaged=0 untracked=0 conflicts=0 committed=0
+  local -a order=() indexes=()
+  _atlas_values=() _atlas_labels=() _atlas_groups=() _atlas_details=()
+  for (( index=1; index<=${#_GIT_REVIEW_PATHS}; ++index )); do
+    name=$_GIT_REVIEW_PATHS[index]
+    [[ $name == "$prefix"* ]] || continue
+    tail=${name#"$prefix"}
+    # A trailing slash is a captured entry (e.g. nested repository), not a
+    # discoverable directory. No recursion into paths absent from the snapshot.
+    if [[ $tail == */?* ]]; then
+      directory="$prefix${tail%%/*}/" value="d:$directory"
+      [[ -n ${_atlas_groups[$directory]-} ]] || order+=("$value")
+      _atlas_groups[$directory]+=" $index"
+    else
+      order+=("f:$index")
+    fi
+  done
+  for directory in "${(@k)_atlas_groups}"; do
+    members=${_atlas_groups[$directory]# }
+    _atlas_groups[$directory]=$members
+    indexes=(${=members})
+    (( ${#indexes} > maximum )) && maximum=${#indexes}
+  done
+  for value in "${order[@]}"; do
+    if [[ $value == d:* ]]; then
+      directory=${value#d:} members=${_atlas_groups[$directory]}
+      indexes=(${=members}) count=${#indexes}
+      cells=$(( (12 * count + maximum - 1) / maximum ))
+      bar=''
+      repeat $cells; do bar+='▰'; done
+      label="${directory#"$prefix"} · $count entries $bar"
+      staged=0 unstaged=0 untracked=0 conflicts=0 committed=0
+      for index in "${indexes[@]}"; do
+        case $_GIT_REVIEW_KINDS[index] in
+          staged) (( ++staged )) ;; unstaged) (( ++unstaged )) ;;
+          untracked) (( ++untracked )) ;; conflict) (( ++conflicts )) ;;
+          commit|comparison) (( ++committed )) ;;
+        esac
+      done
+      _atlas_details[$value]="$directory"$'\n'"$count captured change entries"$'\n'"$staged staged · $unstaged unstaged · $untracked untracked · $conflicts conflicts"$'\n\nBars compare entry counts in these folders.\nA staged and an unstaged change count separately.\nEnter opens this captured folder; no discovery.'
+      (( committed )) && _atlas_details[$value]+=$'\n'"$committed committed entries"
+    else
+      index=${value#f:}
+      label="${_GIT_REVIEW_PATHS[index]#"$prefix"} · $_GIT_REVIEW_KINDS[index]"
+      _atlas_details[$value]="$_GIT_REVIEW_PATHS[index]"$'\n'"$_GIT_REVIEW_CONTEXTS[index]"$'\n\nEnter reads this exact change.\nThe reader opens focused diff; Right expands full context.\nEscape returns to this map and selection.'
+    fi
+    _atlas_values+=("$value") _atlas_labels+=("$label")
+  done
+  return 0
+}
+
+_git_review_atlas_collect() {
+  emulate -L zsh
+  local query=${1:l}
+  local -i index=0
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  for (( index=1; index<=${#_atlas_values}; ++index )); do
+    [[ ${_atlas_labels[index]:l} == *"$query"* ]] || continue
+    _ZLE_PICKER_RESULTS+=("$_atlas_values[index]") _ZLE_PICKER_LABELS+=("$_atlas_labels[index]")
+    (( ${#_ZLE_PICKER_RESULTS} >= $2 )) && break
+  done
+  return 0
+}
+
+_git_review_atlas_view() {
+  emulate -L zsh
+  _ZLE_PICKER_TITLE='Git / Change atlas' _ZLE_PICKER_SUBTITLE="${_atlas_scope:-${1:t}} / ${2:-.}"
+  _ZLE_PICKER_QUERY_LABEL='Filter this level' _ZLE_PICKER_COLLECTOR=_git_review_atlas_collect
+  _ZLE_PICKER_BROWSE_LABEL="${#_GIT_REVIEW_PATHS} captured entries · file distribution · read-only"
+  [[ -n $_GIT_REVIEW_NOTICE ]] && _ZLE_PICKER_BROWSE_LABEL+=" · $_GIT_REVIEW_NOTICE"
+  _ZLE_PICKER_INSPECT_TITLE=Area _ZLE_PICKER_INSPECT_ACTION=open
+  _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_atlas_details}")
+  _ZLE_PICKER_EMPTY_LABEL='no captured entries at this level'
+  _ZLE_PICKER_INSPECT_FALLBACK="$_GIT_REVIEW_SUMMARY"$'\n'"$_GIT_REVIEW_NOTICE"
+  _ZLE_PICKER_TRAIL=('Areas' 'Files' 'Diff')
+  _ZLE_PICKER_GUIDE_CONTEXT=('Map of captured change entries, not a filesystem browser.'
+    'Bars show relative entry counts, not line counts or importance.'
+    'Each staged / unstaged change retains its own identity.'
+    'No list refresh while the atlas is open; return to review to refresh.' "$_GIT_REVIEW_NOTICE")
+  _ZLE_PICKER_GUIDE_CONTEXT+=("${_atlas_guide[@]}")
+  local value=''
+  for value in "${_atlas_values[@]}"; do
+    if [[ $value == d:* ]]; then
+      _ZLE_PICKER_ACCEPT_LABELS[$value]='open folder'
+      _ZLE_PICKER_LABEL_HIGHLIGHTS[$value]="0:${#${value#d:}}:picker-header"
+    else
+      _ZLE_PICKER_ACCEPT_LABELS[$value]='read diff'
+    fi
+  done
+  _zle_picker_start_focus=${6:-0}
+  _zle_picker_loop "${3:-}" 20 "${4:-1}" "${5:-0}"
+}
+
+_git_review_atlas_level() {
+  emulate -L zsh
+  local root=$1 prefix=$2 oid=$3 parent=$4 choice=''
+  local -a bookmark=('' 1 0) _atlas_values=() _atlas_labels=()
+  local -A _atlas_details=() _atlas_groups=()
+  local -i result=0 focus=0
+  _git_review_atlas_rows "$prefix"
+  while true; do
+    _zle_ui_view choice _git_review_atlas_view "$root" "$prefix" "${bookmark[@]}" "$focus"
+    result=$?
+    (( result == 0 )) || return $result
+    choice=$_ZLE_PICKER_SELECTED_VALUE
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    if [[ $choice == d:* && -n ${_atlas_groups[${choice#d:}]-} ]]; then
+      _git_review_atlas_level "$root" "${choice#d:}" "$oid" "$parent"
+    elif [[ $choice == f:<-> ]] && (( ${choice#f:} >= 1 && ${choice#f:} <= ${#_GIT_REVIEW_PATHS} )); then
+      if (( ${_git_review_reads_blocked:-0} )); then
+        _zle_ui_read_text 'Atlas / Reading unavailable' "$root" \
+          'Safe Git preparation failed. Return to review and retry Ctrl-R before opening uncached file content.'
+      else
+        _git_review_view "$root" atlas-file "${choice#f:}" "$oid" "$parent"
+      fi
+    else
+      return 2
+    fi
+    result=$?
+    (( result > 1 )) && return $result
+  done
+}
+
+_git_review_atlas() {
+  emulate -L zsh
+  local _atlas_scope=$_ZLE_PICKER_SUBTITLE
+  local -a _atlas_guide=("${_ZLE_PICKER_GUIDE_CONTEXT[@]}")
+  local -a _atlas_paths=("${_GIT_REVIEW_PATHS[@]}") _atlas_kinds=("${_GIT_REVIEW_KINDS[@]}")
+  local -a _atlas_source_labels=("${_GIT_REVIEW_LABELS[@]}") _atlas_contexts=("${_GIT_REVIEW_CONTEXTS[@]}")
+  local -a _atlas_source_details=("${_GIT_REVIEW_DETAILS[@]}")
+  _git_review_atlas_level "$1" '' "${2:-}" "${3:-}"
+}
+
 _git_review_view() {
   emulate -L zsh
   # Syntax capture is a screen-session child, not a user shell job. MONITOR
@@ -2079,6 +2217,7 @@ _git_review_view() {
   zmodload zsh/datetime || return 2
   local root=$1 kind=$2 target=${3:-} oid=${4:-} parent=${5:-}
   local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
+  local _ZLE_PICKER_OPTIONS_KIND=''
   local _ZLE_PICKER_SUBTITLE_RENDERER=''
   local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=diff
   local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_QUERY_LABEL='Filter files'
@@ -2143,6 +2282,16 @@ _git_review_view() {
   local -a _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_TRAIL=() bookmark=('' 1 0)
   local -a _ZLE_PICKER_GUIDE_CONTEXT=()
   case $kind in
+    (atlas-file)
+      [[ $target == <-> ]] && (( target >= 1 && target <= ${#_atlas_paths} )) || return 2
+      _GIT_REVIEW_PATHS=("$_atlas_paths[target]") _GIT_REVIEW_KINDS=("$_atlas_kinds[target]")
+      _GIT_REVIEW_LABELS=("$_atlas_source_labels[target]") _GIT_REVIEW_CONTEXTS=("$_atlas_contexts[target]")
+      _GIT_REVIEW_DETAILS=("$_atlas_source_details[target]")
+      _ZLE_PICKER_TITLE='Atlas / Read change'
+      _ZLE_PICKER_SUBTITLE=${_atlas_scope:-${root:t}}
+      _ZLE_PICKER_GUIDE_CONTEXT=("${_atlas_guide[@]}")
+      _GIT_REVIEW_SUMMARY='One captured change · Escape returns to the atlas'
+      _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff ;;
     (working)
       _git_review_load _git_review_changes_capture "$root"; result=$?
       _ZLE_PICKER_TITLE='Working changes'
@@ -2176,6 +2325,8 @@ _git_review_view() {
   if [[ $kind == (working|files|comparison) ]]; then
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1
     _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff
+    _ZLE_PICKER_OPTIONS_KIND=atlas
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1
   fi
   _ZLE_PICKER_BROWSE_LABEL=$_GIT_REVIEW_SUMMARY
   if (( !${#_GIT_REVIEW_LABELS} )); then
@@ -2201,6 +2352,13 @@ _git_review_view() {
   if (( _ZLE_PICKER_DOCUMENT && ${+functions[_git_syntax_session_start]} )); then
     _git_syntax_session_start || true
   fi
+  if [[ $kind == atlas-file ]]; then
+    _git_review_document_load "$root" 1 "$oid" "$parent" "$context" || return $?
+    focus=1
+  elif [[ ${6:-} == atlas ]]; then
+    _git_review_atlas "$root" "$oid" "$parent"
+    return $?
+  fi
   while true; do
     _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
     _zle_picker_start_focus=$focus
@@ -2210,6 +2368,16 @@ _git_review_view() {
     bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     index=$_ZLE_PICKER_SELECTED_VALUE
     if (( _ZLE_PICKER_DOCUMENT )); then
+      if [[ $_ZLE_PICKER_ACTION == actions && $_ZLE_PICKER_OPTIONS_KIND == atlas ]]; then
+        _git_review_auto_worker_stop
+        _git_review_auto_candidate_clear
+        _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+        _git_review_atlas "$root" "$oid" "$parent"
+        result=$?
+        (( result > 1 )) && return $result
+        _git_auto_next_at=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_INTERVAL ))
+        continue
+      fi
       if [[ $_ZLE_PICKER_ACTION == document-auto-toggle ]]; then
         if (( _ZLE_PICKER_AUTO_REFRESH )); then
           _ZLE_PICKER_AUTO_REFRESH=0
@@ -2275,7 +2443,7 @@ _git_review_view() {
 # Small choice lists and text entry use the shared input loop. All state belongs
 # to the caller; opening a child view never re-registers keys or owns a screen.
 _git_review_pick() {
-  _zle_ui_view choice _git_review_choice_view "$@"
+  _zle_ui_view "${8:-choice}" _git_review_choice_view "$@"
 }
 
 _git_review_choice_view() {
@@ -2286,6 +2454,14 @@ _git_review_choice_view() {
   _zle_picker_start_focus=${7:-0}
   _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_git_compare_details}")
   _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_git_compare_actions}")
+  if (( _ZLE_PICKER_ACTION_VIEW )); then
+    _ZLE_PICKER_ACTION_CONTEXT="COMPARISON"$'\n'"$2"$'\n\nRead-only · captured endpoints'
+    local value='' detail=''
+    for value in "${(@k)_git_compare_details}"; do
+      detail=${_git_compare_details[$value]}
+      _ZLE_PICKER_DESCRIPTIONS[$value]=${detail%%$'\n'*}
+    done
+  fi
   _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
 }
 
@@ -2469,7 +2645,7 @@ _git_review_compare_choose() {
       _NAVIGATION_PICKER_VALUES+=(open) _NAVIGATION_PICKER_LABELS+=('Review differences') _NAVIGATION_PICKER_INDEXES+=(4)
       _git_compare_details[open]="$pair"$'\n'"$_git_compare_method_label"$'\n\n'"$_git_compare_context"$'\n\nRead-only · captured commits. Ctrl-R keeps their IDs.'
     fi
-    _git_review_pick 'Compare branches or commits' "${root:t} · $pair" 'Filter choices' "${bookmark[@]}" "$focus"
+    _git_review_pick 'Compare branches or commits' "${root:t} · $pair" 'Filter choices' "${bookmark[@]}" "$focus" action
     result=$?
     (( result == 0 )) || return $result
     choice=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
@@ -2495,7 +2671,7 @@ _git_review_compare_choose() {
         _git_compare_actions=(exact use ancestor use)
         method_index=1
         [[ $_git_compare_method == ancestor ]] && method_index=2
-        _git_review_pick 'Changes to show' "${root:t} · $pair" 'Filter choices' '' "$method_index"; result=$?
+        _git_review_pick 'Changes to show' "${root:t} · $pair" 'Filter choices' '' "$method_index" 0 0 action; result=$?
         if (( result == 0 )); then
           _git_compare_method=$_ZLE_PICKER_SELECTED_VALUE _git_compare_before=''
         fi ;;
@@ -2573,12 +2749,17 @@ _git_review_session() {
 }
 
 _git_review_options() {
-  _zle_ui_view choice _git_review_options_view "$@"
+  _zle_ui_view action _git_review_options_view "$@"
 }
 
 _git_review_options_view() {
   emulate -L zsh
   local root=$1 branch=$2
+  _ZLE_PICKER_ACTION_CONTEXT="REPOSITORY"$'\n'"$root"$'\n\nRead-only · no checkout or fetch'
+  _ZLE_PICKER_DESCRIPTIONS=(working 'Staged, unstaged and untracked changes'
+    commits 'Captured branch tip → commits → files → diff'
+    compare 'Choose both endpoints and a comparison method')
+  _ZLE_PICKER_ACCEPT_LABELS=(working review commits 'browse commits' compare configure)
   _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_SUBTITLE="${root:t} · choose a read-only view"
   _ZLE_PICKER_QUERY_LABEL='Filter views' _ZLE_PICKER_INSPECT_ACTION=open
   _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
@@ -2594,6 +2775,11 @@ _git_review_options_view() {
   _NAVIGATION_PICKER_VALUES+=(compare) _NAVIGATION_PICKER_LABELS+=('Compare branches or commits…')
   _NAVIGATION_PICKER_INDEXES+=("${#_NAVIGATION_PICKER_VALUES}")
   _ZLE_PICKER_INSPECT_TEXTS[compare]="Compare: ${branch:-HEAD}"$'\nAgainst: choose another branch or commit\n\nBoth choices can be changed. Review differences opens the two-pane reader.\nNo checkout or fetch.'
+  _NAVIGATION_PICKER_VALUES+=(atlas) _NAVIGATION_PICKER_LABELS+=('Change atlas · Explore working changes by folder')
+  _NAVIGATION_PICKER_INDEXES+=("${#_NAVIGATION_PICKER_VALUES}")
+  _ZLE_PICKER_DESCRIPTIONS[atlas]='Captured change entries → folders → files → focused diff'
+  _ZLE_PICKER_ACCEPT_LABELS[atlas]='open atlas'
+  _ZLE_PICKER_INSPECT_TEXTS[atlas]='Map the current working-tree snapshot by folder. Bars show file-entry counts; staged and unstaged changes remain distinct. No content is read until a file is chosen.'
   _zle_picker_start_focus=${6:-0}
   _zle_picker_loop "${3:-}" 10 "${4:-1}" "${5:-0}"
 }
@@ -2614,6 +2800,8 @@ _git_review_menu() {
       _git_review_unavailable; result=$?
     elif [[ $choice == compare ]]; then
       _git_review_compare_choose "$root" "$selected"; result=$?
+    elif [[ $choice == atlas ]]; then
+      _git_review_view "$root" working '' '' '' atlas; result=$?
     elif [[ $choice == commits ]]; then
       if _git_review_resolve "$root" "refs/heads/$selected"; then
         oid=$REPLY
@@ -2627,7 +2815,7 @@ _git_review_menu() {
     (( result > 1 )) && return $result
     # Preserve the original branch-review Back route. A comparison returns to
     # its setup and menu; the direct review menu remains the caller of all views.
-    [[ $choice == compare || $stay == 1 ]] || return 1
+    [[ $choice == (compare|atlas) || $stay == 1 ]] || return 1
   done
 }
 

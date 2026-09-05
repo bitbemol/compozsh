@@ -1,4 +1,10 @@
-# Small commands and safe Git cleanup.
+# Small commands and the optional guarded discard capability for g.
+# Remove the former owned entry when re-sourcing; g is the only public route.
+unfunction git-discard-all 2>/dev/null
+unfunction _compozsh_help_git-discard-all 2>/dev/null
+unalias git-discard-all 2>/dev/null
+unfunction prompt-refresh _compozsh_help_prompt-refresh 2>/dev/null
+unalias prompt-refresh 2>/dev/null
 
 _tools_print_help() {
   emulate -L zsh
@@ -8,9 +14,15 @@ _tools_print_help() {
   "${printer[@]}" "usage: $1" "${@:2}"
 }
 
+_compozsh_template_mkcd() { REPLY=directory; }
+
 _compozsh_help_mkcd() {
-  _tools_print_help 'mkcd <directory>' \
+  _tools_print_help 'mkcd [--] <directory>' \
     'Create a directory and change into it.' \
+    '' \
+    'Arguments:' \
+    '  <directory>  Exact directory path to create and enter; quote spaces.' \
+    '  --  Optional separator; the following path is always literal.' \
     '' \
     'Behavior:' \
     '  Accepts exactly one path. Missing parent directories are created with' \
@@ -21,6 +33,14 @@ _compozsh_help_mkcd() {
     '  A creation failure prevents cd. If cd fails afterward, any directories' \
     '  already created remain. Permissions and normal cd rules still apply.' \
     '  --help shows this guide without creating or entering anything.' \
+    '' \
+    'Compose a directory:' \
+    '  Option-Return on mkcd offers Compose this command when .zsh.compose is enabled.' \
+    '  Compose example in terminal help opens the same literal Directory field.' \
+    '  Its preview updates while typing. Enter absolute or ./relative paths;' \
+    '  variables and ~ are literal in this form. Fields are limited to 4,096 characters.' \
+    '  Replace draft inserts a quoted command after cleanup; it never creates or enters.' \
+    '  Escape preserves the original draft and cursor.' \
     '' \
     'Examples:' \
     '  mkcd ~/Projects/example-app' \
@@ -48,64 +68,17 @@ _compozsh_help_cpdir() {
     '  cpdir       Copy this directory, then paste in an editor or file dialog.'
 }
 
-_compozsh_help_git-discard-all() {
-  _tools_print_help 'git-discard-all' \
-    'Preview and discard staged, unstaged, and untracked working-tree changes.' \
-    '' \
-    'Scope and confirmation:' \
-    '  Operates from the repository root even when called in a subfolder.' \
-    '  Restores tracked files and the index to HEAD, discarding both staged' \
-    '  and unstaged edits, then deletes untracked files and directories.' \
-    '  Prints Git status before asking [y/N]; only y or Y confirms.' \
-    '  Enter or any other answer cancels. No force/yes option is provided.' \
-    '  A clean working tree needs no confirmation and returns success.' \
-    '' \
-    'Safety and limitations:' \
-    '  Keeps ignored files, commits, stashes, nested repositories, and' \
-    '  submodule contents. Refuses a repository with no HEAD commit or an' \
-    '  active merge, rebase, cherry-pick, revert, or bisect operation.' \
-    '  Repository content filters, hooks, filesystem monitors, lazy fetches,' \
-    '  and required-filter enforcement are disabled for inspection/restore.' \
-    '  After confirmation, the target, HEAD, operation, filter names, and' \
-    '  listed path states are revalidated before any change is applied.' \
-    '  Discarded work has no automatic backup or rollback. If a later step' \
-    '  fails, earlier changes can already have been applied; inspect status.' \
-    '  Remaining nested-repository/submodule changes are reported as failure.' \
-    '  Requires Git. Cancellation or failure returns nonzero.' \
-    '  --help shows this guide without inspecting or modifying a repository.' \
-    '' \
-    'Examples:' \
-    '  git-discard-all              Preview and confirm repository-wide loss.' \
-    '  git stash --include-untracked  Use instead to save work for later.'
-}
-
-_compozsh_help_prompt-refresh() {
-  _tools_print_help 'prompt-refresh' \
-    'Clear in-memory prompt and tool caches, then refresh command lookup.' \
-    '' \
-    'Behavior:' \
-    '  Clears cached runtime versions, Git-directory information, and grep' \
-    '  color-capability detection in the current shell, then runs rehash.' \
-    '  Relevant caches are rebuilt on their next use. No tools are installed' \
-    '  or upgraded, and other terminal sessions are unchanged.' \
-    '  Use after installing/upgrading a tool or changing PATH in this shell.' \
-    '  This does not reload add-ons or your initializer. Use exec zsh to load' \
-    '  configuration changes into a fresh shell.' \
-    '  Takes no arguments; --help shows this guide without clearing caches.' \
-    '' \
-    'Examples:' \
-    '  prompt-refresh    Refresh lookup after a tool installation.' \
-    '  exec zsh          Reload configuration after editing your add-ons.'
-}
-
 mkcd() {
   emulate -L zsh
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_mkcd
+    local -a help=(_compozsh_help_mkcd)
+    (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+    "${help[@]}"
     return 0
   fi
-  (( $# == 1 )) || { print -u2 'usage: mkcd <directory>'; return 2; }
+  (( $# == 2 )) && [[ $1 == -- ]] && shift
+  (( $# == 1 )) || { print -u2 'usage: mkcd [--] <directory>'; return 2; }
   command mkdir -p -- "$1" && builtin cd -- "$1"
 }
 
@@ -115,7 +88,9 @@ cpdir() {
   setopt PIPE_FAIL
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_cpdir
+    local -a help=(_compozsh_help_cpdir)
+    (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+    "${help[@]}"
     return 0
   fi
   (( $# == 0 )) || {
@@ -220,15 +195,38 @@ _tools_git_filter_config() {
 
 # Restore the entire repository to HEAD and remove untracked files after an
 # explicit preview and confirmation. Ignored files, stashes, and commits stay.
-git-discard-all() {
+_tools_discard_confirm() {
+  _zle_ui_view query _tools_discard_confirm_view "$@"
+}
+
+_tools_discard_confirm_view() {
+  emulate -L zsh
+  local -a _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_BOOKMARK=()
+  local _ZLE_PICKER_SELECTED_VALUE=''
+  _ZLE_PICKER_TITLE='Git / Discard confirmation' _ZLE_PICKER_SUBTITLE=$1
+  _ZLE_PICKER_QUERY_LABEL='Discard everything listed above? [y/N]'
+  _ZLE_PICKER_QUERY_EMPTY_CANCEL=1
+  _ZLE_PICKER_INSPECT_ACTION=confirm _ZLE_PICKER_CANCEL_LABEL=cancel
+  _ZLE_PICKER_BROWSE_LABEL='Destructive · y or Y confirms · empty input cancels'
+  _ZLE_PICKER_EMPTY_LINES=(
+    'Permanently discard staged and unstaged tracked changes.'
+    'Delete untracked files and directories across this repository.'
+    'Ignored files, stashes, commits, and nested repositories are preserved.'
+    '' 'The complete status was printed before this screen.'
+    'After closing, repository state is revalidated before any write.')
+  _ZLE_PICKER_INSPECT_TITLE='Captured status'
+  _ZLE_PICKER_INSPECT_FIXED_KEY=changes
+  _ZLE_PICKER_INSPECT_TEXTS=(changes "${2[1,32768]}")
+  (( ${#2} > 32768 )) && _ZLE_PICKER_INSPECT_TEXTS[changes]+=$'\n[Preview limited to 32,768 characters; full status is in scrollback.]'
+  _zle_picker_run 10 '' || return 1
+  [[ $_ZLE_PICKER_SELECTED_VALUE == [yY] ]]
+}
+
+_tools_git_discard_all() {
   emulate -L zsh
 
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_git-discard-all
-    return 0
-  fi
   (( $# == 0 )) || {
-    print -u2 'usage: git-discard-all'
+    print -u2 'usage: g [git-arguments ...]'
     return 2
   }
 
@@ -243,28 +241,28 @@ git-discard-all() {
   local -i filter_config_changed=0 index=0
 
   root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
-    print -u2 'git-discard-all: not inside a Git working tree'
+    print -u2 'g --discard-all: not inside a Git working tree'
     return 1
   }
   head=$(command git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || {
-    print -u2 'git-discard-all: this repository has no commit to restore'
+    print -u2 'g --discard-all: this repository has no commit to restore'
     return 1
   }
 
   git_dir=$(command git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || {
-    print -u2 'git-discard-all: could not inspect repository state'
+    print -u2 'g --discard-all: could not inspect repository state'
     return 1
   }
   _tools_git_operation "$git_dir"
   operation=$REPLY
   if [[ -n $operation ]]; then
-    print -u2 -- "git-discard-all: refusing during an active ${operation} operation"
+    print -u2 -- "g --discard-all: refusing during an active ${operation} operation"
     print -u2 'Finish or abort that operation explicitly first.'
     return 1
   fi
 
   _tools_git_filter_config "$root" || {
-    print -u2 'git-discard-all: could not validate repository content filters'
+    print -u2 'g --discard-all: could not validate repository content filters'
     return 1
   }
   filter_config=("${reply[@]}")
@@ -273,7 +271,7 @@ git-discard-all() {
     -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null "${filter_config[@]}" status \
     --porcelain=v1 --untracked-files=all) || {
-    print -u2 'git-discard-all: could not inspect the working tree'
+    print -u2 'g --discard-all: could not inspect the working tree'
     return 1
   }
   if [[ -z $changes ]]; then
@@ -287,7 +285,12 @@ git-discard-all() {
   print -u2 'and deletes untracked files and directories across the repository.'
   print -u2 'Ignored files, stashes, commits, and nested repositories are preserved.'
 
-  read -r "answer?Discard everything listed above? [y/N] "
+  if [[ -t 0 && -t 1 && $TERM != dumb ]] &&
+     (( ${+functions[_zle_ui_view]} && ${+functions[_zle_picker_run]} )); then
+    _tools_discard_confirm "$root" "$changes" && answer=y
+  else
+    read -r "answer?Discard everything listed above? [y/N] "
+  fi
   if [[ $answer != [yY] ]]; then
     print -- 'Cancelled; nothing was changed.'
     return 1
@@ -296,13 +299,13 @@ git-discard-all() {
   confirmed_root=$(command git -C "$root" rev-parse --show-toplevel 2>/dev/null) &&
     confirmed_head=$(command git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) &&
     confirmed_git_dir=$(command git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || {
-      print -u2 'git-discard-all: could not revalidate the repository after confirmation; nothing was discarded'
+      print -u2 'g --discard-all: could not revalidate the repository after confirmation; nothing was discarded'
       return 1
     }
   _tools_git_operation "$confirmed_git_dir"
   operation=$REPLY
   _tools_git_filter_config "$root" || {
-    print -u2 'git-discard-all: repository filter configuration changed after the preview; nothing was discarded'
+    print -u2 'g --discard-all: repository filter configuration changed after the preview; nothing was discarded'
     return 1
   }
   confirmed_filter_config=("${reply[@]}")
@@ -321,14 +324,14 @@ git-discard-all() {
     -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" status \
     --porcelain=v1 --untracked-files=all) || {
-    print -u2 'git-discard-all: could not revalidate the working tree; nothing was discarded'
+    print -u2 'g --discard-all: could not revalidate the working tree; nothing was discarded'
     return 1
   }
   if [[ $confirmed_root != "$root" || $confirmed_git_dir != "$git_dir" ||
         $confirmed_head != "$head" || -n $operation ||
         $filter_config_changed != 0 ||
         $confirmed_changes != "$changes" ]]; then
-    print -u2 'git-discard-all: repository state changed after the preview; nothing was discarded'
+    print -u2 'g --discard-all: repository state changed after the preview; nothing was discarded'
     return 1
   fi
 
@@ -337,7 +340,7 @@ git-discard-all() {
     -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
     restore --source="$confirmed_head" --staged --worktree --no-recurse-submodules -- . || {
-    print -u2 'git-discard-all: failed while restoring tracked files'
+    print -u2 'g --discard-all: failed while restoring tracked files'
     return 1
   }
   GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
@@ -345,7 +348,7 @@ git-discard-all() {
     -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
     clean -fdq -- . || {
-    print -u2 'git-discard-all: tracked files were restored, but cleaning failed'
+    print -u2 'g --discard-all: tracked files were restored, but cleaning failed'
     return 1
   }
 
@@ -354,7 +357,7 @@ git-discard-all() {
     -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" status \
     --porcelain=v1 --untracked-files=all) || {
-    print -u2 'git-discard-all: changes were applied, but verification failed'
+    print -u2 'g --discard-all: changes were applied, but verification failed'
     return 1
   }
   if [[ -n $remaining ]]; then
@@ -370,17 +373,8 @@ git-discard-all() {
 
 # Refresh cached executable versions and capabilities after installing or
 # upgrading a tool without starting a new shell. The next use rebuilds them.
-prompt-refresh() {
+_tools_refresh() {
   emulate -L zsh
-
-  if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_prompt-refresh
-    return 0
-  fi
-  (( $# == 0 )) || {
-    print -u2 'usage: prompt-refresh'
-    return 2
-  }
   (( ${+parameters[_PROMPT_RUNTIME_VERSION_CACHE]} )) &&
     _PROMPT_RUNTIME_VERSION_CACHE=()
   (( ${+parameters[_PROMPT_GIT_DIR_CACHE]} )) &&

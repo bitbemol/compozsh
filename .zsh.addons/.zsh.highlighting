@@ -486,10 +486,13 @@ _zle_syntax_highlight() {
 }
 
 autoload -Uz add-zle-hook-widget
+add-zle-hook-widget -d line-pre-redraw _zle_prompt_pre_redraw 2>/dev/null
 add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight 2>/dev/null
 add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update 2>/dev/null
 add-zle-hook-widget line-pre-redraw _zle_syntax_highlight
 (( ${+functions[_zle_autosuggest_update]} )) &&
   add-zle-hook-widget line-pre-redraw _zle_autosuggest_update
+(( ${+functions[_zle_prompt_pre_redraw]} )) &&
+  add-zle-hook-widget line-pre-redraw _zle_prompt_pre_redraw
 
 :

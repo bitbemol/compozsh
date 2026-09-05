@@ -1,5 +1,45 @@
 # Focused regressions for the opt-in macOS sudo Touch ID configuration.
 
+_test_sudo_touch_id_grouped_entry() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.help"
+    local guide=$(compozsh --sudo-touch-id --help)
+    [[ $guide == "usage: compozsh --sudo-touch-id [status|enable|disable]"$'\''\n'\''* ]] || exit 1
+    [[ $guide == $(_compozsh_help_compozsh sudo-touch-id) ]] || exit 2
+    compozsh --sudo-touch-id > "$HOME/out" 2> "$HOME/err"
+    [[ $? == 1 && ! -s "$HOME/out" && $(<"$HOME/err") == *"enable .zsh.sudo-touch-id"* ]] || exit 3
+    functions[compozsh-sudo-touch-id]="return 99"
+    functions[_compozsh_help_compozsh-sudo-touch-id]="return 99"
+    aliases[compozsh-sudo-touch-id]=obsolete
+    source "$1/.zsh.addons/.zsh.sudo-touch-id"
+    (( !${+functions[compozsh-sudo-touch-id]} && !${+functions[_compozsh_help_compozsh-sudo-touch-id]} &&
+       !${+aliases[compozsh-sudo-touch-id]} )) || exit 4
+    local calls=0
+    _sudo_touch_id_run() { (( ++calls )); print -r -- "$1|$2"; return 23; }
+    local action="" actual=""
+    for action in status enable disable; do
+      compozsh --sudo-touch-id "$action" > "$HOME/out"
+      [[ $? == 23 && $(<"$HOME/out") == "$action|/etc/pam.d" ]] || exit 5
+    done
+    compozsh --sudo-touch-id > "$HOME/out"
+    [[ $? == 23 && $(<"$HOME/out") == "status|/etc/pam.d" && $calls == 4 ]] || exit 6
+    compozsh --sudo-touch-id --help > "$HOME/out" 2> "$HOME/err"
+    [[ $? == 0 && $calls == 4 && ! -s "$HOME/err" && $(<"$HOME/out") == "$guide" ]] || exit 7
+    local args=""
+    for args in "--sudo-touch-id invalid" "--sudo-touch-id enable disable" "--sudo-touch-id --help extra" "--sudo-touch-id enable --help"; do
+      compozsh ${=args} > "$HOME/out" 2> "$HOME/err"
+      [[ $? == 2 && $calls == 4 && ! -s "$HOME/out" && $(<"$HOME/err") == "${guide[(f)1]}" ]] || exit 8
+    done
+    _compozsh_tool_capture
+    (( !${_COMPOZSH_TOOL_NAMES[(Ie)compozsh-sudo-touch-id]} )) || exit 9
+    print grouped
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal grouped "$output"
+}
+test_case 'sudo Touch ID grouped entry owns help validation optional peer and exact dispatch without a retired command' _test_sudo_touch_id_grouped_entry
+
 _test_sudo_touch_id_classifies_only_its_exact_managed_file() {
   test_make_temp_dir || return
   local pam_dir="$TEST_TMP_DIR/pam.d" managed='' output=''
@@ -14,6 +54,7 @@ _test_sudo_touch_id_classifies_only_its_exact_managed_file() {
 
     _sudo_touch_id_managed_text
     managed=$REPLY
+    [[ $managed == *"use compozsh --sudo-touch-id disable"* ]] || exit 11
     print -r -- "$REPLY" >| "$pam_dir/sudo_local"
     _sudo_touch_id_state "$pam_dir"
     print -r -- "managed:$REPLY"
@@ -21,6 +62,14 @@ _test_sudo_touch_id_classifies_only_its_exact_managed_file() {
     { print -r -- "$managed"; print; } >| "$pam_dir/sudo_local"
     _sudo_touch_id_state "$pam_dir"
     print -r -- "changed-managed:$REPLY"
+
+    local previous=${managed//compozsh --sudo-touch-id/compozsh-sudo-touch-id}
+    print -r -- "$previous" >| "$pam_dir/sudo_local"
+    _sudo_touch_id_state "$pam_dir"
+    [[ $REPLY == managed ]] || exit 12
+    { print -r -- "$previous"; print; } >| "$pam_dir/sudo_local"
+    _sudo_touch_id_state "$pam_dir"
+    [[ $REPLY == enabled-external ]] || exit 13
 
     print -r -- "auth sufficient pam_tid.so" >| "$pam_dir/sudo_local"
     _sudo_touch_id_state "$pam_dir"
@@ -173,7 +222,7 @@ _test_sudo_touch_id_revalidates_after_authorization() {
   ' "$TEST_REPO_ROOT" "$pam_dir") || return
 
   test_assert_equal \
-    '1|0|auth optional pam_krb5.so|compozsh-sudo-touch-id: sudo_local changed during authorization; nothing was installed' \
+    '1|0|auth optional pam_krb5.so|compozsh --sudo-touch-id: sudo_local changed during authorization; nothing was installed' \
     "$output" 'enable overwrote policy created while authorization was visible'
 }
 test_case 'sudo Touch ID revalidates policy after visible authorization' \
@@ -325,6 +374,16 @@ _test_sudo_touch_id_privileged_routines_execute_in_isolated_fixture() {
       "$TEST_PAM_DIR/.compozsh-sudo-touch-id.residue") == \
       "$uid:$gid:444:$expected_size:1" ]] || exit 50
     print -r -- multi-link-recovered
+    local previous=${managed/compozsh --sudo-touch-id/compozsh-sudo-touch-id}
+    print -r -- "$previous" > "$TEST_PAM_DIR/sudo_local"
+    command chmod 0444 "$TEST_PAM_DIR/sudo_local"
+    command /bin/zsh -dfc "$remove_script" fixture "${lines[@]}" || exit 51
+    [[ ! -e "$TEST_PAM_DIR/sudo_local" ]] || exit 52
+    { print -r -- "$previous"; print; } > "$TEST_PAM_DIR/sudo_local"
+    command chmod 0444 "$TEST_PAM_DIR/sudo_local"
+    command /bin/zsh -dfc "$remove_script" fixture "${lines[@]}"
+    [[ $? == 1 && -f "$TEST_PAM_DIR/sudo_local" ]] || exit 53
+    print -r -- previous-policy-verified
   ' "$TEST_REPO_ROOT" "$pam_dir") || return
 
   test_assert_contains "$output" 'symlink:1' \
@@ -343,7 +402,9 @@ _test_sudo_touch_id_privileged_routines_execute_in_isolated_fixture() {
   test_assert_contains "$output" 'has additional hard links; disable removes only sudo_local, then inspect remaining links.' \
     'status did not expose interrupted hard-link cleanup recovery' || return
   test_assert_contains "$output" 'multi-link-recovered' \
-    'privileged removal could not recover an interrupted hard-link cleanup'
+    'privileged removal could not recover an interrupted hard-link cleanup' || return
+  test_assert_contains "$output" previous-policy-verified \
+    'previous policy must remain removable only with exact bytes and metadata'
 }
 test_case 'sudo Touch ID privileged routines execute safely in an isolated fixture' \
   _test_sudo_touch_id_privileged_routines_execute_in_isolated_fixture

@@ -11,19 +11,277 @@ typeset -ga _COMPOZSH_TOOL_SEARCH_TEXTS=()
 typeset -gA _COMPOZSH_TOOL_HELPERS=()
 typeset -gA _COMPOZSH_TOOL_SOURCES=()
 
+# Public commands opt into presentation at invocation time. Companions remain
+# static printable providers, so capture never recursively opens another view.
+_compozsh_help_show() {
+  emulate -L zsh
+  if [[ ! -t 0 || ! -t 1 || -z $TERM || $TERM == dumb || -n ${NO_COLOR:-} ]] ||
+     (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_zle_ui_view]} ||
+        ! ${+functions[_zle_ui_read_text]} )) ||
+     [[ -z ${terminfo[smcup]-} || -z ${terminfo[rmcup]-} ]]; then
+    "$@"
+    return $?
+  fi
+  local _help_capture='' result=0 _ZLE_PICKER_SELECTED_VALUE=''
+  local _COMPOZSH_COMPOSE_RESULT='' _help_command=''
+  (( $# == 1 )) && _help_command=${1#_compozsh_help_}
+  local -a _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
+  IFS= read -r -u 0 -k 32769 _help_capture < <("$@") || :
+  [[ -n $_help_capture ]] || return 0
+  _zle_picker_run 20 '' 1 0 _compozsh_help_workspace
+  result=$?
+  if (( result == 0 )) && [[ -n $_COMPOZSH_COMPOSE_RESULT ]]; then
+    print -zr -- "$_COMPOZSH_COMPOSE_RESULT"
+  fi
+  (( result == 1 )) && return 0
+  return $result
+}
+
+# Interpret only the documented line structure, never shell syntax. Sections
+# retain all their original lines; option topics are shortcuts into that text.
+# Complete guide preserves ambiguous prose and text beyond the topic budget.
+_compozsh_help_topics() {
+  emulate -L zsh
+  local text=${1[1,32768]} line='' label='' option='' section_label=''
+  local -a lines=("${(@f)text}")
+  local -i index=0 section=1 option_index=0
+  _HELP_USAGE=${lines[1]-Help}
+  _HELP_DESCRIPTION=${lines[2]-'Captured command documentation.'}
+  _HELP_TOPIC_LABELS=(Overview)
+  _HELP_TOPIC_TEXTS=("$_HELP_USAGE"$'\n\n'"$_HELP_DESCRIPTION")
+  for (( index=3; index <= ${#lines}; ++index )); do
+    line=$lines[index]
+    if [[ -n $line && $line != ' '* ]] && (( ${#_HELP_TOPIC_LABELS} < 128 )); then
+      label=${line%:}
+      section=${_HELP_TOPIC_LABELS[(Ie)$label]}
+      if (( section )); then
+        _HELP_TOPIC_TEXTS[section]+=$'\n\n'"$line"
+      else
+        _HELP_TOPIC_LABELS+=("$label")
+        _HELP_TOPIC_TEXTS+=("$line")
+        section=${#_HELP_TOPIC_LABELS}
+      fi
+      option_index=0 section_label=$label
+      continue
+    fi
+    _HELP_TOPIC_TEXTS[section]+=$'\n'"$line"
+    option=${line#'  '}
+    if [[ $line == '  '[^[:space:]]* && $section_label != Examples &&
+          ( $option == --* || $option == '<'* || $option == *'  '* ) ]] && (( ${#_HELP_TOPIC_LABELS} < 128 )); then
+      if [[ $option == *'  '* ]]; then label=${option%%  *}; else label=${option%% *}; fi
+      option_index=${_HELP_TOPIC_LABELS[(Ie)$label]}
+      if (( option_index )); then
+        _HELP_TOPIC_TEXTS[option_index]+=$'\n\n'"$line"
+      else
+        _HELP_TOPIC_LABELS+=("$label")
+        _HELP_TOPIC_TEXTS+=("$line")
+        option_index=${#_HELP_TOPIC_LABELS}
+      fi
+    elif [[ -z $line ]]; then
+      option_index=0
+    elif (( option_index )); then
+      _HELP_TOPIC_TEXTS[option_index]+=$'\n'"$line"
+    fi
+  done
+  if (( ${#1} > 32768 )); then
+    text+=$'\n[Help limited to 32,768 characters. Pipe --help to read the complete text.]'
+  fi
+  _HELP_TOPIC_LABELS+=('Complete guide')
+  _HELP_TOPIC_TEXTS+=("$text")
+}
+
+_compozsh_help_collect() {
+  emulate -L zsh
+  local query=${1:l} searchable=''
+  local -i index=0 limit=$2
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  local -i compose_first=0
+  if [[ -n $query ]] && (( ${_HELP_COMPOSE_INDEX:-0} > 0 )) &&
+     [[ ${_HELP_TOPIC_LABELS[_HELP_COMPOSE_INDEX]:l} == *"$query"* ]]; then
+    compose_first=$_HELP_COMPOSE_INDEX
+    _ZLE_PICKER_RESULTS+=("$compose_first") _ZLE_PICKER_LABELS+=("$_HELP_TOPIC_LABELS[compose_first]")
+    (( limit <= 1 )) && return 0
+  fi
+  for (( index=1; index <= ${#_HELP_TOPIC_LABELS}; ++index )); do
+    (( index == compose_first )) && continue
+    searchable="${_HELP_TOPIC_LABELS[index]} ${_HELP_TOPIC_TEXTS[index]}"
+    # Complete guide is searchable by name, not a match for every query.
+    (( index == ${#_HELP_TOPIC_LABELS} )) && searchable=${_HELP_TOPIC_LABELS[index]}
+    [[ ${searchable:l} == *"$query"* ]] || continue
+    _ZLE_PICKER_RESULTS+=("$index")
+    _ZLE_PICKER_LABELS+=("${_HELP_TOPIC_LABELS[index]}")
+    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
+  done
+  return 0
+}
+
+_compozsh_help_workspace() {
+  # A direct --help enters through the screen callback; catalog entry supplies
+  # its existing capture explicitly. Neither path captures inside the editor.
+  _zle_ui_view reference _compozsh_help_view "${1-$_help_capture}" "${2-${_help_command:-}}"
+}
+
+_compozsh_help_view() {
+  emulate -L zsh
+  local -a _HELP_TOPIC_LABELS=() _HELP_TOPIC_TEXTS=() bookmark=('' 1 0)
+  local _HELP_USAGE='' _HELP_DESCRIPTION='' selected=''
+  local _help_compose_seed=''
+  local -i index=0 result=0 focus=0 _HELP_COMPOSE_INDEX=0
+  _compozsh_help_topics "$1"
+  if [[ -n ${2:-} ]] && (( ${+functions[_compozsh_compose_open]} )) &&
+     _compozsh_compose_capability "$2"; then
+    case $REPLY in
+      git-review) _help_compose_seed='g --review' ;;
+      directory) _help_compose_seed=mkcd ;;
+    esac
+    _HELP_COMPOSE_INDEX=${#_HELP_TOPIC_LABELS}
+    _HELP_TOPIC_LABELS=("${_HELP_TOPIC_LABELS[@]:0:$(( _HELP_COMPOSE_INDEX - 1 ))}" 'Compose example…' 'Complete guide')
+    _HELP_TOPIC_TEXTS=("${_HELP_TOPIC_TEXTS[@]:0:$(( _HELP_COMPOSE_INDEX - 1 ))}"
+      "Compose example: $_help_compose_seed"$'\n\nOpen an authored template with editable fields.\nNothing executes. Replace draft explicitly returns the generated command to your prompt.\nEscape keeps your original draft.' "${_HELP_TOPIC_TEXTS[-1]}")
+    _ZLE_PICKER_ACCEPT_LABELS[$_HELP_COMPOSE_INDEX]=compose
+  fi
+  _ZLE_PICKER_TITLE="Help / ${${_HELP_USAGE#usage: }%% *}"
+  _ZLE_PICKER_SUBTITLE=$_HELP_DESCRIPTION
+  _ZLE_PICKER_QUERY_LABEL='Find a topic'
+  _ZLE_PICKER_BROWSE_LABEL='Captured guide · read only'
+  (( ${#1} > 32768 )) && _ZLE_PICKER_BROWSE_LABEL='Partial guide · 32,768-character capture'
+  _ZLE_PICKER_EMPTY_LABEL='no matching topics'
+  _ZLE_PICKER_INSPECT_TITLE=Explanation _ZLE_PICKER_INSPECT_ACTION=read
+  _ZLE_PICKER_COLLECTOR=_compozsh_help_collect
+  for (( index=1; index <= ${#_HELP_TOPIC_LABELS}; ++index )); do
+    _ZLE_PICKER_INSPECT_TEXTS[$index]=${_HELP_TOPIC_TEXTS[index]}
+    # Argument/mode excerpts start with an indented body line; section topics
+    # start with their heading. Reuse the shared option accent and selection
+    # contrast without adding escape sequences to labels or exact topic IDs.
+    if [[ ${_HELP_TOPIC_TEXTS[index]} == '  '* ]]; then
+      _ZLE_PICKER_LABEL_HIGHLIGHTS[$index]="0:${#_HELP_TOPIC_LABELS[index]}:picker-header"
+    fi
+  done
+  while true; do
+    _zle_picker_start_focus=$focus
+    _zle_picker_loop "$bookmark[1]" 20 "$bookmark[2]" "$bookmark[3]"
+    result=$?
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    [[ $selected == <-> ]] && (( selected >= 1 && selected <= ${#_HELP_TOPIC_LABELS} )) || return 1
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    if (( selected == _HELP_COMPOSE_INDEX )); then
+      _compozsh_compose_open "$_help_compose_seed" "$PWD"
+      result=$?
+      (( result > 1 )) && return $result
+      [[ -n ${_COMPOZSH_COMPOSE_RESULT:-} ]] && return 0
+      continue
+    fi
+    _zle_ui_read_text "$_ZLE_PICKER_TITLE / ${_HELP_TOPIC_LABELS[selected]}" \
+      'Captured topic · Enter or Escape returns to topics' "${_HELP_TOPIC_TEXTS[selected]}" reference
+    result=$?
+    (( result > 1 )) && return $result
+  done
+}
+
 _compozsh_help_compozsh() {
   local -a printer=(print -rl --)
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
-  "${printer[@]}" 'usage: compozsh [--list | help command]' \
+  if [[ ${1:-} == sudo-touch-id ]]; then
+    "${printer[@]}" 'usage: compozsh --sudo-touch-id [status|enable|disable]' \
+      'Inspect or manage Touch ID authentication for sudo on this Mac.' \
+      '' \
+      'Modes:' \
+      '  status   Classifies /etc/pam.d/sudo_local as absent, managed, or custom.' \
+      '           This is the default and never requests administrator access.' \
+      "  enable   Installs Apple's advertised sufficient pam_tid rule in one" \
+      '           root-owned policy at that exact path.' \
+      '           The first authorization still normally requires a password.' \
+      '  disable  Removes the file only when its contents exactly match the' \
+      '           Compozsh-managed policy. Custom PAM policy is never replaced.' \
+      '' \
+      'Apple-supported change:' \
+      '  Apple supports this interface on macOS Sonoma 14 or later.' \
+      '  Compozsh additionally requires an ACL-free system sudo policy and' \
+      '  template, a' \
+      '  sudo_local include with a later required password fallback, and an' \
+      '  enrolled fingerprint on a compatible Mac with Touch ID.' \
+      '  The setting is never enabled automatically by installation, startup, or' \
+      '  updates. Only the explicit enable mode can create the managed policy.' \
+      '' \
+      'Local security model:' \
+      '  Authentication is entirely local: Zsh invokes sudo; sudo invokes macOS' \
+      "  PAM and Apple's pam_tid; the Secure Enclave performs the biometric match." \
+      '  This adds no network request or external authentication service.' \
+      "  pam_tid returns an authentication result to PAM; Compozsh observes only" \
+      "  sudo's exit status, never fingerprint or template data. Compozsh receives" \
+      '  no reusable biometric token.' \
+      '  A successful Touch ID authentication avoids sudo password keystrokes,' \
+      '  reducing password credential capture, observation, and replay risk.' \
+      '  It does not grant sudo permission. Touch ID authenticates the invoking' \
+      '  user. It does not verify that a command is safe.' \
+      '  The sufficient pam_tid rule falls through to the verified later required' \
+      '  pam_opendirectory.so authenticator when Touch ID fails or is unavailable.' \
+      '  SSH and some multiplexed or remote contexts cannot present Touch ID;' \
+      '  password fallback also requires usable terminal input.' \
+      '' \
+      'Authorization cache:' \
+      '  When a state change is needed, enable and disable run /usr/bin/sudo -v,' \
+      '  then one sudo -n fixed privileged routine. Authentication by password' \
+      '  or Touch ID can refresh the ordinary sudo timestamp.' \
+      '  The cache applies to the same terminal session, normally for five' \
+      '  minutes unless system policy differs.' \
+      '  A process already controlling that session may benefit from the cache' \
+      '  after either method. Run sudo -k to invalidate the current timestamp.' \
+      '  The PAM rule does not change sudo timeout or timestamp policy.' \
+      '' \
+      'Risks, persistence, and recovery:' \
+      '  PAM policy controls system authentication. On a managed work Mac, obtain' \
+      '  administrator approval before changing organization-controlled policy.' \
+      '  No variable path or policy text is accepted. Exact owner, mode, ACL,' \
+      '  bytes, and fixed targets are checked at the privileged effect boundary.' \
+      '  A successful enable persists across shells and system updates until' \
+      '  disabled. Enable uses a temporary file under /etc/pam.d and publishes' \
+      '  only sudo_local. No backup exists because existing policy is preserved.' \
+      '  After an uncertain enable error, run status and then disable if managed.' \
+      '  Any inactive .compozsh-sudo-touch-id.* residue requires separate review.' \
+      '  Additional hard links are reported. Disable removes only sudo_local,' \
+      '  never other links; inspect remaining links separately.' \
+      '  An exact earlier managed policy remains removable even when its comment' \
+      '  names the retired command. Existing files are not rewritten automatically.' \
+      '  --help shows this guide without reading PAM files or invoking sudo.' \
+      '  Operations require .zsh.sudo-touch-id; this guide remains available without it.' \
+      '' \
+      'Examples:' \
+      '  compozsh --sudo-touch-id          Inspect current state.' \
+      '  compozsh --sudo-touch-id enable   Opt in after reviewing this guide.' \
+      "  compozsh --sudo-touch-id disable  Remove only Compozsh's exact policy."
+    return 0
+  fi
+  "${printer[@]}" 'usage: compozsh [--list | --refresh | --sudo-touch-id [status|enable|disable] | help command]' \
     'Explore public functions loaded from Compozsh add-on directories.' \
     '' \
     'Modes:' \
     '  No arguments opens a fuzzy tool picker. Enter or a visible digit with' \
     '  an empty query shows documentation; selection never runs the tool.' \
     '  --list  Print the live catalog with source and help availability.' \
-    '  help command shows help for an exact loaded name, without a picker.' \
+    '  help command opens the guide for an exact loaded name, skipping the catalog.' \
     '  --help shows this guide without discovering tools.' \
     '  Pipes, redirects, dumb terminals, or a missing picker show the catalog.' \
+    '' \
+    'Touch ID for sudo:' \
+    '  --sudo-touch-id  Show the current policy status without administrator access.' \
+    '  --sudo-touch-id enable  Opt in to Apple Touch ID for sudo on this Mac.' \
+    '  --sudo-touch-id disable  Remove only an exact Compozsh-managed policy.' \
+    '  --sudo-touch-id --help  Read the full safety, authorization and recovery guide.' \
+    '  Status is the default. Operations require .zsh.sudo-touch-id; help does not.' \
+    '  Enable and disable can request administrator authorization; custom policy' \
+    '  is preserved. This setting affects sudo, not Touch ID across macOS.' \
+    '' \
+    'Refresh this shell:' \
+    '  --refresh clears cached runtime versions, Git-directory information,' \
+    '  and grep color-capability detection, then runs rehash. Requires .zsh.tools.' \
+    '  Relevant caches rebuild on next use. No tools are installed or upgraded;' \
+    '  only the current shell changes. No output is printed on success.' \
+    '  Use after installing/upgrading a tool or changing PATH in this shell.' \
+    '  This does not reload add-ons or your initializer; use exec zsh for that.' \
+    '  --refresh --help shows this guide without clearing caches.' \
     '' \
     'Discovery and missing help:' \
     '  Uses loaded public functions defined beneath a .zsh.addons directory,' \
@@ -42,7 +300,9 @@ _compozsh_help_compozsh() {
     '  returns to the same filter and selection. A plain ? filters normally.' \
     '  Terminal.app uses a temporary alternate screen; closing restores' \
     '  your previous terminal output. Unsupported terminals stay inline.' \
-    '  Search stays at the top, shortcuts at the bottom. Visible matches' \
+    '  On usable full screens, search and its real typing cursor sit above' \
+    '  the bottom action bar. Short and inline views keep search above results.' \
+    '  Choices gain spacing when all visible slots still fit. Visible matches' \
     '  are emphasized as you filter; row limits and number keys stay the same.' \
     '  Searches names and source labels case-insensitively, in character order.' \
     '  Prefixes and substrings rank before abbreviated matches. Type to refine;' \
@@ -60,20 +320,56 @@ _compozsh_help_compozsh() {
     '  At 100 columns or wider, the list gets most of the width. Help uses' \
     '  a secondary pane capped at 48 columns, compact until focused.' \
     '  Focused help can use the full body height of the temporary screen.' \
+    '  On that screen, focusing also expands its width beside the retained' \
+    '  tool selection. Returning restores the compact preview; rewrapping' \
+    '  retains the source paragraph. The navigation strip marks active focus.' \
     '  Height adapts to the window and visible results. In narrower windows,' \
     '  switch between the list and a full-width help view.' \
     '  Right / Ctrl-E enters help; Left / Ctrl-B returns to the tool list.' \
     '  Tab / Shift-Tab switches panes. In help, Up/Down or Ctrl-P/N scroll;' \
     '  Fn-Up/Down or Option-Up/Down page with one-line overlap.' \
     '  Ctrl-V pages down; Ctrl-D pages up without Option-as-Meta. Typing refines the' \
-    '  filter and returns to the list. Enter prints full help after closing.' \
+    '  filter and returns to the list. Enter opens captured help topics.' \
+    '  Escape returns to the same tool, filter, viewport and pane.' \
     '  Digits select only from the visible list with an empty filter.' \
     '  The browser captures up to 64 trusted same-file help companions once' \
     '  when opened, up to 32,768 characters each and 256 wrapped preview lines.' \
-    '  Truncation is labeled; Enter still shows the complete guide.' \
+    '  Truncation is labeled; pipe compozsh help command for the complete guide.' \
     '  Scrolling and resizing use that in-memory snapshot; closing releases it.' \
     '  Custom help providers must be static and side-effect-free, just as for' \
     '  --help. Preview bounds are not a sandbox for user-defined shell code.' \
+    '' \
+    'Help workspace:' \
+    '  Owned --help modes and compozsh help command open the shared help workspace' \
+    '  when input/output are terminals and UI plus alternate-screen support exist.' \
+    '  The tool description stays above Topics and Explanation. Overview retains' \
+    '  its full description and usage even when the header must abbreviate.' \
+    '  Arguments use the shared palette accent in Topics, Explanation and reading;' \
+    '  explanation prose stays neutral, including across wrapping and filtering.' \
+    '  At 90 columns, a compact topic navigator sits beside the primary explanation.' \
+    '  Narrower windows use Ctrl-E/B or Tab to switch the same two surfaces.' \
+    '  Find a topic matches literal case-insensitive substrings in labels and text.' \
+    '  Arrows choose topics. Enter or an empty-filter digit opens the selected' \
+    '  topic in a full-width reader; type there to filter literal lines.' \
+    '  Enter/Escape returns to the same topic/filter/focus; Escape in topics exits.' \
+    '  Ctrl-K shows keys. No selection runs a tool, inserts an example, or copies.' \
+    '  Capture is bounded to 32,768 characters with a partial notice, plus at most' \
+    '  128 derived topics and Complete guide. Explanations keep 256 wrapped lines;' \
+    '  Enter reads the full captured topic. Complete guide includes ambiguous prose.' \
+    '  Companions remain the one static text source, captured once before input.' \
+    '  Pipes, redirects, missing UI, or unsupported terminals print the full guide.' \
+    '  NO_COLOR retains plain direct help. For printable text: g --help | cat.' \
+    '' \
+    'Draft inspector (Option-Return at the prompt):' \
+    '  With Terminal Option-as-Meta, inspect the literal draft without running it.' \
+    '  Read at most 32,768 characters; filter literal lines in a full-width reader.' \
+    '  Back restores the exact draft and cursor. Nothing evaluates shell text.' \
+    '  Review this working tree uses the current folder, ignoring draft flags.' \
+    '  Explore tool help reads the same loaded catalog. Choose a path here opens' \
+    '  Files after cleanup; a selected path replaces the draft. Recall a command' \
+    '  opens History; acceptance inserts for editing and never executes.' \
+    '  Available peers determine these choices. No automatic provider capture' \
+    '  occurs while editing; explicit tool selection establishes its own scope.' \
     '' \
     'Filesystem workspace (path + Tab):' \
     '  Type ~/ then Tab for home, ./ then Tab for the current directory, or' \
@@ -236,7 +532,7 @@ _compozsh_tool_inspector_capture() {
     if [[ -z $helper ]]; then
       _ZLE_PICKER_INSPECT_TEXTS[$name]="No Compozsh help is available for ${name}."$'\n'"Defined in: ${_COMPOZSH_TOOL_SOURCES[$name]}"
     elif (( captured >= 64 )); then
-      _ZLE_PICKER_INSPECT_TEXTS[$name]='Preview limit reached. Press Enter for full help.'
+      _ZLE_PICKER_INSPECT_TEXTS[$name]="Preview limit reached. Pipe compozsh help $name for the full guide."
     else
       (( ++captured ))
       text=''
@@ -244,9 +540,9 @@ _compozsh_tool_inspector_capture() {
       # output without storing the rest. Companions follow the static-help contract.
       IFS= read -r -u 0 -k 32768 text < <("$helper" 2>/dev/null) || :
       if (( ${#text} >= 32768 )); then
-        text+=$'\n[Preview truncated. Press Enter for full help.]'
+        text+=$'\n[Preview truncated. Pipe compozsh help command for the full guide.]'
       fi
-      [[ -n $text ]] || text='No preview text returned. Press Enter for full help.'
+      [[ -n $text ]] || text="No preview text returned. Pipe compozsh help $name for the full guide."
       _ZLE_PICKER_INSPECT_TEXTS[$name]=$text
     fi
   done
@@ -270,7 +566,7 @@ _compozsh_tool_show_help() {
 
   helper=${_COMPOZSH_TOOL_HELPERS[$name]-}
   if [[ -n $helper ]]; then
-    "$helper"
+    _compozsh_help_show "$helper"
     return $?
   fi
 
@@ -337,7 +633,7 @@ _compozsh_choose() {
 
 _compozsh_view() {
   emulate -L zsh
-  _ZLE_PICKER_INSPECT_TITLE=Help _ZLE_PICKER_INSPECT_ACTION='print help'
+  _ZLE_PICKER_INSPECT_TITLE=Help _ZLE_PICKER_INSPECT_ACTION='read help'
   _ZLE_PICKER_SUBTITLE='Commands from your loaded add-ons' _ZLE_PICKER_CANCEL_LABEL=''
   _ZLE_PICKER_TITLE='Tool explorer'
   _ZLE_PICKER_BROWSE_LABEL='loaded add-on functions'
@@ -346,20 +642,89 @@ _compozsh_view() {
   {
     if (( ${+functions[_zle_picker_inspect_render]} )); then
       _compozsh_tool_inspector_capture
+      local tool='' text=''
+      for tool in "${_COMPOZSH_TOOL_NAMES[@]}"; do
+        text=${_ZLE_PICKER_INSPECT_TEXTS[$tool]-}
+        # Same captured help: its canonical second line describes the tool.
+        if [[ $text == usage:* ]]; then
+          text=${text#*$'\n'}
+          _ZLE_PICKER_DESCRIPTIONS[$tool]=${text%%$'\n'*}
+        fi
+      done
     fi
-    _zle_picker_run "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}"
+    if (( _ZLE_PICKER_SESSION )); then
+      _compozsh_browse_loop
+    else
+      _zle_picker_run "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}" '' 1 0 _compozsh_browse_loop
+    fi
   } always {
     _ZLE_PICKER_INSPECT_TEXTS=()
   }
 }
 
+# All reading uses the already captured companion text. Returning restores the
+# same filter, row, viewport and pane; a guide never invokes its public command.
+_compozsh_browse_loop() {
+  emulate -L zsh
+  local -a bookmark=('' 1 0)
+  local selected='' text=''
+  local -i focus=0 result=0
+  while true; do
+    _zle_picker_start_focus=$focus
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _zle_picker_loop "$bookmark[1]" "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}" "$bookmark[2]" "$bookmark[3]"
+    result=$?
+    (( result == 0 )) || return $result
+    selected=$_ZLE_PICKER_SELECTED_VALUE
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    text=${_ZLE_PICKER_INSPECT_TEXTS[$selected]-No captured help available.}
+    _compozsh_help_workspace "$text" "$selected"
+    result=$?
+    (( result > 1 )) && return $result
+    [[ -n ${_COMPOZSH_COMPOSE_RESULT:-} ]] && return 0
+  done
+}
+
 unalias compozsh 2>/dev/null
 compozsh() {
   emulate -L zsh
+  local _COMPOZSH_COMPOSE_RESULT=''
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_compozsh
+    _compozsh_help_show _compozsh_help_compozsh
     return 0
+  fi
+  if [[ ${1:-} == --sudo-touch-id ]]; then
+    if (( $# == 2 )) && [[ $2 == --help ]]; then
+      _compozsh_help_show _compozsh_help_compozsh sudo-touch-id
+      return 0
+    fi
+    if (( $# > 2 )) || [[ ${2:-status} != (status|enable|disable) || ( $# == 2 && -z $2 ) ]]; then
+      print -u2 -r -- 'usage: compozsh --sudo-touch-id [status|enable|disable]'
+      return 2
+    fi
+    (( ${+functions[_sudo_touch_id_run]} )) || {
+      print -u2 -r -- 'compozsh: enable .zsh.sudo-touch-id to manage Touch ID for sudo'
+      return 1
+    }
+    _sudo_touch_id_run "${2:-status}" /etc/pam.d
+    return $?
+  fi
+  if [[ ${1:-} == --refresh ]]; then
+    if (( $# == 2 )) && [[ $2 == --help ]]; then
+      _compozsh_help_show _compozsh_help_compozsh
+      return 0
+    fi
+    (( $# == 1 )) || {
+      print -u2 -r -- 'usage: compozsh [--list | --refresh | --sudo-touch-id [status|enable|disable] | help command]'
+      return 2
+    }
+    (( ${+functions[_tools_refresh]} )) || {
+      print -u2 -r -- 'compozsh: enable .zsh.tools to refresh this shell'
+      return 1
+    }
+    _tools_refresh
+    return $?
   fi
   if (( $# == 1 )) && [[ $1 == --list ]]; then
     _compozsh_tool_print
@@ -370,7 +735,7 @@ compozsh() {
     return $?
   fi
   (( $# == 0 )) || {
-    print -u2 -r -- 'usage: compozsh [--list | help command]'
+    print -u2 -r -- 'usage: compozsh [--list | --refresh | --sudo-touch-id [status|enable|disable] | help command]'
     return 2
   }
 
@@ -382,15 +747,14 @@ compozsh() {
     return 0
   fi
 
-  local selected=''
   local -i picker_status=0
   _compozsh_choose
   picker_status=$?
+  if (( picker_status == 0 )) && [[ -n $_COMPOZSH_COMPOSE_RESULT ]]; then
+    print -zr -- "$_COMPOZSH_COMPOSE_RESULT"
+  fi
   (( picker_status == 1 )) && return 0
-  (( picker_status == 0 )) || return $picker_status
-
-  selected=$_ZLE_PICKER_SELECTED_VALUE
-  _compozsh_tool_show_help "$selected"
+  return $picker_status
 }
 
 :

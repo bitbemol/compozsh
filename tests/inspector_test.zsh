@@ -130,40 +130,59 @@ _test_inspector_native_controls() {
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.tools"
     zmodload zsh/zpty
+    zmodload zsh/zselect
+    command mkfifo "$HOME/events" || exit 17
+    exec {event_fd}<> "$HOME/events" || exit 18
     functions[_inspector_original_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _inspector_original_show
-      print -r -- "FRAME:$_ZLE_PICKER_INSPECT_FOCUS:$_ZLE_PICKER_INSPECT_OFFSET:$_ZLE_PICKER_QUERY:END-FRAME"
+      print -r -u $event_fd -- "FRAME:$_ZLE_PICKER_INSPECT_FOCUS:$_ZLE_PICKER_INSPECT_OFFSET:$_ZLE_PICKER_QUERY:SOURCE:${_ZLE_PICKER_INSPECT_SOURCE_LINES[_ZLE_PICKER_INSPECT_OFFSET+1]:-0}:END-FRAME"
     }
     _inspector_driver() {
+      command stty rows 30 cols 120
       COLUMNS=120 LINES=30
       compozsh
-      print -r -- "DONE:${#_ZLE_PICKER_INSPECT_TEXTS}:$_ZLE_PICKER_INSPECT_FOCUS:END-DONE"
+      print -r -u $event_fd -- "DONE:${#_ZLE_PICKER_INSPECT_TEXTS}:$_ZLE_PICKER_INSPECT_FOCUS:END-DONE"
     }
-    zpty inspector _inspector_driver || exit 1
+    local frame="" trace="" chunk="" pty_fd=0
+    _inspector_event() {
+      while zselect -r $event_fd $pty_fd -t 300; do
+        while zpty -r inspector chunk; do trace+=$chunk; done
+        IFS= read -r -t 0 -u $event_fd frame && return 0
+      done
+      print -u2 -- "missing inspector event after $frame"
+      return 1
+    }
+    zpty -b inspector _inspector_driver || exit 1
+    pty_fd=$REPLY
     {
-      zpty -r inspector frame "*END-FRAME*" || exit 2
-      [[ $frame == *"Help"* ]] || exit 3
+      _inspector_event || exit 2
+      [[ $frame == FRAME:* ]] || exit 3
       zpty -w -n inspector $'\''\e[C'\''
-      zpty -r inspector frame "*END-FRAME*" || exit 4
+      _inspector_event || exit 4
       [[ $frame == *"FRAME:1:0:"* ]] || exit 5
       zpty -w -n inspector $'\''\e[B'\''
-      zpty -r inspector frame "*END-FRAME*" || exit 6
+      _inspector_event || exit 6
       [[ $frame == *"FRAME:1:1:"* ]] || exit 7
+      reading_source=${frame##*:SOURCE:}
+      reading_source=${reading_source%%:END-FRAME*}
+      [[ $reading_source == <-> && $reading_source -gt 0 ]] || exit 16
       zpty -w -n inspector $'\''\e[D'\''
-      zpty -r inspector frame "*END-FRAME*" || exit 8
-      [[ $frame == *"FRAME:0:1:"* ]] || exit 9
+      _inspector_event || exit 8
+      [[ $frame == *"FRAME:0:"* && $frame == *":SOURCE:$reading_source:END-FRAME"* ]] || exit 9
       zpty -w -n inspector $'\''\t'\''
-      zpty -r inspector frame "*END-FRAME*" || exit 12
-      [[ $frame == *"FRAME:1:1:"* ]] || exit 13
+      _inspector_event || exit 12
+      [[ $frame == *"FRAME:1:"* && $frame == *":SOURCE:$reading_source:END-FRAME"* ]] || exit 13
       zpty -w -n inspector $'\''\e[200~cpdir\e[201~'\''
-      zpty -r inspector frame "*END-FRAME*" || exit 14
+      _inspector_event || exit 14
       [[ $frame == *"FRAME:0:0:cpdir:"* ]] || exit 15
       zpty -w -n inspector $'\''\x07'\''
-      zpty -r inspector frame "*END-DONE*" || exit 10
+      _inspector_event || exit 10
       [[ $frame == *"DONE:0:0:"* ]] || exit 11
+      [[ $trace != *"read-only variable"* && $trace != *"bad math expression"* ]] || exit 19
     } always {
       zpty -d inspector
+      exec {event_fd}>&-
     }
     print native-controls
   ' "$TEST_REPO_ROOT") || return

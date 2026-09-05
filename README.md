@@ -12,12 +12,17 @@ you audit the exact commit yourself.
 | What you want to do | Entry point | What happens next |
 | --- | --- | --- |
 | Browse a known folder | Type `~/`, `./`, `/`, or another directory path, then press Tab | Right enters a child; Left goes back; Enter inserts an editable path |
+| Inspect the current shell context | Enter a project or Git repository, or press Option-I at the prompt | The Context lens expands automatically for meaningful state changes; Option-I pins or unpins it |
+| Understand the command you are composing | Type at the ordinary prompt | The Interaction lens reacts in place with literal command structure, captured context, and a qualified action hint |
 | Recall a visited folder | Option-Tab at the prompt | Filter this shell's native directory stack; Enter inserts its path, Ctrl-O browses it |
 | Find a file below a folder | Path + Tab → Ctrl-F | Review the displayed source and scope, enter a discovery query, then press Enter |
 | Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
 | Manage Git worktrees | `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
 | Review Git changes | `g` → Ctrl-X or `g --review` | Read working changes, branch commits or a chosen revision pair in the two-pane reader |
+| Explore changes by folder | Git review → Change atlas, or Ctrl-X in a file-review view | Navigate the captured change list, open a diff, then return to the same reading position |
+| Build an editable command | Type `g --review` or `mkcd`, then Option-Return → Compose this command | Edit literal fields and inspect the quoted draft; Replace draft returns to the prompt without executing |
+| Learn a tool's arguments | Its `--help` | Read topics beside their explanations; `g` and `mkcd` also offer Compose example |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
 | Discover your custom tools | `compozsh` | Explore loaded public functions and their safe help |
 
@@ -26,14 +31,20 @@ These tools share a responsive full-screen layout, visible action hints and a
 does **not** change it immediately: review the visible path, then press Enter
 at the normal prompt. File actions are explicit and use the exact selected item.
 
+The [Command composer](#command-composer) currently covers Git review and
+directory creation. Other commands retain their normal editing and help paths.
+Contributors and coding agents should start with the
+[adopted interaction design](AGENTS.md#adopted-interaction-design) for the shared
+flow decisions, effect boundaries and experience-completion checklist.
+
 Ctrl-F defaults to scoped Git discovery within repositories, Spotlight at home
 or root on macOS, and bounded filesystem search elsewhere. It shows the source,
 scope and **Searching…** before capture; failed sources are reported separately
 from empty results and never silently replaced with a home-directory crawl.
 See [search coverage and limits](#filesystem-search-in-the-path-workspace).
 
-Option-Tab needs [Option as Meta](#option-as-meta-one-time-setup) in the active
-Terminal profile. Updating from 1.x? Read the [migration guide](#migration-from-d-and-f):
+Option-I and Option-Tab need [Option as Meta](#option-as-meta-one-time-setup) in
+the active Terminal profile. Updating from 1.x? Read the [migration guide](#migration-from-d-and-f):
 the filesystem workspace replaces the old `d` and `f` commands.
 
 Using an AI chat alongside your shell? See the [native tab workflow](#chat-and-shell-in-native-terminal-tabs)
@@ -41,13 +52,14 @@ for full-sized sessions in one Terminal window.
 
 ## What it includes
 
-- A compact two-line prompt that adds a project-runtime line only when relevant
+- A living prompt with an automatic or Option-I-pinned Context lens, a real-time
+  Interaction lens, and quiet timestamped command receipts in scrollback
 - A compact Git summary with exact staged, modified, untracked, conflicted,
   stashed, ahead, and behind counts
 - Clear Git operation warnings for merges, rebases, cherry-picks, and bisects
 - Read-only Git review with staged/unstaged changes, local commit history,
   a file navigator and independently scrollable, numbered diff reader
-- Command duration for commands that take at least two seconds
+- Compact outcome receipts for slow successes and every failure
 - Active Python virtual environment and background-job indicators
 - Automatic runtime or toolchain detection for more than 35 project types,
   including native, web, JVM, .NET, functional, scientific, game, scripting,
@@ -231,24 +243,25 @@ compozsh/
 ├── .zshrc                 minimal initializer and peer-discovery bootstrap
 ├── .zsh.addons/           repository-managed peers and support
 │   ├── .zsh.shell         shell options, history, and native tool colors
-│   ├── .zsh.editor        completion, history, filesystem entry, and editing
+│   ├── .zsh.editor        completion, history, draft inspection, and Files entry
+│   ├── .zsh.compose       guided literal command drafts and trusted templates
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
 │   ├── .zsh.git-review    read-only working changes, commits and revision comparisons
 │   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
-│   ├── .zsh.help          live tool discovery and help snapshots
+│   ├── .zsh.help          live tool discovery, topic help and maintenance dispatch
 │   ├── .zsh.highlighting  command-line syntax highlighting
-│   ├── .zsh.navigation    directory/branch workspaces, details and copying
+│   ├── .zsh.navigation    directory/branch workspaces and unified g dispatch/help
 │   ├── .zsh.output        help/LLDB styling and native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
-│   ├── .zsh.sudo-touch-id explicit macOS sudo Touch ID policy management
-│   ├── .zsh.tools         small commands and safe Git cleanup
-│   ├── .zsh.usb           external-disk formatting and bootable-media creation
-│   ├── .zsh.xcode         Xcode actions, live logs, filtered log copying, LLDB, skills
+│   ├── .zsh.sudo-touch-id private operations for compozsh --sudo-touch-id
+│   ├── .zsh.tools         small commands, guarded discard and memory refresh
+│   ├── .zsh.usb           external-device tasks, formatting and bootable media
+│   ├── .zsh.xcode         Xcode actions, live logs, LLDB and reviewed skill export
 │   └── support/          maintained system-wide components and assets
 │       ├── .zsh.appearance shared light/dark palette and scheme selection
 │       ├── .zsh.matching   pure literal/fuzzy matching over captured text
-│       ├── .zsh.ui         shared views, layout, input, and screen restoration
+│       ├── .zsh.ui         shared docked input, responsive views, and screen restoration
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
 ├── templates/
 │   └── init.zsh           inert starter copied once for private initialization
@@ -283,23 +296,24 @@ still be sourced independently, including the maintained peers in `support/`:
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion and ZLE editing | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; location trail, captured file summaries, shallow previews, actions and Back bookmarks; fuzzy `Ctrl-R` and history autosuggestions |
-| `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware actions on exact files, folders and links |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; shared file → focused diff → full-context reading; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
-| `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; shared fuzzy choices compose exact targets and editable destinations, with effects after terminal restoration |
+| `.zsh.editor` | Completion, ZLE editing, and prompt interaction | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; living-prompt redraw/accept transitions, Option-I Context toggle and Option-Return draft inspection; location trail, captured file summaries, shallow previews, action plans and Back bookmarks; fuzzy `Ctrl-R` with literal command reading and history autosuggestions |
+| `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware action cards with exact-target plans for files, folders and links |
+| `.zsh.compose` | Guided command drafts | Option-Return on supported drafts and explicit Compose example actions in help open editable fields with a literal command preview; Git review and directory templates opt in through same-source companions; Replace draft inserts after screen cleanup and never executes |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; action plans disclose scope and comparison endpoints; `g --review A B` compares captured commits directly; Ctrl-X inside file review opens the captured Change atlas; shared folder → file → focused diff → full-context reading; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
+| `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
-| `.zsh.help` | Live tool discovery | `compozsh` fuzzily explores loaded public add-on functions with a responsive help inspector and canonical documentation |
+| `.zsh.help` | Live tool discovery, topic help and maintenance entry | `compozsh` explores loaded functions; owned terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette |
-| `.zsh.navigation` | Native Recents and Git movement | Private native-stack provider and Recents view with editable path insertion for the filesystem workspace; `g` branch picker with commit/upstream details, worktree-mode dispatch, copying and small navigation aliases |
+| `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
-| `.zsh.prompt` | Prompt facts, layout, and rendering | Responsive prompt, Git state, command duration, jobs, virtual environments, and project/toolchain context |
-| `.zsh.sudo-touch-id` | Opt-in sudo authentication | `compozsh-sudo-touch-id` inspects, enables, or safely disables Apple Touch ID through the system-supported `sudo_local` PAM policy |
-| `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `git-discard-all`, and `prompt-refresh` |
-| `.zsh.usb` | External-disk preparation | `format-external-device` formats an explicitly selected whole external physical disk with any applicable personality advertised by Apple `diskutil`; `flash-usb` dispatches raw/hybrid images and full macOS installer apps to native verified handlers, while recognized Windows Setup media ends safely with an explanation before target selection |
-| `.zsh.xcode` | Native Xcode integration | `xcode` selects schemes/destinations, reports test outcomes, and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, a live formatted log reader with filtering/copying, and LLDB actions; `update-xcode-skills` exports Apple-authored skills to detected coding agents |
+| `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
+| `.zsh.sudo-touch-id` | Opt-in sudo authentication operations | Private operations behind `compozsh --sudo-touch-id` inspect, enable, or safely disable Apple Touch ID through the system-supported `sudo_local` PAM policy; no separate public command |
+| `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `g --discard-all` with a scoped default-no confirmation screen and plain fallback, and `compozsh --refresh` |
+| `.zsh.usb` | External-disk preparation | `external-device` opens a no-discovery task chooser; `--format` formats a selected whole external physical disk with an applicable Apple `diskutil` personality, and `--flash` handles raw/hybrid images and full macOS installer apps; shared task identity and review/recovery plans precede separate typed confirmation; Windows Setup media ends safely before target selection |
+| `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes/destinations in a captured action plan, retaining action filter/focus after configuration; reports test outcomes and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, live log reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills |
 | `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `support/.zsh.matching` | Shared matching algorithms | Compiles literal, ordered-character and unordered-keyword filters; returns matching indexes from supplied captured text without discovery, ranking, UI state or actions |
-| `support/.zsh.ui` | Shared terminal components and interaction | Palette-driven title/context, query, choices, details, readers, notices, status, trail and keyboard guide; common view defaults, layout, input, live following and screen restoration; feature peers supply captured content and actions |
+| `support/.zsh.ui` | Shared terminal components and interaction | Palette-driven title/context, bottom input/action dock with native caret, descriptive choice cards, action/plan views, primary help explanations beside topic navigation, disclosure, focus-responsive details, captured-text readers, notices, status, trail and keyboard guide; common view defaults, layout, input, live following and screen restoration; feature peers supply captured content and actions |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -362,9 +376,15 @@ Compozsh has no telemetry, analytics, automatic software update check, project s
 or runtime network client. It does retain expected local shell state, including
 history and installer recovery backups. Administrator access occurs only in the
 two explicitly confirmed external-media tools and the explicit
-`compozsh-sudo-touch-id enable|disable` modes. Apple's `sudo` and PAM stack own
+`compozsh --sudo-touch-id enable|disable` modes. Apple's `sudo` and PAM stack own
 authentication input; subsequent privileged operations use non-prompting
 `sudo -n` calls against fixed targets.
+
+The living prompt keeps its current facts, latest outcome, and disclosure state
+in shell memory. Interaction-lens typing, Option-I, line-finish repainting, and
+terminal resize reuse those facts; they do not perform another project or Git
+discovery. A compact command receipt still shows the submitted command and does
+not redact it from terminal scrollback or normal Zsh history.
 
 Read [SECURITY.md](SECURITY.md) for the precise scope and limitations, local
 data inventory, website boundary, update-review workflow, vulnerability
@@ -379,9 +399,17 @@ authenticator. This uses [Apple's update-persistent `sudo_local`
 interface](https://support.apple.com/en-us/109030):
 
 ```sh
-compozsh-sudo-touch-id          # inspect without administrator access
-compozsh-sudo-touch-id enable   # install the fixed local PAM policy
+compozsh --sudo-touch-id          # inspect without administrator access
+compozsh --sudo-touch-id enable   # install the fixed local PAM policy
 ```
+
+This is the sole entry point; the former `compozsh-sudo-touch-id` command and
+help companion are removed, with no compatibility alias. Reload with `exec zsh`
+and update personal shortcuts. The optional `.zsh.sudo-touch-id` peer owns the
+operations; `.zsh.help` owns `compozsh` dispatch and its complete mode help.
+Existing exact managed policies remain recognizable and removable through the
+new command even when their comment names the old command. They are not
+rewritten automatically. New policies carry the new removal instruction.
 
 The first authorization normally asks for your password because the policy is
 not active yet. Later `sudo` authentication can use Touch ID. The rule is
@@ -423,13 +451,13 @@ during installation, startup, or updates.
 To reverse the Compozsh-managed change:
 
 ```sh
-compozsh-sudo-touch-id disable
+compozsh --sudo-touch-id disable
 ```
 
 Disable removes the file only when its complete contents still match the exact
 policy Compozsh installed. If status reports additional hard links, disable
 unlinks only `sudo_local`; it never removes the other links, which require
-separate inspection. Run `compozsh-sudo-touch-id --help` for the complete safety
+separate inspection. Run `compozsh --sudo-touch-id --help` for the complete safety
 and recovery contract.
 
 ## Modern-first compatibility
@@ -570,10 +598,11 @@ exec zsh
 
 ### 4. Enable Option shortcuts in Terminal
 
-For direct **Option-Tab → Recents** and the other Meta-based shortcuts, enable
-**Terminal → Settings → Profiles → your active profile → Keyboard → Use Option
-as Meta key**. Where separate left/right choices are available, enabling **Left
-Option** is sufficient. Then hold that Option key and press Tab at the prompt.
+For direct **Option-I → Context lens**, **Option-Tab → Recents**, and the other
+Meta-based shortcuts, enable **Terminal → Settings → Profiles → your active
+profile → Keyboard → Use Option as Meta key**. Where separate left/right
+choices are available, enabling **Left Option** is sufficient. Then hold that
+Option key and press I at the prompt to pin the lens, or Tab to open Recents.
 This is a manual, per-profile preference; the installer leaves it unchanged.
 See [Option as Meta: one-time setup](#option-as-meta-one-time-setup) for the
 meaning, text-entry tradeoffs, and troubleshooting.
@@ -647,6 +676,13 @@ examples. Choose an example, refine its sample results, and select a file to
 preview its action menu. All outcomes are simulations; sample actions never
 open applications or access your clipboard. The feature guide below each task
 links to its complete documentation.
+
+**Try a flow** opens the new Help → Compose, Command composer and Change atlas
+journeys in that same terminal. Edit bounded literal sample fields, return a
+quoted draft to a simulated prompt, or explore captured change entries by
+folder. These controls never run commands or discover files. The companion
+Learn / Compose / Explore section explains the real entry points, supported
+templates and safety boundaries, and remains readable without JavaScript.
 
 The architecture section explains the three composition laws with a bounded
 interactive model: change the illustrated peer order or load one again to see
@@ -750,7 +786,7 @@ To run only tests whose descriptions contain a case-insensitive fragment:
 
 ```sh
 zsh tests/run.zsh fuzzy
-zsh tests/run.zsh git-discard-all
+zsh tests/run.zsh 'g --discard-all'
 ```
 
 A filtered run shortens the inner TDD loop. Always run the complete unfiltered
@@ -774,7 +810,7 @@ _test_mkcd_rejects_a_missing_operand() {
 
   test_assert_equal 2 "$exit_status" \
     'mkcd accepted a missing directory' || return
-  test_assert_contains "$output" 'usage: mkcd <directory>' \
+  test_assert_contains "$output" 'usage: mkcd [--] <directory>' \
     'mkcd omitted its usage diagnostic'
 }
 test_case 'mkcd rejects a missing directory operand' \
@@ -936,6 +972,17 @@ rendering; consumers use the selected defaults without recreating the map.
 `.zsh.addons/support/.zsh.ui` owns terminal components and their screen cleanup
 independently of normal editor customization. Features supply captured content,
 labels, capabilities and action logic to those components.
+Action workspaces pair a choice with its exact scope and consequence. On owned
+screens at least 90 columns wide, choices use 45% of available pane width,
+capped at 52 columns; the plan uses the rest and can fill the body height.
+Below that width, Ctrl-E/Right or Tab focuses the full-width plan; Ctrl-B/Left
+returns to choices. Descriptive second rows appear only when all configured
+visible choices still fit, so shorter windows retain their selection capacity.
+Files actions, Git review/comparison and worktree setup, Xcode actions/log
+options, and USB review/recovery share this presentation. Each keeps its own
+capture, action and confirmation rules. Native command output, completion and
+external tools retain their normal semantics and use the shared palette where
+their existing adapters support it.
 `.zsh.addons/support/.zsh.matching` owns reusable literal and fuzzy algorithms:
 providers capture candidates, matching filters their text in memory, and views
 display the results while retaining exact action values. These support files
@@ -1016,6 +1063,8 @@ Home, End, or forward-Delete keys missing from compact Apple keyboards:
 | `Option-Tab` | Open Recents directly; selection inserts an editable path, cancellation preserves the draft/cursor (requires Option as Meta) |
 | `Shift-Tab` | Complete backward natively; switch panes in pickers, or go Back in the folder browser |
 | `Ctrl-R` | Open fuzzy history search |
+| `Option-I` | Pin or unpin the Context lens at the ordinary prompt; accepting a command clears the pin (requires Option as Meta) |
+| `Option-Return` | Inspect the literal draft; read, explore help or explicitly enter a scoped tool (requires Option as Meta) |
 | `Ctrl-L` | Redraw a clean terminal screen |
 | `Ctrl-X Ctrl-E` | Edit the command in `$EDITOR` |
 
@@ -1044,17 +1093,19 @@ Enable the setting for each Terminal profile you use:
 3. If your Terminal version offers separate left/right choices, **Left Option
    alone is enough**. Right Option can retain normal character entry. If the
    setting is a single checkbox, it may apply to both keys; follow that UI.
-4. At the ordinary prompt, hold the enabled Option key and press **Tab**.
-   **Recent directories** should open. Press Escape to return to your draft.
+4. At the ordinary prompt, hold the enabled Option key and press **I**. The
+   **Context lens** should pin open; press Option-I again to unpin it. Option-Tab
+   opens **Recent directories**; press Escape there to return to your draft.
 
 This is a **per-profile** preference, not a system-wide keyboard remapping.
 Compozsh never changes it automatically. Apple's [Keyboard settings guide](https://support.apple.com/guide/terminal/change-profiles-keyboard-settings-trmlkbrd/mac)
 documents the preference and its profile scope.
 
-With Meta enabled, Option-Tab sends the `ESC TAB` sequence that Compozsh binds
-to Recents. You press **Option-Tab together**; the bytes are transport details.
-Inside a Compozsh full-screen tool, **Option-Up/Down** similarly pages the
-focused pane. It complements the always-supported **Fn-Up/Down** page gesture.
+With Meta enabled, Compozsh binds **Option-I** to the Context lens and
+**Option-Tab** to Recents. You press each Option shortcut together; the bytes
+are transport details. Inside a Compozsh full-screen tool,
+**Option-Up/Down** similarly pages the focused pane. It complements the
+always-supported **Fn-Up/Down** page gesture.
 Terminal.app versions and profiles may encode that gesture as either an xterm
 modified-arrow sequence or a Meta prefix followed by an ordinary arrow;
 Compozsh accepts both forms without exposing their bytes as filter text.
@@ -1073,12 +1124,13 @@ after installing or updating Compozsh's code so its bindings are loaded. That
 starts a fresh shell and resets its in-memory directory stack; Recents initially
 contains the current folder and grows as you navigate.
 
-If Option-Tab still completes like plain Tab, check the **active profile**, the
-Option key you enabled, and custom keyboard mappings. Zsh cannot distinguish
-gestures delivered as identical bytes. You can still reach Recents through
-**path + Tab → Ctrl-X → Go to · Recent directories** without Meta enabled.
-The rest of Compozsh, including path + Tab and Control-based picker commands,
-works without this preference.
+If Option-I inserts text or Option-Tab still completes like plain Tab, check the
+**active profile**, the Option key you enabled, and custom keyboard mappings.
+Zsh cannot distinguish gestures delivered as identical bytes. The Context lens
+still opens automatically for meaningful context changes without Meta enabled,
+and you can still reach Recents through **path + Tab → Ctrl-X → Go to · Recent
+directories**. The rest of Compozsh, including path + Tab and Control-based
+picker commands, works without this preference.
 
 ## Chat and shell in native Terminal tabs
 
@@ -1099,6 +1151,7 @@ automation permission.
 | `Cmd-T` | Terminal: open a new tab |
 | `Ctrl-Tab` / `Ctrl-Shift-Tab` | Terminal: select the next / previous tab |
 | `Ctrl-Cmd-F` | Terminal: enter / leave full screen |
+| `Option-I` at the prompt | Compozsh: pin or unpin the Context lens; requires [Option as Meta](#option-as-meta-one-time-setup) |
 | `Option-Tab` at the prompt | Compozsh: open recent directories; requires [Option as Meta](#option-as-meta-one-time-setup) |
 | `Ctrl-R` at the prompt | Compozsh: search command history |
 
@@ -1158,12 +1211,14 @@ A lone `AUTO_CD` directory path opens the same searchable picker:
 
 ```text
 ❯ ~/Projects/
-Compozsh / Directory browser              Enter: insert · Results
+  Directory browser                                    COMPOZSH
 Hidden: off · child directories · 3 files · 2 shown
 ~ › Projects
-Filter folders ‹›
-[1] ● example-app/
+— Results → Preview —
+[1] ▸ example-app/
+
 [2]   experiments/
+  Filter folders  ›
 ⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑↓ move
 ```
 
@@ -1398,7 +1453,8 @@ the host running Zsh, after screen cleanup, and recheck mutable filesystem facts
 Selection never executes a file. Content previews are not provided.
 
 The shared Path inspector displays captured type and full path; Ctrl-E/B or
-Tab switches focus. It is secondary and width-aware, with a 48-column cap.
+Tab switches focus. Its passive preview is capped at 48 columns; focusing it
+on the full screen expands reading width beside the retained selection.
 Resize and detail scrolling do not rediscover paths.
 
 Direct walks inspect at most **20,000 entries**; every provider retains at
@@ -1512,6 +1568,11 @@ If the editable command line already contains text, that text becomes the
 initial query. Press `Ctrl-U` inside the picker to clear it and browse recent
 commands instead.
 
+Ctrl-E/Right or Tab reads the selected literal command, including its line
+breaks, from the same captured history. The inspector is bounded to 32,768
+characters and 256 wrapped lines, with labeled truncation. Enter still inserts
+the complete exact command for editing; inspection never executes it.
+
 History, file, directory, and branch selectors share the same safe renderer. A stable
 dedicated `Search ‹query›` row keeps user input separate from header metadata
 and prevents the layout from shifting after the first character. Long queries
@@ -1601,6 +1662,8 @@ the same separate display buffer used by tools such as `less`. Your previous
 terminal output is temporarily hidden and restored when the picker closes.
 This applies to history, directories, branches, files and their action menus,
 the tool explorer, and contextual directory completion.
+Git review, Xcode workspaces and USB tool screens use the same shared visual
+components; noninteractive progress keeps its dedicated status presentation.
 
 The directory browser keeps that screen open throughout navigation. Entering
 folders, going back, toggling hidden items, requesting a preview and returning
@@ -1608,25 +1671,37 @@ from folder actions update the same workspace. Your shell reappears when the
 browsing session ends; copying, changing directory and opening Finder happen
 after its screen has been restored.
 
-A dedicated title bar identifies the tool: **Compozsh / Directory browser**,
-**Compozsh / Branches**, **Compozsh / History**, and so on. When space allows,
-the right side shows the selected item's Enter action and the focused view,
-such as `Enter: switch · Results` or `Enter: insert · Preview`. It shows
-`Keyboard guide` while the guide is open, and avoids advertising a selection
-action when nothing is selected.
+A quiet title bar identifies **Directory browser**, **Branches**, **History**,
+or the current task, with COMPOZSH branding at the right when space allows.
+The action lives in the bottom dock: one emphasized Enter operation, derived
+from the current selection. Empty results never advertise a selection action.
 
 A quieter status row shows the captured source and result count, followed by
-the separate location/source row, dedicated search and a quiet divider.
+the separate location/source row and a navigation strip.
+The strip marks the active surface: **Results → Help**, **Results → Preview**,
+or **Files → Focused diff → Full file**, according to captured capabilities.
+It shows the next focus/disclosure key when space allows. These labels are
+passive orientation cues, never selectable results or claims of execution.
+History without details shows only Results; query entry, readers and the
+keyboard guide identify their own surface. Narrow windows keep the active
+surface first. The strip replaces the divider without consuming another row.
 The title uses the existing first screen row, preserving result capacity.
-Narrow windows hide optional title metadata, then the Compozsh prefix, before
+Narrow windows hide optional title metadata, then the branding, before
 abbreviating the tool name. The context row is omitted in very short windows.
-Results and details occupy the body, with shortcuts anchored near the bottom.
+Results and details occupy the body. A full-width search/filter input sits
+directly above the bottom shortcut bar, with the real terminal typing cursor
+at the end of your query. Ordinary choices gain a blank row between entries
+when the entire configured viewport still fits. Filtering preserves that
+spacing; short windows return to compact rows without losing choice slots.
+Documents and information-heavy screens retain their compact reading layout.
+Inline and very short fallbacks keep input above the results.
 Filtering down to one result keeps these landmarks in place. Your unfinished
 command and prompt are hidden while browsing, then restored when you leave;
 each tool keeps its existing accept and cancel behavior.
 
 Every tool uses the same shortcut bar. **Enter**, **Escape**, and **Ctrl-K for
-keys** have priority; other complete hints appear as space allows. The bar
+keys** have priority; at most five complete supplementary hints appear as space
+allows on the full screen. The guide keeps all applicable controls. The bar
 names the actual action (`cd`, `switch`, `insert`, or file actions), and only
 advertises copying or details when supported. It never cuts a shortcut in half.
 
@@ -1664,7 +1739,7 @@ shortcuts continue to belong to Terminal.app.
 | Ctrl-F | Search descendants in Browse; edit discovery query in Search results |
 | Ctrl-E / Ctrl-B | Focus details / list, when available |
 | Ctrl-O | Browse a selected recent location; inside the browser, preview a folder |
-| Ctrl-X | Open **review** on Branches; **options** for filesystem actions/sources/views |
+| Ctrl-X | Open **review** on Branches, **options** for filesystem/worktree tasks, or **atlas** in supported Git file-review views |
 | Right / Left in Git review | Progress files → focused diff → full-file context / reverse those steps |
 | Ctrl-A in Working changes | Pause or resume automatic local refresh for this review screen |
 | Ctrl-R in Git review | Refresh the selected snapshot, preserving focus and source area |
@@ -1680,7 +1755,9 @@ Up/Down scroll, and Escape returns to Run. Xcode Logs updates automatically
 while following. Ctrl-A retains its normal beginning-of-line meaning at the
 prompt and is a refresh toggle only in Working changes. Ctrl-R opens history at the prompt, refreshes Git review,
 and advances results in ordinary pickers without a refresh capability.
-Ctrl-X is inactive in Git review's reader; the arrow flow handles context disclosure.
+Ctrl-X opens the Change atlas from Working changes, Commit files and Comparison
+file-review views; atlas child readers do not offer it again. The arrow flow
+retains its separate context-disclosure meaning.
 
 The directory browser has one explicit hierarchy convention: Right/Tab
 enters a folder and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list.
@@ -1706,9 +1783,12 @@ still search normally but skip this extra decoration.
 
 The result list retains its existing row limits and number shortcuts: eight
 rows for history and ten for navigation by default, reduced in short windows.
-Information panels stay secondary and compact. Focusing a panel gives its
-captured text the available body height, making long help easier to read;
-returning to the list restores the compact preview. Capture limits are unchanged.
+Information panels start secondary and compact. Focusing a panel gives its
+captured text the available body height and, at 100 columns or wider on the
+full screen, most of the width beside a retained selection navigator.
+Returning to the list restores the compact preview. Rewrapping retains the
+source paragraph being read, subject to the viewport and capture bounds.
+Capture limits are unchanged; focus and resize perform no new discovery.
 
 Window and font-size changes repaint the temporary screen from the captured results,
 preserving the query and selection. Selection, cancellation, and Ctrl-C release
@@ -2005,7 +2085,9 @@ postgres-status() {
   emulate -L zsh
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
-    _compozsh_help_postgres-status
+    local -a help=(_compozsh_help_postgres-status)
+    (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
+    "${help[@]}"
     return 0
   fi
   (( $# == 0 )) || {
@@ -2045,7 +2127,7 @@ Documented names without a leading underscore form the user-facing interface.
 For example, call:
 
 ```sh
-update-xcode-skills
+xcode --export-skills
 ```
 
 Do not call its helpers directly:
@@ -2073,18 +2155,67 @@ shipped add-on command surface is:
 ```sh
 mkcd --help
 cpdir --help
-git-discard-all --help
-prompt-refresh --help
-compozsh-sudo-touch-id --help
+g --discard-all --help
+compozsh --refresh --help
+compozsh --sudo-touch-id --help
 g --help
-flash-usb --help
-format-external-device --help
+external-device --help
+external-device --flash --help
+external-device --format --help
 xcode --help
-update-xcode-skills --help
+xcode --export-skills --help
 compozsh --help
 ```
 
-All Compozsh-owned help follows one stable contract:
+The task families have one canonical public entry point each. Earlier names
+have been removed, with no compatibility aliases:
+
+| Earlier entry | Current entry |
+| --- | --- |
+| `git-discard-all` | `g --discard-all` |
+| `flash-usb [media]` | `external-device --flash [media]` |
+| `format-external-device` | `external-device --format` |
+| `update-xcode-skills` | `xcode --export-skills` |
+| `prompt-refresh` | `compozsh --refresh` |
+
+`external-device` also opens the shared task chooser. Reload updated
+configuration with `exec zsh`; cache refresh does not reload the configuration.
+
+### Help as a workspace
+
+In a supported terminal, owned `--help` modes open a shared documentation workspace.
+The tool description stays above both panels. **Overview** keeps the full
+description and usage; the left navigator contains documented arguments, modes,
+sections, safety and examples. Selecting a topic updates its explanation on the
+right. At 90 columns and wider, the explanation gets most of the width. Narrow
+windows switch between topics and explanation with Ctrl-E/B or Tab.
+Argument and mode labels use the shared palette's option accent; section titles
+stay neutral, and selected rows retain the palette's selection contrast.
+The explanation pane and full-width help reader share that accent for documented
+argument/mode/example prefixes, option names and angle-bracket placeholders.
+Surrounding prose stays neutral; wrapping and filtering retain the accents.
+
+Type to find literal case-insensitive substrings in topic labels and text.
+Arrows select; Enter or an empty-filter digit opens the selected topic in a
+full-width reader. Type there to filter literal lines. Enter/Escape returns to
+the same topic, filter, viewport and focus; Escape from topics closes help.
+Ctrl-K opens the shared key guide. Ordinary topics only read documentation.
+For `g` and `mkcd`, **Compose example…** is a separately labeled action. It
+opens an authored [command composer](#command-composer), where **Replace draft**
+explicitly inserts the generated command at the ordinary prompt. It never runs
+it. Escape keeps the previous draft and returns to the same help topic/filter.
+Examples in prose are never parsed into commands or automatically inserted.
+When a filter matches the Compose example action's label, that explicit action
+appears before prose that mentions it.
+
+The workspace derives from the same static help provider as printable output:
+one capture of at most 32,768 characters, at most 128 derived topics, and a
+**Complete guide** entry containing the whole capture, including unclassified
+prose. Partial capture is labeled. The explanation pane retains up to 256 wrapped
+lines; Enter reads the full captured topic. Filtering, selection and resize
+never rerun the provider. Pipe help to obtain all text beyond those UI bounds.
+
+All Compozsh-owned printable help follows one stable contract:
 
 - The first line, ignoring color codes, begins with lowercase `usage:` and
   shows the command's exact invocation syntax.
@@ -2092,12 +2223,16 @@ All Compozsh-owned help follows one stable contract:
 - Further lines explain defaults, data sources, search scope and limits,
   options, keys, fallbacks, and practical examples where applicable. Commands
   that change state describe their targets, confirmation, and recovery limits.
-- Help returns status `0` on standard output and writes no error diagnostics.
-  On supported 256-color terminals, the optional output peer adds semantic
-  emphasis. Pipes, redirects, command substitutions, unsupported terminals,
-  and a nonempty `NO_COLOR` retain identical plain text.
-- Asking for help never navigates, copies, scans, detects tools, changes files,
-  prompts for input, uses the network, or requires optional dependencies.
+- Help closes normally with status `0` and no error diagnostics. Pipes,
+  redirects and command substitutions retain complete plain text. Without
+  the help/UI peers or alternate-screen support, terminal help remains printable,
+  with optional semantic colors. `NO_COLOR` retains plain direct help.
+- Asking for help never changes directory, copies, scans projects, detects
+  operational tools, changes files, uses the network, or requires optional
+  dependencies. Ordinary topic navigation stays within the captured guide.
+  Choosing Compose example explicitly leaves reading for the separate composer
+  described above; revision-field capture and Replace draft belong to that
+  interaction, not to help capture or ordinary topic navigation.
 
 This makes `--help` safe to inspect anywhere, including a machine that does not
 have the command's optional tools installed.
@@ -2105,23 +2240,27 @@ have the command's optional tools installed.
 Usage and section headings use `ZSH_OUTPUT_COLORS[heading]`, option labels use
 `accent`, descriptions and example commands use `info`, and safety/limit or
 recovery headings use `warning`. Body text stays neutral. The same renderer
-styles direct help and `compozsh help <command>`; disabling `.zsh.output` leaves
-all guides usable as plain text. Help styling only checks terminal capabilities
-and runs no external commands. For example:
+styles printable fallback help. The help workspace uses the shared picker
+palette, including active/inactive selection and focus. Disabling `.zsh.output`
+does not disable the workspace. Capture runs the trusted static companion in
+a bounded Zsh pipe; painting and filtering run no external commands. For example:
 
 ```zsh
-g --help                   # Colored in a supported terminal.
-NO_COLOR=1 g --help        # Plain for this invocation.
+g --help                   # Interactive topics and explanation.
+NO_COLOR=1 g --help        # Complete plain text for this invocation.
+g --help | cat             # Complete printable text.
 g --help > branch-help.txt # Plain, copyable documentation.
 ```
 
 The standalone `zsh install.zsh --help` stays plain so displaying installation
 help never loads shell add-ons or private configuration.
 
-For your own tools, the optional printer pattern in the add-on example above
-uses the same colors. Keep headings unindented, body text indented by two
+For your own tools, the optional presenter in the add-on example above opens
+the same workspace, with the static provider as fallback. Its optional printer
+uses the same output colors. Keep headings unindented, body text indented by two
 spaces, and option/example labels separated from explanations by at least two
-spaces. Name the examples section `Examples:`. Existing plain-print providers
+spaces. Put argument/mode summaries beneath a heading such as `Options:` or
+`Arguments:`. Name the examples section `Examples:`. Existing plain-print providers
 continue working unchanged.
 
 Use the guides to answer questions such as “does this search the whole disk?”,
@@ -2144,18 +2283,20 @@ of 100 columns or more. Narrower windows use a switchable full-width detail
 view. This interface uses native Zsh 5.9 and macOS Terminal.app capabilities;
 no additional application or UI package is required.
 
-All information panels—Help, Location, Branch, Path, and file-action descriptions—share
+Ordinary information panels—Help, Location, Branch, and Path—share
 one list-first layout. The list receives about two thirds of the usable width;
-details use the remaining third, capped at 48 columns. Extra width goes to the
-list. Below 100 columns, the list stays full-width until you focus details.
+passive details use the remaining third, capped at 48 columns. Extra width goes
+to the list. Focusing details on the full screen reverses that emphasis: the
+selected tool stays in a navigator capped at 42 columns while help gets the
+remaining width. Below 100 columns, the list stays full-width until you focus details.
 
 Beside short lists, passive details use up to six rows with quieter headings.
 Focusing the panel uses the available body height on the owned full screen;
 the inline fallback allows up to twelve reading rows. Longer result lists retain
 their visible rows; passive details use that same
 height. Warnings keep their emphasis, and longer content remains scrollable.
-Moving focus keeps pane widths stable. Every split panel uses the same focus
-language: list focus keeps the selected row bright blue; detail focus subdues
+The inline fallback keeps pane widths stable. Every split panel uses the same focus
+language: list focus keeps the selected row strongly highlighted; detail focus subdues
 that row and marks the active panel with a cyan `┃` rail plus its `▸` heading.
 The selected item therefore remains visible while the emphasis identifies
 which pane receives movement and page keys. Single-pane narrow layouts use the
@@ -2172,8 +2313,8 @@ uses the captured data without rerunning providers.
 | Option-Up/Down | Page up/down with Option-as-Meta enabled |
 | Ctrl-V / Ctrl-D | Page down/up without requiring Option-as-Meta |
 | Type or paste | Refine the filter and return to the list |
-| Enter | Close the browser and print the selected tool's complete help |
-| Visible digit, with an empty filter and list focus | Show that tool's full help |
+| Enter | Open the selected tool's captured help topics |
+| Visible digit, with an empty filter and list focus | Open that tool's captured help topics |
 | Escape or Ctrl-G | Cancel; Ctrl-C aborts |
 
 Search and selection survive switching panes and resizing. The focused help
@@ -2183,19 +2324,23 @@ the ordinary picker and plain documentation paths.
 
 Help companions are captured once when opening the browser: at most 64
 providers, 32,768 characters per provider, and 256 wrapped preview lines.
-Truncated previews are labeled, and Enter still shows the complete guide.
+Truncated previews are labeled; `compozsh help command | cat` prints the complete guide.
+Enter opens the same capture in the help workspace described above. Escape
+there returns to the catalog's filter, selected tool, viewport and pane.
+The workspace and topic reader do not rerun a companion.
 Scrolling, filtering, and resizing consume the in-memory snapshot without
 executing tools or rereading files. Closing the browser releases the snapshot.
 These bounds limit preview data; they do not sandbox a private help provider.
 As with `--help`, user-defined companions must return promptly and be static
 and side-effect-free. Functions lacking a same-file companion are never run.
 
-Use its noninteractive forms when you want copyable output or already know the
+Use its direct forms when you want printable output or already know the
 command name:
 
 ```sh
 compozsh --list
 compozsh help g
+compozsh help g | cat
 ```
 
 Set the maximum visible picker rows before peers load, normally in the private
@@ -2233,19 +2378,39 @@ not terminal commands, and document their call signature where they are used.
 Transparent wrappers such as `grep` and `man` preserve the help behavior of the
 underlying system command.
 
+### External-device tasks
+
+Run `external-device` to choose **Create bootable media** or **Format a drive**.
+The shared action view shows each task's next step, scope and confirmation
+policy. Typing filters these two choices; Enter opens the selected task, and
+Escape closes without reading disks or images. The plan uses Ctrl-E/B and the
+same responsive layout as the other tools. No device is selected or erased by
+opening this chooser. Direct modes skip the chooser:
+
+```sh
+external-device --flash [media]
+external-device --format
+```
+
+The optional `[media]` is a literal path, not text to type verbatim. Quote paths
+with spaces; use `./` before filenames beginning with `--`. Tasks require an
+interactive terminal and the shared UI/matching peers; unsupported environments
+fail before capture. `external-device --help` includes both full guides, while
+`--flash --help` and `--format --help` show the corresponding guide directly.
+
 ### Formatting an external device
 
 Open the native three-step formatter with:
 
 ```sh
-format-external-device
+external-device --format
 ```
 
 Step 1 captures currently attached whole external physical disks through
 `diskutil`. Internal, virtual, read-only, and partition-slice devices are
 excluded. Each row identifies the media name, capacity, protocol, and exact
 `/dev/diskN`; no action relies on a remembered disk number. The same shared
-provider used by `flash-usb` bounds each native plist capture to 1 MiB, 4,096
+provider used by `external-device --flash` bounds each native plist capture to 1 MiB, 4,096
 device entries, and 64 whole-disk candidates. Press **Ctrl-R** to replace the
 temporary device snapshot without leaving the workspace. An ejected disk can
 remain physically connected while absent from `diskutil`; reconnect it or
@@ -2296,9 +2461,9 @@ summary. Styling does not change native diagnostics or exit status.
 Open the media workspace with discovered media or one exact path:
 
 ```sh
-flash-usb
-flash-usb ~/Downloads/Fedora-Silverblue.iso
-flash-usb "/Applications/Install macOS Tahoe.app"
+external-device --flash
+external-device --flash ~/Downloads/Fedora-Silverblue.iso
+external-device --flash "/Applications/Install macOS Tahoe.app"
 ```
 
 With no argument, the Media view asks Spotlight—the same index Finder uses—for
@@ -2317,7 +2482,7 @@ an explicit selection. Press **Ctrl-R** in Step 1 to replace the snapshot with a
 fresh Spotlight capture under `~/` plus fresh shallow reads of the current
 folder and `~/Downloads`. The active filter remains in place, and the exact
 selected image stays highlighted when it is still available. This makes a
-newly completed download visible without restarting `flash-usb` or waiting for
+newly completed download visible without restarting `external-device --flash` or waiting for
 Spotlight indexing.
 
 The screen follows one visible sequence: **Step 1 Media → Step 2 External drive
@@ -2346,7 +2511,7 @@ the image still needs to match its eventual boot hardware. Images without a
 recognized token display **Architecture not detected** without an invented
 compatibility claim.
 
-Finder drag and drop works in both natural macOS forms. Type `flash-usb `,
+Finder drag and drop works in both natural macOS forms. Type `external-device --flash `,
 drag media into Terminal, and press Return to pass that exact shell-quoted
 path. Or open **Custom path to media…**, choose **Paste or drop an exact media
 path…**, and drop the file or application into its literal field. The workspace removes one
@@ -2744,10 +2909,11 @@ bundle beneath `${TMPDIR:-/tmp}`. It reads only bounded summaries, failure
 details, source locations, and build issues through `xcresulttool`; it does not
 read attachments or source-file contents, and disables Xcode’s verbose test
 diagnostic collection for this transient bundle. The bundle is removed before
-the result window opens. Direct `xcode` arguments remain unmodified
+the result window opens. Apart from the owned `--export-skills` mode, direct
+`xcode` arguments remain unmodified
 `xcodebuild` access and do not add this result window.
 
-Arguments keep direct access to the underlying CLI and preserve its status:
+Other arguments keep direct access to the underlying CLI and preserve its status:
 
 ```sh
 xcode -version
@@ -2767,13 +2933,21 @@ installation may not discover them automatically. Apple documents this in the
 The `.zsh.xcode` add-on provides:
 
 ```sh
-update-xcode-skills
+xcode --export-skills
 ```
 
 The function first detects compatible coding agents installed locally, whether
 through their CLI or standard macOS application. It then checks the Xcode
 selected by `xcode-select`, exports its portable skills once, and installs real
-copies only for the detected agents:
+copies only for the detected agents. In an interactive terminal with the shared
+UI/matching peers, a **Xcode / Export skills** plan first shows the detected
+destinations and replacement policy. Enter on **Export skills** closes the
+screen before exporting or writing; Escape cancels without creating staging
+data. Filtering and inspecting the plan do not run the exporter or inspect a
+project. Pipes, dumb terminals and missing UI retain direct immediate execution.
+`xcode --export-skills --help` performs no detection or writes.
+
+Destinations:
 
 | Agent | Detected installation | Destination |
 | --- | --- | --- |
@@ -2812,7 +2986,7 @@ the changes immediately with `/skills reload`; Claude Code also notices changes
 live when its top-level skills directory already existed. Kiro can confirm the
 result with `/context show`.
 
-Exporting happens only when `update-xcode-skills` is called. Opening a shell
+Exporting happens only when `xcode --export-skills` is called. Opening a shell
 never launches Xcode or writes skill files.
 
 Xcode also exposes live project operations to external agents through
@@ -2932,7 +3106,8 @@ selection.
 
 The **Branch** panel shows the full name, current-branch indicator, latest
 commit ID and subject, and configured upstream. At 100 columns or more it sits
-beside a wider branch list, capped at 48 columns and compact until focused.
+beside a wider branch list, capped at 48 columns while browsing. Focusing it
+on the full screen expands the reading area beside the retained branch selection.
 Smaller windows use a switchable full-width detail view. Right/`Ctrl-E`
 focuses details, Left/`Ctrl-B` returns to the list, and Tab switches panes.
 Up/Down scrolls focused details; typing returns to filtering. Enter still
@@ -3096,6 +3271,25 @@ Run **`g` → Ctrl-X review**, or **`g --review`**, to choose a review context:
 | Branch commits | Captured local history of the selected branch | List that commit's changed files |
 | Commit files | Selected commit versus its first parent, or the empty tree for a root commit | Focus the selected file's diff |
 | Compare branches or commits | Two chosen local branches, tags or commit IDs | Change either choice, then Review differences opens the two-pane reader |
+| Change atlas | Captured working changes, grouped by exact folder prefixes | Open a folder, then read one exact change |
+
+**Change atlas** is also available with **Ctrl-X inside Working changes,
+Commit files, and Git comparison**. It maps the entire captured file list,
+independently of the review's current filter. Bars compare changed-entry counts
+among sibling folders; they are not line counts or importance scores. A staged
+and an unstaged change to the same file remain two separately labeled entries.
+Type to filter the current level by literal case-insensitive substring. Enter
+opens a captured folder or one file's focused diff; Right expands full context.
+Escape returns through the same folders, filters, selection and focus, then to
+the original review's reading position. A file is read only when opened.
+
+The map inherits the review's 1,000-entry/256-KiB capture bounds and partial
+notices. It performs no directory discovery, reads no unselected file contents,
+and does not refresh its list while open. Working-change auto-refresh is
+suspended during the atlas and resumes after returning to review if it was
+enabled. Changed working files can differ from their earlier list observation;
+comparison and commit readers retain their pinned IDs. Use the review's Ctrl-R
+to capture a newer list before reopening the atlas.
 
 **Compare branches or commits** shows both choices together:
 
@@ -3168,14 +3362,14 @@ explanation; they never silently switch comparison methods. Dirty working
 files are excluded from revision comparisons.
 
 `g --review` requires the shared UI peer and an interactive terminal; use
-`git diff A B` for plain output. `g --review --help` prints the same complete
+`git diff A B` for plain output. `g --review --help` opens the same
 guide as `g --help`, without reading the repository.
 
 Working changes, Commit files and comparisons use a **two-pane review workspace**. A narrow
 file navigator sits on the left; the selected file's continuous diff occupies
 most of the width on the right. Selecting another file updates the reader
 directly. Focus is visible independently from selection: the active file list
-uses its bright blue selected row; while reading, that row becomes subdued and
+uses its high-emphasis selected row; while reading, that row becomes subdued and
 a cyan `┃` rail plus `▸` heading marks the active document. This preserves the
 selected-file landmark without implying that arrow keys still move the list.
 Below 90 columns the focused document owns the full width, so its heading is
@@ -3414,12 +3608,258 @@ name containing `=`, review fails closed when it discovers one.
 
 The optional `.zsh.git-review` peer supplies these views. Disabling it leaves
 `g` switching and copying unchanged. **`g --help`** includes this workflow and
-its limits; arguments outside `--help`, `--review` and `--worktree` continue
+its limits; arguments outside `--help`, `--review`, `--worktree` and `--discard-all` continue
 to delegate to ordinary Git.
 
-## Prompt legend
+## Draft inspector
 
-Inside a Git repository, the prompt can show:
+With [Option as Meta](#option-as-meta-one-time-setup) enabled, press
+**Option-Return** on any draft. This explicit workspace connects editing to
+inspection; ordinary Return still submits the command normally.
+
+- **Read this draft** opens a full-width reader with literal, case-insensitive
+  line filtering. It reads at most 32,768 characters and labels truncation.
+- **Review this working tree** opens read-only Git review for the current folder.
+  It ignores paths, flags and substitutions in your draft; this is not a command
+  preview or validator. An unavailable repository gets an in-screen explanation.
+- **Explore tool help** opens the loaded catalog and its captured help readers.
+- **Compose this command…** appears for supported simple `g --review` and `mkcd`
+  drafts. It opens the fields described below; only Replace draft changes text.
+- **Choose a path here** hands off to Files at the current folder after closing
+  Inspect. Selecting a path replaces the draft; cancelling leaves it unchanged.
+- **Recall a command** hands off to History, which inserts only on acceptance.
+  Use Ctrl-U there if you want to clear the draft-derived search filter.
+- **Keep editing**, or Escape, returns to the exact draft and cursor.
+
+Reading, tool help and Git review return to the same Inspect choice and filter.
+The available peers determine which tools appear. Captures happen only after
+an explicit tool choice; the bridge never evaluates or runs the draft. Its
+bounded reading copy, filters and frames are released on return. Like reading
+your command line, opening Read exposes its literal text—including any secret
+you typed—so this is not a redaction feature.
+
+Try it: type `git status` without pressing Return, press Option-Return, read the
+draft, go Back, open working-tree review, and go Back twice. You should be at
+the same `git status` and cursor, with nothing submitted.
+
+## Command composer
+
+Type `g --review` and press **Option-Return → Compose this command…**, or open
+`g --help` and select **Compose example…**. The left panel holds editable
+**Comparison**, **Against**, and **Compare** fields. The right panel shows the
+literal command and its current folder. Changing the method updates the draft;
+selecting either revision opens the existing local ref chooser. Accepted refs
+are pinned to full commit IDs so the generated comparison retains those choices.
+Ref capture happens only when opening that field, with the review's safety and
+1,000-ref/256-KiB bounds. If local ref browsing is unavailable, literal entry
+still works without project discovery. Literal field values are not a promise
+that the eventual command is valid. Nothing is fetched or checked out.
+
+The comparison template starts with editable `main` and `HEAD` placeholders;
+it does not discover or assume the repository's default branch. Choose both
+fields to pin actual commits. Simple existing `g --review A B` and
+`g --review --merge-base A B` drafts retain their literal endpoints and method.
+
+For directories, type `mkcd` and use the same gesture, or select Compose example
+in `mkcd --help`. Edit **Directory**; the draft preview reacts as you type.
+Fields accept at most 4,096 literal characters. Spaces, substitutions, globs and
+control characters are shell-quoted, never evaluated. Enter absolute paths or
+`./relative` paths; `~` and `$HOME` are literal text in this form, not expansions.
+`mkcd [--] <directory>` supports the explicit option separator used by its
+template. If you later execute it, its usual creation and CDPATH rules apply.
+
+**Replace draft → keep editing** is the only application step. It closes the
+screen, puts the exact generated command in the ordinary editor, and does not
+press Return. Escape from the composer preserves the original draft/cursor;
+Escape from a field preserves that field's previous value. The Help route
+queues the draft for the next prompt; inspecting help from the editor replaces
+the existing draft only after explicit acceptance. No clipboard or history
+write is added. Normal command acceptance still follows normal shell history.
+An existing draft's leading spaces are retained, including through Help, so
+composition preserves its leading-space history preference.
+
+Templates currently cover Git comparisons and directory creation. Unsupported
+commands, long or complex shell syntax keep the ordinary Draft inspector;
+they are never guessed into forms. The optional `.zsh.compose` peer adds no
+startup capture, daemon, external UI dependency, or public command alias.
+
+## Living prompt
+
+Compozsh keeps exactly one active ordinary prompt and moves it through three
+user-visible moments:
+
+- **Context lens** orients you when captured shell or project context changes.
+- **Interaction lens** reacts in place to the command you are composing.
+- **Transcript** replaces the active interface with one quiet timestamped line
+  when you press Return.
+
+These are ZLE prompt repaints, not full-screen views or a background monitor.
+As you type, delete, paste, resize, or toggle Context, the current frame changes
+in place instead of leaving each intermediate lens in scrollback.
+
+The **Context lens** expands the captured prompt snapshot when context deserves
+attention.
+It opens automatically on the first prompt inside a recognized project or any
+Git repository. After that, it opens again when one of these facts changes:
+
+- a recognized project root appearing or changing;
+- a raw Git branch appearing or changing;
+- the active Python virtual environment or non-base Conda environment;
+- an in-progress Git operation or conflicted-tree attention state; or
+- an unknown, missing, unavailable, or mismatched runtime attention state.
+
+Ordinary staged, modified, untracked, stash, ahead, and behind count changes
+still update the Git summary, but do not reopen the lens by themselves. An
+automatic Context lens remains expanded while the command buffer is empty. The
+first typed or pasted character replaces it with the Interaction lens and
+consumes that automatic disclosure; erasing the draft back to empty restores
+`READY`, not the already-consumed Context lens. A later context change can open
+Context again. There is no dismissal timer, polling loop, or background prompt
+process.
+
+Press **Option-I** at the ordinary prompt to toggle a pinned lens. The pinned
+lens remains expanded while you edit, with a small live interaction section
+following the current buffer; accepting a command clears the pin. Option-I
+requires [Option as Meta](#option-as-meta-one-time-setup), while every automatic
+lens trigger works without that Terminal preference.
+
+### Interaction lens
+
+Owned task modes receive their own advisory cues: bare `xcode` describes opening
+its action workspace, `xcode --export-skills` describes skill export, and
+`compozsh --refresh` describes current-shell cache refresh. `external-device`
+describes its task chooser; its flash/format modes receive CAUTION while help
+remains a help cue. These are bounded literal interpretations, not validation
+or execution, and do not discover agents, disks or projects while typing.
+
+With an empty command buffer, the active lens says `READY` and presents the most
+useful captured facts that fit. `LAST` is the outcome of the most recently
+completed command, including a fast success that did not need a separate
+scrollback outcome receipt:
+
+```text
+╭─ READY
+│  PROJECT          compozsh
+│  PATH             ~/Developer/Remote/compozsh
+│  GIT              main !3
+│  LAST             ✓ 84ms
+╰─ ❯
+```
+
+`LAST` belongs to the one active prompt. The next command replaces it, and
+accepting another buffer repaints the active lens into the transcript; `LAST`
+is not a permanent log line.
+
+As the buffer changes, the header and rows morph immediately. For example,
+typing `git status --short` produces a `GIT` lens before anything runs:
+
+```text
+╭─ GIT
+│  OPERATION TEXT   status
+│  ACTION           likely inspect working tree
+│  BRANCH           main
+│  PROJECT          compozsh
+╰─ ❯ git status --short
+```
+
+The available interaction kinds are deliberately recognizable rather than
+pretending to understand every shell program:
+
+| Header | What made it relevant |
+| --- | --- |
+| `READY` | The editable buffer is empty; show captured context and `LAST` |
+| `COMMENT` | An interactive comment; show `COMMENT TEXT` and `likely remain an interactive shell comment` |
+| `RUN` | A general command that has no more specific recognized form |
+| `GIT` | A `git` operation, or Compozsh's `g` branch/review/worktree/help interaction |
+| `NAVIGATE` | A shell-location command such as `cd`, `pushd`, `j`, or `mkcd` |
+| `SEARCH` | A local search command such as `rg`, `grep`, `find`, or `mdfind` |
+| `BUILD` / `TEST` | A recognized project build or test form |
+| `ENVIRONMENT` | An assignment or a recognized environment-changing command |
+| `REMOTE` | A command such as `ssh`, `scp`, `rsync`, `curl`, or `wget` |
+| `PIPELINE` | Literal pipeline stages joined by `|` or `|&` |
+| `CHAIN` | Literal command steps separated by `&&`, `||`, `;`, or `&` |
+| `REDIRECT` | A recognized shell redirection, with `OUTPUT TEXT`, `INPUT TEXT`, `DESCRIPTOR TEXT`, or `RESOURCE TEXT` according to its lexical operator |
+| `CAUTION` | One of a limited set of high-confidence caution-worthy forms |
+
+Rows ending in `TEXT`—for example `COMMAND TEXT`, `QUERY TEXT`, `ENDPOINT TEXT`,
+or `OUTPUT TEXT`—are sanitized, width-bounded excerpts from the literal editor
+buffer. They have not been evaluated, expanded, resolved, checked for existence,
+or executed. Rows such as `PROJECT`, `PATH`, `GIT`, `BRANCH`, `TOOLCHAIN`,
+`CURRENT`, `FROM`, `SCOPE`, and `LAST` reuse facts captured before the prompt.
+`FLOW` and `STAGES` summarize a pipeline; `FLOW`, `STEPS`, and `CONTROL`
+summarize an `&&`, `||`, `;`, or `&` command chain as applicable. Redirection
+labels distinguish output, input/here-input, file-descriptor, and bidirectional
+resource syntax; they do not validate or open the displayed target.
+
+`compozsh --sudo-touch-id` receives an environment cue describing inspection or
+management of Touch ID for sudo; its `--help` form remains a help cue. This is a
+literal advisory and never reads PAM policy or invokes sudo while editing.
+
+The shipped `g` command is classified as Git rather than a generic executable.
+A bare `g` shows the local branch-workspace cue; `g --review`, `g --worktree`,
+and applicable help forms show review, worktree, or help cues. This remains an
+interpretation of literal editor text—classification does not invoke `g` or Git.
+
+An `ACTION` row is always a qualified explanation—`likely`, `appears`, or
+`may`—rather than a promise about what will happen. In particular, `REMOTE`
+does not mean a connection exists, and `CAUTION` is not an exhaustive safety
+scanner. It recognizes only selected literal forms, does not validate targets
+or block Return, and an ordinary-looking lens does not prove a command is safe.
+The command or tool remains responsible for its real behavior and confirmation.
+
+Interaction derivation uses Zsh's lexer without evaluating the buffer. It does
+not launch a process, read a file or provider, rerun Git/project discovery, or
+make a network request while you edit. Leading `NAME=value` assignments may
+help locate the command word, but their values are never copied into lens
+presentation state; `export NAME=value` likewise shows the name rather than the
+value. The value remains visible in the actual editable buffer and, if accepted,
+in the transcript and normal history, so this is data minimization rather than
+secret handling.
+
+Displayed dynamic text also remains literal when a user has enabled
+`PROMPT_SUBST` or `PROMPT_BANG`: Compozsh escapes prompt-active backslashes,
+`$`, backticks, `!`, and `%` as applicable before ZLE paints the frame. This
+prevents command-looking editor text from becoming prompt evaluation; it does
+not alter the actual editable buffer.
+
+That no-read guarantee applies specifically to Context/Interaction prompt
+derivation and repaint. Syntax highlighting is an independent hook in the same
+ZLE redraw cycle and retains its bounded filesystem checks for literal path
+tokens; it still does not evaluate substitutions or globs from the buffer.
+
+When a native history autosuggestion is already active for the exact buffer,
+the lens may show only a bounded visible prefix as `SUGGESTION`. It reuses the
+editor-owned suffix without performing another history search and does not copy
+the unseen tail into the lens.
+
+### Transcript and receipts
+
+When a command is accepted, Compozsh repaints only the prompt decoration and
+leaves a compact command receipt in the terminal transcript:
+
+```text
+14:26 › swift build
+```
+
+The submitted command remains exact. After command output, every failure and
+each successful command taking at least two seconds gets a compact outcome
+receipt. Fast successes proceed directly to the next active prompt. Receipts do
+not change command output, exit status, or normal Zsh history. They become
+ordinary terminal scrollback, so completed rows cannot adapt when the window is
+later resized.
+
+```text
+✓ 2.3s
+× exit 1
+× exit 1 · 2.3s
+```
+
+The first row is a slow success, the second a fast failure, and the third a
+slow failure. A fast success adds no outcome row.
+
+### Git legend
+
+Inside a Git repository, Context and Interaction lens rows can show:
 
 | Mark | Meaning |
 | --- | --- |
@@ -3435,67 +3875,69 @@ Inside a Git repository, the prompt can show:
 Git colors are green for clean, yellow for local changes, cyan when behind,
 magenta when detached, and red for conflicts or an in-progress operation.
 
-## Project runtime line
+### Project and runtime context
 
 Ordinary runtime/version labels share `ZSH_PROMPT_COLORS[tool]` across languages
-and both appearances. Missing or unavailable runtimes retain their diagnostic
-words and the danger role.
+and both lenses. Missing or unavailable runtimes retain their diagnostic words
+and the danger role.
 
-When the current directory is inside a recognized project, the prompt inserts a
-second line and moves the input arrow to a third line:
+When the current directory is inside a recognized project, the Context lens
+names that project and separates its location, Git state, toolchain, active
+environment, jobs, and local session identity into semantic rows. Rows whose
+facts are absent or cannot fit are omitted:
 
 ```text
-╭─ user@host ~/Projects/web-app git:main ✓
-├─ web-app node 24.5.0 · pnpm · next · workspace · docker
-╰─ ❯
+╭─ CONTEXT · entered project                               ⌥I pin
+│  PROJECT   web-app
+│  PATH      ~/Projects/web-app
+│  GIT       main ✓ · tracks origin/main
+│  TOOLCHAIN node 24.5.0 · pnpm · next · workspace · docker
+│  SESSION   user@host · zsh 5.9
+╰─
+❯
 ```
 
-Detection walks upward from the current directory, so the line remains visible
-inside project subdirectories. It recognizes standard project files such as
-`Package.swift`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`,
-`CMakeLists.txt`, `composer.json`, `build.zig`, `project.godot`, `gleam.toml`,
-`dune-project`, `fpm.toml`, Terraform files, Scheme/Lisp source files, and their
-equivalents for the other supported runtimes.
+Local user/host identity stays out of ordinary project rows. The Context lens
+discloses local, root, or SSH session identity in `SESSION` when that row fits.
 
-The top row also responds to the current terminal width. Git stays inline when
-the location and complete summary fit:
+Detection walks upward from the current directory, so the project facts remain
+available inside project subdirectories. It recognizes standard project files
+such as `Package.swift`, `package.json`, `pyproject.toml`, `Cargo.toml`,
+`go.mod`, `CMakeLists.txt`, `composer.json`, `build.zig`, `project.godot`,
+`gleam.toml`, `dune-project`, `fpm.toml`, Terraform files, Scheme/Lisp source
+files, and their equivalents for the other supported runtimes.
+
+Both active lenses respond to the current terminal width and height. On a wide
+terminal, complete values and more useful rows fit:
 
 ```text
-╭─ user@host ~/Projects/app git:main ✓
-├─ app swift 6.3 · xcode
-╰─ ❯
+╭─ BUILD
+│  TASK TEXT       build
+│  ACTION          likely build the current project
+│  TOOLCHAIN       swift 6.3 · xcode
+│  PROJECT         app
+│  GIT             main ✓
+╰─ ❯ swift build
 ```
 
-On a narrower window or a long branch, Git moves to its own tree-aligned row:
+On a narrower window or with long values, rows are capped to the available
+height and their values are abbreviated rather than wrapped:
 
 ```text
-╭─ user@host ~/Projects/example-app
-├─ git:codex/topic-noncopyable-ownership no-upstream
-├─ example-app swift 6.3 · xcode
-╰─ ❯
+╭─ GIT
+│  OPERATION TEXT status
+│  ACTION         likely inspect working tree
+│  BRANCH         codex/topic-non…ownership
+╰─ ❯ git status
 ```
 
 Zsh updates `$COLUMNS` when the window or font size changes. The active command
-line is redrawn immediately, without waiting for Enter and without rerunning Git
-or toolchain detection for every resize event. If the Git summary itself cannot
-fit on a very narrow row, its middle is temporarily abbreviated with `…`;
-widening the window restores the complete text.
-
-At extremely narrow widths, the first-row location follows the same rule after
-Git has moved down. It keeps the beginning and current-directory end visible,
-for example `~/Pro…mple-app`, rather than allowing the row to wrap. The full
-location returns as soon as it fits again.
-
-The project row is responsive too. It always keeps the project name, then shows
-complete runtime, tool, framework, and environment items from left to right for
-as long as they fit. Narrowing the terminal hides trailing items; widening it
-restores them from the in-memory result without rerunning project detection.
-
-The right-side clock remains on completed prompts, providing a useful historical
-timestamp. Completed prompts are ordinary terminal scrollback rather than live
-Zsh UI, so neither their layout nor their clock can be repositioned after a
-resize; the terminal may reflow them at very narrow widths. The active prompt
-continues to adapt immediately.
+line is redrawn immediately, without waiting for Enter and without rerunning
+Git or toolchain detection for every resize event. Long path and Git values keep
+useful beginning/end context with `…`; widening the window restores the complete
+captured text. Context prioritizes path and Git when its height is constrained,
+while Interaction keeps the operation-specific rows most relevant to the current
+buffer.
 
 Built-in language and toolchain coverage includes:
 
@@ -3508,11 +3950,15 @@ Built-in language and toolchain coverage includes:
 - Scientific, game, and infrastructure: R, Julia, Dart, Godot/GDScript, and
   Terraform/OpenTofu
 
-The detected project directory appears first, followed by every applicable
-runtime and its installed version. A missing tool is shown as `not-installed`.
-Runtime versions are cached per project and executable so prompt rendering stays
-fast and version-manager shims can differ between repositories. Outside a
-recognized project, the extra line disappears and the prompt stays two lines.
+The detected project directory identifies the lens. Toolchain context then
+shows each applicable runtime and its installed version; a missing tool appears
+as `not-installed`. Runtime versions are cached per project and executable so
+prompt rendering stays fast and version-manager shims can differ between
+repositories. Outside a recognized project, project and toolchain rows are
+omitted. `READY` and the operation-specific Interaction lenses still work with
+the current path and other available facts. Option-I can still pin Context, a
+later environment change can expand it, and a Git repository can still trigger
+and populate it.
 Runtime commands are resolved from the user's `PATH`; the prompt never executes
 programs from a repository's `node_modules`, build directory, or wrapper scripts
 merely because the user entered that directory.
@@ -3538,21 +3984,21 @@ Installed runtime versions are cached for prompt speed. After installing or
 upgrading a tool without opening a new shell, refresh them with:
 
 ```sh
-prompt-refresh
+compozsh --refresh
 ```
 
-For example, the adaptive line can look like:
+Detected project/toolchain combinations include:
 
 ```text
-├─ storefront node 24.5.0 · typescript 6.0.1 · pnpm · next · docker
-├─ edge-api deno 2.5.0 · task
-├─ ios-client objective-c clang 21.0.0 · xcode · xcworkspace · cocoapods · swiftlint
-├─ mobile kotlin gradle-managed · gradle · android
-├─ docs python 3.14.0 · pdm · jupyter · mkdocs
-├─ services dotnet 10.0.100 · solution · nuget
-├─ game godot 4.5.1
-├─ infrastructure terraform 1.14.0-tofu · terragrunt · tflint · helm
-├─ numerical-model fortran gfortran 15.2.0 · fpm
+storefront          node 24.5.0 · typescript 6.0.1 · pnpm · next · docker
+edge-api            deno 2.5.0 · task
+ios-client          objective-c clang 21.0.0 · xcode · xcworkspace · cocoapods · swiftlint
+mobile              kotlin gradle-managed · gradle · android
+docs                python 3.14.0 · pdm · jupyter · mkdocs
+services            dotnet 10.0.100 · solution · nuget
+game                godot 4.5.1
+infrastructure      terraform 1.14.0-tofu · terragrunt · tflint · helm
+numerical-model     fortran gfortran 15.2.0 · fpm
 ```
 
 Version files such as `.nvmrc`, `.node-version`, `.deno-version`, `.python-version`,
@@ -3560,19 +4006,20 @@ Version files such as `.nvmrc`, `.node-version`, `.deno-version`, `.python-versi
 `.kotlin-version`, `.lua-version`, `.terraform-version`, `go.mod`, and
 `.tool-versions` are compared with the active runtime. The other built-ins also
 accept a matching `.<language>-version` file where that convention is useful.
-Mismatches are placed at the end of the line in red:
+Mismatches appear in the danger color and form an attention state that can
+open the Context lens:
 
 ```text
-├─ web-app node 24.5.0 · pnpm · next · ⚠ node wants 22
+TOOLCHAIN   node 24.5.0 · pnpm · next · ⚠ node wants 22
 ```
 
 Compiled and Lisp-family languages show the implementation that actually runs
 the code rather than inventing a language version:
 
 ```text
-├─ native-app c/c++ clang 21.0.0 · asm nasm 2.16.03 · cmake
-├─ sicp scheme mit-scheme 12.1
-├─ lisp-notes lisp sbcl 2.5.7 · asdf
+native-app      c/c++ clang 21.0.0 · asm nasm 2.16.03 · cmake
+sicp            scheme mit-scheme 12.1
+lisp-notes      lisp sbcl 2.5.7 · asdf
 ```
 
 C/C++, Objective-C, Assembly, and Fortran detection looks for common source
@@ -3606,10 +4053,13 @@ PROMPT_PROJECT_CONTEXT_FUNCTIONS+=(v_prompt_context)
 `PROMPT_PROJECT_MARKERS` teaches the upward project-root search about a new
 manifest. Each function in `PROMPT_PROJECT_CONTEXT_FUNCTIONS` receives that
 root path. `prompt_add_project_segment text [color]` safely escapes the text
-before placing it on the project line. An omitted or empty color reads the
+before placing it in project context. An omitted or empty color reads the
 current `ZSH_PROMPT_COLORS[tool]` role, falling back to the selected palette or
-native text when no role is available. An explicit color retains Zsh's native
-prompt-color syntax. Because the arrays preserve earlier values and
+native text when no role is available. An explicit color may be a `0`–`255`
+index or one of Zsh's fixed basic names (`black`, `red`, `green`, `yellow`,
+`blue`, `magenta`, `cyan`, `white`, or `default`); malformed values take the
+same validated fallback path and never become prompt syntax. Because the
+arrays preserve earlier values and
 the function runs only during prompt collection, this remains independent of
 peer traversal order.
 
@@ -3637,21 +4087,39 @@ the remote machine running Zsh, not automatically to the client Mac.
 
 ## Easy customization
 
-The prompt implementation, including `PROMPT`, `RPROMPT`, project detection,
-and `_prompt_update`, lives in `.zsh.addons/.zsh.prompt`. Prefer documented
-palette and extension-point defaults in `~/.zsh.addons/local/init.zsh`; edit
-that focused unit only when changing shared prompt behavior such as the duration
-threshold.
+The living prompt's private compact/lens/transcript modes, Context trigger,
+Interaction derivation/rendering, project detection, and outcome timing live in
+`.zsh.addons/.zsh.prompt`. Its ZLE redraw/accept adapters, hook registrations,
+and Option-I binding live in `.zsh.addons/.zsh.editor`. Prefer documented
+palette and project extension-point defaults in `~/.zsh.addons/local/init.zsh`.
+Context triggers, Interaction kinds, and Option-I behavior are currently fixed;
+there is no public initializer setting for changing those state rules.
 
 ## Discard all Git changes
 
-`git-discard-all` provides a guarded equivalent of an IDE's “Discard All
+`g --discard-all` provides a guarded equivalent of an IDE's “Discard All
 Changes” action. It works from any subdirectory, previews every affected path,
 and requires a `y` confirmation before changing anything:
 
 ```sh
-git-discard-all
+g --discard-all
 ```
+
+This is the only discard entry point. The former `git-discard-all` command is
+removed, with no alias or compatibility wrapper. Update personal shortcuts to
+`g --discard-all`; `g --discard-all --help` reads the canonical Git guide.
+The operation requires `.zsh.tools`; its `g` dispatch and help live in
+`.zsh.navigation`, with no separate explorer entry.
+It targets the current folder's repository, temporarily ignoring inherited Git
+directory, worktree, index, object-store and namespace selectors; the caller's
+environment is restored afterward.
+
+On a supported interactive terminal with the shared UI loaded, confirmation
+opens a scoped screen with a status inspector. Type exactly `y` or `Y` and
+Return to confirm; empty Return or Escape cancels. The bounded inspector keeps
+up to 32,768 characters, while the complete status was already printed into
+scrollback. Plain/noninteractive and missing-UI paths retain the `[y/N]` prompt.
+The screen closes before revalidation or any Git write.
 
 It restores both staged and unstaged tracked files to `HEAD`, then deletes
 untracked files and directories throughout the repository. It deliberately
@@ -3685,14 +4153,15 @@ Before archiving Compozsh, inspect it and remove it if desired while the guarded
 command is still available:
 
 ```sh
-compozsh-sudo-touch-id status
-compozsh-sudo-touch-id disable
+compozsh --sudo-touch-id status
+compozsh --sudo-touch-id disable
 ```
 
 Disable preserves custom policy and is still available if an OS update changed
 the enable prerequisites. If Compozsh was already archived, source the
-trusted archived `.zsh.sudo-touch-id` peer from the same release and use its
-`status` and `disable` modes; do not remove an unverified `sudo_local` file.
+trusted archived `.zsh.help` and `.zsh.sudo-touch-id` peers from the same release
+and use `compozsh --sudo-touch-id status` and `compozsh --sudo-touch-id disable`;
+do not remove an unverified `sudo_local` file.
 
 Use the same configuration base as installation, then inspect the active
 bootstrap without printing its contents:
@@ -3736,7 +4205,7 @@ mv "$config_base/.zsh.addons" \
 
 Do not archive the complete tree when keeping `local/init.zsh` or private peers.
 With a symlink installation, the tree contains only those private files, so it
-can remain untouched. Agent skills exported by `update-xcode-skills` are
+can remain untouched. Agent skills exported by `xcode --export-skills` are
 independent managed copies and remain installed.
 
 Installer-created recovery snapshots remain under `.zsh-backups`. List them and

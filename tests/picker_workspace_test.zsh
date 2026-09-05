@@ -51,7 +51,7 @@ _test_picker_workspace_layout() {
     _ZLE_PICKER_INSPECT_TEXTS=(branch-1 "$(print -rl -- detail-{01..80})")
     _ZLE_PICKER_INSPECT_FOCUS=0
     _zle_picker_render "" 1
-    (( ${#_ZLE_PICKER_DISPLAY} == 46 && _ZLE_PICKER_INSPECT_PAGE < 15 )) || exit 6
+    (( ${#_ZLE_PICKER_DISPLAY} == 46 && _ZLE_PICKER_INSPECT_PAGE <= 20 )) || exit 6
     _ZLE_PICKER_INSPECT_FOCUS=1
     _zle_picker_render "" 1
     (( ${#_ZLE_PICKER_DISPLAY} == 46 && _ZLE_PICKER_INSPECT_PAGE > 30 )) || exit 7
@@ -155,7 +155,7 @@ _test_picker_workspace_native_editor() {
     functions[_workspace_original_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _workspace_original_show
-      [[ $_ZLE_PICKER_POSTDISPLAY == "Compozsh / History"* &&
+      [[ $_ZLE_PICKER_POSTDISPLAY == "  History"* &&
          $_ZLE_PICKER_POSTDISPLAY == "$_ZLE_PICKER_TITLEBAR"$'\''\n'\''"$_ZLE_PICKER_HEADER"* ]] || {
         print -r -u $event_fd -- BAD-TITLE
         return 1
@@ -168,7 +168,8 @@ _test_picker_workspace_native_editor() {
       print -r -u $event_fd -- "FRAME:$COLUMNS:$LINES:$_ZLE_PICKER_SELECTED"
     }
     zle() {
-      if [[ $1 == -R && -n $POSTDISPLAY && $POSTDISPLAY == "$_ZLE_PICKER_POSTDISPLAY" ]]; then
+      if [[ $1 == -R && -n $POSTDISPLAY && $PREDISPLAY$POSTDISPLAY == "$_ZLE_PICKER_POSTDISPLAY" ]]; then
+        [[ $PREDISPLAY == *"SWIFT -c" ]] || print -r -u $event_fd -- BAD-CARET
         [[ -n ${region_highlight[(r)P0 *memo=my-zsh-picker]} ]] ||
           print -r -u $event_fd -- NO-TITLE-STYLE
         [[ -n ${region_highlight[(r)*underline*memo=my-zsh-picker]} ]] ||

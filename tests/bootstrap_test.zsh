@@ -30,9 +30,9 @@ _test_public_surface_loads() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" \
-    'ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "${+functions[mkcd]}|${+functions[cpdir]}|${+functions[git-discard-all]}|${+functions[update-xcode-skills]}|${+functions[d]}|${+functions[g]}|${+functions[f]}|${+functions[compozsh]}"' \
+    'ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "${+functions[mkcd]}|${+functions[cpdir]}|${+functions[git-discard-all]}|${+functions[xcode]}|${+functions[d]}|${+functions[g]}|${+functions[f]}|${+functions[compozsh]}"' \
     "$TEST_REPO_ROOT") || return
-  test_assert_equal '1|1|1|1|0|1|0|1' "$output" \
+  test_assert_equal '1|1|0|1|0|1|0|1' "$output" \
     'documented public commands are missing'
 }
 test_case 'bootstrap exposes the shipped public command surface' \
@@ -105,6 +105,12 @@ case $2 in
   rotate-right) files=($files[-1] ${files[1,-2]}) ;;
 esac
 for file in "${files[@]}"; do source "$file" || exit; done
+zmodload zsh/parameter
+typeset -a prompt_pre_redraw_hooks=() prompt_finish_hooks=()
+zstyle -a zle-line-pre-redraw widgets prompt_pre_redraw_hooks
+zstyle -a zle-line-finish widgets prompt_finish_hooks
+prompt_pre_redraw_hooks=("${(@)prompt_pre_redraw_hooks#<->:}")
+prompt_finish_hooks=("${(@)prompt_finish_hooks#<->:}")
 print -r -- "history:$HISTSIZE,$SAVEHIST,$HISTFILE"
 print -r -- "options:${options[noclobber]},${options[sharehistory]},${options[autopushd]}"
 print -r -- "aliases:${aliases[ll]}|${aliases[la]}|${aliases[c]}|${aliases[..]}"
@@ -112,11 +118,13 @@ print -r -- "styles:${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[argu
 print -r -- "prompt-colors:${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[path]}|${ZSH_PROMPT_COLORS[git]}|${ZSH_PROMPT_COLORS[warning]}"
 print -r -- "output-colors:${ZSH_OUTPUT_COLORS[success]}|${ZSH_OUTPUT_COLORS[warning]}|${ZSH_OUTPUT_COLORS[error]}|${ZSH_OUTPUT_COLORS[match]}"
 print -r -- "hooks:${precmd_functions[*]}|${preexec_functions[*]}|${zle_line_init_functions[*]}|${zle_line_pre_redraw_functions[*]}"
+print -r -- "zle-hooks:${(j:,:)prompt_pre_redraw_hooks}|${(j:,:)prompt_finish_hooks}|${widgets[compozsh-context-lens]-}"
 print -r -- "prompts:$PROMPT|$RPROMPT"
-print -r -- "public:${+functions[mkcd]},${+functions[cpdir]},${+functions[git-discard-all]},${+functions[prompt-refresh]},${+functions[d]},${+functions[g]},${+functions[f]},${+functions[update-xcode-skills]},${+functions[compozsh]}"
+print -r -- "public:${+functions[mkcd]},${+functions[cpdir]},${+functions[git-discard-all]},${+functions[external-device]},${+functions[d]},${+functions[g]},${+functions[f]},${+functions[xcode]},${+functions[compozsh]}"
 bindkey "^R"
 bindkey "^F"
 bindkey "^[f"
+bindkey "^[i"
 bindkey "^E"'
 
   for mode in lexical reverse rotate-left rotate-right; do
