@@ -104,6 +104,7 @@ state:
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh --sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, the living prompt's Context trigger/disclosure flags, and temporary view snapshots; discarded with the shell or view |
+| Local manual summaries | Shell memory until `compozsh --refresh` or shell exit | A first-interactive-prompt snapshot of bounded NAME descriptions and page-name/section attribution from fixed installed manual roots; lookup is memory-only and describes literal names, not executable identity |
 | Interaction lens state | Shell memory for the active ordinary prompt | The current interaction kind, sanitized and bounded literal excerpts/structural summaries, captured context anchors, latest command outcome, and an optional bounded prefix of matching editor-owned autosuggestion state; replaced as the buffer or command outcome changes and discarded with the shell. Leading assignment values are not copied into this presentation state; the actual ZLE buffer remains native shell state |
 | Draft inspector | Invocation-scoped shell memory, only after Option-Return | At most 32,768 literal draft characters plus a truncation notice, cursor/length/current-folder facts, reading filters and frames; released on return. The exact full draft is preserved by the native editing/screen-restoration state. Explicit Read can display assignment values and other sensitive text; no redaction or execution occurs |
 | Captured help and command readers | View-scoped shell memory | Tool help reuses at most 64 same-source companions of 32,768 characters each; direct help captures only its selected companion. Topic navigation, argument excerpts and full-width reading derive from that capture. History's inspector reads at most 32,768 characters from the selected captured command and retains no second history catalog. History acceptance inserts the original full command; ordinary help topics only read, while the separately labeled Compose example action opens an authored template |
@@ -245,7 +246,7 @@ Bare `external-device` presents two fixed task choices without reading disks or
 images. Choosing a task closes that screen before its normal scoped capture;
 the flash and format modes retain their separate exact-device confirmations.
 `compozsh --refresh` clears only the current shell's existing in-memory runtime,
-Git-directory and grep-capability caches and runs `rehash`. It neither reloads
+manual-summary, Git-directory and grep-capability caches and runs `rehash`. It neither reloads
 private configuration nor updates installed tools or other shell sessions.
 
 `xcode --export-skills` detects the same local agent installations and selected
@@ -275,6 +276,26 @@ is scoped to Context/Interaction prompt derivation and repaint, not the complete
 ZLE pre-redraw hook chain. The independent syntax highlighter retains bounded
 filesystem checks for literal path tokens and does not evaluate substitutions or
 globs from the buffer.
+
+The optional `.zsh.manual` peer adds one first-TTY-`precmd` capture of local
+manual NAME descriptions. It reads no project or personal configuration: the
+fixed roots are `/usr/share/man`,
+`/Library/Developer/CommandLineTools/usr/share/man`,
+`/Applications/Xcode.app/Contents/Developer/usr/share/man`,
+`/opt/homebrew/share/man` and `/usr/local/share/man`. It skips symlink roots,
+section directories and pages, uses non-following/nonblocking opens and checks
+the opened descriptor is regular. This is not a filesystem sandbox against an
+administrator replacing ancestor directories. Capture bounds are 4,096 pages,
+8 KiB per page and 8,192 retained name/summary pairs; descriptions are capped at
+240 characters. The snapshot and page-name/section attribution live only in
+shell memory until refresh or shell exit. Source time performs no capture.
+No MANPATH/configuration read, index generation, formatter, roff include/macro
+execution, command invocation, subprocess, persistent file or network operation
+is involved. Unsupported pages fail quietly. Rendered ABOUT text is inert and
+describes a literal name, not resolved executable identity or argument effects;
+arbitrary aliases/functions do not inherit it. Typing and resizing only consult
+this snapshot and loaded shell metadata. The normal prompt escaping applies to
+manual text as to other captured facts.
 
 Rows whose labels end in `TEXT`, including `ENDPOINT TEXT`, are sanitized,
 width-bounded excerpts from the literal editable buffer; they do not prove that

@@ -144,7 +144,7 @@ _appearance_apply_defaults() {
       picker-success-selected 'fg=22,bold'
       picker-success-selected-inactive 'fg=22,bold'
       picker-muted        'fg=242'
-      picker-empty        "fg=${output_defaults[error]},bold"
+      picker-empty        'fg=242'
       review-added        'fg=236,bg=194'
       review-removed      'fg=236,bg=224'
       review-keyword      'fg=90,bold'
@@ -254,7 +254,7 @@ _appearance_apply_defaults() {
       picker-success-selected 'fg=120,bold'
       picker-success-selected-inactive 'fg=120,bold'
       picker-muted        "fg=${output_defaults[muted]}"
-      picker-empty        "fg=${output_defaults[error]},bold"
+      picker-empty        "fg=${output_defaults[muted]}"
       review-added        'fg=231,bg=22'
       review-removed      'fg=231,bg=52'
       review-keyword      'fg=189,bold'

@@ -970,7 +970,7 @@ _usb_browser_capture() {
   _USB_BROWSER_PARTIAL=0
   [[ -d $location && -r $location ]] || return 1
   _USB_PICKER_VALUES=(paste-path)
-  _USB_PICKER_LABELS=('[ Paste or drop an exact media path… ]')
+  _USB_PICKER_LABELS=('Paste or drop an exact media path…')
   _USB_PICKER_HIGHLIGHTS=('')
   _USB_PICKER_SEARCH=(paste drop drag finder exact path)
   _USB_PICKER_DETAILS=('')
@@ -1849,7 +1849,7 @@ _usb_media_attention_choose() {
   emulate -L zsh
   local image=$1 headline=$2 detail=$3
   local -a _USB_PICKER_VALUES=(back info)
-  local -a _USB_PICKER_LABELS=('[ Choose another media ]' "$headline")
+  local -a _USB_PICKER_LABELS=('Choose another media' "$headline")
   local -a _USB_PICKER_HIGHLIGHTS=('' "0:${#headline}:picker-error")
   local -a _USB_PICKER_SEARCH=(back media unsupported inspect)
   local -a _USB_PICKER_DETAILS=("$detail" "$detail")
@@ -1867,7 +1867,7 @@ _usb_windows_unsupported_choose() {
   local safety='Safety · Compozsh will not use raw, exFAT, or NTFS workarounds'
   local summary='Compozsh detected Windows Setup media and stopped before drive selection.'$'\n\n''Microsoft’s supported portable installer uses FAT32. Current Windows 11 ISOs can contain sources/install.wim larger than FAT32’s 4 GiB single-file limit. Microsoft requires DISM on Windows to split that image into install.swm parts; stock macOS has no supported WIM splitter. Raw writing and alternate exFAT or NTFS layouts are not reliable ordinary Windows Setup media.'$'\n\n''Nothing was written or targeted. Use Microsoft Media Creation Tool or DISM on Windows.'
   local -a _USB_PICKER_VALUES=(done)
-  local -a _USB_PICKER_LABELS=('[ Done ]')
+  local -a _USB_PICKER_LABELS=(Done)
   local -a _USB_PICKER_HIGHLIGHTS=('')
   local -a _USB_PICKER_SEARCH=(done)
   local -a _USB_PICKER_DETAILS=("$summary")
@@ -1884,7 +1884,7 @@ _usb_macos_review_choose() {
   local source_label='Source validation · Verified · Apple-signed full installer'
   _USB_PICKER_VALUES=(flash-verify source image target)
   _USB_PICKER_LABELS=(
-    '[ Create bootable macOS installer ]'
+    'Create bootable macOS installer'
     "$source_label"
     "Change installer · ${installer:t}"
     "Change drive · ${_USB_DISK_LABELS[disk_index]}")
@@ -1933,7 +1933,7 @@ _usb_workspace_controller() {
   while true; do
     _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
     _USB_PICKER_VALUES+=(custom-path)
-    _USB_PICKER_LABELS+=('[ Custom path to media… ]')
+    _USB_PICKER_LABELS+=('Custom path to media…')
     _USB_PICKER_HIGHLIGHTS+=('')
     _USB_PICKER_SEARCH+=(custom path browse home finder)
     _USB_PICKER_DETAILS+=('Custom path to media'$'\n\n''Browse from ~/ with Compozsh fuzzy matching. Use Right or Return to enter a folder, Left to return, and choose one ISO, IMG, or full Install macOS application.')
@@ -2094,16 +2094,16 @@ _usb_workspace_controller() {
       _USB_PICKER_VALUES+=(flash-verify)
       if [[ -n $checksum && $checksum_state == matched ]]; then
         if [[ $media_kind == windows-installer ]]; then
-          _USB_PICKER_LABELS+=("[ Create & verify Windows installer · SHA-$checksum_algorithm ]")
+          _USB_PICKER_LABELS+=("Create & verify Windows installer · SHA-$checksum_algorithm")
         else
-          _USB_PICKER_LABELS+=("[ Start flash & verify · SHA-$checksum_algorithm ]")
+          _USB_PICKER_LABELS+=("Start flash & verify · SHA-$checksum_algorithm")
         fi
       elif [[ -n $checksum ]]; then
-        _USB_PICKER_LABELS+=('[ Resolve image integrity check before flashing ]')
+        _USB_PICKER_LABELS+=('Resolve image integrity check before flashing')
       elif [[ $media_kind == windows-installer ]]; then
-        _USB_PICKER_LABELS+=('[ Create & verify Windows installer ]')
+        _USB_PICKER_LABELS+=('Create & verify Windows installer')
       else
-        _USB_PICKER_LABELS+=('[ Start flash & verify ]')
+        _USB_PICKER_LABELS+=('Start flash & verify')
       fi
       _USB_PICKER_HIGHLIGHTS+=('')
       _USB_PICKER_SEARCH+=('write verify checksum')
@@ -4665,7 +4665,7 @@ _usb_result_screen() {
     eject_label='Safe to remove · external drive ejected'
     _USB_PICKER_VALUES=(done bytes time)
     _USB_PICKER_LABELS=(
-      '[ Done ]'
+      'Done'
       "Flash complete · $size_label written"
       "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}")
     _USB_PICKER_HIGHLIGHTS=(
@@ -4713,7 +4713,7 @@ _usb_result_screen() {
     fi
     _USB_PICKER_VALUES=(done error)
     _USB_PICKER_LABELS=(
-      '[ Done ]'
+      'Done'
       "Flash failed · ${_USB_RESULT_ERROR:-The operation did not complete.}")
     _USB_PICKER_HIGHLIGHTS=(
       ''
@@ -4788,7 +4788,7 @@ _usb_macos_result_screen() {
     eject_label='Safe to remove · external drive ejected'
     _USB_PICKER_VALUES=(done complete time source eject)
     _USB_PICKER_LABELS=(
-      '[ Done ]'
+      'Done'
       'macOS installer complete · Apple createinstallmedia succeeded'
       "Time · $duration_label"
       'Source validation · Verified · Apple-signed full installer'
@@ -4824,7 +4824,7 @@ _usb_macos_result_screen() {
   fi
   _USB_PICKER_VALUES=(done error source eject)
   _USB_PICKER_LABELS=(
-    '[ Done ]'
+    'Done'
     "macOS installer failed · ${_USB_RESULT_ERROR:-The operation did not complete.}"
     "$source_label"
     "$eject_label")
@@ -4868,7 +4868,7 @@ _usb_windows_result_screen() {
     eject_label='Safe to remove · external drive ejected'
     _USB_PICKER_VALUES=(done complete time integrity verify eject)
     _USB_PICKER_LABELS=(
-      '[ Done ]'
+      'Done'
       'Windows installer complete · complete FAT32 file tree verified'
       "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}"
       "$integrity_label"
@@ -4901,7 +4901,7 @@ _usb_windows_result_screen() {
   fi
   _USB_PICKER_VALUES=(done error integrity eject)
   _USB_PICKER_LABELS=(
-    '[ Done ]'
+    'Done'
     "Windows installer failed · ${_USB_RESULT_ERROR:-The operation did not complete.}"
     "$integrity_label"
     "$eject_label")

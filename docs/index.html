@@ -53,26 +53,29 @@
         <div class="terminal">
           <div class="terminal-chrome"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>compozsh — zsh</span><span class="native-label">NATIVE</span></div>
           <div class="demo-tabs" role="tablist" aria-label="Terminal examples" hidden>
-            <button id="tab-prompt" role="tab" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-mode="prompt">Context</button>
+            <button id="tab-prompt" role="tab" aria-selected="true" aria-controls="demo-panel" data-mode="prompt">Context</button>
             <button id="tab-history" role="tab" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-mode="history">History</button>
-            <button id="tab-files" role="tab" aria-selected="true" aria-controls="demo-panel" data-mode="files">Files</button>
+            <button id="tab-files" role="tab" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-mode="files">Files</button>
             <button id="tab-git" role="tab" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-mode="git">Git</button>
             <button id="tab-tools" role="tab" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-mode="tools">Tools</button>
           </div>
-          <div class="terminal-body" id="demo-panel" role="tabpanel" aria-labelledby="tab-files">
-            <div class="shell-prompt" aria-label="Synthetic living prompt showing Context, Interaction lenses, and command receipts" hidden>
+          <div class="demo-controls" aria-label="Simulation controls">
+            <div class="demo-entry"><span id="demo-command-label">CHANGE</span><span id="demo-command" class="command">cd ~/Projects/example-app</span></div>
+            <div class="demo-example-row"><div id="demo-example-control" hidden><label for="demo-example">Example</label><select id="demo-example"></select></div></div>
+          </div>
+          <div class="terminal-body" id="demo-panel" role="tabpanel" aria-labelledby="tab-prompt">
+            <div class="shell-prompt" aria-label="Synthetic living prompt showing Context, Interaction lenses, and command receipts">
               <div class="prompt-state prompt-lens" data-prompt-state="lens">
-                <div class="lens-header"><span><span class="tree">╭─</span> CONTEXT · entered project</span><span class="subtle">⌥I pin</span></div>
+                <div class="lens-header"><span><span class="tree">╭─</span> CONTEXT · entered project</span><span class="subtle">Option-I pin</span></div>
                 <div class="lens-row"><span><span class="tree">│</span> PROJECT</span><strong>example-app</strong></div>
                 <div class="lens-row"><span><span class="tree">│</span> PATH</span><strong class="path">~/Projects/example-app</strong></div>
                 <div class="lens-row"><span><span class="tree">│</span> GIT</span><strong class="git">main ✓ · tracks origin/main</strong></div>
                 <div class="lens-row"><span><span class="tree">│</span> TOOLCHAIN</span><strong class="runtime">swift 6.4 · swiftpm</strong></div>
                 <div class="lens-row"><span><span class="tree">│</span> SESSION</span><strong>user@host · zsh 5.9</strong></div>
-                <div><span class="tree">╰─</span></div>
-                <div><span class="path">❯</span> <span class="prompt-cursor" aria-hidden="true"></span></div>
+                <div class="interaction-input"><span class="tree">╰─</span> <span class="path">❯</span> <span class="prompt-cursor" aria-hidden="true"></span></div>
               </div>
               <div class="prompt-state prompt-interaction" data-prompt-state="interaction" hidden>
-                <div class="interaction-header"><span class="tree">╭─</span> <strong id="interaction-mode">READY</strong></div>
+                <div class="interaction-header"><span><span class="tree">╭─</span> <strong id="interaction-mode">READY</strong></span><span class="subtle">Option-Return inspect draft</span></div>
                 <div id="interaction-rows">
                   <div class="interaction-row" data-source="captured"><span><span class="tree">│</span> PROJECT</span><strong class="runtime">example-app</strong></div>
                   <div class="interaction-row" data-source="captured"><span><span class="tree">│</span> PATH</span><strong class="path">~/Projects/example-app</strong></div>
@@ -87,9 +90,7 @@
                 <div id="transcript-outcome"><span class="git">✓</span> <span class="subtle">2.9s</span></div>
               </div>
             </div>
-            <div class="demo-entry"><span id="demo-command-label">ENTRY</span><span id="demo-command" class="command">~/ + Tab</span></div>
-            <div class="demo-example-row"><div id="demo-example-control" hidden><label for="demo-example">Example</label><select id="demo-example"></select></div></div>
-            <div id="picker-demo">
+            <div id="picker-demo" hidden>
               <div class="picker-heading"><span id="picker-title">Directory browser</span><span class="picker-brand">COMPOZSH</span></div>
               <span id="match-count" aria-live="polite">3 matches</span>
               <p id="demo-scope" class="demo-scope">~ · child directories · hidden off</p>
@@ -99,7 +100,7 @@
                 <button class="result-row" disabled><span class="result-number">[3]</span><span class="result-cursor" aria-hidden="true"> </span><span>▸ Projects/</span></button>
               </div>
               <div class="search-line"><label for="demo-query"><span id="demo-input-label">Filter folders</span> <span aria-hidden="true">›</span></label><input id="demo-query" type="text" value="" maxlength="120" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="demo-hint" disabled></div>
-              <p class="picker-keys" id="demo-hint"><span class="picker-primary">↵ preview</span><span id="demo-back-hint">Esc cancel</span><span>↑↓ move</span><span>1–5 with empty input</span></p>
+              <p class="picker-keys" id="demo-hint"><span class="picker-primary">↵ preview</span><span id="demo-back-hint">Esc cancel</span><span>↑/↓ move</span><span>1–5 with empty input</span></p>
             </div>
             <div id="journey-demo" hidden></div>
             <div id="git-review-demo" hidden>
@@ -116,21 +117,22 @@
                   <div id="review-lines" class="review-lines" tabindex="0" aria-label="Synthetic read-only diff"></div>
                 </div>
               </div>
-              <p class="review-keys"><span>↑↓ files</span><span>→ read</span><span>→ full file</span><span>Ctrl-A pause auto</span><span>Ctrl-R refresh now</span></p>
+              <p class="review-keys"><span>↑/↓ files</span><span>→ read</span><span>→ full file</span><span>Ctrl-A pause auto</span><span>Ctrl-R refresh now</span></p>
             </div>
-            <div id="context-demo" hidden>
-              <div class="interaction-key" aria-label="How to read Interaction lens rows">
-                <div data-key="literal"><span>LITERAL DRAFT</span><p><code>TEXT</code> repeats bounded pieces; flow, control and redirect rows summarize visible structure.</p></div>
-                <div data-key="captured"><span>CAPTURED FACT</span><p>Project, path, Git and environment came from the last prompt boundary.</p></div>
-                <div data-key="advisory"><span>ADVISORY</span><p><code>ACTION</code> always says likely, appears or may. It is never proof.</p></div>
-              </div>
-              <p class="fixture-note">User-selected fixed examples. This page never observes your command line, filesystem, Git state, environment or network.</p>
-            </div>
-            <div class="demo-output" id="demo-output" aria-live="polite">In Zsh: → enters a folder; ← goes back; Enter inserts its path.</div>
           </div>
-          <div class="terminal-status"><span><span class="status-dot" aria-hidden="true"></span> Native Zsh · composed for you.</span><span aria-hidden="true">UTF-8</span></div>
+          <div class="terminal-status"><span><span class="status-dot" aria-hidden="true"></span> Fixed simulation · local-only examples</span><span aria-hidden="true">UTF-8</span></div>
         </div>
-        <div class="demo-guide"><h2 id="demo-benefit">Start with a place. Follow your intent.</h2><p id="demo-description">Type a path and press Tab. Browse children, use Ctrl-O for a shallow preview, or Ctrl-F to search below the displayed folder.</p><a id="demo-docs" href="https://github.com/bitbemol/compozsh#contextual-directory-completion">Feature guide <span aria-hidden="true">↗</span></a></div>
+        <div class="demo-output" id="demo-output" aria-live="polite">Fixed simulation: entering a project opens its captured context.</div>
+        <details id="context-demo" hidden>
+          <summary>How to read the prompt</summary>
+          <div class="interaction-key" aria-label="How to read Interaction lens rows">
+            <div data-key="literal"><span>LITERAL DRAFT</span><p><code>TEXT</code> repeats bounded pieces; flow, control and redirect rows summarize visible structure.</p></div>
+            <div data-key="captured"><span>CAPTURED FACT</span><p>Context and local manual summaries were captured before editing.</p></div>
+            <div data-key="advisory"><span>ADVISORY</span><p><code>ACTION</code> always says likely, appears or may. It is never proof.</p></div>
+          </div>
+          <p class="fixture-note">User-selected fixed examples. This page never observes your command line, filesystem, Git state, environment or network.</p>
+        </details>
+        <div class="demo-guide"><h2 id="demo-benefit">Arrive somewhere meaningful. See the whole situation.</h2><p id="demo-description">The Context lens brings captured project, path, Git and toolchain facts into one prompt. Choose a fixed example to explore how it changes while editing.</p><a id="demo-docs" href="https://github.com/bitbemol/compozsh#living-prompt">Feature guide <span aria-hidden="true">↗</span></a></div>
         <p class="demo-caption"><span class="demo-caption-label">TRY IT ↑</span> Browser demo · fixed synthetic data · user controlled.</p>
         <noscript><p class="demo-caption">Enable JavaScript to try the examples. Installation and documentation work without it.</p></noscript>
       </div>

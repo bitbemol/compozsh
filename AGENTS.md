@@ -291,6 +291,18 @@ audit installation, updating, and uninstall instructions together.
   Reveal specialized examples within their task and secondary features on
   request. Keep tab changes spatially stable; avoid autoplay and competing
   demos. Shared interaction code should consume bounded sample data.
+- Showcase numbered choices mirror the native compact-row rule: no decorative
+  inter-option gaps, and actual descriptions remain attached to their item.
+  Preserve browser hit areas within rows. Keep example-selector labels concise
+  enough to fit at narrow mobile widths; put fuller explanations in the visible
+  description rather than shrinking text or relying on clipped option names.
+- Open the showcase on Context. Keep website example controls and feedback
+  outside the simulated terminal viewport. Prompt demos share one monospace
+  cell rhythm for labels and values, a continuous outline and attached input;
+  do not recreate rails from differently sized, loosely spaced text rows.
+  Keep explanatory material in a separate disclosure. Validate inner label,
+  value and frame geometry at phone and desktop widths, not just outer-page
+  overflow; preserve the stable task viewport and accessible browser controls.
 - Write direct, affirmative product copy about actual capabilities. Avoid
   formulaic contrasts such as “X, not Y,” negative slogans, and unsupported
   superiority claims. Keep factual limitations and safety instructions clear.
@@ -332,7 +344,7 @@ user-facing entry point, then follow the linked behavioral contract. The
 | Surface | Adopted decision | Detailed contract |
 | --- | --- | --- |
 | Living prompt | One active frame responds to captured context and literal editing; acceptance leaves a command receipt. Preserve useful context without repeating inactive decoration | [Prompt and terminal UI](#prompt-and-terminal-ui) |
-| Shared workspaces | Stable task identity, visible scope, bottom input dock, capability-derived hints and official semantic colors across both panes. Selection, focus, disclosure and navigation are distinct | [Full-screen interaction standard](#full-screen-interaction-standard) |
+| Shared workspaces | Stable task identity, visible scope, compact numbered choices, bottom input dock, capability-derived hints and official semantic colors across both panes. Selection, focus, disclosure and navigation are distinct | [Full-screen interaction standard](#full-screen-interaction-standard) |
 | Help | Keep the description visible; topics and explanations share one captured guide. Reading is the default; Compose example is a separately labeled capability | [Keyboard and ZLE behavior](#keyboard-and-zle-behavior) |
 | Command composer | Authored literal fields produce a visible quoted draft. Replace draft returns to ordinary editing after cleanup; it never submits the command | [Prompt and terminal UI](#prompt-and-terminal-ui) |
 | Change atlas | Navigate captured Git change entries by folder, then read the selected diff. Bars count entries, not changed lines; Back preserves the review position | [Git review workspace boundary](#git-review-workspace-boundary) |
@@ -376,6 +388,21 @@ See [composer and atlas evidence](investigations/composer-and-atlas.md).
 For a UI change, review the complete affected journey, including secondary views
 and fallbacks, rather than approving a single attractive screen:
 
+- Treat the current shared design as the baseline for every tool, including
+  secondary menus, help, confirmations and result screens. Do not retain a
+  superseded visual flow or add a per-tool style switch. Preserve intentional
+  document-reading layouts and supported terminal fallbacks.
+- Audit against the [full-screen standard](#full-screen-interaction-standard):
+  compact choices, useful optional subtitles, renderer-owned numbering,
+  plain action labels, neutral empty states and capability-derived actions.
+  Check semantic colors in both panes and all selection/focus states, not
+  only the first view shown by the command.
+- Check prompt outline continuity and readable shortcut notation alongside
+  shared headers, pane boundaries and footer hints. Verify display-cell fit
+  with long labels, wide Unicode and narrow/short windows; cell counts alone
+  do not establish that glyphs look separated in Terminal.app. Omit optional
+  chrome before crowding essential identity or actions. Preserve literal
+  user text and exact targets independently from abbreviated display labels.
 - State the entry, source/scope, capture trigger, exact target, visible action,
   Back/cancel result and post-cleanup effect before implementation.
 - Reuse shared layout, palette roles, key handling and screen ownership. Check
@@ -817,6 +844,17 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
 - Do not add a project-specific disk cache, cache daemon, background worker,
   timer loop, or eager startup scan without an explicit architectural decision
   from the user. Zsh's native completion dump is not feature-state storage.
+- The approved local manual-summary exception is one bounded capture by the
+  optional `.zsh.manual` peer at the first TTY `precmd`, never source time or
+  editing. Read only regular uncompressed section 1/8 pages beneath the fixed
+  conventional installation roots documented in the README: at most 4,096
+  pages, 8 KiB per page, 8,192 retained names and 240 characters per summary.
+  Use native non-following/nonblocking opens and descriptor type checks; parse
+  only inert NAME text, never roff includes, formatters, man/whatis, config,
+  indexes or documented executables. Keep summaries in shell memory and clear
+  them with `compozsh --refresh`. Missing pages/unsupported formats are quiet
+  misses. Measure first-prompt capture separately from source time and warmed
+  redraw; see `investigations/manual-summaries.md` for the accepted tradeoff.
 - Working-changes auto-refresh in the Git review screen is the narrowly approved
   screen-session worker exception. Its ownership, bounds, lifecycle and local-only
   behavior are defined by the Git review workspace boundary below.
@@ -877,6 +915,17 @@ never optimize from a single timing sample.
   moments of one ordinary prompt. Repaint the active frame in place as state or
   `BUFFER` changes; do not accumulate superseded prompt frames in scrollback.
   Acceptance alone replaces the frame with one timestamped command receipt.
+- The Interaction capsule header, vertical rail and bottom corner share its
+  current semantic palette role. Keep labels, values, input arrow and editor
+  syntax independently styled; outline color must not bleed into row content.
+  This is presentation-only and preserves all widths and capture boundaries.
+- Prompt shortcut hints use readable `Option-Return` and `Option-I` text,
+  with at least two terminal cells between the heading and a whole hint.
+  Omit optional hints before crowding the context identity. Shared shortcut
+  bars separate paired arrows (`↑/↓`) and spell out `Option`; never concatenate
+  modifier/Return glyphs whose font ink can collide despite correct cell
+  counts. Keep shortcuts unchanged, fit whole hints by display-cell width,
+  and test long/wide-character headings and narrow-window redraws.
 - The Interaction lens renders `READY` while the buffer is empty. It may show
   captured `PROJECT`, `PATH`, `GIT`, `ENV` and the active `LAST` outcome; use
   `SESSION` only when no more relevant captured fact exists. `LAST` is mutable
@@ -897,6 +946,13 @@ never optimize from a single timing sample.
   `STEPS`, and `CONTROL` summarize pipeline or `&&`, `||`, `;`, and `&` chain
   structure as applicable. Every `ACTION` row is deliberately advisory and must
   retain qualifying language such as `likely`, `appears` or `may`.
+- `ABOUT` is a captured manual NAME description, not an ACTION prediction.
+  Generic RUN replaces its filler ACTION with ABOUT plus SOURCE attribution;
+  specific action cues and owned same-source-help commands retain priority.
+  Never invoke a help companion during redraw. Suppress external summaries for
+  user aliases/functions except the source-identified transparent output
+  wrappers. The literal-name lookup is not executable or PATH resolution.
+  Caution and compound-command presentations take priority over manual detail.
 - `COMMENT` exposes the bounded comment body as `COMMENT TEXT` with the advisory
   `likely remain an interactive shell comment`. `REDIRECT` pairs its literal
   `OPERATOR TEXT` with `OUTPUT TEXT`, `INPUT TEXT`, `DESCRIPTOR TEXT`, or
@@ -939,10 +995,10 @@ never optimize from a single timing sample.
   unknown/missing/unavailable/mismatch attention changes. Staged, modified,
   untracked, stash, ahead and behind count changes must not reopen it alone.
 - Render the expanded lens with a `CONTEXT · reason` header and its current
-  `⌥I pin`/`⌥I close` affordance. Use semantic `PROJECT`, `PATH`, `GIT`,
-  `TOOLCHAIN`, `ENV`, `JOBS`, and `SESSION` rows when their facts and height
-  budget apply; `SESSION` is where local user/host and Zsh-version identity
-  belong.
+  `Option-I pin`/`Option-I close` affordance when space permits. Use semantic
+  `PROJECT`, `PATH`, `GIT`, `TOOLCHAIN`, `ENV`, `JOBS`, and `SESSION` rows when
+  their facts and height budget apply; `SESSION` is where local user/host and
+  Zsh-version identity belong.
 - An automatic lens remains while `BUFFER` is empty. The first nonempty edit or
   paste replaces it with the Interaction lens and consumes that disclosure for
   the current trigger fingerprint; returning to an empty buffer does not reopen
@@ -1070,10 +1126,45 @@ keyboard guide must never trigger refresh or an automatic provider check.
 
 - Preserve spatial landmarks when results shrink. Blank space is acceptable;
   do not fill the screen with unrelated widgets, repeated paths or decoration.
-- Ordinary choice lists use a blank row between choices only when twice the
-  configured visible-slot budget fits. Filtering alone cannot change density.
-  Documents, passive information and stacked output retain compact rows; narrow
-  height falls back without losing selectable slots. Spacers have no indexes.
+- Author action labels as plain, descriptive text such as `Done` or `Copy
+  report and done`. The shared renderer owns the number and selection marker;
+  do not add decorative button brackets inside numbered choices. Preserve
+  literal brackets in filenames and other captured user data unchanged.
+- Ordinary empty results use the shared neutral `picker-empty` role, whose
+  default follows the muted palette in both color schemes. Reserve error
+  styling for actual failures and preserve public palette overrides. Keep
+  empty-state information passive, with no invented candidate or digit.
+- Derive acceptance labels from the captured capability actually available.
+  For example, Tool explorer offers `read help` for a captured usage guide and
+  `inspect` for a missing-help or capture-limit notice. A helper's existence
+  alone does not guarantee that its guide was captured. Do not execute or
+  recapture providers to decide a footer label during interaction.
+- Numbered choice lists use compact, consecutive rows in every tool and view.
+  Never insert decorative empty rows, reserve missing-description slots, or
+  add a per-tool density mode. A nonblank captured description may occupy one
+  subordinate row when twice the configured visible-slot budget fits; that
+  row belongs to its candidate and has no index, matching span or arrow stop.
+  Keep its selection surface continuous with the parent while its unselected
+  text uses the shared muted role. Empty/whitespace-only descriptions add no
+  row. Filtering alone must not toggle description eligibility. Short windows
+  omit secondary descriptions without losing selectable slots; details remain
+  the place for full explanations. Documents, passive information and stacked
+  output retain their own semantic reading rows, not decorative choice gaps.
+  Keep the shared row renderer, help, showcase and native navigation/resize
+  tests aligned with this single rule. Use bottom-body padding to preserve the
+  input dock, never inter-option padding to fill available height.
+- Treat that optional description row as the option's subtitle: a supported
+  part of the shared choice design, not a spacer or a second choice. Use it for
+  useful secondary context such as scope, a target summary or the next step;
+  do not merely repeat the main label. Supply captured literal text through
+  the existing `_ZLE_PICKER_DESCRIPTIONS` capability, not a parallel subtitle
+  renderer or new per-tool layout. Align it beneath the option label, fit it
+  to one physical line, and retain the parent selection surface and shared
+  muted unselected text style. The compact-row eligibility and fallback rules
+  above apply. Longer explanations belong in details/readers. Essential safety
+  facts must remain in the main label, persistent context or confirmation,
+  never only in a subtitle that can disappear in a short window. This item
+  subtitle is distinct from the workspace's status and context rows.
 - The input dock temporarily splits the captured frame across PREDISPLAY and
   POSTDISPLAY at the query end during paint. Never put the query in the caller's
   BUFFER or change its cursor; restore both display parameters after paint and

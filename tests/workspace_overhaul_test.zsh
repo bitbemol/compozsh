@@ -39,8 +39,8 @@ _test_overhaul_density() {
     _ZLE_PICKER_VIEW_LIMIT=10 _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_RESULTS=(item-{01..20}) _ZLE_PICKER_LABELS=(item-{01..20})
     _zle_picker_render "" 1
-    [[ $_ZLE_PICKER_DISPLAY[2] == "[ 1] ▸ item-01"* && -z $_ZLE_PICKER_DISPLAY[3] && $_ZLE_PICKER_DISPLAY[4] == "[ 2]   item-02"* ]] || exit 1
-    (( _ZLE_PICKER_VISIBLE_COUNT == 10 && _ZLE_PICKER_DISPLAY_INDEX_ENDS[3] == 0 && _ZLE_PICKER_DISPLAY_MATCH_STARTS[3] == -1 )) || exit 2
+    [[ $_ZLE_PICKER_DISPLAY[2] == "[ 1] ▸ item-01"* && $_ZLE_PICKER_DISPLAY[3] == "[ 2]   item-02"* ]] || exit 1
+    (( _ZLE_PICKER_VISIBLE_COUNT == 10 && _ZLE_PICKER_DISPLAY_INDEX_ENDS[3] > 0 && _ZLE_PICKER_DISPLAY_MATCH_STARTS[3] >= 0 )) || exit 2
     _ZLE_PICKER_RESULTS=(item-01) _ZLE_PICKER_LABELS=(item-01)
     _zle_picker_render "" 1
     [[ -z $_ZLE_PICKER_DISPLAY[3] ]] || exit 3
@@ -48,11 +48,32 @@ _test_overhaul_density() {
     _zle_picker_render "" 1
     (( _ZLE_PICKER_VISIBLE_COUNT == 10 )) || exit 4
     [[ $_ZLE_PICKER_DISPLAY[3] == "[ 2]   item-02"* ]] || exit 5
+    # Rich rows contain actual descriptions, never empty description slots.
+    LINES=30
+    _ZLE_PICKER_DESCRIPTIONS=(item-01 "First description" item-02 "   " item-03 "Third description")
+    _zle_picker_render "" 1
+    [[ $_ZLE_PICKER_DISPLAY[3] == *"First description"* && $_ZLE_PICKER_DISPLAY[4] == "[ 2]   item-02"* && $_ZLE_PICKER_DISPLAY[5] == "[ 3]   item-03"* && $_ZLE_PICKER_DISPLAY[6] == *"Third description"* ]] || exit 6
+    (( _ZLE_PICKER_DISPLAY_INDEX_ENDS[3] == 0 && _ZLE_PICKER_DISPLAY_MATCH_STARTS[3] == -1 && _ZLE_PICKER_VISIBLE_COUNT == 10 )) || exit 7
+    # Help/reference lists and ordinary lists have the same option rhythm.
+    _ZLE_PICKER_DESCRIPTIONS=()
+    for _ZLE_PICKER_REFERENCE_VIEW in 0 1; do
+      for _ZLE_PICKER_SCREEN_ACTIVE in 0 1; do
+        _zle_picker_render "" 1
+        local numbered=0 last_row=0 index=0
+        for (( index=1; index<=${#_ZLE_PICKER_DISPLAY}; ++index )); do
+          [[ $_ZLE_PICKER_DISPLAY[index] == \[* ]] || continue
+          (( !last_row || index == last_row + 1 )) || exit 8
+          last_row=$index
+          (( ++numbered ))
+        done
+        (( numbered == _ZLE_PICKER_VISIBLE_COUNT )) || exit 9
+      done
+    done
     print density
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal density "$output"
 }
-test_case 'overhaul breathes between choices only when all visible slots still fit' _test_overhaul_density
+test_case 'shared choices use compact rows with real descriptions and no decorative gaps' _test_overhaul_density
 
 _test_overhaul_action_surface() {
   test_make_temp_dir || return

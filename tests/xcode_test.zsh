@@ -891,14 +891,14 @@ _test_xcode_test_result_screen_offers_report_only_with_clipboard() {
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
 
   test_assert_contains "$output" \
-    'available-labels:[ Done ]|[ Copy report and done ]|Test failed · AppTests.testLaunch() · AppTests.swift:9' \
+    'available-labels:Done|Copy report and done|Test failed · AppTests.testLaunch() · AppTests.swift:9' \
     'Xcode result screen omitted the explicit copy-report action' || return
   test_assert_contains "$output" 'copy-action:copy report and done' \
     'Xcode result screen did not name the copy acceptance effect' || return
   test_assert_contains "$output" \
-    'unavailable-labels:[ Done ]|Test failed · AppTests.testLaunch() · AppTests.swift:9' \
+    'unavailable-labels:Done|Test failed · AppTests.testLaunch() · AppTests.swift:9' \
     'Xcode result screen changed its non-clipboard fallback' || return
-  [[ $output != *'unavailable-labels:'*'[ Copy report and done ]'* ]] ||
+  [[ $output != *'unavailable-labels:'*'Copy report and done'* ]] ||
     test_fail 'Xcode result screen advertised a missing clipboard action'
 }
 test_case 'Xcode result window offers copy report when the clipboard is available' \

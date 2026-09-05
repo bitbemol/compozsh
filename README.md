@@ -251,6 +251,7 @@ compozsh/
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery, topic help and maintenance dispatch
 │   ├── .zsh.highlighting  command-line syntax highlighting
+│   ├── .zsh.manual        bounded local manual summaries for the prompt
 │   ├── .zsh.navigation    directory/branch workspaces and unified g dispatch/help
 │   ├── .zsh.output        help/LLDB styling and native output wrappers
 │   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
@@ -304,6 +305,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery, topic help and maintenance entry | `compozsh` explores loaded functions; owned terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette |
+| `.zsh.manual` | Local manual summaries | Captures bounded, inert NAME descriptions once before interactive editing; supplies memory-only ABOUT rows without invoking commands or a manual formatter |
 | `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
@@ -313,7 +315,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes/destinations in a captured action plan, retaining action filter/focus after configuration; reports test outcomes and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, live log reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills |
 | `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `support/.zsh.matching` | Shared matching algorithms | Compiles literal, ordered-character and unordered-keyword filters; returns matching indexes from supplied captured text without discovery, ranking, UI state or actions |
-| `support/.zsh.ui` | Shared terminal components and interaction | Palette-driven title/context, bottom input/action dock with native caret, descriptive choice cards, action/plan views, primary help explanations beside topic navigation, disclosure, focus-responsive details, captured-text readers, notices, status, trail and keyboard guide; common view defaults, layout, input, live following and screen restoration; feature peers supply captured content and actions |
+| `support/.zsh.ui` | Shared terminal components and interaction | Palette-driven title/context, bottom input/action dock with native caret, compact numbered choices with optional descriptions, action/plan views, primary help explanations beside topic navigation, disclosure, focus-responsive details, captured-text readers, notices, status, trail and keyboard guide; common view defaults, layout, input, live following and screen restoration; feature peers supply captured content and actions |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -671,7 +673,11 @@ It demonstrates Compozsh with synthetic data; it never executes shell commands.
 The README remains the authoritative source for complete product instructions.
 
 The terminal groups examples into **Context**, **History**, **Files**, **Git**,
-and **Tools**. Files includes Browse, Recents, scoped Git search and home-index
+and **Tools**, opening on Context's RUN/manual-summary example. The prompt
+uses a continuous frame and aligned rows; example controls sit above the
+simulated viewport, with feedback and optional explanations below the terminal.
+Without JavaScript, a static Context lens remains visible.
+Files includes Browse, Recents, scoped Git search and home-index
 examples. Choose an example, refine its sample results, and select a file to
 preview its action menu. All outcomes are simulations; sample actions never
 open applications or access your clipboard. The feature guide below each task
@@ -1219,7 +1225,7 @@ Hidden: off · child directories · 3 files · 2 shown
 
 [2]   experiments/
   Filter folders  ›
-⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑↓ move
+⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑/↓ move
 ```
 
 This condensed example shows the navigator's title, breadcrumb and search.
@@ -1603,7 +1609,7 @@ ZSH_HIGHLIGHT_STYLES[picker-architecture-selected]='fg=231,bold'
 ZSH_HIGHLIGHT_STYLES[picker-size]='fg=221'
 ZSH_HIGHLIGHT_STYLES[picker-size-selected]='fg=229,bold'
 ZSH_HIGHLIGHT_STYLES[picker-muted]='fg=245'
-ZSH_HIGHLIGHT_STYLES[picker-empty]='fg=203,bold'
+ZSH_HIGHLIGHT_STYLES[picker-empty]='fg=245'
 ```
 
 These examples use dark-background colors. Selected metadata uses separate
@@ -1690,10 +1696,22 @@ Narrow windows hide optional title metadata, then the branding, before
 abbreviating the tool name. The context row is omitted in very short windows.
 Results and details occupy the body. A full-width search/filter input sits
 directly above the bottom shortcut bar, with the real terminal typing cursor
-at the end of your query. Ordinary choices gain a blank row between entries
-when the entire configured viewport still fits. Filtering preserves that
-spacing; short windows return to compact rows without losing choice slots.
-Documents and information-heavy screens retain their compact reading layout.
+at the end of your query. Numbered choices use compact rows across all tools,
+without decorative blank lines between options. A useful captured description
+may appear directly below its choice when the entire configured viewport still
+fits with descriptions; missing descriptions reserve no empty row. Filtering
+does not toggle that eligibility. Short windows omit secondary descriptions
+without losing choice slots. Documents and information-heavy screens retain
+their semantic reading layout.
+That optional second line is the option's **subtitle**: useful scope, target or
+next-step information aligned beneath its label. It shares the option's
+selection highlight, uses quieter text when unselected, and never gets its own
+number or keyboard stop. Subtitles fit on one line; longer explanations belong
+in details. Essential warnings remain in the main view or confirmation even
+when a short window hides subtitles.
+Action labels use plain text; the shared number and selection marker provide
+their visual framing. Ordinary empty results use neutral text, while actual
+failures retain error styling. Your palette overrides remain respected.
 Inline and very short fallbacks keep input above the results.
 Filtering down to one result keeps these landmarks in place. Your unfinished
 command and prompt are hidden while browsing, then restored when you leave;
@@ -2313,8 +2331,8 @@ uses the captured data without rerunning providers.
 | Option-Up/Down | Page up/down with Option-as-Meta enabled |
 | Ctrl-V / Ctrl-D | Page down/up without requiring Option-as-Meta |
 | Type or paste | Refine the filter and return to the list |
-| Enter | Open the selected tool's captured help topics |
-| Visible digit, with an empty filter and list focus | Open that tool's captured help topics |
+| Enter | Read the selected tool's captured help, or inspect its availability notice |
+| Visible digit, with an empty filter and list focus | Perform the same action for that tool |
 | Escape or Ctrl-G | Cancel; Ctrl-C aborts |
 
 Search and selection survive switching panes and resizing. The focused help
@@ -2327,6 +2345,8 @@ providers, 32,768 characters per provider, and 256 wrapped preview lines.
 Truncated previews are labeled; `compozsh help command | cat` prints the complete guide.
 Enter opens the same capture in the help workspace described above. Escape
 there returns to the catalog's filter, selected tool, viewport and pane.
+The action label says **read help** when a usage guide was captured, or
+**inspect** for a missing-help or capture-limit notice.
 The workspace and topic reader do not rerun a companion.
 Scrolling, filtering, and resizing consume the in-memory snapshot without
 executing tools or rereading files. Closing the browser releases the snapshot.
@@ -3031,7 +3051,7 @@ Search ‹›
 [ 0] ● example-app/       current · ~/Projects
 [ 1]   api/               previous · ~/Work
 [ 2]   api/               visited · ~/Personal
-⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑↓ move · Tab details
+⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑/↓ move · Tab details
 ```
 
 Folder names are primary, with quiet parent paths so identically named folders
@@ -3087,7 +3107,7 @@ Search ‹›
 [ 0] ● feature/prompt-navigation
 [ 1]   main
 [ 2]   feature/runtime-line
-⏎ switch · Esc cancel · ^K keys · ^X review · ^Y copy · ↑↓ move
+⏎ switch · Esc cancel · ^K keys · ^X review · ^Y copy · ↑/↓ move
 ```
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and other
@@ -3725,6 +3745,42 @@ lens trigger works without that Terminal preference.
 
 ### Interaction lens
 
+For ordinary commands with a captured local manual summary, `ABOUT` replaces
+the generic ACTION hint with the manual's short NAME description:
+
+```text
+╭─ RUN
+│  COMMAND TEXT     ls
+│  ARGUMENT TEXT    -la
+│  ABOUT            list directory contents
+│  SOURCE           Local manual · ls(1)
+╰─ ❯ ls -la
+```
+
+Compozsh-owned commands keep their own cues. Specific ACTION hints also remain;
+a manual summary can add context when space permits, while caution, pipeline,
+chain and redirection presentations retain priority. `ABOUT` describes the
+literal command name, not what its arguments will do or which executable your
+PATH will resolve. User aliases and functions do not inherit an external
+manual; the shipped transparent `git`, `grep` and `man` wrappers may do so.
+Missing or unsupported summaries quietly retain the existing presentation.
+
+The optional `.zsh.manual` peer captures once at the first interactive prompt,
+then typing and resizing use shell memory only. `compozsh --refresh` clears this
+snapshot for capture at the next prompt. No pager, `man`, `whatis`, formatter,
+index generator, or documented command runs. No manual text is evaluated.
+Capture examines at most 4,096 regular uncompressed section 1/8 pages, reads at
+most 8 KiB per page, and retains at most 8,192 descriptions of 240 characters.
+It checks `/usr/share/man`,
+`/Library/Developer/CommandLineTools/usr/share/man`,
+`/Applications/Xcode.app/Contents/Developer/usr/share/man`,
+`/opt/homebrew/share/man`, then `/usr/local/share/man`; the first captured name
+wins. It does not follow page
+symlinks or roff includes, use MANPATH, or discover alternative Xcode locations.
+Compressed pages and complex NAME formatting may have no summary. Initial
+capture adds a one-time first-prompt cost; it creates no persistent cache or
+background monitor. See [measurement evidence](investigations/manual-summaries.md).
+
 Owned task modes receive their own advisory cues: bare `xcode` describes opening
 its action workspace, `xcode --export-skills` describes skill export, and
 `compozsh --refresh` describes current-shell cache refresh. `external-device`
@@ -3761,6 +3817,10 @@ typing `git status --short` produces a `GIT` lens before anything runs:
 │  PROJECT          compozsh
 ╰─ ❯ git status --short
 ```
+
+The capsule outline (`╭─`, `│`, and `╰─`) follows the header's semantic color
+throughout the frame. Labels, values, the input arrow and command syntax retain
+their own colors.
 
 The available interaction kinds are deliberately recognizable rather than
 pretending to understand every shell program:
@@ -3887,7 +3947,7 @@ environment, jobs, and local session identity into semantic rows. Rows whose
 facts are absent or cannot fit are omitted:
 
 ```text
-╭─ CONTEXT · entered project                               ⌥I pin
+╭─ CONTEXT · entered project                         Option-I pin
 │  PROJECT   web-app
 │  PATH      ~/Projects/web-app
 │  GIT       main ✓ · tracks origin/main
@@ -3899,6 +3959,9 @@ facts are absent or cannot fit are omitted:
 
 Local user/host identity stays out of ordinary project rows. The Context lens
 discloses local, root, or SSH session identity in `SESSION` when that row fits.
+Prompt hints spell out `Option-I` and `Option-Return` with a clear gap from the
+heading. Optional hints disappear whole in narrow windows; the key bindings
+remain available. Shared shortcut bars separate paired arrows as `↑/↓`.
 
 Detection walks upward from the current directory, so the project facts remain
 available inside project subdirectories. It recognizes standard project files
@@ -3980,8 +4043,9 @@ dependency files or executing repository code:
 These labels describe files present in the project. They do not claim that the
 corresponding package-manager or build command is installed.
 
-Installed runtime versions are cached for prompt speed. After installing or
-upgrading a tool without opening a new shell, refresh them with:
+Installed runtime versions and local manual summaries are cached in this shell
+for prompt speed. After installing or upgrading a tool without opening a new
+shell, refresh them with:
 
 ```sh
 compozsh --refresh

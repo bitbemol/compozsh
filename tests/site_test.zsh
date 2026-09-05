@@ -29,7 +29,7 @@ _test_site_static_contract() {
   test_assert_contains "$html" 'ADVISORY' || return
   test_assert_contains "$html" 'ACTION' || return
   test_assert_contains "$script" 'COMMENT TEXT' || return
-  test_assert_contains "$html" '⌥I pin' || return
+  test_assert_contains "$html" 'Option-I pin' || return
   test_assert_contains "$html" 'SESSION' || return
   test_assert_contains "$html" '2.9s' || return
   test_assert_contains "$html" 'Option-I pins the Context lens' || return

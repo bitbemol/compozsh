@@ -244,7 +244,7 @@ _prompt_test_emit "SOURCE|$(command tty)"
 
       while zpty -r living-prompt chunk; do trace+=$chunk; done
       [[ $trace == *CONTEXT* && $trace == *PROJECT* && $trace == *PATH* &&
-         $trace == *GIT* && $trace == *"⌥I"* &&
+         $trace == *GIT* && $trace == *"Option-I"* &&
          $trace == *"›"* && $trace == *_prompt_test_command* ]] || {
         print -u2 -r -- "semantic living-prompt paint is missing from PTY trace"
         exit 38

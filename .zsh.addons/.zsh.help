@@ -276,7 +276,8 @@ _compozsh_help_compozsh() {
     '' \
     'Refresh this shell:' \
     '  --refresh clears cached runtime versions, Git-directory information,' \
-    '  and grep color-capability detection, then runs rehash. Requires .zsh.tools.' \
+    '  local manual summaries and grep color-capability detection, then runs' \
+    '  rehash. Requires .zsh.tools.' \
     '  Relevant caches rebuild on next use. No tools are installed or upgraded;' \
     '  only the current shell changes. No output is printed on success.' \
     '  Use after installing/upgrading a tool or changing PATH in this shell.' \
@@ -302,11 +303,12 @@ _compozsh_help_compozsh() {
     '  your previous terminal output. Unsupported terminals stay inline.' \
     '  On usable full screens, search and its real typing cursor sit above' \
     '  the bottom action bar. Short and inline views keep search above results.' \
-    '  Choices gain spacing when all visible slots still fit. Visible matches' \
+    '  Choices stay compact; descriptions appear when all visible slots fit.' \
+    '  Missing descriptions leave no blank row. Visible matches' \
     '  are emphasized as you filter; row limits and number keys stay the same.' \
     '  Searches names and source labels case-insensitively, in character order.' \
     '  Prefixes and substrings rank before abbreviated matches. Type to refine;' \
-    '  Arrows / Ctrl-P / Ctrl-N move; Enter shows help for the selected tool.' \
+    '  Arrows / Ctrl-P / Ctrl-N move; Enter reads captured help or inspects its notice.' \
     '  Digits filter normally once the query is nonempty.' \
     '  Numbers identify visible slots; 0 selects the tenth row when shown.' \
     '  Arrows scroll through all matching tools and stop at either end.' \
@@ -639,14 +641,18 @@ _compozsh_view() {
   _ZLE_PICKER_BROWSE_LABEL='loaded add-on functions'
   _ZLE_PICKER_EMPTY_LABEL='no matching tools'
   _ZLE_PICKER_COLLECTOR='_compozsh_tool_picker_collect'
+  local tool='' text=''
+  for tool in "${_COMPOZSH_TOOL_NAMES[@]}"; do
+    _ZLE_PICKER_ACCEPT_LABELS[$tool]=inspect
+  done
   {
     if (( ${+functions[_zle_picker_inspect_render]} )); then
       _compozsh_tool_inspector_capture
-      local tool='' text=''
       for tool in "${_COMPOZSH_TOOL_NAMES[@]}"; do
         text=${_ZLE_PICKER_INSPECT_TEXTS[$tool]-}
         # Same captured help: its canonical second line describes the tool.
         if [[ $text == usage:* ]]; then
+          _ZLE_PICKER_ACCEPT_LABELS[$tool]='read help'
           text=${text#*$'\n'}
           _ZLE_PICKER_DESCRIPTIONS[$tool]=${text%%$'\n'*}
         fi

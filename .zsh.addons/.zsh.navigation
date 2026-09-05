@@ -546,7 +546,8 @@ _compozsh_help_g() {
     '  your previous terminal output. Unsupported terminals stay inline.' \
     '  On usable full screens, search and its real typing cursor sit above' \
     '  the bottom action bar. Short and inline views keep search above results.' \
-    '  Choices gain spacing when all visible slots still fit. Visible matches' \
+    '  Choices stay compact; descriptions appear when all visible slots fit.' \
+    '  Missing descriptions leave no blank row. Visible matches' \
     '  are emphasized as you filter; row limits and number keys stay the same.' \
     '  Type to filter case-insensitively, in character order; literal prefix' \
     '  and substring matches rank before abbreviated ones.' \

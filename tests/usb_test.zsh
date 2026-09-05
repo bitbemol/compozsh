@@ -403,7 +403,7 @@ _test_usb_workspace_ends_on_windows_media_before_target_capture() {
     'the Windows unsupported screen did not make Done its only action' || return
   [[ $output != *'values:done,'* ]] ||
     test_fail 'the Windows explanation was exposed as numbered picker actions' || return
-  test_assert_contains "$output" 'labels:[ Done ]' \
+  test_assert_contains "$output" 'labels:Done' \
     'the Windows unsupported screen exposed selectable explanation rows' || return
   test_assert_contains "$output" 'passive:Windows USB creation is unavailable on stock macOS' \
     'the Windows explanation was not rendered as passive content' || return
@@ -1109,7 +1109,7 @@ _test_usb_result_screens_keep_facts_passive() {
 
   for line in "${(@f)output}"; do
     (( ++screens ))
-    [[ $line == *'|values:done|labels:[ Done ]|passive:'* ]] || {
+    [[ $line == *'|values:done|labels:Done|passive:'* ]] || {
       test_fail "USB result exposed a passive fact as an action: $line"
       return
     }
@@ -1686,7 +1686,7 @@ _test_usb_workspace_requires_explicit_image_target_action() {
   test_assert_contains "$output" 'view4:1' 'target refresh did not show its new captured snapshot' || return
   test_assert_contains "$output" 'view5:flash-verify,checksum,image,target,flash-only' \
     'cancelling target refresh did not restore the prior action workspace' || return
-  test_assert_contains "$output" 'view5:flash-verify,checksum,image,target,flash-only|[ Start flash & verify ],Image integrity · Not verified · no checksum provided,Change image · older.iso,Change drive · external-target' \
+  test_assert_contains "$output" 'view5:flash-verify,checksum,image,target,flash-only|Start flash & verify,Image integrity · Not verified · no checksum provided,Change image · older.iso,Change drive · external-target' \
     'cancelling target refresh paired the old selection with new disk metadata' || return
   test_assert_contains "$output" 'selected:/images/older.iso|disk7|flash-verify' \
     'workspace inferred a newer image instead of retaining the explicit selection'
@@ -1770,7 +1770,7 @@ _test_usb_workspace_retains_optional_checksum() {
 
   test_assert_contains "$output" 'integrity-stage:Checking image SHA-256' \
     'Step 3 did not visibly hash the local image after checksum entry' || return
-  test_assert_contains "$output" 'review:[ Start flash & verify · SHA-256 ]|Image integrity · Verified · SHA-256 matched|Remove image checksum' \
+  test_assert_contains "$output" 'review:Start flash & verify · SHA-256|Image integrity · Verified · SHA-256 matched|Remove image checksum' \
     'Step 3 did not retain a visible verified image-integrity state' || return
   test_assert_contains "$output" 'integrity-style:0:' \
     'the verified integrity state did not cover its complete visible row' || return
@@ -1824,7 +1824,7 @@ _test_usb_step3_blocks_a_mismatched_image_checksum() {
 
   test_assert_contains "$output" 'Image integrity · FAILED · SHA-256 mismatch' \
     'Step 3 did not show the expected and actual image mismatch' || return
-  test_assert_contains "$output" '[ Resolve image integrity check before flashing ]' \
+  test_assert_contains "$output" 'Resolve image integrity check before flashing' \
     'Step 3 left a destructive action looking enabled after checksum failure' || return
   test_assert_contains "$output" 'blocked-after-flash' \
     'a checksum-mismatched image crossed the action boundary' || return
@@ -3249,7 +3249,7 @@ _test_usb_checksum_gates_write_and_reuses_algorithm() {
     'a matching provided checksum did not complete' || return
   test_assert_contains "$output" 'image-sha:256,target-revalidate,stage:Unmounting external drive,unmount,target-revalidate,stage:Writing image,write,unmount,image-revalidate,stage:Rechecking image SHA-256,image-sha:256,stage:Verifying USB against image,raw-verify:256,stage:Ejecting external drive,eject|1|1' \
     'a matching source checksum did not retain authoritative raw USB verification' || return
-  test_assert_contains "$output" 'summary:[ Done ]|Flash complete' \
+  test_assert_contains "$output" 'summary:Done|Flash complete' \
     'checksum completion did not retain the normal success summary' || return
   test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · Selected image bytes matched|Safe to remove' \
     'completion summary omitted checksum and finished-drive validation'

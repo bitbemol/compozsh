@@ -252,7 +252,7 @@ _test_task_prompt_entry_and_logs() {
     [[ $_PROMPT_INTERACTION_SEGMENT != *"inspect draft"* ]] || exit 1
     source "$1/.zsh.addons/.zsh.editor"
     _prompt_interaction_layout
-    [[ $_PROMPT_INTERACTION_SEGMENT == *"⌥↵ inspect draft"* ]] || exit 2
+    [[ $_PROMPT_INTERACTION_SEGMENT == *"Option-Return inspect draft"* ]] || exit 2
     COLUMNS=20
     _prompt_interaction_layout
     [[ $_PROMPT_INTERACTION_SEGMENT != *"inspect draft"* ]] || exit 3

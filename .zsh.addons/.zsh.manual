@@ -1,0 +1,152 @@
+# Inert NAME summaries for the living prompt. Capture once before editing;
+# lookup and paint use shell memory only. No man/whatis, formatter or executable
+# is invoked, and roff includes/macros are never interpreted.
+zmodload -F zsh/parameter p:functions_source
+zmodload -F zsh/system b:sysopen b:sysread
+zmodload -F zsh/stat b:zstat
+typeset -gA _MANUAL_SUMMARIES _MANUAL_SOURCES
+typeset -gi _MANUAL_SUMMARIES_READY
+
+_manual_summary_reset() {
+  _MANUAL_SUMMARIES=() _MANUAL_SOURCES=()
+  _MANUAL_SUMMARIES_READY=0
+}
+
+# REPLY is plain description; reply contains only simple documented NAME aliases.
+# Unsupported formatting is a miss, not a reason to render or follow a page.
+_manual_summary_parse() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  unsetopt MULTIBYTE
+  local text=$'\n'"${1[1,8192]}" body='' line='' description='' name=''
+  local pattern=$'\n[.](Sh NAME|SH "NAME"|SH NAME)\n'
+  local MATCH='' MBEGIN=0 MEND=0
+  local -a match=() mbegin=() mend=()
+  local -i collecting=0
+  REPLY='' reply=()
+  [[ $text =~ $pattern ]] || return 1
+  name=$match[1]
+  body=${text[$((MEND+1)),-1]}
+  pattern=$'\n[.](Sh|SH) '
+  [[ $body =~ $pattern ]] || return 1
+  body=${body[1,$((MBEGIN-1))]}
+  if [[ $name == 'Sh NAME' ]]; then
+    for line in "${(@f)body}"; do
+      if [[ $line == '.Nm '* ]] && (( !collecting )); then
+        name=${line#'.Nm '}
+        name=${name%% *}
+        [[ $name == [a-zA-Z0-9][a-zA-Z0-9_.+-]# ]] &&
+          (( ${#reply} < 16 )) && reply+=("$name")
+      elif [[ $line == .Nm ]] && (( !collecting )); then
+        continue
+      elif [[ $line == '.Nd '* ]]; then
+        description=${line#'.Nd '} collecting=1
+      elif [[ $line == .* ]]; then
+        return 1
+      elif (( collecting )) && [[ -n $line ]]; then
+        description+=" $line"
+      fi
+    done
+  else
+    [[ $body == *' \- '* ]] || return 1
+    description=${body#*' \- '}
+    [[ $description != *$'\n.'* ]] || return 1
+    description=${description//$'\n'/ }
+  fi
+  # A small literal escape vocabulary, never a roff interpreter.
+  [[ $description == \"*\" ]] && description=${description[2,-2]}
+  description=${description//\\-/\-}
+  description=${description//\\&/}
+  description=${description//\\f[BRIP]/}
+  [[ -n $description && $description != *\\* && $description != *[[:cntrl:]]* ]] || return 1
+  setopt MULTIBYTE
+  REPLY=${description[1,240]}
+  (( ${#description} > 240 )) && REPLY=${description[1,239]}…
+  return 0
+}
+
+# Roots are fixed by the production caller. Tests supply disposable fixtures.
+# Only shallow, regular, uncompressed pages are read; symlinks are skipped.
+_manual_summary_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local root='' directory='' page='' name='' section='' text='' summary=''
+  local -a pages=() reply=()
+  local -A metadata=()
+  local -i remaining=4096 manual_fd=-1
+  _manual_summary_reset
+  _MANUAL_SUMMARIES_READY=1
+  for root in "$@"; do
+    (( remaining > 0 )) || return 0
+    [[ -d $root && ! -L $root ]] || continue
+    for section in 1 8; do
+      directory=$root/man$section
+      [[ -d $directory && ! -L $directory ]] || continue
+      pages=("$directory"/*.$section(N.[1,$remaining]))
+      for page in "${pages[@]}"; do
+        (( remaining > 0 )) || return 0
+        (( --remaining ))
+        name=${${page:t}%.*}
+        [[ $name == [a-zA-Z0-9][a-zA-Z0-9_.+-]# && ${#name} -le 80 ]] || continue
+        if (( ! ${+_MANUAL_SUMMARIES[$name]} )); then
+          text=''
+          # One bounded native read; -k would read regular files byte by byte.
+          # Nonblocking/no-follow open plus descriptor type validation avoids
+          # following a replaced symlink or waiting on a replaced FIFO.
+          if sysopen -r -o cloexec,nofollow,nonblock -u manual_fd "$page" 2>/dev/null; then
+            {
+              if zstat -H metadata -f $manual_fd 2>/dev/null &&
+                 (( (metadata[mode] & 8#170000) == 8#100000 )); then
+                sysread -i $manual_fd -s 8192 text 2>/dev/null || :
+              fi
+            } always {
+              exec {manual_fd}<&-
+            }
+          fi
+          if _manual_summary_parse "$text"; then
+            summary=$REPLY
+            _MANUAL_SUMMARIES[$name]=$summary
+            _MANUAL_SOURCES[$name]="${page:t:r}($section)"
+            for name in "${reply[@]}"; do
+              (( ${#_MANUAL_SUMMARIES} < 8192 )) || break
+              if (( ! ${+_MANUAL_SUMMARIES[$name]} )); then
+                _MANUAL_SUMMARIES[$name]=$summary
+                _MANUAL_SOURCES[$name]="${page:t:r}($section)"
+              fi
+            done
+          fi
+        fi
+        (( remaining > 0 && ${#_MANUAL_SUMMARIES} < 8192 )) || return 0
+      done
+    done
+  done
+  return 0
+}
+
+_manual_prompt_capture() {
+  emulate -L zsh
+  (( _MANUAL_SUMMARIES_READY )) && return 0
+  _manual_summary_capture /usr/share/man \
+    /Library/Developer/CommandLineTools/usr/share/man \
+    /Applications/Xcode.app/Contents/Developer/usr/share/man \
+    /opt/homebrew/share/man /usr/local/share/man
+}
+
+# This is a manual for a literal name, not executable resolution. In particular
+# do not claim it describes user aliases/functions. The shipped transparent
+# output wrappers keep their underlying manuals; owned help always takes priority.
+_manual_summary_lookup() {
+  emulate -L zsh
+  local name=$1 source=${functions_source[$1]-}
+  REPLY=''
+  (( ${+aliases[$name]} || ${+galiases[$name]} )) && return 1
+  if (( ${+functions[$name]} )); then
+    [[ -n $source && ${functions_source[_compozsh_help_$name]-} == "$source" ]] && return 1
+    [[ $name == (git|grep|man) && -n $source &&
+       $source == ${functions_source[_output_color]-} ]] || return 1
+  fi
+  REPLY=${_MANUAL_SUMMARIES[$name]-}
+  [[ -n $REPLY ]]
+}
+
+:

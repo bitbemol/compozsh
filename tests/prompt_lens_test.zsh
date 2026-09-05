@@ -215,7 +215,7 @@ _test_living_prompt_manual_lens_and_transcript_state() {
     [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED == 1 ]] || exit 11
     local lens=$(print -P -r -- "$PROMPT")
     [[ $lens == *CONTEXT* && $lens == *PATH* &&
-       $lens == *"⌥I"* && $lens == *"❯"* ]] || exit 12
+       $lens == *"Option-I"* && $lens == *"❯"* ]] || exit 12
 
     local command_text='"'"'print "safe % value"'"'"'
     BUFFER=$command_text

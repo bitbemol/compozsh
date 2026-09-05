@@ -39,8 +39,17 @@ test('Interaction fixtures distinguish literal and captured rows from advisory A
     assert.ok(scene.rows.some(row => row.source === 'literal'),
       `${scene.promptKind} needs an exact draft row`);
     const action = scene.rows.find(row => row.label === 'ACTION');
-    assert.equal(action?.source, 'advisory');
-    assert.match(action.value, /likely|appears|may/);
+    if (scene.promptKind === 'RUN') {
+      assert.equal(action, undefined);
+      assert.deepEqual(scene.rows.find(row => row.label === 'ABOUT'), {
+        label: 'ABOUT', value: 'list directory contents', source: 'captured', role: 'info',
+      });
+      assert.equal(scene.rows.find(row => row.label === 'SOURCE')?.value,
+        'Local manual · ls(1)');
+    } else {
+      assert.equal(action?.source, 'advisory');
+      assert.match(action.value, /likely|appears|may/);
+    }
     assert.ok(scene.rows.some(row => row.source === 'captured'),
       `${scene.promptKind} needs a captured anchor`);
     assert.ok(scene.rows.length <= 5);

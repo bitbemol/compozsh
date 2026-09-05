@@ -8,9 +8,12 @@ shared screen composition, rather than adding another renderer or input loop.
 - Quiet task identity above captured scope and a passive disclosure strip.
 - A bottom input surface with the actual ZLE cursor at the query end, followed
   by an emphasized, capability-derived acceptance action and bounded hints.
-- Ordinary choices receive blank-row spacing only when twice the configured
-  visible-slot budget fits. Filtering cannot switch density. Documents, passive
-  information and stacked output remain compact; no selectable slot is lost.
+- Numbered choices now use compact rows with no decorative gaps. This
+  supersedes the original height-dependent blank-row spacing: only real,
+  nonblank descriptions may occupy a subordinate row when twice the configured
+  visible-slot budget fits. Filtering cannot toggle description eligibility;
+  documents, passive information and stacked output keep their semantic rows.
+No selectable slot is lost. See the current rule in AGENTS.md.
 - Neutral selected surfaces, quieter inactive selection and separate semantic
   title/input/action roles in both palettes. Existing overrides remain owned
   by the user's initializer. Full key help remains available through Ctrl-K.
@@ -179,3 +182,131 @@ and `git diff --check` passed. Option-Return, Option-I and Ctrl-R resolve to the
 intended widgets under both xterm-256color and screen-256color. These timings are
 local observations, not performance guarantees. No configuration was installed,
 no private initializer was read, and no website was published.
+
+## Follow-up: one compact choice style
+
+The user-approved choice standard supersedes decorative blank-row spacing.
+Every shared numbered list uses consecutive rows. A real description can add
+one subordinate row within the existing viewport budget; absent or
+whitespace-only descriptions reserve no space. Description rows stay passive,
+retain their parent selection surface, and never consume an index or keyboard
+navigation stop. Short windows retain the same candidate capacity. Document
+paragraphs and meaningful passive content keep their reading structure.
+
+The change is in the shared UI renderer, not per-tool overrides. The audit
+covered ordinary selectors, reference/help views, action plans, description
+metadata, split-pane row arrays and the printable directory-stack fallback
+(already compact). The showcase also removed inter-option margins and empty
+space above descriptions. Five oversized example labels were shortened without
+changing their scenes or commands. AGENTS.md, the README, affected command help
+and website guidance now establish the same compact convention alongside the
+semantic capsule-outline and independent text-color rules.
+
+The updated density test first failed on the old blank-row behavior and then
+passed. A whitespace-only description fixture separately failed before its
+empty-row fix. The full native suite passed **644/644** in 161,849.1 ms; native
+multiline-draft/resize restoration, all 14 Node tests, security, documentation,
+inventory, syntax and static website checks passed. Focused real-browser checks
+covered History, Files, Git and Tools at 1440, 390 and 320 pixels. The earlier
+mobile Git sample overflow disappeared with compact spacing; subsequent full
+browser passes exposed the oversized example labels, which were corrected.
+The final complete browser run passed all checks, including 11 responsive
+widths, keyboard/digit selection, copy success/failure, disclosure, reduced
+motion, no-JavaScript behavior and local-only requests. Earlier failed passes
+were not silently reclassified as successful.
+
+On the development Mac, three 200-frame samples of complete shared render/show
+composition at 120×30 with 20 candidates, 10 visible slots, two descriptions and
+moving selection measured 1.765 / 1.764 / 1.758 ms/frame before, versus
+1.710 / 1.696 / 1.684 ms/frame after. ZLE painting was stubbed for this timing;
+the native PTY test separately exercised actual editing and resize. These are
+warm local observations during the suite, not a universal speed guarantee.
+Provider capture, action dispatch, privacy and security boundaries are unchanged.
+
+## Follow-up: consistent labels, empty states and available actions
+
+The next shared-screen audit found three remaining presentation mismatches:
+
+- USB media, review and result screens and Xcode test results supplied their
+  own button brackets inside the renderer's numbered rows. These authored
+  labels now use plain action text. The renderer does not strip brackets;
+  literal filenames and captured user text retain theirs.
+- Ordinary empty matches used the error color. Both stock palettes now give
+  `picker-empty` the same neutral default as `picker-muted`, while actual
+  errors and user-provided color overrides remain independent. The existing
+  showcase empty-results style was already neutral.
+- Tool explorer advertised `read help` even for a missing or capture-limited
+  guide. Its existing per-candidate acceptance labels now use `read help`
+  only when a canonical usage guide was actually captured, and `inspect`
+  otherwise. This metadata is prepared at view entry; it performs no provider
+  work during filtering, selection or painting.
+
+AGENTS.md records these shared rules alongside compact choices and their
+optional one-line subtitles. Public help and README explain the actual action
+labels. No commands, disk operations, confirmations, clipboard behavior or
+capture bounds changed; SECURITY.md was reviewed against the final changes.
+
+All three focused regressions first failed and then passed. The additional
+capture-limit fixture also failed before acceptance was based on captured
+content rather than helper presence. The full native suite passed **647/647**
+in 151,924.6 ms. After the final help wording and capture-limit refinement,
+focused consistency and all 33 help checks passed, including native help
+navigation/resize. Native task-family and appearance journeys, all 14 Node
+tests, static website, documentation, security, inventory, Zsh syntax,
+isolated bootstrap re-sourcing and whitespace checks also passed. This pass
+did not change browser layout; it does not claim a new manual Terminal.app
+visual acceptance run.
+
+## Follow-up: readable shortcut hints without touching glyphs
+
+The supplied Terminal.app screenshot shows the adjacent Option and Return
+symbols touching in the Interaction header. Display-cell counts alone cannot
+prevent font ink from touching across adjacent symbol cells. Prompt hints now
+spell out `Option-Return` and `Option-I`; Context reserves at least 18 cells
+for its identity and two cells of separation before admitting a whole hint.
+Narrow windows omit optional hints without changing their bindings. Shared
+footers separate paired arrows as `↑/↓` and use `Fn/Option ↑/↓ page`.
+Standalone Return, directional and frame symbols remain unchanged.
+
+The audit checked shared title bars, acceptance/footer hints, Context and
+Interaction headers, and the showcase. Native regression cases cover long
+context text, wide Unicode, both pin states, reading/list focus, keyboard-guide
+mode and narrow through wide column budgets. The footer regression failed on
+the original labels. After correcting the prompt fixture to include a captured
+path (an empty lens is intentionally not rendered), restoring the original
+adjacent glyphs made the prompt regression fail; the readable hint passed.
+Native prompt editing/resize/transcript, fullscreen and chrome checks passed.
+The full browser suite passed all 11 responsive widths, and visible Context
+headers stayed on one line at 320, 390, 768 and 1440 pixels. These checks do not
+claim manual visual acceptance in the user's particular Terminal.app font.
+
+This change adds no provider work, new key bindings, terminal protocols or
+dependencies. Headers use the existing display-width and abbreviation helpers;
+footers retain whole-hint admission. AGENTS.md and README now document that
+contract; the website's synthetic labels use the same readable notation.
+
+Three 500-frame Context-layout samples at 120×30 with synthetic project/path/Git
+facts measured 0.427 / 0.413 / 0.424 ms/frame for the previous header routine
+and 0.407 / 0.420 / 0.421 ms/frame after. Both used the current shared helpers
+and no color map; this measures pure warm layout, not capture or ZLE painting.
+These local observations show no material regression, not a speed guarantee.
+
+Final verification: **649/649** native tests passed in 159,440.9 ms, along
+with all 14 Node tests, Zsh syntax, isolated bootstrap re-sourcing, inventory,
+documentation, security and whitespace checks. Existing private configuration
+and unrelated worktree changes were preserved.
+
+## Release-candidate verification
+
+The later pre-commit run passed 648/649 native tests. The existing worktree
+enter PTY journey returned successfully but remained in the fixture's original
+folder, failing its post-cleanup target assertion. A focused retry and twelve
+consecutive repeats passed without changing implementation or assertions.
+The cause of this intermittent result has not been established; successful
+retries do not prove it fixed. The complete browser suite passed all 11 widths,
+the prompt-geometry suite passed five widths, and all 14 Node tests, syntax,
+isolated re-sourcing, documentation, security and inventory checks passed.
+
+The second complete native run passed **649/649** in 157,491.7 ms. This is
+the final observed suite result, with the earlier intermittent failure retained
+above rather than described as a repaired regression.

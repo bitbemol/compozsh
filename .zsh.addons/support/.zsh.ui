@@ -1137,7 +1137,7 @@ _zle_picker_footer() {
   action=${(V)action} cancel=${(V)cancel}
   if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
     REPLY='Esc back'
-    hints=('↑↓ scroll' 'Fn/⌥ ↑↓ page' '^K keys')
+    hints=('↑/↓ scroll' 'Fn/Option ↑/↓ page' '^K keys')
   else
     _zle_picker_can_accept "$query" && can_accept=1
     REPLY="Esc ${cancel}"
@@ -1181,12 +1181,12 @@ _zle_picker_footer() {
     fi
     (( _ZLE_PICKER_COPY_ENABLED )) && hints+=('^Y copy')
     if (( _ZLE_PICKER_INSPECT_FOCUS )); then
-      hints+=('↑↓ scroll')
+      hints+=('↑/↓ scroll')
       if (( !_ZLE_PICKER_READER_ONLY )); then
         (( _ZLE_PICKER_HIERARCHY_ENABLED )) && hints+=('^B list') || hints+=('Tab list')
       fi
     else
-      hints+=('↑↓ move')
+      hints+=('↑/↓ move')
     fi
     if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
       hints+=('→ open / ← back' '^T hidden')
@@ -1197,7 +1197,7 @@ _zle_picker_footer() {
     if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE && !_ZLE_PICKER_INSPECT_FOCUS )) && [[ -z $query ]]; then
       hints+=("0–9 ${action}")
     fi
-    hints+=('Fn/⌥ ↑↓ page')
+    hints+=('Fn/Option ↑/↓ page')
     if (( !_ZLE_PICKER_INSPECT_FOCUS || _ZLE_PICKER_READER_ONLY )); then
       (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && hints+=('type query') || hints+=('type filter')
       hints+=('^U clear')
@@ -1396,7 +1396,7 @@ _zle_picker_render() {
   local -i total=$count view_limit=$_ZLE_PICKER_VIEW_LIMIT first=1 last=0 position=0
   local -i zero_based=0 trail_width=0 label_width=0 label_start=0
   local -i passive_count=${#_ZLE_PICKER_PASSIVE_LINES} passive_limit=0
-  local -i stacked_reserve=0 action_rows=$(( count > 0 ? count : 1 )) spaced=0
+  local -i stacked_reserve=0 action_rows=$(( count > 0 ? count : 1 )) show_descriptions=0
   if (( _ZLE_PICKER_READER_ONLY )); then
     inspector=1 count=0 total=0 passive_count=0
   fi
@@ -1449,11 +1449,11 @@ _zle_picker_render() {
   (( stacked_reserve && view_limit > body_height - passive_count - stacked_reserve )) &&
     view_limit=$(( body_height - passive_count - stacked_reserve ))
   (( LINES > 6 && view_limit > body_height )) && view_limit=$body_height
-  # Comfortable choice spacing is based on the viewport budget, not match
-  # count, so filtering never makes rows jump between density modes. Documents
-  # and information-heavy notices retain their source/semantic row geometry.
+  # Choices are compact everywhere. Real descriptions may use a second row
+  # when the entire configured viewport fits, independently of filter count.
+  # Documents and notices retain their source/semantic row geometry.
   (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && !_ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_REFERENCE_VIEW &&
-     !passive_count && !stacked_reserve && body_height >= view_limit * 2 )) && spaced=1
+     !passive_count && !stacked_reserve && body_height >= view_limit * 2 )) && show_descriptions=1
   (( selected > total )) && selected=$total
   (( selected < 1 && total )) && selected=1
   (( total == 0 )) && selected=0
@@ -1680,14 +1680,12 @@ _zle_picker_render() {
       _ZLE_PICKER_DISPLAY_INDEX_ENDS+=($index_end)
       _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=($context_start)
       _ZLE_PICKER_DISPLAY_MATCH_STARTS+=($(( _ZLE_PICKER_INDEXES_VISIBLE ? index_width + 5 : 2 )))
-      if (( spaced )); then
-        row=${_ZLE_PICKER_DESCRIPTIONS[$value]-}
-        if [[ -n $row ]]; then
-          _zle_picker_fit "${(l:$label_start:: :)}${(V)row}" $row_width
-          row=$REPLY
-        fi
+      row=${_ZLE_PICKER_DESCRIPTIONS[$value]-}
+      if (( show_descriptions )) && [[ -n ${row//[[:space:]]/} ]]; then
+        _zle_picker_fit "${(l:$label_start:: :)}${(V)row}" $row_width
+        row=$REPLY
         _ZLE_PICKER_DISPLAY+=("$row")
-        if [[ -n $row ]] && (( position == selected )); then
+        if (( position == selected )); then
           _ZLE_PICKER_DISPLAY_STYLES+=(picker-selected)
         else
           _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)

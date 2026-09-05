@@ -1792,7 +1792,7 @@ _xcode_test_result_screen() {
   local title='Xcode Test · Failed' subtitle=''
   local name='' target='' reason='' files='' first_file='' label='' details=''
   local overview='Test results' count_label=''
-  local -a _XCODE_PICKER_VALUES=(done) _XCODE_PICKER_LABELS=('[ Done ]')
+  local -a _XCODE_PICKER_VALUES=(done) _XCODE_PICKER_LABELS=(Done)
   local -a _XCODE_PICKER_HIGHLIGHTS=('') _XCODE_PICKER_SEARCH=(done)
   local -a _XCODE_PICKER_DETAILS=('')
   local -a _XCODE_TEST_PASSIVE_LINES=() _XCODE_TEST_PASSIVE_STYLES=()
@@ -1800,7 +1800,7 @@ _xcode_test_result_screen() {
   if [[ -n ${_XCODE_TEST_CLIPBOARD_BINARY:-} &&
         -x ${_XCODE_TEST_CLIPBOARD_BINARY:-} ]]; then
     _XCODE_PICKER_VALUES+=(copy-report)
-    _XCODE_PICKER_LABELS+=('[ Copy report and done ]')
+    _XCODE_PICKER_LABELS+=('Copy report and done')
     _XCODE_PICKER_HIGHLIGHTS+=('')
     _XCODE_PICKER_SEARCH+=('copy report clipboard done failures files')
     _XCODE_PICKER_DETAILS+=(

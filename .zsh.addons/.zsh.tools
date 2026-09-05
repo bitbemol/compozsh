@@ -375,6 +375,7 @@ _tools_git_discard_all() {
 # upgrading a tool without starting a new shell. The next use rebuilds them.
 _tools_refresh() {
   emulate -L zsh
+  (( ${+functions[_manual_summary_reset]} )) && _manual_summary_reset
   (( ${+parameters[_PROMPT_RUNTIME_VERSION_CACHE]} )) &&
     _PROMPT_RUNTIME_VERSION_CACHE=()
   (( ${+parameters[_PROMPT_GIT_DIR_CACHE]} )) &&

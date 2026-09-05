@@ -13,7 +13,8 @@ real features; they are not a shell emulator or an exact copy of Zsh's ranker.
 ## Showcase structure and voice
 
 One terminal contains five task tabs: Context, History, Files, Git, and
-Tools. Context uses an **Example** selector to move through fixed living-prompt
+Tools. The page opens on Context's RUN/manual-summary example; without
+JavaScript, a static Context lens remains visible. Context uses an **Example** selector to move through fixed living-prompt
 moments grouped as Orientation, Live draft, and After Return. They cover the
 expanded Context lens; READY; RUN; comment, Git, navigation, search, build,
 test, environment, remote, pipeline, command-chain, redirection, and caution
@@ -91,7 +92,25 @@ controls appear only after their handlers are attached.
 Keep full-screen identity, source/scope and input visually separate. Preserve
 the bottom input/action dock and neutral selected surface in choice examples;
 the footer describes browser preview actions, never an executable shell action.
-Use breathing room between choices while preserving the bounded sample list.
+Use compact consecutive numbered choices with no decorative inter-row gaps.
+Keep actual descriptions attached to their item; missing descriptions reserve
+no blank slot. Preserve readable browser hit areas within each row, the bounded
+sample list, and the anchored input dock rather than padding between options.
+Keep website controls in the separate strip above the simulated viewport and
+feedback below the terminal. The optional explanation key belongs in the
+`How to read the prompt` disclosure, never between prompt rows. Render prompt
+labels and values at one monospace size and line height, with consecutive rows,
+a continuous CSS outline and an attached input. A shared viewport reserves
+room for task workspaces, not a minimum-height spacer inside each prompt.
+Fit the longest authored row label at phone widths without touching its value;
+use the captured semantic role for values, including muted frame/source text.
+Check both geometric assertions and actual screenshots; fitting the outer
+container does not establish that its contents are aligned or readable.
+An option's optional subtitle is useful secondary context, aligned with its
+label and grouped into the same selection surface. Keep it quieter when
+unselected and distinct from workspace status/context. It is never a separate
+numbered choice; long explanations belong in details, and essential safety
+facts must remain visible outside a subtitle that may be omitted for space.
 Tools includes fixed help-topic, Draft inspector, Xcode action, USB review, external-device
 task selection, Xcode skill-export review and worktree
 plan examples. Their secondary descriptions and exact synthetic targets explain
@@ -190,6 +209,7 @@ With the local server above running and Playwright available to Node:
 
 ```sh
 node tests/site.browser.mjs
+node tests/site-prompt.browser.mjs
 ```
 
 `NODE_PATH` may point to an existing package directory. `SITE_URL` can point to

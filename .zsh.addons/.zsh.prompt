@@ -33,6 +33,19 @@ _prompt_color_text() {
   fi
 }
 
+# One semantic role for the Interaction capsule header and its connecting rail.
+_prompt_interaction_color_role() {
+  case $_PROMPT_INTERACTION_KIND in
+    caution) REPLY=danger ;;
+    ready) REPLY=success ;;
+    git) REPLY=git ;;
+    navigate) REPLY=path ;;
+    environment) REPLY=environment ;;
+    build|test) REPLY=tool ;;
+    *) REPLY=info ;;
+  esac
+}
+
 # The active prompt has three presentations of one captured snapshot. Compact
 # is the private state behind the live Interaction lens, lens expands Context,
 # and transcript is the fixed prefix painted by zle-line-finish immediately
@@ -53,7 +66,8 @@ _prompt_base() {
     PROMPT="${_PROMPT_LENS_SEGMENT}"$'\n'"${_PROMPT_INPUT_SEGMENT}"
   elif (( _PROMPT_INTERACTION_ACTIVE )) &&
        [[ -n $_PROMPT_INTERACTION_SEGMENT ]]; then
-    _prompt_color_text frame '╰─'
+    _prompt_interaction_color_role
+    _prompt_color_text "$REPLY" '╰─'
     frame=$REPLY
     _PROMPT_INPUT_SEGMENT="${frame} %F{${symbol}}❯%f "
     PROMPT="${_PROMPT_INTERACTION_SEGMENT}"$'\n'"${_PROMPT_INPUT_SEGMENT}"
@@ -522,9 +536,10 @@ _prompt_lens_toolchain_row() {
     _prompt_color_text tool '…'
     row=$REPLY
   fi
-  _prompt_color_text frame "│  ${(r:9:)label}"
+  _prompt_color_text frame "  ${(r:9:)label}"
   prefix=$REPLY
-  REPLY="${prefix} ${row}"
+  _prompt_color_text "${2:-frame}" '│'
+  REPLY="${REPLY}${prefix} ${row}"
 }
 
 # Append one raw Interaction-lens row. Values remain literal/captured data until
@@ -1242,6 +1257,25 @@ _prompt_interaction_model() {
     fi
   fi
 
+  # Manual metadata is ABOUT the tool, never a prediction of draft effects.
+  # Keep owned/specific ACTION cues; replace only the generic filler. This
+  # optional lookup does no capture, path resolution or filesystem access.
+  if (( ${+functions[_manual_summary_lookup]} )) &&
+     _manual_summary_lookup "$command_name"; then
+    local manual_summary=$REPLY
+    local -i action_index=${_PROMPT_INTERACTION_LABELS[(i)ACTION]}
+    if [[ ${_PROMPT_INTERACTION_VALUES[action_index]-} == 'likely run a shell command' ]]; then
+      _PROMPT_INTERACTION_LABELS[action_index]=ABOUT
+      _PROMPT_INTERACTION_VALUES[action_index]=$manual_summary
+      _PROMPT_INTERACTION_ROLES[action_index]=info
+      _PROMPT_INTERACTION_LABELS=("${(@)_PROMPT_INTERACTION_LABELS[1,action_index]}" SOURCE "${(@)_PROMPT_INTERACTION_LABELS[action_index+1,-1]}")
+      _PROMPT_INTERACTION_VALUES=("${(@)_PROMPT_INTERACTION_VALUES[1,action_index]}" "Local manual · ${_MANUAL_SOURCES[$command_name]}" "${(@)_PROMPT_INTERACTION_VALUES[action_index+1,-1]}")
+      _PROMPT_INTERACTION_ROLES=("${(@)_PROMPT_INTERACTION_ROLES[1,action_index]}" frame "${(@)_PROMPT_INTERACTION_ROLES[action_index+1,-1]}")
+    elif [[ $_PROMPT_INTERACTION_KIND != (caution|pipeline|chain|redirect) ]]; then
+      _prompt_interaction_add ABOUT "$manual_summary" info
+    fi
+  fi
+
   # The suffix is already owned and displayed by the editor. Repeat only its
   # bounded visible prefix; never search history or preserve the unseen tail.
   if [[ -n ${_ZLE_AUTOSUGGEST_SUFFIX:-} &&
@@ -1274,17 +1308,18 @@ _prompt_interaction_row() {
   (( value_width > 0 )) || return 1
   _prompt_render_abbreviated "$role" "$text" "$value_width" tail
   [[ -n $reply[2] ]] || return 1
-  _prompt_escape "$prefix_plain"
+  _prompt_escape "${prefix_plain#│}"
   _prompt_color_text frame "$REPLY"
   prefix=$REPLY
-  REPLY="${prefix} ${reply[1]}"
+  _prompt_color_text "${5:-frame}" '│'
+  REPLY="${REPLY}${prefix} ${reply[1]}"
 }
 
 _prompt_interaction_layout() {
   emulate -L zsh
   setopt localoptions multibyte
   local kind=${(U)_PROMPT_INTERACTION_KIND} label='' value='' role=''
-  local header_plain="╭─ ${kind}" header='' row=''
+  local header_plain="╭─ ${kind}" header='' row='' outline_role=''
   local -a rows=()
   local -i line_limit=$(( COLUMNS > 0 ? COLUMNS : 80 ))
   local -i max_body=$(( LINES > 0 ? LINES - 2 : 5 ))
@@ -1294,23 +1329,17 @@ _prompt_interaction_layout() {
   (( line_limit >= 12 && max_body >= 1 )) || return 0
   (( max_body > 5 )) && max_body=5
 
+  _prompt_interaction_color_role
+  outline_role=$REPLY
   _prompt_abbreviate "$header_plain" "$line_limit" head
   _prompt_escape "$REPLY"
-  case $_PROMPT_INTERACTION_KIND in
-    caution) _prompt_color_text danger "$REPLY" ;;
-    ready) _prompt_color_text success "$REPLY" ;;
-    git) _prompt_color_text git "$REPLY" ;;
-    navigate) _prompt_color_text path "$REPLY" ;;
-    environment) _prompt_color_text environment "$REPLY" ;;
-    build|test) _prompt_color_text tool "$REPLY" ;;
-    *) _prompt_color_text info "$REPLY" ;;
-  esac
+  _prompt_color_text "$outline_role" "$REPLY"
   header=$REPLY
 
   if (( ${+widgets[compozsh-inspect]} && line_limit >= 56 )); then
-    local hint='⌥↵ inspect draft' padding=''
+    local hint='Option-Return inspect draft' padding=''
     local -i gap=$(( line_limit - ${(m)#header_plain} - ${(m)#hint} ))
-    if (( gap > 0 )); then
+    if (( gap >= 2 )); then
       padding=${(l:$gap:: :)padding}
       _prompt_color_text frame "$hint"
       header+="$padding$REPLY"
@@ -1325,8 +1354,8 @@ _prompt_interaction_layout() {
     value=${_PROMPT_INTERACTION_VALUES[index]}
     role=${_PROMPT_INTERACTION_ROLES[index]:-info}
     if [[ $label == @TOOLCHAIN ]]; then
-      _prompt_lens_toolchain_row "$line_limit" && rows+=("$REPLY")
-    elif _prompt_interaction_row "$label" "$value" "$role" "$line_limit"; then
+      _prompt_lens_toolchain_row "$line_limit" "$outline_role" && rows+=("$REPLY")
+    elif _prompt_interaction_row "$label" "$value" "$role" "$line_limit" "$outline_role"; then
       rows+=("$REPLY")
     fi
   done
@@ -1357,15 +1386,21 @@ _prompt_lens_layout() {
   (( line_limit >= 18 && max_body >= 1 )) || return 0
 
   if (( hint )); then
-    hint_text='⌥I close'
+    hint_text='Option-I close'
   else
-    hint_text='⌥I pin'
+    hint_text='Option-I pin'
   fi
   left_plain="╭─ CONTEXT · ${reason}"
   left_plain_width=${(m)#left_plain}
   hint_width=${(m)#hint_text}
-  if (( left_plain_width + 1 + hint_width > line_limit )); then
-    left_width=$(( line_limit - hint_width - 1 ))
+  # Optional keys must not crowd out the context identity in a narrow window.
+  left_width=$line_limit
+  if (( line_limit - hint_width - 2 >= 18 )); then
+    left_width=$(( line_limit - hint_width - 2 ))
+  else
+    hint_text='' hint_width=0
+  fi
+  if (( left_plain_width > left_width )); then
     _prompt_abbreviate "$left_plain" "$left_width" head
     left_plain=$REPLY
     left_plain_width=${(m)#left_plain}
@@ -1373,7 +1408,7 @@ _prompt_lens_layout() {
   _prompt_escape "$left_plain"
   _prompt_color_text frame "$REPLY"
   header=$REPLY
-  if (( left_plain_width + 1 + hint_width <= line_limit )); then
+  if [[ -n $hint_text ]] && (( left_plain_width + 2 + hint_width <= line_limit )); then
     padding_width=$(( line_limit - left_plain_width - hint_width ))
     padding=${(l:$padding_width:: :)padding}
     header+=$padding
@@ -3360,6 +3395,12 @@ _prompt_update() {
     [[ -t 1 ]] && _prompt_outcome_receipt "$last_status" "$elapsed" || :
   fi
   _PROMPT_COMMAND_STARTED=0
+
+  # One bounded manual snapshot before ordinary interactive editing. Repaint
+  # never calls this provider, and redirected/noninteractive shells skip it.
+  if [[ -t 0 && -t 1 ]] && (( ${+functions[_manual_prompt_capture]} )); then
+    _manual_prompt_capture
+  fi
 
   _PROMPT_ENV_TEXT=''
   _PROMPT_ENV_KEY=''

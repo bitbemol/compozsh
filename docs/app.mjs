@@ -15,7 +15,7 @@ const shellPrompt = document.querySelector('.shell-prompt');
 const interactionMode = document.querySelector('#interaction-mode');
 const interactionRows = document.querySelector('#interaction-rows');
 const promptBuffer = document.querySelector('#prompt-buffer');
-let scene = scenes.history;
+let scene = scenes['prompt-run'];
 let matches = [];
 let selected = 0;
 let bookmark = null;
@@ -174,7 +174,7 @@ function renderReview() {
 
 const promptRoleClasses = {
   danger: 'danger', environment: 'runtime', git: 'git', info: 'command',
-  path: 'path', project: 'runtime', success: 'git', tool: 'runtime',
+  path: 'path', project: 'subtle', frame: 'subtle', success: 'git', tool: 'runtime',
   warning: 'warning',
 };
 
@@ -371,4 +371,6 @@ for (const button of document.querySelectorAll('[data-copy]')) {
 
 query.disabled = false;
 document.querySelector('.demo-tabs').hidden = false;
-selectMode('files');
+selectMode('prompt');
+example.value = 'prompt-run';
+selectScene(example.value);

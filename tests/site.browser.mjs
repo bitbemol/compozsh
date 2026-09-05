@@ -75,8 +75,10 @@ try {
   await page.reload();
   await composition.locator('.composition-controls').waitFor({ state: 'visible' });
   assert.equal(await order.innerText(), 'A → B → C', 'Page reload clears the illustrative loading state');
-  assert.equal(await page.getByRole('tab', { name: 'Files', exact: true }).getAttribute('aria-selected'), 'true');
-  assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab');
+  assert.equal(await page.getByRole('tab', { name: 'Context', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.locator('#demo-command').innerText(), 'ls -la');
+  assert.equal(await page.getByLabel('Example', { exact: true }).inputValue(), 'prompt-run');
+  await page.getByRole('tab', { name: 'Files', exact: true }).click();
   assert.equal(await page.locator('#picker-title').innerText(), 'Directory browser');
   const dockGeometry = await page.evaluate(() => ({
     resultsBottom: document.querySelector('#demo-results').getBoundingClientRect().bottom,
@@ -90,6 +92,11 @@ try {
   assert.equal(await page.locator('.shell-prompt').isVisible(), false);
   await page.getByRole('tab', { name: 'History', exact: true }).click();
   assert.equal(await page.locator('.result-row').count(), 3);
+  assert.ok(await page.locator('#demo-results').evaluate(list => {
+    const rows = [...list.querySelectorAll('.result-row')];
+    return rows.every((row, index) => index === 0 ||
+      Math.abs(row.getBoundingClientRect().top - rows[index - 1].getBoundingClientRect().bottom) < 1);
+  }), 'Numbered choices must have no decorative inter-option gaps');
   await page.locator('#demo-query').press('ArrowUp');
   assert.match(await page.locator('.result-row.selected').innerText(), /swift build -c release/,
     'Picker movement must stop at the first result');
@@ -212,12 +219,27 @@ try {
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.getByRole('tab', { name: 'Context', exact: true }).getAttribute('aria-selected'), 'true');
   await page.keyboard.press('Tab');
+  assert.equal(await page.getByLabel('Example', { exact: true }).evaluate(element => element === document.activeElement), true,
+    'The example control must be reachable before the simulated viewport');
+  await page.keyboard.press('Tab');
   assert.equal(await page.locator('#demo-panel').evaluate((element) => element === document.activeElement), true,
-    'The synthetic Context panel must be reachable from its tab');
+    'The synthetic Context panel must be reachable after its example control');
   const contextExample = page.getByLabel('Example', { exact: true });
   assert.equal(await contextExample.isVisible(), true);
   assert.equal(await contextExample.inputValue(), 'prompt-context');
   assert.equal(await page.locator('[data-prompt-state="lens"]').isVisible(), true);
+  for (const scene of ['prompt-ready', 'prompt-run', 'prompt-environment', 'prompt-caution']) {
+    await contextExample.selectOption(scene);
+    const outline = await page.locator('.prompt-interaction').evaluate(element => {
+      const color = getComputedStyle(element.querySelector('#interaction-mode')).color;
+      return {
+        matched: [...element.querySelectorAll('.tree')].every(part => getComputedStyle(part).color === color),
+        labelUnchanged: getComputedStyle(element.querySelector('.interaction-row > span')).color !== color,
+      };
+    });
+    assert.ok(outline.matched, `${scene} outline must match its header`);
+    assert.ok(outline.labelUnchanged, `${scene} label must retain its own color`);
+  }
   await contextExample.selectOption('prompt-git');
   assert.equal(await page.locator('[data-prompt-state="interaction"]').isVisible(), true);
   assert.equal(await page.locator('[data-prompt-state="lens"]').isVisible(), false);
@@ -384,6 +406,7 @@ try {
   await noJS.goto(origin);
   assert.equal(await noJS.locator('#install-command').innerText(), 'zsh "$repo_dir/install.zsh" --symlink');
   assert.equal(await noJS.locator('.demo-tabs').isVisible(), false);
+  assert.equal(await noJS.locator('.prompt-lens').isVisible(), true);
   assert.equal(await noJS.locator('[data-copy]:visible').count(), 0);
   assert.equal(await noJS.locator('#composition button:visible').count(), 0);
   for (const law of ['Commutativity', 'Associativity', 'Idempotence']) {

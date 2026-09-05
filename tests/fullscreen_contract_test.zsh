@@ -34,7 +34,7 @@ _test_fullscreen_footer_contract() {
     _ZLE_PICKER_REFRESH_ENABLED=0
     _ZLE_PICKER_INSPECT_FOCUS=1
     _zle_picker_footer 179 ""
-    [[ $REPLY == *"↑↓ scroll"* && $REPLY == *"Tab list"* && $REPLY != *"0–9"* ]] || exit 7
+    [[ $REPLY == *"↑/↓ scroll"* && $REPLY == *"Tab list"* && $REPLY != *"0–9"* ]] || exit 7
     print consistent
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal consistent "$output"
@@ -88,14 +88,14 @@ _test_fullscreen_passive_rows_are_not_picker_actions() {
     _ZLE_PICKER_TITLE="External device / Flash · Windows unsupported"
     _ZLE_PICKER_BROWSE_LABEL="captured choices · no action yet"
     _ZLE_PICKER_QUERY_LABEL=Done
-    _ZLE_PICKER_RESULTS=(done) _ZLE_PICKER_LABELS=("[ Done ]")
+    _ZLE_PICKER_RESULTS=(done) _ZLE_PICKER_LABELS=(Done)
     _ZLE_PICKER_RESULT_INDEXES=(1)
     _ZLE_PICKER_PASSIVE_LINES=(
       "Windows USB creation is unavailable on stock macOS"
       "Boot requirement · Windows Setup requires FAT32")
     _ZLE_PICKER_PASSIVE_STYLES=(picker-error picker-text)
     _zle_picker_render "" 1 || exit 1
-    [[ $_ZLE_PICKER_DISPLAY[2] == "[ 1] ▸ [ Done ]"* ]] || exit 2
+    [[ $_ZLE_PICKER_DISPLAY[2] == "[ 1] ▸ Done"* ]] || exit 2
     [[ $_ZLE_PICKER_DISPLAY[3] == "Windows USB creation is unavailable"* &&
        $_ZLE_PICKER_DISPLAY[4] == "Boot requirement"* ]] || exit 3
     [[ $_ZLE_PICKER_DISPLAY[3] != \[* && $_ZLE_PICKER_DISPLAY[4] != \[* ]] || exit 4
