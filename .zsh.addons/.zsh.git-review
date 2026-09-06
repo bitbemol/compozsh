@@ -1546,32 +1546,40 @@ _git_review_auto_poll() {
   zmodload zsh/zselect || return 3
   local chunk=''
   local -i amount=0 read_result=0 parse_result=0 pid=${_git_auto_session_pid:-0}
+  local -i worker_finished=0
   (( pid > 0 && ${_git_auto_session_fd:--1} >= 0 )) || return 2
-  while zselect -r $_git_auto_session_fd -t 0 2>/dev/null; do
-    chunk='' amount=0
-    sysread -i $_git_auto_session_fd -s 8192 -c amount chunk
-    read_result=$?
-    (( read_result == 0 && amount > 0 )) || break
-    _git_auto_session_buffer+=$chunk
-    (( ${#_git_auto_session_buffer} <= 1048576 )) || {
-      _git_review_auto_worker_stop
-      return 3
-    }
+  while true; do
+    while zselect -r $_git_auto_session_fd -t 0 2>/dev/null; do
+      chunk='' amount=0
+      sysread -i $_git_auto_session_fd -s 8192 -c amount chunk
+      read_result=$?
+      (( read_result == 0 && amount > 0 )) || break
+      _git_auto_session_buffer+=$chunk
+      (( ${#_git_auto_session_buffer} <= 1048576 )) || {
+        _git_review_auto_worker_stop
+        return 3
+      }
+    done
+    _git_review_auto_parse
+    parse_result=$?
+    case $parse_result in
+      (0)
+        wait $pid 2>/dev/null
+        _git_auto_session_pid=0 _git_auto_session_buffer=''
+        _ZLE_PICKER_DEADLINE_AT=0
+        _git_auto_candidate_ready=1
+        return 0 ;;
+      (1)
+        _git_review_auto_worker_stop
+        return 3 ;;
+    esac
+    (( worker_finished )) && break
+    kill -0 $pid 2>/dev/null && return 1
+    # The worker may have written its final bytes after the drain above but
+    # before this exit observation. Drain once more after exit, when no later
+    # write can race us, before classifying an incomplete packet as failure.
+    worker_finished=1
   done
-  _git_review_auto_parse
-  parse_result=$?
-  case $parse_result in
-    (0)
-      wait $pid 2>/dev/null
-      _git_auto_session_pid=0 _git_auto_session_buffer=''
-      _ZLE_PICKER_DEADLINE_AT=0
-      _git_auto_candidate_ready=1
-      return 0 ;;
-    (1)
-      _git_review_auto_worker_stop
-      return 3 ;;
-  esac
-  kill -0 $pid 2>/dev/null && return 1
   wait $pid 2>/dev/null
   _git_auto_session_pid=0 _git_auto_session_buffer=''
   _ZLE_PICKER_DEADLINE_AT=0

@@ -3,7 +3,7 @@
 # handoff through a real PTY rather than calling controller helpers in isolation.
 _test_git_auto_refresh_native() {
   test_make_temp_dir || return
-  local output
+  local output scenario=${1:-ordinary}
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
@@ -33,6 +33,33 @@ _test_git_auto_refresh_native() {
     zmodload zsh/datetime
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
+    local -i exit_race_released=0 exit_gate_fd=-1
+    if [[ $2 == exit-race ]]; then
+      command mkfifo -m 600 "$HOME/exit-gate"
+      exec {exit_gate_fd}<> "$HOME/exit-gate"
+      functions -c _git_review_auto_worker _auto_test_worker
+      _git_review_auto_worker() {
+        if (( !exit_race_released )); then
+          local release=""
+          IFS= read -r -t 5 -u $exit_gate_fd release || return 2
+        fi
+        _auto_test_worker "$@"
+      }
+      functions -c _git_review_auto_parse _auto_test_parse
+      _git_review_auto_parse() {
+        _auto_test_parse
+        local parse_result=$?
+        if (( parse_result == 2 && !exit_race_released )); then
+          exit_race_released=1
+          print -r -u $exit_gate_fd go
+          # This small fixture fits in the response FIFO. Let the real worker
+          # finish after the empty drain, before the parent checks its exit.
+          wait $_git_auto_session_pid
+          print -r -u $efd EXIT-RACE
+        fi
+        return $parse_result
+      }
+    fi
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions -c _zle_picker_show _auto_test_show
     _zle_picker_show() {
@@ -146,15 +173,23 @@ _test_git_auto_refresh_native() {
         print -u2 -- "unexpected busy/clear lifecycle: ${(j:,:)events}"; exit 17
       }
       [[ $trace == *"$enter"*"$leave"* && ${trace#*"$enter"} != *"$enter"* ]] || exit 18
+      [[ $2 != exit-race || ${events[(Ie)EXIT-RACE]} != 0 ]] || exit 19
     } always {
       zpty -d auto-review
+      (( exit_gate_fd >= 0 )) && exec {exit_gate_fd}<&-
     }
     print refreshed
-  ' "$TEST_REPO_ROOT") || return
+  ' "$TEST_REPO_ROOT" "$scenario") || return
   test_assert_equal refreshed "$output"
 }
 test_case 'Git Working changes auto-refreshes atomically and preserves an active reader' \
   _test_git_auto_refresh_native
+
+_test_git_auto_refresh_exit_native() {
+  _test_git_auto_refresh_native exit-race
+}
+test_case 'Git Working changes survives worker exit during native auto-refresh' \
+  _test_git_auto_refresh_exit_native
 
 _test_git_auto_refresh_ages() {
   local output
@@ -315,6 +350,88 @@ _test_git_auto_refresh_cancel_drain() {
 }
 test_case 'Git auto-refresh cancellation drains a partial worker packet before resume' \
   _test_git_auto_refresh_cancel_drain
+
+# Release the response writer only after the first incomplete parse. This
+# deterministically places its final bytes between the pipe drain and the
+# process-exit check, without sleeps or relying on scheduler timing.
+_test_git_auto_refresh_exit_drain() {
+  test_make_temp_dir || return
+  local scenario=$1 expected=$2 output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    zmodload zsh/datetime
+    zmodload zsh/zselect
+    unsetopt BG_NICE
+    mkdir -p "$HOME/repo"
+    git -C "$HOME/repo" init -qb main || exit 1
+    print -r -- captured > "$HOME/repo/file"
+    local packet=$(_git_review_auto_worker "$HOME/repo" 7 file untracked 3 "$HOME")$'"'"'\n'"'"'
+    local _git_auto_session_dir="" _git_auto_session_fifo="" _git_auto_session_buffer=""
+    local -i _git_auto_session_fd=-1 _git_auto_session_pid=0 _git_auto_candidate_ready=0
+    local -i released=0 gate_fd=-1 poll_result=0
+    local -a _git_auto_candidate_paths=() _git_auto_candidate_config=()
+    local -F _git_auto_candidate_capture_duration=0
+    _git_review_auto_session_start || exit 2
+    command mkfifo -m 600 "$HOME/gate" || exit 3
+    exec {gate_fd}<> "$HOME/gate" || exit 4
+    case $2 in
+      (split) _git_auto_session_buffer=${packet[1,24]}; packet=${packet[25,-1]} ;;
+      (truncated) packet=${packet[1,-2]} ;;
+      (invalid) packet+=invalid ;;
+      (empty) packet="" ;;
+    esac
+    (
+      local release=""
+      IFS= read -r -u $gate_fd release || exit 5
+      print -rn -- "$packet" > "$_git_auto_session_fifo"
+    ) &
+    _git_auto_session_pid=$!
+    functions -c _git_review_auto_parse _exit_test_parse
+    _git_review_auto_parse() {
+      _exit_test_parse
+      local parse_result=$?
+      if (( parse_result == 2 && !released )); then
+        released=1
+        print -r -u $gate_fd go
+        wait $_git_auto_session_pid
+      fi
+      return $parse_result
+    }
+    {
+      _git_review_auto_poll
+      poll_result=$?
+      local captured=no
+      [[ $_git_auto_candidate_diff_data == *captured* &&
+         $_git_auto_candidate_paths[1] == file &&
+         $_git_auto_candidate_generation == 7 &&
+         $_git_auto_candidate_prepare_result == 0 ]] && captured=yes
+      print -r -- "$released|$poll_result|$_git_auto_candidate_ready|$captured|$_git_auto_session_pid"
+    } always {
+      _git_review_auto_session_stop
+      exec {gate_fd}<&-
+    }
+  ' "$TEST_REPO_ROOT" "$scenario") || return
+  test_assert_equal "$expected" "$output"
+}
+_test_git_auto_refresh_exit_complete() {
+  _test_git_auto_refresh_exit_drain complete '1|0|1|yes|0'
+}
+_test_git_auto_refresh_exit_split() {
+  _test_git_auto_refresh_exit_drain split '1|0|1|yes|0'
+}
+_test_git_auto_refresh_exit_invalid() {
+  local scenario
+  for scenario in truncated invalid empty; do
+    _test_git_auto_refresh_exit_drain "$scenario" '1|3|0|no|0' || return
+    test_cleanup_temp
+  done
+}
+test_case 'Git auto-refresh accepts a complete response arriving during worker exit' \
+  _test_git_auto_refresh_exit_complete
+test_case 'Git auto-refresh completes a split response arriving during worker exit' \
+  _test_git_auto_refresh_exit_split
+test_case 'Git auto-refresh rejects incomplete and invalid responses at worker exit' \
+  _test_git_auto_refresh_exit_invalid
 
 _test_git_auto_refresh_packet_numbers() {
   local output
