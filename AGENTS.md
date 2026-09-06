@@ -303,6 +303,12 @@ audit installation, updating, and uninstall instructions together.
   Keep explanatory material in a separate disclosure. Validate inner label,
   value and frame geometry at phone and desktop widths, not just outer-page
   overflow; preserve the stable task viewport and accessible browser controls.
+- Keep synthetic prompt fixtures aligned with the prompt contract: retained
+  READY toolchains when available, directional versus unverified version warnings,
+  qualified inference versus sourced help intent, unchanged stock-alias descriptions,
+  and ordinary receipts for empty or spaces-only submissions. Reuse semantic
+  palette roles within mixed-color rows; fixtures must not implement a second
+  command classifier or version resolver. Test these distinctions as well as layout.
 - Write direct, affirmative product copy about actual capabilities. Avoid
   formulaic contrasts such as “X, not Y,” negative slogans, and unsupported
   superiority claims. Keep factual limitations and safety instructions clear.
@@ -414,6 +420,10 @@ and fallbacks, rather than approving a single attractive screen:
 - Cover changed behavior through the [TDD contract](#test-driven-development),
   including literal quoting, no unintended effects and peer-order independence.
   Synchronize public help, README, SECURITY and any affected canonical rule.
+- When a convention changes, audit existing assertions throughout active docs,
+  showcase copy and tests; adding a new correct paragraph does not repair a
+  contradictory older rule. Keep historical investigation evidence labeled as
+  historical and link superseded decisions to the current contract.
 - Report automated results, timing failures, native PTY evidence and manual
   Terminal.app acceptance separately. Do not label a partial implementation a
   complete experience or treat a rerun as an entirely green original run.

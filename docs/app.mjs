@@ -190,7 +190,16 @@ function renderInteractionRow(item) {
   label.append(tree, ` ${item.label}`);
   const value = document.createElement('strong');
   value.className = promptRoleClasses[item.role] ?? 'command';
-  value.textContent = item.value;
+  if (item.segments) {
+    for (const segment of item.segments) {
+      const part = document.createElement('span');
+      part.className = promptRoleClasses[segment.role] ?? 'command';
+      part.textContent = segment.text;
+      value.append(part);
+    }
+  } else {
+    value.textContent = item.value;
+  }
   row.append(label, value);
   return row;
 }
@@ -206,8 +215,11 @@ function renderPrompt() {
   } else if (scene.promptState === 'transcript') {
     document.querySelector('#transcript-time').textContent = scene.transcript.time;
     document.querySelector('#transcript-command').textContent = scene.transcript.command;
-    document.querySelector('#transcript-output').textContent = scene.transcript.output;
+    const output = document.querySelector('#transcript-output');
+    output.textContent = scene.transcript.output;
+    output.hidden = !scene.transcript.output;
     const outcome = document.querySelector('#transcript-outcome');
+    outcome.hidden = !scene.transcript.outcome;
     outcome.replaceChildren();
     const outcomeText = document.createElement('span');
     outcomeText.className = scene.transcript.outcome.startsWith('×') ? 'danger' : 'git';

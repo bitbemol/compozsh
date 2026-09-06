@@ -2,6 +2,42 @@
 // Each task owns its copy and outcomes; the renderer has no command semantics.
 const readme = 'https://github.com/bitbemol/compozsh#';
 
+// Authored presentation fixtures only: these helpers do not classify commands
+// or compare versions. Native shell behavior remains the product authority.
+function toolchainExample(label, installed, requirement, relation, role) {
+  const segments = [
+    { text: `${installed} · `, role: 'tool' },
+    { text: `⚠ ${requirement} · using ${installed.split(' ')[1]} — ${relation}`, role },
+  ];
+  return {
+    mode: 'prompt', group: 'Orientation', label,
+    promptState: 'interaction', promptKind: 'READY', buffer: '',
+    command: 'empty command buffer', entryLabel: 'STATE', title: 'Toolchain context', query: '',
+    benefit: 'The version difference stays visible between commands.',
+    description: 'READY retains captured toolchain facts. Older pins use danger; newer pins and unverified requirements use warning. A satisfied minimum needs no mismatch warning. Version direction is not a compatibility guarantee.',
+    hint: 'Fixed simulation: authored version facts, not a live probe or compatibility check.',
+    docs: `${readme}living-prompt`, items: [],
+    rows: [
+      { label: 'PROJECT', value: 'example-app', source: 'captured', role: 'project' },
+      { label: 'PATH', value: '~/Projects/example-app', source: 'captured', role: 'path' },
+      { label: 'GIT', value: 'main', source: 'captured', role: 'git' },
+      { label: 'TOOLCHAIN', value: segments.map(segment => segment.text).join(''), source: 'captured', role: 'tool', segments },
+    ],
+  };
+}
+
+function emptyReceipt(label, command) {
+  return {
+    mode: 'prompt', group: 'After Return', label, promptState: 'transcript',
+    command: 'Return with no command', entryLabel: 'ACCEPT', title: 'Empty command receipt', query: '',
+    benefit: 'One receipt. One active prompt.',
+    description: 'Empty and spaces-only Enter leave the ordinary timestamped receipt, preserving literal input. There is no command output, fabricated outcome or new LAST value; the next prompt alone owns the active frame.',
+    hint: 'Fixed simulation: the receipt keeps the submitted spaces; nothing executes here.',
+    docs: `${readme}living-prompt`, items: [],
+    transcript: { time: '14:27', command, output: '', outcome: '' },
+  };
+}
+
 // Pure sample outcomes. Selection never opens an app or touches the clipboard.
 export function fileActions(item) {
   return [
@@ -36,6 +72,7 @@ export const scenes = {
       { label: 'PROJECT', value: 'example-app', source: 'captured', role: 'project' },
       { label: 'PATH', value: '~/Projects/example-app', source: 'captured', role: 'path' },
       { label: 'GIT', value: 'main !2 ?1', source: 'captured', role: 'git' },
+      { label: 'TOOLCHAIN', value: 'swift 6.4 · swiftpm', source: 'captured', role: 'tool' },
       { label: 'ENV', value: 'analytics', source: 'captured', role: 'environment' },
     ],
   },
@@ -55,6 +92,56 @@ export const scenes = {
       { label: 'PROJECT', value: 'example-app', source: 'captured', role: 'project' },
     ],
   },
+  'prompt-alias': {
+    mode: 'prompt', group: 'Live draft', label: 'Alias: hidden files',
+    promptState: 'interaction', promptKind: 'RUN', buffer: 'la',
+    command: 'la', entryLabel: 'DRAFT', title: 'Stock alias description', query: '',
+    benefit: 'Short commands carry useful explanations.',
+    description: 'The unchanged stock alias keeps its authored description and expansion. Custom alias definitions receive a neutral label; their bodies are never exposed or evaluated to describe them.',
+    hint: 'Fixed simulation: la remains an alias. Descriptions do not execute alias expansions.',
+    docs: `${readme}living-prompt`, items: [],
+    rows: [
+      { label: 'COMMAND TEXT', value: 'la', source: 'literal', role: 'info' },
+      { label: 'ABOUT', value: 'List entries, including hidden files except . and ..', source: 'captured', role: 'info' },
+      { label: 'EXPANSION', value: 'ls -A', source: 'captured', role: 'info' },
+      { label: 'PATH', value: '~/Projects', source: 'captured', role: 'path' },
+    ],
+  },
+  'prompt-owned-review': {
+    mode: 'prompt', group: 'Live draft', label: 'Help intent: review',
+    promptState: 'interaction', promptKind: 'GIT', buffer: 'g --review',
+    command: 'g --review', entryLabel: 'DRAFT', title: 'Documented review intent', query: '',
+    benefit: 'Our tools explain the operation you chose.',
+    description: 'Recognized Compozsh operations use descriptions from captured same-source help. This documented intent does not validate arguments or run the public --help command while typing.',
+    hint: 'Fixed simulation: ACTION describes review, rather than the bare g branch workspace.',
+    docs: `${readme}living-prompt`, items: [],
+    rows: [
+      { label: 'OPERATION TEXT', value: 'review', source: 'literal', role: 'git' },
+      { label: 'ACTION', value: 'Open read-only review; optionally compare two local refs.', source: 'captured', role: 'info' },
+      { label: 'SOURCE', value: 'Compozsh help · g', source: 'captured', role: 'frame' },
+      { label: 'PROJECT', value: 'example-app', source: 'captured', role: 'project' },
+    ],
+  },
+  'prompt-owned-touch-id': {
+    mode: 'prompt', group: 'Live draft', label: 'Help intent: Touch ID',
+    promptState: 'interaction', promptKind: 'ENVIRONMENT', buffer: 'compozsh --sudo-touch-id enable',
+    command: 'compozsh --sudo-touch-id enable', entryLabel: 'DRAFT', title: 'Documented Touch ID intent', query: '',
+    benefit: 'The description follows the requested operation.',
+    description: 'Captured Compozsh help distinguishes Touch ID enable, disable and status intent. The lens reads no authentication policy and requests no administrator access while editing.',
+    hint: 'Fixed simulation: selecting this example never changes Touch ID or runs sudo.',
+    docs: `${readme}living-prompt`, items: [],
+    rows: [
+      { label: 'COMMAND TEXT', value: 'compozsh', source: 'literal', role: 'info' },
+      { label: 'ACTION', value: 'Enable Touch ID authentication for sudo', source: 'captured', role: 'info' },
+      { label: 'SOURCE', value: 'Compozsh help · compozsh', source: 'captured', role: 'frame' },
+      { label: 'PATH', value: '~/Projects', source: 'captured', role: 'path' },
+    ],
+  },
+  'prompt-toolchain-newer': toolchainExample('Version: newer pin', 'swift 6.4', 'swift wants 6.3.2', 'newer', 'warning'),
+  'prompt-toolchain-older': toolchainExample('Version: older pin', 'swift 6.1', 'swift wants 6.3.2', 'older', 'danger'),
+  'prompt-toolchain-unverified': toolchainExample('Version: unverified', 'rust 1.90', 'rust wants nightly', 'unverified', 'warning'),
+  'prompt-empty-receipt': emptyReceipt('Enter: empty draft', ''),
+  'prompt-spaces-receipt': emptyReceipt('Enter: spaces only', '         '),
   'prompt-comment': {
     mode: 'prompt', group: 'Live draft', label: 'Comment: shell note',
     promptState: 'interaction', promptKind: 'COMMENT', buffer: '# explain this migration',
@@ -262,13 +349,14 @@ export const scenes = {
     promptState: 'interaction', promptKind: 'READY', buffer: '',
     command: 'next active prompt', entryLabel: 'RESULT', title: 'Ready lens with outcome', query: '',
     benefit: 'The next prompt remembers the useful result.',
-    description: 'The next READY frame carries the captured LAST outcome alongside current context. A later command replaces it; fast successes create no outcome row.',
+    description: 'The next READY frame carries captured TOOLCHAIN and LAST alongside current context. A later command replaces LAST; fast successes leave no separate outcome receipt.',
     hint: 'Fixed simulation: LAST is captured after completion; READY performs no live process monitoring.',
     docs: `${readme}living-prompt`, items: [],
     rows: [
       { label: 'PROJECT', value: 'example-app', source: 'captured', role: 'project' },
       { label: 'PATH', value: '~/Projects/example-app', source: 'captured', role: 'path' },
       { label: 'GIT', value: 'main !2 ?1', source: 'captured', role: 'git' },
+      { label: 'TOOLCHAIN', value: 'swift 6.4 · swiftpm', source: 'captured', role: 'tool' },
       { label: 'ENV', value: 'analytics', source: 'captured', role: 'environment' },
       { label: 'LAST', value: '✓ 2.9s', source: 'captured', role: 'success' },
     ],

@@ -439,7 +439,7 @@ _compozsh_help_compozsh() {
     '' \
     'Refresh this shell:' \
     '  --refresh clears cached runtime versions, Git-directory information,' \
-    '  local manual summaries and grep color-capability detection, then runs' \
+    '  local manual summaries, help descriptions and grep color-capability detection, then runs' \
     '  rehash. Requires .zsh.tools.' \
     '  Relevant caches rebuild on next use. No tools are installed or upgraded;' \
     '  only the current shell changes. No output is printed on success.' \

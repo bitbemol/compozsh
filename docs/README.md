@@ -19,8 +19,10 @@ moments grouped as Orientation, Live draft, and After Return. They cover the
 expanded Context lens; READY; RUN; comment, Git, navigation, search, build,
 test, environment, remote, pipeline, command-chain, redirection, and caution
 Interaction lenses;
-the command/outcome receipt; and the following READY frame with its captured
-LAST outcome. Nothing autoplays. Files and Git reveal the same selector for
+stock-alias descriptions and help-derived operation descriptions;
+directional and unverified toolchain warnings; command/outcome and empty or
+spaces-only receipts; and the following READY frame with its captured
+TOOLCHAIN and LAST outcome. Nothing autoplays. Files and Git reveal the same selector for
 their specialized scenarios. Git includes the
 two-pane, read-only Working changes workspace:
 changed files remain visible on the left while the selected focused diff stays
@@ -60,8 +62,16 @@ timestamp and outcome text. Switching them never observes the visitor's
 command line, filesystem, Git state, environment or network. `TEXT`-suffixed
 rows repeat bounded literal draft pieces; rows such as `PROJECT`, `PATH`,
 `GIT`, `TOOLCHAIN`, `CURRENT`, `SCOPE` and `LAST` represent prompt-boundary
-facts in the fixture; `ACTION` is explicitly advisory and uses qualified
-language such as “likely”, “appears” or “may”. No scene claims that a command
+facts in the fixture. Inferred `ACTION` uses qualified language such as
+“likely”, “appears” or “may”; help-derived `ACTION` names documented intent
+and identifies its captured Compozsh help source. Neither validates the draft.
+Stock aliases retain their authored descriptions only for unchanged definitions;
+custom aliases receive a neutral label without revealing their bodies.
+Toolchain warnings distinguish older pins (danger), newer pins (warning), and
+unverified requirements (warning); a satisfied minimum has no mismatch warning.
+READY retains available toolchain facts, while a folder without them omits the row.
+Empty and spaces-only submissions retain the ordinary timestamped receipt,
+without fabricated output, outcome or LAST updates. No scene claims that a command
 has executed or that a destination, match, connection or file exists. File selections open a
 four-action simulation; Escape restores the exact prior filter and selection.
 Those actions describe outcomes only: they never open an app, navigate the

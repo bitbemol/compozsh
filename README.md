@@ -679,6 +679,10 @@ and **Tools**, opening on Context's RUN/manual-summary example. The prompt
 uses a continuous frame and aligned rows; example controls sit above the
 simulated viewport, with feedback and optional explanations below the terminal.
 Without JavaScript, a static Context lens remains visible.
+Context examples include stock-alias explanations, help-derived operation intent,
+READY with retained toolchain facts, older/newer/unverified version warnings,
+and empty or spaces-only command receipts. They illustrate captured information
+and literal editing without implementing a second shell or version resolver.
 Files includes Browse, Recents, scoped Git search and home-index
 examples. Choose an example, refine its sample results, and select a file to
 preview its action menu. All outcomes are simulations; sample actions never
@@ -3895,8 +3899,10 @@ A bare `g` shows the local branch-workspace cue; `g --review`, `g --worktree`,
 and applicable help forms show review, worktree, or help cues. This remains an
 interpretation of literal editor text—classification does not invoke `g` or Git.
 
-An `ACTION` row is always a qualified explanation—`likely`, `appears`, or
-`may`—rather than a promise about what will happen. In particular, `REMOTE`
+An inferred `ACTION` uses qualifiers such as `likely`, `appears`, or `may`.
+A help-derived `ACTION` names documented intent for a recognized Compozsh
+operation, with its captured help source; it is still not a prediction or
+validation of the submitted command. In particular, `REMOTE`
 does not mean a connection exists, and `CAUTION` is not an exhaustive safety
 scanner. It recognizes only selected literal forms, does not validate targets
 or block Return, and an ordinary-looking lens does not prove a command is safe.
@@ -4101,9 +4107,10 @@ dependency files or executing repository code:
 These labels describe files present in the project. They do not claim that the
 corresponding package-manager or build command is installed.
 
-Installed runtime versions and local manual summaries are cached in this shell
-for prompt speed. After installing or upgrading a tool without opening a new
-shell, refresh them with:
+Installed runtime versions, local manual summaries and same-source help
+descriptions are cached in this shell for prompt speed. Help snapshots also
+invalidate when their owning definitions change. After installing or upgrading
+a tool without opening a new shell, refresh them with:
 
 ```sh
 compozsh --refresh

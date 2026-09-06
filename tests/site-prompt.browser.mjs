@@ -27,6 +27,11 @@ try {
       value.mode === 'prompt' && value.promptState !== 'transcript')) {
       await page.getByLabel('Example', { exact: true }).selectOption(scene);
       for (const [index, row] of (scenes[scene].rows ?? []).entries()) {
+        for (const [part, segment] of (row.segments ?? []).entries()) {
+          const rendered = page.locator('.interaction-row > strong').nth(index).locator('span').nth(part);
+          assert.equal(await rendered.textContent(), segment.text);
+          assert.equal(await rendered.getAttribute('class'), segment.role === 'tool' ? 'runtime' : segment.role);
+        }
         if (row.role === 'frame' || row.role === 'project') {
           assert.equal(await page.locator('.interaction-row > strong').nth(index).getAttribute('class'), 'subtle',
             `${row.label} must retain its muted captured role`);
@@ -54,6 +59,13 @@ try {
         `${scene} must share one terminal cell rhythm at ${width}px`);
       assert.ok(Math.abs(geometry.inputGap) < 1 && geometry.outline && geometry.contained,
         `${scene} must have one continuous outline through its input at ${width}px`);
+    }
+    for (const id of ['prompt-empty-receipt', 'prompt-spaces-receipt', 'prompt-transcript']) {
+      await page.getByLabel('Example', { exact: true }).selectOption(id);
+      const receipt = scenes[id].transcript;
+      assert.equal(await page.locator('#transcript-command').textContent(), receipt.command);
+      assert.equal(await page.locator('#transcript-output').isVisible(), !!receipt.output);
+      assert.equal(await page.locator('#transcript-outcome').isVisible(), !!receipt.outcome);
     }
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   }

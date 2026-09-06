@@ -2,6 +2,13 @@
 
 ## Decision and boundary
 
+This records the original manual-summary implementation. The later
+[current prompt description contract](../README.md#living-prompt) adds
+same-source help-derived intent and unchanged stock-alias descriptions.
+Its sourced ACTION descriptions supersede the blanket qualified-ACTION rule
+below; inferred actions remain qualified. The original manual capture boundary
+and evidence remain unchanged.
+
 The adopted behavior preserves Compozsh-owned cues and supplements ordinary
 commands with the short NAME description from installed local manuals. ABOUT
 describes a literal command name; ACTION remains a qualified lexical advisory.

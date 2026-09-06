@@ -2,20 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { scenes, fileActions } from '../docs/demo-data.mjs';
 import { findMatches } from '../docs/search.mjs';
+import { readFileSync } from 'node:fs';
 
 test('Context examples cover the fixed living and Interaction prompt system without a live source', () => {
   const promptScenes = Object.values(scenes).filter(scene => scene.mode === 'prompt');
-  assert.deepEqual(promptScenes.map(scene => scene.promptState), [
-    'lens', 'interaction', 'interaction', 'interaction', 'interaction',
-    'interaction', 'interaction', 'interaction', 'interaction', 'interaction',
-    'interaction', 'interaction', 'interaction', 'interaction', 'interaction',
-    'transcript', 'interaction',
-  ]);
-  assert.deepEqual(promptScenes.filter(scene => scene.promptState === 'interaction')
-    .map(scene => scene.promptKind), [
+  assert.deepEqual(new Set(promptScenes.map(scene => scene.promptState)),
+    new Set(['lens', 'interaction', 'transcript']));
+  assert.ok(promptScenes.length <= 32, 'Keep the authored example catalog bounded');
+  assert.deepEqual(new Set(promptScenes.filter(scene => scene.promptState === 'interaction')
+    .map(scene => scene.promptKind)), new Set([
     'READY', 'RUN', 'COMMENT', 'GIT', 'NAVIGATE', 'SEARCH', 'BUILD', 'TEST',
     'ENVIRONMENT', 'REMOTE', 'PIPELINE', 'CHAIN', 'REDIRECT', 'CAUTION', 'READY',
-  ]);
+  ]));
   assert.ok(promptScenes.every(scene => scene.docs.endsWith('#living-prompt')));
   assert.deepEqual(new Set(promptScenes.map(scene => scene.group)),
     new Set(['Orientation', 'Live draft', 'After Return']));
@@ -34,21 +32,25 @@ test('Interaction fixtures distinguish literal and captured rows from advisory A
     'RUN', 'COMMENT', 'GIT', 'NAVIGATE', 'SEARCH', 'BUILD', 'TEST', 'ENVIRONMENT',
     'REMOTE', 'PIPELINE', 'CHAIN', 'REDIRECT', 'CAUTION',
   ];
-  assert.deepEqual(modesWithDrafts.map(scene => scene.promptKind), requiredModes);
+  assert.deepEqual(new Set(modesWithDrafts.map(scene => scene.promptKind)), new Set(requiredModes));
   for (const scene of modesWithDrafts) {
     assert.ok(scene.rows.some(row => row.source === 'literal'),
       `${scene.promptKind} needs an exact draft row`);
     const action = scene.rows.find(row => row.label === 'ACTION');
-    if (scene.promptKind === 'RUN') {
+    if (scene === scenes['prompt-run']) {
       assert.equal(action, undefined);
       assert.deepEqual(scene.rows.find(row => row.label === 'ABOUT'), {
         label: 'ABOUT', value: 'list directory contents', source: 'captured', role: 'info',
       });
       assert.equal(scene.rows.find(row => row.label === 'SOURCE')?.value,
         'Local manual · ls(1)');
-    } else {
+    } else if (action?.source === 'captured') {
+      assert.match(scene.rows.find(row => row.label === 'SOURCE')?.value, /^Compozsh help · /);
+    } else if (action) {
       assert.equal(action?.source, 'advisory');
       assert.match(action.value, /likely|appears|may/);
+    } else {
+      assert.ok(scene.rows.some(row => row.label === 'ABOUT' && row.source === 'captured'));
     }
     assert.ok(scene.rows.some(row => row.source === 'captured'),
       `${scene.promptKind} needs a captured anchor`);
@@ -72,6 +74,70 @@ test('Interaction fixtures distinguish literal and captured rows from advisory A
   ]);
   assert.match(scenes['prompt-redirect'].description,
     /OUTPUT, INPUT, DESCRIPTOR, or RESOURCE TEXT/);
+});
+
+test('current prompt examples retain toolchains and distinguish documented intent from inference', () => {
+  for (const id of ['prompt-ready', 'prompt-ready-last']) {
+    assert.ok(scenes[id].rows.some(row => row.label === 'TOOLCHAIN'));
+    assert.ok(scenes[id].rows.length <= 6);
+  }
+  const alias = scenes['prompt-alias'];
+  assert.equal(alias?.buffer, 'la');
+  assert.equal(alias.rows.find(row => row.label === 'EXPANSION')?.value, 'ls -A');
+  assert.equal(alias.rows.find(row => row.label === 'ABOUT')?.value,
+    'List entries, including hidden files except . and ..');
+  assert.match(alias.description, /custom.*neutral/i);
+  for (const [id, command, purpose] of [
+    ['prompt-owned-review', 'g --review', 'Open read-only review; optionally compare two local refs.'],
+    ['prompt-owned-touch-id', 'compozsh --sudo-touch-id enable', 'Enable Touch ID authentication for sudo'],
+  ]) {
+    const scene = scenes[id];
+    assert.equal(scene?.buffer, command);
+    assert.equal(scene.rows.find(row => row.label === 'ACTION')?.value, purpose);
+    assert.equal(scene.rows.find(row => row.label === 'ACTION')?.source, 'captured');
+    assert.match(scene.description, /help/i);
+  }
+});
+
+test('toolchain examples preserve semantic warning colors and complete context without compatibility claims', () => {
+  for (const [id, role, relation] of [
+    ['prompt-toolchain-newer', 'warning', 'newer'],
+    ['prompt-toolchain-older', 'danger', 'older'],
+    ['prompt-toolchain-unverified', 'warning', 'unverified'],
+  ]) {
+    const scene = scenes[id];
+    assert.equal(scene?.promptKind, 'READY');
+    const row = scene.rows.find(row => row.label === 'TOOLCHAIN');
+    assert.equal(row.value, row.segments.map(segment => segment.text).join(''));
+    assert.ok(row.segments.some(segment => segment.role === 'tool'));
+    const warning = row.segments.find(segment => segment.role === role);
+    assert.match(warning?.text, new RegExp(`wants .* · using .* — ${relation}$`));
+    assert.match(scene.description, /compatibility|unverified/i);
+  }
+});
+
+test('empty and spaces-only receipt examples preserve literal input without output or a fabricated outcome', () => {
+  for (const [id, command] of [['prompt-empty-receipt', ''], ['prompt-spaces-receipt', '         ']]) {
+    const scene = scenes[id];
+    assert.equal(scene?.promptState, 'transcript');
+    assert.deepEqual(scene.transcript, { time: '14:27', command, output: '', outcome: '' });
+    assert.match(scene.description, /LAST/);
+  }
+});
+
+test('current public guidance does not restore the superseded universal ACTION rule', () => {
+  for (const file of ['README.md', 'SECURITY.md', 'docs/README.md', 'docs/index.html']) {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    assert.equal(/An `ACTION` row is always a qualified|ACTION<\/code> always says|`ACTION` is a lexical advisory\s+expressed as/.test(text), false, file);
+    assert.match(text, /help-derived|help description|documented intent/i, file);
+  }
+});
+
+test('refresh documentation includes the help-description snapshot invalidation', () => {
+  for (const file of ['README.md', 'SECURITY.md', '.zsh.addons/.zsh.help']) {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    assert.equal(/help[\s-]+description/i.test(text), true, file);
+  }
 });
 
 test('file scenes distinguish captured project paths from home-index samples', () => {

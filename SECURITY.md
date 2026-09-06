@@ -247,7 +247,8 @@ Bare `external-device` presents two fixed task choices without reading disks or
 images. Choosing a task closes that screen before its normal scoped capture;
 the flash and format modes retain their separate exact-device confirmations.
 `compozsh --refresh` clears only the current shell's existing in-memory runtime,
-manual-summary, Git-directory and grep-capability caches and runs `rehash`. It neither reloads
+manual-summary, help-description, Git-directory and grep-capability caches and
+runs `rehash`. It neither reloads
 private configuration nor updates installed tools or other shell sessions.
 
 `xcode --export-skills` detects the same local agent installations and selected
@@ -340,9 +341,11 @@ uses `FLOW`/`STEPS`/`CONTROL` as applicable to summarize literal `&&`, `||`, `;`
 or `&` structure. `COMMENT` uses `COMMENT TEXT` and the advisory `likely remain
 an interactive shell comment`. `REDIRECT` selects `OUTPUT TEXT`, `INPUT TEXT`,
 `DESCRIPTOR TEXT`, or `RESOURCE TEXT` from the literal operator; no target is
-opened or validated during classification. `ACTION` is a lexical advisory
-expressed as `likely`, `appears`, or `may`, not a prediction, authorization,
-validation, or completed effect. `CAUTION` recognizes only selected
+opened or validated during classification. Inferred `ACTION` text uses
+`likely`, `appears`, or `may`. Help-derived `ACTION` text instead names
+documented intent from the bounded same-source help capture described above.
+Neither is a prediction, authorization, validation, or completed effect.
+`CAUTION` recognizes only selected
 high-confidence forms: it is intentionally incomplete, does not block Return,
 and its absence is not evidence that a command is safe.
 

@@ -26,7 +26,9 @@ _test_site_static_contract() {
   test_assert_contains "$html" 'id="interaction-rows"' || return
   test_assert_contains "$html" 'LITERAL DRAFT' || return
   test_assert_contains "$html" 'CAPTURED FACT' || return
-  test_assert_contains "$html" 'ADVISORY' || return
+  test_assert_contains "$html" 'INTENT' || return
+  test_assert_contains "$html" 'Inferred <code>ACTION</code> uses qualifiers.' || return
+  test_assert_contains "$html" 'Help-derived ACTION names documented intent.' || return
   test_assert_contains "$html" 'ACTION' || return
   test_assert_contains "$script" 'COMMENT TEXT' || return
   test_assert_contains "$html" 'Option-I pin' || return
