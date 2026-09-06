@@ -114,7 +114,7 @@ state:
 | Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | Carries one framed local status/selected-diff candidate at a time, capped at 1 MiB; the worker-owned exact provider and worker are terminated and reaped on pause, timeout, manual refresh, review close or handled error, then the FIFO is removed, with no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
-| Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax-rendering input; validated temporary paths are removed during normal and handled-error cleanup |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax transport FIFOs (not regular source files); validated temporary paths are removed during normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh; may outlive the originating view or run under operating-system/user control | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, bounded Xcode test report, or retained matching Simulator log lines with local paths, diagnostics and sensitive app values; never read back by Compozsh |
@@ -348,8 +348,10 @@ prefix of editor-owned autosuggestion state matching the exact buffer. It does
 not initiate a history search or retain the unseen tail.
 
 A transcript repaint changes prompt decoration while ZLE retains the exact
-submitted command; it creates no separate Compozsh command store. The active
-`LAST` row is replaceable shell-memory status for the latest command, including
+submitted command; it creates no separate Compozsh command store. The same
+receipt represents empty and whitespace-only submissions without changing
+their literal buffer, executing an extra command, or adding a history record.
+The active `LAST` row is replaceable shell-memory status for the latest command, including
 fast success. Command receipts, plus outcome receipts for failures and slow
 successes, become ordinary terminal display and terminal-owned scrollback.
 Compacting the decoration neither conceals nor removes submitted command text
@@ -386,9 +388,34 @@ palette overrides. Secondary menus and notices scope their own labels and
 capabilities while returning exact action values to the caller. This adds no
 registry, persistent storage or shared background process. A feature may use an
 explicitly documented, bounded input-idle child for one screen session; the Git
-Working changes transport below is the only current instance. Run `zsh tests/run.zsh UI` and
+review transports and the optional resident system-Vim syntax helper use this
+screen-scoped lifetime. Run `zsh tests/run.zsh UI` and
 `zsh tests/run.zsh 'picker screen'` for view isolation, optional-peer behavior
 and native ZLE cleanup contracts.
+
+### Job lifecycle
+
+The optional syntax helper uses a private system-Vim child and mode-600 FIFOs
+inside a mode-700 temporary directory. Captured source travels through those
+pipes, not regular temporary source files. On timeout or screen exit, cleanup
+closes descriptors, kills/reaps the owned child when still live, retires its
+completed shell-job record, and removes the transport paths. It does not signal
+unrelated running or suspended jobs or detach a live helper.
+
+Zsh 5.9's `wait` and `jobs` builtins scan prior completed records when `NOTIFY`
+is off, even with an exact operand. Cleanup therefore uses a narrowly scoped
+`MONITOR`-off, `NOTIFY`-on section and restores caller options afterward. This
+avoids that broad scan and retains already-pending unrelated completion
+records. An unrelated job that newly finishes during this short section can
+still have its completion notification retired by native Zsh handling; this
+is not a guarantee of preserving every concurrent notification. See the
+[native implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/jobs.c)
+and run `zsh tests/run.zsh 'job lifecycle'` for the isolated regressions.
+
+Prompt capture only reads native job states: running and suspended jobs count;
+completed records do not. It never lists, waits for, or acknowledges jobs to
+update the indicator. `jobs -l` can report a previously killed process and
+acknowledge that completed record; listing it does not kill the process.
 
 `support/.zsh.matching` compiles literal queries and filters caller-supplied
 captured text. Its generic keyword search accepts fragments in any order and

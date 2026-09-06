@@ -44,11 +44,14 @@ _prompt_test_state_event() {
   _prompt_test_text "$PROMPT"; event_prompt=$REPLY
   _prompt_test_text "$RPROMPT"; event_rprompt=$REPLY
   print -P -v rendered_prompt -r -- "$PROMPT"
-  prompt_rows=${#${(f)rendered_prompt}}
+  local -a rendered_rows=("${(@f)rendered_prompt}")
+  prompt_rows=${#rendered_rows}
   (( prompt_rows > 0 )) || prompt_rows=1
   _prompt_test_text "$rendered_prompt"; event_rendered=$REPLY
-  _prompt_test_emit "$kind|${_PROMPT_VIEW:-missing}|${_PROMPT_LENS_PINNED:-0}|$event_buffer|$CURSOR|$prompt_rows|${_ZLE_AUTOSUGGEST_SUSPENDED:-0}|$event_predisplay|$event_postdisplay|${CONTEXT:-none}|$event_prompt|$event_rprompt|$event_rendered"
+  _prompt_test_emit "$kind|${_PROMPT_VIEW:-missing}|${_PROMPT_LENS_PINNED:-0}|$event_buffer|$CURSOR|$prompt_rows|${_ZLE_AUTOSUGGEST_SUSPENDED:-0}|$event_predisplay|$event_postdisplay|${CONTEXT:-none}|$event_prompt|$event_rprompt|$event_rendered|$_PROMPT_LAST_OUTCOME_TEXT|$_PROMPT_COMMAND_STARTED"
 }
+_prompt_test_preexec() { _prompt_test_emit COMMAND-STARTED; }
+preexec_functions+=(_prompt_test_preexec)
 _prompt_test_line_init() { _prompt_test_state_event INIT; }
 _prompt_test_pre_redraw() { _prompt_test_state_event REDRAW; }
 _prompt_test_line_finish() { _prompt_test_state_event FINISH; }
@@ -176,6 +179,31 @@ _prompt_test_emit "SOURCE|$(command tty)"
       _living_prompt_expect "INIT|compact|0|<empty>|0|" || exit 18
       fields=("${(@s:|:)event}")
       [[ $fields[7] == 0 && $fields[9] == "<empty>" ]] || exit 19
+
+      # Empty Return leaves a one-row receipt, without a command or new outcome.
+      # Observe through the separate event pipe so synchronization cannot erase
+      # or reposition the terminal frame being tested.
+      local last_outcome=$fields[14] blank="" expected_buffer="" accepted_trace=""
+      local -i trace_start=0 events_start=0
+      for blank in "" "" "         "; do
+        trace_start=${#trace} events_start=${#all_events}
+        [[ -z $blank ]] || zpty -w -n living-prompt "$blank"
+        zpty -w -n living-prompt $'"'"'\r'"'"'
+        expected_buffer=${blank:-<empty>}
+        _living_prompt_expect "FINISH|transcript|0|$expected_buffer|" || exit 47
+        fields=("${(@s:|:)event}")
+        [[ $fields[6] == 1 && $fields[8] == "<empty>" &&
+           $fields[9] == "<empty>" && $fields[11] == "%D{%H:%M} › " &&
+           $fields[12] == "<empty>" && $fields[13] != *[╭│╰]* ]] || { print -u2 -r -- "bad empty receipt: $event"; exit 48; }
+        _living_prompt_expect "INIT|compact|0|<empty>|0|" || exit 50
+        fields=("${(@s:|:)event}")
+        [[ $fields[14] == "$last_outcome" && ${all_events[$((events_start+1)),-1]} != *COMMAND-STARTED* ]] &&
+          (( fields[15] == 0 )) || { print -u2 -r -- "empty execution changed state: $event; $all_events"; exit 51; }
+        _living_prompt_probe compact || exit 52
+        while zpty -r living-prompt chunk; do trace+=$chunk; done
+        accepted_trace=${trace[$((trace_start+1)),-1]}
+        [[ $accepted_trace == *"›"* && $accepted_trace == *$'"'"'\e[J'"'"'* ]] || { print -u2 -r -- "missing empty repaint: ${(V)accepted_trace}"; exit 49; }
+      done
 
       # Option-I pins the lens while a non-end cursor and draft remain intact;
       # the same gesture closes it without touching editable state.

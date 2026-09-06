@@ -2622,9 +2622,9 @@ _prompt_toggle_lens() {
 
 # Prepare only an inert prefix. Native ZLE paints the unchanged BUFFER beside
 # it, avoiding prompt expansion of command text and preserving shell semantics.
+# Empty submissions retire the active frame through this same receipt path.
 _prompt_prepare_transcript() {
   emulate -L zsh
-  [[ -n ${BUFFER//[[:space:]]/} ]] || return 1
   _PROMPT_VIEW=transcript
   _PROMPT_LENS_PINNED=0
   _PROMPT_INTERACTION_KIND=ready
@@ -2733,7 +2733,13 @@ _prompt_update() {
   _PROMPT_SESSION_TEXT="${prompt_identity} · zsh ${ZSH_VERSION}"
   _PROMPT_PATH_TEXT=$prompt_path
   _PROMPT_FULL_PATH_TEXT=${(%):-%~}
-  job_count=${#jobstates}
+  # Completed jobs can remain in Zsh's table until their notification is read.
+  # Observe live jobs only; prompt capture must not consume user job notices.
+  local job_state=''
+  for job_state in "${(@v)jobstates}"; do
+    [[ $job_state == running:* || $job_state == suspended:* ]] &&
+      (( ++job_count ))
+  done
   if (( job_count == 1 )); then
     _PROMPT_JOBS_TEXT='1 job'
   elif (( job_count > 1 )); then

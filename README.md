@@ -3423,6 +3423,9 @@ reused only while that review screen is open and is killed and reaped as soon
 as the screen exits—there is no daemon or persistent syntax service. Vim keeps
 one scratch buffer per supported language, so grammar setup is reused instead
 of repeated for every selected file.
+Cleanup also retires that helper's completed shell-job record. It targets only
+the owned child and restores the caller's job-control options; see the
+[job-notification limitation](SECURITY.md#job-lifecycle) for concurrent exits.
 
 File-list navigation and preview loading are separate. Every Up/Down sequence
 moves and paints the selected row immediately. While arrows continue arriving,
@@ -3922,6 +3925,12 @@ leaves a compact command receipt in the terminal transcript:
 14:26 › swift build
 ```
 
+Pressing Enter with an empty or spaces-only draft uses the same timestamped
+receipt, with no visible command after `›`. Repeated empty submissions leave
+compact receipt lines and one active frame, not repeated dashboards or blank
+spacer rows. Literal whitespace is preserved. Empty submissions do not generate
+an execution result; `LAST` still describes the last command that ran.
+
 The submitted command remains exact. After command output, every failure and
 each successful command taking at least two seconds gets a compact outcome
 receipt. Fast successes proceed directly to the next active prompt. Receipts do
@@ -3965,7 +3974,12 @@ and the danger role.
 When the current directory is inside a recognized project, the Context lens
 names that project and separates its location, Git state, toolchain, active
 environment, jobs, and local session identity into semantic rows. Rows whose
-facts are absent or cannot fit are omitted:
+facts are absent or cannot fit are omitted.
+
+`JOBS` counts running and suspended shell jobs, including a pipeline as one job.
+Completed jobs awaiting Zsh's notification are excluded. Reading this count
+does not acknowledge or clear job notifications; `jobs -l` remains available
+to inspect Zsh's own records.
 
 ```text
 ╭─ CONTEXT · entered project                         Option-I pin

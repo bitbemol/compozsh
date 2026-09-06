@@ -229,11 +229,14 @@ _test_living_prompt_manual_lens_and_transcript_state() {
     true; _prompt_update
     [[ $_PROMPT_VIEW == compact && -z $RPROMPT ]] || exit 16
 
-    # Blank acceptance creates no empty timeline entry and preserves the view.
-    BUFFER="   "
-    local before_prompt=$PROMPT before_view=$_PROMPT_VIEW
-    if _prompt_prepare_transcript; then exit 17; fi
-    [[ $PROMPT == "$before_prompt" && $_PROMPT_VIEW == "$before_view" ]] || exit 18
+    # Empty and whitespace-only submissions use the same literal receipt.
+    local blank=""
+    for blank in "" "   " $'"'"'\t'"'"'; do
+      BUFFER=$blank
+      _prompt_prepare_transcript || { print -u2 "blank submission refused receipt"; exit 17; }
+      [[ $_PROMPT_VIEW == transcript && $PROMPT == '"'"'%D{%H:%M} › '"'"' &&
+         -z $RPROMPT && $BUFFER == "$blank" ]] || exit 18
+    done
     print -r -- manual-transcript
   ' "$TEST_REPO_ROOT" "$project" "$plain") || return
 

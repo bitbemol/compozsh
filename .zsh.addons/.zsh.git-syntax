@@ -10,6 +10,34 @@ typeset -gA _ZLE_PICKER_DOCUMENT_SYNTAX=()
 # the caller: no process, FIFO, descriptor or cache survives leaving Git review.
 # The parent validates a framed response before publishing token metadata, and
 # every wait has a hard deadline so a broken grammar cannot stall navigation.
+_git_syntax_reap_child() {
+  emulate -L zsh
+  zmodload zsh/parameter || return 1
+  local pid=$1 job='' state='' owned=''
+  for job in "${(@k)jobstates}"; do
+    state=${jobstates[$job]}
+    [[ $state == *":${pid}="* ]] || continue
+    owned=$job
+    break
+  done
+  [[ -n $owned ]] || return 0
+
+  # Zsh's wait/jobs builtins scan all completed jobs when NOTIFY is off,
+  # even with an exact operand. Avoid that scan and terminal notifications in
+  # this small scope; never signal a PID whose owned job is already done.
+  unsetopt MONITOR
+  setopt NOTIFY
+  if [[ $state == running:* || $state == suspended:* ]]; then
+    builtin kill -KILL "$pid" 2>/dev/null
+  fi
+  builtin wait "$pid" 2>/dev/null
+  state=${jobstates[$owned]:-}
+  if [[ $state == done:*":${pid}="* ]]; then
+    builtin jobs -p "%$owned" >/dev/null 2>&1
+  fi
+  return 0
+}
+
 _git_syntax_session_stop() {
   emulate -L zsh
   if (( ${_git_syntax_session_fd:--1} >= 0 )); then
@@ -17,8 +45,7 @@ _git_syntax_session_stop() {
     _git_syntax_session_fd=-1
   fi
   if (( ${_git_syntax_session_pid:-0} > 0 )); then
-    kill -KILL $_git_syntax_session_pid 2>/dev/null
-    wait $_git_syntax_session_pid 2>/dev/null
+    _git_syntax_reap_child "$_git_syntax_session_pid"
     _git_syntax_session_pid=0
   fi
   [[ -n ${_git_syntax_session_request_fifo:-} ]] &&

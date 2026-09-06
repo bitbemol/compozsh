@@ -1044,7 +1044,11 @@ never optimize from a single timing sample.
   small live interaction section that follows the buffer; accepting a command
   clears the pin.
 - Line finish must leave `HH:MM › ` as the transcript prompt while preserving
-  the exact accepted buffer. After command output, render an outcome receipt
+  the exact accepted buffer. Empty and whitespace-only submissions use this
+  same receipt, never leave inactive frames or substitute blank spacer rows.
+  Preserve literal whitespace and native shell semantics; do not synthesize
+  command execution, an outcome receipt, or a new `LAST` result for empty input.
+  Nested editors retain their own lifecycle. After command output, render an outcome receipt
   for every failure and for successful commands meeting the two-second duration
   threshold: `× exit N`, add ` · 2.3s` for a slow failure, and use `✓ 2.3s`
   for a slow success. Fast successes add no outcome row. Receipt painting must not
@@ -1407,7 +1411,12 @@ keyboard guide must never trigger refresh or an automatic provider check.
   buffer per allowlisted language, and reuses it only for that screen session.
   Never create a daemon, persistent cache, neighboring-file prediction or a
   queue of Vim processes. Always close descriptors and kill/reap the owned
-  child; keep job state isolated from the user's shell.
+  child and retire its owned completed job record. Never use an unqualified
+  jobs/wait/disown sweep or detach a live child to hide its record. Preserve
+  caller options and unrelated live/stopped jobs; prompt capture only observes
+  running/suspended job entries, never consumes completion notifications.
+  Native notification timing has the explicitly documented
+  [job-lifecycle limitation](SECURITY.md#job-lifecycle).
   Syntax acquisition is passive and pane-focus independent. After layout
   publishes the exact source viewport, an input-idle callback schedules one
   bounded multi-page window around it: normally three visible source spans on
