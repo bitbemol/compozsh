@@ -1,0 +1,939 @@
+# Installed-runtime capture and project requirement interpretation.
+# Ordinary optional peer: no project reads, probes or peer calls at source time.
+# Probes/capture are read boundaries; comparison operates only on supplied text.
+
+typeset -gA _PROMPT_RUNTIME_VERSION_CACHE
+typeset -gi _PROMPT_METADATA_MAX_BYTES=1048576
+typeset -gi _RUNTIME_METADATA_PARSE_MAX_BYTES=65536
+
+typeset -gA _PROMPT_RUNTIME_LABELS=(
+  c-cpp 'c/c++'
+  objective-c 'objective-c'
+  asm asm
+  scheme scheme
+  racket racket
+  lisp lisp
+  typescript typescript
+  shell shell
+  powershell powershell
+  gdscript godot
+  terraform terraform
+  fsharp 'f#'
+  visual-basic 'visual-basic'
+)
+
+# Find the nearest native Git ownership boundary without running Git or reading
+# project data. Nested package manifests may become the displayed project root,
+# but their enclosing repository can still control binaries placed on PATH.
+_prompt_repository_boundary() {
+  emulate -L zsh
+
+  local dir=${1:a}
+  REPLY=''
+  while [[ -n $dir && $dir != / ]]; do
+    if [[ -e "$dir/.git" || -L "$dir/.git" ]]; then
+      REPLY=$dir
+      return 0
+    fi
+    dir=${dir:h}
+  done
+  return 1
+}
+
+# A runtime found through PATH is still untrusted when its lexical path or
+# resolved target lives inside the project being rendered or its enclosing Git
+# repository. Entering a project must never execute code supplied by that
+# project merely to draw the prompt.
+_prompt_runtime_binary_is_trusted() {
+  emulate -L zsh
+
+  local binary=$1 project_root=$2
+  local binary_path=${binary:a} binary_target=${binary:A}
+  local root='' root_path=${project_root:a} root_target=${project_root:A}
+  local boundary='' boundary_path='' boundary_target=''
+  local -a boundaries=()
+
+  [[ $binary_path != "$root_path" && $binary_path != "$root_path"/* &&
+     $binary_target != "$root_target" && $binary_target != "$root_target"/* ]] ||
+    return 1
+
+  for root in "$root_path" "$root_target"; do
+    _prompt_repository_boundary "$root" || continue
+    (( ${boundaries[(Ie)$REPLY]} )) || boundaries+=("$REPLY")
+  done
+  for boundary in "${boundaries[@]}"; do
+    boundary_path=${boundary:a}
+    boundary_target=${boundary:A}
+    [[ $binary_path != "$boundary_path" &&
+       $binary_path != "$boundary_path"/* &&
+       $binary_target != "$boundary_target" &&
+       $binary_target != "$boundary_target"/* ]] || return 1
+  done
+  return 0
+}
+
+# Version metadata is inert text, but it still comes from an untrusted project.
+# Reject symlinks, paths escaping the project, and unexpectedly large files
+# before any read so prompt rendering cannot disclose arbitrary local content
+# or allocate an unbounded line.
+_prompt_metadata_file_is_safe() {
+  emulate -L zsh
+  zmodload -F zsh/stat b:zstat || return 1
+
+  local project_root=$1 candidate=$2
+  local candidate_path=${candidate:a} candidate_target=''
+  local root_path=${project_root:a} root_target=${project_root:A}
+  local -a facts=()
+  REPLY=''
+
+  [[ -f $candidate && ! -L $candidate ]] || return 1
+  candidate_target=${candidate:A}
+  [[ $candidate_path == "$root_path"/* &&
+     $candidate_target == "$root_target"/* ]] || return 1
+  zstat -A facts +size -- "$candidate" 2>/dev/null || return 1
+  (( ${facts[1]:--1} >= 0 &&
+     ${facts[1]} <= _PROMPT_METADATA_MAX_BYTES )) || return 1
+  REPLY=$candidate
+}
+
+_prompt_select_metadata_file() {
+  emulate -L zsh
+
+  local project_root=$1 candidate=''
+  shift
+  REPLY=''
+  for candidate in "$@"; do
+    _prompt_metadata_file_is_safe "$project_root" "$candidate" || continue
+    return 0
+  done
+  return 1
+}
+
+# Bound parsing work separately from the file-read ceiling. Check lengths and
+# line count before any whitespace/glob parsing, including direct TOML callers.
+_runtime_metadata_is_parseable() {
+  emulate -L zsh
+  unsetopt multibyte
+  local text=$1 line
+  (( ${#text} <= _PROMPT_METADATA_MAX_BYTES &&
+     ${#text} <= _RUNTIME_METADATA_PARSE_MAX_BYTES )) || return 1
+  local -a lines=("${(@f)text}")
+  (( ${#lines} <= 256 )) || return 1
+  for line in "${lines[@]}"; do
+    (( ${#line} <= 4096 )) || return 1
+  done
+  return 0
+}
+
+# Called only after scope validation. A non-following/nonblocking descriptor
+# prevents leaf replacement with a symlink/FIFO; fstat and a byte budget bound
+# reads even when a regular file grows after the initial path check.
+_runtime_read_metadata() {
+  emulate -L zsh
+  unsetopt multibyte
+  zmodload -F zsh/system b:sysopen b:sysread || return 1
+  zmodload -F zsh/stat b:zstat || return 1
+  local text='' chunk='' mode=${2:-full}
+  local -A metadata
+  local -i runtime_fd=-1 read_status=0 complete=0 remaining=$(( _RUNTIME_METADATA_PARSE_MAX_BYTES + 1 ))
+  [[ $mode == first-line ]] && remaining=4096
+  REPLY=''
+  sysopen -r -o cloexec,nofollow,nonblock -u runtime_fd "$1" 2>/dev/null || return 1
+  {
+    zstat -H metadata -f $runtime_fd 2>/dev/null || return 1
+    (( (metadata[mode] & 8#170000) == 8#100000 &&
+       metadata[size] <= _PROMPT_METADATA_MAX_BYTES )) || return 1
+    if [[ $mode != first-line ]]; then
+      (( metadata[size] <= _RUNTIME_METADATA_PARSE_MAX_BYTES )) || return 1
+    fi
+    while (( remaining > 0 )); do
+      chunk=''
+      sysread -i $runtime_fd -s $(( remaining < 16384 ? remaining : 16384 )) chunk 2>/dev/null
+      read_status=$?
+      text+=$chunk
+      remaining=$(( remaining - ${#chunk} ))
+      if [[ $mode == first-line && $text == *$'\n'* ]]; then
+        text=${text%%$'\n'*}
+        complete=1
+        break
+      fi
+      if (( read_status == 5 )); then complete=1; break; fi
+      (( read_status == 0 && ${#chunk} > 0 )) || return 1
+    done
+    (( ${#text} <= _PROMPT_METADATA_MAX_BYTES )) || return 1
+    if [[ $mode == first-line ]]; then
+      (( complete )) || return 1
+    else
+      _runtime_metadata_is_parseable "$text" || return 1
+    fi
+    [[ $text != *$'\0'* ]] || return 1
+    REPLY=$text
+  } always {
+    exec {runtime_fd}<&-
+  }
+}
+
+# Version commands must describe the installed tool, not activate project
+# policy. Command substitution already isolates this helper's directory and
+# environment changes from the interactive shell, so probes run from `/` and
+# common toolchain proxies are explicitly forbidden from auto-installing.
+_prompt_version_probe() {
+  emulate -L zsh
+
+  local -x GOTOOLCHAIN=local
+  local -x RUSTUP_AUTO_INSTALL=0
+  local -x CHECKPOINT_DISABLE=1
+  local -x DOTNET_CLI_TELEMETRY_OPTOUT=1
+  local -x DOTNET_NOLOGO=1
+  builtin cd -- / || return 1
+  command "$@"
+}
+
+# Resolve a runtime once per project and relevant shell environment. Checking
+# the cache before executable lookup keeps missing tools cheap too; PATH and
+# environment selectors ensure activations and toolchain switches get new keys.
+_prompt_runtime_version() {
+  setopt localoptions noglobsubst
+
+  local language=$1 project_root=$2
+  local binary='' output='' first_line='' version=''
+  local separator=$'\x1f'
+  local cache_key="${language}${separator}${project_root}${separator}${PATH}"
+  local candidate implementation='' token=''
+  local -i version_ok=1
+  local -a words parts
+
+  # Version-manager shims may keep the same executable path while environment
+  # selectors change the implementation behind it. Include only selectors
+  # relevant to this runtime so unrelated environment changes do not fragment
+  # the per-project cache.
+  case $language in
+    python)
+      cache_key+="${separator}${VIRTUAL_ENV:-}${separator}${CONDA_PREFIX:-}"
+      cache_key+="${separator}${PYENV_VERSION:-}"
+      ;;
+    node|typescript)
+      cache_key+="${separator}${NODENV_VERSION:-}"
+      ;;
+    ruby)
+      cache_key+="${separator}${RBENV_VERSION:-}"
+      ;;
+    java|kotlin|scala|groovy)
+      cache_key+="${separator}${JAVA_HOME:-}${separator}${JENV_VERSION:-}"
+      ;;
+    go)
+      cache_key+="${separator}${GOENV_VERSION:-}${separator}${GOTOOLCHAIN:-}"
+      ;;
+    rust)
+      cache_key+="${separator}${RUSTUP_TOOLCHAIN:-}"
+      ;;
+    terraform)
+      cache_key+="${separator}${TFENV_TERRAFORM_VERSION:-}"
+      ;;
+    php)
+      cache_key+="${separator}${PHPENV_VERSION:-}"
+      ;;
+    perl)
+      cache_key+="${separator}${PLENV_VERSION:-}"
+      ;;
+    c-cpp|objective-c|asm|swift)
+      cache_key+="${separator}${DEVELOPER_DIR:-}${separator}${SDKROOT:-}"
+      cache_key+="${separator}${TOOLCHAINS:-}"
+      ;;
+    dotnet|fsharp|visual-basic)
+      cache_key+="${separator}${DOTNET_ROOT:-}"
+      ;;
+  esac
+
+  if (( ${+_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]} )); then
+    REPLY=${_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]}
+    return
+  fi
+
+  case $language in
+    zsh)     binary=${commands[zsh]:-} ;;
+    c-cpp)
+      binary=${commands[c++]:-}
+      [[ -z $binary ]] && binary=${commands[clang++]:-}
+      [[ -z $binary ]] && binary=${commands[g++]:-}
+      ;;
+    objective-c)
+      binary=${commands[clang]:-}
+      [[ -z $binary ]] && binary=${commands[cc]:-}
+      ;;
+    asm)
+      binary=${commands[nasm]:-}
+      [[ -z $binary ]] && binary=${commands[cc]:-}
+      ;;
+    scheme)
+      for candidate in mit-scheme guile chezscheme scheme racket; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    racket)  binary=${commands[racket]:-} ;;
+    lisp)
+      for candidate in sbcl ccl clisp ecl; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    typescript)  binary=${commands[tsc]:-} ;;
+    deno)        binary=${commands[deno]:-} ;;
+    php)        binary=${commands[php]:-} ;;
+    shell)      binary=${commands[bash]:-} ;;
+    powershell) binary=${commands[pwsh]:-} ;;
+    kotlin)     binary=${commands[kotlinc]:-} ;;
+    lua)
+      for candidate in lua lua5.5 lua5.4 lua5.3 luajit; do
+        binary=${commands[$candidate]:-}
+        [[ -n $binary ]] && break
+      done
+      ;;
+    r)          binary=${commands[R]:-} ;;
+    zig)        binary=${commands[zig]:-} ;;
+    gdscript)
+      binary=${commands[godot]:-}
+      [[ -z $binary ]] && binary=${commands[godot4]:-}
+      ;;
+    terraform)
+      binary=${commands[terraform]:-}
+      if [[ -n $binary ]]; then
+        implementation=terraform
+      else
+        binary=${commands[tofu]:-}
+        [[ -n $binary ]] && implementation=tofu
+      fi
+      ;;
+    julia)      binary=${commands[julia]:-} ;;
+    perl)       binary=${commands[perl]:-} ;;
+    fortran)
+      for candidate in gfortran flang ifx ifort; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    ocaml)      binary=${commands[ocamlc]:-} ;;
+    scala)
+      for candidate in scala-cli scalac scala; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    erlang)     binary=${commands[erl]:-} ;;
+    gleam)      binary=${commands[gleam]:-} ;;
+    groovy)     binary=${commands[groovy]:-} ;;
+    fsharp|visual-basic) binary=${commands[dotnet]:-} ;;
+    swift)   binary=${commands[swift]:-} ;;
+    node)    binary=${commands[node]:-} ;;
+    python)
+      if [[ -n ${VIRTUAL_ENV:-} ]]; then
+        binary=${commands[python]:-}
+      fi
+      [[ -z $binary ]] && binary=${commands[python3]:-}
+      [[ -z $binary ]] && binary=${commands[python]:-}
+      ;;
+    haskell) binary=${commands[ghc]:-} ;;
+    rust)    binary=${commands[rustc]:-} ;;
+    go)      binary=${commands[go]:-} ;;
+    ruby)    binary=${commands[ruby]:-} ;;
+    java)    binary=${commands[java]:-} ;;
+    dotnet)  binary=${commands[dotnet]:-} ;;
+    dart)    binary=${commands[dart]:-} ;;
+    elixir)  binary=${commands[elixir]:-} ;;
+  esac
+
+  if [[ -n $binary ]] &&
+     ! _prompt_runtime_binary_is_trusted "$binary" "$project_root"; then
+    binary=''
+  fi
+
+  if [[ -z $binary && $language == kotlin && -x "$project_root/gradlew" ]]; then
+    REPLY='gradle-managed'
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return
+  fi
+
+  if [[ -z $binary ]]; then
+    REPLY='not-installed'
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return
+  fi
+
+  # `scala` can be a classic runner or a modern CLI launcher. Their version
+  # interfaces differ and the latter can check for updates. Do not probe an
+  # ambiguous launcher to identify which command would be safe to run.
+  if [[ $language == scala && $implementation == scala ]]; then
+    REPLY=launcher-managed
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return 0
+  fi
+
+  case $language in
+    zsh)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    c-cpp|objective-c|asm)
+      if [[ ${binary:t} == nasm ]]; then
+        output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
+        words=(${=output})
+        version="nasm ${words[3]:-}"
+      else
+        output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+        first_line=${output%%$'\n'*}
+        if [[ $first_line == *'clang version '* ]]; then
+          version=${first_line#*clang version }
+          version="clang ${version%% *}"
+        elif [[ $first_line == *'GCC '* || $first_line == *'gcc '* ]]; then
+          words=(${=first_line})
+          version="gcc ${words[-1]}"
+        else
+          words=(${=first_line})
+          version="${binary:t} ${words[-1]:-}"
+        fi
+      fi
+      ;;
+    scheme)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      if [[ $implementation == racket ]]; then
+        version=${first_line#*Racket v}
+        version="racket ${version%% *}"
+      else
+        for token in "${words[@]}"; do
+          if [[ $token == [0-9]* ]]; then
+            version="${implementation} ${token//[\(\),]/}"
+            break
+          fi
+        done
+      fi
+      ;;
+    racket)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*Racket v}
+      version="${version%% *}"
+      ;;
+    lisp)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version="${implementation} ${token//[\(\),]/}"
+          break
+        fi
+      done
+      ;;
+    typescript)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    deno)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+    php)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+    shell)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*version }
+      version=${version%%[^0-9.]*}
+      ;;
+    powershell)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    kotlin)
+      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      words=(${=output})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version=${token//[\(\),]/}
+          break
+        fi
+      done
+      ;;
+    lua)
+      output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      [[ ${words[1]:-} == LuaJIT ]] && version="luajit $version"
+      ;;
+    r)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[3]}
+      ;;
+    zig)
+      version=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      ;;
+    gdscript)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      first_line=${first_line%% *}
+      version=$first_line
+      # Stable build identifiers do not change the release number; retain all
+      # other suffixes so prereleases cannot masquerade as a final release.
+      [[ $first_line == *.stable.* ]] && version=${first_line%%.stable.*}
+      ;;
+    terraform)
+      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]#v}
+      [[ $implementation == tofu ]] && version+="-tofu"
+      ;;
+    julia)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]}
+      ;;
+    perl)
+      version=$(_prompt_version_probe "$binary" -e 'print $^V' 2>&1) || version_ok=0
+      version=${version#v}
+      ;;
+    fortran)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version="${implementation} ${token//[\(\),]/}"
+          break
+        fi
+      done
+      ;;
+    ocaml)
+      version=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      ;;
+    scala)
+      if [[ $implementation == scala-cli ]]; then
+        output=$(_prompt_version_probe "$binary" version --offline 2>&1) || version_ok=0
+        first_line=''
+        for token in "${(@f)output}"; do
+          [[ $token == 'Scala version'*:* ]] && first_line=${token#*:}
+        done
+      else
+        output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+        first_line=${output%%$'\n'*}
+      fi
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version=${token//[\(\),]/}
+          break
+        fi
+      done
+      ;;
+    erlang)
+      version=$(_prompt_version_probe "$binary" -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().' 2>&1) || version_ok=0
+      ;;
+    gleam)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    groovy)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]}
+      ;;
+    fsharp|visual-basic)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      ;;
+    swift)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*Swift version }
+      version=${version%% *}
+      ;;
+    node)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      version=${version#v}
+      ;;
+    python)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      version=${output#Python }
+      ;;
+    haskell)
+      version=$(_prompt_version_probe "$binary" --numeric-version 2>&1) || version_ok=0
+      ;;
+    rust)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    go)
+      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]#go}
+      ;;
+    ruby)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    java)
+      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${(z)first_line})
+      version=${words[3]}
+      ;;
+    dotnet)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      ;;
+    dart)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[4]}
+      ;;
+    elixir)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output##*$'\n'}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+  esac
+
+  # A command may exist as a system stub but fail to provide a usable runtime.
+  if (( version_ok )); then
+    version=${version%%$'\n'*}
+    words=(${=version})
+    version="${(j: :)words}"
+    [[ -z $version ]] && version='unknown'
+  else
+    version='unavailable'
+  fi
+  _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$version
+  REPLY=$version
+}
+
+# A single inventory of supported simple version files and asdf/mise names.
+# These are data, not an add-on registry or a source-time discovery pass.
+typeset -gA _RUNTIME_VERSION_FILES=(
+  node '.nvmrc .node-version' python .python-version swift .swift-version
+  typescript .typescript-version deno .deno-version php .php-version
+  shell .bash-version powershell .powershell-version kotlin .kotlin-version
+  lua .lua-version r .R-version zig .zig-version gdscript .godot-version
+  terraform .terraform-version julia .julia-version perl .perl-version
+  fortran .fortran-version ocaml .ocaml-version scala .scala-version
+  erlang .erlang-version gleam .gleam-version groovy .groovy-version
+  haskell .ghc-version ruby .ruby-version java .java-version
+  dotnet .dotnet-version fsharp .dotnet-version visual-basic .dotnet-version
+  elixir .elixir-version dart .dart-version
+)
+typeset -gA _RUNTIME_TOOL_NAMES=(
+  node nodejs shell bash powershell powershell-core r R gdscript godot
+  haskell ghc go golang dotnet dotnet-core fsharp dotnet-core visual-basic dotnet-core
+)
+
+# Pure numeric normalization. Reject suffixes/channels rather than interpreting
+# prerelease, vendor or language-specific ordering as universal SemVer.
+_runtime_numeric_version() {
+  emulate -L zsh
+  setopt extendedglob
+  local value=${1#v} part
+  local -a parts
+  REPLY=''
+  (( ${#value} <= 64 )) || return 1
+  [[ $value == <->(.<->)# ]] || return 1
+  parts=("${(@s:.:)value}")
+  (( ${#parts} <= 4 )) || return 1
+  for part in "${parts[@]}"; do
+    (( ${#part} <= 8 )) || return 1
+  done
+  REPLY=$value
+}
+
+# Pure comparison of explicit numeric components. Partial pins retain the
+# existing prefix semantics (3.12 selects 3.12.x); minima compare missing
+# components as zero. Outputs: match, older, newer, outside or unknown.
+_runtime_version_relation() {
+  emulate -L zsh
+  setopt extendedglob
+  local active=$1 expected=$2 kind=${3:-pin} a e term op bound relation
+  local -a av ev terms
+  local -i i count left right outside=0
+  _runtime_numeric_version "$active" || { REPLY=unknown; return 0; }
+  a=$REPLY
+  if [[ $kind == range ]]; then
+    (( ${#expected} <= 240 )) || { REPLY=unknown; return 0; }
+    terms=("${(@s:,:)expected}")
+    (( ${#terms} && ${#terms} <= 8 )) || { REPLY=unknown; return 0; }
+    for term in "${terms[@]}"; do
+      term=${term##[[:space:]]#}
+      term=${term%%[[:space:]]#}
+      op=${term%%[0-9v]*}
+      bound=${term#$op}
+      op=${op%%[[:space:]]#}
+      [[ $op == ('>='|'>'|'<='|'<'|'=='|'!=') ]] || { REPLY=unknown; return 0; }
+      _runtime_version_relation "$a" "$bound" exact
+      relation=$REPLY
+      [[ $relation != unknown ]] || return 0
+      case $op in
+        '>=') [[ $relation == older ]] && outside=1 ;;
+        '>') [[ $relation != newer ]] && outside=1 ;;
+        '<=') [[ $relation == newer ]] && outside=1 ;;
+        '<') [[ $relation != older ]] && outside=1 ;;
+        '==') [[ $relation != match ]] && outside=1 ;;
+        '!=') [[ $relation == match ]] && outside=1 ;;
+      esac
+    done
+    REPLY=match
+    (( outside )) && REPLY=outside
+    return 0
+  fi
+  _runtime_numeric_version "$expected" || { REPLY=unknown; return 0; }
+  e=$REPLY
+  av=("${(@s:.:)a}") ev=("${(@s:.:)e}")
+  count=$(( ${#av} > ${#ev} ? ${#av} : ${#ev} ))
+  [[ $kind == pin ]] && count=${#ev}
+  REPLY=match
+  for (( i=1; i<=count; ++i )); do
+    left=$(( 10#${av[i]:-0} )) right=$(( 10#${ev[i]:-0} ))
+    if (( left < right )); then REPLY=older; break; fi
+    if (( left > right )); then REPLY=newer; break; fi
+  done
+  [[ $kind == minimum && $REPLY == newer ]] && REPLY=match
+  return 0
+}
+
+# Parse supplied TOML text for a small literal string in one named table. This intentionally
+# does not evaluate TOML, resolve workspace inheritance, or parse expressions.
+# Unsupported/duplicate values return unknown instead of guessing. A caller may
+# require nonempty text when its source forbids an empty requirement.
+_runtime_toml_scalar() {
+  emulate -L zsh
+  setopt extendedglob
+  local text=$1 table=$2 key=$3 line section='' value='' found=''
+  local value_policy=${4:-}
+  local header='' tail='' assignment=''
+  local -i seen=0 table_seen=0 array_table=0
+  REPLY=''
+  _runtime_metadata_is_parseable "$text" || { REPLY=unknown; return 0; }
+  for line in "${(@f)text}"; do
+    # A partial reader must never interpret table/key-looking text inside a
+    # multiline string. Such documents require a full TOML parser: decline.
+    if [[ $line == *\"\"\"* || $line == *\'\'\'* ]]; then
+      REPLY=unknown
+      return 0
+    fi
+    line=${line#"${line%%[![:space:]]*}"}
+    if [[ $line == \[* ]]; then
+      array_table=0
+      if [[ $line == \[\[* ]]; then
+        array_table=1
+        header=${line#\[\[}
+        [[ $header == *\]\]* ]] || { REPLY=unknown; return 0; }
+        tail=${header#*\]\]}
+        header=${header%%\]\]*}
+      else
+        header=${line#\[}
+        [[ $header == *\]* ]] || { REPLY=unknown; return 0; }
+        tail=${header#*\]}
+        header=${header%%\]*}
+      fi
+      header=${header#"${header%%[![:space:]]*}"}
+      header=${header%"${header##*[![:space:]]}"}
+      tail=${tail#"${tail%%[![:space:]]*}"}
+      [[ -n $header && $header != *\[* && $header != *\\* &&
+         ( -z $tail || $tail == \#* ) ]] || { REPLY=unknown; return 0; }
+      section=$header
+      [[ $section == \"$table\" || $section == \'$table\' ]] && section=$table
+      if [[ $section == "$table" ]]; then
+        (( ! array_table && ++table_seen == 1 )) || { REPLY=unknown; return 0; }
+      elif (( array_table )); then
+        section=''
+      fi
+      continue
+    fi
+    [[ $section == "$table" && $line == *=* ]] || continue
+    assignment=${line%%=*}
+    assignment=${assignment%"${assignment##*[![:space:]]}"}
+    # An escaped quoted name could alias the requested key. Do not silently
+    # ignore it or introduce a TOML string decoder merely to compare versions.
+    if [[ $assignment == \"* && $assignment == *\\* ]]; then
+      REPLY=unknown
+      return 0
+    fi
+    [[ $assignment == "$key" || $assignment == \"$key\" ||
+       $assignment == \'$key\' ]] || continue
+    (( ++seen ))
+    value=${line#*=}
+    value=${value#"${value%%[![:space:]]*}"}
+    if [[ $value == \"* ]]; then
+      value=${value#\"}
+      found=${value%%\"*}
+      [[ $value != "$found" && $found != *\\* ]] || { REPLY=unknown; return 0; }
+      value=${value#*\"}
+    elif [[ $value == \'* ]]; then
+      value=${value#\'}
+      found=${value%%\'*}
+      [[ $value != "$found" ]] || { REPLY=unknown; return 0; }
+      value=${value#*\'}
+    else
+      REPLY=unknown; return 0
+    fi
+    value=${value#"${value%%[![:space:]]*}"}
+    [[ -z $value || $value == \#* ]] || { REPLY=unknown; return 0; }
+  done
+  REPLY=''
+  if (( seen == 1 )); then
+    REPLY=$found
+    if [[ $value_policy == nonempty && $found != *[![:space:]]* ]]; then
+      REPLY=unknown
+    fi
+  elif (( seen > 1 )); then REPLY=unknown
+  fi
+}
+
+# Read-only requirement capture. Caller-local metadata accompanies REPLY; no
+# capture happens merely by sourcing this peer or comparing supplied versions.
+_prompt_expected_runtime_version() {
+  emulate -L zsh
+  setopt extendedglob
+  local language=$1 project_root=$2 file='' name line wanted rest expected='' text=''
+  local value_policy=''
+  local tool_name=${_RUNTIME_TOOL_NAMES[$1]:-$1}
+  local -a names
+  local -i go_seen=0
+  _RUNTIME_REQUIREMENT_KIND=pin
+  _RUNTIME_REQUIREMENT_SOURCE=''
+  REPLY=''
+  names=(${=_RUNTIME_VERSION_FILES[$language]})
+  [[ $language == rust ]] && names=(rust-toolchain rust-toolchain.toml)
+  for name in "${names[@]}"; do
+    _prompt_select_metadata_file "$project_root" "$project_root/$name" || continue
+    file=$REPLY
+    if [[ $language == rust ]]; then
+      _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+    else
+      _runtime_read_metadata "$file" first-line || { REPLY=unknown; return 0; }
+    fi
+    text=$REPLY
+    expected=${REPLY%%$'\n'*}
+    expected=${expected##[[:space:]]#}
+    if [[ $language == rust ]]; then
+      if [[ $name == *.toml || -z $expected || $expected == \[* || $expected == \#* ]]; then
+        _runtime_toml_scalar "$text" toolchain channel
+        expected=${REPLY:-unknown}
+      fi
+    else
+      expected=${expected%%\#*}
+    fi
+    expected=${expected##[[:space:]]#}
+    expected=${expected%%[[:space:]]#}
+    [[ -n $expected ]] || expected=unknown
+    (( ${#expected} <= 240 )) || expected=unknown
+    _RUNTIME_REQUIREMENT_SOURCE=$name
+    REPLY=$expected
+    return 0
+  done
+  if _prompt_select_metadata_file "$project_root" "$project_root/.tool-versions"; then
+    file=$REPLY
+    _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+    text=$REPLY
+    for line in "${(@f)text}"; do
+      line=${line%%\#*}
+      names=(${=line})
+      [[ ${names[1]:-} == "$tool_name" ]] || continue
+      _RUNTIME_REQUIREMENT_SOURCE=.tool-versions
+      REPLY=${names[2]:-unknown}
+      # Multiple versions are alternatives, not a single comparable pin.
+      (( ${#names} == 2 )) || REPLY=unknown
+      (( ${#REPLY} <= 240 )) || REPLY=unknown
+      return 0
+    done
+  fi
+  case $language in
+    go)
+      for name in go.work go.mod; do
+        _prompt_select_metadata_file "$project_root" "$project_root/$name" || continue
+        file=$REPLY
+        _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+        text=$REPLY
+        for line in "${(@f)text}"; do
+          line=${line%%//*}
+          names=(${=line})
+          [[ ${names[1]:-} == go ]] || continue
+          _RUNTIME_REQUIREMENT_KIND=minimum
+          _RUNTIME_REQUIREMENT_SOURCE=$name
+          (( ++go_seen == 1 && ${#names} == 2 )) || { REPLY=unknown; return 0; }
+          expected=${names[2]}
+        done
+        break
+      done
+      ;;
+    swift)
+      if _prompt_select_metadata_file "$project_root" "$project_root/Package.swift"; then
+        file=$REPLY
+        _runtime_read_metadata "$file" first-line || { REPLY=unknown; return 0; }
+        line=${REPLY%%$'\n'*}
+        if [[ $line == '// swift-tools-version:'* ]]; then
+          expected=${line#*:}
+          _RUNTIME_REQUIREMENT_KIND=minimum
+          _RUNTIME_REQUIREMENT_SOURCE=Package.swift
+        fi
+      fi
+      ;;
+    rust|python)
+      if [[ $language == rust ]]; then
+        name=Cargo.toml; line=package; wanted=rust-version; value_policy=nonempty
+      else name=pyproject.toml; line=project; wanted=requires-python
+      fi
+      if _prompt_select_metadata_file "$project_root" "$project_root/$name"; then
+        file=$REPLY
+        _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+        _runtime_toml_scalar "$REPLY" "$line" "$wanted" "$value_policy"
+        expected=$REPLY
+        _RUNTIME_REQUIREMENT_SOURCE=$name
+        _RUNTIME_REQUIREMENT_KIND=minimum
+        [[ $language == python ]] && _RUNTIME_REQUIREMENT_KIND=range
+      fi
+      ;;
+  esac
+  expected=${expected##[[:space:]]#}
+  expected=${expected%%[[:space:]]#}
+  (( ${#expected} <= 240 )) || expected=unknown
+  REPLY=$expected
+}
+
+# Only normalize implementation decorations whose meaning is known here.
+# Never order unrelated compiler families or erase prerelease suffixes.
+_runtime_comparable_version() {
+  emulate -L zsh
+  setopt extendedglob
+  local language=$1 value=$2
+  case $language in
+    java) value=${value#\"}; value=${value%\"} ;;
+    ruby) [[ $value == *p<-> ]] && value=${value%p<->} ;;
+    fortran) [[ $value == 'gfortran '* ]] && value=${value#gfortran } ;;
+  esac
+  REPLY=$value
+}

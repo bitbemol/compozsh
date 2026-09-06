@@ -262,6 +262,7 @@ compozsh/
 │   └── support/          maintained system-wide components and assets
 │       ├── .zsh.appearance shared light/dark palette and scheme selection
 │       ├── .zsh.matching   pure literal/fuzzy matching over captured text
+│       ├── .zsh.runtimes   installed versions, bounded requirements and comparison
 │       ├── .zsh.ui         shared docked input, responsive views, and screen restoration
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
 ├── templates/
@@ -315,6 +316,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes/destinations in a captured action plan, retaining action filter/focus after configuration; reports test outcomes and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, live log reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills |
 | `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `support/.zsh.matching` | Shared matching algorithms | Compiles literal, ordered-character and unordered-keyword filters; returns matching indexes from supplied captured text without discovery, ranking, UI state or actions |
+| `support/.zsh.runtimes` | Runtime version capture and requirement interpretation | Owns installed-runtime probes/cache, version-file inventory, bounded literal requirement readers and numeric comparison; invoked by prompt capture, with no project reads or probes at source time |
 | `support/.zsh.ui` | Shared terminal components and interaction | Palette-driven title/context, bottom input/action dock with native caret, compact numbered choices with optional descriptions, action/plan views, primary help explanations beside topic navigation, disclosure, focus-responsive details, captured-text readers, notices, status, trail and keyboard guide; common view defaults, layout, input, live following and screen restoration; feature peers supply captured content and actions |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
@@ -3798,6 +3800,7 @@ scrollback outcome receipt:
 │  PROJECT          compozsh
 │  PATH             ~/Developer/Remote/compozsh
 │  GIT              main !3
+│  TOOLCHAIN        zsh 5.9
 │  LAST             ✓ 84ms
 ╰─ ❯
 ```
@@ -3805,6 +3808,12 @@ scrollback outcome receipt:
 `LAST` belongs to the one active prompt. The next command replaces it, and
 accepting another buffer repaints the active lens into the transcript; `LAST`
 is not a permanent log line.
+
+Available `TOOLCHAIN` facts remain in READY after commands and `clear`, including
+version advisories that fit. Typing still switches to the relevant interaction
+view; Context provides expanded disclosure. READY uses up to six body rows when
+height permits, preserving environment and last-outcome information. Narrow or
+short windows abbreviate or omit facts and restore them when space returns.
 
 As the buffer changes, the header and rows morph immediately. For example,
 typing `git status --short` produces a `GIT` lens before anything runs:
@@ -4077,17 +4086,81 @@ infrastructure      terraform 1.14.0-tofu · terragrunt · tflint · helm
 numerical-model     fortran gfortran 15.2.0 · fpm
 ```
 
-Version files such as `.nvmrc`, `.node-version`, `.deno-version`, `.python-version`,
-`.swift-version`, `.ruby-version`, `.java-version`, `.php-version`,
-`.kotlin-version`, `.lua-version`, `.terraform-version`, `go.mod`, and
-`.tool-versions` are compared with the active runtime. The other built-ins also
-accept a matching `.<language>-version` file where that convention is useful.
-Mismatches appear in the danger color and form an attention state that can
-open the Context lens:
+The optional `support/.zsh.runtimes` peer owns installed-version capture and
+requirement interpretation. Loading it defines capabilities without reading a
+project or probing an executable. The prompt invokes capture at its existing
+fact boundary; typing and resize reuse captured text. Without this peer, project
+identity and tool markers remain available but runtime versions are omitted.
+
+Version advisories include the request and observed installed version together.
+Older numeric pins use `ZSH_PROMPT_COLORS[danger]`; newer pins use `warning`.
+Matching pins and satisfied minimum requirements add no warning. An unsupported
+selector or incomparable version uses `warning` with `unverified`, never an
+invented ordering. These attention states can open Context; none verifies that
+the project will build or that the selected tool will be the one a wrapper uses.
 
 ```text
-TOOLCHAIN   node 24.5.0 · pnpm · next · ⚠ node wants 22
+⚠ swift wants 6.3.2 · using 6.4 — newer
+⚠ ruby wants 3.3.2 · using 3.2.4 — older
+⚠ go requires ≥ 1.24 · using 1.23.9 — older
+⚠ python requires >=3.10,<3.14 · using 3.14 — outside range
 ```
+
+Supported project version sources, in priority order:
+
+- Dedicated files: Node `.nvmrc` then `.node-version`; Python `.python-version`;
+  Swift `.swift-version`; Ruby `.ruby-version`; Java `.java-version`;
+  TypeScript `.typescript-version`; Deno `.deno-version`; PHP `.php-version`;
+  Bash `.bash-version`; PowerShell `.powershell-version`; Kotlin `.kotlin-version`;
+  Lua `.lua-version`; R `.R-version`; Zig `.zig-version`; Godot `.godot-version`;
+  Terraform `.terraform-version`; Julia `.julia-version`; Perl `.perl-version`;
+  Fortran `.fortran-version`; OCaml `.ocaml-version`; Scala `.scala-version`;
+  Erlang `.erlang-version`; Gleam `.gleam-version`; Groovy `.groovy-version`;
+  Haskell `.ghc-version`; .NET/F#/Visual Basic `.dotnet-version`;
+  Elixir `.elixir-version`; Dart `.dart-version`.
+- Rust `rust-toolchain` takes precedence over `rust-toolchain.toml`. Plain
+  selectors and literal `[toolchain] channel` strings are recognized. Named
+  channels, dates and target-qualified selectors remain unverified.
+- `.tool-versions` supplies a fallback using the corresponding tool name.
+  Multiple alternatives are unverified, not silently reduced to the first.
+- With no selection file, Go reads `go` from root `go.work` then `go.mod` as a
+  minimum; Swift reads the first-line `swift-tools-version` minimum; Rust reads
+  literal `[package] rust-version` in `Cargo.toml` as a minimum; Python reads
+  literal `[project] requires-python` in `pyproject.toml` as a range.
+
+Numeric pins retain prefix matching (`3.12` accepts `3.12.x`). Comparison accepts
+up to four numeric components, eight digits each; missing components count as
+zero for minimum/exact comparisons. Python ranges support up to eight
+comma-separated numeric `>=`, `>`, `<=`, `<`, `==`, `!=` comparisons. Unsupported
+operators, prereleases and vendor suffixes are unverified. Known Java quote and
+Ruby patchlevel decorations are normalized; a numeric Fortran request is compared
+only for GFortran, not against another compiler family.
+Scala CLI is queried with `version --offline` and supplies its default Scala
+version, not the launcher version. LuaJIT retains its implementation label;
+Godot retains prerelease identifiers instead of presenting them as final releases.
+If only an ambiguous `scala` runner/launcher is available, it is shown as
+`launcher-managed` without probing it; an explicit `scala-cli` or `scalac`
+provides the corresponding version capability.
+
+These readers deliberately cover small literal declarations, not complete
+package-manager resolution. They do not combine a preferred pin with manifest
+constraints, resolve workspace inheritance, parse `package.json` engines,
+`.NET global.json` roll-forward policy, Cargo dependency ranges, Haskell
+resolvers, CMake language-standard requirements, or Terraform configuration
+ranges. C/C++, Objective-C, assembly and Lisp-family runtime detection does not
+establish a compiler requirement. Build-tool markers such as CMake and SwiftPM
+are identification, not version checks. Unsupported TOML multiline/escaped
+strings and duplicate keys are unverified. No project file is evaluated and no
+toolchain is installed, activated or changed.
+
+Requirement capture checks regular in-project files against a 1 MiB read limit.
+Files rejected by the initial path/type/size checks are skipped, so a later
+eligible source may supply the requirement; that does not validate skipped
+sources. Simple selection files and Swift's tools declaration require a complete
+first line within a 4 KiB read budget. Full metadata parsing additionally accepts
+at most 64 KiB, 256 lines, and 4 KiB per line before interpreting declarations. A captured
+source exceeding these parsing budgets is unverified. These limits bound prompt
+work independently of the requested version's 240-character display limit.
 
 Compiled and Lisp-family languages show the implementation that actually runs
 the code rather than inventing a language version:

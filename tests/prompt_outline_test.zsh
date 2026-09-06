@@ -26,7 +26,7 @@ _test_prompt_outline_color() {
       done
       [[ $_PROMPT_INPUT_SEGMENT == "%F{$expected}╰─%f %F{6}❯%f " ]] || exit 3
       [[ $PROMPT == *"%F{8}  COMMAND TEXT    %f %F{4}example%f"* ]] || exit 4
-      [[ $PROMPT == *"%F{8}  TOOLCHAIN%f %F{13}swift%f"* ]] || exit 5
+      [[ $PROMPT == *"%F{8}  TOOLCHAIN       %f %F{13}swift%f"* ]] || exit 5
     done
     # Missing palette remains plain; no color may leak into labels or values.
     ZSH_PROMPT_COLORS=()

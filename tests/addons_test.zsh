@@ -499,6 +499,7 @@ _test_prompt_rejects_project_controlled_runtime() {
     path=($3 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     _prompt_runtime_version zig "$3"
     [[ -e $2 ]]; executed=$(( !$? ))
     print -r -- "$REPLY|$executed"
@@ -563,6 +564,7 @@ _test_prompt_rejects_runtime_from_enclosing_repository() {
     path=($3 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     _prompt_runtime_version zig "$4"
     [[ -e $2 ]]; executed=$(( !$? ))
     print -r -- "$REPLY|$executed"
@@ -601,6 +603,7 @@ _test_prompt_runtime_probe_is_neutral_and_offline() {
     path=($6 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     _prompt_runtime_version go "$7"; go_version=$REPLY
     _prompt_runtime_version rust "$7"; rust_version=$REPLY
     _prompt_runtime_version terraform "$7"; terraform_version=$REPLY
@@ -629,6 +632,7 @@ _test_prompt_metadata_stays_inside_project() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     _prompt_expected_runtime_version zig "$2"; zig_version=$REPLY
     _prompt_expected_runtime_version python "$2"; tool_version=$REPLY
     _prompt_expected_runtime_version go "$2"; go_version=$REPLY
@@ -644,6 +648,7 @@ _test_prompt_metadata_stays_inside_project() {
   test_write_file "$project/go.mod" $'module example.invalid/project\ngo 1.24' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home-direct" $'
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     _prompt_expected_runtime_version zig "$2"; zig_version=$REPLY
     _prompt_expected_runtime_version python "$2"; tool_version=$REPLY
     _prompt_expected_runtime_version go "$2"; go_version=$REPLY
@@ -664,16 +669,17 @@ _test_prompt_project_widths_follow_sanitized_terminal_cells() {
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     _prompt_runtime_version() { REPLY=6.0; }
     _prompt_expected_runtime_version() { REPLY=$\'9\\u202e\'; }
     builtin cd -- "$2" || exit 1
     _prompt_project_context
-    _prompt_sanitize $\'⚠ swift wants 9\\u202e\'
+    _prompt_sanitize $\'⚠ swift wants 9\\u202e · using 6.0 — unverified\'
     local -i expected_width=${(m)#REPLY}
     print -r -- "${_PROMPT_PROJECT_ITEM_WIDTHS[-1]}|$expected_width"
   ' "$TEST_REPO_ROOT" "$project") || return
 
-  test_assert_equal '16|16' "$output" \
+  test_assert_equal '41|41' "$output" \
     'project item width was measured before display sanitization'
 }
 test_case 'prompt project widths follow sanitized terminal cells' \
@@ -736,6 +742,7 @@ _test_prompt_source_detection_is_bounded() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     builtin cd "$2" || exit
     _prompt_project_context
     small_saturated=$_PROMPT_RESOLVED_SOURCE_SCAN_SATURATED
@@ -768,6 +775,7 @@ _test_prompt_ignores_symlinked_source_directories() {
     path=($3 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/.zsh.runtimes"
     builtin cd "$4" || exit
     _prompt_project_context
     print -r -- "${+_PROMPT_PROJECT_NAME_TEXT}|${#_PROMPT_PROJECT_ITEMS}|${+commands[zig]}|${+commands[node]}"

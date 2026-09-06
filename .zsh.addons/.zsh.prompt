@@ -134,7 +134,6 @@ typeset -g _PROMPT_LAST_PROJECT_ATTENTION=''
 typeset -gi _PROMPT_TOP_BASE_WIDTH=0
 typeset -ga _PROMPT_PROJECT_ITEMS=()
 typeset -ga _PROMPT_PROJECT_ITEM_WIDTHS=()
-typeset -gA _PROMPT_RUNTIME_VERSION_CACHE=()
 typeset -gA _PROMPT_GIT_DIR_CACHE=()
 # Replace terminal control characters before displaying text from paths,
 # repositories, tools, or custom hooks.
@@ -520,7 +519,8 @@ _prompt_lens_row() {
 _prompt_lens_toolchain_row() {
   emulate -L zsh
   local label=TOOLCHAIN prefix='' row='' separator=''
-  local -i line_limit=${1:-80} available=$(( ${1:-80} - 13 ))
+  local -i line_limit=${1:-80} label_width=${3:-9}
+  local -i available=$(( line_limit - label_width - 4 ))
   local -i index=0 used=0 item_width=0
 
   (( available > 0 && ${#_PROMPT_PROJECT_ITEMS} )) || return 1
@@ -536,7 +536,7 @@ _prompt_lens_toolchain_row() {
     _prompt_color_text tool '…'
     row=$REPLY
   fi
-  _prompt_color_text frame "  ${(r:9:)label}"
+  _prompt_color_text frame "  ${(r:$label_width:)label}"
   prefix=$REPLY
   _prompt_color_text "${2:-frame}" '│'
   REPLY="${REPLY}${prefix} ${row}"
@@ -695,6 +695,8 @@ _prompt_interaction_model() {
       _prompt_interaction_add PATH "$_PROMPT_FULL_PATH_TEXT" path
     [[ -n $_PROMPT_GIT_TEXT ]] &&
       _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
+    (( ${#_PROMPT_PROJECT_ITEMS} )) &&
+      _prompt_interaction_add @TOOLCHAIN available tool
     [[ -n $_PROMPT_ENV_TEXT ]] &&
       _prompt_interaction_add ENV "$_PROMPT_ENV_TEXT" environment
     [[ -n $_PROMPT_LAST_OUTCOME_TEXT ]] &&
@@ -1332,11 +1334,13 @@ _prompt_interaction_layout() {
   local -a rows=()
   local -i line_limit=$(( COLUMNS > 0 ? COLUMNS : 80 ))
   local -i max_body=$(( LINES > 0 ? LINES - 2 : 5 ))
-  local -i index=0
+  local -i index=0 body_cap=5
 
   _PROMPT_INTERACTION_SEGMENT=''
   (( line_limit >= 12 && max_body >= 1 )) || return 0
-  (( max_body > 5 )) && max_body=5
+  # READY retains toolchain alongside the existing environment and outcome.
+  [[ $_PROMPT_INTERACTION_KIND == ready ]] && body_cap=6
+  (( max_body > body_cap )) && max_body=$body_cap
 
   _prompt_interaction_color_role
   outline_role=$REPLY
@@ -1363,7 +1367,8 @@ _prompt_interaction_layout() {
     value=${_PROMPT_INTERACTION_VALUES[index]}
     role=${_PROMPT_INTERACTION_ROLES[index]:-info}
     if [[ $label == @TOOLCHAIN ]]; then
-      _prompt_lens_toolchain_row "$line_limit" "$outline_role" && rows+=("$REPLY")
+      _prompt_lens_toolchain_row "$line_limit" "$outline_role" \
+        "$(( line_limit >= 42 ? 16 : 9 ))" && rows+=("$REPLY")
     elif _prompt_interaction_row "$label" "$value" "$role" "$line_limit" "$outline_role"; then
       rows+=("$REPLY")
     fi
@@ -1656,26 +1661,8 @@ _prompt_project_layout() {
   _prompt_layout
 }
 
-# Optional project and toolchain context for the prompt. All setup is deferred
-# until the prompt invokes these helpers, so this peer may load before or after
-# the prompt unit without changing the final shell.
-
-typeset -gA _PROMPT_RUNTIME_LABELS=(
-  c-cpp 'c/c++'
-  objective-c 'objective-c'
-  asm asm
-  scheme scheme
-  racket racket
-  lisp lisp
-  typescript typescript
-  shell shell
-  powershell powershell
-  gdscript godot
-  terraform terraform
-  fsharp 'f#'
-  visual-basic 'visual-basic'
-)
-
+# Project discovery stays at prompt capture; optional runtime capabilities are
+# resolved there after peer loading, independent of traversal order.
 # Public extension points for uncommon or personal project types. The local
 # initializer can populate them before this portable detector loads.
 typeset -ga PROMPT_PROJECT_MARKERS
@@ -1713,708 +1700,7 @@ typeset -gi _PROMPT_SOURCE_SCAN_SATURATED=0
 typeset -gi _PROMPT_RESOLVED_SOURCE_SCAN_SATURATED=0
 typeset -gi _PROMPT_SOURCE_SCAN_UNSAFE=0
 typeset -gi _PROMPT_RESOLVED_SOURCE_SCAN_UNSAFE=0
-typeset -gi _PROMPT_METADATA_MAX_BYTES=1048576
 
-# Find the nearest native Git ownership boundary without running Git or reading
-# project data. Nested package manifests may become the displayed project root,
-# but their enclosing repository can still control binaries placed on PATH.
-_prompt_repository_boundary() {
-  emulate -L zsh
-
-  local dir=${1:a}
-  REPLY=''
-  while [[ -n $dir && $dir != / ]]; do
-    if [[ -e "$dir/.git" || -L "$dir/.git" ]]; then
-      REPLY=$dir
-      return 0
-    fi
-    dir=${dir:h}
-  done
-  return 1
-}
-
-# A runtime found through PATH is still untrusted when its lexical path or
-# resolved target lives inside the project being rendered or its enclosing Git
-# repository. Entering a project must never execute code supplied by that
-# project merely to draw the prompt.
-_prompt_runtime_binary_is_trusted() {
-  emulate -L zsh
-
-  local binary=$1 project_root=$2
-  local binary_path=${binary:a} binary_target=${binary:A}
-  local root='' root_path=${project_root:a} root_target=${project_root:A}
-  local boundary='' boundary_path='' boundary_target=''
-  local -a boundaries=()
-
-  [[ $binary_path != "$root_path" && $binary_path != "$root_path"/* &&
-     $binary_target != "$root_target" && $binary_target != "$root_target"/* ]] ||
-    return 1
-
-  for root in "$root_path" "$root_target"; do
-    _prompt_repository_boundary "$root" || continue
-    (( ${boundaries[(Ie)$REPLY]} )) || boundaries+=("$REPLY")
-  done
-  for boundary in "${boundaries[@]}"; do
-    boundary_path=${boundary:a}
-    boundary_target=${boundary:A}
-    [[ $binary_path != "$boundary_path" &&
-       $binary_path != "$boundary_path"/* &&
-       $binary_target != "$boundary_target" &&
-       $binary_target != "$boundary_target"/* ]] || return 1
-  done
-  return 0
-}
-
-# Version metadata is inert text, but it still comes from an untrusted project.
-# Reject symlinks, paths escaping the project, and unexpectedly large files
-# before any read so prompt rendering cannot disclose arbitrary local content
-# or allocate an unbounded line.
-_prompt_metadata_file_is_safe() {
-  emulate -L zsh
-
-  local project_root=$1 candidate=$2
-  local candidate_path=${candidate:a} candidate_target=''
-  local root_path=${project_root:a} root_target=${project_root:A}
-  local -a facts=()
-  REPLY=''
-
-  [[ -f $candidate && ! -L $candidate ]] || return 1
-  candidate_target=${candidate:A}
-  [[ $candidate_path == "$root_path"/* &&
-     $candidate_target == "$root_target"/* ]] || return 1
-  zstat -A facts +size -- "$candidate" 2>/dev/null || return 1
-  (( ${facts[1]:--1} >= 0 &&
-     ${facts[1]} <= _PROMPT_METADATA_MAX_BYTES )) || return 1
-  REPLY=$candidate
-}
-
-_prompt_select_metadata_file() {
-  emulate -L zsh
-
-  local project_root=$1 candidate=''
-  shift
-  REPLY=''
-  for candidate in "$@"; do
-    _prompt_metadata_file_is_safe "$project_root" "$candidate" || continue
-    return 0
-  done
-  return 1
-}
-
-# Version commands must describe the installed tool, not activate project
-# policy. Command substitution already isolates this helper's directory and
-# environment changes from the interactive shell, so probes run from `/` and
-# common toolchain proxies are explicitly forbidden from auto-installing.
-_prompt_version_probe() {
-  emulate -L zsh
-
-  local -x GOTOOLCHAIN=local
-  local -x RUSTUP_AUTO_INSTALL=0
-  local -x CHECKPOINT_DISABLE=1
-  local -x DOTNET_CLI_TELEMETRY_OPTOUT=1
-  local -x DOTNET_NOLOGO=1
-  builtin cd -- / || return 1
-  command "$@"
-}
-
-# Resolve a runtime once per project and relevant shell environment. Checking
-# the cache before executable lookup keeps missing tools cheap too; PATH and
-# environment selectors ensure activations and toolchain switches get new keys.
-_prompt_runtime_version() {
-  setopt localoptions noglobsubst
-
-  local language=$1 project_root=$2
-  local binary='' output='' first_line='' version=''
-  local separator=$'\x1f'
-  local cache_key="${language}${separator}${project_root}${separator}${PATH}"
-  local candidate implementation='' token=''
-  local -i version_ok=1
-  local -a words parts
-
-  # Version-manager shims may keep the same executable path while environment
-  # selectors change the implementation behind it. Include only selectors
-  # relevant to this runtime so unrelated environment changes do not fragment
-  # the per-project cache.
-  case $language in
-    python)
-      cache_key+="${separator}${VIRTUAL_ENV:-}${separator}${CONDA_PREFIX:-}"
-      cache_key+="${separator}${PYENV_VERSION:-}"
-      ;;
-    node|typescript)
-      cache_key+="${separator}${NODENV_VERSION:-}"
-      ;;
-    ruby)
-      cache_key+="${separator}${RBENV_VERSION:-}"
-      ;;
-    java|kotlin|scala|groovy)
-      cache_key+="${separator}${JAVA_HOME:-}${separator}${JENV_VERSION:-}"
-      ;;
-    go)
-      cache_key+="${separator}${GOENV_VERSION:-}${separator}${GOTOOLCHAIN:-}"
-      ;;
-    rust)
-      cache_key+="${separator}${RUSTUP_TOOLCHAIN:-}"
-      ;;
-    terraform)
-      cache_key+="${separator}${TFENV_TERRAFORM_VERSION:-}"
-      ;;
-    php)
-      cache_key+="${separator}${PHPENV_VERSION:-}"
-      ;;
-    perl)
-      cache_key+="${separator}${PLENV_VERSION:-}"
-      ;;
-    c-cpp|objective-c|asm|swift)
-      cache_key+="${separator}${DEVELOPER_DIR:-}${separator}${SDKROOT:-}"
-      cache_key+="${separator}${TOOLCHAINS:-}"
-      ;;
-    dotnet|fsharp|visual-basic)
-      cache_key+="${separator}${DOTNET_ROOT:-}"
-      ;;
-  esac
-
-  if (( ${+_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]} )); then
-    REPLY=${_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]}
-    return
-  fi
-
-  case $language in
-    zsh)     binary=${commands[zsh]:-} ;;
-    c-cpp)
-      binary=${commands[c++]:-}
-      [[ -z $binary ]] && binary=${commands[clang++]:-}
-      [[ -z $binary ]] && binary=${commands[g++]:-}
-      ;;
-    objective-c)
-      binary=${commands[clang]:-}
-      [[ -z $binary ]] && binary=${commands[cc]:-}
-      ;;
-    asm)
-      binary=${commands[nasm]:-}
-      [[ -z $binary ]] && binary=${commands[cc]:-}
-      ;;
-    scheme)
-      for candidate in mit-scheme guile chezscheme scheme racket; do
-        binary=${commands[$candidate]:-}
-        if [[ -n $binary ]]; then
-          implementation=$candidate
-          break
-        fi
-      done
-      ;;
-    racket)  binary=${commands[racket]:-} ;;
-    lisp)
-      for candidate in sbcl ccl clisp ecl; do
-        binary=${commands[$candidate]:-}
-        if [[ -n $binary ]]; then
-          implementation=$candidate
-          break
-        fi
-      done
-      ;;
-    typescript)  binary=${commands[tsc]:-} ;;
-    deno)        binary=${commands[deno]:-} ;;
-    php)        binary=${commands[php]:-} ;;
-    shell)      binary=${commands[bash]:-} ;;
-    powershell) binary=${commands[pwsh]:-} ;;
-    kotlin)     binary=${commands[kotlinc]:-} ;;
-    lua)
-      for candidate in lua lua5.5 lua5.4 lua5.3 luajit; do
-        binary=${commands[$candidate]:-}
-        [[ -n $binary ]] && break
-      done
-      ;;
-    r)          binary=${commands[R]:-} ;;
-    zig)        binary=${commands[zig]:-} ;;
-    gdscript)
-      binary=${commands[godot]:-}
-      [[ -z $binary ]] && binary=${commands[godot4]:-}
-      ;;
-    terraform)
-      binary=${commands[terraform]:-}
-      if [[ -n $binary ]]; then
-        implementation=terraform
-      else
-        binary=${commands[tofu]:-}
-        [[ -n $binary ]] && implementation=tofu
-      fi
-      ;;
-    julia)      binary=${commands[julia]:-} ;;
-    perl)       binary=${commands[perl]:-} ;;
-    fortran)
-      for candidate in gfortran flang ifx ifort; do
-        binary=${commands[$candidate]:-}
-        if [[ -n $binary ]]; then
-          implementation=$candidate
-          break
-        fi
-      done
-      ;;
-    ocaml)      binary=${commands[ocamlc]:-} ;;
-    scala)
-      for candidate in scala-cli scalac scala; do
-        binary=${commands[$candidate]:-}
-        if [[ -n $binary ]]; then
-          implementation=$candidate
-          break
-        fi
-      done
-      ;;
-    erlang)     binary=${commands[erl]:-} ;;
-    gleam)      binary=${commands[gleam]:-} ;;
-    groovy)     binary=${commands[groovy]:-} ;;
-    fsharp|visual-basic) binary=${commands[dotnet]:-} ;;
-    swift)   binary=${commands[swift]:-} ;;
-    node)    binary=${commands[node]:-} ;;
-    python)
-      if [[ -n ${VIRTUAL_ENV:-} ]]; then
-        binary=${commands[python]:-}
-      fi
-      [[ -z $binary ]] && binary=${commands[python3]:-}
-      [[ -z $binary ]] && binary=${commands[python]:-}
-      ;;
-    haskell) binary=${commands[ghc]:-} ;;
-    rust)    binary=${commands[rustc]:-} ;;
-    go)      binary=${commands[go]:-} ;;
-    ruby)    binary=${commands[ruby]:-} ;;
-    java)    binary=${commands[java]:-} ;;
-    dotnet)  binary=${commands[dotnet]:-} ;;
-    dart)    binary=${commands[dart]:-} ;;
-    elixir)  binary=${commands[elixir]:-} ;;
-  esac
-
-  if [[ -n $binary ]] &&
-     ! _prompt_runtime_binary_is_trusted "$binary" "$project_root"; then
-    binary=''
-  fi
-
-  if [[ -z $binary && $language == kotlin && -x "$project_root/gradlew" ]]; then
-    REPLY='gradle-managed'
-    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
-    return
-  fi
-
-  if [[ -z $binary ]]; then
-    REPLY='not-installed'
-    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
-    return
-  fi
-
-  case $language in
-    zsh)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[2]}
-      ;;
-    c-cpp|objective-c|asm)
-      if [[ ${binary:t} == nasm ]]; then
-        output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
-        words=(${=output})
-        version="nasm ${words[3]:-}"
-      else
-        output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-        first_line=${output%%$'\n'*}
-        if [[ $first_line == *'clang version '* ]]; then
-          version=${first_line#*clang version }
-          version="clang ${version%% *}"
-        elif [[ $first_line == *'GCC '* || $first_line == *'gcc '* ]]; then
-          words=(${=first_line})
-          version="gcc ${words[-1]}"
-        else
-          words=(${=first_line})
-          version="${binary:t} ${words[-1]:-}"
-        fi
-      fi
-      ;;
-    scheme)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      if [[ $implementation == racket ]]; then
-        version=${first_line#*Racket v}
-        version="racket ${version%% *}"
-      else
-        for token in "${words[@]}"; do
-          if [[ $token == [0-9]* ]]; then
-            version="${implementation} ${token//[\(\),]/}"
-            break
-          fi
-        done
-      fi
-      ;;
-    racket)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      version=${first_line#*Racket v}
-      version="${version%% *}"
-      ;;
-    lisp)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      for token in "${words[@]}"; do
-        if [[ $token == [0-9]* ]]; then
-          version="${implementation} ${token//[\(\),]/}"
-          break
-        fi
-      done
-      ;;
-    typescript)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[2]}
-      ;;
-    deno)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      version=${words[2]}
-      ;;
-    php)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      version=${words[2]}
-      ;;
-    shell)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      version=${first_line#*version }
-      version=${version%%[^0-9.]*}
-      ;;
-    powershell)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[2]}
-      ;;
-    kotlin)
-      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
-      words=(${=output})
-      for token in "${words[@]}"; do
-        if [[ $token == [0-9]* ]]; then
-          version=${token//[\(\),]/}
-          break
-        fi
-      done
-      ;;
-    lua)
-      output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[2]}
-      ;;
-    r)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      version=${words[3]}
-      ;;
-    zig)
-      version=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
-      ;;
-    gdscript)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      first_line=${first_line%% *}
-      parts=(${(s:.:)first_line})
-      version="${parts[1]:-}.${parts[2]:-}"
-      [[ ${parts[3]:-} == <-> ]] && version+=".${parts[3]}"
-      ;;
-    terraform)
-      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      version=${words[2]#v}
-      [[ $implementation == tofu ]] && version+="-tofu"
-      ;;
-    julia)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[3]}
-      ;;
-    perl)
-      version=$(_prompt_version_probe "$binary" -e 'print $^V' 2>&1) || version_ok=0
-      version=${version#v}
-      ;;
-    fortran)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      for token in "${words[@]}"; do
-        if [[ $token == [0-9]* ]]; then
-          version="${implementation} ${token//[\(\),]/}"
-          break
-        fi
-      done
-      ;;
-    ocaml)
-      version=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
-      ;;
-    scala)
-      if [[ $implementation == scala-cli ]]; then
-        output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
-      else
-        output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
-      fi
-      first_line=${output%%$'\n'*}
-      words=(${=first_line})
-      for token in "${words[@]}"; do
-        if [[ $token == [0-9]* ]]; then
-          version=${token//[\(\),]/}
-          break
-        fi
-      done
-      ;;
-    erlang)
-      version=$(_prompt_version_probe "$binary" -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().' 2>&1) || version_ok=0
-      ;;
-    gleam)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[2]}
-      ;;
-    groovy)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[3]}
-      ;;
-    fsharp|visual-basic)
-      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      ;;
-    swift)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      version=${first_line#*Swift version }
-      version=${version%% *}
-      ;;
-    node)
-      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      version=${version#v}
-      ;;
-    python)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      version=${output#Python }
-      ;;
-    haskell)
-      version=$(_prompt_version_probe "$binary" --numeric-version 2>&1) || version_ok=0
-      ;;
-    rust)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[2]}
-      ;;
-    go)
-      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[3]#go}
-      ;;
-    ruby)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[2]}
-      ;;
-    java)
-      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
-      first_line=${output%%$'\n'*}
-      words=(${(z)first_line})
-      version=${words[3]}
-      ;;
-    dotnet)
-      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      ;;
-    dart)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      words=(${=output})
-      version=${words[4]}
-      ;;
-    elixir)
-      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
-      first_line=${output##*$'\n'}
-      words=(${=first_line})
-      version=${words[2]}
-      ;;
-  esac
-
-  # A command may exist as a system stub but fail to provide a usable runtime.
-  if (( version_ok )); then
-    version=${version%%$'\n'*}
-    words=(${=version})
-    version="${(j: :)words}"
-    [[ -z $version ]] && version='unknown'
-  else
-    version='unavailable'
-  fi
-  _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$version
-  REPLY=$version
-}
-
-# Read the version requested by common version-manager files. A project-specific
-# file wins; .tool-versions is the portable fallback shared by asdf and mise.
-_prompt_expected_runtime_version() {
-  emulate -L zsh
-  setopt localoptions noglobsubst
-
-  local language=$1 project_root=$2 expected='' file='' line=''
-  local tool_name=$language wanted rest
-  local -a words
-
-  case $language in
-    node)
-      _prompt_select_metadata_file "$project_root" \
-        "$project_root/.nvmrc" "$project_root/.node-version" && file=$REPLY
-      tool_name=nodejs
-      ;;
-    python)
-      _prompt_select_metadata_file "$project_root" "$project_root/.python-version" && file=$REPLY
-      ;;
-    swift)
-      _prompt_select_metadata_file "$project_root" "$project_root/.swift-version" && file=$REPLY
-      ;;
-    typescript)
-      _prompt_select_metadata_file "$project_root" "$project_root/.typescript-version" && file=$REPLY
-      ;;
-    deno)
-      _prompt_select_metadata_file "$project_root" "$project_root/.deno-version" && file=$REPLY
-      ;;
-    php)
-      _prompt_select_metadata_file "$project_root" "$project_root/.php-version" && file=$REPLY
-      ;;
-    shell)
-      _prompt_select_metadata_file "$project_root" "$project_root/.bash-version" && file=$REPLY
-      tool_name=bash
-      ;;
-    powershell)
-      _prompt_select_metadata_file "$project_root" "$project_root/.powershell-version" && file=$REPLY
-      tool_name=powershell-core
-      ;;
-    kotlin)
-      _prompt_select_metadata_file "$project_root" "$project_root/.kotlin-version" && file=$REPLY
-      ;;
-    lua)
-      _prompt_select_metadata_file "$project_root" "$project_root/.lua-version" && file=$REPLY
-      ;;
-    r)
-      _prompt_select_metadata_file "$project_root" "$project_root/.R-version" && file=$REPLY
-      tool_name=R
-      ;;
-    zig)
-      _prompt_select_metadata_file "$project_root" "$project_root/.zig-version" && file=$REPLY
-      ;;
-    gdscript)
-      _prompt_select_metadata_file "$project_root" "$project_root/.godot-version" && file=$REPLY
-      tool_name=godot
-      ;;
-    terraform)
-      _prompt_select_metadata_file "$project_root" "$project_root/.terraform-version" && file=$REPLY
-      ;;
-    julia)
-      _prompt_select_metadata_file "$project_root" "$project_root/.julia-version" && file=$REPLY
-      ;;
-    perl)
-      _prompt_select_metadata_file "$project_root" "$project_root/.perl-version" && file=$REPLY
-      ;;
-    fortran)
-      _prompt_select_metadata_file "$project_root" "$project_root/.fortran-version" && file=$REPLY
-      ;;
-    ocaml)
-      _prompt_select_metadata_file "$project_root" "$project_root/.ocaml-version" && file=$REPLY
-      ;;
-    scala)
-      _prompt_select_metadata_file "$project_root" "$project_root/.scala-version" && file=$REPLY
-      ;;
-    erlang)
-      _prompt_select_metadata_file "$project_root" "$project_root/.erlang-version" && file=$REPLY
-      ;;
-    gleam)
-      _prompt_select_metadata_file "$project_root" "$project_root/.gleam-version" && file=$REPLY
-      ;;
-    groovy)
-      _prompt_select_metadata_file "$project_root" "$project_root/.groovy-version" && file=$REPLY
-      ;;
-    haskell)
-      _prompt_select_metadata_file "$project_root" "$project_root/.ghc-version" && file=$REPLY
-      tool_name=ghc
-      ;;
-    rust)
-      _prompt_select_metadata_file "$project_root" "$project_root/rust-toolchain" && file=$REPLY
-      ;;
-    go)
-      if _prompt_select_metadata_file "$project_root" "$project_root/go.mod"; then
-        file=$REPLY
-        while read -r line wanted rest; do
-          if [[ $line == go ]]; then
-            expected=$wanted
-            break
-          fi
-        done < "$file"
-        file=''
-      fi
-      tool_name=golang
-      ;;
-    ruby)
-      _prompt_select_metadata_file "$project_root" "$project_root/.ruby-version" && file=$REPLY
-      ;;
-    java)
-      _prompt_select_metadata_file "$project_root" "$project_root/.java-version" && file=$REPLY
-      ;;
-    dotnet|fsharp|visual-basic)
-      _prompt_select_metadata_file "$project_root" "$project_root/.dotnet-version" && file=$REPLY
-      tool_name=dotnet-core
-      ;;
-    elixir)
-      _prompt_select_metadata_file "$project_root" "$project_root/.elixir-version" && file=$REPLY
-      ;;
-  esac
-
-  if [[ -n $file ]]; then
-    IFS= read -r expected < "$file"
-  fi
-
-  if [[ -z $expected ]] &&
-     _prompt_select_metadata_file "$project_root" "$project_root/.tool-versions"; then
-    file=$REPLY
-    while read -r line wanted rest; do
-      if [[ $line == "$tool_name" ]]; then
-        expected=$wanted
-        break
-      fi
-    done < "$file"
-  fi
-
-  expected=${expected%%#*}
-  words=(${=expected})
-  REPLY=${words[1]:-}
-}
-
-_prompt_versions_match() {
-  setopt localoptions noglobsubst
-
-  local active=${1#v} expected=${2#v}
-  local token
-  local -a words
-
-  # Named release channels cannot be compared reliably with a numeric version.
-  case $expected in
-    ''|system|latest|stable|nightly|lts/*) return 0 ;;
-  esac
-  [[ $expected != [0-9]* ]] && return 0
-
-  # Compiler labels include their implementation (for example
-  # "gfortran 15.2.0"). Compare the first numeric token when present, and do
-  # not warn for wrapper-managed toolchains that expose no comparable number.
-  if [[ $active != [0-9]* ]]; then
-    words=(${=active})
-    active=''
-    for token in "${words[@]}"; do
-      if [[ $token == [0-9]* ]]; then
-        active=${token//[\(\),]/}
-        break
-      fi
-    done
-    [[ -z $active ]] && return 0
-  fi
-
-  [[ $active == $expected || $active == ${expected}.* || $active == ${expected}-* ]]
-}
 
 # Collect source-language evidence from one directory without invoking the full
 # detector. Root resolution uses this while walking upward, then the expensive
@@ -2631,7 +1917,7 @@ _prompt_project_context() {
       [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ||
          -f "$dir/requirements.txt" ]] && languages+=(python)
       [[ -f "$dir/Cargo.toml" ]] && languages+=(rust)
-      [[ -f "$dir/go.mod" ]] && languages+=(go)
+      [[ -f "$dir/go.mod" || -f "$dir/go.work" ]] && languages+=(go)
       [[ -f "$dir/Gemfile" || -f "$dir/.ruby-version" ]] && languages+=(ruby)
       [[ -f "$dir/pubspec.yaml" ]] && languages+=(dart)
       [[ -f "$dir/mix.exs" ]] && languages+=(elixir)
@@ -2810,7 +2096,7 @@ _prompt_project_context() {
        ${#wildcard_matches} -gt 0 ]] && languages+=(haskell)
 
     [[ -f "$dir/Cargo.toml" ]] && languages+=(rust)
-    [[ -f "$dir/go.mod" ]] && languages+=(go)
+    [[ -f "$dir/go.mod" || -f "$dir/go.work" ]] && languages+=(go)
 
     wildcard_matches=("$dir"/*.gemspec(NY1oN))
     [[ -f "$dir/Gemfile" || -f "$dir/.ruby-version" ||
@@ -2910,6 +2196,9 @@ _prompt_project_context() {
   _PROMPT_PROJECT_ROOT_TEXT=$project_root
 
   for language in "${languages[@]}"; do
+    # Runtime support is an optional peer resolved at capture time, never load
+    # time. Without it, project identity and tool markers still work.
+    (( ${+functions[_prompt_runtime_version]} )) || continue
     _prompt_runtime_version "$language" "$project_root"
     version=$REPLY
     label=${_PROMPT_RUNTIME_LABELS[$language]:-$language}
@@ -2928,19 +2217,34 @@ _prompt_project_context() {
     rendered+=("%F{${color:-default}}${REPLY}%f")
     rendered_widths+=("$runtime_width")
 
+    (( ${+functions[_prompt_expected_runtime_version]} &&
+       ${+functions[_runtime_version_relation]} )) || continue
+    local _RUNTIME_REQUIREMENT_KIND=pin _RUNTIME_REQUIREMENT_SOURCE=''
+    local relation='' warning_role='' requirement_word='' comparable=''
     _prompt_expected_runtime_version "$language" "$project_root"
     expected=$REPLY
     if [[ -n $expected && $version != not-installed &&
-          $version != unavailable && $version != unknown ]] &&
-       ! _prompt_versions_match "$version" "$expected"; then
-      warning_text="⚠ ${label} wants ${expected}"
+          $version != unavailable && $version != unknown ]]; then
+      _runtime_comparable_version "$language" "$version"
+      comparable=$REPLY
+      _runtime_version_relation "$comparable" "$expected" "$_RUNTIME_REQUIREMENT_KIND"
+      relation=$REPLY
+      [[ $relation == match ]] && continue
+      warning_role=warning
+      [[ $relation == older || $relation == outside ]] && warning_role=danger
+      requirement_word=wants
+      [[ $_RUNTIME_REQUIREMENT_KIND == minimum ]] && requirement_word='requires ≥'
+      [[ $_RUNTIME_REQUIREMENT_KIND == range ]] && requirement_word=requires
+      [[ $relation == unknown ]] && relation=unverified
+      [[ $relation == outside ]] && relation='outside range'
+      warning_text="⚠ ${label} ${requirement_word} ${expected} · using ${version} — ${relation}"
       _prompt_sanitize "$warning_text"
       warning_width=${(m)#REPLY}
       _prompt_escape "$warning_text"
-      _prompt_color_text danger "$REPLY"
+      _prompt_color_text "$warning_role" "$REPLY"
       warnings+=("$REPLY")
       warning_widths+=("$warning_width")
-      attention+=("mismatch:${label}:${expected}")
+      attention+=("mismatch:${label}:${expected}:${version}:${relation}")
     fi
   done
 

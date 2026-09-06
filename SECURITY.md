@@ -277,6 +277,12 @@ ZLE pre-redraw hook chain. The independent syntax highlighter retains bounded
 filesystem checks for literal path tokens and does not evaluate substitutions or
 globs from the buffer.
 
+READY retains available captured toolchain facts after command acceptance and
+screen clearing, subject to the existing display-width/height bounds. This
+extends their visibility, not their capture scope or lifetime. The native
+`zsh tests/run.zsh 'runtime prompt'` journey checks command/clear/resize behavior;
+captured-only redraw tests guard against additional requirement reads or probes.
+
 For a lone directory with AUTO_CD enabled, the highlighter shares only the
 exact bounded draft and current-folder key of its existing observation. The
 optional prompt uses this shell-memory fact for an advisory NAVIGATE cue,
@@ -813,6 +819,51 @@ that missing promised objects cannot initiate transport during branch details
 or initial cleanup validation. Branch switching separates options from the exact
 selected ref name; a native PTY regression covers a ref beginning with `--`.
 
+Runtime capture is owned by `.zsh.addons/support/.zsh.runtimes`; the prompt calls
+it at the existing fact-capture boundary. Sourcing this optional peer defines
+functions and shell-memory data only. It does not inspect the current project,
+probe an executable, install a toolchain or register a background task.
+Numeric comparison consumes supplied strings; metadata observation is separate.
+The explicit source inventory and precedence are documented in README's
+**Project and runtime context** section. In addition to simple version files
+and `.tool-versions`, readers recognize literal Rust toolchain TOML, Go
+`go.work`/`go.mod` minima, Swift's first-line tools minimum, Cargo's package
+Rust minimum and Python's project version range. No manifest is sourced,
+evaluated, passed to a package manager or used to install/activate software.
+
+Metadata paths must resolve inside the detected project, be regular files,
+not be leaf symlinks, and pass a 1 MiB eligibility size check. Non-following/
+nonblocking opens, descriptor type validation and mode-specific byte budgets
+additionally reject leaf replacement with symlinks/FIFOs and bound reads if a
+file grows. Simple
+selection files and Swift's tools declaration require a complete first line
+(newline or observed EOF) within a 4 KiB read budget. TOML and multi-entry
+sources use a stricter 64 KiB read/parse budget (at most one extra byte to detect
+growth), plus 256 lines and 4 KiB per line. The parser rejects excess work before
+interpreting declarations. An incomplete
+first line or a captured source exceeding a parsing budget is unverified. These
+checks do not establish an atomic snapshot of a concurrently changing directory
+tree. Captured text stays local in invocation memory; displayed requirements
+are capped at 240 characters and pass prompt sanitization/escaping. Captured
+selectors exceeding that display bound, ambiguous values and unsupported syntax
+are unverified, not inferred compatible. Files rejected by the initial path/type/
+1 MiB size check are skipped; a later eligible source may supply a requirement.
+This fallback does not validate the skipped source or establish compatibility
+with all project requirements.
+The existing shell-memory installed-version cache remains refreshable with
+`compozsh --refresh` and disappears with the shell; no new persistent storage
+is introduced. Missing runtime support leaves project identity/tool markers.
+
+Inspect this boundary without executing it using
+`git show HEAD:.zsh.addons/support/.zsh.runtimes`. Isolated regression commands
+are `zsh tests/run.zsh 'runtime versions'`,
+`zsh tests/run.zsh 'bounded direct metadata'` and
+`zsh tests/run.zsh 'prompt probes installed runtimes'`; expected results are
+passing tests without project-code execution. They cover supported numeric
+semantics, malformed text, read bounds, symlinks/FIFOs, optional-peer order and
+neutral-directory external probes, not every possible concurrent filesystem
+mutation or the behavior of independently installed version-manager shims.
+
 This is the complete external-network boundary disclosure. The following
 independently controlled software can use the network; none is a permission for
 Compozsh to add a request, destination, or data:
@@ -827,6 +878,12 @@ Compozsh to add a request, destination, or data:
   fixed version argument from `/`. Common auto-install and telemetry controls
   are disabled where supported, but the executable on `PATH` remains
   independently trusted software with its own behavior.
+  Scala CLI's version capture explicitly passes `--offline` to suppress its
+  documented update check; it displays the default Scala version rather than
+  the CLI launcher version. See [Scala CLI version](https://scala-cli.virtuslab.org/docs/commands/version/).
+  An ambiguous `scala` launcher is left unprobed and labeled `launcher-managed`;
+  its incompatible classic/modern interfaces cannot safely identify themselves
+  through a speculative version invocation.
 - Explicit Xcode build, test, analyze, clean, run, LLDB, and Apple skill-export actions
   invoke Apple's tools. Discovery disables automatic package resolution and
   updates; a chosen build can execute project build phases.

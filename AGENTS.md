@@ -169,7 +169,7 @@ configuration base.
 - `.zsh.addons/` contains all shared behavior as focused peer units named
   `.zsh.<name>`. There is no privileged core tier. Keep every unit independently
   sourceable, re-source safe, narrow in purpose, and successful after setup.
-- `.zsh.addons/support/` groups repository-managed palette, matching, UI
+- `.zsh.addons/support/` groups repository-managed runtime, palette, matching, UI
   components and adapter assets. Keep these implementations installed and intact
   during normal customization; public settings belong in the machine-local initializer.
   Its `.zsh.<name>` files remain ordinary peers under recursive discovery, with
@@ -594,6 +594,26 @@ Apply DRY and SOLID as practical design heuristics:
   ranking, duplicate policy and capture bounds; display match spans remain a
   presentation concern. Missing matching support selects existing runtime
   fallbacks without an ordered load phase or a duplicate matcher.
+- `support/.zsh.runtimes` owns installed-version probes/cache, the version-source
+  inventory, bounded read-only requirement capture and pure numeric comparison.
+  Source time defines data/functions only; no project reads or executable probes.
+  Prompt capture resolves this optional capability at invocation and retains
+  project identity/tool markers without it. Do not duplicate probes or readers
+  in prompt/UI peers. Reading external state is an observation boundary even
+  when it does not intentionally mutate the project; comparison consumes only
+  supplied values. Neither support placement nor read-only behavior alone proves
+  peer-order independence. Preserve neutral-directory probes, trust checks,
+  in-memory cache invalidation and normal/reverse/rotated/re-source tests.
+  Numeric pins distinguish older (danger) from newer (warning), include both
+  requested and observed versions, and preserve partial-version matching.
+  Minimums and supported ranges use their source-specific semantics. Unsupported
+  selectors, formats or compiler-family relationships remain unverified, never
+  compatibility claims. Keep exact supported sources and limitations in README;
+  new parsers need fail-closed literal-data, precedence and malformed-input tests.
+  Bound parsing work independently of file bytes before expensive text patterns;
+  never infer a requirement from a truncated first line. Tests must distinguish
+  skipped ineligible files from captured but unverified requirements and cover
+  permitted worst-case line shapes, not only small ordinary manifests.
 - Give each helper one clear responsibility: collect facts, sanitize data,
   calculate layout, render UI, or perform an action. Do not mix all five.
 - Keep detection separate from presentation. Terminal resize handlers may
@@ -934,11 +954,16 @@ never optimize from a single timing sample.
   counts. Keep shortcuts unchanged, fit whole hints by display-cell width,
   and test long/wide-character headings and narrow-window redraws.
 - The Interaction lens renders `READY` while the buffer is empty. It may show
-  captured `PROJECT`, `PATH`, `GIT`, `ENV` and the active `LAST` outcome; use
+  captured `PROJECT`, `PATH`, `GIT`, `TOOLCHAIN`, `ENV` and the active `LAST` outcome; use
   `SESSION` only when no more relevant captured fact exists. `LAST` is mutable
   shell-memory state for the most recently completed command, including a fast
   success that has no separate outcome receipt. It disappears with or is
   replaced in the active prompt; it is not a durable scrollback record.
+  Keep available toolchain facts in READY after ordinary command acceptance or
+  clearing the screen; an expanded Context lens is not required to see them.
+  Reuse captured items and widths, align values with the other Interaction rows,
+  and allow up to six READY body rows when height permits so the added toolchain
+  does not displace ENV/LAST. Narrow/short windows still use bounded omission.
 - While editing, morph the Interaction lens among `COMMENT`, `RUN`, `GIT`,
   `NAVIGATE`, `SEARCH`, `BUILD`, `TEST`, `ENVIRONMENT`, `REMOTE`, `PIPELINE`,
   `CHAIN`, `REDIRECT` and `CAUTION`. Derive these kinds from bounded lexical
