@@ -249,7 +249,7 @@ compozsh/
 │   ├── .zsh.git-review    read-only working changes, commits and revision comparisons
 │   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
-│   ├── .zsh.help          live tool discovery, topic help and maintenance dispatch
+│   ├── .zsh.help          live tool discovery, captured prompt help and maintenance dispatch
 │   ├── .zsh.highlighting  command-line syntax highlighting
 │   ├── .zsh.manual        bounded local manual summaries for the prompt
 │   ├── .zsh.navigation    directory/branch workspaces and unified g dispatch/help
@@ -304,10 +304,10 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; action plans disclose scope and comparison endpoints; `g --review A B` compares captured commits directly; Ctrl-X inside file review opens the captured Change atlas; shared folder → file → focused diff → full-context reading; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
-| `.zsh.help` | Live tool discovery, topic help and maintenance entry | `compozsh` explores loaded functions; owned terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently |
+| `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette; shares its exact bare-directory observation with the optional prompt lens |
 | `.zsh.manual` | Local manual summaries | Captures bounded, inert NAME descriptions once before interactive editing; supplies memory-only ABOUT rows without invoking commands or a manual formatter |
-| `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases |
+| `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases with shared default-expansion descriptions |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication operations | Private operations behind `compozsh --sudo-touch-id` inspect, enable, or safely disable Apple Touch ID through the system-supported `sudo_local` PAM policy; no separate public command |
@@ -3762,7 +3762,30 @@ the generic ACTION hint with the manual's short NAME description:
 ╰─ ❯ ls -la
 ```
 
-Compozsh-owned commands keep their own cues. Specific ACTION hints also remain;
+Compozsh-owned commands reuse their same-source help. `ABOUT` describes the
+tool; recognized options select the corresponding `ACTION` description with
+`SOURCE Compozsh help · command`. For example, `g --review` describes read-only
+review, while `compozsh --sudo-touch-id status`, `enable`, and `disable` each
+describe their own operation. These labels name documented intent, not a
+guaranteed outcome or a command-validation result. Unsupported argument shapes
+retain the tool description. No alternate `--enable-touch-id` entry is added.
+
+The five stock aliases remain aliases: `la` → `ls -A`, `ll` → `ls -lah`, and
+`..` / `...` / `....` → one / two / three parent directories. Their exact default
+definitions show `EXPANSION` and `ABOUT`; parent aliases use NAVIGATE. A custom
+definition receives a neutral alias label, without displaying its potentially
+sensitive body or borrowing the stock meaning.
+
+Help capture happens at a TTY prompt boundary, once per changed command/help
+definition, and `compozsh --refresh` clears it. It discovers at most 64 loaded
+same-source companions, retains at most 262,144 characters of definition/source
+identity, and reads at most 4,096 complete characters per guide; Touch ID's
+existing mode guide has its own bounded read. Summaries and option descriptions
+are limited to 240 characters. No public tool is invoked to obtain help, and
+typing only reads memory. Missing peers or incomplete/unavailable descriptions
+retain the ordinary prompt behavior.
+
+Specific native ACTION hints also remain;
 a manual summary can add context when space permits, while caution, pipeline,
 chain and redirection presentations retain priority. `ABOUT` describes the
 literal command name, not what its arguments will do or which executable your

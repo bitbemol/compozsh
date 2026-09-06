@@ -13,6 +13,166 @@ typeset -gA _COMPOZSH_TOOL_SOURCES=()
 
 # Public commands opt into presentation at invocation time. Companions remain
 # static printable providers, so capture never recursively opens another view.
+# Prompt documentation is captured at a prompt boundary, never while editing.
+# These are disposable snapshots of loaded same-source companions, not a tool
+# registry. Definition changes invalidate a snapshot; --refresh also clears it.
+typeset -gA _COMPOZSH_PROMPT_SIGNATURES=() _COMPOZSH_PROMPT_SUMMARIES=()
+typeset -gA _COMPOZSH_PROMPT_OPTIONS=()
+
+_compozsh_prompt_signature() {
+  emulate -L zsh
+  local name=$1 helper="_compozsh_help_$1" source=${functions_source[$1]-}
+  REPLY=''
+  [[ $source == */.zsh.addons/* && $source == ${functions_source[$helper]-} ]] || return 1
+  local command_definition=${functions[$name]-} help_definition=${functions[$helper]-}
+  [[ -n $command_definition && -n $help_definition ]] || return 1
+  (( ${#command_definition} <= 65536 && ${#help_definition} <= 65536 )) || return 1
+  REPLY="$source"$'\n'"$command_definition"$'\n'"$help_definition"
+}
+
+_compozsh_prompt_options_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local name=$1 text=$2 prefix=${3-} line='' option='' key=''
+  for line in "${(@f)text}"; do
+    [[ $line == '  '[^[:space:]]*'  '* && $line != *[[:cntrl:]]* ]] || continue
+    option=${line#'  '}
+    key=${option%%  *}
+    key=${key%% \[*} key=${key%% \<*}
+    if [[ $key == '(no arguments)' && -z $prefix ]]; then
+      key=@default
+    elif [[ -n $prefix && $key == (status|enable|disable) ]]; then
+      key="$prefix $key"
+    elif [[ $key != --[A-Za-z0-9-]##(\ --[A-Za-z0-9-]##)# ]]; then
+      continue
+    fi
+    line=${option#*  }
+    line=${line##[[:space:]]#}
+    [[ -n $line && ${#line} -le 240 ]] || continue
+    (( ${+_COMPOZSH_PROMPT_OPTIONS[$name:$key]} )) ||
+      _COMPOZSH_PROMPT_OPTIONS[$name:$key]=$line
+  done
+}
+
+_compozsh_prompt_read_help() {
+  emulate -L zsh
+  REPLY=''
+  IFS= read -r -u 0 -k 4097 REPLY < <(NO_COLOR=1 "$@" 2>/dev/null) || :
+  if (( ${#REPLY} > 4096 )); then
+    REPLY=${REPLY[1,4096]}
+    # An incomplete trailing line is never documentation authority.
+    REPLY=${REPLY%$'\n'*}
+  fi
+  return 0
+}
+
+_compozsh_prompt_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  zmodload zsh/parameter || return 1
+  local helper='' name='' signature='' text='' line='' key=''
+  local -a live=() lines=()
+  local -i count=0 bytes=0
+  for helper in ${(ok)functions[(I)_compozsh_help_*]}; do
+    name=${helper#_compozsh_help_}
+    [[ $name == [A-Za-z][A-Za-z0-9_-]# && ${#name} -le 80 ]] || continue
+    _compozsh_prompt_signature "$name" || continue
+    signature=$REPLY
+    (( ++count <= 64 && (bytes += ${#signature}) <= 262144 )) || break
+    live+=("$name")
+    [[ ${_COMPOZSH_PROMPT_SIGNATURES[$name]-} == "$signature" ]] && continue
+    _COMPOZSH_PROMPT_SIGNATURES[$name]=$signature
+    unset "_COMPOZSH_PROMPT_SUMMARIES[$name]"
+    for key in ${(k)_COMPOZSH_PROMPT_OPTIONS}; do
+      [[ $key == "$name:"* ]] && unset "_COMPOZSH_PROMPT_OPTIONS[$key]"
+    done
+    text=''
+    # Help companions are static documentation providers, never public tools.
+    # The bounded pipe reads only enough for the introduction and leading options.
+    _compozsh_prompt_read_help "$helper"
+    text=$REPLY
+    lines=("${(@f)text}")
+    line=${lines[2]-}
+    [[ -n $line && ${#line} -le 240 && $line != *[[:cntrl:]]* ]] || continue
+    _COMPOZSH_PROMPT_SUMMARIES[$name]=$line
+    _compozsh_prompt_options_capture "$name" "$text"
+    # Existing nested guide: status, enable and disable have distinct intent.
+    if [[ $name == compozsh ]]; then
+      _compozsh_prompt_read_help "$helper" sudo-touch-id
+      _compozsh_prompt_options_capture "$name" "$REPLY" --sudo-touch-id
+    fi
+  done
+  for name in ${(k)_COMPOZSH_PROMPT_SIGNATURES}; do
+    (( ${live[(Ie)$name]} )) && continue
+    unset "_COMPOZSH_PROMPT_SIGNATURES[$name]" "_COMPOZSH_PROMPT_SUMMARIES[$name]"
+    for key in ${(k)_COMPOZSH_PROMPT_OPTIONS}; do
+      [[ $key == "$name:"* ]] && unset "_COMPOZSH_PROMPT_OPTIONS[$key]"
+    done
+  done
+  return 0
+}
+
+_compozsh_prompt_description() {
+  emulate -L zsh
+  local name=$1 key='' mode=''
+  shift
+  reply=()
+  (( ${+aliases[$name]} || ${+galiases[$name]} )) && return 1
+  _compozsh_prompt_signature "$name" || return 1
+  [[ $REPLY == ${_COMPOZSH_PROMPT_SIGNATURES[$name]-} &&
+     -n ${_COMPOZSH_PROMPT_SUMMARIES[$name]-} ]] || return 1
+  reply=(ABOUT "${_COMPOZSH_PROMPT_SUMMARIES[$name]}")
+  # These shapes choose documented topics; they do not validate targets or
+  # claim that a command will succeed. Unknown forms retain the tool's ABOUT.
+  if (( $# == 1 )) && [[ $1 == --help ]]; then
+    reply=(ACTION "Read help for $name")
+    return 0
+  fi
+  if (( $# == 2 )) && [[ $2 == --help ]] &&
+     { [[ $name == external-device && $1 == (--flash|--format) ]] ||
+       [[ $name == xcode && $1 == --export-skills ]] ||
+       [[ $name == compozsh && $1 == --refresh ]]; }; then
+    reply=(ACTION "Read help for $name")
+    return 0
+  fi
+  case $name in
+    g)
+      if (( $# == 0 )); then
+        key=@default
+      elif (( $# == 2 )) && [[ $1 == (--review|--discard-all) && $2 == --help ]]; then
+        reply=(ACTION 'Read help for g')
+      elif [[ $1 == --review ]] &&
+           { (( $# == 1 )) || { (( $# == 3 )) && [[ $2 != -* && $3 != -* ]]; }; }; then
+        key=--review
+      elif [[ $1 == --review && ${2:-} == --merge-base ]] && (( $# == 4 )); then
+        key='--review --merge-base'
+      elif (( $# == 1 )) && [[ $1 == --worktree ]]; then
+        key=--worktree
+      fi ;;
+    compozsh)
+      if [[ ${1:-} == --sudo-touch-id ]] && (( $# == 1 || $# == 2 )); then
+        mode=${2:-status}
+        case $mode in
+          status|enable|disable) key="--sudo-touch-id $mode" ;;
+          --help) reply=(ACTION 'Read help for compozsh') ;;
+        esac
+      elif (( $# == 1 )) && [[ $1 == (--list|--refresh) ]]; then
+        key=$1
+      elif (( $# == 2 )) && [[ $1 == help ]]; then
+        reply=(ACTION 'Read tool help')
+      fi ;;
+    external-device)
+      if { [[ ${1:-} == --format ]] && (( $# == 1 )); } ||
+         { [[ ${1:-} == --flash && ${2:-} != --* ]] && (( $# == 1 || $# == 2 )); }; then key=$1; fi ;;
+    xcode)
+      [[ ${1:-} == --export-skills ]] && (( $# == 1 )) && key=$1 ;;
+  esac
+  if [[ -n $key && -n ${_COMPOZSH_PROMPT_OPTIONS[$name:$key]-} ]]; then
+    reply=(ACTION "${_COMPOZSH_PROMPT_OPTIONS[$name:$key]}")
+  fi
+  return 0
+}
+
 _compozsh_help_show() {
   emulate -L zsh
   if [[ ! -t 0 || ! -t 1 || -z $TERM || $TERM == dumb || -n ${NO_COLOR:-} ]] ||
@@ -188,12 +348,15 @@ _compozsh_help_compozsh() {
       'Inspect or manage Touch ID authentication for sudo on this Mac.' \
       '' \
       'Modes:' \
-      '  status   Classifies /etc/pam.d/sudo_local as absent, managed, or custom.' \
+      '  status   Inspect Touch ID authentication for sudo' \
+      '           Classifies /etc/pam.d/sudo_local as absent, managed, or custom.' \
       '           This is the default and never requests administrator access.' \
-      "  enable   Installs Apple's advertised sufficient pam_tid rule in one" \
+      '  enable   Enable Touch ID authentication for sudo' \
+      "           Installs Apple's advertised sufficient pam_tid rule in one" \
       '           root-owned policy at that exact path.' \
       '           The first authorization still normally requires a password.' \
-      '  disable  Removes the file only when its contents exactly match the' \
+      '  disable  Disable Compozsh-managed Touch ID authentication for sudo' \
+      '           Removes the file only when its contents exactly match the' \
       '           Compozsh-managed policy. Custom PAM policy is never replaced.' \
       '' \
       'Apple-supported change:' \

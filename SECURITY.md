@@ -111,6 +111,7 @@ state:
 | Command composer | Invocation-scoped shell memory; an explicitly accepted draft moves to ZLE or the native prompt buffer stack until edited/submitted/discarded | Supported literal prefill up to 4,096 characters, bounded fields of at most 4,096 characters each, current folder and generated quoted draft; optional explicit Git revision selection uses the existing local ref capture. No file, clipboard or custom history write. Normal shell command acceptance retains normal history behavior |
 | Git Change atlas | View-scoped shell memory | Exact path-prefix groups, entry-count bars and navigation bookmarks derived from the existing bounded file list. Staged/unstaged entries remain distinct. No directory discovery or bulk content read; selected files use the existing bounded diff providers. The map is released on return, with no saved atlas or new worker |
 | Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention lasts according to the user's terminal settings |
+| Prompt tool descriptions | Current-shell memory | At most 64 loaded same-source command/help pairs; up to 262,144 characters of source/definition identity for invalidation, general summaries and leading option descriptions (240 characters each), captured from at most 4,096 complete characters per help guide plus the existing Touch ID subguide; cleared on shell exit or invalidation, with no disk cache |
 | Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | Carries one framed local status/selected-diff candidate at a time, capped at 1 MiB; the worker-owned exact provider and worker are terminated and reaped on pause, timeout, manual refresh, review close or handled error, then the FIFO is removed, with no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
@@ -282,6 +283,27 @@ screen clearing, subject to the existing display-width/height bounds. This
 extends their visibility, not their capture scope or lifetime. The native
 `zsh tests/run.zsh 'runtime prompt'` journey checks command/clear/resize behavior;
 captured-only redraw tests guard against additional requirement reads or probes.
+
+The help peer captures prompt descriptions only at a TTY `precmd` boundary.
+It uses already-loaded function/source metadata, not filesystem discovery, and
+calls only matching same-source `_compozsh_help_<command>` companions. It never
+invokes a public command with `--help`. Those companions are trusted static
+documentation providers under the existing add-on contract; output bounds do
+not sandbox a misbehaving machine-local companion or impose a wall-clock limit.
+Changed/removed definitions and `compozsh --refresh` invalidate snapshots.
+Each definition is capped at 65,536 characters; the combined identity snapshot
+is capped at 262,144. The pipe reads one lookahead character beyond its 4,096
+character guide bound and discards an incomplete final line. Control-bearing
+or overlong descriptions are omitted. Source and function definitions used for
+invalidation stay in shell memory and are never written or transmitted.
+
+Edit-time descriptions read those snapshots and current loaded-definition
+identity only. They name documented tool/option intent, not successful target
+resolution or argument validation. Compound/danger cues take priority. Stock
+alias descriptions require the exact current definition; custom alias bodies
+are never echoed or evaluated. Run `zsh tests/run.zsh 'tool descriptions'` for
+capture reuse, invalidation, override handling and native ZLE checks that type
+Touch ID modes without submitting them or requesting administrator access.
 
 For a lone directory with AUTO_CD enabled, the highlighter shares only the
 exact bounded draft and current-folder key of its existing observation. The

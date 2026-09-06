@@ -376,6 +376,8 @@ _tools_git_discard_all() {
 _tools_refresh() {
   emulate -L zsh
   (( ${+functions[_manual_summary_reset]} )) && _manual_summary_reset
+  (( ${+parameters[_COMPOZSH_PROMPT_SIGNATURES]} )) &&
+    _COMPOZSH_PROMPT_SIGNATURES=()
   (( ${+parameters[_PROMPT_RUNTIME_VERSION_CACHE]} )) &&
     _PROMPT_RUNTIME_VERSION_CACHE=()
   (( ${+parameters[_PROMPT_GIT_DIR_CACHE]} )) &&

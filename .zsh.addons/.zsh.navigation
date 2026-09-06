@@ -2,11 +2,26 @@
 # Small conveniences
 # -----------------------------------------------------------------------------
 
-(( ${+aliases[..]} )) || alias ..='cd ..'
-(( ${+aliases[...]} )) || alias ...='cd ../..'
-(( ${+aliases[....]} )) || alias ....='cd ../../..'
-(( ${+aliases[ll]} )) || alias ll='ls -lah'
-(( ${+aliases[la]} )) || alias la='ls -A'
+_navigation_alias_description() {
+  emulate -L zsh
+  reply=()
+  case $1 in
+    ..) reply=('cd ..' 'Go up one directory') ;;
+    ...) reply=('cd ../..' 'Go up two directories') ;;
+    ....) reply=('cd ../../..' 'Go up three directories') ;;
+    ll) reply=('ls -lah' 'Show a detailed listing with hidden files and human-readable sizes') ;;
+    la) reply=('ls -A' 'List entries, including hidden files except . and ..') ;;
+  esac
+  (( ${#reply} == 2 ))
+}
+() {
+  local name=''
+  local -a reply=()
+  for name in .. ... .... ll la; do
+    (( ${+aliases[$name]} )) && continue
+    _navigation_alias_description "$name" && alias "$name=$reply[1]"
+  done
+}
 
 # Directory and branch selectors share the same bounded ZLE picker. Their
 # source data is captured once before opening; refinement launches no commands.
@@ -421,6 +436,7 @@ _compozsh_help_g() {
     'Open branches, review changes, manage worktrees, discard edits, or run Git.' \
     '' \
     'Options:' \
+    '  (no arguments)  Open the local recent-branch workspace' \
     '  --review [base head]  Open read-only review; optionally compare two local refs.' \
     '  --review --merge-base <base> <head>  Compare their common ancestor to head.' \
     '  --worktree  Create, enter, move, or remove a linked worktree.' \

@@ -1268,6 +1268,47 @@ _prompt_interaction_model() {
     fi
   fi
 
+  # Same-source help and exact shipped aliases enrich only a simple literal
+  # command. Preserve structural/caution views and do not inspect ghost text.
+  if [[ $_PROMPT_INTERACTION_KIND != (caution|pipeline|chain|redirect|remote) ]] &&
+     (( !autocd && command_index == 1 && ${#buffer} <= 512 && token_count < 64 )) &&
+     [[ ${tokens[1]} == "$command_name" ]]; then
+    local -i description_index=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
+    local description_label='' description_text=''
+    if (( ${+aliases[$command_name]} )); then
+      if (( ${+functions[_navigation_alias_description]} )) &&
+         _navigation_alias_description "$command_name" &&
+         [[ ${aliases[$command_name]} == "$reply[1]" ]]; then
+        description_label=ABOUT description_text=$reply[2]
+        _prompt_interaction_add EXPANSION "$reply[1]" info
+        [[ $reply[1] == 'cd '* ]] && _PROMPT_INTERACTION_KIND=navigate
+      else
+        # A familiar name does not establish the meaning of a custom alias.
+        _PROMPT_INTERACTION_KIND=run
+        _PROMPT_INTERACTION_LABELS=() _PROMPT_INTERACTION_VALUES=() _PROMPT_INTERACTION_ROLES=()
+        _prompt_interaction_add "COMMAND TEXT" "$command_name" info
+        _prompt_interaction_add_context
+        description_index=0
+        description_label=ABOUT description_text='Shell alias · custom definition'
+      fi
+    elif (( ${+functions[_compozsh_prompt_description]} )) &&
+         _compozsh_prompt_description "$command_name" "${(@)plain_tokens[2,-1]}"; then
+      description_label=$reply[1] description_text=$reply[2]
+      _prompt_interaction_add SOURCE "Compozsh help · $command_name" frame
+    fi
+    if [[ -n $description_label ]]; then
+      if [[ $description_label == ABOUT && $command_name == g &&
+            -n $operation_lower && $operation_lower != (branches|review|worktree|help) ]]; then
+        _prompt_interaction_add ABOUT "$description_text" info
+      elif (( description_index )); then
+        _PROMPT_INTERACTION_LABELS[description_index]=$description_label
+        _PROMPT_INTERACTION_VALUES[description_index]=$description_text
+      else
+        _prompt_interaction_add "$description_label" "$description_text" info
+      fi
+    fi
+  fi
+
   # Manual metadata is ABOUT the tool, never a prediction of draft effects.
   # Keep owned/specific ACTION cues; replace only the generic filler. This
   # optional lookup does no capture, path resolution or filesystem access.
@@ -2713,6 +2754,9 @@ _prompt_update() {
   # never calls this provider, and redirected/noninteractive shells skip it.
   if [[ -t 0 && -t 1 ]] && (( ${+functions[_manual_prompt_capture]} )); then
     _manual_prompt_capture
+  fi
+  if [[ -t 0 && -t 1 ]] && (( ${+functions[_compozsh_prompt_capture]} )); then
+    _compozsh_prompt_capture
   fi
 
   _PROMPT_ENV_TEXT=''

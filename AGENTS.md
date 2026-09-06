@@ -885,6 +885,18 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
 - Working-changes auto-refresh in the Git review screen is the narrowly approved
   screen-session worker exception. Its ownership, bounds, lifecycle and local-only
   behavior are defined by the Git review workspace boundary below.
+- The optional help peer may capture loaded same-source help companions at a
+  TTY prompt boundary for command descriptions. Never call a public command's
+  `--help` or a help companion while editing. Capture at most 64 command/help
+  pairs, with each definition limited to 65,536 characters and the combined
+  identity snapshot to 262,144 characters. Read at most 4,096 complete help
+  characters per guide (plus one lookahead character); the existing Touch ID
+  subguide has a separate read under the same bound. Keep descriptions at most
+  240 characters, reject controls, and never accept a truncated final line.
+  Cache only in shell memory; changed definitions, removed capabilities and
+  `compozsh --refresh` invalidate capture. Source-time setup performs no capture.
+  Same-source companions remain trusted static documentation providers, not
+  arbitrary executable probes or a sandbox. Preserve standalone fallbacks.
 - Do not recursively scan entire repositories. Use bounded upward searches,
   exact marker checks, and shallow conventional source directories.
 - Recursive add-on discovery is allowed only inside the shared `.zsh.addons`
@@ -976,14 +988,25 @@ never optimize from a single timing sample.
   effect. Rows such as `PROJECT`, `PATH`, `GIT`, `BRANCH`, `TOOLCHAIN`, `FROM`,
   `SCOPE`, `CURRENT` and `LAST` reuse captured prompt facts. `FLOW`, `STAGES`,
   `STEPS`, and `CONTROL` summarize pipeline or `&&`, `||`, `;`, and `&` chain
-  structure as applicable. Every `ACTION` row is deliberately advisory and must
-  retain qualifying language such as `likely`, `appears` or `may`.
+  structure as applicable. Inferred `ACTION` rows remain advisory and retain
+  qualifying language such as `likely`, `appears` or `may`. A recognized owned
+  operation may use its captured help description directly to name its purpose,
+  with Compozsh help attribution; this does not validate arguments or guarantee
+  success. Unsupported shapes retain general ABOUT information rather than
+  asserting a different operation. Caution/compound presentations take priority.
 - A matching highlighter observation of a single existing directory with
   AUTO_CD enabled uses NAVIGATE, its usual path-colored outline, DESTINATION
   TEXT and an advisory AUTO_CD action. Preserve command/alias/function/builtin
   precedence and actual shell execution unchanged; do not infer navigation
   merely from a slash or tilde prefix, or expand a draft to classify it.
-- `ABOUT` is a captured manual NAME description, not an ACTION prediction.
+- `ABOUT` is a captured manual NAME or same-source tool-help description, not
+  an ACTION prediction. Tool help is the canonical source for its summaries and
+  option descriptions; do not duplicate that prose in the prompt. Stock aliases
+  share their default expansion and description in the owning navigation peer.
+  Show EXPANSION only for an exact matching current stock definition and a
+  literal command head; custom definitions retain a neutral alias description
+  without exposing their possibly sensitive bodies. Never evaluate aliases or
+  reinterpret a precommand modifier to manufacture an owned-tool claim.
   Generic RUN replaces its filler ACTION with ABOUT plus SOURCE attribution;
   specific action cues and owned same-source-help commands retain priority.
   Never invoke a help companion during redraw. Suppress external summaries for
