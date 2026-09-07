@@ -4116,6 +4116,11 @@ alias allows the following word's alias preview. For example, an alias named
 `work-status` defined as `git status --short` shows that literal definition as
 you type its name. Changes and removals take effect on the next redraw.
 
+`EXPANSION` is always the last information row, immediately above the command
+input, for stock, custom and compound alias previews. Short windows omit other
+details to keep that bottom row visible. Caution warnings retain priority; when
+only one information row fits, the warning occupies it and the expansion is omitted.
+
 Each definition preview is limited to 240 characters, sanitized and fitted to the
 terminal width; `…` marks an omitted suffix and `""` represents an empty alias.
 It never evaluates substitutions or recursively expands another alias. Alias

@@ -103,8 +103,8 @@ export const scenes = {
     rows: [
       { label: 'COMMAND TEXT', value: 'la', source: 'literal', role: 'info' },
       { label: 'ABOUT', value: 'List entries, including hidden files except . and ..', source: 'captured', role: 'info' },
-      { label: 'EXPANSION', value: 'ls -A', source: 'captured', role: 'info' },
       { label: 'PATH', value: '~/Projects', source: 'captured', role: 'path' },
+      { label: 'EXPANSION', value: 'ls -A', source: 'captured', role: 'info' },
     ],
   },
   'prompt-owned-review': {

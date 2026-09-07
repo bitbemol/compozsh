@@ -84,6 +84,7 @@ test('current prompt examples retain toolchains and distinguish documented inten
   const alias = scenes['prompt-alias'];
   assert.equal(alias?.buffer, 'la');
   assert.equal(alias.rows.find(row => row.label === 'EXPANSION')?.value, 'ls -A');
+  assert.equal(alias.rows.at(-1)?.label, 'EXPANSION');
   assert.equal(alias.rows.find(row => row.label === 'ABOUT')?.value,
     'List entries, including hidden files except . and ..');
   assert.match(alias.description, /custom.*neutral/i);

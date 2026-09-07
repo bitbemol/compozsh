@@ -1130,6 +1130,10 @@ never optimize from a single timing sample.
   definitions retain a neutral alias description; stock descriptions require an
   exact current default match. Caution views retain their warning alongside the
   definition, while compound views keep structural priority alongside previews.
+  Anchor EXPANSION as the final information row above the command input for
+  every alias shape. Reserve its visible row before optional context when
+  height is limited. Retain caution ACTION text above it; a one-row caution
+  presentation shows only the warning.
   Stop at here-document operators; do not inspect nested substitutions or
   promise full shell-parser coverage. Never evaluate
   aliases, follow alias chains, borrow executable manuals for an alias, or

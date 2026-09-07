@@ -1227,26 +1227,18 @@ _prompt_interaction_model() {
       (( ${#alias_text} > 240 )) && alias_text="${alias_text[1,239]}…"
       [[ -n $alias_text ]] || alias_text='""'
       if [[ $_PROMPT_INTERACTION_KIND == caution ]]; then
-        # Keep the warning and its literal target ahead of the definition in
-        # short windows. Optional context yields to this concrete alias fact.
-        _PROMPT_INTERACTION_LABELS=("${(@)_PROMPT_INTERACTION_LABELS[1,description_index]}" EXPANSION "${(@)_PROMPT_INTERACTION_LABELS[description_index+1,-1]}")
-        _PROMPT_INTERACTION_VALUES=("${(@)_PROMPT_INTERACTION_VALUES[1,description_index]}" "$alias_text" "${(@)_PROMPT_INTERACTION_VALUES[description_index+1,-1]}")
-        _PROMPT_INTERACTION_ROLES=("${(@)_PROMPT_INTERACTION_ROLES[1,description_index]}" info "${(@)_PROMPT_INTERACTION_ROLES[description_index+1,-1]}")
+        : # Retain the warning; every alias definition is appended below.
       elif [[ $alias_kind == 'Shell alias' ]] &&
          (( ${+functions[_navigation_alias_description]} )) &&
          _navigation_alias_description "$command_name" &&
          [[ ${aliases[$command_name]} == "$reply[1]" ]]; then
         description_label=ABOUT description_text=$reply[2]
-        _prompt_interaction_add EXPANSION "$reply[1]" info
         [[ $reply[1] == 'cd '* ]] && _PROMPT_INTERACTION_KIND=navigate
       else
         # A familiar name does not establish the meaning of a custom alias.
         _PROMPT_INTERACTION_KIND=run
         _PROMPT_INTERACTION_LABELS=() _PROMPT_INTERACTION_VALUES=() _PROMPT_INTERACTION_ROLES=()
         _prompt_interaction_add "COMMAND TEXT" "$command_name" info
-        # Rendering sanitizes/escapes the definition; never expand substitutions
-        # or follow alias chains to manufacture a purpose for a custom alias.
-        _prompt_interaction_add EXPANSION "$alias_text" info
         _prompt_interaction_add_context
         description_index=0
         description_label=ABOUT description_text="$alias_kind · custom definition"
@@ -1270,24 +1262,16 @@ _prompt_interaction_model() {
     fi
   fi
 
-  # Compound drafts keep their task/flow and warning cues. A shared definition
-  # row discloses aliases at later command positions and global argument sites.
+  # Prepare one definition row for every alias shape. Append it after all other
+  # details so stock, custom and compound previews share the same bottom anchor.
   if (( $#alias_records )); then
-    local -i expansion_index=${_PROMPT_INTERACTION_LABELS[(Ie)EXPANSION]} insert_after=1
-    if (( !expansion_index || $#alias_records > 4 )); then
+    if [[ -n $alias_kind ]] && (( $#alias_records == 4 )); then
+      alias_summary=$alias_text
+    else
       for (( index = 1; index <= $#alias_records; index += 4 )); do
         [[ -n $alias_summary ]] && alias_summary+=' · '
         alias_summary+="${alias_records[index+1]} → ${alias_records[index+3]}"
       done
-      if (( expansion_index )); then
-        _PROMPT_INTERACTION_VALUES[expansion_index]=$alias_summary
-      else
-        [[ $_PROMPT_INTERACTION_KIND == caution ]] &&
-          insert_after=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
-        _PROMPT_INTERACTION_LABELS=("${(@)_PROMPT_INTERACTION_LABELS[1,insert_after]}" EXPANSION "${(@)_PROMPT_INTERACTION_LABELS[insert_after+1,-1]}")
-        _PROMPT_INTERACTION_VALUES=("${(@)_PROMPT_INTERACTION_VALUES[1,insert_after]}" "$alias_summary" "${(@)_PROMPT_INTERACTION_VALUES[insert_after+1,-1]}")
-        _PROMPT_INTERACTION_ROLES=("${(@)_PROMPT_INTERACTION_ROLES[1,insert_after]}" info "${(@)_PROMPT_INTERACTION_ROLES[insert_after+1,-1]}")
-      fi
     fi
   fi
 
@@ -1321,6 +1305,9 @@ _prompt_interaction_model() {
     _prompt_prefix_abbreviate "$suggestion" 36
     [[ -n $REPLY ]] &&
       _prompt_interaction_add SUGGESTION "$REPLY" info
+  fi
+  if (( $#alias_records )); then
+    _prompt_interaction_add EXPANSION "$alias_summary" info
   fi
 }
 
@@ -1359,12 +1346,17 @@ _prompt_interaction_layout() {
   local -i line_limit=$(( COLUMNS > 0 ? COLUMNS : 80 ))
   local -i max_body=$(( LINES > 0 ? LINES - 2 : 5 ))
   local -i index=0 body_cap=5
+  local -i expansion_index=${_PROMPT_INTERACTION_LABELS[(Ie)EXPANSION]}
+  local -i warning_index=0 body_limit=0
+  local expansion_row=''
 
   _PROMPT_INTERACTION_SEGMENT=''
   (( line_limit >= 12 && max_body >= 1 )) || return 0
   # READY retains toolchain alongside the existing environment and outcome.
   [[ $_PROMPT_INTERACTION_KIND == ready ]] && body_cap=6
   (( max_body > body_cap )) && max_body=$body_cap
+  [[ $_PROMPT_INTERACTION_KIND == caution ]] &&
+    warning_index=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
 
   _prompt_interaction_color_role
   outline_role=$REPLY
@@ -1390,10 +1382,23 @@ _prompt_interaction_layout() {
     fi
   fi
 
+  # Reserve the last visible row for the definition. In a one-row caution view,
+  # the warning is the only detail; otherwise it survives above the expansion.
+  if (( expansion_index && !(warning_index && max_body == 1) )); then
+    _prompt_interaction_row EXPANSION "${_PROMPT_INTERACTION_VALUES[expansion_index]}" \
+      "${_PROMPT_INTERACTION_ROLES[expansion_index]:-info}" "$line_limit" "$outline_role" &&
+      expansion_row=$REPLY
+  fi
+  body_limit=$max_body
+  [[ -n $expansion_row ]] && (( --body_limit ))
   for (( index = 1;
          index <= ${#_PROMPT_INTERACTION_LABELS} &&
-         ${#rows} < max_body;
+         ${#rows} < body_limit;
          index++ )); do
+    (( index == expansion_index )) && continue
+    if (( expansion_index && warning_index > index && ${#rows} == body_limit - 1 )); then
+      index=$warning_index
+    fi
     label=${_PROMPT_INTERACTION_LABELS[index]}
     value=${_PROMPT_INTERACTION_VALUES[index]}
     role=${_PROMPT_INTERACTION_ROLES[index]:-info}
@@ -1404,6 +1409,7 @@ _prompt_interaction_layout() {
       rows+=("$REPLY")
     fi
   done
+  [[ -n $expansion_row ]] && rows+=("$expansion_row")
 
   _PROMPT_INTERACTION_SEGMENT=$header
   for row in "${rows[@]}"; do

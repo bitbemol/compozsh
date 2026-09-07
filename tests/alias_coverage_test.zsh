@@ -59,3 +59,45 @@ _test_alias_compound_coverage() {
   ' "$TEST_REPO_ROOT"
 }
 test_case 'alias coverage previews command positions global arguments and compound drafts literally' _test_alias_compound_coverage
+
+_test_alias_expansion_position() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/.zsh.navigation"
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    aliases[work]="cd ~/Projects/example"
+    aliases[rm]="rm -i"
+    galiases[GG]="GLOBAL"
+    saliases[demo]="cat"
+    _PROMPT_FULL_PATH_TEXT="~/Projects/current"
+    _PROMPT_GIT_TEXT="main"
+    local draft="" width=0 height=0
+    local -a rows=()
+    for draft in .. ... .... la ll work "work extra" "work | la" "print GG" sample.demo "rm file"; do
+      _prompt_interaction_model "$draft"
+      [[ ${_PROMPT_INTERACTION_LABELS[-1]} == EXPANSION ]] || {
+        print -u2 -r -- "inconsistent expansion position for $draft: ${_PROMPT_INTERACTION_LABELS[*]}"; exit 1
+      }
+      for width in 100 40; do
+        for height in 24 4; do
+          COLUMNS=$width LINES=$height
+          _prompt_interaction_layout
+          rows=("${(@f)_PROMPT_INTERACTION_SEGMENT}")
+          [[ $rows[-1] == *EXPANSION* ]] || {
+            print -u2 -r -- "expansion was not the final visible row for $draft at $width x $height"; exit 2
+          }
+        done
+      done
+    done
+    [[ $_PROMPT_INTERACTION_KIND == caution &&
+       ${_PROMPT_INTERACTION_VALUES[*]} == *file* ]] || exit 3
+    LINES=3
+    _prompt_interaction_layout
+    rows=("${(@f)_PROMPT_INTERACTION_SEGMENT}")
+    [[ $rows[-1] == *ACTION* && $_PROMPT_INTERACTION_SEGMENT != *EXPANSION* ]] || {
+      print -u2 "consistent expansion placement displaced the warning in a one-row prompt"; exit 4
+    }
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'alias expansion uses a consistent bottom row with warnings retained in short prompts' _test_alias_expansion_position

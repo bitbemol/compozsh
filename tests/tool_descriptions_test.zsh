@@ -221,6 +221,7 @@ for peer in help navigation tools prompt editor; do source "$DESCRIPTION_ROOT/.z
 for lexical_unit in "$DESCRIPTION_ROOT/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
 alias work-status="print custom-status"
 alias work-other="print custom-other"
+alias work-folder="cd ~/Projects/example"
 aliases[preview-only]='"'"'print $(touch $HOME/alias-executed)'"'"'
 _description_disable_aliases() {
   unsetopt ALIASES
@@ -233,6 +234,11 @@ _description_observe() {
   local slot=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
   (( slot )) || slot=${_PROMPT_INTERACTION_LABELS[(Ie)ABOUT]}
   print -r -u $event_fd -- "FRAME|$BUFFER|$_PROMPT_INTERACTION_KIND|${_PROMPT_INTERACTION_VALUES[$slot]-}"
+  if (( ${_PROMPT_INTERACTION_LABELS[(Ie)EXPANSION]} )); then
+    local -a rows=("${(@f)_PROMPT_INTERACTION_SEGMENT}")
+    [[ $rows[-1] == *EXPANSION* ]] &&
+      print -r -u $event_fd -- "BOTTOM|$BUFFER|$COLUMNS|$CURSOR"
+  fi
 }
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-pre-redraw _description_observe
@@ -243,11 +249,12 @@ add-zle-hook-widget line-init _description_observe
     zmodload zsh/zpty
     zmodload zsh/zselect
     exec {event_fd}<> "$HOME/events"
-    local event="" chunk="" trace="" pfd=0
+    local event="" chunk="" trace="" device="" pfd=0
     _description_driver() {
       export DESCRIPTION_ROOT=$1
       cd "$HOME"
       command stty rows 24 cols 100
+      print -r -u $event_fd -- "TTY:$(command tty)"
       exec "$2" -di
     }
     _description_expect() {
@@ -272,9 +279,27 @@ add-zle-hook-widget line-init _description_observe
     zpty -b descriptions _description_driver "$1" "$2" || exit 1
     pfd=$REPLY
     {
+      _description_expect "TTY:" || exit 15
+      device=${event#TTY:}
+      [[ $device == /dev/ttys<-> || $device == /dev/pts/<-> ]] || exit 16
       _description_expect "FRAME||ready|" || exit 2
       zpty -w -n descriptions la
       _description_expect "FRAME|la|run|List entries, including hidden files except . and .." || exit 3
+      _description_expect "BOTTOM|la|100|2" || exit 17
+      zpty -w -n descriptions $'"'"'\x15'"'"'".."
+      _description_expect "BOTTOM|..|100|2" || exit 18
+      trace=""
+      zpty -w -n descriptions $'"'"'\x15'"'"'"work-folder"
+      _description_expect "BOTTOM|work-folder|100|11" || exit 19
+      _description_painted "cd ~/Projects/example" || exit 20
+      trace=""
+      command stty rows 12 cols 40 < "$device"
+      zpty -w -n descriptions $'"'"'\x0c'"'"'
+      _description_expect "BOTTOM|work-folder|40|11" || exit 21
+      _description_painted "cd ~/Projects/example" || exit 22
+      command stty rows 24 cols 100 < "$device"
+      zpty -w -n descriptions $'"'"'\x0c'"'"'
+      _description_expect "BOTTOM|work-folder|100|11" || exit 23
       zpty -w -n descriptions $'"'"'\x15'"'"'"work-status"
       _description_expect "FRAME|work-status|run|Shell alias · custom definition" || exit 8
       _description_painted "print custom-status" || {
