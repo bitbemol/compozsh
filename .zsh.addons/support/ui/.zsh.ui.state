@@ -96,6 +96,9 @@ typeset -ga _ZLE_PICKER_INSPECT_LINES=()
 typeset -ga _ZLE_PICKER_INSPECT_ROLES=()
 # A document is the primary reading surface; providers remain caller-owned.
 typeset -gi _ZLE_PICKER_DOCUMENT=0
+typeset -gA _ZLE_PICKER_DOCUMENT_BRANCHES=()
+typeset -gA _ZLE_PICKER_LABEL_PREFIXES=()
+typeset -gi _ZLE_PICKER_CONTEXT_MIN_WIDTH=0
 # An optional single document has no navigator or selectable content rows.
 # Its collector refines captured document lines and returns zero candidates.
 typeset -gi _ZLE_PICKER_READER_ONLY=0

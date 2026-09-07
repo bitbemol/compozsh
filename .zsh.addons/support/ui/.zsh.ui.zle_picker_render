@@ -36,7 +36,7 @@ _zle_picker_render() {
     query_label="  ${(V)${_ZLE_PICKER_QUERY_LABEL:-Search}}  › "
     query_open='' query_close=''
   fi
-  local label='' row='' footer='' result_index='' context='' value='' accept_label='' highlight_specs=''
+  local label='' row='' footer='' result_index='' context='' value='' accept_label='' highlight_specs='' label_prefix=''
   typeset -ga _ZLE_PICKER_DISPLAY=()
   typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
   typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
@@ -257,16 +257,25 @@ _zle_picker_render() {
       content_width=$(( row_width - 2 ))
       (( _ZLE_PICKER_INDEXES_VISIBLE )) && content_width=$(( row_width - index_width - 5 ))
       value=${_ZLE_PICKER_RESULTS[position]}
+      # Only the caller's generated structure is fixed. Leading spaces in an
+      # exact filename remain ordinary text and must not consume its budget.
+      label_prefix=${_ZLE_PICKER_LABEL_PREFIXES[$value]-}
       highlight_specs=${_ZLE_PICKER_LABEL_HIGHLIGHTS[$value]-}
       context=${_ZLE_PICKER_CONTEXTS[$value]-}
       context_start=0
-      if [[ -n $context ]] && (( content_width >= 24 )); then
+      if [[ -n $context ]] && (( content_width >= 24 || (_ZLE_PICKER_CONTEXT_MIN_WIDTH && content_width >= 18) )); then
         context=${(V)context}
         context_width=$(( content_width / 3 ))
+        local -i minimum_context=$(( ${(m)#context} < _ZLE_PICKER_CONTEXT_MIN_WIDTH ? ${(m)#context} : _ZLE_PICKER_CONTEXT_MIN_WIDTH ))
+        (( context_width < minimum_context )) && context_width=$minimum_context
         (( context_width > 24 )) && context_width=24
+        (( context_width > content_width - 10 )) && context_width=$(( content_width - 10 ))
         name_width=$(( content_width - context_width - 2 ))
         REPLY=$label
-        (( ${(m)#label} > name_width )) && _zle_picker_abbreviate "$label" $name_width
+        if (( ${(m)#label} > name_width )); then
+          _zle_picker_abbreviate "${label#"$label_prefix"}" $(( name_width - ${#label_prefix} ))
+          REPLY="$label_prefix$REPLY"
+        fi
         label=${(mr:$name_width:: :)REPLY}
         context_start=$(( row_width - content_width + ${#label} + 2 ))
         REPLY=$context
@@ -276,8 +285,8 @@ _zle_picker_render() {
         # Context labels denote structured rows: preserve filename extensions
         # and distinctive suffixes even when there is no room for the parent.
         if [[ -n $context ]]; then
-          _zle_picker_abbreviate "$label" $content_width
-          label=$REPLY
+          _zle_picker_abbreviate "${label#"$label_prefix"}" $(( content_width - ${#label_prefix} ))
+          label="$label_prefix$REPLY"
         else
           label="${label[1,$(( content_width - 1 ))]}…"
         fi

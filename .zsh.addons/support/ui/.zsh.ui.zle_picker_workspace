@@ -60,7 +60,8 @@ _zle_picker_navigation() {
     stages=(Files)
     if (( _ZLE_PICKER_SELECTED > 0 )); then
       if [[ $_ZLE_PICKER_DOCUMENT_MODE == (focused|full) &&
-            ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]} == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+            ( ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]} == "$_ZLE_PICKER_DOCUMENT_KEY" ||
+              -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]}]-} ) ]]; then
         stages+=('Focused diff' 'Full file')
         if (( _ZLE_PICKER_INSPECT_FOCUS )); then
           active=2 hint='→ full file'

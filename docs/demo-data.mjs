@@ -514,7 +514,7 @@ export const scenes = {
   },
   'git-atlas': {
     mode: 'git', layout: 'journey', journey: 'atlas', label: 'Change atlas',
-    command: 'g --review → Change atlas · Ctrl-X inside file review', title: 'Change atlas', query: '',
+    command: 'g --review → Change atlas · Ctrl-X → Change atlas in file review', title: 'Change atlas', query: '',
     benefit: 'See the shape of your changes. Read one in context.',
     description: 'Folders group the captured Git list. Bars count change entries, not changed lines. Open a file for its diff; Back retains your place. The real view inherits review bounds and partial notices.',
     hint: 'Open Sources/, then a file, and use Back. Fixed sample only; no folder discovery or Git refresh runs here.',

@@ -88,6 +88,13 @@ _zle_picker_guide_render() {
             'Snapshot             Read-only captured content; scope is shown above')
     [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == atlas ]] && lines+=(
       'Ctrl-X               Change atlas: captured folders → files → diff; Escape returns')
+    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && lines+=(
+      'Ctrl-X               View options: Tree / All files / Jump to ancestor / Change atlas'
+      'Enter on a folder    Expand or collapse; Open folder at the third directory level'
+      'Tree                 Three directory levels; nonbranching captured paths are compacted'
+      'Folder selection     Keeps the current document and reading position'
+      'Escape in a folder   Restore the previous tree scope, selection and viewport'
+      'Filter all changes   Includes collapsed folders; clearing restores unfiltered folds')
     (( _ZLE_PICKER_DOCUMENT_REFRESH )) && lines+=(
       'Ctrl-R               Refresh file list and diff; also works with no results'
       'Refresh              Retains filter, file/change kind and source area when available'

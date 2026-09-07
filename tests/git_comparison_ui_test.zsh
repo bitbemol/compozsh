@@ -155,7 +155,9 @@ _test_git_comparison_ui_guide() {
     _git_review_rows() { return 0; }
     _git_review_syntax_cleanup() { return 0; }
     _zle_picker_loop() {
-      [[ $_ZLE_PICKER_SUBTITLE_RENDERER == _git_review_comparison_subtitle ]] || exit 1
+      [[ -n $_ZLE_PICKER_SUBTITLE_RENDERER ]] || exit 1
+      "$_ZLE_PICKER_SUBTITLE_RENDERER" 119 || exit 1
+      [[ $REPLY == *"Captured comparison"* ]] || exit 1
       LINES=80
       _zle_picker_guide_render 79
       local guide=${(F)_ZLE_PICKER_DISPLAY}

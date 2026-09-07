@@ -20,7 +20,7 @@ you audit the exact commit yourself.
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
 | Manage Git worktrees | `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
 | Review Git changes | `g` → Ctrl-X or `g --review` | Read working changes, branch commits or a chosen revision pair in the two-pane reader |
-| Explore changes by folder | Git review → Change atlas, or Ctrl-X in a file-review view | Navigate the captured change list, open a diff, then return to the same reading position |
+| Explore changes by folder | Git review starts in Tree; Ctrl-X opens View options | Expand folders, switch to All files, jump to an ancestor, or open Change atlas while retaining the current review |
 | Build an editable command | Type `g --review` or `mkcd`, then Option-Return → Compose this command | Edit literal fields and inspect the quoted draft; Replace draft returns to the prompt without executing |
 | Learn a tool's arguments | Its `--help` | Read topics beside their explanations; `g` and `mkcd` also offer Compose example |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
@@ -246,7 +246,7 @@ compozsh/
 │   ├── .zsh.editor        completion, history, draft inspection, and Files entry
 │   ├── .zsh.compose       guided literal command drafts and trusted templates
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
-│   ├── .zsh.git-review    read-only working changes, commits and revision comparisons
+│   ├── .zsh.git-review    read-only review with Tree / All files and revision comparisons
 │   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery, captured prompt help and maintenance dispatch
@@ -362,7 +362,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.editor` | Completion, ZLE editing, and prompt interaction | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; living-prompt redraw/accept transitions, Option-I Context toggle and Option-Return draft inspection; location trail, captured file summaries, shallow previews, action plans and Back bookmarks; fuzzy `Ctrl-R` with literal command reading and history autosuggestions; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware action cards with exact-target plans for files, folders and links; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.compose` | Guided command drafts | Option-Return on supported drafts and explicit Compose example actions in help open editable fields with a literal command preview; Git review and directory templates opt in through same-source companions; Replace draft inserts after screen cleanup and never executes; shared candidate exclusion preserves each view’s matching and action rules |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; action plans disclose scope and comparison endpoints; `g --review A B` compares captured commits directly; Ctrl-X inside file review opens the captured Change atlas; shared folder → file → focused diff → full-context reading; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; file review defaults to a bounded Tree, with All files, Jump to ancestor and Change atlas in Ctrl-X View options; shared file → focused diff → full-context reading preserves exact changes, filters and reading positions; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently; shared candidate exclusion preserves each view’s matching and action rules |
@@ -425,19 +425,19 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/functions/.zsh.pure.zle_ui_descriptions` | First-line descriptions | Pure function; entry `_zle_ui_descriptions` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.zle_ui_path_actions` | Capability-based path-action metadata | Pure function; entry `_zle_ui_path_actions` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_capture` | Capture-status presentation | UI component; entry `_zle_picker_capture` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_footer` | Action and navigation footer | UI component; entry `_zle_picker_footer` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_guide_render` | Keyboard-guide element | UI component; entry `_zle_picker_guide_render` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_inspect_render` | Inspector and document-reader rows | UI component; entry `_zle_picker_inspect_render` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction | UI component; entry `_zle_picker_loop` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_footer` | Action and navigation footer | UI component; `_zle_picker_footer` derives folder, reader and View options actions from capabilities |
+| `support/ui/.zsh.ui.zle_picker_guide_render` | Keyboard-guide element | UI component; `_zle_picker_guide_render` includes supported tree, flat-list and reading controls |
+| `support/ui/.zsh.ui.zle_picker_inspect_render` | Inspector and document-reader rows | UI component; `_zle_picker_inspect_render` retains the current document while selecting captured folder branches |
+| `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction | UI component; `_zle_picker_loop` handles branch acceptance, matching-document selection, view requests and independent reading |
 | `support/ui/.zsh.ui.zle_picker_redraw` | Resize and redraw entry | UI component; entry `_zle_picker_redraw` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_render` | Complete frame assembly | UI component; entry `_zle_picker_render` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_render` | Complete frame assembly | UI component; `_zle_picker_render` preserves explicit structural prefixes and caller-requested compact status width |
 | `support/ui/.zsh.ui.zle_picker_run` | Nested ZLE entry | UI component; entry `_zle_picker_run` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_screen_session` | Terminal ownership and restoration | UI component; entry `_zle_picker_screen_session` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_show` | Terminal painting and semantic styles | UI component; entry `_zle_picker_show` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_workspace` | Pane layout | UI component; entry `_zle_picker_workspace` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_workspace` | Pane layout | UI component; `_zle_picker_workspace` and its helpers retain reader disclosure while a folder branch is selected |
 | `support/ui/.zsh.ui.zle_ui_read_text` | Captured-text reader | UI component; entry `_zle_ui_read_text` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_ui_view` | Scoped view configuration | UI component; entry `_zle_ui_view` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.state` | Shared transient view state | Data-only configuration peer; one owner for picker state declarations |
+| `support/ui/.zsh.ui.zle_ui_view` | Scoped view configuration | UI component; `_zle_ui_view` isolates capabilities, including document branches, structural prefixes and compact metadata widths |
+| `support/ui/.zsh.ui.state` | Shared transient view state | Data-only configuration peer; one owner for picker declarations, including document branches, structural prefixes and compact metadata widths |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -1957,7 +1957,7 @@ partial-result limits still apply.
 | Ctrl-F | Search descendants in Browse; edit discovery query in Search results |
 | Ctrl-E / Ctrl-B | Focus details / list, when available |
 | Ctrl-O | Browse a selected recent location; inside the browser, preview a folder |
-| Ctrl-X | Open **review** on Branches, **options** for filesystem/worktree tasks, or **atlas** in supported Git file-review views |
+| Ctrl-X | Open **review** on Branches, **options** for filesystem/worktree tasks, or **View options** in supported Git file-review views |
 | Right / Left in Git review | Progress files → focused diff → full-file context / reverse those steps |
 | Ctrl-A in Working changes | Pause or resume automatic local refresh for this review screen |
 | Ctrl-R in Git review | Refresh the selected snapshot, preserving focus and source area |
@@ -1973,8 +1973,9 @@ Up/Down scroll, and Escape returns to Run. Xcode Logs updates automatically
 while following. Ctrl-A retains its normal beginning-of-line meaning at the
 prompt and is a refresh toggle only in Working changes. Ctrl-R opens history at the prompt, refreshes Git review,
 and advances results in ordinary pickers without a refresh capability.
-Ctrl-X opens the Change atlas from Working changes, Commit files and Comparison
-file-review views; atlas child readers do not offer it again. The arrow flow
+Ctrl-X opens View options from Working changes, Commit files and Comparison:
+Tree, All files, Jump to ancestor, and Change atlas. Atlas child readers do not
+offer these options again. The arrow flow
 retains its separate context-disclosure meaning.
 
 The directory browser has one explicit hierarchy convention: Right/Tab
@@ -3493,8 +3494,8 @@ Run **`g` → Ctrl-X review**, or **`g --review`**, to choose a review context:
 | Compare branches or commits | Two chosen local branches, tags or commit IDs | Change either choice, then Review differences opens the two-pane reader |
 | Change atlas | Captured working changes, grouped by exact folder prefixes | Open a folder, then read one exact change |
 
-**Change atlas** is also available with **Ctrl-X inside Working changes,
-Commit files, and Git comparison**. It maps the entire captured file list,
+**Change atlas** is also available through **Ctrl-X → Change atlas inside
+Working changes, Commit files, and Git comparison**. It maps the entire captured file list,
 independently of the review's current filter. Bars compare changed-entry counts
 among sibling folders; they are not line counts or importance scores. A staged
 and an unstaged change to the same file remain two separately labeled entries.
@@ -3585,7 +3586,38 @@ files are excluded from revision comparisons.
 `git diff A B` for plain output. `g --review --help` opens the same
 guide as `g --help`, without reading the repository.
 
-Working changes, Commit files and comparisons use a **two-pane review workspace**. A narrow
+Working changes, Commit files and comparisons start with **Tree** in a
+**two-pane review workspace**. Enter expands or collapses a folder. At the
+third visible directory level, the action becomes **Open folder**: the same
+panel shows that folder's children, with its scope above. Escape returns to
+the previous scope, selection and viewport. Nonbranching stretches of captured
+directories share one row; `…` marks omitted components. Counts describe
+captured change entries, including separate staged and unstaged entries.
+
+**Ctrl-X opens View options**. Choose **Tree** or **All files** with Enter,
+or use the menu's visible digits (`Ctrl-X`, then `1` or `2`). All files gives
+each change a clean filename and a separate status label. Duplicate filenames
+from different folders include their parent path. The menu's details show the
+selected change's captured path; Tab focuses that wrapped explanation.
+**Jump to ancestor** lists the current scope's or selected file's parent
+directories. Its details expose each captured path. The chooser retains at
+most 200 entries and 262,144 prefix characters, with a partial notice and
+Repository always available. **Change atlas** remains the separate entry-count map.
+
+Both file views retain the current change, positive/exclusion filters, reading
+mode and source position. Switching back restores that view's selected row and
+viewport while the change and filters remain the same; choosing the current
+view leaves its position intact. Opening a folder keeps the current diff visible;
+its header continues to identify the file being read. Filtering searches all
+captured changes, including collapsed folders, and temporarily reveals matching
+ancestors. Clearing the filters restores the unfiltered folds and scope.
+Refresh keeps surviving folds and the selected row's screen position where
+possible, and returns a vanished scope to its nearest captured ancestor.
+View choice and navigation state last only for this review;
+opening a new review starts in Tree. None of these navigation steps discovers
+directories or reads additional file content.
+
+A narrow
 file navigator sits on the left; the selected file's continuous diff occupies
 most of the width on the right. Selecting another file updates the reader
 directly. Focus is visible independently from selection: the active file list
@@ -3726,11 +3758,11 @@ Selecting the already-active mode leaves the reading position alone.
 
 **Untracked files** are files Git is not tracking yet. Selecting an individual
 regular text file previews its contents as numbered green additions—every line
-is new. Files inside new directories appear individually too. Their full
-relative path is the primary navigator label and a separate compact **New**
-column states what happened: `parent/folder/file.ext   New`. The renderer may
-middle-abbreviate the path when space is tight, while the reader header retains
-it exactly. The review subtitle and detail context keep Git's precise
+is new. Files inside new directories appear individually too. Tree shows their
+filenames beneath captured directory prefixes; All files adds parent paths
+only to disambiguate duplicate names. A separate compact **New** column states
+what happened. Labels and the reader heading can abbreviate to fit; View
+options details disclose the captured path in wrapped text. The review subtitle and detail context keep Git's precise
 **Untracked** term, and filtering matches the full relative path. This prevents
 the state and folder from collapsing into one ambiguous truncated token.
 Ignored files remain excluded. Git owns this enumeration at entry/refresh;

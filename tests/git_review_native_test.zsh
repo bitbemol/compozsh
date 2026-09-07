@@ -152,7 +152,8 @@ _test_git_review_native() {
       [[ $doc_event == DOC\|1\|0\|* ]] || exit 55
       captures=$(<"$HOME/captures")
       saved_doc=$doc_event
-      _review_test_key $'\''\x18'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 56
+      _review_test_key $'\''\x18'\'' "FRAME|Git / View options||1|0|120|30" || exit 56
+      _review_test_key 4 "FRAME|Git / Change atlas||1|0|120|30" || exit 56
       _review_test_key new-dir "FRAME|Git / Change atlas|new-dir|1|0|120|30" || exit 96
       _review_test_key $'\''\r'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 97
       _review_test_key $'\''\e'\'' "FRAME|Git / Change atlas|new-dir|1|0|120|30" || exit 98
@@ -167,15 +168,15 @@ _test_git_review_native() {
       [[ $doc_event == "$saved_doc" ]] || exit 107
       _review_test_key $'\''\e[D'\'' "FRAME|Working changes||1|0|120|30" || exit 57
       _review_test_key $'\''\e[D'\'' "FRAME|Working changes||1|0|120|30" || exit 58
-      _review_test_key new.txt "FRAME|Working changes|new.txt|1|0|120|30" || exit 63
+      _review_test_key new.txt "FRAME|Working changes|new.txt|2|0|120|30" || exit 63
       [[ $doc_event == DOC\|3\|* && $(<"$HOME/new-captures") == capture ]] || exit 64
-      _review_test_key $'\''\e[C'\'' "FRAME|Working changes|new.txt|1|1|120|30" || exit 65
-      _review_test_key $'\''\e[C'\'' "FRAME|Working changes|new.txt|1|1|120|30" || exit 66
+      _review_test_key $'\''\e[C'\'' "FRAME|Working changes|new.txt|2|1|120|30" || exit 65
+      _review_test_key $'\''\e[C'\'' "FRAME|Working changes|new.txt|2|1|120|30" || exit 66
       [[ $(<"$HOME/new-captures") == capture ]] || exit 67
-      _review_test_key $'\''\e[D'\'' "FRAME|Working changes|new.txt|1|0|120|30" || exit 68
-      _review_test_key $'\''\e[D'\'' "FRAME|Working changes|new.txt|1|0|120|30" || exit 69
+      _review_test_key $'\''\e[D'\'' "FRAME|Working changes|new.txt|2|0|120|30" || exit 68
+      _review_test_key $'\''\e[D'\'' "FRAME|Working changes|new.txt|2|0|120|30" || exit 69
       [[ $(<"$HOME/new-captures") == capture ]] || exit 70
-      _review_test_key $'\''\x12'\'' "FRAME|Working changes|new.txt|1|0|120|30" || exit 72
+      _review_test_key $'\''\x12'\'' "FRAME|Working changes|new.txt|2|0|120|30" || exit 72
       [[ $(<"$HOME/new-captures") == $'\''capture\ncapture'\'' ]] || exit 73
       _review_test_key $'\''\x15'\'' "FRAME|Working changes||1|0|120|30" || exit 74
       _review_test_key unstaged "FRAME|Working changes|unstaged|1|0|120|30" || exit 9

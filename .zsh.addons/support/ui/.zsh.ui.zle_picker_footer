@@ -10,6 +10,7 @@ _zle_picker_footer() {
   local -i width=$1 can_accept=0
   local query=$2 value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
   local action=${_ZLE_PICKER_ACCEPT_LABELS[$value]:-$_ZLE_PICKER_INSPECT_ACTION}
+  (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_INSPECT_FOCUS )) && action=$_ZLE_PICKER_INSPECT_ACTION
   local cancel=${_ZLE_PICKER_CANCEL_LABEL:-cancel} hint='' options_label=options direction='' arrow=''
   local -a hints=()
   if (( ${_ZLE_PICKER_BUSY:-0} )); then
@@ -28,6 +29,7 @@ _zle_picker_footer() {
       (( ${(m)#REPLY} > width )) && REPLY='⏎ apply · Esc'
     fi
     hints=('^K keys')
+    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )) && hints+=('^X views')
     if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
       (( _ZLE_PICKER_DOCUMENT_FOLLOW )) && hints+=('↑ pause') || hints+=('End follow')
     fi

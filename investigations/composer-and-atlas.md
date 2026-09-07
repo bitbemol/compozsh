@@ -1,5 +1,9 @@
 # Composing drafts and exploring captured changes
 
+Historical entry-route note: file review now starts in Tree, and Ctrl-X opens
+View options containing Change atlas. See [Git file navigation](git-file-navigation.md).
+The atlas's capture, reading and Back boundaries below remain applicable.
+
 2026-09-04. Three connected native-terminal interactions, implemented on the
 existing shared screen owner, input loop, palette and reader. No release tag,
 installation change, external UI dependency or background daemon is involved.

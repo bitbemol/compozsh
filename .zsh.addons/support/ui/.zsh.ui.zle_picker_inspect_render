@@ -8,6 +8,9 @@ _zle_picker_inspect_render() {
   emulate -L zsh
   local -i selected=$1 width=$2 left_width=$3
   local name=${_ZLE_PICKER_INSPECT_FIXED_KEY:-${_ZLE_PICKER_RESULTS[selected]:-$_ZLE_PICKER_INSPECT_FALLBACK}} left='' right='' title='' role='' row_highlights=''
+  if (( _ZLE_PICKER_DOCUMENT )) && [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$name]-} ]]; then
+    name=$_ZLE_PICKER_DOCUMENT_KEY
+  fi
   local -i rows=${#_ZLE_PICKER_DISPLAY} height=6 index=0 line_index=0 right_width=$width
   local -i stacked=0
   local -a display=() styles=() indexes=() highlights=() left_ends=() right_roles=() context_starts=() match_starts=() right_syntax=()

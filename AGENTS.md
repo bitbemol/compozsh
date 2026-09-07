@@ -1272,7 +1272,7 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-E / Ctrl-B | Focus details/list, when available |
 | Tab / Shift-Tab | Switch list/details focus; in the browser, enter/go Back |
 | Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
-| Ctrl-X | Open **review** on Branches, **options** in filesystem/worktree views, or **atlas** in Git file-review views that expose it; otherwise inactive |
+| Ctrl-X | Open **review** on Branches, **options** in filesystem/worktree views, or **View options** in Git file-review views; otherwise inactive |
 | Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence |
 | Ctrl-A in an auto-refresh document workspace | Pause/resume automatic refresh for the current screen session |
 | Ctrl-R in a document workspace | Refresh the file list and selected diff, retaining available selection/focus/source area |
@@ -1399,8 +1399,8 @@ keyboard guide must never trigger refresh or an automatic provider check.
   convenience shortcuts: it exposes distinct context operations and review views.
   Name its actual destination: `^X review` on Branches and `^X options` for
   filesystem context menus. Document readers expose their available arrow
-  disclosure steps and `^R refresh`; add `^X atlas` only with the explicit Git
-  atlas capability. Other readers keep Ctrl-X inert and omit its hint.
+  disclosure steps and `^R refresh`; add `^X views` only with the explicit Git
+  file-view options capability. Other readers keep Ctrl-X inert and omit its hint.
   Derive these hints from the same capability state/transition rules used by
   key dispatch. Do not offer expansion for single-level previews or notices.
   Derive context-menu labels from the existing capability/kind in the shared
@@ -1665,8 +1665,9 @@ keyboard guide must never trigger refresh or an automatic provider check.
   Right discloses file navigator → focused diff → full-file context; Left
   reverses the sequence. At either boundary the arrow is inert. Untracked
   previews and metadata/notices have one reading level. Ctrl-R refreshes the
-  file workspace. Ctrl-X opens the captured Change atlas only where that
-  capability is present; an atlas child reader does not recursively offer it.
+  file workspace. Ctrl-X opens View options (Tree, All files, Jump to ancestor,
+  Change atlas) where that capability is present; an atlas child reader does
+  not recursively offer these options.
   Tab/Shift-Tab and Ctrl-E/B change only pane focus and preserve context mode;
   Right from the navigator always enters focused diff. The shared loop returns
   explicit disclosure/refresh requests; only the controller captures their data.
@@ -1701,7 +1702,7 @@ keyboard guide must never trigger refresh or an automatic provider check.
   diff reads until retry, while allowing already captured documents. Keep newly
   validated filter overrides even if the following list read fails.
   Commit-file refresh retains immutable IDs.
-  Ctrl-X may navigate to a Change atlas derived solely from the captured list.
+  Ctrl-X → Change atlas may navigate to a map derived solely from the captured list.
   Keep original numeric file/change-kind identities beneath directory-prefix
   grouping. Expose source bounds and partial notices; bars count entries and
   must not imply content analysis. Child folders and file readers preserve Back
@@ -1777,9 +1778,11 @@ keyboard guide must never trigger refresh or an automatic provider check.
   and conflicts as notices. Test replacement races and mode/refresh reuse.
   Reference: [Zsh system/stat modules](https://zsh.sourceforge.io/Doc/Release/Zsh-Modules.html).
   Use Git status with `--untracked-files=all` so new-directory files are
-  individually selectable. At the navigator boundary, keep nested relative
-  paths as primary row labels and adapt their metadata to the complete compact
-  word `New`; never combine state and folder into one truncation-prone field.
+  individually selectable. At the navigator boundary, show their filename under
+  captured directory prefixes in Tree, or a clean filename in All files. Use
+  parent paths to disambiguate duplicate filenames in All files, and adapt
+  untracked metadata to the complete compact word `New`; never combine state
+  and folder into one truncation-prone field.
   Keep canonical `Untracked` wording and exact relative paths in captured facts,
   filtering, details and document context; presentation must not weaken or
   replace the source fact. Git owns enumeration;
@@ -1796,6 +1799,27 @@ keyboard guide must never trigger refresh or an automatic provider check.
   Full-file context is opt-in and retains the same capture bounds.
   These bounds do not promise a wall-clock timeout or bound Git's own
   memory/CPU usage. Do not add background processes or persistent caches.
+- File review defaults to Tree; All files is an alternate projection of the
+  same captured changes. Ctrl-X opens their shared View options menu and the
+  captured-path ancestor chooser. Keep original file/change-kind identities,
+  status labels, filters and reader bookmarks across projection changes.
+  Restore each projection's selected row and viewport when returning with the
+  same change and filters; choosing the active projection is inert. Invalidate
+  saved projection bookmarks when a new capture replaces numeric identities.
+  Tree uses at most three visible directory levels, compresses nonbranching
+  captured directory chains, and opens a deeper scope in the same panel at
+  the boundary. Enter expands/collapses folders or reads files; Escape restores
+  a previous tree scope and bookmark. Left/Right retain document disclosure.
+  Folder selection keeps the current independently titled reader and its
+  offset; it never becomes a diff-provider target. Filter the whole captured
+  list, reveal ancestors temporarily, and restore unfiltered folds on clear.
+  Ancestor choices retain at most 200 rows/262,144 prefix characters, with a
+  partial notice and Repository always reachable. Refresh reconciles folders
+  against captured paths, preserves surviving folds, and returns a vanished
+  scope to its nearest captured ancestor. Preserve a surviving file or folder's
+  visible slot after projecting the refreshed list. Derive structure only on collection
+  or navigation, never during frame rendering or by filesystem discovery.
+  All of this state belongs to the current review and is released on exit.
 - The shared document capability gives the navigator roughly one third of the
   width (at most 42 cells), with the remainder for reading. Below 90 columns,
   switch between full-width navigator and reader. Use available body height;

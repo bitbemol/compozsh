@@ -20,6 +20,7 @@ _zle_picker_loop() {
   local -i configured_limit=8 limit=8 selected=1 count=0 direct_position=0
   local -i accepted=0 cancelled=0 aborted=0 copy_requested=0
   local -i collected=0 request_limit=0 wanted=0
+  local -i filter_changed=0 match_index=0
   local -i read_columns=0 read_lines=0
   local -i start_index=1 start_offset=0
   local -i meta_sequence=0 idle_repaint=0 idle_result=1 idle_prepaint=0
@@ -87,7 +88,9 @@ _zle_picker_loop() {
       wanted=$(( _ZLE_PICKER_VIEW_OFFSET + limit ))
       (( selected > wanted )) && wanted=$selected
       (( ++wanted ))
+      filter_changed=0
       if (( !collected )) || [[ $query != "$collected_query" || $_ZLE_PICKER_EXCLUDE != "$collected_exclude" ]]; then
+        (( collected )) && filter_changed=1
         request_limit=$(( limit + 1 ))
         selected=1
         _ZLE_PICKER_VIEW_OFFSET=0
@@ -106,6 +109,16 @@ _zle_picker_loop() {
       fi
       if (( !collected )); then
         "$collector" "$query" $request_limit
+        if (( filter_changed && _ZLE_PICKER_DOCUMENT && ${#_ZLE_PICKER_DOCUMENT_BRANCHES} )); then
+          # Ancestors explain a match; start on the first visible document so
+          # typing still previews the matching file without an extra gesture.
+          for (( match_index=1; match_index<=${#_ZLE_PICKER_RESULTS}; ++match_index )); do
+            if [[ -z ${_ZLE_PICKER_DOCUMENT_BRANCHES[${_ZLE_PICKER_RESULTS[match_index]}]-} ]]; then
+              selected=$match_index
+              break
+            fi
+          done
+        fi
         _ZLE_PICKER_HAS_MORE=$(( ${#_ZLE_PICKER_RESULTS} >= request_limit ))
         collected_query=$query collected_exclude=$_ZLE_PICKER_EXCLUDE
         collected=1
@@ -124,6 +137,7 @@ _zle_picker_loop() {
       # is quiet. Intermediate rows paint the existing loading state inside
       # this input loop; only the latest exact target reaches the controller.
       if (( _ZLE_PICKER_DOCUMENT && count )) &&
+         [[ -z ${_ZLE_PICKER_DOCUMENT_BRANCHES[${_ZLE_PICKER_RESULTS[selected]}]-} ]] &&
          [[ ${_ZLE_PICKER_RESULTS[selected]} != "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
         if (( document_settle_ticks > 0 )); then
           document_preview_pending=1
@@ -293,7 +307,7 @@ _zle_picker_loop() {
         ($'\x18')
           if { (( !_ZLE_PICKER_DOCUMENT &&
                 (_ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0}) )); } ||
-             { [[ $_ZLE_PICKER_OPTIONS_KIND == atlas ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )); }; then
+             { [[ $_ZLE_PICKER_OPTIONS_KIND == (atlas|file-views) ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )); }; then
             _ZLE_PICKER_ACTION=actions
             accepted=1
           else
@@ -680,7 +694,7 @@ _zle_picker_loop() {
     fi
   } always {
     _ZLE_PICKER_ACTIVE=0
-    if (( accepted || _ZLE_PICKER_READER_ONLY )); then
+    if (( accepted || _ZLE_PICKER_READER_ONLY )) || [[ $_ZLE_PICKER_OPTIONS_KIND == file-views ]]; then
       _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
       (( _ZLE_PICKER_EXCLUDE_SHOWN )) && _ZLE_PICKER_BOOKMARK+=("$_ZLE_PICKER_EXCLUDE" "$_ZLE_PICKER_EXCLUDE_FOCUS" "$_ZLE_PICKER_EXCLUDE_SHOWN")
       _ZLE_PICKER_BOOKMARK_FOCUS=$_ZLE_PICKER_INSPECT_FOCUS

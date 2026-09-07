@@ -548,8 +548,16 @@ _compozsh_help_g() {
     'Read-only Git review:' \
     '  Ctrl-X review opens the Git review chooser when .zsh.git-review is enabled.' \
     '  g --review opens these choices directly in the current checkout.' \
-    '  Change atlas groups captured working changes by folder. Ctrl-X inside' \
-    '  any file-review view opens an atlas of that captured list, including comparisons.' \
+    '  File review starts in Tree. Enter expands/collapses a captured folder;' \
+    '  at the third directory level, Open folder moves the tree scope inward.' \
+    '  Nonbranching captured directory chains are compacted. Escape restores' \
+    '  the previous tree scope; folder selection keeps the current diff.' \
+    '  Ctrl-X opens View options: Tree, All files, Jump to ancestor, Change atlas.' \
+    '  All files keeps clean filenames and separate change states; duplicate' \
+    '  filenames show their parent. View options details disclose the selected path.' \
+    '  Filters include collapsed paths; clearing restores unfiltered folds.' \
+    '  Both file views share the selected change, filters, and reading position.' \
+    '  Change atlas groups captured working changes by folder, including comparisons.' \
     '  Bars count change entries, not lines; staged/unstaged changes stay separate.' \
     '  Enter opens folders or reads one file; Right expands full context.' \
     '  Escape restores each map level and the original review position.' \

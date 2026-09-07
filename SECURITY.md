@@ -110,6 +110,7 @@ state:
 | Captured help and command readers | View-scoped shell memory | Tool help reuses at most 64 same-source companions of 32,768 characters each; direct help captures only its selected companion. Topic navigation, argument excerpts and full-width reading derive from that capture. History's inspector reads at most 32,768 characters from the selected captured command and retains no second history catalog. History acceptance inserts the original full command; ordinary help topics only read, while the separately labeled Compose example action opens an authored template |
 | Command composer | Invocation-scoped shell memory; an explicitly accepted draft moves to ZLE or the native prompt buffer stack until edited/submitted/discarded | Supported literal prefill up to 4,096 characters, bounded fields of at most 4,096 characters each, current folder and generated quoted draft; optional explicit Git revision selection uses the existing local ref capture. No file, clipboard or custom history write. Normal shell command acceptance retains normal history behavior |
 | Git Change atlas | View-scoped shell memory | Exact path-prefix groups, entry-count bars and navigation bookmarks derived from the existing bounded file list. Staged/unstaged entries remain distinct. No directory discovery or bulk content read; selected files use the existing bounded diff providers. The map is released on return, with no saved atlas or new worker |
+| Git Tree / All files navigation | Current review's shell memory | Captured directory prefixes, expansion flags, temporary filter navigation, scope/selection bookmarks and file labels derived from the existing 1,000-entry/256-KiB list. Tree displays at most three directory levels; ancestor choices retain at most 200 rows/262,144 prefix characters, with a partial notice. No directory discovery, persistent preference or new worker; state is released on review exit |
 | Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention lasts according to the user's terminal settings |
 | Prompt tool descriptions | Current-shell memory | At most 64 loaded same-source command/help pairs; up to 262,144 characters of source/definition identity for invalidation, general summaries and leading option descriptions (240 characters each), captured from at most 4,096 complete characters per help guide plus the existing Touch ID subguide; cleared on shell exit or invalidation, with no disk cache |
 | Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
@@ -219,7 +220,25 @@ and tools, and the editor/help handoffs. Run `zsh tests/run.zsh 'command compose
 for quoting, explicit authority, real local refs, no-execution, fallback,
 native live preview, resize, Back and post-cleanup insertion checks.
 
-The **Change atlas** derives path-prefix groups and entry-count bars from the
+Git file review starts in **Tree**, with **All files** and **Jump to ancestor**
+in Ctrl-X View options. Both file views derive exclusively from the captured
+Git list, including deleted path prefixes and distinct staged/unstaged entries.
+Folding, changing scope, ancestor selection and switching projections perform
+no provider reads. Selecting a file retains the existing bounded diff-provider
+boundary; selecting a folder preserves the displayed file, which remains the
+target of the existing automatic-refresh and syntax policies. Filtering searches
+captured paths, including hidden descendants, without directory enumeration.
+The view menu and ancestor details can display captured paths in wrapped text;
+this is presentation, with no redaction guarantee or clipboard action.
+Refresh reconciles navigation against the newly captured list and invalidates
+saved projection bookmarks whose numeric identities belonged to the old list. Expansion,
+filter scopes and view choice live only for the review and are released on exit.
+Run `zsh tests/run.zsh 'Git tree'` for extreme-depth compression, literal paths,
+duplicate identities, exclusion, disappearing scopes, narrow geometry and a
+native Tree/All files/ancestor/refresh/resize/cleanup journey. These checks do
+not establish atomic filesystem observations or visual approval in Terminal.app.
+
+The **Change atlas**, also in Ctrl-X View options, derives path-prefix groups and entry-count bars from the
 current captured Git file list. It performs no filesystem discovery and reads
 no unselected file contents. It retains the original numeric file/change-kind
 identities and commit/comparison IDs. Pending Working changes refresh work is
