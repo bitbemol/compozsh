@@ -2,8 +2,8 @@
 
 ## Adopted behavior
 
-Git Working changes, Commit files and comparison readers start in Tree. Ctrl-X
-opens View options with Tree, All files, Jump to ancestor and Change atlas.
+Git Working changes, Commit files and comparison readers start in All files.
+Ctrl-X opens View options with All files, Tree, Jump to ancestor and Change atlas.
 The existing options gesture and digit acceptance provide direct selection
 without intercepting Tab, disclosure arrows or Terminal.app tab shortcuts.
 

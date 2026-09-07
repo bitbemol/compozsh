@@ -257,3 +257,19 @@ _test_git_tree_reachable() {
   ' "$TEST_REPO_ROOT"
 }
 test_case 'Git tree keeps every captured file reachable across literal overlapping scopes and empty refresh' _test_git_tree_reachable
+
+_test_git_file_view_order() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zshrc"
+    local _git_file_view=flat
+    _zle_picker_loop() {
+      [[ ${(j:,:)_NAVIGATION_PICKER_VALUES} == flat,tree,ancestor,atlas &&
+         ${_NAVIGATION_PICKER_LABELS[1]} == "All files" &&
+         ${_NAVIGATION_PICKER_LABELS[2]} == Tree &&
+         $_ZLE_PICKER_CONTEXTS[flat] == current ]] || return 2
+    }
+    _git_review_file_options_view src/file.swift || exit 1
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'Git file view options put All files first and Tree second' _test_git_file_view_order

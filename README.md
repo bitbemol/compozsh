@@ -20,7 +20,7 @@ you audit the exact commit yourself.
 | Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
 | Manage Git worktrees | `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
 | Review Git changes | `g` → Ctrl-X or `g --review` | Read working changes, branch commits or a chosen revision pair in the two-pane reader |
-| Explore changes by folder | Git review starts in Tree; Ctrl-X opens View options | Expand folders, switch to All files, jump to an ancestor, or open Change atlas while retaining the current review |
+| Explore changes by folder | Git review → Ctrl-X → Tree | Expand folders, return to All files, jump to an ancestor, or open Change atlas while retaining the current review |
 | Build an editable command | Type `g --review` or `mkcd`, then Option-Return → Compose this command | Edit literal fields and inspect the quoted draft; Replace draft returns to the prompt without executing |
 | Learn a tool's arguments | Its `--help` | Read topics beside their explanations; `g` and `mkcd` also offer Compose example |
 | Recall a command | Ctrl-R | Match remembered fragments in any order; selection returns an editable command |
@@ -362,7 +362,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.editor` | Completion, ZLE editing, and prompt interaction | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; living-prompt redraw/accept transitions, Option-I Context toggle and Option-Return draft inspection; location trail, captured file summaries, shallow previews, action plans and Back bookmarks; fuzzy `Ctrl-R` with literal command reading and history autosuggestions; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware action cards with exact-target plans for files, folders and links; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.compose` | Guided command drafts | Option-Return on supported drafts and explicit Compose example actions in help open editable fields with a literal command preview; Git review and directory templates opt in through same-source companions; Replace draft inserts after screen cleanup and never executes; shared candidate exclusion preserves each view’s matching and action rules |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; file review defaults to a bounded Tree with captured-folder summaries, with All files, Jump to ancestor and Change atlas in Ctrl-X View options; shared file → focused diff → full-context reading preserves exact changes, filters and reading positions; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; file review defaults to All files, with a bounded Tree and captured-folder summaries as the second view, plus Jump to ancestor and Change atlas in Ctrl-X View options; shared file → focused diff → full-context reading preserves exact changes, filters and reading positions; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently; shared candidate exclusion preserves each view’s matching and action rules |
@@ -1984,7 +1984,7 @@ while following. Ctrl-A retains its normal beginning-of-line meaning at the
 prompt and is a refresh toggle only in Working changes. Ctrl-R opens history at the prompt, refreshes Git review,
 and advances results in ordinary pickers without a refresh capability.
 Ctrl-X opens View options from Working changes, Commit files and Comparison:
-Tree, All files, Jump to ancestor, and Change atlas. Atlas child readers do not
+All files, Tree, Jump to ancestor, and Change atlas. Atlas child readers do not
 offer these options again. The arrow flow
 retains its separate context-disclosure meaning.
 
@@ -3603,24 +3603,26 @@ Choose **Working changes** to review your current edits. If the checkout is
 clean, choose **Branch commits** and open a commit to explore its changed files.
 Both lead to the same file navigator and reader.
 
-1. Move onto a folder: the right pane shows its captured **Folder summary**.
+1. Review starts in **All files**. Move onto a file: its diff appears, with its
+   path in a readable heading even while the left pane has focus. Right/Tab
+   focuses the reader; Left returns from a focused diff to the file list.
+2. Press **Ctrl-X**, then **2** for **Tree**. Move onto a folder: the right pane
+   shows its captured **Folder summary**.
    Press Enter to collapse or expand it. Files within the first three visible
    directory levels are already exposed; **Open folder** enters a deeper scope.
-2. Move onto a file: its diff appears, with its path in a readable heading even
-   while the left pane has focus. Right/Tab focuses the reader; Left returns
-   from a focused diff to the file list.
 3. Press **Ctrl-]** and type a literal phrase to exclude matching changes.
    Ctrl-U clears that field; Ctrl-] switches back to the positive filter.
-4. Press **Ctrl-X**, then **2** for **All files**. Use Ctrl-X, then **1** to
-   return to **Tree**, preserving the current change and filters.
+4. Press **Ctrl-X**, then **1** to return to **All files**, preserving the
+   current change and filters.
 5. Press **Ctrl-K** for all applicable keys. Its shortcut stays at the end of
    the bar when other hints are omitted. Ctrl-K closes the guide and restores
    your position; Escape returns through deeper scopes or exits the review.
 
 #### Tree, folder summaries, and file reading
 
-Working changes, Commit files and comparisons start with **Tree** in a
-**two-pane review workspace**. The first three directory levels open by default,
+Working changes, Commit files and comparisons start with **All files** in a
+**two-pane review workspace**. **Tree** is the second option in Ctrl-X → View
+options. In Tree, the first three directory levels open by default,
 including their files. Enter expands or collapses a folder. At the
 fourth visible directory level, the action becomes **Open folder**: the same
 panel shows that folder's children, with its scope above. Escape returns to
@@ -3630,8 +3632,9 @@ captured change entries, including separate staged and unstaged entries.
 One space per directory level keeps the tree compact; a space after each
 folder arrow separates it from the name, and files align with their parent name.
 
-**Ctrl-X opens View options**. Choose **Tree** or **All files** with Enter,
-or use the menu's visible digits (`Ctrl-X`, then `1` or `2`). All files gives
+**Ctrl-X opens View options**. Choose **All files** or **Tree** with Enter,
+or use the menu's visible digits (`Ctrl-X`, then `1` for All files or `2` for Tree).
+All files gives
 each change a clean filename and a separate status label. Duplicate filenames
 from different folders include their parent path. The menu's details show the
 selected file or folder's captured path; Tab focuses that wrapped explanation.
@@ -3660,7 +3663,7 @@ ancestors. Clearing the filters restores the unfiltered folds and scope.
 Refresh keeps surviving folds and the selected row's screen position where
 possible, and returns a vanished scope to its nearest captured ancestor.
 View choice and navigation state last only for this review;
-opening a new review starts in Tree. None of these navigation steps discovers
+opening a new review starts in All files. None of these navigation steps discovers
 directories or reads additional file content.
 
 A narrow

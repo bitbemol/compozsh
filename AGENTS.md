@@ -1674,7 +1674,7 @@ passive labels never acquire candidate numbers or selection behavior.
   Right discloses file navigator → focused diff → full-file context; Left
   reverses the sequence. At either boundary the arrow is inert. Untracked
   previews and metadata/notices have one reading level. Ctrl-R refreshes the
-  file workspace. Ctrl-X opens View options (Tree, All files, Jump to ancestor,
+  file workspace. Ctrl-X opens View options (All files, Tree, Jump to ancestor,
   Change atlas) where that capability is present; an atlas child reader does
   not recursively offer these options.
   Tab/Shift-Tab and Ctrl-E/B change only pane focus and preserve context mode;
@@ -1808,7 +1808,7 @@ passive labels never acquire candidate numbers or selection behavior.
   Full-file context is opt-in and retains the same capture bounds.
   These bounds do not promise a wall-clock timeout or bound Git's own
   memory/CPU usage. Do not add background processes or persistent caches.
-- File review defaults to Tree; All files is an alternate projection of the
+- File review defaults to All files; Tree is the second, alternate projection of the
   same captured changes. Ctrl-X opens their shared View options menu and the
   captured-path ancestor chooser. Keep original file/change-kind identities,
   status labels, filters and reader bookmarks across projection changes.

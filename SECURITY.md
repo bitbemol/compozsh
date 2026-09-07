@@ -220,7 +220,7 @@ and tools, and the editor/help handoffs. Run `zsh tests/run.zsh 'command compose
 for quoting, explicit authority, real local refs, no-execution, fallback,
 native live preview, resize, Back and post-cleanup insertion checks.
 
-Git file review starts in **Tree**, with **All files** and **Jump to ancestor**
+Git file review starts in **All files**, with **Tree** and **Jump to ancestor**
 in Ctrl-X View options. Both file views derive exclusively from the captured
 Git list, including deleted path prefixes and distinct staged/unstaged entries.
 Folding, changing scope, ancestor selection and switching projections perform

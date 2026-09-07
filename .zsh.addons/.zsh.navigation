@@ -548,14 +548,15 @@ _compozsh_help_g() {
     'Read-only Git review:' \
     '  Ctrl-X review opens the Git review chooser when .zsh.git-review is enabled.' \
     '  g --review opens these choices directly in the current checkout.' \
-    '  File review starts in Tree. Enter expands/collapses a captured folder;' \
+    '  File review starts in All files. Ctrl-X offers Tree as the second view.' \
+    '  In Tree, Enter expands/collapses a captured folder;' \
     '  files within the first three directory levels are visible by default.' \
     '  At the fourth directory level, Open folder moves the tree scope inward.' \
     '  Nonbranching captured directory chains are compacted. Escape restores' \
     '  the previous tree scope; folder selection shows a captured change summary.' \
     '  Folder summaries show change-state bars, the busiest child areas, and' \
     '  captured line totals for commits/comparisons. File reading positions survive.' \
-    '  Ctrl-X opens View options: Tree, All files, Jump to ancestor, Change atlas.' \
+    '  Ctrl-X opens View options: All files, Tree, Jump to ancestor, Change atlas.' \
     '  All files keeps clean filenames and separate change states; duplicate' \
     '  filenames show their parent. View options details disclose the selected path.' \
     '  Filters include collapsed paths; clearing restores unfiltered folds.' \
