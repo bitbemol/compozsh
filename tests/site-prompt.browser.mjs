@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { scenes } from '../docs/demo-data.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
-const origin = process.env.SITE_URL || 'http://127.0.0.1:4174/';
+const origin = process.env.SITE_URL || 'http://127.0.0.1:4173/';
 assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname));
 const browser = await chromium.launch();
 try {

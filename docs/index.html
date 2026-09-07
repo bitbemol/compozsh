@@ -61,7 +61,7 @@
           </div>
           <div class="demo-controls" aria-label="Simulation controls">
             <div class="demo-entry"><span id="demo-command-label">CHANGE</span><span id="demo-command" class="command">cd ~/Projects/example-app</span></div>
-            <div class="demo-example-row"><div id="demo-example-control" hidden><label for="demo-example">Example</label><select id="demo-example"></select></div></div>
+            <div class="demo-example-row"><div id="demo-example-control" hidden><label for="demo-example">Example</label><select id="demo-example"></select></div><div id="review-view-control" hidden><label for="review-view">Review view</label><select id="review-view"><option value="all">All files</option><option value="tree">Tree</option></select></div></div>
           </div>
           <div class="terminal-body" id="demo-panel" role="tabpanel" aria-labelledby="tab-prompt">
             <div class="shell-prompt" aria-label="Synthetic living prompt showing Context, Interaction lenses, and command receipts">
@@ -100,24 +100,28 @@
                 <button class="result-row" disabled><span class="result-number">[3]</span><span class="result-cursor" aria-hidden="true"> </span><span>▸ Projects/</span></button>
               </div>
               <div class="search-line"><label for="demo-query"><span id="demo-input-label">Filter folders</span> <span aria-hidden="true">›</span></label><input id="demo-query" type="text" value="" maxlength="120" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="demo-hint" disabled></div>
-              <p class="picker-keys" id="demo-hint"><span class="picker-primary">↵ preview</span><span id="demo-back-hint">Esc cancel</span><span>↑/↓ move</span><span>1–5 with empty input</span></p>
+              <div class="search-line exclusion-line" hidden><label for="demo-exclude">Exclude contains ›</label><input id="demo-exclude" type="text" aria-label="Exclude results containing" maxlength="120" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+              <p class="picker-keys" id="demo-hint"><span class="picker-primary">↵ preview</span><span id="demo-back-hint">Esc cancel</span><span>↑/↓ move</span><span id="demo-digit-hint">1–5 with empty input</span></p>
             </div>
             <div id="journey-demo" hidden></div>
             <div id="git-review-demo" hidden>
               <div class="review-heading"><strong>Working changes</strong><span>READ ONLY</span></div>
-              <p class="review-summary">0 staged · 3 unstaged · auto on · checked now · updated now</p>
+              <p class="review-summary">2 unstaged · 1 new · fixed snapshot</p>
+              <p id="review-scope" class="review-scope">All files · Repository · captured sample</p>
               <div class="review-workspace">
                 <div class="review-pane review-navigator" aria-label="Changed files">
                   <p class="review-pane-title"><span>FILES</span><span id="review-file-count">3</span></p>
                   <div id="review-files" role="listbox" aria-label="Synthetic changed files"></div>
                 </div>
                 <div class="review-pane review-reader" aria-label="Selected file diff">
-                  <p class="review-pane-title"><span>DIFF</span><span>FOCUSED · 3 CONTEXT</span></p>
+                  <p class="review-pane-title"><span id="review-detail-kind">FOCUSED DIFF</span><span>READ ONLY</span></p>
                   <p id="review-file-title" class="review-file-title"></p>
                   <div id="review-lines" class="review-lines" tabindex="0" aria-label="Synthetic read-only diff"></div>
                 </div>
               </div>
-              <p class="review-keys"><span>↑/↓ files</span><span>→ read</span><span>→ full file</span><span>Ctrl-A pause auto</span><span>Ctrl-R refresh now</span></p>
+              <div class="search-line"><label for="review-query">Filter all changes ›</label><input id="review-query" type="text" aria-label="Filter all changes" maxlength="120" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+              <div class="search-line exclusion-line" hidden><label for="review-exclude">Exclude contains ›</label><input id="review-exclude" type="text" aria-label="Exclude changes containing" maxlength="120" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+              <p class="review-keys"><span>↵ read / fold</span><span>↑/↓ move</span></p>
             </div>
           </div>
           <div class="terminal-status"><span><span class="status-dot" aria-hidden="true"></span> Fixed simulation · local-only examples</span><span aria-hidden="true">UTF-8</span></div>
@@ -152,7 +156,7 @@
       <div class="feature-list">
         <article class="feature-row"><span class="feature-index">01</span><div><h3>A place, a search, a next step.</h3><p>Open <code>~/</code>, <code>./</code> or another path with Tab. Ctrl-F searches beneath the displayed folder. Select a file, then choose Open, Reveal in Finder, Copy or Insert. Option-Tab brings your recent folders into the same workspace.</p><div class="key-pair"><kbd>Tab</kbd><span>browse</span><kbd>Ctrl-F</kbd><span>search</span><kbd>↵</kbd><span>choose an action</span></div><a class="text-link" href="https://github.com/bitbemol/compozsh#filesystem-search-in-the-path-workspace">Understand search sources <span aria-hidden="true">→</span></a></div></article>
         <article class="feature-row"><span class="feature-index">02</span><div><h3>Remember just enough.</h3><p>Find a command by the fragments you remember, in any order. History search returns it to your editable prompt, ready for you to review and run.</p><div class="key-pair"><kbd>Ctrl</kbd><span>+</span><kbd>R</kbd><span>your history, within reach</span></div></div></article>
-        <article class="feature-row"><span class="feature-index">03</span><div><h3>Review every change in context.</h3><p>Open a read-only, two-pane Git workspace. Move through changed files on the left and read focused, syntax-aware diffs on the right. Working changes refreshes locally while preserving your focus and source position.</p><div class="key-pair"><kbd>g</kbd><span>branches</span><kbd>Ctrl-X</kbd><span>review</span><kbd>Ctrl-A</kbd><span>pause auto</span><kbd>Ctrl-R</kbd><span>refresh now</span></div><a class="text-link" href="https://github.com/bitbemol/compozsh#read-only-git-review">Explore Git review <span aria-hidden="true">→</span></a></div></article>
+        <article class="feature-row"><span class="feature-index">03</span><div><h3>Review every change in context.</h3><p>Start in All files, with clear change states beside each filename. Choose Tree to expand folders and read their captured change summaries. Selecting a file opens its focused, syntax-aware diff. Both views retain your filters and reading position; Working changes refreshes locally.</p><div class="key-pair"><kbd>g --review</kbd><span>open review</span><kbd>Ctrl-X</kbd><span>views</span><kbd>Ctrl-]</kbd><span>filter/exclude</span></div><a class="text-link" href="https://github.com/bitbemol/compozsh#read-only-git-review">Explore Git review <span aria-hidden="true">→</span></a></div></article>
         <details class="more-features"><summary>And the small things that add up.</summary><dl>
           <div><dt>Read as you type</dt><dd>Live syntax highlighting separates commands, paths, arguments, and operators.</dd></div>
           <div><dt>Know the intent</dt><dd>Local manual summaries explain ordinary commands. Compozsh help describes recognized tool operations, and unchanged stock aliases keep their own explanations.</dd></div>
@@ -166,7 +170,7 @@
     </section>
     <section class="workspace-note wrap" aria-labelledby="workspace-title">
       <div><p class="eyebrow">One shared interaction</p><h2 id="workspace-title">Room to focus.<br><em>A clear way back.</em></h2></div>
-      <div><p>Files, branches, history, help and Git review share a full-screen grammar: a clear title, one primary task, visible focus and quiet secondary context. The layout adapts to your terminal, and transitions preserve your place.</p><p>Arrows follow spatial disclosure. Enter applies the action shown. Escape goes back. Ctrl-K reveals the available keys. Closing restores your terminal; inserted paths stay visible for review.</p><a class="text-link" href="https://github.com/bitbemol/compozsh#a-full-screen-workspace-for-every-picker">Explore the shared controls <span aria-hidden="true">→</span></a></div>
+      <div><p>Files, branches, history, help and Git review share a full-screen grammar: a clear title, one primary task, visible focus and quiet secondary context. Selected paths and pane titles stay readable as focus moves. The layout adapts to your terminal, and transitions preserve your place.</p><p>Arrows follow spatial disclosure. Enter applies the action shown. Escape goes back. Ctrl-] switches between filtering and exclusion where available. The last shortcut, Ctrl-K, opens all applicable keys, with distinct colors for labels, descriptions and notes. Press it again to return to your place. Closing restores your terminal; inserted paths stay visible for review.</p><a class="text-link" href="https://github.com/bitbemol/compozsh#a-full-screen-workspace-for-every-picker">Explore the shared controls <span aria-hidden="true">→</span></a></div>
     </section>
     <section class="architecture" id="architecture" aria-labelledby="architecture-title">
       <div class="wrap architecture-grid">

@@ -386,13 +386,18 @@ export const scenes = {
   },
   'files-recents': {
     mode: 'files', label: 'Recent folders', command: 'Option-Tab', title: 'Recent directories', query: '',
+    slotBase: 0,
     scope: 'This shell · native directory stack', input: 'Filter recents',
     benefit: 'Recall a place. Continue from there.',
     description: 'Option-Tab recalls this shell’s visited folders. Enter inserts the path; Ctrl-O browses it. Enable Use Option as Meta key in your Terminal profile.',
     hint: 'Try “docs”. Recents uses the native stack; each shell has its own.',
     docs: `${readme}navigation-stacks`,
-    items: ['~/Projects/example-app', '~/Projects/docs', '~/Downloads'].map(label => ({
-      label, kind: 'directory', preview: `Editable path: ${label}\nEnter at the normal prompt changes directory. Browser preview only.`,
+    items: [
+      ['~/Projects/example-app', 'example-app/', 'current · ~/Projects'],
+      ['~/Projects/docs', 'docs/', 'previous · ~/Projects'],
+      ['~/Downloads', 'Downloads/', 'visited · ~'],
+    ].map(([label, displayLabel, context]) => ({
+      label, displayLabel, context, kind: 'directory', preview: `Editable path: ${label}\nEnter at the normal prompt changes directory. Browser preview only.`,
     })),
   },
   'files-project': {
@@ -434,31 +439,31 @@ export const scenes = {
   },
   'git-review': {
     mode: 'git', label: 'Review changes', layout: 'review', command: 'g → Ctrl-X',
-    title: 'Working changes', query: '', scope: 'Working changes · auto on · checked now · updated now',
+    title: 'Working changes', query: '', scope: 'Working changes · All files · captured sample',
     input: 'Filter files', benefit: 'Review the change. Keep your flow.',
-    description: 'A focused file navigator and independently scrollable reader bring working changes into one native workspace. Local changes refresh automatically without moving your reading focus.',
-    hint: 'In Zsh: → focuses the diff; → again reveals full-file context; Ctrl-A pauses auto and Ctrl-R refreshes now.',
+    description: 'Start with All files, or choose Tree to explore folders and their change summaries. Full paths stay readable in the reader. Filter or exclude captured changes, and open the shared keyboard guide for available controls.',
+    hint: 'Try Tree in Review view, select a folder, then Enter to fold it. Ctrl-] reveals exclusion; Ctrl-K shows this simulation’s keys. Native Ctrl-X offers more views; refresh and full-file disclosure are described in the docs.',
     docs: `${readme}read-only-git-review`,
     items: [
       {
         label: 'README.md', status: 'Unstaged M', preview: [
           { old: '2171', next: '2171', kind: 'context', text: 'The selected file stays anchored while the reader moves.' },
-          { old: '2172', next: '', kind: 'removed', text: 'Ctrl-R refreshes the selected snapshot.' },
-          { old: '', next: '2172', kind: 'added', text: 'Working changes refreshes automatically.' },
-          { old: '', next: '2173', kind: 'added', text: 'Focus and source position remain visible.' },
+          { old: '2172', next: '', kind: 'removed', text: 'File review starts in Tree.' },
+          { old: '', next: '2172', kind: 'added', text: 'File review starts in All files.' },
+          { old: '', next: '2173', kind: 'added', text: 'Ctrl-X offers Tree and folder summaries.' },
           { old: '2173', next: '2174', kind: 'context', text: 'Arrow disclosure keeps the same selected file.' },
         ],
       },
       {
-        label: '.zsh.addons/.zsh.git-review', status: 'Unstaged M', preview: [
-          { old: '812', next: '812', kind: 'context', segments: [
-            { text: 'local', token: 'keyword' }, { text: ' selected_path=$1', token: 'text' },
+        label: '.zsh.addons/support/ui/.zsh.ui_picker_footer', status: 'Unstaged M', preview: [
+          { old: '97', next: '97', kind: 'context', segments: [
+            { text: 'local', token: 'keyword' }, { text: ' guide_hint', token: 'text' },
           ] },
-          { old: '813', next: '', kind: 'removed', text: '_git_review_capture "$selected_path"' },
-          { old: '', next: '813', kind: 'added', segments: [
-            { text: '_git_review_refresh', token: 'function' }, { text: ' "$selected_path"', token: 'string' },
+          { old: '98', next: '', kind: 'removed', text: "guide_hint='^K keys'" },
+          { old: '', next: '98', kind: 'added', segments: [
+            { text: 'guide_hint=', token: 'variable' }, { text: "'^K all keys'", token: 'string' },
           ] },
-          { old: '814', next: '814', kind: 'context', segments: [
+          { old: '99', next: '99', kind: 'context', segments: [
             { text: 'return', token: 'keyword' }, { text: ' $?', token: 'variable' },
           ] },
         ],

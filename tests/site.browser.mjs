@@ -134,6 +134,8 @@ try {
   assert.match(await page.locator('#demo-scope').innerText(), /Git/);
   assert.equal(await page.locator('.result-row').count(), 3);
   await page.locator('#demo-query').fill('plan');
+  await page.locator('#demo-query').press('Control+]');
+  await page.locator('#demo-exclude').fill('sources');
   await page.getByRole('button', { name: 'Preview file Notes/Network client plan.md', exact: true }).click();
   assert.equal(await page.locator('#picker-title').innerText(), 'File actions');
   assert.equal(await page.locator('.result-row').count(), 4);
@@ -147,12 +149,32 @@ try {
   assert.equal(await page.locator('#demo-query').inputValue(), 'plan');
   assert.equal(await page.locator('#picker-title').innerText(), 'Files');
   assert.equal(await page.locator('.result-row').count(), 1);
+  assert.equal(await page.locator('#demo-exclude').isVisible(), true);
+  assert.equal(await page.locator('#demo-exclude').inputValue(), 'sources');
   await page.getByLabel('Example', { exact: true }).selectOption('files-home');
   assert.equal(await page.locator('#demo-command').innerText(), '~/ + Tab → Ctrl-F');
   await page.locator('#demo-query').fill('2026');
   assert.equal(await page.locator('.result-row').count(), 2);
   await page.getByLabel('Example', { exact: true }).selectOption('files-recents');
   assert.equal(await page.locator('#demo-command').innerText(), 'Option-Tab');
+  assert.equal(await page.locator('.result-number').first().innerText(), '[0]');
+  await page.locator('#demo-query').press('0');
+  assert.match(await page.locator('#demo-output').innerText(), /Editable path: ~\/Projects\/example-app/);
+  await page.locator('#demo-query').press('Control+]');
+  await page.locator('#demo-exclude').pressSequentially('projects');
+  assert.equal(await page.locator('#demo-query').inputValue(), '');
+  assert.equal(await page.locator('.result-row').count(), 1);
+  await page.locator('#demo-exclude').press('Control+u');
+  assert.equal(await page.locator('.result-row').count(), 3);
+  await page.locator('#picker-demo .all-keys').click();
+  const guideColors = await page.locator('.keyboard-guide').evaluate(guide => ({
+    key: getComputedStyle(guide.querySelector('dt')).color,
+    text: getComputedStyle(guide.querySelector('dd')).color,
+    note: getComputedStyle(guide.querySelector('.guide-note')).color,
+  }));
+  assert.notEqual(guideColors.key, guideColors.text);
+  assert.notEqual(guideColors.text, guideColors.note);
+  await page.keyboard.press('Escape');
   await page.getByRole('tab', { name: 'Git', exact: true }).click();
   await page.locator('#demo-query').fill('docs');
   await page.locator('#demo-query').press('Enter');
@@ -172,6 +194,33 @@ try {
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.locator('.review-file-row.selected').innerText(), lastReviewFile,
     'Git navigator movement must stop at the last file');
+  assert.equal(await page.getByLabel('Review view', { exact: true }).inputValue(), 'all');
+  await page.getByLabel('Review view', { exact: true }).selectOption('tree');
+  await page.getByRole('option', { name: /tests\// }).first().click();
+  assert.match(await page.locator('#review-lines').innerText(), /1 change entry.*1 distinct path/s);
+  assert.equal(await page.locator('.review-line').count(), 0, 'Folder selection replaces the previous diff');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.getByRole('option', { name: /git_refresh_test.zsh/ }).count(), 0);
+  await page.getByLabel('Filter all changes', { exact: true }).fill('refresh');
+  assert.equal(await page.getByRole('option', { name: /git_refresh_test.zsh/ }).count(), 1,
+    'Filtering includes files inside collapsed folders');
+  await page.getByLabel('Filter all changes', { exact: true }).press('Control+]');
+  await page.getByLabel('Exclude changes containing', { exact: true }).fill('NEW');
+  assert.equal(await page.locator('.review-file-row').count(), 0);
+  assert.match(await page.locator('#review-lines').innerText(), /No matching changes/);
+  await page.locator('#git-review-demo .all-keys').click();
+  assert.equal(await page.getByRole('dialog', { name: 'Keyboard guide' }).isVisible(), true);
+  assert.match(await page.locator('.keyboard-guide').innerText(), /Ctrl-\]/);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByLabel('Exclude changes containing', { exact: true }).inputValue(), 'NEW');
+  await page.getByLabel('Exclude changes containing', { exact: true }).fill('');
+  await page.getByLabel('Filter all changes', { exact: true }).fill('');
+  await page.locator('.review-file-row').first().focus();
+  await page.keyboard.press('Control+k');
+  await page.getByLabel('Review view', { exact: true }).selectOption('all');
+  await page.getByRole('button', { name: 'Ctrl-K close', exact: true }).click();
+  assert.equal(await page.locator('.review-file-row.selected').evaluate(node => document.activeElement === node), true,
+    'Closing the guide restores keyboard focus after a view change replaces its original row');
   await page.getByRole('tab', { name: 'Tools', exact: true }).click();
   assert.equal(await page.getByLabel('Example', { exact: true }).isVisible(), true,
     'Tools exposes its related help and action examples');
@@ -281,7 +330,10 @@ try {
   await page.getByText('Prefer a copy instead of a symlink?', { exact: true }).click();
   assert.equal(await page.locator('.more-features').getAttribute('open'), null);
   await page.locator('.more-features summary').click();
-  assert.equal(await page.locator('.more-features dd').count(), 4);
+  assert.deepEqual(await page.locator('.more-features dt').allTextContents(), [
+    'Read as you type', 'Know the intent', 'Keep version context', 'One active prompt',
+    'Keep a useful thought', 'Make reference readable', 'Handle the sharp edges',
+  ]);
   await page.locator('.more-features summary').click();
   const responsiveWidths = [1440, 1100, 1059, 1058, 1024, 1000, 941, 940, 768, 390, 320];
   for (const width of responsiveWidths) {
@@ -374,6 +426,17 @@ try {
     }), `File actions fit at ${width}px`);
     await page.getByRole('tab', { name: 'Git', exact: true }).click();
     await page.getByLabel('Example', { exact: true }).selectOption('git-review');
+    assert.ok(await page.locator('#demo-example').evaluate(select => {
+      const canvas = document.createElement('canvas').getContext('2d');
+      canvas.font = getComputedStyle(select).font;
+      return canvas.measureText(select.selectedOptions[0].textContent).width + 40 <= select.clientWidth;
+    }), `Review controls must leave the example label readable at ${width}px`);
+    await page.locator('#git-review-demo .all-keys').click();
+    assert.ok(await page.locator('.keyboard-guide').evaluate(guide => {
+      const area = guide.getBoundingClientRect(), close = guide.querySelector('.guide-close').getBoundingClientRect();
+      return close.top >= area.top && close.bottom <= area.bottom && close.right <= area.right;
+    }), `The guide close control stays visible at ${width}px`);
+    await page.getByRole('button', { name: 'Ctrl-K close', exact: true }).click();
     const reviewGeometry = await page.locator('.review-workspace').evaluate(workspace => {
       const bounds = workspace.getBoundingClientRect();
       const files = document.querySelector('#review-files').getBoundingClientRect();

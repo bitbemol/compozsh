@@ -1,7 +1,7 @@
 # The website is an optional static surface, never a shell dependency.
 _test_site_static_contract() {
   local site_dir="$TEST_REPO_ROOT/docs" site_file='' html='' css='' script=''
-  for site_file in index.html styles.css app.mjs composition.mjs search.mjs demo-data.mjs journeys.mjs .nojekyll; do
+  for site_file in index.html styles.css app.mjs composition.mjs search.mjs demo-data.mjs journeys.mjs review.mjs keyboard-guide.mjs .nojekyll; do
     [[ -f "$site_dir/$site_file" ]] || {
       test_fail "missing static website file: $site_file"
       return 1

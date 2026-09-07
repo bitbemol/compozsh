@@ -24,11 +24,22 @@ directional and unverified toolchain warnings; command/outcome and empty or
 spaces-only receipts; and the following READY frame with its captured
 TOOLCHAIN and LAST outcome. Nothing autoplays. Files and Git reveal the same selector for
 their specialized scenarios. Git includes the
-two-pane, read-only Working changes workspace:
-changed files remain visible on the left while the selected focused diff stays
-independently readable on the right. Each scenario has a benefit, short explanation, useful
+two-pane, read-only Working changes workspace. Each scenario has a benefit, short explanation, useful
 starting hint, and a link to the corresponding product documentation.
 Secondary features live in an expandable section below the hero.
+
+Keep Git presentation aligned with the native review: **All files** is the
+default and first View option; **Tree** is second. All files separates names
+from change states and adds parent paths for duplicate names. Tree opens three
+visible directory levels with their files and presents fourth-level folders
+collapsed; nonbranching directory chains share a row. Folder selection shows
+a captured summary of change states and child areas, while file selection
+shows its diff. The native reader retains independent file and folder reading
+positions. Its complete captured list is searchable through both positive
+and literal exclusion filters, including descendants hidden by folds.
+Describe these as native capabilities unless the particular browser flow
+implements them against its fixed sample. View controls and sample data never
+authorize filesystem discovery or additional content capture.
 
 The **Try a flow** links enter Help → Compose, the Command composer, and the
 Change atlas inside that same terminal. A three-part section explains their
@@ -46,7 +57,12 @@ visible on narrow screens, and navigation user-controlled. Follow the
 and selection behavior.
 
 `demo-data.mjs` holds synthetic examples, documentation links, and safe preview
-outcomes. `app.mjs` shares rendering, search, and keyboard behavior across them.
+outcomes. `app.mjs` coordinates scenes and ordinary pickers; `search.mjs`
+matches complete sample labels and literal exclusions while preserving exact
+item identities. `review.mjs` derives the Git sample's file/folder rows and
+summaries and owns its selection and reading positions. `keyboard-guide.mjs`
+shares guide and exclusion controls between Git and ordinary pickers, preserving
+the caller's displayed content while its guide is open.
 Ordinary picker examples show at most five choices and refine across the entire
 small sample. The Help journey retains six scrollable topics. These are
 illustrative fixtures, not Compozsh's actual search limits.
@@ -151,10 +167,29 @@ documented in README. Pane scrolling and inputs remain accessible on phones;
 all five task tabs preserve the terminal's frame size.
 Preserve the product's visible-focus grammar in multi-pane examples: the primary
 navigator and contextual reader remain spatially stable, while selection and
-pane headings make the active task legible. The entry
+pane headings make the active task legible. Keep the selected path or pane
+title in the heading color when the navigator has focus; its caret, divider
+and selected-row treatment communicate focus separately. Native shortcut bars
+reserve their final **Ctrl-K all keys** control before fitting optional hints;
+the guide ends with **Ctrl-K close**. Guide labels use the heading role,
+descriptions use ordinary text, and general notes use muted text. Caller-owned
+context stays literal. Show **Ctrl-] filter/exclude** only where the browser
+flow actually supports those fields, with an accessible browser control when
+the shortcut is unavailable. The entry
 row teaches the real key sequence; the demo footer describes browser controls.
 Website Escape displays cancellation feedback or returns from its action menu, while
 the product's Escape cancels/returns. All task tabs retain the same frame size.
+
+The Git simulation uses three fixed files. Its browser **View** selector offers
+All files first and Tree second. Selecting a numbered folder shows change-state
+counts and its busiest immediate child areas; Enter expands or collapses its
+sample children. Positive filtering and literal exclusion both match the sample
+files' complete paths and status text. The selected file's path remains a
+prominent reader heading. The shared guide provides labeled controls for Git
+and ordinary picker examples. These browser controls do not reproduce the
+native Ctrl-X menu, deeper-scope navigation, full-file disclosure, automatic
+refresh, or provider timing. Keep the fixed sample's shallow tree distinct
+from the native three-expanded-level limit.
 
 Spotlight examples acknowledge index incompleteness. Keep entry-point copy
 aligned with the README; the retired `d` and `f` commands are not entry points.
@@ -198,6 +233,13 @@ In the atlas, compare folder counts, open both staged and unstaged entries for
 the same file, and go Back twice. Check all three at 320px, 390px and desktop
 widths, including independently scrollable panes and unchanged terminal height.
 
+For Git review, confirm the initial All files selection, status labels and
+readable selected-path heading. Exercise each implemented view, folder-summary,
+filter/exclusion and keyboard-guide control against the fixed sample; verify
+empty results and return paths. Check guide labels, descriptions and notes in
+the shared terminal palette, preserve its trailing open/close shortcut, and distinguish native
+refresh/disclosure capabilities from any browser actions that only explain them.
+
 ## Tests
 
 The dependency-free shell suite also checks the website's static boundary:
@@ -207,10 +249,11 @@ zsh tests/run.zsh website
 ```
 
 If Node.js is available as a development tool, its built-in test runner checks
-the demo's pure search behavior and bounded fixtures without installing packages:
+the demo's pure search behavior, exact picker identities, Git projections and
+folder counts, and bounded fixtures without installing packages:
 
 ```sh
-node --test tests/site.test.mjs tests/site-scenes.test.mjs
+node --test tests/site.test.mjs tests/site-scenes.test.mjs tests/site-picker.test.mjs tests/site-review.test.mjs
 ```
 
 The optional real-browser check uses an existing development installation of
@@ -220,6 +263,7 @@ With the local server above running and Playwright available to Node:
 ```sh
 node tests/site.browser.mjs
 node tests/site-prompt.browser.mjs
+node --test tests/site-review.browser.mjs
 ```
 
 `NODE_PATH` may point to an existing package directory. `SITE_URL` can point to
@@ -229,9 +273,13 @@ review artifacts outside the repository. The test stubs clipboard access, never
 runs shell commands, refuses non-local URLs, and checks the fixed living-prompt
 Interaction modes, literal/captured/advisory row distinction, transcript and
 next READY/LAST frame, keyboard behavior, literal input, captured file scopes, branch
-previews, copy success/failure, composition permutations and repeated loads,
+previews, Git view switching and folder summaries, literal exclusion, guide
+colors and return state, copy success/failure, composition permutations and repeated loads,
 stable tab geometry, responsive overflow, reduced motion, no-JavaScript
 content, and the absence of third-party requests.
+The separate Git component browser checks use a larger synthetic fixture to
+exercise deep scopes, filtered folds, duplicate changes, reader positions and
+literal digits without enlarging the public three-file demonstration.
 
 ## GitHub Pages — only after visual approval
 

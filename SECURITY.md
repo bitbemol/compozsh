@@ -1053,6 +1053,15 @@ the demo. The atlas derives groups from six fixed synthetic change entries;
 it reads no visitor files. These illustrative limits and browser controls are
 separate from the native tool contracts above.
 
+Picker and Git-review browser filters each accept at most 120 characters per
+field. Positive filters and literal exclusion derive results from fixed sample
+paths, labels and context; they discover no files. The Git example retains its
+view choice, folder folds, selection and reading positions in page memory and
+derives folder summaries from three synthetic change entries. Keyboard guides
+retain only their caller's browser focus. Re-entering an example resets its
+controls; reloading or closing the page discards this temporary state. These controls use no browser
+storage, clipboard, provider lookup or network request.
+
 ## Audit a commit before installing
 
 Run these commands from the clone. They use the required Git and stock shell

@@ -1,6 +1,8 @@
-import { findMatches } from './search.mjs';
+import { findItemMatches } from './search.mjs';
 import { scenes, fileActions } from './demo-data.mjs';
 import { showJourney } from './journeys.mjs';
+import { showReview } from './review.mjs';
+import { attachKeyboardGuide } from './keyboard-guide.mjs';
 import './composition.mjs';
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const panel = document.querySelector('#demo-panel');
@@ -9,8 +11,6 @@ const results = document.querySelector('#demo-results');
 const output = document.querySelector('#demo-output');
 const example = document.querySelector('#demo-example');
 const review = document.querySelector('#git-review-demo');
-const reviewFiles = document.querySelector('#review-files');
-const reviewLines = document.querySelector('#review-lines');
 const shellPrompt = document.querySelector('.shell-prompt');
 const interactionMode = document.querySelector('#interaction-mode');
 const interactionRows = document.querySelector('#interaction-rows');
@@ -19,6 +19,7 @@ let scene = scenes['prompt-run'];
 let matches = [];
 let selected = 0;
 let bookmark = null;
+let disposeGuide = () => {};
 
 function highlight(index) {
   selected = index;
@@ -34,7 +35,7 @@ function preview(index) {
   if (!match) return;
   highlight(index);
   if (scene.mode === 'files' && match.kind === 'file') {
-    bookmark = { scene, query: query.value, selected };
+    bookmark = { scene, query: query.value, exclude: document.querySelector('#demo-exclude')?.value ?? '', selected };
     scene = { ...scene, title: 'File actions', scope: match.label,
       input: 'Filter actions', query: '', items: fileActions(match),
       hint: 'Choose an action to preview its outcome. Escape returns to your results.',
@@ -48,14 +49,17 @@ function preview(index) {
 
 function renderResults() {
   selected = 0;
-  const labels = scene.matching === 'literal'
-    ? scene.items.filter((item) => `${item.label} ${item.preview}`.toLowerCase().includes(query.value.toLowerCase())).map((item) => item.label)
-    : findMatches(scene.items.map((item) => item.label), query.value);
+  const filtered = findItemMatches(scene.items, query.value,
+    document.querySelector('#demo-exclude')?.value ?? '', scene.matching);
+  const slotBase = scene.slotBase ?? 1;
   // Bound visible choices; refining always searches every item in the sample.
-  matches = labels.slice(0, 5).map((label) => scene.items.find((item) => item.label === label));
+  matches = filtered.slice(0, 5);
   document.querySelector('.picker-primary').hidden = matches.length === 0;
   results.replaceChildren();
-  document.querySelector('#match-count').textContent = `${labels.length} ${labels.length === 1 ? 'match' : 'matches'}${labels.length > matches.length ? ' · 5 shown' : ''}`;
+  document.querySelector('#match-count').textContent = `${filtered.length} ${filtered.length === 1 ? 'match' : 'matches'}${filtered.length > matches.length ? ' · 5 shown' : ''}`;
+  const digitHint = document.querySelector('#demo-digit-hint');
+  if (digitHint) digitHint.textContent = matches.length
+    ? `${slotBase}${matches.length > 1 ? `–${slotBase + matches.length - 1}` : ''} with both fields empty` : '';
   if (!matches.length) {
     const empty = document.createElement('p');
     empty.className = 'empty-results';
@@ -67,7 +71,7 @@ function renderResults() {
     row.type = 'button';
     row.className = 'result-row';
     row.setAttribute('aria-label', `Preview ${item.kind ? `${item.kind} ` : ''}${item.label}`);
-    for (const [className, value] of [['result-number', `[${index + 1}]`], ['result-cursor', ' ']]) {
+    for (const [className, value] of [['result-number', `[${index + slotBase}]`], ['result-cursor', ' ']]) {
       const span = document.createElement('span');
       span.className = className;
       span.textContent = value;
@@ -83,11 +87,11 @@ function renderResults() {
       glyph.textContent = item.kind === 'directory' ? '▸ ' : '· ';
       text.append(glyph);
     }
-    text.append(item.label);
-    if (item.description) {
+    text.append(item.displayLabel ?? item.label);
+    for (const detail of [item.context, item.description].filter(Boolean)) {
       const description = document.createElement('span');
       description.className = 'result-description';
-      description.textContent = item.description;
+      description.textContent = detail;
       text.append(description);
     }
     row.append(text);
@@ -98,79 +102,6 @@ function renderResults() {
   highlight(0);
 }
 
-function appendReviewText(parent, line) {
-  if (line.segments) {
-    for (const segment of line.segments) {
-      const token = document.createElement('span');
-      token.className = `syntax-${segment.token}`;
-      token.textContent = segment.text;
-      parent.append(token);
-    }
-    return;
-  }
-  parent.textContent = line.text;
-}
-
-function selectReviewFile(index, focusReader = false) {
-  selected = Math.max(0, Math.min(index, scene.items.length - 1));
-  const item = scene.items[selected];
-  for (const [rowIndex, row] of [...reviewFiles.children].entries()) {
-    row.classList.toggle('selected', rowIndex === selected);
-    row.setAttribute('aria-selected', String(rowIndex === selected));
-    row.tabIndex = rowIndex === selected ? 0 : -1;
-  }
-  document.querySelector('#review-file-title').textContent = `${item.label} · ${item.status}`;
-  reviewLines.replaceChildren();
-  for (const line of item.preview) {
-    const row = document.createElement('div');
-    row.className = `review-line ${line.kind}`;
-    const oldNumber = document.createElement('span');
-    oldNumber.textContent = line.old;
-    const newNumber = document.createElement('span');
-    newNumber.textContent = line.next;
-    const marker = document.createElement('span');
-    marker.textContent = line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ' ';
-    const code = document.createElement('code');
-    appendReviewText(code, line);
-    row.append(oldNumber, newNumber, marker, code);
-    reviewLines.append(row);
-  }
-  if (focusReader) reviewLines.focus();
-}
-
-function renderReview() {
-  selected = 0;
-  reviewFiles.replaceChildren();
-  document.querySelector('#review-file-count').textContent = String(scene.items.length);
-  for (const [index, item] of scene.items.entries()) {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'review-file-row';
-    row.setAttribute('role', 'option');
-    const name = document.createElement('span');
-    name.textContent = item.label;
-    const status = document.createElement('span');
-    status.textContent = item.status;
-    row.append(name, status);
-    row.addEventListener('focus', () => selectReviewFile(index));
-    row.addEventListener('click', () => selectReviewFile(index));
-    row.addEventListener('keydown', (event) => {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        const next = Math.max(0, Math.min(
-          index + (event.key === 'ArrowDown' ? 1 : -1), scene.items.length - 1,
-        ));
-        selectReviewFile(next);
-        reviewFiles.children[next].focus();
-      } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
-        event.preventDefault();
-        selectReviewFile(index, true);
-      }
-    });
-    reviewFiles.append(row);
-  }
-  selectReviewFile(0);
-}
 
 const promptRoleClasses = {
   danger: 'danger', environment: 'runtime', git: 'git', info: 'command',
@@ -229,6 +160,7 @@ function renderPrompt() {
 }
 
 function showScene() {
+  disposeGuide();
   const isReview = scene.layout === 'review';
   const isJourney = scene.layout === 'journey';
   const journey = document.querySelector('#journey-demo');
@@ -237,6 +169,9 @@ function showScene() {
   journey.replaceChildren();
   document.querySelector('#picker-demo').hidden = scene.mode === 'prompt' || isReview || isJourney;
   review.hidden = !isReview;
+  document.querySelector('#review-view-control').hidden = !isReview;
+  for (const line of document.querySelectorAll('.exclusion-line')) line.hidden = true;
+  document.querySelector('#demo-exclude').value = '';
   document.querySelector('#context-demo').hidden = scene.mode !== 'prompt';
   shellPrompt.hidden = scene.mode !== 'prompt';
   for (const state of document.querySelectorAll('[data-prompt-state]')) {
@@ -255,8 +190,24 @@ function showScene() {
   query.value = scene.query;
   output.textContent = scene.hint;
   if (isJourney) showJourney(journey, scene, scenes, output);
-  else if (isReview) renderReview();
+  else if (isReview) showReview(review, scene, document.querySelector('#review-view'));
   else if (scene.mode !== 'prompt') renderResults();
+  if (scene.mode !== 'prompt' && !isJourney) {
+    const host = isReview ? review : document.querySelector('#picker-demo');
+    const rows = isReview ? [
+      ['↑ / ↓', 'Move through captured files and folders'],
+      ['Enter', 'Read a file; expand or collapse a folder'],
+      ['Right / Left', 'Focus the reader / return to the navigator'],
+      ['Review view', 'Choose All files or Tree in the control above'],
+      ['1–9', 'Apply a visible slot when both filter fields are empty'],
+    ] : [
+      ['Type', 'Refine the captured sample'], ['↑ / ↓', 'Move selection'],
+      ['Enter', 'Preview the selected action'], ['Escape', 'Return from actions or preview cancellation'],
+      [scene.slotBase === 0 ? '0–4' : '1–5', 'Preview a visible slot when both filter fields are empty'],
+    ];
+    disposeGuide = attachKeyboardGuide(host, host.querySelector(isReview ? '.review-keys' : '.picker-keys'), rows,
+      { filter: host.querySelector(isReview ? '#review-query' : '#demo-query'), exclude: host.querySelector(isReview ? '#review-exclude' : '#demo-exclude') });
+  }
 }
 
 function selectScene(id) {
@@ -330,6 +281,7 @@ function refine() {
   output.textContent = scene.hint;
 }
 query.addEventListener('input', refine);
+document.querySelector('#demo-exclude').addEventListener('input', refine);
 document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
   if (event.isComposing || event.metaKey || event.altKey || event.ctrlKey) return;
   if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && matches.length) {
@@ -348,6 +300,11 @@ document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
       scene = previous.scene;
       showScene();
       query.value = previous.query;
+      const exclude = document.querySelector('#demo-exclude');
+      if (exclude) {
+        exclude.value = previous.exclude ?? '';
+        exclude.closest('.exclusion-line').hidden = !exclude.value;
+      }
       renderResults();
       highlight(previous.selected);
       query.focus();
@@ -355,10 +312,11 @@ document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
     }
     output.textContent = 'Picker cancelled. In Zsh, Escape closes the workspace and restores your draft. Browser preview remains available.';
     query.focus();
-  } else if (!query.value && /^[1-9]$/.test(event.key) && matches[Number(event.key) - 1]) {
+  } else if (!query.value && !document.querySelector('#demo-exclude')?.value &&
+      event.target.id !== 'demo-exclude' && /^[0-9]$/.test(event.key) && matches[Number(event.key) - (scene.slotBase ?? 1)]) {
     event.preventDefault();
-    preview(Number(event.key) - 1);
-  } else if (event.target !== query && (event.key.length === 1 || event.key === 'Backspace')) {
+    preview(Number(event.key) - (scene.slotBase ?? 1));
+  } else if (event.target !== query && event.target.id !== 'demo-exclude' && !event.target.closest('.picker-keys') && (event.key.length === 1 || event.key === 'Backspace')) {
     event.preventDefault();
     query.value = event.key === 'Backspace' ? Array.from(query.value).slice(0, -1).join('') : (query.value + event.key).slice(0, 120);
     query.focus();
