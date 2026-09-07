@@ -118,6 +118,7 @@ state:
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax transport FIFOs (not regular source files); validated temporary paths are removed during normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
+| Explicit physical-device app installation | The exact user-selected device, under Apple's native device tools and device storage policy | Build & Run / Rebuild & Run delegate installation of the selected built app to `devicectl`, replacing its installed copy; it remains installed after the console exits or launch fails, until removed by the user or OS. The native console displays app output in terminal-owned scrollback; Compozsh keeps no physical-device log snapshot |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh; may outlive the originating view or run under operating-system/user control | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, bounded Xcode test report, or retained matching Simulator log lines with local paths, diagnostics and sensitive app values; never read back by Compozsh |
 
@@ -558,6 +559,45 @@ never those attachments or source files, rejects a symlink substituted for the
 result bundle, and removes the complete bundle before opening the result view.
 An uncatchable termination can leave the local bundle behind under the
 identifiable `compozsh-xcode-test.*` temporary directory.
+
+Build & Run and Rebuild & Run preserve the captured destination's platform,
+device ID, architecture and variant. A bounded build-settings capture reports
+at most 100 targets; runnable product paths and validated bundle identifiers
+stay in invocation memory. When several products qualify, an explicit Run
+product view selects the exact product. Cancellation launches nothing; no
+filesystem search infers a different product. A symlink leaf or a disappeared
+chosen product is rejected before handoff, without claiming atomic protection
+against concurrent filesystem changes.
+
+Mac Run opens a new instance of the exact built application through native
+`open`, or runs a built command-line product in the restored terminal. App
+launch returns without retaining a process monitor; the app remains under the
+user's control. Command-line products retain native output and exit status.
+The chosen architecture also reaches the native launcher. Application code
+has its own independently controlled access and network behavior.
+
+Physical-device Run explicitly hands the selected app and device ID to Apple's
+`devicectl` for installation and console launch. This native tool communicates
+with the exact user-selected device over its already configured wired or
+wireless connection, as an independently controlled tool boundary analogous to
+explicit Git transport. Compozsh creates no network client, endpoint, broad
+device scan, automatic connection policy or physical-device log file. Device
+pairing/trust, Developer Mode, signing and provisioning stay under Xcode and
+user control. No provisioning updates are enabled. Installation replaces that
+app's installed copy; launch replaces its running instance. `--console` owns
+stdout, waiting and catchable signal forwarding. A failed build or installation
+prevents launch; a failed launch does not roll installation back. Native console
+messages may contain sensitive app values and remain in terminal scrollback.
+The captured architecture is passed to the native device launcher.
+
+For a Simulator destination with a captured architecture, Run requests that
+architecture at boot, then reads only the exact device's `SIMULATOR_ARCHS`
+and `SIMULATOR_RUNTIME_VERSION` through bounded `simctl getenv` captures.
+Version 26 and newer runtimes receive an explicit launch architecture; older
+runtimes must report only the selected architecture. Missing, malformed,
+incompatible or ambiguous output stops before the viewer opens or installation
+and launch occur. Compozsh does not shut down an already-running Simulator to
+change its architecture; the user controls that recovery.
 
 Simulator Build & Run and Rebuild & Run ask only the exact selected device for
 `SIMULATOR_SHARED_RESOURCES_DIRECTORY` through a bounded `simctl getenv`
@@ -1014,7 +1054,9 @@ Compozsh to add a request, destination, or data:
   through a speculative version invocation.
 - Explicit Xcode build, test, analyze, clean, run, LLDB, and Apple skill-export actions
   invoke Apple's tools. Discovery disables automatic package resolution and
-  updates; a chosen build can execute project build phases.
+  updates; a chosen build can execute project build phases. Physical-device Run
+  explicitly asks Apple's `devicectl` to install and launch the app on the
+  selected device over its configured connection, as detailed above.
 - Open and Reveal actions can launch Finder or another installed application.
   That application's later behavior is outside this repository.
 - Explicitly invoking the repository's `compozsh-platform-review` agent skill

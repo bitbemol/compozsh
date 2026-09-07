@@ -95,8 +95,8 @@ for full-sized sessions in one Terminal window.
 - An optional first-loaded `~/.zsh.addons/local/init.zsh` for machine setup
 - Automatic loading of focused, order-independent `.zsh.addons/**/.zsh.<name>`
   files
-- A native Xcode workspace for choosing schemes and destinations, then building,
-  testing, analyzing, cleaning, or running a Simulator app with live output and LLDB
+- A native Xcode workspace for building, testing and running on Mac, Simulator
+  and physical-device destinations, with live Simulator output and LLDB
 - An Xcode add-on that exports Apple-authored skills for common coding agents
 
 The [`.zshrc`](.zshrc) file is only a tiny bootstrap. Every shared feature lives
@@ -258,7 +258,7 @@ compozsh/
 │   ├── .zsh.sudo-touch-id private operations for compozsh --sudo-touch-id
 │   ├── .zsh.tools         small commands, guarded discard and memory refresh
 │   ├── .zsh.usb           external-device tasks, formatting and bootable media
-│   ├── .zsh.xcode         Xcode actions, live logs, LLDB and reviewed skill export
+│   ├── .zsh.xcode         Xcode Mac/device/Simulator actions, logs, LLDB and skill export
 │   └── support/          maintained system-wide components and assets
 │       ├── .zsh.appearance shared light/dark palette and scheme selection
 │       ├── functions/
@@ -374,7 +374,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication operations | Private operations behind `compozsh --sudo-touch-id` inspect, enable, or safely disable Apple Touch ID through the system-supported `sudo_local` PAM policy; no separate public command |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `g --discard-all` with a scoped default-no confirmation screen and plain fallback, and `compozsh --refresh` |
 | `.zsh.usb` | External-disk preparation | `external-device` opens a no-discovery task chooser; `--format` formats a selected whole external physical disk with an applicable Apple `diskutil` personality, and `--flash` handles raw/hybrid images and full macOS installer apps; shared task identity and review/recovery plans precede separate typed confirmation; Windows Setup media ends safely before target selection; shared candidate exclusion preserves each view’s matching and action rules |
-| `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes/destinations in a captured action plan, retaining action filter/focus after configuration; reports test outcomes and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, live log reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes and exact destination variants in a captured action plan for Mac, Simulator and physical-device Build/Test/Run; retains action filter/focus, reports test outcomes, launches Mac apps/tools and uses the native device console; bounded Simulator stdout/stderr and unified logs support Stop, live reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills; shared candidate exclusion preserves each view’s matching and action rules |
 | `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `support/functions/.zsh.impure.compozsh_capture_bounded` | Bounded synchronous command capture | Impure function; entry `_compozsh_capture_bounded` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.compozsh_effect_copy` | Exact clipboard writes | Impure function; entry `_compozsh_effect_copy` first, followed by exclusive helpers |
@@ -470,7 +470,8 @@ creating, renaming, or removing one.
   are deliberately unsupported
 - Git, for cloning and the repository-aware prompt, navigation, and tools
 - A terminal with Unicode and color support; no patched font is required
-- Full Xcode, only for the optional native Xcode workspace; Xcode 27 or newer
+- Full Xcode, only for the optional native Xcode workspace; physical-device
+  Run requires a device supported by that Xcode's `devicectl`. Xcode 27 or newer
   is required for the separate Apple skill exporter
 
 Check the installed versions with:
@@ -2921,20 +2922,57 @@ changed. **Rebuild** and **Rebuild & Test** are slower recovery paths when a
 product or result appears to use older source: they run ordered `clean build` or
 `clean test` actions for that exact scheme and destination. They do not remove
 the entire DerivedData tree or disable Xcode's package and compilation caches.
-Selecting a Simulator also exposes incremental **Build & Run** and recovery
-**Rebuild & Run**; each boots that exact simulator, installs the resulting app,
-and launches its bundle. Run replaces an already-running instance of that bundle
+Every concrete destination offers incremental **Build & Run** and recovery
+**Rebuild & Run** directly below **Scheme** and **Destination** on the first
+action page. Build, Test and Run preserve the exact device, architecture and
+variant, including native Mac, Mac Catalyst and Designed for iPad destinations
+that share a device ID. Xcode decides whether the selected scheme supports each
+action; a library or test-only scheme may have no standalone runnable product.
+The scheme supplies build settings; this UI adds no separate Debug/Release,
+launch-argument or environment controls.
+
+On **My Mac**, Run opens a new instance of the exact built application. The
+command returns after launch; quit the application in its own UI. Command-line
+products run in the restored terminal with their native exit status. An app's
+successful launch does not establish its eventual exit status.
+
+On a **physical iPhone, iPad, Apple TV, Apple Watch or Apple Vision device**,
+Run uses the selected Xcode's `devicectl` to install the built application,
+replacing its installed copy, then launch its bundle with
+`--terminate-existing --console`. The native console stays in the restored
+terminal and forwards Ctrl-C to the app. The captured architecture also reaches
+the device launcher. The selected device must support
+`devicectl`, be paired/trusted and unlocked as needed, and have Developer Mode
+and project signing configured in Xcode. Apple tools own communication over
+the user-configured wired or wireless connection. Compozsh does not change
+signing, pairing or provisioning policy. Build, installation and launch failures
+stop the flow and preserve failure status; installation is not rolled back if
+launch later fails. The shared live log/LLDB workspace below is specific to
+Simulator; physical devices use Apple's console.
+
+If the build settings report **multiple runnable products**, a **Run product**
+view asks which exact built product to launch. Escape cancels the launch while
+leaving completed build products intact. A noninteractive or missing-UI call
+fails on ambiguity. Product selection uses only bounded build settings and
+reported product paths, with no recursive filesystem search.
+
+On **Simulator**, Run boots that exact simulator with its captured architecture,
+then checks the running Simulator's reported architecture support before
+installing or launching the app. Version 26 and newer runtimes receive the
+selected architecture explicitly at launch; older runtimes must report that
+single architecture. If a Simulator is already running with a
+different architecture, shut down that selected Simulator and retry Build & Run.
+Compozsh does not shut it down automatically. An unavailable or invalid
+architecture or runtime-version report also stops the run. Destinations without a reported
+architecture retain the native boot default.
+Run replaces an already-running instance of that bundle
 on the selected Simulator so the new process uses this run's output pipes.
 It requests unbuffered standard output with `NSUnbufferedIO=YES`; app code can
 still buffer its own output. The window opens in **Device Hub** on Xcode versions
 that include it, or in that Xcode's **Simulator** app. Compozsh uses the Xcode
 selected by `DEVELOPER_DIR` or `xcode-select` and passes the selected device ID.
 If the window-opening command fails, the run reports the failure and stops
-before installing or launching the app. The scheme supplies build settings;
-this UI does not
-add separate Debug/Release, launch-argument, or environment controls. Run remains
-limited to Simulator destinations; macOS-app and physical-device launching
-remain in Xcode.
+before installing or launching the app.
 
 After launch, **Xcode / Run** combines the app's live stdout/stderr and scoped
 unified logs, including `Logger`/`os_log`, alongside
@@ -3092,7 +3130,7 @@ Closing and reopening `xcode` discards these snapshots and performs fresh
 discovery. No project-specific disk or shell-session cache is created.
 
 The dashboard coordinates the first-party tools already installed with Xcode:
-`xcodebuild`, `xcrun`, `simctl`, the Simulator's `log`, `lldb`, `open`, and
+`xcodebuild`, `xcrun`, `devicectl`, `simctl`, the Simulator's `log`, `lldb`, `open`, `arch`, and
 `plutil`. Its filtering, focus,
 resize behavior, guide, and temporary-screen cleanup are the same shared
 Compozsh interaction system used by the other full-screen tools. No additional

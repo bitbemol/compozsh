@@ -288,14 +288,64 @@ _test_xcode_destination_parser_keeps_exact_usable_ids() {
 
   local -a lines=("${(f)output}")
   test_assert_equal 3 "${lines[1]}" 'generic or unsafe Xcode destination was retained' || return
-  test_assert_equal 'macOS|MAC-123|My Mac' "${lines[2]}" 'Mac destination changed' || return
-  test_assert_equal 'iOS Simulator|SIM-456|iPhone 18 Pro · iOS 27.0' "${lines[3]}" \
+  test_assert_equal 'macOS|MAC-123|My Mac · arm64' "${lines[2]}" 'Mac destination changed' || return
+  test_assert_equal 'iOS Simulator|SIM-456|iPhone 18 Pro · iOS 27.0 · arm64' "${lines[3]}" \
     'Simulator destination changed' || return
   test_assert_equal 'iOS Simulator|SIM-LONG|Bounded' "${lines[4]}" \
     'oversized destination OS metadata escaped the final display bound'
 }
 test_case 'Xcode workspace accepts only exact destination identifiers' \
   _test_xcode_destination_parser_keeps_exact_usable_ids
+
+_test_xcode_workspace_run_actions_are_prominent() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_CONTAINERS=(/example/App.xcodeproj)
+    _XCODE_CONTAINER_KINDS=(project)
+    _xcode_schemes_capture() { _XCODE_SCHEMES=(App) }
+    _xcode_destinations_capture() {
+      _XCODE_DESTINATION_SPECS=()
+      _XCODE_DESTINATION_IDS=(SIM-123 MAC-123 PHONE-123)
+      _XCODE_DESTINATION_PLATFORMS=("iOS Simulator" macOS iOS)
+      _XCODE_DESTINATION_NAMES=("iPhone Simulator" "My Mac" "iPhone")
+    }
+    local -i step=0 index=0
+    _xcode_choose() {
+      if [[ $1 == "Xcode / Destination" ]]; then
+        _ZLE_PICKER_SELECTED_VALUE=$(( step % 3 + 1 ))
+        return 0
+      fi
+      (( ++step ))
+      if (( step >= 1 && step <= 4 )); then
+        [[ ${_XCODE_PICKER_VALUES[3]} == run &&
+           ${_XCODE_PICKER_LABELS[3]} == "Build & Run · "* &&
+           ${_XCODE_PICKER_DETAILS[3]} == "Build & Run"* &&
+           ${_XCODE_PICKER_SEARCH[3]} == *launch* ]] || {
+          print -u2 -- "Build & Run is buried below the primary actions"; return 8
+        }
+        index=${_XCODE_PICKER_VALUES[(Ie)rebuild-run]}
+        (( index > 3 && index <= 6 )) || return 9
+        [[ ${_XCODE_PICKER_LABELS[index]} == "Rebuild & Run · "* &&
+           ${_XCODE_PICKER_DETAILS[index]} == "Rebuild & Run"* ]] || return 10
+      fi
+      (( ${#_XCODE_PICKER_VALUES} == ${#_XCODE_PICKER_LABELS} &&
+         ${#_XCODE_PICKER_VALUES} == ${#_XCODE_PICKER_DETAILS} &&
+         ${#_XCODE_PICKER_VALUES} == ${#_XCODE_PICKER_SEARCH} )) || return 12
+      _ZLE_PICKER_SELECTED_VALUE=destination
+      (( step == 4 )) && _ZLE_PICKER_SELECTED_VALUE=run
+      return 0
+    }
+    # Visit Simulator, Mac, physical device, then Simulator again.
+    _xcode_workspace_controller || exit
+    print -r -- "$_XCODE_REQUEST|$_XCODE_SELECTED_PLATFORM|$_XCODE_SELECTED_ID"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal "run|iOS Simulator|SIM-123" "$output" \
+    'prominent Run action lost its exact selected destination'
+}
+test_case 'Xcode workspace keeps Run actions prominent for Mac device and Simulator destinations' \
+  _test_xcode_workspace_run_actions_are_prominent
 
 _test_xcode_workspace_reuses_bounded_destination_snapshots() {
   test_make_temp_dir || return
@@ -310,6 +360,7 @@ _test_xcode_workspace_reuses_bounded_destination_snapshots() {
     local -i saw_rebuild_test=0 saw_rebuild_run=0 preserved=0
     _xcode_schemes_capture() { _XCODE_SCHEMES=(A B) }
     _xcode_destinations_capture() {
+      _XCODE_DESTINATION_SPECS=()
       captures+=("$3")
       if [[ $3 == A && ${#captures} == 1 ]]; then
         _XCODE_DESTINATION_IDS=(A-first A-kept)
@@ -395,8 +446,10 @@ _test_xcode_destination_cache_evicts_lru_inside_one_workspace() {
     local -a _XCODE_DESTINATION_CACHE_IDS=()
     local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
     local -a _XCODE_DESTINATION_CACHE_NAMES=()
+    local -a _XCODE_DESTINATION_CACHE_SPECS=()
     local scheme=""
     for scheme in A B C D E; do
+      _XCODE_DESTINATION_SPECS=()
       _XCODE_DESTINATION_IDS=("$scheme-ID")
       _XCODE_DESTINATION_PLATFORMS=(macOS)
       _XCODE_DESTINATION_NAMES=("$scheme destination")
@@ -429,6 +482,7 @@ _test_xcode_destination_refresh_forgets_snapshot_before_failed_store() {
     local -a _XCODE_DESTINATION_CACHE_IDS=()
     local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
     local -a _XCODE_DESTINATION_CACHE_NAMES=()
+    local -a _XCODE_DESTINATION_CACHE_SPECS=()
     _XCODE_DESTINATION_IDS=(OLD-ID)
     _XCODE_DESTINATION_PLATFORMS=(macOS)
     _XCODE_DESTINATION_NAMES=("Old destination")
@@ -1238,12 +1292,12 @@ _test_xcode_simulator_run_uses_one_validated_built_application() {
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _xcode_run_simulator project /example/App.xcodeproj App \
+    _xcode_run project /example/App.xcodeproj App \
       "iOS Simulator" SIM-456 || exit
-    _xcode_run_simulator project /example/App.xcodeproj App \
+    _xcode_run project /example/App.xcodeproj App \
       "iOS Simulator" SIM-456 rebuild-run || exit
     export XCODE_OPEN_STATUS=9
-    _xcode_run_simulator project /example/App.xcodeproj App \
+    _xcode_run project /example/App.xcodeproj App \
       "iOS Simulator" SIM-456 2> "$HOME/open-error"
     [[ $? == 9 && $(<"$HOME/open-error") == *"could not open"* ]] || { print -u2 "window failure was hidden"; exit 8; }
   ' "$TEST_REPO_ROOT" "$fake_bin" "$products" "$xcode_log" "$xcrun_log" "$open_log" "$developer") || return

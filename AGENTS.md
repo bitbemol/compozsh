@@ -1976,9 +1976,12 @@ passive labels never acquire candidate numbers or selection behavior.
   captured result snapshot; it must never run a provider from the renderer.
   Destination compatibility may reuse an LRU of at most four successful parsed
   scheme snapshots inside this controller only. Retain exact IDs, platforms and
-  names; never cache raw output or failures. Returning to a cached scheme performs
+  names, architectures and variants; never merge destinations solely by device
+  ID. Preserve the complete validated destination specification through refresh,
+  cached restoration, build, test, settings and launch. Never cache raw output or
+  failures. Returning to a cached scheme performs
   no provider call. **Refresh destinations** explicitly replaces the current
-  snapshot while preserving an exact surviving identifier. Release every entry
+  snapshot while preserving an exact surviving destination specification. Release every entry
   on action, cancellation or workspace exit; reopening `xcode` is always fresh.
   A refresh that cannot retain its newly parsed snapshot must forget the prior
   scheme entry and fail explicitly rather than allowing stale restoration.
@@ -2013,14 +2016,35 @@ passive labels never acquire candidate numbers or selection behavior.
   limitations. Perform the clipboard write after screen restoration, recheck the
   captured executable, never read source files or the clipboard, and preserve a
   failing native test status even when copying succeeds or fails.
-- Simulator Run initially supports only an exact simulator destination. Build
-  incrementally, or clean then build only for explicit Rebuild & Run, derive one
-  installable `.app` and validated bundle identifier from bounded `xcodebuild
-  -showBuildSettings -json`, then use `xcrun simctl` to boot, install and launch
-  it; opening the selected Xcode's Device Hub or Simulator app is part of that
-  explicit action. Do not claim
-  physical-device launch, alter signing, choose a generic destination or infer a
-  product or target membership from recursive filesystem search.
+- Offer Build, Test, Build & Run and their explicit rebuild modes for every
+  concrete destination reported by Xcode. Xcode owns scheme/action compatibility.
+  Build incrementally, or clean then build only for explicit Rebuild & Run.
+  Resolve runnable `.app` bundles with validated bundle identifiers, or native
+  Mac command-line products, from bounded `xcodebuild -showBuildSettings -json`
+  over at most 100 targets. Multiple runnable products require an explicit
+  shared Run product selection after building; absent interactive UI fails on
+  ambiguity. Revalidate the chosen product leaf after selection. Do not infer
+  products or target membership through recursive filesystem search.
+- Mac Run opens a new instance of the exact built app with native `open`, or
+  executes a built command-line product in the restored terminal. Honor the
+  captured architecture; an app launch status is not its eventual exit status.
+  Physical-device Run delegates the user's explicit installation and launch to
+  the selected Xcode's `devicectl`, with the exact device ID and app path/bundle
+  identifier. Installation can replace the device's installed app; launch uses
+  `--terminate-existing --console`, and Apple's foreground console owns output,
+  waiting and signal forwarding. This is an explicit native-tool device handoff,
+  like user-requested Git transport, not Compozsh-owned network discovery or a
+  new endpoint. Document native wired/wireless communication, persistent device
+  installation, failure status and absence of installation rollback. Never
+  silently pair devices, enable Developer Mode, alter signing or provisioning,
+  launch another target after failure, or claim compatibility beyond the
+  selected native tools. Keep the shared live log/LLDB workspace specific to
+  Simulator unless another destination gains its own verified lifecycle.
+- Simulator Run uses `xcrun simctl` to boot, install and launch the chosen app;
+  opening the selected Xcode's Device Hub or Simulator app is part of that
+  explicit action. Never choose a generic destination for a launch.
+  See [destination Run evidence](investigations/xcode-destination-run.md) for
+  native argument checks, product selection and integration-test limits.
 - After an explicit Simulator launch, the Run view reuses the shared picker
   with Stop, Read output, and conditional LLDB actions. Retain only the newest
   32 KiB/200 lines of combined app stdout/stderr and scoped unified logs as a
@@ -2105,7 +2129,7 @@ passive labels never acquire candidate numbers or selection behavior.
   catalogs, bounded/failed JSON, hostile destination text,
   no-scheme/no-destination states, argument delegation, noninteractive fallback,
   cancellation, resize cleanup, ten-row digit pages, container replacement,
-  failed refresh eviction, exact incremental/rebuild action arrays and Simulator
+  failed refresh eviction, exact incremental/rebuild action arrays and Mac/device/Simulator
   dispatch with PATH-shadowed first-party command spies. Cover hostile literal
   action arguments, result-bundle symlink rejection, destination provider-call
   counts, exact cache restoration, four-scheme eviction, explicit refresh, and

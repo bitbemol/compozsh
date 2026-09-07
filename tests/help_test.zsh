@@ -256,6 +256,8 @@ _test_tool_help_explains_real_boundaries() {
         'clipboard of the machine running Zsh' 'four schemes'
         'Refresh destinations' 'reopening xcode' 'Rebuild & Test'
         'Build & Run' 'Rebuild & Run' 'incremental' 'buildable folder'
+        'Mac Catalyst' 'devicectl' 'physical device' 'command-line products'
+        'multiple runnable products' 'architecture and variant' 'Developer Mode'
         'stdout/stderr' '32 KiB' '200 lines' 'Stop app and close' 'Enter LLDB'
         '.lldbinit' 'Read output' 'Output follows automatically' 'source closing'
         'Logger/os_log' 'NSUnbufferedIO=YES' 'LOGRC=/dev/null'
