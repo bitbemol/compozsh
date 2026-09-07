@@ -96,7 +96,7 @@ for full-sized sessions in one Terminal window.
 - Automatic loading of focused, order-independent `.zsh.addons/**/.zsh.<name>`
   files
 - A native Xcode workspace for building, testing and running on Mac, Simulator
-  and physical-device destinations, with live Simulator output and LLDB
+  and physical-device destinations, with shared live log monitoring and Simulator LLDB
 - An Xcode add-on that exports Apple-authored skills for common coding agents
 
 The [`.zshrc`](.zshrc) file is only a tiny bootstrap. Every shared feature lives
@@ -258,7 +258,7 @@ compozsh/
 │   ├── .zsh.sudo-touch-id private operations for compozsh --sudo-touch-id
 │   ├── .zsh.tools         small commands, guarded discard and memory refresh
 │   ├── .zsh.usb           external-device tasks, formatting and bootable media
-│   ├── .zsh.xcode         Xcode Mac/device/Simulator actions, logs, LLDB and skill export
+│   ├── .zsh.xcode         Xcode actions, shared live log monitor, LLDB and skill export
 │   └── support/          maintained system-wide components and assets
 │       ├── .zsh.appearance shared light/dark palette and scheme selection
 │       ├── functions/
@@ -374,7 +374,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication operations | Private operations behind `compozsh --sudo-touch-id` inspect, enable, or safely disable Apple Touch ID through the system-supported `sudo_local` PAM policy; no separate public command |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `g --discard-all` with a scoped default-no confirmation screen and plain fallback, and `compozsh --refresh` |
 | `.zsh.usb` | External-disk preparation | `external-device` opens a no-discovery task chooser; `--format` formats a selected whole external physical disk with an applicable Apple `diskutil` personality, and `--flash` handles raw/hybrid images and full macOS installer apps; shared task identity and review/recovery plans precede separate typed confirmation; Windows Setup media ends safely before target selection; shared candidate exclusion preserves each view’s matching and action rules |
-| `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes and exact destination variants in a captured action plan for Mac, Simulator and physical-device Build/Test/Run; retains action filter/focus, reports test outcomes, launches Mac apps/tools and uses the native device console; bounded Simulator stdout/stderr and unified logs support Stop, live reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes and exact destination variants for Mac, Simulator and physical-device Build/Test/Run; reports test outcomes and launches Mac apps/tools; Simulator and device runs open a shared bounded log monitor with fuzzy search, literal exclusion, severity views, pause/follow and copying; Simulator also offers scoped unified logs and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills; shared candidate exclusion preserves each view’s matching and action rules |
 | `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `support/functions/.zsh.impure.compozsh_capture_bounded` | Bounded synchronous command capture | Impure function; entry `_compozsh_capture_bounded` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.compozsh_effect_copy` | Exact clipboard writes | Impure function; entry `_compozsh_effect_copy` first, followed by exclusive helpers |
@@ -2939,16 +2939,22 @@ successful launch does not establish its eventual exit status.
 On a **physical iPhone, iPad, Apple TV, Apple Watch or Apple Vision device**,
 Run uses the selected Xcode's `devicectl` to install the built application,
 replacing its installed copy, then launch its bundle with
-`--terminate-existing --console`. The native console stays in the restored
-terminal and forwards Ctrl-C to the app. The captured architecture also reaches
-the device launcher. The selected device must support
+`--terminate-existing --console`. In an interactive terminal, the selected
+app's console opens the shared **Xcode / Logs** monitor. Native console output
+is retained only in a bounded in-memory tail through a private temporary pipe.
+The monitor has no app-stdin editor; plain or missing-UI fallback retains the
+native foreground console and Ctrl-C forwarding. The captured architecture also
+reaches the device launcher. The selected device must support
 `devicectl`, be paired/trusted and unlocked as needed, and have Developer Mode
 and project signing configured in Xcode. Apple tools own communication over
 the user-configured wired or wireless connection. Compozsh does not change
 signing, pairing or provisioning policy. Build, installation and launch failures
 stop the flow and preserve failure status; installation is not rolled back if
-launch later fails. The shared live log/LLDB workspace below is specific to
-Simulator; physical devices use Apple's console.
+launch later fails. **Stop console and close** restores the terminal before
+forwarding termination through the owned `devicectl` child. If that console
+does not stop promptly, cleanup ends it and asks you to check the app on the
+device. Console exit status is shown and preserved; it does not establish app
+health. LLDB and scoped unified logging remain Simulator capabilities.
 
 If the build settings report **multiple runnable products**, a **Run product**
 view asks which exact built product to launch. Escape cancels the launch while
@@ -2974,8 +2980,9 @@ selected by `DEVELOPER_DIR` or `xcode-select` and passes the selected device ID.
 If the window-opening command fails, the run reports the failure and stops
 before installing or launching the app.
 
-After launch, **Xcode / Run** combines the app's live stdout/stderr and scoped
-unified logs, including `Logger`/`os_log`, alongside
+After launch, **Xcode / Logs** opens first. Escape returns to **Xcode / Run**,
+which combines the app's live stdout/stderr and, on Simulator, scoped
+unified logs including `Logger`/`os_log`, alongside
 **Stop app and close**, **Read output · Full view, filter and copy**, and, when available,
 **Enter LLDB**. Choose an action with arrows and Enter, or its visible digit
 with both filter fields empty. Text filters action labels with case-insensitive,
@@ -2992,16 +2999,23 @@ Reading does not request or generate new app logs. In Run, Escape/Ctrl-G or
 Stop closes the screen and stops that exact Simulator bundle. Ctrl-C aborts
 and stops the run from any view.
 
-**Read output** opens **Xcode / Logs**, a full-width, wrapped reader that follows
+**Read output** reopens **Xcode / Logs**, a full-width, wrapped reader that follows
 new output automatically. Scroll up to pause the displayed text; return to
 the bottom, press End, or choose **Follow latest** to resume. Home pauses at
 the beginning. The title shows **Live** or **Paused**, and the app and bounded
-capture continue while paused. Type a **case-insensitive literal substring**
-to filter each retained source line;
+capture continue while paused. **Find in logs** uses the shared case-insensitive
+fuzzy character matching. **Ctrl-]** reveals **Exclude contains** and switches
+editing between the fields. Exclusion removes one literal phrase; both fields
+stay active, and **Ctrl-U** clears the active field. Matching preserves source
+order and duplicate lines, with no relevance sorting;
 new matching output appears while following, including after an empty result.
 The count shows matching and total retained source lines, independently of
 wrapping. Digits are filter text. Arrows and paging scroll the document, and
 Ctrl-K opens the shared keyboard guide.
+
+The status line summarizes native-format **Error** and **Fault** records in the
+retained snapshot, including records hidden by filters. Unclassified stdout is
+labeled plain output. These counts describe captured logs, not app health.
 
 Recognized native compact logs show a time/severity/scope header above the
 message, with space between entries. Default and Info headers use the shared
@@ -3020,13 +3034,17 @@ an action or return:
 - **Pause display** holds the current reading position when following.
 - **Follow latest** shows the newest retained tail and resumes automatic
   updates with the same filter.
-- **Go to beginning** pauses at the first matching line. **Clear filter**,
-  when present, shows all retained lines in the current reading mode.
+- **Go to beginning** pauses at the first matching line. **Clear filters**
+  clears fuzzy search and exclusion in the current reading mode.
+- **Errors and faults** isolates records with recognized Error/Fault severity;
+  **Show all levels** restores plain output and other levels. Search and
+  exclusion apply within the selected severity view.
 - **Return to Run** keeps the app running. Escape/Ctrl-G in the reader does
   the same; Escape in Options returns to the reader.
 
-Returning to Run, reopening Read output, or using Options preserves the filter
-and following/paused mode. Paused reading keeps its text and position;
+Returning to Run, reopening Read output, or using Options preserves both filters,
+their editing focus, the severity view, and following/paused mode.
+Paused reading keeps its text and position;
 following catches up automatically on return. The guide also holds displayed
 text while capture continues. Copy writes the complete matching raw text from
 the displayed capture, without UI labels or display wrapping, after restoring
@@ -3043,7 +3061,7 @@ while following and retains it while paused. The small preview abbreviates
 long rows; the full reader wraps them up to the shared **20,000 display-row** limit.
 Copy includes all matching lines of that retained snapshot, never the run's
 entire history or uncaptured output. Terminal input takes priority over pipe reads;
-each idle turn drains at most 32 KiB fairly across both sources, so a very noisy
+each idle turn drains at most 32 KiB across available sources, so a very noisy
 app can temporarily encounter pipe backpressure. A failed source stops polling
 without stopping capture from the other. A closed stream does not prove that
 the app exited; before its first output arrives, stdout/stderr capture waits

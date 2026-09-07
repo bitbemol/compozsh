@@ -685,9 +685,18 @@ command cat > "$HOME/copied"' || return
         print -r -u $events -- "$view"
         previous_view=$view
       fi
+      local filters="FILTERS:${_xcode_logs_query-}:${_ZLE_PICKER_EXCLUDE-}:${_ZLE_PICKER_EXCLUDE_FOCUS:-0}:${_ZLE_PICKER_EXCLUDE_SHOWN:-0}"
+      if [[ $_ZLE_PICKER_TITLE == "Xcode / Logs" && $filters != "$previous_filters" ]]; then
+        if (( ${_ZLE_PICKER_EXCLUDE_SHOWN:-0} )); then
+          [[ $_ZLE_PICKER_POSTDISPLAY == *"Find in logs"* && $_ZLE_PICKER_POSTDISPLAY == *"Exclude contains"* ]] ||
+            print -r -u $events BAD-FILTER-PAINT
+        fi
+        print -r -u $events -- "$filters"
+        previous_filters=$filters
+      fi
     }
     _run_entry() {
-      local before=$(command stty -g) previous="" previous_view="" reported="" result=0
+      local before=$(command stty -g) previous="" previous_view="" previous_filters="" reported="" result=0
       local REPLY=caller-scratch
       command rm -f -- "$HOME/screen-closed"
       {
@@ -728,7 +737,7 @@ command cat > "$HOME/copied"' || return
     _frame() {
       while _event; do
         [[ $event == ${~1} ]] && return 0
-        [[ $event == DONE:* ]] && break
+        [[ $event == (DONE:*|BAD-*) ]] && break
       done
       print -u2 -- "expected $1, got $event"
       return 1
@@ -744,11 +753,16 @@ command cat > "$HOME/copied"' || return
       _event && [[ $event == PIPE:* ]] || exit 3
       pipe=${event#PIPE:}
       [[ -p $pipe && $pipe == "${HOME:A}/simulator data/tmp"/compozsh-xcode-run.*/output ]] || exit 4
-      _frame FRAME:120:30:0:0:0:0 || exit 5
-      zpty -w -n run 2
       _frame "VIEW:Xcode / Logs::1:119:1" || exit 6
       print -r -- "latest app line" > "$pipe"
       _frame "VIEW:Xcode / Logs::2:119:1" || exit 24
+      zpty -w -n run lal
+      _frame "VIEW:Xcode / Logs:lal:1:119:1" || exit 44
+      zpty -w -n run $'\''\x1d'\''latest
+      _frame "VIEW:Xcode / Logs:lal:0:119:1" || exit 45
+      _frame "FILTERS:lal:latest:1:1" || exit 46
+      zpty -w -n run $'\''\x15\x1d\x15'\''
+      _frame "VIEW:Xcode / Logs::2:119:1" || exit 47
       command stty rows 18 cols 70 < "$device"
       _frame FRAME:70:18:1:0:0:1 || exit 7
       zpty -w -n run $'\''\x0b'\''
@@ -799,17 +813,13 @@ command cat > "$HOME/copied"' || return
       [[ ! -e $pipe && ! -d ${pipe:h} ]] || exit 14
       print enabled > "$HOME/enable-lldb"
       zpty -w run _run_entry
-      _frame FRAME:70:18:0:0:0:0 || exit 16
-      zpty -w -n run 2
-      _frame FRAME:70:18:1:0:0:0 || exit 21
+      _frame "VIEW:Xcode / Logs::1:69:1" || exit 21
       zpty -w -n run $'\''\e'\''
       _frame FRAME:70:18:0:0:0:0 || exit 22
       zpty -w -n run 3
       _frame DONE:23 || exit 17
       [[ $(<"$HOME/debugged") == *"--attach-pid|12345" ]] || exit 18
       zpty -w run "_run_entry abort"
-      _frame FRAME:70:18:0:0:0:0 || exit 19
-      zpty -w -n run 2
       _frame "VIEW:Xcode / Logs::1:69:1" || exit 36
       zpty -w -n run private-log-filter
       _frame "VIEW:Xcode / Logs:private-log-filter:0:69:1" || exit 37

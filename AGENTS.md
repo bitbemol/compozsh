@@ -2031,21 +2031,29 @@ passive labels never acquire candidate numbers or selection behavior.
   Physical-device Run delegates the user's explicit installation and launch to
   the selected Xcode's `devicectl`, with the exact device ID and app path/bundle
   identifier. Installation can replace the device's installed app; launch uses
-  `--terminate-existing --console`, and Apple's foreground console owns output,
-  waiting and signal forwarding. This is an explicit native-tool device handoff,
+  `--terminate-existing --console`. Interactive Run captures that owned native
+  child's stdout/stderr through one private FIFO under a mode-0700 temporary
+  directory and presents the shared bounded log reader; plain/missing-UI fallback
+  retains the native foreground console. Stop restores the screen before
+  forwarding termination, waits at most one second while draining, then ends an
+  unresponsive child with an explicit check-the-device notice. Revalidate the
+  owned job before signaling, reap it, preserve native failures, and remove the
+  FIFO and directory. The interactive monitor has no app-stdin editor. This is
+  an explicit native-tool device handoff,
   like user-requested Git transport, not Compozsh-owned network discovery or a
   new endpoint. Document native wired/wireless communication, persistent device
   installation, failure status and absence of installation rollback. Never
   silently pair devices, enable Developer Mode, alter signing or provisioning,
   launch another target after failure, or claim compatibility beyond the
-  selected native tools. Keep the shared live log/LLDB workspace specific to
-  Simulator unless another destination gains its own verified lifecycle.
+  selected native tools. LLDB and scoped unified logging remain Simulator-only;
+  shared reading, fuzzy/exclusion filtering and copying also cover device output.
 - Simulator Run uses `xcrun simctl` to boot, install and launch the chosen app;
   opening the selected Xcode's Device Hub or Simulator app is part of that
   explicit action. Never choose a generic destination for a launch.
   See [destination Run evidence](investigations/xcode-destination-run.md) for
   native argument checks, product selection and integration-test limits.
-- After an explicit Simulator launch, the Run view reuses the shared picker
+- Simulator and physical-device Run open the full-width log reader first;
+  Escape returns to Run controls without ending the run. The Run view reuses the shared picker
   with Stop, Read output, and conditional LLDB actions. Retain only the newest
   32 KiB/200 lines of combined app stdout/stderr and scoped unified logs as a
   live tail, plus bounded frozen preview and full-reader snapshots, in memory.
@@ -2065,9 +2073,12 @@ passive labels never acquire candidate numbers or selection behavior.
   work, persistent worker, or new key map.
 - Read output composes a reader-only shared document view: full width, wrapped
   up to the shared 20,000-row bound, with no selectable or numbered log rows.
-  Type a case-insensitive literal substring to filter captured source lines;
+  Reuse shared case-insensitive fuzzy character matching and opt into the shared
+  Exclude contains field: one case-insensitive literal phrase. Preserve source
+  order and duplicates instead of ranking log lines. Both fields, their editing
+  focus, and the selected severity view survive Options, Copy and reopen;
   counts refer to source lines, not wrapped rows. Follow the latest retained
-  tail automatically by default, preserving the literal filter as output
+  tail automatically by default, preserving both filters as output
   arrives. Scroll upward to pause publication; reaching the bottom or Follow
   latest resumes. Retain the mode, filter and paused snapshot/semantic reading
   bookmark through Options, Return to Run, reopen, and Copy. Capture continues
@@ -2083,6 +2094,12 @@ passive labels never acquire candidate numbers or selection behavior.
   compact time/severity/scope header, separate message body, and spacing
   between entries. Keep textual severity and existing semantic palette roles;
   unrecognized lines stay plain, and message words never infer severity.
+  Summarize recognized Error/Fault records across the retained snapshot, including
+  hidden records. An explicit Errors and faults view intersects the two filters;
+  Show all levels includes plain output again. These are log counts, never app
+  health, process-exit or delivery-completeness claims.
+  See [shared log-monitor evidence](investigations/xcode-log-monitor.md) for
+  native terminal, device-console lifecycle and bounded matching checks.
   Matching/counts/copying use the original source lines, including omitted
   display metadata. Keep formatted rows and regex scratch local, sanitization
   in the shared renderer, and wrapping under its existing document bound.
@@ -2141,7 +2158,7 @@ passive labels never acquire candidate numbers or selection behavior.
   fair source draining and partial-line bounds, independent source failure,
   replacement launch, and observer stop/reap before debugger handoff and on
   cancellation/error. Cover full-width reader geometry, source anchors after
-  resize/reopen, literal source-line filtering/counts, live no-match recovery,
+  resize/reopen, fuzzy source-line matching, literal exclusion/counts, live no-match recovery,
   scroll pause/resume, stable guide/Options copying, quiet callbacks,
   independent action/reader bookmarks, complete matching
   clipboard payloads, post-screen copying, and visible/sticky clipboard failure.

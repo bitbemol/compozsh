@@ -118,7 +118,7 @@ state:
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax transport FIFOs (not regular source files); validated temporary paths are removed during normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
-| Explicit physical-device app installation | The exact user-selected device, under Apple's native device tools and device storage policy | Build & Run / Rebuild & Run delegate installation of the selected built app to `devicectl`, replacing its installed copy; it remains installed after the console exits or launch fails, until removed by the user or OS. The native console displays app output in terminal-owned scrollback; Compozsh keeps no physical-device log snapshot |
+| Explicit physical-device app installation and console | The exact user-selected device, under Apple's native device tools and device storage policy; a local run-scoped temporary FIFO and shell memory | Build & Run / Rebuild & Run delegate installation of the selected built app to `devicectl`, replacing its installed copy; it remains installed after the console exits or launch fails. Interactive monitoring retains at most 32 KiB/200 source lines plus bounded reading snapshots in memory through a mode-0600 FIFO under a mode-0700 temporary directory, removed on normal/handled-error cleanup. No persistent Compozsh log file; explicit clipboard copies outlive the run. Plain fallback uses terminal-owned scrollback |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh; may outlive the originating view or run under operating-system/user control | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, bounded Xcode test report, or retained matching Simulator log lines with local paths, diagnostics and sensitive app values; never read back by Compozsh |
 
@@ -587,7 +587,16 @@ user control. No provisioning updates are enabled. Installation replaces that
 app's installed copy; launch replaces its running instance. `--console` owns
 stdout, waiting and catchable signal forwarding. A failed build or installation
 prevents launch; a failed launch does not roll installation back. Native console
-messages may contain sensitive app values and remain in terminal scrollback.
+messages may contain sensitive app values. Interactive monitoring redirects the
+owned console child's stdout/stderr to a private temporary FIFO and the same
+bounded in-memory reader used by Simulator; stdin is not bridged from the UI.
+Plain fallback retains the native foreground console and terminal scrollback.
+Stop restores the screen before signaling the still-owned child, drains while
+waiting at most one second, then forces an unresponsive child to exit with an
+explicit notice to check the app on the device. The native tool forwards
+catchable termination; a forcibly ended console cannot guarantee the app stopped.
+The child is reaped and its FIFO/directory removed. An uncatchable termination
+can leave a `compozsh-xcode-device.*` directory, but its FIFO stores no log file.
 The captured architecture is passed to the native device launcher.
 
 For a Simulator destination with a captured architecture, Run requests that
@@ -626,20 +635,24 @@ action cannot be atomic against concurrent process exit or replacement.
 
 Read output presents a full-width document from the retained tail,
 bounded to 32 KiB/200 source lines and 20,000 wrapped display rows. Its
-case-insensitive literal filter, match counts, and copied text derive only from
+shared case-insensitive fuzzy search, literal phrase exclusion, severity view,
+match counts, and copied text derive only from
 the displayed snapshot; reading and filtering perform no new log discovery.
 The run owner continues draining its existing scoped sources. The reader
-publishes the latest tail automatically while following, with its literal
-filter preserved. Scrolling upward pauses publication; reaching the bottom or
+publishes the latest tail automatically while following, with both filters
+preserved. Scrolling upward pauses publication; reaching the bottom or
 Follow latest resumes. Returning to Run and reopening preserves that mode,
-filter, and paused reading bookmark. Options and the guide hold the displayed
+filters, active editing field, severity view and paused reading bookmark. Options and the guide hold the displayed
 text while capture continues; returning resumes the prior mode.
 
 Log formatting derives compact time/severity/scope headers, separate message
 bodies and spacing only from retained text. It performs no provider read or
 execution and keeps regex scratch/results local to the formatter and reader.
 Unrecognized lines remain plain; message words do not establish severity.
-Display controls are sanitized by the shared renderer. Literal filtering and
+Error/Fault counters describe recognized native-format records across the
+retained snapshot, including records hidden by filters; they never establish
+app health. Plain output is not classified from message words. Matching retains
+source order and duplicates. Display controls are sanitized by the shared renderer. Filtering and
 clipboard payloads retain the original raw source lines and metadata.
 
 Copy all captured logs, Copy filtered logs, and the reader's Ctrl-Y copy the
@@ -1190,11 +1203,13 @@ use disposable repositories and synthetic commands; they do not prove that the
 limited CAUTION recognizer covers arbitrary shell text or how a custom terminal
 stores or exports its scrollback.
 
-Audit the Simulator run boundary without launching Xcode or a real app:
+Audit Simulator and device monitoring without launching Xcode or a real app:
 
 ```sh
 git show HEAD:.zsh.addons/.zsh.xcode
 zsh tests/run.zsh 'Xcode run'
+zsh tests/run.zsh 'Xcode monitor'
+zsh tests/run.zsh 'Xcode device monitor'
 zsh tests/run.zsh 'log reader'
 zsh tests/run.zsh 'log copy'
 zsh tests/run.zsh 'editor reader'
@@ -1202,7 +1217,10 @@ zsh tests/run.zsh 'editor reader'
 
 Read `_xcode_run_live`, `_xcode_run_identity`, `_xcode_run_idle`, their scoped
 log-observer and `_xcode_logs_*` helpers, and the shared picker's screen cleanup.
-Audit literal snapshot filtering, copy payload bounds, post-screen clipboard
+For device consoles, inspect `_xcode_run_device_live` and `_xcode_device_poll`
+for literal launch arguments, owned-job termination, failure preservation,
+temporary FIFO permissions and post-screen cleanup.
+Audit captured fuzzy matching, literal exclusion, copy payload bounds, post-screen clipboard
 dispatch, retained failure status, automatic following and paused/Options
 capture boundaries, and full-reader returns that keep the app
 running. Audit the exact
