@@ -11,9 +11,10 @@ _matching_select() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   reply=()
-  (( $# >= 5 && $# <= 7 )) || return 2
+  (( $# >= 5 && $# <= 8 )) || return 2
   local _ms_mode=$1 _ms_query=$2 _ms_limit_text=$3 _ms_values=$4 _ms_texts=$5
   local _ms_extra=${6:-} _ms_policy=${7:-text} _ms_name='' _ms_ref=''
+  local _ms_exclude=${8:-} _ms_exclusion_pattern='*'
   local _ms_pattern='' _ms_text='' _ms_suffix='' _ms_value=''
   [[ $_ms_mode == (source|ranked) && $_ms_policy == (text|fallback|append) ]] || return 2
   for _ms_name in "$_ms_values" "$_ms_texts" ${_ms_extra:+"$_ms_extra"}; do
@@ -30,15 +31,22 @@ _matching_select() {
   local -a _ms_patterns=() _ms_selected=()
   local -A _ms_seen=()
   local REPLY=''
+  if [[ -n $_ms_exclude ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ms_exclude" || return
+    _ms_exclusion_pattern=$REPLY
+  fi
   _matching_decimal_limit "$_ms_limit_text" "$_ms_count" || return
   _ms_limit=$REPLY
   (( _ms_limit )) || return 0
-  if [[ -z $_ms_query ]]; then
+  if [[ -z $_ms_query && -z $_ms_exclude ]]; then
     for (( _ms_index=1; _ms_index<=_ms_limit; ++_ms_index )); do reply+=($_ms_index); done
     return 0
   fi
   _matching_compile "$_ms_query" || return
-  if [[ $_ms_mode == ranked ]]; then
+  if [[ -z $_ms_query ]]; then
+    _ms_patterns=('*')
+  elif [[ $_ms_mode == ranked ]]; then
     _ms_patterns=("(#i)${reply[1]}*" "(#i)*${reply[1]}*" "$reply[2]")
   else
     _ms_patterns=("$reply[2]")
@@ -55,7 +63,8 @@ _matching_select() {
         fi
       fi
       [[ $_ms_text == ${~_ms_pattern} ]] || continue
-      if [[ $_ms_mode == ranked ]]; then
+      [[ $_ms_text == ${~_ms_exclusion_pattern} ]] || continue
+      if [[ $_ms_mode == ranked && -n $_ms_query ]]; then
         _ms_ref="${_ms_values}[$_ms_index]" _ms_value=${(P)_ms_ref}
         [[ -z ${_ms_seen[$_ms_value]-} ]] || continue
         _ms_seen[$_ms_value]=1

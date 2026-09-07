@@ -1,0 +1,12 @@
+# Entry point: _matching_exclusion
+# Pure: one literal phrase; caller-local REPLY contains a native pattern.
+# Empty exclusion admits everything, including empty captured text.
+_matching_exclusion() {
+  emulate -L zsh
+  REPLY='*'
+  (( $# == 1 )) || return 2
+  [[ -n $1 ]] && REPLY="(#i)(*~*${(b)1}*)"
+  return 0
+}
+
+:

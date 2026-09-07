@@ -25,7 +25,7 @@ _zle_ui_collect() {
   done
   typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
   _matching_select "$_uc_mode" "$_uc_query" "$_uc_limit" \
-    "$_uc_values" "$_uc_texts" "$_uc_extra" "$_uc_policy" || return
+    "$_uc_values" "$_uc_texts" "$_uc_extra" "$_uc_policy" "${_ZLE_PICKER_EXCLUDE:-}" || return
   for _uc_index in "${reply[@]}"; do
     _uc_ref="${_uc_values}[$_uc_index]"
     _ZLE_PICKER_RESULTS+=("${(P)_uc_ref}")

@@ -6,7 +6,7 @@
 # and readers whose actions remain available without matching content.
 _zle_picker_can_accept() {
   (( ${#_ZLE_PICKER_RESULTS} || _ZLE_PICKER_READER_ONLY )) ||
-    { (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${1//[[:space:]]/} ]]; }
+    { (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${1//[[:space:]]/} || -n ${_ZLE_PICKER_EXCLUDE:-} ]]; }
 }
 
 

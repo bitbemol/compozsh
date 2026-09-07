@@ -91,7 +91,8 @@ private. Avoid inventing a privileged core tier through new terminology.
 | Candidate | One captured exact value with its display label and relevant facts, eligible for matching or selection. |
 | Collector | Picker code that filters, ranks or extends a result prefix from captured candidates. It performs no new provider discovery. |
 | Result | A candidate matching the current query/filter; it may be outside the visible viewport. |
-| Query / filter | Literal user input used for matching. Specify **discovery query** when submission triggers capture and **refinement filter** when it only narrows captured candidates. |
+| Query / filter | Literal user input used for positive matching or exclusion. Specify **discovery query** when submission triggers capture and **refinement filter** when it only narrows captured candidates. |
+| Exclusion filter | One case-insensitive literal phrase that removes candidates containing it in the view’s complete searchable text. Empty exclusion removes nothing; spaces remain part of the phrase. Example: `nod` removes `Node.swift`, while `new/other/data.swift` remains. |
 | Viewport / visible row | The displayed slice of results / one actionable presentation slot in that slice. A visible digit identifies that slot; the exact underlying value remains separate. Passive information is not a result row and receives no digit. |
 | Selection / target | Selection identifies the active candidate. A target is the exact value and necessary scope an operation will use, such as repository plus branch; it may instead be an explicitly named current folder. |
 | Target resolution | Turns a path or a selected recall result into an exact target for the next operation. It does not itself authorize insertion, directory change or execution; action dispatch validates mutable facts again. |
@@ -1262,7 +1263,8 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-K | Open/close the keyboard guide |
 | Up/Down, Ctrl-P/N | Move results or scroll the focused view |
 | Fn/Option-Up/Down, Ctrl-V/Ctrl-D | Page up/down in the focused view; reader pages retain one overlapping line |
-| Ctrl-U / Ctrl-W | Clear the query / delete its last word |
+| Ctrl-U / Ctrl-W | Clear the active field / delete its last word |
+| Ctrl-] | Reveal exclusion and switch positive/exclusion field editing in candidate filters |
 | Backspace | Delete the last query character |
 | Ctrl-Y | Copy the selected value and close, when available |
 | Ctrl-L | Redraw |
@@ -1275,6 +1277,31 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Ctrl-A in an auto-refresh document workspace | Pause/resume automatic refresh for the current screen session |
 | Ctrl-R in a document workspace | Refresh the file list and selected diff, retaining available selection/focus/source area |
 | Ctrl-T | Toggle hidden folders in the browser |
+
+Candidate filters share positive and optional exclusion fields. Ctrl-] reveals
+and switches fields; both remain active, with a visible focus marker and literal
+input. Keep the exclusion row visible once revealed, including narrow/inline
+fallbacks. Ctrl-U, Ctrl-W, Backspace and paste edit only the focused field.
+Changing either value resets the result position; switching fields alone does
+not. Back restores both values, field focus/visibility and the existing bookmark.
+Secondary views start with independent fields. History keeps numeric typing;
+other candidate lists require both fields empty and the positive field active
+for digit acceptance. Digits typed in Exclude contains always edit literal text.
+
+Exclusion uses each view’s complete searchable text and preserves the positive
+matching policy, duplicate policy and ordering, including history’s conditional
+fuzzy fallback. Apply rejection before retained result-prefix limits. Keep the
+matching calculation pure and explicit; shared UI state belongs in its adapter.
+Authored text, confirmations, status notices and document-only readers do not
+advertise candidate exclusion. Missing matching support keeps the key inert.
+
+Search descendants owns submitted positive/exclusion discovery conditions.
+Filesystem/Git allow exclusion-only capture with existing bounds; both-empty
+submission remains inert. Spotlight requires positive filename text and offers
+explicit recovery without switching sources. Submitted conditions remain visible
+in result status; bottom fields refine only the captured snapshot. Editing
+submitted conditions and pressing Return is the only recapture route for this
+change. Exclusion never authorizes content reads, effects or broader coverage.
 
 The hierarchy, document disclosure/refresh and Ctrl-O contexts above are explicit
 exceptions, not permission for arbitrary tool-specific remapping. Keep the actual action visible in the
@@ -1410,7 +1437,7 @@ keyboard guide must never trigger refresh or an automatic provider check.
   `compozsh` opens captured help with a printable fallback; Git review acceptance
   drills into files/diffs or focuses reading. Help's explicit Compose action
   follows the separate draft-insertion contract. Shared interaction must never
-  turn insertion or a preview into execution. Digits apply visible slots only with an empty filter
+  turn insertion or a preview into execution. Digits apply visible slots only with both filter fields empty
   and list focus; the history picker retains ordinary numeric input.
 - The directory browser is the deliberate hierarchy exception: Right/Tab
   enters and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list. Its guide
@@ -1801,7 +1828,8 @@ keyboard guide must never trigger refresh or an automatic provider check.
   otherwise bounded filesystem. Show the source before submission; explicit
   Ctrl-X choices bypass default selection. Missing/failed Spotlight must never
   trigger a filesystem fallback. Never target the highlighted child.
-  Return submits a nonempty query;
+  Return submits positive search text or a nonempty exclusion (filesystem/Git);
+  Spotlight retains its positive filename-seed requirement;
   typing, redraw and resize cannot discover. Label memory-only input **Filter
   folders** in Browse and **Filter results** after discovery. Ctrl-F in results
   edits the submitted query using the same source/root; cancel retains the

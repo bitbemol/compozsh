@@ -435,13 +435,13 @@ _git_worktree_row() {
 # change. A newly inserted row must not silently become the previous selection.
 _git_worktree_bookmark() {
   emulate -L zsh
-  local query=$1 value=$2
+  local query=$1 value=$2 _ZLE_PICKER_EXCLUDE=${4:-}
   local -i offset=${3:-0} index=1
   _navigation_picker_collect "$query" ${#_NAVIGATION_PICKER_VALUES}
   index=${_ZLE_PICKER_RESULTS[(Ie)$value]}
   (( index )) || { index=1; offset=0; }
   (( offset < index )) || offset=$(( index - 1 ))
-  reply=("$query" "$index" "$offset")
+  reply=("$query" "$index" "$offset" "${4:-}" "${5:-0}" "${6:-0}")
 }
 
 _git_worktree_pick() {
@@ -468,7 +468,7 @@ _git_worktree_choice_view() {
     _zle_ui_descriptions "${(@kv)_GWT_DETAILS}"
     _ZLE_PICKER_DESCRIPTIONS=("${reply[@]}")
   fi
-  _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
+  _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}" "${7:-}" "${8:-0}" "${9:-0}"
 }
 
 _git_worktree_text() {
@@ -503,7 +503,7 @@ _git_worktree_folder() {
   local folder=${1:A} child='' chosen='' query=''
   local -i hidden=0 result=0 _GWT_HIERARCHY=1 _GWT_OPTIONS=0 _GWT_FOCUS=0
   local -a children=()
-  local -A queries=() selections=() offsets=() focuses=()
+  local -A queries=() selections=() offsets=() focuses=() exclusions=() exclusion_focuses=() exclusion_shown=()
   while true; do
     if (( hidden )); then
       children=("$folder"/*(DN/Y1001))
@@ -521,12 +521,16 @@ _git_worktree_folder() {
       _git_worktree_row "$child" "${child:t}/" browse "$child"
     done
     _GWT_FOCUS=${focuses[$folder]:-0}
-    _git_worktree_bookmark "${queries[$folder]:-}" "${selections[$folder]:-use}" "${offsets[$folder]:-0}"
+    _git_worktree_bookmark "${queries[$folder]:-}" "${selections[$folder]:-use}" "${offsets[$folder]:-0}" \
+      "${exclusions[$folder]-}" "${exclusion_focuses[$folder]:-0}" "${exclusion_shown[$folder]:-0}"
     _git_worktree_pick 'Worktree parent' "$folder" 'Filter folders' \
       "${reply[@]}"
     result=$?
     (( result == 0 )) || return $result
     queries[$folder]=${_ZLE_PICKER_BOOKMARK[1]-}
+    exclusions[$folder]=${_ZLE_PICKER_BOOKMARK[4]-}
+    exclusion_focuses[$folder]=${_ZLE_PICKER_BOOKMARK[5]:-0}
+    exclusion_shown[$folder]=${_ZLE_PICKER_BOOKMARK[6]:-0}
     selections[$folder]=$_ZLE_PICKER_SELECTED_VALUE
     offsets[$folder]=${_ZLE_PICKER_BOOKMARK[3]:-0}
     focuses[$folder]=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
@@ -648,7 +652,7 @@ _git_worktree_create_choose() {
     fi
     local _GWT_NOTICE='review choices · Enter edits or applies the named action'
     [[ -n $note ]] && _GWT_NOTICE="Cannot create · $note"
-    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]"
+    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     bookmark=("${reply[@]}")
     _git_worktree_pick 'Create worktree' "$_GWT_ROOT" 'Filter actions' "${bookmark[@]}"
     result=$?
@@ -725,7 +729,7 @@ _git_worktree_move_choose() {
     else
       _git_worktree_row reason 'Why moving is unavailable…' inspect "$note"
     fi
-    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]"
+    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     bookmark=("${reply[@]}")
     _git_worktree_pick 'Move / rename worktree' "$target" 'Filter actions' "${bookmark[@]}"
     result=$?
@@ -810,7 +814,7 @@ _git_worktree_target_pick() {
       _git_worktree_notice "$detail Go Back and choose Refresh worktrees after changes."
       return $?
     fi
-    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]"
+    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     bookmark=("${reply[@]}")
     _git_worktree_pick "$title" "$_GWT_ROOT" 'Filter worktrees' "${bookmark[@]}"
     result=$?
@@ -845,7 +849,7 @@ _git_worktree_options() {
     _git_worktree_row enter 'Enter folder' 'enter folder' "$target"
     _git_worktree_row move 'Move / rename worktree…' configure 'Choose a new parent or folder name. Preserve files and branch.'
     _git_worktree_row remove 'Remove worktree…' inspect 'Check this folder, then confirm removal. Keep its branch.'
-    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]"
+    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     bookmark=("${reply[@]}")
     _git_worktree_pick 'Worktree options' "$target" 'Filter actions' "${bookmark[@]}"
     result=$?
@@ -881,7 +885,7 @@ _git_worktree_controller() {
     _git_worktree_row remove 'Remove worktree…' choose 'Choose a linked checkout, check its files, then confirm deletion of the folder. Its branch and commits remain.' \
       'Remove worktree delete folder'
     _git_worktree_row refresh 'Refresh worktrees' refresh 'Replace the registered-worktree snapshot. No background polling.'
-    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]"
+    _git_worktree_bookmark "$bookmark[1]" "$selected" "$bookmark[3]" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     bookmark=("${reply[@]}")
     _git_worktree_pick Worktrees "$_GWT_ROOT" 'Filter actions' "${bookmark[@]}"
     result=$?

@@ -1494,13 +1494,13 @@ _xcode_run_view() {
   while true; do
     _xcode_run_publish=1
     _ZLE_PICKER_DIGIT_SELECT=1
-    _zle_picker_loop "$query" 10 "$selected"
+    _zle_picker_loop "$query" 10 "$selected" "${_xcode_run_actions_bookmark[3]:-0}" "${_xcode_run_actions_bookmark[4]-}" "${_xcode_run_actions_bookmark[5]:-0}" "${_xcode_run_actions_bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     [[ $_ZLE_PICKER_SELECTED_VALUE == read ]] || return 0
     query=${_ZLE_PICKER_BOOKMARK[1]-}
     selected=${_ZLE_PICKER_BOOKMARK[2]:-2}
-    _xcode_run_actions_bookmark=("$query" "$selected" "${_ZLE_PICKER_BOOKMARK[3]:-0}")
+    _xcode_run_actions_bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
     (( ${_xcode_logs_captured:-0} )) || _xcode_logs_capture
     _xcode_logs_reader
     result=$?
@@ -1705,6 +1705,7 @@ _xcode_choice_view() {
   local title=$1 subtitle=$2 query_label=$3
   local label_kind=${4:-} label_prefix=''
   local initial_query=${5:-} initial_value=${6:-} value=''
+  local _ZLE_PICKER_EXCLUDE=${9:-}
   local -i initial_index=1
   local -a _XCODE_PICKER_LABELS=("${_XCODE_PICKER_LABELS[@]}")
   local -a _XCODE_PICKER_SEARCH=("${_XCODE_PICKER_SEARCH[@]}")
@@ -1740,7 +1741,7 @@ _xcode_choice_view() {
     (( initial_index > 0 )) || initial_index=1
   fi
   _zle_picker_start_focus=${8:-0}
-  _zle_picker_loop "$initial_query" 10 $initial_index "${7:-0}"
+  _zle_picker_loop "$initial_query" 10 $initial_index "${7:-0}" "${9:-}" "${10:-0}" "${11:-0}"
 }
 
 _xcode_test_result_choose() {
@@ -1973,6 +1974,7 @@ _xcode_workspace_controller() {
   identifier=${_XCODE_DESTINATION_IDS[1]}
   destination=${_XCODE_DESTINATION_NAMES[1]}
 
+  local -a action_exclusion=()
   while true; do
     _XCODE_PICKER_VALUES=(scheme destination refresh-destinations build rebuild
       test rebuild-test analyze clean)
@@ -2012,11 +2014,12 @@ _xcode_workspace_controller() {
     fi
     _XCODE_ACTION_CONTEXT="PROJECT"$'\n'"$container"$'\n\nSCHEME  '"$scheme"$'\nDESTINATION  '"$destination"$'\n'"$platform · $identifier"
     _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions' options \
-      "$action_query" "$action_value" "$action_offset" "$action_focus"
+      "$action_query" "$action_value" "$action_offset" "$action_focus" "${action_exclusion[1]-}" "${action_exclusion[2]:-0}" "${action_exclusion[3]:-0}"
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
     action_query=${_ZLE_PICKER_BOOKMARK[1]-} action_value=$selected
+    action_exclusion=("${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" "${_ZLE_PICKER_BOOKMARK[6]:-0}")
     action_offset=${_ZLE_PICKER_BOOKMARK[3]:-0} action_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
     case $selected in
       (scheme)
@@ -2189,8 +2192,11 @@ _compozsh_help_xcode() {
     '  Tab or Ctrl-B returns to actions and resumes the latest preview output.' \
     '  The pane title shows Following, Paused, Closed, or Unavailable.' \
     '  Waiting for app output means no captured messages are available yet.' \
-    '  Arrows choose actions; Enter applies the visible action. Empty-filter' \
+    '  Arrows choose actions; Enter applies the visible action. With both fields empty,' \
     '  digits choose visible rows; ordinary text filters actions in character order.' \
+    '  Ctrl-] switches Filter / Exclude contains in candidate menus; both stay active.' \
+    '  Exclusion is one case-insensitive phrase. Ctrl-U clears only the active field.' \
+    '  Digits choose rows only with both fields empty; log readers keep one filter.' \
     '  Ctrl-K opens the shared guide. In Run, Escape/Ctrl-G or Stop app and close' \
     '  stops this exact Simulator bundle after screen cleanup. Ctrl-C aborts' \
     '  and stops from Run, the reader, or its options.' \

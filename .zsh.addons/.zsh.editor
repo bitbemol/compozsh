@@ -97,6 +97,7 @@ typeset -gi _DIRECTORY_PICKER_SHOW_HIDDEN=-1
 typeset -ga _DIRECTORY_PICKER_QUERIES=()
 typeset -ga _DIRECTORY_PICKER_SELECTIONS=()
 typeset -ga _DIRECTORY_PICKER_OFFSETS=()
+typeset -ga _DIRECTORY_PICKER_EXCLUSIONS=() _DIRECTORY_PICKER_EXCLUDE_FOCUSES=() _DIRECTORY_PICKER_EXCLUDE_SHOWN=()
 typeset -ga _DIRECTORY_PICKER_RESUME=('' 1 0)
 typeset -ga _DIRECTORY_PICKER_LABELS=()
 typeset -ga _DIRECTORY_PICKER_STACK=()
@@ -126,13 +127,12 @@ _history_search_append_matches() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local seed_pattern=$1 raw_limit=$2
-  shift 2
+  local seed_pattern=$1 raw_limit=$2 exclusion_pattern=$3
+  shift 3
   local event='' entry='' required_pattern=''
   local -i limit=$raw_limit matched=0
   local -a required_patterns=("$@")
   local -a events=( ${(kOn)_history_search_source[(R)${~seed_pattern}]} )
-
   for event in "${events[@]}"; do
     entry=${_history_search_source[$event]}
     [[ -n $entry ]] || continue
@@ -145,6 +145,8 @@ _history_search_append_matches() {
       fi
     done
     (( matched )) || continue
+    (( ++_history_search_tier_matches ))
+    [[ $entry == ${~exclusion_pattern} ]] || continue
     [[ -n ${_history_search_seen[$entry]-} ]] && continue
     _history_search_seen[$entry]=1
     _HISTORY_SEARCH_RESULTS[$(( ++_history_search_count ))]=$entry
@@ -162,7 +164,7 @@ _history_search_collect() {
 
   local query=$1 raw_limit=$2 literal='' pattern='' fragment=''
   local seed_pattern='' longest_fragment=''
-  local -i limit=8 seed_index=1 previous_count=0
+  local -i limit=8 seed_index=1 _history_search_tier_matches=0
   local -a fragments=() literal_patterns=() fuzzy_patterns=() reply=()
   local -A _history_search_seen=()
   local -i _history_search_count=0
@@ -170,23 +172,30 @@ _history_search_collect() {
     local -A _history_search_source=( "${(@kv)history}" )
   fi
   typeset -ga _HISTORY_SEARCH_RESULTS=()
+  # Compile once for all ranking tiers; each tier receives the same predicate.
+  local exclusion_pattern='*' REPLY=''
+  if [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
+    exclusion_pattern=$REPLY
+  fi
 
   [[ $raw_limit == <-> ]] && limit=$raw_limit
   (( limit < 1 )) && limit=1
 
   if [[ -z $query ]]; then
-    _history_search_append_matches '*' $limit
+    _history_search_append_matches '*' $limit "$exclusion_pattern"
     return 0
   fi
 
   (( ${+functions[_matching_compile]} )) || return 1
   _matching_compile "$query"
   literal=$reply[1] pattern=$reply[2]
-  _history_search_append_matches "(#i)${literal}*" $limit
+  _history_search_append_matches "(#i)${literal}*" $limit "$exclusion_pattern"
   (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
   # Exclude stronger tiers natively instead of walking the same large result
   # set repeatedly in shell code when the user reaches the end of history.
-  _history_search_append_matches "(#i)(*${literal}*~${literal}*)" $limit
+  _history_search_append_matches "(#i)(*${literal}*~${literal}*)" $limit "$exclusion_pattern"
   (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
 
   fragments=( ${=query} )
@@ -195,7 +204,7 @@ _history_search_collect() {
   if (( ${#fragments} == 1 )); then
     _matching_compile "$fragments[1]"
     pattern=$reply[2]
-    _history_search_append_matches "(#i)(${pattern#\(#i\)}~*${literal}*)" $limit
+    _history_search_append_matches "(#i)(${pattern#\(#i\)}~*${literal}*)" $limit "$exclusion_pattern"
     return 0
   fi
 
@@ -210,15 +219,15 @@ _history_search_collect() {
     fi
   done
 
-  previous_count=${#_HISTORY_SEARCH_RESULTS}
-  _history_search_append_matches "(#i)(${seed_pattern#\(#i\)}~*${literal}*)" $limit "${literal_patterns[@]}"
+  _history_search_tier_matches=0
+  _history_search_append_matches "(#i)(${seed_pattern#\(#i\)}~*${literal}*)" $limit "$exclusion_pattern" "${literal_patterns[@]}"
   (( ${#_HISTORY_SEARCH_RESULTS} >= limit )) && return 0
   # Exact fragments are more useful than broader fuzzy approximations. Only
-  # fall back when the unordered literal tier contributed nothing new.
-  (( ${#_HISTORY_SEARCH_RESULTS} > previous_count )) && return 0
+  # fall back when that tier had no candidates, even if exclusion hid them.
+  (( _history_search_tier_matches > 0 )) && return 0
 
   _history_search_append_matches "(#i)(${fuzzy_patterns[seed_index]#\(#i\)}~*${literal}*)" $limit \
-    "${fuzzy_patterns[@]}"
+    "$exclusion_pattern" "${fuzzy_patterns[@]}"
 }
 
 # Adapt the history-specific collector to the reusable picker result contract.
@@ -319,6 +328,13 @@ _draft_inspect_widget() {
 
 _draft_inspect_collect() {
   emulate -L zsh
+  setopt EXTENDED_GLOB
+  local exclusion_pattern='*' REPLY=''
+  if [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
+    exclusion_pattern=$REPLY
+  fi
   local query=${1:l} value='' label=''
   _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
   for value in "${_DRAFT_INSPECT_VALUES[@]}"; do
@@ -331,7 +347,7 @@ _draft_inspect_collect() {
       compose) label='Compose this command…' ;;
       back) label='Keep editing' ;;
     esac
-    [[ ${label:l} == *"$query"* ]] || continue
+    [[ ${label:l} == *"$query"* && $label == ${~exclusion_pattern} ]] || continue
     _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
   done
 }
@@ -353,7 +369,7 @@ _draft_inspect_choose() {
   _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_ZLE_PICKER_DESCRIPTIONS}")
   _ZLE_PICKER_ACCEPT_LABELS=(read read files 'browse folder' history recall tools 'open guides' git review compose compose back 'keep editing')
   _zle_picker_start_focus=${4:-0}
-  _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}"
+  _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}" "${5:-}" "${6:-0}" "${7:-0}"
 }
 
 _draft_inspect_controller() {
@@ -364,7 +380,7 @@ _draft_inspect_controller() {
   local -a _GIT_REVIEW_CONFIG=()
   local -i _GIT_REVIEW_TRUNCATED=0
   while true; do
-    _zle_ui_view action _draft_inspect_choose "${bookmark[@]}" "$focus"
+    _zle_ui_view action _draft_inspect_choose "${bookmark[@][1,3]}" "$focus" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
@@ -405,14 +421,14 @@ _directory_picker_append_matches() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local pattern=$1 required_pattern=$2
+  local pattern=$1 required_pattern=$2 exclusion_pattern=$4
   local -i limit=$3 index=0
   local value='' label=''
 
   for (( index = 1; index <= ${#_DIRECTORY_PICKER_VALUES}; ++index )); do
     label=${_DIRECTORY_PICKER_LABELS[index]}
     [[ $label == ${~pattern} ]] || continue
-    [[ $label == ${~required_pattern} ]] || continue
+    [[ $label == ${~required_pattern} && $label == ${~exclusion_pattern} ]] || continue
     value=${_DIRECTORY_PICKER_VALUES[index]}
     (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
     _ZLE_PICKER_RESULTS+=("$value")
@@ -427,6 +443,13 @@ _directory_picker_collect() {
 
   local query=$1 raw_limit=$2 required_query=$_DIRECTORY_PICKER_PATH_QUERY
   local literal='' pattern='' required_pattern='*'
+  local exclusion_pattern='*' REPLY=''
+  if [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
+    exclusion_pattern=$REPLY
+  fi
+
   local -a reply=()
   local -i limit=10 index=0 result_index=0
   typeset -ga _ZLE_PICKER_RESULTS=()
@@ -451,6 +474,7 @@ _directory_picker_collect() {
 
   if [[ -z $query ]]; then
     for (( index = 1; index <= ${#_DIRECTORY_PICKER_VALUES}; ++index )); do
+      [[ ${_DIRECTORY_PICKER_LABELS[index]} == ${~exclusion_pattern} ]] || continue
       _ZLE_PICKER_RESULTS+=("${_DIRECTORY_PICKER_VALUES[index]}")
       _ZLE_PICKER_LABELS+=("${_DIRECTORY_PICKER_LABELS[index]}")
       (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
@@ -459,12 +483,12 @@ _directory_picker_collect() {
     (( ${+functions[_matching_compile]} )) || return 1
     _matching_compile "$query"
     literal=$reply[1] pattern=$reply[2]
-    _directory_picker_append_matches "(#i)${literal}*" "$required_pattern" $limit
+    _directory_picker_append_matches "(#i)${literal}*" "$required_pattern" $limit "$exclusion_pattern"
     if (( ${#_ZLE_PICKER_RESULTS} < limit )); then
-      _directory_picker_append_matches "(#i)*${literal}*" "$required_pattern" $limit
+      _directory_picker_append_matches "(#i)*${literal}*" "$required_pattern" $limit "$exclusion_pattern"
     fi
     if (( ${#_ZLE_PICKER_RESULTS} < limit )); then
-      _directory_picker_append_matches "$pattern" "$required_pattern" $limit
+      _directory_picker_append_matches "$pattern" "$required_pattern" $limit "$exclusion_pattern"
     fi
   fi
 
@@ -589,7 +613,7 @@ _directory_picker_breadcrumb() {
 # change when a sibling is created; a missing selection falls back to row one.
 _directory_picker_restore() {
   emulate -L zsh
-  local query=$1 selected=$2
+  local query=$1 selected=$2 _ZLE_PICKER_EXCLUDE=${4:-}
   local -i offset=${3:-0} index=0 limit=$(( offset + 11 ))
   if (( ${_DIRECTORY_PICKER_VALUES[(Ie)$selected]} )); then
     # Start with the previously visible prefix. Usually this is one page;
@@ -603,6 +627,8 @@ _directory_picker_restore() {
   fi
   (( index )) || { index=1; offset=0; }
   _DIRECTORY_PICKER_RESUME=("$query" "$index" "$offset")
+  [[ ${6:-0} == 1 || -n ${4:-} ]] && _DIRECTORY_PICKER_RESUME+=("${4:-}" "${5:-0}" 1)
+  return 0
 }
 
 # Move between already selected levels without recursively discovering paths.
@@ -615,6 +641,7 @@ _directory_picker_transition() {
   local previous_input=$_DIRECTORY_PICKER_INPUT target=''
   local notice='' selected_name=''
   local query=${_ZLE_PICKER_BOOKMARK[1]-}
+  local -a exclusion=("${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" "${_ZLE_PICKER_BOOKMARK[6]:-0}")
   local -i offset=${_ZLE_PICKER_BOOKMARK[3]:-0} transition_status=1
   local -i previous_hidden=${_DIRECTORY_PICKER_SHOW_HIDDEN:--1} allow_empty=0
   REPLY=''
@@ -628,7 +655,7 @@ _directory_picker_transition() {
       ;;
     (parent)
       if (( ! ${#_DIRECTORY_PICKER_STACK} )); then
-        _directory_picker_restore "$query" "$selected_path" $offset
+        _directory_picker_restore "$query" "$selected_path" $offset "${exclusion[@]}"
         REPLY='already at the starting level'
         return 1
       fi
@@ -652,16 +679,21 @@ _directory_picker_transition() {
       _DIRECTORY_PICKER_QUERIES+=("$query")
       _DIRECTORY_PICKER_SELECTIONS+=("$selected_path")
       _DIRECTORY_PICKER_OFFSETS+=($offset)
+      _DIRECTORY_PICKER_EXCLUSIONS+=("$exclusion[1]")
+      _DIRECTORY_PICKER_EXCLUDE_FOCUSES+=("$exclusion[2]")
+      _DIRECTORY_PICKER_EXCLUDE_SHOWN+=("$exclusion[3]")
       _DIRECTORY_PICKER_RESUME=('' 1 0)
     elif [[ $action == parent ]]; then
       _directory_picker_restore "${_DIRECTORY_PICKER_QUERIES[-1]-}" \
-        "${_DIRECTORY_PICKER_SELECTIONS[-1]-}" "${_DIRECTORY_PICKER_OFFSETS[-1]:-0}"
+        "${_DIRECTORY_PICKER_SELECTIONS[-1]-}" "${_DIRECTORY_PICKER_OFFSETS[-1]:-0}" \
+        "${_DIRECTORY_PICKER_EXCLUSIONS[-1]-}" "${_DIRECTORY_PICKER_EXCLUDE_FOCUSES[-1]:-0}" "${_DIRECTORY_PICKER_EXCLUDE_SHOWN[-1]:-0}"
       _DIRECTORY_PICKER_STACK[-1]=()
       _DIRECTORY_PICKER_QUERIES[-1]=()
       _DIRECTORY_PICKER_SELECTIONS[-1]=()
       _DIRECTORY_PICKER_OFFSETS[-1]=()
+      _DIRECTORY_PICKER_EXCLUSIONS[-1]=() _DIRECTORY_PICKER_EXCLUDE_FOCUSES[-1]=() _DIRECTORY_PICKER_EXCLUDE_SHOWN[-1]=()
     else
-      _directory_picker_restore "$query" "$selected_path" $offset
+      _directory_picker_restore "$query" "$selected_path" $offset "${exclusion[@]}"
     fi
     _DIRECTORY_PICKER_INPUT=$target
     REPLY=''
@@ -677,7 +709,7 @@ _directory_picker_transition() {
   fi
   _directory_picker_prepare "$previous_input" ${#previous_input} 1 ||
     transition_status=2
-  _directory_picker_restore "$query" "$selected_path" $offset
+  _directory_picker_restore "$query" "$selected_path" $offset "${exclusion[@]}"
   REPLY=$notice
   return $transition_status
 }
@@ -759,7 +791,7 @@ _directory_browser_collect() {
       [[ -n $summary ]] && summary+=' · '
       summary+="${_DIRECTORY_PICKER_CONTENT_COUNTS[index]} $label"
     done
-    if [[ -n $1 || -n $_DIRECTORY_PICKER_PATH_QUERY ]]; then
+    if [[ -n $1 || -n $_DIRECTORY_PICKER_PATH_QUERY || -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
       label='No directories match this filter'
     elif (( _DIRECTORY_PICKER_CONTENT_COUNTS[1] )); then
       label='No selectable directories'
@@ -802,7 +834,7 @@ _directory_browser_collect() {
 _directory_browser_pick() {
   local limit=$1
   shift
-  _zle_picker_loop "${1:-}" "$limit" "${2:-1}" "${3:-0}"
+  _zle_picker_loop "${1:-}" "$limit" "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}"
 }
 
 _directory_browser_actions_collect() {
@@ -962,6 +994,7 @@ _directory_browser_session() {
   # dependency for another picker. -1 preserves native dot-prefix discovery.
   local -i _DIRECTORY_PICKER_SHOW_HIDDEN=-1
   local -a _DIRECTORY_PICKER_QUERIES=() _DIRECTORY_PICKER_SELECTIONS=() _DIRECTORY_PICKER_OFFSETS=()
+  local -a _DIRECTORY_PICKER_EXCLUSIONS=() _DIRECTORY_PICKER_EXCLUDE_FOCUSES=() _DIRECTORY_PICKER_EXCLUDE_SHOWN=()
   local -a _DIRECTORY_PICKER_RESUME=('' 1 0)
   local -a _DIRECTORY_PICKER_VALUES=() _DIRECTORY_PICKER_LABELS=() _DIRECTORY_PICKER_STACK=()
   local -a _DIRECTORY_PICKER_CONTENT_COUNTS=(0 0 0) _DIRECTORY_PICKER_FILE_SAMPLE=()

@@ -40,6 +40,8 @@ _file_search_compile_query() {
   if [[ -n ${query//[$' \t\n']/} ]]; then
     _FILE_SEARCH_LITERAL_FILTER_PATTERN=$reply[2]
     _FILE_SEARCH_FILTER_PATTERN=$reply[3]
+  elif [[ -n ${_file_search_capture_exclude:-} ]]; then
+    _FILE_SEARCH_FILTER_PATTERN='(#i)*'
   fi
   return 0
 }
@@ -50,8 +52,9 @@ _file_search_match_rank() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local text=$1 basename=${1:t}
+  local text=$1 basename=${1:t} exclusion_pattern=${_file_search_capture_exclusion_pattern:-*}
   REPLY=0
+  [[ $text == ${~exclusion_pattern} ]] || return 1
 
   if [[ -n $_FILE_SEARCH_LITERAL_QUERY &&
         $basename == (#i)${~_FILE_SEARCH_LITERAL_QUERY}* ]]; then
@@ -370,11 +373,12 @@ _file_search_picker_append_matches() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local pattern=$1 raw_limit=$2 field=${3:-path}
+  local pattern=$1 raw_limit=$2 field=$3 exclusion_pattern=$4
   local text='' candidate='' value=''
   local -i limit=$raw_limit index=0
   for (( index = 1; index <= ${#_FILE_SEARCH_VALUES}; ++index )); do
     text=${_FILE_SEARCH_MATCH_TEXTS[index]}
+    [[ $text == ${~exclusion_pattern} ]] || continue
     candidate=$text
     [[ $field == basename ]] && candidate=${text:t}
     [[ $candidate == ${~pattern} ]] || continue
@@ -390,6 +394,12 @@ _file_search_picker_collect() {
   setopt EXTENDED_GLOB
 
   local query=$1 raw_limit=$2
+  local exclusion_pattern='*' REPLY=''
+  if [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
+    exclusion_pattern=$REPLY
+  fi
   local -i limit=$raw_limit index=0
   typeset -ga _ZLE_PICKER_RESULTS=()
   typeset -ga _ZLE_PICKER_LABELS=()
@@ -397,6 +407,7 @@ _file_search_picker_collect() {
 
   if [[ -z $query ]]; then
     for (( index = 1; index <= ${#_FILE_SEARCH_VALUES}; ++index )); do
+      [[ ${_FILE_SEARCH_MATCH_TEXTS[index]} == ${~exclusion_pattern} ]] || continue
       _file_search_picker_add_result $index
       (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
     done
@@ -405,16 +416,16 @@ _file_search_picker_collect() {
 
   _file_search_compile_query "$query"
   _file_search_picker_append_matches \
-    "(#i)${_FILE_SEARCH_LITERAL_QUERY}*" $limit basename
+    "(#i)${_FILE_SEARCH_LITERAL_QUERY}*" $limit basename "$exclusion_pattern"
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
   _file_search_picker_append_matches \
-    "(#i)*${_FILE_SEARCH_LITERAL_QUERY}*" $limit path
+    "(#i)*${_FILE_SEARCH_LITERAL_QUERY}*" $limit path "$exclusion_pattern"
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
   _file_search_picker_append_matches \
-    "$_FILE_SEARCH_LITERAL_FILTER_PATTERN" $limit path
+    "$_FILE_SEARCH_LITERAL_FILTER_PATTERN" $limit path "$exclusion_pattern"
   (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
   _file_search_picker_append_matches \
-    "$_FILE_SEARCH_FILTER_PATTERN" $limit path
+    "$_FILE_SEARCH_FILTER_PATTERN" $limit path "$exclusion_pattern"
 }
 
 _file_search_quote() {
@@ -575,9 +586,15 @@ _file_search_candidate_summary() {
 # a subfolder of a repository; never silently widen it to the Git root.
 _file_search_capture() {
   emulate -L zsh
-  local root=$1 query=$2 provider=$3
+  local root=$1 query=$2 provider=$3 _file_search_capture_exclude=${4:-}
+  local _file_search_capture_exclusion_pattern='*' REPLY=''
+  if [[ -n $_file_search_capture_exclude ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 2
+    _matching_exclusion "$_file_search_capture_exclude" || return 2
+    _file_search_capture_exclusion_pattern=$REPLY
+  fi
   _file_search_reset
-  [[ -d $root && -n ${query//[[:space:]]/} ]] || return 2
+  [[ -d $root && ( -n ${query//[[:space:]]/} || -n $_file_search_capture_exclude ) ]] || return 2
   case $provider in
     (local) _file_search_capture_local "$root" "$query" ;;
     (git) _file_search_capture_git "$root" "$query" ;;
@@ -606,7 +623,7 @@ _file_search_default_provider() {
 # captures once; refinement and paging operate solely on that snapshot.
 _file_search_choose() {
   emulate -L zsh
-  local root=$1 query=${2:-} provider=${3:-auto} selected='' action='' kind=''
+  local root=$1 query=${2:-} provider=${3:-auto} exclusion='' selected='' action='' kind=''
   if [[ $provider == auto ]]; then
     _file_search_default_provider "$root"
     provider=$REPLY
@@ -627,20 +644,28 @@ _file_search_choose() {
   local _FILE_SEARCH_LITERAL_QUERY='' _FILE_SEARCH_LITERAL_FILTER_PATTERN='' _FILE_SEARCH_FILTER_PATTERN=''
   local -i _FILE_SEARCH_TRUNCATED=0 _FILE_SEARCH_VISITED=0
   if [[ -z $query ]]; then
-    _files_read_query 'Search descendants' "$provider · $root" || return $?
-    query=$_ZLE_PICKER_SELECTED_VALUE
+    _files_read_query 'Search descendants' "$provider · $root" '' '' "$provider" || return $?
+    query=$_ZLE_PICKER_SELECTED_VALUE exclusion=${_ZLE_PICKER_BOOKMARK[4]-}
   fi
   while true; do
     if (( refresh )); then
       if (( ${+functions[_zle_picker_capture]} )); then
-        _zle_picker_capture Files "$provider · $root" "$query" \
-          _file_search_capture "$root" "$query" "$provider"
+        # The busy frame shows the submitted fields. Its display state ends
+        # before the independent refinement filter over captured results.
+        () {
+          local _ZLE_PICKER_EXCLUDE=$exclusion
+          local -i _ZLE_PICKER_EXCLUDE_SHOWN=$(( ${#exclusion} > 0 ))
+          local -i _ZLE_PICKER_EXCLUDE_FOCUS=0
+          _zle_picker_capture Files "$provider · $root" "$query" \
+            _file_search_capture "$root" "$query" "$provider" "$exclusion"
+        }
       else
-        _file_search_capture "$root" "$query" "$provider"
+        _file_search_capture "$root" "$query" "$provider" "$exclusion"
       fi
       capture_status=$?
-      _file_search_candidate_summary "$query"
+      _file_search_candidate_summary "${query:-all}"
       summary=$REPLY
+      [[ -n $exclusion ]] && summary+=" · exclude contains: $exclusion"
       (( capture_status == 2 )) && summary="Source failed or unavailable · $summary"
       _file_search_inspector_capture
       for selected in "${_FILE_SEARCH_VALUES[@]}"; do
@@ -667,7 +692,7 @@ _file_search_choose() {
     _ZLE_PICKER_HIERARCHY_ENABLED=0
     _ZLE_PICKER_DIRECTORY_ACTIONS=0
     _ZLE_PICKER_COPY_ENABLED=$(( ${#_directory_browser_clipboard} > 0 ))
-    _zle_picker_loop "${bookmark[1]}" "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}"
+    _zle_picker_loop "${bookmark[1]}" "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
@@ -675,11 +700,11 @@ _file_search_choose() {
     return_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
     _zle_picker_start_focus=$return_focus
     if [[ $_ZLE_PICKER_ACTION == "search-$provider" ]]; then
-      _files_read_query 'Search descendants' "$provider · $root" "$query"
+      _files_read_query 'Search descendants' "$provider · $root" "$query" "$exclusion" "$provider"
       result=$?
       (( result == 1 )) && continue
       (( result == 0 )) || return $result
-      query=$_ZLE_PICKER_SELECTED_VALUE
+      query=$_ZLE_PICKER_SELECTED_VALUE exclusion=${_ZLE_PICKER_BOOKMARK[4]-}
       refresh=1
       continue
     fi
@@ -720,18 +745,34 @@ _files_read_query() {
 _files_query_content() {
   local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2
   local _ZLE_PICKER_QUERY_LABEL='Search descendants'
+  local -i _ZLE_PICKER_EXCLUSION_ENABLED=1 query_status=0
+  local -a discovery=("${3:-}" 1 0 "${4:-}" 0 0)
   local _ZLE_PICKER_INSPECT_ACTION=search
   local _ZLE_PICKER_BROWSE_LABEL='Enter fragments, then press Return to search'
   local -a _ZLE_PICKER_EMPTY_LINES=(
     'Search descendants of the displayed folder'
     'Space-separated fragments may match in any order, case-insensitively.'
     'Each fragment may abbreviate characters in order. Example: net cli'
+    'Ctrl-] edits Exclude contains: one case-insensitive literal phrase.'
+    'Empty search plus an exclusion captures eligible paths without that phrase.'
     'Spotlight seeds filenames with the longest fragment; use recognizable text.'
     'Filesystem: 20,000 inspected entries; all sources: 2,000 captured matches.'
     'Unreadable/unindexed locations may be absent. Mounted drives may be slow.'
     'After capture, Filter results refines that snapshot. Ctrl-F edits the search.'
     'Ctrl-X in Browse or results chooses another discovery source.')
-  _zle_picker_loop "${3:-}" 10
+  while true; do
+    _zle_picker_loop "$discovery[1]" 10 "$discovery[2]" "$discovery[3]" "${discovery[4]-}" "${discovery[5]:-0}" "${discovery[6]:-0}"
+    query_status=$?
+    (( query_status == 0 )) || return $query_status
+    discovery=("${_ZLE_PICKER_BOOKMARK[@]}")
+    if [[ ${5:-} == spotlight && -z ${discovery[1]//[[:space:]]/} ]]; then
+      _ZLE_PICKER_BROWSE_LABEL='Spotlight needs positive filename text'
+      _ZLE_PICKER_EMPTY_LINES=('Add filename text, or go Back and choose Search filesystem in Options.'
+        'The source stays Spotlight; no fallback scan has run.')
+      continue
+    fi
+    return 0
+  done
 }
 
 :

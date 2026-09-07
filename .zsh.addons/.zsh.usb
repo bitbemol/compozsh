@@ -20,8 +20,11 @@ _compozsh_help_external-device() {
     '  No arguments opens the task chooser without reading disks or images.' \
     '  --flash [media]  Create bootable media from an image or macOS installer.' \
     '  --format  Choose a drive, filesystem, and volume name.' \
-    '  Enter or an empty-filter digit opens the displayed task, never an erase.' \
+    '  Enter opens the displayed task, never an erase; digits require both fields empty.' \
     '  Filter tasks by name; arrows move, Ctrl-E/B focuses plan/list, Escape exits.' \
+    '  Ctrl-] switches Filter / Exclude contains in candidate menus; both stay active.' \
+    '  Exclusion is one case-insensitive phrase. Ctrl-U clears only the active field.' \
+    '  Digits choose rows only with both fields empty; authored text stays literal.' \
     '  Ctrl-K shows the shared keys. Narrow screens retain explicit plan access.' \
     '  Every write requires its own exact-device typed confirmation afterward.' \
     '  Requires an interactive terminal and the UI/matching peers for tasks.' \
@@ -1037,7 +1040,8 @@ _usb_browse_choose() {
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_HIGHLIGHTS[index]}
   done
   _zle_picker_loop "${_USB_BROWSER_RESUME[1]-}" 20 \
-    "${_USB_BROWSER_RESUME[2]:-1}" "${_USB_BROWSER_RESUME[3]:-0}"
+    "${_USB_BROWSER_RESUME[2]:-1}" "${_USB_BROWSER_RESUME[3]:-0}" \
+    "${_USB_BROWSER_RESUME[4]-}" "${_USB_BROWSER_RESUME[5]:-0}" "${_USB_BROWSER_RESUME[6]:-0}"
 }
 
 _usb_browse_image_path() {
@@ -1050,6 +1054,7 @@ _usb_browse_image_path() {
   local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
   local -a _USB_BROWSER_RESUME=('' 1 0) _USB_BROWSER_LOCATION_STACK=()
   local -a _USB_BROWSER_QUERY_STACK=() _USB_BROWSER_INDEX_STACK=() _USB_BROWSER_OFFSET_STACK=()
+  local -a exclusion_stack=() exclusion_focus_stack=() exclusion_shown_stack=()
   local -a _ZLE_PICKER_TRAIL=() components=() bookmark=()
   local component='' indent=''
   local -i result=0
@@ -1082,7 +1087,7 @@ _usb_browse_image_path() {
     bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
     if [[ $_ZLE_PICKER_ACTION == toggle-hidden ]]; then
       _USB_BROWSER_SHOW_HIDDEN=$(( !_USB_BROWSER_SHOW_HIDDEN ))
-      _USB_BROWSER_RESUME=("${bookmark[1]-}" "${bookmark[2]:-1}" "${bookmark[3]:-0}")
+      _USB_BROWSER_RESUME=("${bookmark[@]}")
       continue
     fi
     if [[ $_ZLE_PICKER_ACTION == parent ]]; then
@@ -1091,11 +1096,13 @@ _usb_browse_image_path() {
         _USB_BROWSER_RESUME=(
           "${_USB_BROWSER_QUERY_STACK[-1]-}"
           "${_USB_BROWSER_INDEX_STACK[-1]:-1}"
-          "${_USB_BROWSER_OFFSET_STACK[-1]:-0}")
+          "${_USB_BROWSER_OFFSET_STACK[-1]:-0}"
+          "${exclusion_stack[-1]-}" "${exclusion_focus_stack[-1]:-0}" "${exclusion_shown_stack[-1]:-0}")
         _USB_BROWSER_LOCATION_STACK[-1]=()
         _USB_BROWSER_QUERY_STACK[-1]=()
         _USB_BROWSER_INDEX_STACK[-1]=()
         _USB_BROWSER_OFFSET_STACK[-1]=()
+        exclusion_stack[-1]=() exclusion_focus_stack[-1]=() exclusion_shown_stack[-1]=()
       fi
       continue
     fi
@@ -1118,6 +1125,7 @@ _usb_browse_image_path() {
       _USB_BROWSER_QUERY_STACK+=("${bookmark[1]-}")
       _USB_BROWSER_INDEX_STACK+=("${bookmark[2]:-1}")
       _USB_BROWSER_OFFSET_STACK+=("${bookmark[3]:-0}")
+      exclusion_stack+=("${bookmark[4]-}") exclusion_focus_stack+=("${bookmark[5]:-0}") exclusion_shown_stack+=("${bookmark[6]:-0}")
       location=${${selected%/}:A}
       _USB_BROWSER_RESUME=('' 1 0)
       continue
@@ -1468,13 +1476,14 @@ _usb_choice_view() {
       fi
     fi
   done
+  local _ZLE_PICKER_EXCLUDE=${11:-}
   if [[ -n $initial_value ]]; then
     _usb_picker_collect "$initial_query" 501
     start_index=${_ZLE_PICKER_RESULTS[(Ie)$initial_value]}
     (( start_index > 0 )) || start_index=1
     start_offset=$(( start_index - 1 ))
   fi
-  _zle_picker_loop "$initial_query" 20 $start_index $start_offset
+  _zle_picker_loop "$initial_query" 20 $start_index $start_offset "${11:-}" "${12:-0}" "${13:-0}"
 }
 
 # A first removable-volume access can return once while macOS applies the
@@ -1878,6 +1887,7 @@ _usb_workspace_controller() {
   emulate -L zsh
   local selected='' image='' disk='' source_disk=''
   local image_query='' image_initial_value='' refresh_path=''
+  local -a image_exclusion=()
   local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
   local media_kind=raw-image media_error='' review_breadcrumb='' target_subtitle=''
   local checksum_state=not-provided checksum_actual='' integrity_label='' integrity_detail=''
@@ -1904,12 +1914,13 @@ _usb_workspace_controller() {
     _usb_choose 'External device / Flash · Step 1 of 3' \
       "MEDIA  ›  Drive  ›  Flash · newest first · ${_USB_IMAGE_CAPTURE_SCOPE}" \
       'Filter media' 1 1 1 'captured media · Ctrl-R refresh Spotlight' \
-      "$image_query" "$image_initial_value"
+      "$image_query" "$image_initial_value" choice "${image_exclusion[1]-}" "${image_exclusion[2]:-0}" "${image_exclusion[3]:-0}"
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
     if [[ $_ZLE_PICKER_ACTION == refresh ]]; then
       image_query=${_ZLE_PICKER_BOOKMARK[1]-}
+      image_exclusion=("${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" "${_ZLE_PICKER_BOOKMARK[6]:-0}")
       refresh_path=''
       [[ $selected == image:<-> ]] && refresh_path=${_USB_IMAGE_PATHS[${selected#image:}]-}
       _usb_images_capture || return $?
@@ -1928,7 +1939,7 @@ _usb_workspace_controller() {
       fi
       continue
     fi
-    image_query='' image_initial_value=''
+    image_query='' image_initial_value='' image_exclusion=()
     if [[ $selected == custom-path ]]; then
       _usb_browse_image_path
       result=$?

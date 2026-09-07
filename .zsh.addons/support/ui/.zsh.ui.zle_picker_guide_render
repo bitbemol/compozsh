@@ -14,7 +14,7 @@ _zle_picker_guide_render() {
     'Enter                Apply the action shown in the footer'
     'Escape / Ctrl-G      Cancel; go back from a secondary view'
     'Ctrl-C               Abort the picker'
-    'Ctrl-U               Clear filter'
+    'Ctrl-U               Clear the active field'
     'Backspace            Delete one character'
     'Ctrl-W               Delete the last word'
     'Fn/Option-Up/Down    Page up/down in the focused pane; one-line overlap'
@@ -22,6 +22,12 @@ _zle_picker_guide_render() {
     'Ctrl-L               Redraw'
     'Ctrl-K               Show or close this keyboard guide'
   )
+  (( ${_ZLE_PICKER_EXCLUSION_ENABLED:-0} )) && lines+=(
+    'Ctrl-]               Switch editing between Filter and Exclude contains'
+    'Exclude contains     Hide case-insensitive literal text; spaces form one phrase'
+    'Empty Filter         All available candidates except the exclusion'
+    'Fields               Both stay active; Ctrl-U clears only the active field'
+    'Exclusion digits     Always literal input while editing Exclude contains')
   (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) &&
     lines[1]='Type                 Enter literal text; Return submits'
   if (( _ZLE_PICKER_READER_ONLY )); then
@@ -31,7 +37,7 @@ _zle_picker_guide_render() {
   fi
   _zle_picker_can_accept "$_ZLE_PICKER_QUERY" || lines[3]=()
   (( _ZLE_PICKER_DIGIT_SELECT && !_ZLE_PICKER_READER_ONLY )) && lines+=(
-    '0–9                  Apply a visible slot only with an empty filter')
+    '0–9                  Apply a visible slot only when both filter fields are empty')
   if (( _ZLE_PICKER_COPY_ENABLED )); then
     if (( _ZLE_PICKER_READER_ONLY )); then
       lines+=('Ctrl-Y               Copy the current document and return')

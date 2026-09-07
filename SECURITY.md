@@ -103,7 +103,7 @@ state:
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh --sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
-| Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, the living prompt's Context trigger/disclosure flags, and temporary view snapshots; discarded with the shell or view |
+| Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, the living prompt's Context trigger/disclosure flags, positive/exclusion fields and their return bookmarks, and temporary view snapshots; discarded with the shell or view |
 | Local manual summaries | Shell memory until `compozsh --refresh` or shell exit | A first-interactive-prompt snapshot of bounded NAME descriptions and page-name/section attribution from fixed installed manual roots; lookup is memory-only and describes literal names, not executable identity |
 | Interaction lens state | Shell memory for the active ordinary prompt | The current interaction kind, sanitized and bounded literal excerpts/structural summaries, captured context anchors, latest command outcome, and an optional bounded prefix of matching editor-owned autosuggestion state; replaced as the buffer or command outcome changes and discarded with the shell. Leading assignment values are not copied into this presentation state; the actual ZLE buffer remains native shell state |
 | Draft inspector | Invocation-scoped shell memory, only after Option-Return | At most 32,768 literal draft characters plus a truncation notice, cursor/length/current-folder facts, reading filters and frames; released on return. The exact full draft is preserved by the native editing/screen-restoration state. Explicit Read can display assignment values and other sensitive text; no redaction or execution occurs |
@@ -461,9 +461,17 @@ fragments in any order and returns indexes into the supplied candidates.
 Caller-local outputs are the only results: matching reads no provider, UI state,
 filesystem, command metadata or history, and creates no persistent cache.
 Feature collectors retain their documented
-ranking, duplicate policy and capture limits. Query punctuation is literal;
+ranking, duplicate policy and capture limits. Exclusion compiles one
+case-insensitive literal phrase and rejects matching candidates before result
+limits. It reads no file contents, creates no saved filter, and never evaluates
+query operators. Both input fields and their navigation bookmarks remain local
+to the view. Refinement performs no discovery; exclusion-only filesystem/Git
+capture requires explicit submission and retains the existing source bounds.
+Spotlight requires positive filename text and never falls back to a walk.
+Query punctuation is literal;
 decimal result limits are checked before arithmetic. Run
-`zsh tests/run.zsh 'matching component'` for query, Unicode, limit and isolation
+`zsh tests/run.zsh exclusion` and `zsh tests/run.zsh 'matching component'`
+for two-field input, native restoration, query, Unicode, limit and isolation
 contracts. Missing matching support selects existing native/plain fallbacks.
 
 The `compozsh_effect_*` entries under `support/functions/` own explicit clipboard

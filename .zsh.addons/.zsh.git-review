@@ -1620,9 +1620,16 @@ _git_review_auto_candidate_visible() {
   local -a reply=()
   local -i match=${_git_auto_candidate_match:-0}
   (( match > 0 )) || return 1
+  local exclusion_pattern='*' REPLY=''
+  if [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
+    exclusion_pattern=$REPLY
+  fi
+  label="${_git_auto_candidate_labels[match]} ${_git_auto_candidate_contexts[match]-}"
+  [[ $label == ${~exclusion_pattern} ]] || return 1
   [[ -z $query ]] && return 0
   (( ${+functions[_matching_compile]} )) || return 1
-  label="${_git_auto_candidate_labels[match]} ${_git_auto_candidate_contexts[match]-}"
   _matching_compile "$query" || return 1
   literal=$reply[1] pattern=$reply[2]
   [[ $label == (#i)${literal}* || $label == (#i)*${literal}* || $label == ${~pattern} ]]
@@ -1936,6 +1943,7 @@ _git_review_auto_publish() {
     fi
   done
   _git_review_rows
+  local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
   _navigation_picker_collect "${bookmark[1]}" 1000
   (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
   if (( rank )); then
@@ -2022,6 +2030,7 @@ _git_review_refresh() {
   _git_review_rows
   # Re-rank the bounded captured list using the unchanged filter. A status
   # change may also remove a surviving path/kind from this query's results.
+  local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
   _navigation_picker_collect "${bookmark[1]}" 1000
   (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
   if (( rank )); then
@@ -2115,11 +2124,18 @@ _git_review_atlas_rows() {
 
 _git_review_atlas_collect() {
   emulate -L zsh
+  setopt EXTENDED_GLOB
   local query=${1:l}
+  local exclusion_pattern='*' REPLY=''
+  if [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
+    exclusion_pattern=$REPLY
+  fi
   local -i index=0
   _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
   for (( index=1; index<=${#_atlas_values}; ++index )); do
-    [[ ${_atlas_labels[index]:l} == *"$query"* ]] || continue
+    [[ ${_atlas_labels[index]:l} == *"$query"* && ${_atlas_labels[index]} == ${~exclusion_pattern} ]] || continue
     _ZLE_PICKER_RESULTS+=("$_atlas_values[index]") _ZLE_PICKER_LABELS+=("$_atlas_labels[index]")
     (( ${#_ZLE_PICKER_RESULTS} >= $2 )) && break
   done
@@ -2152,7 +2168,7 @@ _git_review_atlas_view() {
     fi
   done
   _zle_picker_start_focus=${6:-0}
-  _zle_picker_loop "${3:-}" 20 "${4:-1}" "${5:-0}"
+  _zle_picker_loop "${3:-}" 20 "${4:-1}" "${5:-0}" "${7:-}" "${8:-0}" "${9:-0}"
 }
 
 _git_review_atlas_level() {
@@ -2163,7 +2179,7 @@ _git_review_atlas_level() {
   local -i result=0 focus=0
   _git_review_atlas_rows "$prefix"
   while true; do
-    _zle_ui_view choice _git_review_atlas_view "$root" "$prefix" "${bookmark[@]}" "$focus"
+    _zle_ui_view choice _git_review_atlas_view "$root" "$prefix" "${bookmark[@][1,3]}" "$focus" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     choice=$_ZLE_PICKER_SELECTED_VALUE
@@ -2353,7 +2369,7 @@ _git_review_view() {
   while true; do
     _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
     _zle_picker_start_focus=$focus
-    _zle_picker_loop "${bookmark[1]}" 20 "${bookmark[2]}" "${bookmark[3]}"
+    _zle_picker_loop "${bookmark[1]}" 20 "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
@@ -2451,11 +2467,21 @@ _git_review_choice_view() {
     _zle_ui_descriptions "${(@kv)_git_compare_details}"
     _ZLE_PICKER_DESCRIPTIONS=("${reply[@]}")
   fi
-  _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
+  _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}" "${9:-}" "${10:-0}" "${11:-0}"
 }
 
 _git_review_ref_collect() {
   emulate -L zsh
+  setopt EXTENDED_GLOB
+  local REPLY=''
+  if [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
+    (( ${+functions[_matching_exclusion]} )) || return 1
+    _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
+    if [[ 'Enter branch or commit…' != ${~REPLY} ]]; then
+      _navigation_picker_collect "$@"
+      return $?
+    fi
+  fi
   # Enter accepts the best ref. Keep literal input in a stable second slot;
   # appending it to a growing result prefix would move it during pagination.
   _navigation_picker_collect "$1" "$(( $2 > 1 ? $2 - 1 : 1 ))"
@@ -2521,7 +2547,7 @@ _git_review_endpoint_choose() {
   fi
   _git_compare_details[enter]='Enter an exact name or commit ID; validation runs only when submitted.'
   while true; do
-    _git_review_pick "$purpose · choose branch or commit" "${root:t} · $opposite" 'Find branch or tag' "${bookmark[@]}" "$focus"
+    _git_review_pick "$purpose · choose branch or commit" "${root:t} · $opposite" 'Find branch or tag' "${bookmark[@][1,3]}" "$focus" choice "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     value=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
@@ -2634,7 +2660,7 @@ _git_review_compare_choose() {
       _NAVIGATION_PICKER_VALUES+=(open) _NAVIGATION_PICKER_LABELS+=('Review differences') _NAVIGATION_PICKER_INDEXES+=(4)
       _git_compare_details[open]="$pair"$'\n'"$_git_compare_method_label"$'\n\n'"$_git_compare_context"$'\n\nRead-only · captured commits. Ctrl-R keeps their IDs.'
     fi
-    _git_review_pick 'Compare branches or commits' "${root:t} · $pair" 'Filter choices' "${bookmark[@]}" "$focus" action
+    _git_review_pick 'Compare branches or commits' "${root:t} · $pair" 'Filter choices' "${bookmark[@][1,3]}" "$focus" action "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     choice=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
@@ -2770,7 +2796,7 @@ _git_review_options_view() {
   _ZLE_PICKER_ACCEPT_LABELS[atlas]='open atlas'
   _ZLE_PICKER_INSPECT_TEXTS[atlas]='Map the current working-tree snapshot by folder. Bars show file-entry counts; staged and unstaged changes remain distinct. No content is read until a file is chosen.'
   _zle_picker_start_focus=${6:-0}
-  _zle_picker_loop "${3:-}" 10 "${4:-1}" "${5:-0}"
+  _zle_picker_loop "${3:-}" 10 "${4:-1}" "${5:-0}" "${7:-}" "${8:-0}" "${9:-0}"
 }
 
 _git_review_menu() {
@@ -2781,7 +2807,7 @@ _git_review_menu() {
   local -i stay=${3:-0} result=0 focus=0
   local -a bookmark=('' 1 0)
   while true; do
-    _git_review_options "$root" "$selected" "${bookmark[@]}" "$focus"
+    _git_review_options "$root" "$selected" "${bookmark[@][1,3]}" "$focus" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     choice=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
@@ -2828,7 +2854,7 @@ _git_review_branch_choose() {
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_COPY_ENABLED=$(( ${#clipboard_binary} > 0 ))
     _zle_picker_start_focus=$focus
-    _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}"
+    _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     [[ $_ZLE_PICKER_ACTION == actions ]] || return 0

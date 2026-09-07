@@ -279,6 +279,7 @@ compozsh/
 │       │   ├── .zsh.impure.usb_result_reset
 │       │   ├── .zsh.impure.zle_picker_body_height
 │       │   ├── .zsh.impure.zle_picker_can_accept
+│       │   ├── .zsh.impure.zle_picker_can_select_digit
 │       │   ├── .zsh.impure.zle_picker_document_bookmark
 │       │   ├── .zsh.impure.zle_ui_collect
 │       │   ├── .zsh.pure.compozsh_cell_prefix
@@ -289,6 +290,7 @@ compozsh/
 │       │   ├── .zsh.pure.compozsh_sanitize
 │       │   ├── .zsh.pure.matching_compile
 │       │   ├── .zsh.pure.matching_compile_fragments
+│       │   ├── .zsh.pure.matching_exclusion
 │       │   ├── .zsh.pure.matching_decimal_limit
 │       │   ├── .zsh.pure.matching_search
 │       │   ├── .zsh.pure.matching_select
@@ -357,22 +359,22 @@ still be sourced independently, including the maintained peers in `support/`:
 | File | Responsibility | Main user-facing behavior |
 | --- | --- | --- |
 | `.zsh.shell` | Base interactive-shell policy | Safe redirection, shared history, directory-stack behavior, and terminal-aware native colors |
-| `.zsh.editor` | Completion, ZLE editing, and prompt interaction | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; living-prompt redraw/accept transitions, Option-I Context toggle and Option-Return draft inspection; location trail, captured file summaries, shallow previews, action plans and Back bookmarks; fuzzy `Ctrl-R` with literal command reading and history autosuggestions |
-| `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware action cards with exact-target plans for files, folders and links |
-| `.zsh.compose` | Guided command drafts | Option-Return on supported drafts and explicit Compose example actions in help open editable fields with a literal command preview; Git review and directory templates opt in through same-source companions; Replace draft inserts after screen cleanup and never executes |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; action plans disclose scope and comparison endpoints; `g --review A B` compares captured commits directly; Ctrl-X inside file review opens the captured Change atlas; shared folder → file → focused diff → full-context reading; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
-| `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration |
+| `.zsh.editor` | Completion, ZLE editing, and prompt interaction | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; living-prompt redraw/accept transitions, Option-I Context toggle and Option-Return draft inspection; location trail, captured file summaries, shallow previews, action plans and Back bookmarks; fuzzy `Ctrl-R` with literal command reading and history autosuggestions; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware action cards with exact-target plans for files, folders and links; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.compose` | Guided command drafts | Option-Return on supported drafts and explicit Compose example actions in help open editable fields with a literal command preview; Git review and directory templates opt in through same-source companions; Replace draft inserts after screen cleanup and never executes; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; action plans disclose scope and comparison endpoints; `g --review A B` compares captured commits directly; Ctrl-X inside file review opens the captured Change atlas; shared folder → file → focused diff → full-context reading; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
-| `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently |
+| `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette; shares its exact bare-directory observation with the optional prompt lens |
 | `.zsh.manual` | Local manual summaries | Captures bounded, inert NAME descriptions once before interactive editing; supplies memory-only ABOUT rows without invoking commands or a manual formatter |
-| `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases with shared default-expansion descriptions |
+| `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases with shared default-expansion descriptions; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication operations | Private operations behind `compozsh --sudo-touch-id` inspect, enable, or safely disable Apple Touch ID through the system-supported `sudo_local` PAM policy; no separate public command |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `g --discard-all` with a scoped default-no confirmation screen and plain fallback, and `compozsh --refresh` |
-| `.zsh.usb` | External-disk preparation | `external-device` opens a no-discovery task chooser; `--format` formats a selected whole external physical disk with an applicable Apple `diskutil` personality, and `--flash` handles raw/hybrid images and full macOS installer apps; shared task identity and review/recovery plans precede separate typed confirmation; Windows Setup media ends safely before target selection |
-| `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes/destinations in a captured action plan, retaining action filter/focus after configuration; reports test outcomes and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, live log reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills |
+| `.zsh.usb` | External-disk preparation | `external-device` opens a no-discovery task chooser; `--format` formats a selected whole external physical disk with an applicable Apple `diskutil` personality, and `--flash` handles raw/hybrid images and full macOS installer apps; shared task identity and review/recovery plans precede separate typed confirmation; Windows Setup media ends safely before target selection; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes/destinations in a captured action plan, retaining action filter/focus after configuration; reports test outcomes and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, live log reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills; shared candidate exclusion preserves each view’s matching and action rules |
 | `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
 | `support/functions/.zsh.impure.compozsh_capture_bounded` | Bounded synchronous command capture | Impure function; entry `_compozsh_capture_bounded` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.compozsh_effect_copy` | Exact clipboard writes | Impure function; entry `_compozsh_effect_copy` first, followed by exclusive helpers |
@@ -391,6 +393,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/functions/.zsh.impure.usb_result_reset` | Common USB operation-result initialization | Impure function; entry `_usb_result_reset` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.zle_picker_body_height` | View-state height budget | Impure function; entry `_zle_picker_body_height` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.zle_picker_can_accept` | Current-view acceptance capability | Impure function; entry `_zle_picker_can_accept` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.zle_picker_can_select_digit` | Visible-digit acceptance capability | Impure function; shares the field/focus rule between key handling and footer hints |
 | `support/functions/.zsh.impure.zle_picker_document_bookmark` | Reading-position updates | Impure function; entry `_zle_picker_document_bookmark` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.zle_ui_collect` | Captured matching results applied to UI state | Impure function; entry `_zle_ui_collect` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.compozsh_cell_prefix` | Literal display-cell prefix clipping with attached combining marks | Pure function; entry `_compozsh_cell_prefix` first, followed by exclusive helpers |
@@ -403,7 +406,8 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/functions/.zsh.pure.matching_compile` | Literal query compilation | Pure function; entry `_matching_compile` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.matching_decimal_limit` | Literal decimal validation and clamping | Pure function; entry `_matching_decimal_limit` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.matching_search` | Captured-text searching | Pure function; entry `_matching_search` first, followed by exclusive helpers |
-| `support/functions/.zsh.pure.matching_select` | Ranked or source-order selection | Pure function; entry `_matching_select` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.matching_exclusion` | Literal exclusion compilation | Pure function; compiles a case-insensitive phrase complement for captured candidate text; empty exclusion admits all candidates |
+| `support/functions/.zsh.pure.matching_select` | Ranked or source-order selection | Pure function; applies optional literal exclusion before the result limit while preserving positive matching and ranking |
 | `support/functions/.zsh.pure.runtime_comparable_version` | Known version-decoration normalization | Pure function; entry `_runtime_comparable_version` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.runtime_version_relation` | Numeric version comparison | Pure function; entry `_runtime_version_relation` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.usb_checksum_output_read` | Supplied SHA output interpretation | Pure function; entry `_usb_checksum_output_read` first, followed by exclusive helpers |
@@ -1433,7 +1437,7 @@ in one searchable menu:
 | Go to | Independent navigation to Recent directories, sourced from this shell's native stack |
 
 Rows stay together by group, and every row retains its group label when filtered
-or paged. Details show the exact path an action uses. With an empty filter,
+or paged. Details show the exact path an action uses. With both filter fields empty,
 digits apply visible action rows directly; no extra group-selection step is needed.
 Unavailable capabilities are omitted. Search always uses the current folder.
 Escape closes the menu back to the same filter and selection. Apps launch only
@@ -1566,7 +1570,7 @@ Matching is case-insensitive and operates on paths, not file contents.
 Space-separated fragments may appear in any order; each fragment may also
 abbreviate characters in order. For example, `net cli` can match
 `Sources/Network/Client.swift`. Query text is literal; shell quoting is not
-needed inside the workspace. Empty/whitespace-only search submissions do nothing.
+needed inside the workspace. Empty/whitespace-only positive search with no exclusion does nothing; an exclusion-only filesystem/Git search is explicit discovery.
 
 After capture, **Filter results** refines only those captured paths. **Ctrl-F**
 reopens the submitted query: edit it and press Return to capture again using
@@ -1771,7 +1775,7 @@ the shared renderer resolves the corresponding picker role.
 | Type | Refine the fuzzy query |
 | `Backspace` | Remove the last query character |
 | `Option-Backspace` or `Ctrl-W` | Remove the last query word |
-| `Ctrl-U` | Clear the query |
+| `Ctrl-U` | Clear the active search/exclusion field |
 | `Ctrl-L` | Redraw a clean search screen |
 | `Down`, `Ctrl-N`, `Tab`, or `Ctrl-R` | Select the next result |
 | `Up`, `Ctrl-P`, or `Shift-Tab` | Select the previous result |
@@ -1885,13 +1889,65 @@ pages up here. After closing, normal shell editing is unchanged: Ctrl-K deletes
 to the end of the line and Ctrl-D retains Zsh's delete/EOF behavior. Command-key
 shortcuts continue to belong to Terminal.app.
 
+### Excluding candidates
+
+In candidate lists, **Ctrl-]** reveals **Exclude contains** below the existing
+filter and switches editing between the two fields. Both remain active. The
+positive field keeps that view’s existing matching and ranking; exclusion hides
+candidates whose complete searchable text contains one case-insensitive literal
+phrase. Spaces belong to that phrase, and punctuation remains literal in both
+fields. `!word` has no special meaning.
+
+| Positive filter | Exclude contains | Available results |
+| --- | --- | --- |
+| Empty | Empty | All available candidates |
+| `swift` | Empty | Candidates matching `swift` |
+| Empty | `nod` | Candidates without contiguous `nod` |
+| `swift` | `nod` | Candidates matching `swift` without contiguous `nod` |
+
+For example, excluding `nod` removes `Node.swift` and `node_modules/helper.js`,
+while keeping `new/other/data.swift`. File Search compares its complete searchable
+path, including parent directories; Browse compares child directory names.
+History compares command text; other catalogs retain their documented label and
+metadata matching boundaries. No file contents are read by candidate exclusion.
+
+The exclusion row stays visible after opening it. Its focus marker identifies
+which field receives typing, paste, Backspace, Ctrl-W and **Ctrl-U**. Ctrl-U
+clears only the active field. Editing resets selection to the first remaining
+result; switching fields preserves selection. Back restores both fields,
+selection, viewport and field focus. Secondary views have their own fields.
+Digits apply visible slots only when both fields are empty and the positive
+field is active. Digits typed in Exclude contains always edit that phrase;
+history retains ordinary numeric input. Enter keeps the action named in the footer.
+
+This shared control covers history, Browse/Recents, Files, branches and Git
+review lists, worktrees, help topics and tool catalogs, Change atlas, candidate
+menus in the composer/draft inspector, Xcode, and external-device workspaces.
+Authored paths, revisions, checksums, confirmation text, status notices and
+full-document readers retain their own input contracts. The control is omitted
+when exclusion matching support is absent. Ordinary shell key bindings are
+unchanged.
+
+**Search descendants** also accepts an exclusion before capture. A nonempty
+exclusion with an empty positive search captures eligible filesystem/Git paths
+within the existing source limits. Both fields empty starts no search. Spotlight
+requires positive filename text and explains how to add it or return to Options
+to choose another source; it never switches sources automatically.
+
+The submitted discovery conditions stay in the results’ status. The bottom
+fields refine only that captured snapshot, with no new reads. Clearing a bottom
+field cannot recover paths omitted during discovery: **Ctrl-F** edits the
+submitted conditions, and Return explicitly captures again. All coverage and
+partial-result limits still apply.
+
 | Shared key | Behavior |
 | --- | --- |
 | Up/Down or Ctrl-P/N | Move results; scroll when details have focus |
 | Enter | Apply the action named in the footer |
 | Escape / Ctrl-G | Cancel, or go back from a secondary view |
 | Ctrl-C | Abort |
-| Ctrl-U / Ctrl-W | Clear the filter / delete its last word |
+| Ctrl-U / Ctrl-W | Clear the active field / delete its last word |
+| Ctrl-] | Switch between positive filter and Exclude contains in candidate lists |
 | Fn-Up/Down or Option-Up/Down | Page up/down in the focused view; Option requires Meta |
 | Ctrl-V / Ctrl-D | Page down / up without requiring Option-as-Meta |
 | Tab / Shift-Tab | Switch list/details focus when a panel exists |
@@ -2358,7 +2414,7 @@ argument/mode/example prefixes, option names and angle-bracket placeholders.
 Surrounding prose stays neutral; wrapping and filtering retain the accents.
 
 Type to find literal case-insensitive substrings in topic labels and text.
-Arrows select; Enter or an empty-filter digit opens the selected topic in a
+Arrows select; Enter or a digit with both filter fields empty opens the selected topic in a
 full-width reader. Type there to filter literal lines. Enter/Escape returns to
 the same topic, filter, viewport and focus; Escape from topics closes help.
 Ctrl-K opens the shared key guide. Ordinary topics only read documentation.
@@ -2476,7 +2532,7 @@ uses the captured data without rerunning providers.
 | Ctrl-V / Ctrl-D | Page down/up without requiring Option-as-Meta |
 | Type or paste | Refine the filter and return to the list |
 | Enter | Read the selected tool's captured help, or inspect its availability notice |
-| Visible digit, with an empty filter and list focus | Perform the same action for that tool |
+| Visible digit, with both filter fields empty and list focus | Perform the same action for that tool |
 | Escape or Ctrl-G | Cancel; Ctrl-C aborts |
 
 Search and selection survive switching panes and resizing. The focused help
@@ -2873,7 +2929,7 @@ After launch, **Xcode / Run** combines the app's live stdout/stderr and scoped
 unified logs, including `Logger`/`os_log`, alongside
 **Stop app and close**, **Read output · Full view, filter and copy**, and, when available,
 **Enter LLDB**. Choose an action with arrows and Enter, or its visible digit
-with an empty filter. Text filters action labels with case-insensitive,
+with both filter fields empty. Text filters action labels with case-insensitive,
 in-order character matching. The selected scheme and Simulator stay visible.
 On narrow terminals, output appears below the actions; filtering or changing
 the selected action preserves the output pane and its latest position.
@@ -3226,7 +3282,7 @@ Directory changes are revalidated by `cd`. With no previous locations, your
 current folder is still useful for details or copying. Private directories and
 bookmarks are not persisted by this UI.
 
-With an empty filter, press any visible digit from `0` through `9` to insert its
+With both filter fields empty, press any visible digit from `0` through `9` to insert its
 quoted path directly. You can also use the arrows or `Ctrl-P`/`Ctrl-N`, type to
 filter, and press `Enter`. Both return to the normal prompt with that path
 visible, replacing any unfinished command. **Press Enter at the prompt to change
@@ -3256,7 +3312,7 @@ Search ‹›
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and other
 Git arguments delegate directly to `git`. Compozsh reserves `g --help`,
-`g --review` and `g --worktree`; worktree mode accepts no extra arguments. With an empty filter,
+`g --review` and `g --worktree`; worktree mode accepts no extra arguments. With both filter fields empty,
 press a visible digit to switch immediately; after typing a filter, digits are
 search text.
 
@@ -3276,7 +3332,7 @@ Smaller windows use a switchable full-width detail view. Right/`Ctrl-E`
 focuses details, Left/`Ctrl-B` returns to the list, and Tab switches panes.
 Up/Down scrolls focused details; typing returns to filtering. Enter still
 switches branches, and copying works from either pane. Immediate digit
-selection requires an empty query and focus on the visible list.
+selection requires both filter fields empty and focus on the visible list.
 
 An additional read-only Git batch captures these details before opening the
 picker. It reads at most 262,144 characters across up to 401 recent refs and

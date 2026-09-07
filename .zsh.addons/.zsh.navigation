@@ -171,7 +171,7 @@ _directory_recents_choose() {
   local _ZLE_PICKER_INSPECT_FALLBACK=''
   local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   local -a bookmark=("${_FILES_RECENTS_BOOKMARK[@]}")
-  (( ${#bookmark} == 3 )) || bookmark=('' 1 0)
+  (( ${#bookmark} >= 3 )) || bookmark=('' 1 0)
   local -i result=0
   _directory_stack_capture
   _directory_stack_describe
@@ -184,7 +184,7 @@ _directory_recents_choose() {
     _ZLE_PICKER_HIERARCHY_ENABLED=0
     _ZLE_PICKER_COPY_ENABLED=$(( ${#_directory_browser_clipboard} > 0 ))
     _ZLE_PICKER_DIRECTORY_ACTIONS=2
-    _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}"
+    _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
     result=$?
     (( result == 0 )) || return $result
     bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
@@ -466,10 +466,12 @@ _compozsh_help_g() {
     '  as g, with prefix/substring priority. Worktrees match branch and path.' \
     '  Refresh worktrees replaces the catalog; reopen creation for new branches.' \
     '  Typing and resize use captured facts. Actions revalidate after cleanup.' \
-    '  Digits apply visible rows only with empty filter and list focus.' \
+    '  Digits apply visible rows only with both fields empty and list focus.' \
     '  Branch/folder-name entry treats digits as text; no shell expansion.' \
     '  Parent browsing: Right/Tab enters, Left/Shift-Tab goes up; Ctrl-T toggles' \
     '  hidden folders. Choose Use this folder; child symlinks are excluded.' \
+    '  Ctrl-] switches Filter / Exclude contains; both stay active. Ctrl-U clears' \
+    '  only the active field. Exclusion is a case-insensitive literal phrase.' \
     '  Escape/Ctrl-G goes Back; Ctrl-C aborts. Ctrl-K shows shared keys.' \
     '  Ctrl-E/B or Tab focuses details/list outside parent browsing.' \
     '  Noninteractive, dumb-terminal or missing-picker calls only print the' \
@@ -495,6 +497,8 @@ _compozsh_help_g() {
     '  The picker does not fetch branches or create a history file.' \
     '' \
     'Picker:' \
+    '  Ctrl-] switches Filter / Exclude contains; exclusion is one literal phrase.' \
+    '  Both fields stay active; an empty Filter includes all available candidates.' \
     '  Ctrl-K opens the shared keyboard guide; Escape or Enter' \
     '  returns to the same filter and selection. A plain ? filters normally.' \
     '  Terminal.app uses a temporary alternate screen; closing restores' \
@@ -506,7 +510,7 @@ _compozsh_help_g() {
     '  are emphasized as you filter; row limits and number keys stay the same.' \
     '  Type to filter case-insensitively, in character order; literal prefix' \
     '  and substring matches rank before abbreviated ones.' \
-    '  Arrows / Ctrl-P / Ctrl-N move; Enter switches. With an empty query,' \
+    '  Arrows / Ctrl-P / Ctrl-N move; Enter switches. With both fields empty,' \
     '  a visible digit 0-9 switches immediately; otherwise digits filter.' \
     '  Numbers label visible slots and update as the list scrolls.' \
     '  Arrows scroll through all captured matches and stop at either end.' \
@@ -515,7 +519,7 @@ _compozsh_help_g() {
     '  Refining the query returns to the first match.' \
     '  Option-W / Ctrl-Y copies the branch name without switching when pbcopy' \
     '  is available. In SSH, copying targets the host running Zsh.' \
-    '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the filter.' \
+    '  Escape / Ctrl-G cancels; Ctrl-C aborts; Ctrl-U clears the active field.' \
     '  Selection uses git switch --no-guess, with no forced discard or stash.' \
     '  Git can refuse conflicting edits or a branch used by another worktree.' \
     '  Up to 10 rows appear by default, limited by terminal height. Set' \
@@ -535,7 +539,7 @@ _compozsh_help_g() {
     '  Tab switches panes; Up/Down scrolls the focused details. In narrower' \
     '  windows, details use a full-width view. Typing returns to filtering.' \
     '  Enter still switches; Ctrl-Y / Option-W still copies when available.' \
-    '  Digits select only with an empty query and focus on the visible list.' \
+    '  Digits select only with both fields empty and focus on the visible list.' \
     '  One extra read-only Git batch captures details when opening, capped at' \
     '  262,144 characters and 401 refs. Subjects are limited to 512 characters.' \
     '  Missing or capped metadata leaves the branch selectable with a notice.' \

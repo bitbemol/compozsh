@@ -8,6 +8,15 @@ _zle_picker_loop() {
 
   local query=$1 raw_limit=$2 key='' sequence='' suffix='' collected_query=''
   local collector=$_ZLE_PICKER_COLLECTOR
+  local _ZLE_PICKER_EXCLUDE=${5:-} collected_exclude='' input=''
+  local -i _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0 editing_exclude=0
+  [[ ${6:-0} == 1 ]] && _ZLE_PICKER_EXCLUDE_FOCUS=1
+  [[ ${7:-0} == 1 || -n $_ZLE_PICKER_EXCLUDE ]] && _ZLE_PICKER_EXCLUDE_SHOWN=1
+  local -i _ZLE_PICKER_EXCLUSION_ENABLED=${_ZLE_PICKER_EXCLUSION_ENABLED:-$(( !${_ZLE_PICKER_QUERY_SUBMIT:-0} && !_ZLE_PICKER_READER_ONLY && !_ZLE_PICKER_STATUS_VIEW ))}
+  (( ${+functions[_matching_exclusion]} )) || _ZLE_PICKER_EXCLUSION_ENABLED=0
+  if (( !_ZLE_PICKER_EXCLUSION_ENABLED )); then
+    _ZLE_PICKER_EXCLUDE='' _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0
+  fi
   local -i configured_limit=8 limit=8 selected=1 count=0 direct_position=0
   local -i accepted=0 cancelled=0 aborted=0 copy_requested=0
   local -i collected=0 request_limit=0 wanted=0
@@ -78,7 +87,7 @@ _zle_picker_loop() {
       wanted=$(( _ZLE_PICKER_VIEW_OFFSET + limit ))
       (( selected > wanted )) && wanted=$selected
       (( ++wanted ))
-      if (( !collected )) || [[ $query != "$collected_query" ]]; then
+      if (( !collected )) || [[ $query != "$collected_query" || $_ZLE_PICKER_EXCLUDE != "$collected_exclude" ]]; then
         request_limit=$(( limit + 1 ))
         selected=1
         _ZLE_PICKER_VIEW_OFFSET=0
@@ -98,7 +107,7 @@ _zle_picker_loop() {
       if (( !collected )); then
         "$collector" "$query" $request_limit
         _ZLE_PICKER_HAS_MORE=$(( ${#_ZLE_PICKER_RESULTS} >= request_limit ))
-        collected_query=$query
+        collected_query=$query collected_exclude=$_ZLE_PICKER_EXCLUDE
         collected=1
       fi
       count=${#_ZLE_PICKER_RESULTS}
@@ -245,7 +254,19 @@ _zle_picker_loop() {
         esac
       fi
       local -i focus_before=$_ZLE_PICKER_INSPECT_FOCUS
+      editing_exclude=$_ZLE_PICKER_EXCLUDE_FOCUS
+      input=$query
+      (( editing_exclude )) && input=$_ZLE_PICKER_EXCLUDE
       case $key in
+        ($'\x1d')
+          if (( _ZLE_PICKER_EXCLUSION_ENABLED )); then
+            _ZLE_PICKER_EXCLUDE_SHOWN=1
+            (( _ZLE_PICKER_EXCLUDE_FOCUS = ! _ZLE_PICKER_EXCLUDE_FOCUS ))
+            _ZLE_PICKER_INSPECT_FOCUS=0
+          else
+            zle beep
+          fi
+          ;;
         ($'\x01')
           if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
             _ZLE_PICKER_ACTION=document-auto-toggle
@@ -308,9 +329,9 @@ _zle_picker_loop() {
           selected=$REPLY
           ;;
         ($'\r'|$'\n')
-          if (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} && ${_ZLE_PICKER_QUERY_EMPTY_CANCEL:-0} )) && [[ -z ${query//[[:space:]]/} ]]; then
+          if (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} && ${_ZLE_PICKER_QUERY_EMPTY_CANCEL:-0} )) && [[ -z ${query//[[:space:]]/} && -z $_ZLE_PICKER_EXCLUDE ]]; then
             cancelled=1
-          elif (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${query//[[:space:]]/} ]]; then
+          elif (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${query//[[:space:]]/} || -n $_ZLE_PICKER_EXCLUDE ]]; then
             _ZLE_PICKER_ACTION=query
             accepted=1
           elif _zle_picker_can_accept "$query"; then
@@ -327,8 +348,8 @@ _zle_picker_loop() {
           ;;
         ($'\x7f'|$'\x08')
           _ZLE_PICKER_INSPECT_FOCUS=0
-          if [[ -n $query ]]; then
-            query=${query[1,-2]}
+          if [[ -n $input ]]; then
+            input=${input[1,-2]}
             selected=1
           else
             zle beep
@@ -336,7 +357,7 @@ _zle_picker_loop() {
           ;;
         ($'\x15')
           _ZLE_PICKER_INSPECT_FOCUS=0
-          query=''
+          input=''
           selected=1
           ;;
         ($'\x19')
@@ -349,8 +370,8 @@ _zle_picker_loop() {
           ;;
         ($'\x17')
           _ZLE_PICKER_INSPECT_FOCUS=0
-          query=${query%%[[:space:]]#}
-          query=${query%%[^[:space:]]#}
+          input=${input%%[[:space:]]#}
+          input=${input%%[^[:space:]]#}
           selected=1
           ;;
         ($'\x0c')
@@ -435,8 +456,8 @@ _zle_picker_loop() {
               ;;
             ($'\x7f'|$'\x08')
               _ZLE_PICKER_INSPECT_FOCUS=0
-              query=${query%%[[:space:]]#}
-              query=${query%%[^[:space:]]#}
+              input=${input%%[[:space:]]#}
+              input=${input%%[^[:space:]]#}
               selected=1
               ;;
             ('['|'O')
@@ -578,9 +599,9 @@ _zle_picker_loop() {
                 ('[3')
                   suffix=''
                   IFS= read -r -t 0.1 -k 1 suffix
-                  if [[ $suffix == '~' && -n $query ]]; then
+                  if [[ $suffix == '~' && -n $input ]]; then
                     _ZLE_PICKER_INSPECT_FOCUS=0
-                    query=${query[1,-2]}
+                    input=${input[1,-2]}
                     selected=1
                   fi
                   ;;
@@ -592,7 +613,7 @@ _zle_picker_loop() {
                     # may contain Enter, digits or Escape, never action keys.
                     if (( !_ZLE_PICKER_GUIDE_ACTIVE )); then
                       _ZLE_PICKER_INSPECT_FOCUS=0
-                      query+=$REPLY
+                      input+=$REPLY
                       selected=1
                     fi
                   else
@@ -613,8 +634,7 @@ _zle_picker_loop() {
           # Shortcuts identify currently visible slots, never hidden results.
           # Exact result values are indexed only after applying the viewport.
           direct_position=0
-          if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE && !_ZLE_PICKER_INSPECT_FOCUS )) &&
-             [[ -z $query ]]; then
+          if (( ${+functions[_zle_picker_can_select_digit]} )) && _zle_picker_can_select_digit "$query"; then
             direct_position=${_ZLE_PICKER_VISIBLE_KEYS[(Ie)$key]}
           fi
           if (( direct_position )); then
@@ -626,20 +646,25 @@ _zle_picker_loop() {
             accepted=1
           else
             _ZLE_PICKER_INSPECT_FOCUS=0
-            query+=$key
+            input+=$key
             selected=1
           fi
           ;;
         (*)
           if [[ $key == [[:print:]] ]]; then
             _ZLE_PICKER_INSPECT_FOCUS=0
-            query+=$key
+            input+=$key
             selected=1
           else
             zle beep
           fi
           ;;
       esac
+      if (( editing_exclude )); then
+        _ZLE_PICKER_EXCLUDE=$input
+      else
+        query=$input
+      fi
       if (( !accepted && _ZLE_PICKER_DOCUMENT_UPDATE_PENDING &&
             focus_before && !_ZLE_PICKER_INSPECT_FOCUS )); then
         _ZLE_PICKER_ACTION=document-auto-apply
@@ -651,15 +676,15 @@ _zle_picker_loop() {
       _ZLE_PICKER_ACCEPTED=1
       _ZLE_PICKER_SELECTED_VALUE=${_ZLE_PICKER_RESULTS[selected]-}
       [[ $_ZLE_PICKER_ACTION == query ]] && _ZLE_PICKER_SELECTED_VALUE=$query
-      _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
-      _ZLE_PICKER_BOOKMARK_FOCUS=$_ZLE_PICKER_INSPECT_FOCUS
       (( copy_requested )) && _ZLE_PICKER_ACTION='copy'
     fi
   } always {
     _ZLE_PICKER_ACTIVE=0
-    if (( _ZLE_PICKER_READER_ONLY )); then
+    if (( accepted || _ZLE_PICKER_READER_ONLY )); then
       _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
-      _ZLE_PICKER_BOOKMARK_FOCUS=1
+      (( _ZLE_PICKER_EXCLUDE_SHOWN )) && _ZLE_PICKER_BOOKMARK+=("$_ZLE_PICKER_EXCLUDE" "$_ZLE_PICKER_EXCLUDE_FOCUS" "$_ZLE_PICKER_EXCLUDE_SHOWN")
+      _ZLE_PICKER_BOOKMARK_FOCUS=$_ZLE_PICKER_INSPECT_FOCUS
+      (( _ZLE_PICKER_READER_ONLY )) && _ZLE_PICKER_BOOKMARK_FOCUS=1
     fi
     _zle_picker_document_bookmark
     region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")

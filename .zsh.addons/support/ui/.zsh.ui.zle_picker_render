@@ -161,6 +161,23 @@ _zle_picker_render() {
     _ZLE_PICKER_QUERY_ROW=${(mr:$row_width:: :)_ZLE_PICKER_QUERY_ROW}
   fi
 
+  if (( ${_ZLE_PICKER_EXCLUDE_SHOWN:-0} && !_ZLE_PICKER_STATUS_VIEW )); then
+    local positive_row='' excluded_row=''
+    local -i positive_start=0 positive_end=0
+    local -a reply=()
+    _zle_picker_filter_row "${_ZLE_PICKER_QUERY_LABEL:-Search}" "$query" $row_width $(( !${_ZLE_PICKER_EXCLUDE_FOCUS:-0} )) Find
+    positive_row=$REPLY positive_start=$reply[1] positive_end=$reply[2]
+    _zle_picker_filter_row 'Exclude contains' "${_ZLE_PICKER_EXCLUDE:-}" $row_width "${_ZLE_PICKER_EXCLUDE_FOCUS:-0}" Exclude
+    excluded_row=$REPLY
+    _ZLE_PICKER_QUERY_ROW="$positive_row"$'\n'"$excluded_row"
+    if (( ${_ZLE_PICKER_EXCLUDE_FOCUS:-0} )); then
+      _ZLE_PICKER_QUERY_START=$(( ${#positive_row} + 1 + reply[1] ))
+      _ZLE_PICKER_QUERY_END=$(( ${#positive_row} + 1 + reply[2] ))
+    else
+      _ZLE_PICKER_QUERY_START=$positive_start _ZLE_PICKER_QUERY_END=$positive_end
+    fi
+  fi
+
   if (( ${#_ZLE_PICKER_TRAIL} && columns >= 120 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 10 && !_ZLE_PICKER_INSPECT_FOCUS )); then
     trail_width=$(( columns / 7 ))
     (( trail_width > 24 )) && trail_width=24
@@ -426,5 +443,25 @@ _zle_picker_titlebar() {
   fi
 }
 
+
+:
+
+# Both dock rows share literal sanitization and display-cell fitting. Returned
+# offsets locate only the active value; the painter places the actual ZLE caret.
+_zle_picker_filter_row() {
+  emulate -L zsh
+  local label=${(V)1} text=${(V)2} marker=' ' prefix=''
+  local -i width=$3 active=$4 available=0
+  (( active )) && marker='▸'
+  (( ${(m)#label} + 8 > width )) && label=$5
+  prefix="$marker $label › "
+  (( ${(m)#prefix} >= width )) && prefix="$marker ${label[1]} "
+  (( ${(m)#prefix} >= width )) && prefix=$marker
+  available=$(( width - ${(m)#prefix} ))
+  _zle_picker_abbreviate "$text" $available
+  REPLY="$prefix$REPLY"
+  reply=(${#prefix} ${#REPLY})
+  REPLY=${(mr:$width:: :)REPLY}
+}
 
 :

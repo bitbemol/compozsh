@@ -61,6 +61,7 @@ _zle_picker_footer() {
     elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 )); then
       hints+=('^O browse')
     fi
+    (( ${_ZLE_PICKER_EXCLUSION_ENABLED:-0} )) && hints+=('^] filter/exclude')
     (( _ZLE_PICKER_COPY_ENABLED )) && hints+=('^Y copy')
     if (( _ZLE_PICKER_INSPECT_FOCUS )); then
       hints+=('↑/↓ scroll')
@@ -76,7 +77,7 @@ _zle_picker_footer() {
     elif (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_INSPECT_FOCUS )); then
       hints+=('Tab details')
     fi
-    if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE && !_ZLE_PICKER_INSPECT_FOCUS )) && [[ -z $query ]]; then
+    if (( ${+functions[_zle_picker_can_select_digit]} )) && _zle_picker_can_select_digit "$query"; then
       hints+=("0–9 ${action}")
     fi
     hints+=('Fn/Option ↑/↓ page')
