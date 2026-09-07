@@ -3,11 +3,14 @@ _test_task_native_draft_journey() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.help"
     _compozsh_tool_capture() {
       _COMPOZSH_TOOL_NAMES=(example) _COMPOZSH_TOOL_LABELS=(example)
@@ -115,11 +118,14 @@ _test_task_native_discard_journey() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     command git init -q "$HOME/repo"
     print -r -- baseline > "$HOME/repo/tracked"
     command git -C "$HOME/repo" add tracked

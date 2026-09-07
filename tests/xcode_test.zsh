@@ -11,6 +11,7 @@ _test_xcode_refresh_replaces_managed_skill() {
 
   test_run_noninteractive "$home" \
     'source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
      _install_xcode_skills_for_agent "$2" "$3" TestAgent new-build' \
     "$TEST_REPO_ROOT" "$source_dir" "$target_dir" >/dev/null || return
 
@@ -44,6 +45,7 @@ _test_xcode_refresh_rolls_back_partial_copy() {
     'path=("$4" $path)
      rehash
      source "$1/.zsh.addons/.zsh.xcode"
+     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
      _install_xcode_skills_for_agent "$2" "$3" TestAgent new-build' \
     "$TEST_REPO_ROOT" "$source_dir" "$target_dir" "$fake_bin" 2>&1) ||
     command_status=$?
@@ -87,6 +89,7 @@ exit 1' || return
      export FAKE_MV_COUNT=$5
      rehash
      source "$1/.zsh.addons/.zsh.xcode"
+     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
      _install_xcode_skills_for_agent "$2" "$3" TestAgent new-build' \
     "$TEST_REPO_ROOT" "$source_dir" "$target_dir" "$fake_bin" \
     "$count_file" 2>&1) || true
@@ -115,6 +118,7 @@ _test_xcode_install_preserves_unmarked_conflict() {
   local output=''
   output=$(test_run_noninteractive "$home" \
     'source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
      _install_xcode_skills_for_agent "$2" "$3" TestAgent new-build' \
     "$TEST_REPO_ROOT" "$source_dir" "$target_dir" 2>&1) || true
 
@@ -138,6 +142,7 @@ _test_xcode_workspace_discovers_only_nearest_containers() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_container_discover "$2" || exit
     print -r -- "${#_XCODE_CONTAINERS}"
     print -r -- "${_XCODE_CONTAINER_KINDS[1]}|${_XCODE_CONTAINERS[1]}"
@@ -164,6 +169,7 @@ _test_xcode_container_revalidation_rejects_replaced_leaf() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_container_is_current project "$2"
     print -r -- "before:$?"
     command mv -- "$2" "$2.original" || exit
@@ -196,6 +202,7 @@ _test_xcode_workspace_captures_bounded_schemes_without_update_flags() {
     export XCODE_TEST_LOG=$3
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_schemes_capture workspace "/example/Example App.xcworkspace" || exit
     print -r -- "${(j:|:)_XCODE_SCHEMES}"
   ' "$TEST_REPO_ROOT" "$fake_bin" "$log") || return
@@ -229,6 +236,7 @@ _test_xcode_workspace_keeps_complete_large_scheme_list() {
     path=("$2" $path)
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_schemes_capture workspace /example/App.xcworkspace || exit
     print -r -- "${#_XCODE_SCHEMES}|${_XCODE_SCHEMES[1]}|${_XCODE_SCHEMES[-1]}"
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
@@ -250,6 +258,7 @@ _test_xcode_workspace_rejects_pathological_scheme_count_without_partial_list() {
     path=("$2" $path)
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_schemes_capture workspace /example/App.xcworkspace
     print -r -- "$?|${#_XCODE_SCHEMES}|$_XCODE_CAPTURE_ERROR"
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
@@ -266,6 +275,7 @@ _test_xcode_destination_parser_keeps_exact_usable_ids() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     long_os=${(l:5000::9:)}
     data=$'\''Available destinations for the "Example" scheme:\n\t\t{ platform:macOS, arch:arm64, id:MAC-123, name:My Mac }\n\t\t{ platform:iOS Simulator, arch:arm64, id:SIM-456, OS:27.0, name:iPhone 18 Pro }\n\t\t{ platform:iOS, name:Any iOS Device }\n\t\t{ platform:iOS Simulator, id:SIM-789, OS:27.0, name:Unavailable, error:iOS 27.0 is not installed }\n\t\t{ platform:iOS Simulator, id:bad/value, OS:27.0, name:Unsafe }'\''
     data+=$'\''\n\t\t{ platform:iOS Simulator, id:SIM-LONG, OS:'\''"$long_os"$'\'', name:Bounded }'\''
@@ -292,6 +302,7 @@ _test_xcode_workspace_reuses_bounded_destination_snapshots() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_CONTAINERS=(/example/App.xcodeproj)
     _XCODE_CONTAINER_KINDS=(project)
     local -a captures=()
@@ -379,6 +390,7 @@ _test_xcode_destination_cache_evicts_lru_inside_one_workspace() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a _XCODE_DESTINATION_CACHE_SCHEMES=()
     local -a _XCODE_DESTINATION_CACHE_IDS=()
     local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
@@ -412,6 +424,7 @@ _test_xcode_destination_refresh_forgets_snapshot_before_failed_store() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a _XCODE_DESTINATION_CACHE_SCHEMES=()
     local -a _XCODE_DESTINATION_CACHE_IDS=()
     local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
@@ -442,10 +455,13 @@ _test_xcode_digit_select_choosers_limit_each_visible_page_to_ten() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_PICKER_VALUES=({1..11})
     _XCODE_PICKER_LABELS=({1..11})
     _XCODE_PICKER_SEARCH=({1..11})
@@ -468,10 +484,13 @@ _test_xcode_action_option_colors() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_CONTAINERS=(/example/Demo.xcodeproj)
     _XCODE_CONTAINER_KINDS=(project)
     _xcode_schemes_capture() { _XCODE_SCHEMES=("Demo · Scheme") }
@@ -534,6 +553,7 @@ _test_xcode_action_builder_preserves_target_and_safety_policy() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_action_command project "/example/Example App.xcodeproj" \
       "Example App" "iOS Simulator" "SIM-456" test || exit
     print -rl -- "${_XCODE_COMMAND[@]}"
@@ -576,6 +596,7 @@ _test_xcode_action_keeps_hostile_project_values_as_inert_argv() {
     export XCODE_ARGV_LOG=$4
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     hostile="App; touch $5; \$(touch $5) *"
     _xcode_action_command project "$3" "$hostile" macOS MAC-123 build || exit
     command "${_XCODE_COMMAND[@]}"
@@ -596,6 +617,7 @@ _test_xcode_build_modes_preserve_incremental_cache_and_order_recovery() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_action_command project /example/App.xcodeproj App macOS MAC-123 \
       build || exit
     print -r -- "incremental:${(j:|:)_XCODE_COMMAND}"
@@ -622,6 +644,7 @@ _test_xcode_rebuild_test_orders_clean_and_test_without_global_cache_changes() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_action_command workspace /example/App.xcworkspace App macOS MAC-123 \
       rebuild-test || exit
     print -rl -- "${_XCODE_COMMAND[@]}"
@@ -680,6 +703,8 @@ _test_xcode_test_result_capture_retains_failures_and_files() {
     export XCODE_SUMMARY=$4 XCODE_DETAILS=$5 XCODE_BUILD=$6
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.matching_decimal_limit"
     _xcode_test_result_capture "$3" 65 || exit
     print -r -- "result:$_XCODE_TEST_RESULT|$_XCODE_TEST_TOTAL|$_XCODE_TEST_PASSED|$_XCODE_TEST_FAILED"
     print -r -- "failure:${_XCODE_TEST_FAILURE_NAMES[1]}|${_XCODE_TEST_FAILURE_TARGETS[1]}"
@@ -710,10 +735,13 @@ _test_xcode_test_result_screen_uses_shared_semantic_roles() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="iPhone 18 Pro"
     _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=2 _XCODE_TEST_PASSED=1
     _XCODE_TEST_FAILED=1 _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
@@ -753,10 +781,13 @@ _test_xcode_test_success_screen_uses_shared_semantic_role() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Passed _XCODE_TEST_TOTAL=24 _XCODE_TEST_PASSED=24
     _XCODE_TEST_FAILED=0 _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
@@ -787,6 +818,7 @@ _test_xcode_test_report_contains_complete_retained_diagnostics() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_TEST_SCHEME="Example App"
     _XCODE_TEST_CONTAINER="/project/Example App.xcworkspace"
     _XCODE_TEST_PLATFORM="iOS Simulator"
@@ -866,10 +898,14 @@ _test_xcode_test_result_screen_offers_report_only_with_clipboard() {
   test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh -df\n/bin/cat >/dev/null' || return
   command chmod +x "$fake_bin/pbcopy" || return
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=1 _XCODE_TEST_FAILED=1
     _XCODE_TEST_FAILURE_NAMES=("AppTests.testLaunch()")
@@ -916,6 +952,8 @@ _test_xcode_test_report_copy_writes_exact_report_without_newline() {
     export XCODE_CLIPBOARD=$3
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Passed _XCODE_TEST_TOTAL=3 _XCODE_TEST_PASSED=3
     _xcode_test_report_copy 0 "$commands[pbcopy]" || exit
@@ -948,6 +986,8 @@ _test_xcode_test_result_apply_preserves_native_failure_status() {
     export XCODE_CLIPBOARD=$3
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=1 _XCODE_TEST_FAILED=1
     _XCODE_TEST_FAILURE_NAMES=("AppTests.testLaunch()")
@@ -974,6 +1014,8 @@ _test_xcode_test_result_copy_rechecks_clipboard_capability() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     _XCODE_TEST_RESULT=Passed _XCODE_TEST_SCHEME=App
     _XCODE_TEST_DESTINATION="My Mac"
     _xcode_test_result_apply 0 copy-report "$HOME/disappeared-pbcopy" 2>&1
@@ -1002,6 +1044,7 @@ _test_xcode_test_execution_streams_and_cleans_result_bundle() {
     export TMPDIR=$3 XCODE_INVOCATION=$4 XCODE_BUNDLE_LOG=$5
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_test_result_capture() {
       [[ -d $1 && $2 == 65 ]] || return 99
       _XCODE_TEST_RESULT=Failed
@@ -1042,6 +1085,7 @@ _test_xcode_test_execution_rejects_symlinked_result_bundle() {
     export TMPDIR=$3 XCODE_OLD_BUNDLE=$4
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_test_result_capture() { print -r -- capture-called }
     _xcode_test_execute project /example/App.xcodeproj App macOS MAC-123 "My Mac"
     print -r -- "status:$?"
@@ -1075,6 +1119,7 @@ _test_xcode_rebuild_test_execution_keeps_clean_in_the_result_bundle_action() {
     export TMPDIR=$3 XCODE_INVOCATION=$4
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_test_result_capture() { _XCODE_TEST_RESULT=Passed }
     _xcode_test_execute project /example/App.xcodeproj App macOS MAC-123 \
       "My Mac" rebuild-test || exit
@@ -1103,6 +1148,7 @@ _test_xcode_command_delegates_arguments_and_preserves_status() {
     path=("$2" $path)
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     xcode -showBuildSettings -scheme "Example App"
     print -r -- "status=$?"
   ' "$TEST_REPO_ROOT" "$fake_bin") || return
@@ -1130,6 +1176,7 @@ _test_xcode_noninteractive_fallback_lists_the_nearest_container_safely() {
     export XCODE_TEST_LOG=$4 TERM=dumb
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     builtin cd -- "$3" || exit
     xcode
   ' "$TEST_REPO_ROOT" "$fake_bin" "$nested" "$log") || return
@@ -1157,6 +1204,7 @@ _test_xcode_capture_rejects_oversized_provider_output() {
     path=("$2" $path)
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     ZSH_XCODE_CAPTURE_MAX_BYTES=4096
     _xcode_schemes_capture workspace /example/App.xcworkspace
     print -r -- "$?|${#_XCODE_SCHEMES}|$_XCODE_CAPTURE_ERROR"
@@ -1189,6 +1237,7 @@ _test_xcode_simulator_run_uses_one_validated_built_application() {
     export XCODE_TEST_DEVELOPER=$7
     rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _xcode_run_simulator project /example/App.xcodeproj App \
       "iOS Simulator" SIM-456 || exit
     _xcode_run_simulator project /example/App.xcodeproj App \
@@ -1245,6 +1294,7 @@ print -r -- "${(j:|:)@}" >> "$HOME/opened"' || return
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     path=("$HOME/bin" $path); rehash
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     (( ${+functions[_xcode_open_simulator]} )) || { print -u2 "missing selected-Xcode window handoff"; exit 1; }
     export DEVELOPER_DIR="$HOME/Beta Xcode.app/Contents/Developer"
     _xcode_open_simulator SIM-456 || exit 2

@@ -3,6 +3,8 @@ _test_shortcut_prompt_layout() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
     source "$1/.zsh.addons/.zsh.editor"
     ZSH_PROMPT_COLORS=()
     LINES=30
@@ -44,7 +46,8 @@ _test_shortcut_shared_chrome() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _ZLE_PICKER_SCREEN_ACTIVE=1
     _ZLE_PICKER_RESULTS=(fixture) _ZLE_PICKER_SELECTED=1
     _ZLE_PICKER_INSPECT_ACTION=choose

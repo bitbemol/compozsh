@@ -1,0 +1,13 @@
+# Entry point: _zle_picker_can_accept
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Chrome and Enter share one acceptance rule, including literal query views
+# and readers whose actions remain available without matching content.
+_zle_picker_can_accept() {
+  (( ${#_ZLE_PICKER_RESULTS} || _ZLE_PICKER_READER_ONLY )) ||
+    { (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${1//[[:space:]]/} ]]; }
+}
+
+
+:

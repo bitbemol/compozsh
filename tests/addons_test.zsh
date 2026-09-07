@@ -24,18 +24,21 @@ _test_abbreviation_and_sanitization_contracts() {
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
     _zle_picker_abbreviate abcdefgh 5; picker=$REPLY
-    _navigation_abbreviate abcdefgh 5; navigation=$REPLY
-    _prompt_abbreviate abcdefgh 5 tail; prompt_tail=$REPLY
-    _prompt_abbreviate abcdefgh 5 head; prompt_head=$REPLY
-    _prompt_abbreviate 漢字abcdef 6 tail; prompt_wide=$REPLY
-    _prompt_abbreviate $\'e\\u0301abc\' 4 tail; prompt_combining=$REPLY
-    _prompt_sanitize $\'a\\nb\'; sanitized=$REPLY
+    _zle_picker_abbreviate abcdefgh 5; navigation=$REPLY
+    _zle_picker_abbreviate abcdefgh 5 tail; prompt_tail=$REPLY
+    _zle_picker_abbreviate abcdefgh 5 head; prompt_head=$REPLY
+    _zle_picker_abbreviate 漢字abcdef 6 tail; prompt_wide=$REPLY
+    _zle_picker_abbreviate $\'e\\u0301abc\' 4 tail; prompt_combining=$REPLY
+    _compozsh_sanitize $\'a\\nb\'; sanitized=$REPLY
     print -r -- "$picker|$navigation|$prompt_tail|$prompt_head|$prompt_wide|${(m)#prompt_wide}|$prompt_combining|${(m)#prompt_combining}|$sanitized"
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal 'a…fgh|a…fgh|a…fgh|ab…gh|…cdef|5|éabc|4|a?b' "$output" \
@@ -50,8 +53,9 @@ _test_syntax_classifier_contracts() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
-    _zle_is_redirection ">>"; redirection=$?
-    _zle_is_assignment "items[2]+=value"; assignment=$?
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    _compozsh_is_redirection ">>"; redirection=$?
+    _compozsh_is_assignment "items[2]+=value"; assignment=$?
     _zle_is_number "0xFF"; number=$?
     _zle_is_number "12x"; not_number=$?
     _zle_command_category print; builtin_category=$REPLY
@@ -72,6 +76,7 @@ _test_syntax_highlighter_bounds_redraw_work() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     typeset -gi probes=0
     _zle_command_category() { (( ++probes )); return 1; }
     _zle_path_category() { (( ++probes )); return 1; }
@@ -95,8 +100,10 @@ _test_fuzzy_history_fragment_order() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     print -s -- "git status"
     print -s -- "swift build -c release"
@@ -129,8 +136,10 @@ _test_autosuggestion_search_is_bounded_and_newest_first() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     HISTSIZE=1000
     fc -p "$2"
@@ -151,8 +160,10 @@ _test_editor_widgets_keep_implementation_private() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     print -r -- "${+functions[history-fuzzy-search]}|${+functions[autosuggest-accept-character]}|${widgets[history-fuzzy-search]}|${widgets[autosuggest-accept-character]}"
   ' "$TEST_REPO_ROOT") || return
@@ -169,8 +180,10 @@ _test_autosuggestion_reset_owns_only_its_display() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     region_highlight=(
       "0 1 bold memo=fixture"
@@ -202,8 +215,10 @@ _test_editor_styles_without_highlighting_peer() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     # An undeclared palette treats a role subscript as arithmetic, including
     # this dynamically scoped query. Standalone fallback must remain literal.
@@ -212,8 +227,10 @@ _test_editor_styles_without_highlighting_peer() {
     print -r -- "$REPLY"
     ZSH_HIGHLIGHT_STYLES[picker-query]=fg=75
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     _zle_picker_style picker-query
     print -r -- "$REPLY"
@@ -240,8 +257,10 @@ _test_contextual_directory_picker_contract() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
     builtin cd -- "$HOME" || exit
@@ -277,8 +296,10 @@ _test_contextual_directory_picker_fallbacks() {
   command mkdir -p -- "$home/Documents" "$home/git" || return
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd -- "$HOME" || exit
 
@@ -309,8 +330,10 @@ _test_contextual_directory_argument() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd -- "$HOME" || exit
     unsetopt AUTO_CD
@@ -347,8 +370,10 @@ _test_contextual_directory_picker_hierarchy() {
     "$home/Developer/Empty" || return
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
     builtin cd -- "$HOME" || exit
@@ -397,7 +422,8 @@ _test_navigation_fuzzy_ranking() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.navigation"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     typeset -ga _NAVIGATION_PICKER_VALUES=(/tmp/swift-project /tmp/git-tools /tmp/project-swift)
     typeset -ga _NAVIGATION_PICKER_LABELS=(swift-project git-tools project-swift)
     typeset -ga _NAVIGATION_PICKER_INDEXES=(1 2 3)
@@ -430,7 +456,8 @@ _test_git_branch_recency_contract() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.navigation"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     _git_recent_branches "$2"
     print -r -- "${(j:|:)_GIT_RECENT_BRANCHES}"
   ' "$TEST_REPO_ROOT" "$repository") || return
@@ -457,7 +484,8 @@ _test_git_branch_recency_tolerates_unvisited_branches() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.navigation"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     _git_recent_branches "$2"
     result_status=$?
     print -r -- "$result_status|${(j:|:)_GIT_RECENT_BRANCHES}"
@@ -499,7 +527,7 @@ _test_prompt_rejects_project_controlled_runtime() {
     path=($3 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version zig "$3"
     [[ -e $2 ]]; executed=$(( !$? ))
     print -r -- "$REPLY|$executed"
@@ -535,6 +563,7 @@ _test_prompt_disables_repository_git_filters() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     export FILTER_PROBE=$2
     source "$1/.zsh.addons/.zsh.prompt"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     builtin cd -- "$3" || exit
     _prompt_git
     [[ -e $2 ]]; filter_ran=$(( !$? ))
@@ -564,7 +593,7 @@ _test_prompt_rejects_runtime_from_enclosing_repository() {
     path=($3 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version zig "$4"
     [[ -e $2 ]]; executed=$(( !$? ))
     print -r -- "$REPLY|$executed"
@@ -603,7 +632,7 @@ _test_prompt_runtime_probe_is_neutral_and_offline() {
     path=($6 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version go "$7"; go_version=$REPLY
     _prompt_runtime_version rust "$7"; rust_version=$REPLY
     _prompt_runtime_version terraform "$7"; terraform_version=$REPLY
@@ -632,7 +661,7 @@ _test_prompt_metadata_stays_inside_project() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_expected_runtime_version zig "$2"; zig_version=$REPLY
     _prompt_expected_runtime_version python "$2"; tool_version=$REPLY
     _prompt_expected_runtime_version go "$2"; go_version=$REPLY
@@ -648,7 +677,7 @@ _test_prompt_metadata_stays_inside_project() {
   test_write_file "$project/go.mod" $'module example.invalid/project\ngo 1.24' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home-direct" $'
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_expected_runtime_version zig "$2"; zig_version=$REPLY
     _prompt_expected_runtime_version python "$2"; tool_version=$REPLY
     _prompt_expected_runtime_version go "$2"; go_version=$REPLY
@@ -669,12 +698,14 @@ _test_prompt_project_widths_follow_sanitized_terminal_cells() {
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version() { REPLY=6.0; }
     _prompt_expected_runtime_version() { REPLY=$\'9\\u202e\'; }
     builtin cd -- "$2" || exit 1
     _prompt_project_context
-    _prompt_sanitize $\'⚠ swift wants 9\\u202e · using 6.0 — unverified\'
+    _compozsh_sanitize $\'⚠ swift wants 9\\u202e · using 6.0 — unverified\'
     local -i expected_width=${(m)#REPLY}
     print -r -- "${_PROMPT_PROJECT_ITEM_WIDTHS[-1]}|$expected_width"
   ' "$TEST_REPO_ROOT" "$project") || return
@@ -742,7 +773,7 @@ _test_prompt_source_detection_is_bounded() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     builtin cd "$2" || exit
     _prompt_project_context
     small_saturated=$_PROMPT_RESOLVED_SOURCE_SCAN_SATURATED
@@ -775,7 +806,7 @@ _test_prompt_ignores_symlinked_source_directories() {
     path=($3 $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     builtin cd "$4" || exit
     _prompt_project_context
     print -r -- "${+_PROMPT_PROJECT_NAME_TEXT}|${#_PROMPT_PROJECT_ITEMS}|${+commands[zig]}|${+commands[node]}"

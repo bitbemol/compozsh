@@ -1,0 +1,18 @@
+# Entry point: _usb_checksum_validate
+# Pure: supplied SHA algorithm and lowercase hexadecimal digest in; REPLY out.
+_usb_checksum_validate() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local algorithm=$1 digest=$2
+  REPLY=''
+  (( $# == 2 )) || return 1
+  case $algorithm in
+    (256) (( ${#digest} == 64 )) || return 1 ;;
+    (512) (( ${#digest} == 128 )) || return 1 ;;
+    (*) return 1 ;;
+  esac
+  [[ $digest == [0-9a-f]## ]] || return 1
+  REPLY=$digest
+}
+
+:

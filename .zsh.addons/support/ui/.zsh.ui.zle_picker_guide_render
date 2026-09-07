@@ -1,0 +1,168 @@
+# Entry point: _zle_picker_guide_render
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# The keyboard guide is another view of this session, not a nested picker.
+# Selection, filter, focus and viewport are untouched; no provider is called.
+_zle_picker_guide_render() {
+  emulate -L zsh
+  local -i width=$1 height=0 max_offset=0 index=0
+  local row='' role=''
+  local -a lines=(
+    'Type                 Filter results; punctuation stays searchable'
+    '↑ / ↓ or Ctrl-P/N    Move selection; stop at either end'
+    'Enter                Apply the action shown in the footer'
+    'Escape / Ctrl-G      Cancel; go back from a secondary view'
+    'Ctrl-C               Abort the picker'
+    'Ctrl-U               Clear filter'
+    'Backspace            Delete one character'
+    'Ctrl-W               Delete the last word'
+    'Fn/Option-Up/Down    Page up/down in the focused pane; one-line overlap'
+    'Ctrl-V / Ctrl-D      Page down/up without Option-as-Meta'
+    'Ctrl-L               Redraw'
+    'Ctrl-K               Show or close this keyboard guide'
+  )
+  (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) &&
+    lines[1]='Type                 Enter literal text; Return submits'
+  if (( _ZLE_PICKER_READER_ONLY )); then
+    lines[1]='Type                 Filter captured document; punctuation stays searchable'
+    lines[2]='↑ / ↓ or Ctrl-P/N    Scroll the document; stop at either end'
+    lines[3]="Enter                Apply ${(V)_ZLE_PICKER_INSPECT_ACTION}, shown in the footer"
+  fi
+  _zle_picker_can_accept "$_ZLE_PICKER_QUERY" || lines[3]=()
+  (( _ZLE_PICKER_DIGIT_SELECT && !_ZLE_PICKER_READER_ONLY )) && lines+=(
+    '0–9                  Apply a visible slot only with an empty filter')
+  if (( _ZLE_PICKER_COPY_ENABLED )); then
+    if (( _ZLE_PICKER_READER_ONLY )); then
+      lines+=('Ctrl-Y               Copy the current document and return')
+    else
+      lines+=('Ctrl-Y               Copy the selection and close the picker')
+    fi
+  fi
+  (( _ZLE_PICKER_REFRESH_ENABLED )) && lines+=(
+    'Ctrl-R               Refresh the current captured choices')
+  [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]] && lines+=(
+    'Ctrl-F               Search descendants of the displayed folder'
+    'Return               Submit discovery query; typing never starts a scan')
+  if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
+    lines+=('Ctrl-O               Preview selected folder, or current if none'
+            'Ctrl-X               Options: folder actions, including current folder'
+            'Ctrl-E / Ctrl-B      Focus preview / return to folder list')
+  elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 )); then
+    lines+=('Ctrl-O               Browse inside the selected recent location')
+  fi
+  if (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )) && [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == git ]]; then
+    lines+=('Ctrl-X               Review: working changes, branch commits or comparisons'
+            'Review               Read-only; select files to read their continuous diff'
+            'Scope                Working changes belong to the current worktree'
+            'History              The selected branch is inspected without switching')
+  elif [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == worktree ]]; then
+    lines+=('Worktrees            Create, Enter, Move / rename, Remove'
+            'Enter                Choose the action shown in the footer'
+            'Refresh              Choose Refresh to capture registered worktrees again'
+            'Move                 Edit parent/folder name; preserve files and branch'
+            'Removal              Check the exact folder; preserve its branch'
+            'Snapshot             Filtering and resize do not read Git')
+    (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )) && lines+=(
+            'Ctrl-X               Options for the selected worktree')
+  elif (( _ZLE_PICKER_READER_ONLY )); then
+    lines+=('Reading              One full-width document; Escape returns'
+            'Snapshot             Filter and scroll captured content; scope is shown above')
+    (( _ZLE_PICKER_DOCUMENT_REFRESH )) && lines+=(
+      'Ctrl-R               Refresh this document, including when no lines match')
+  elif (( _ZLE_PICKER_DOCUMENT )); then
+    lines+=('Right                Files → focused diff → full-file context'
+            'Left                 Full-file context → focused diff → files'
+            'Disclosure           Untracked files and metadata have one reading level'
+            'Selection            Load one file; recently read snapshots are reused'
+            'Tab / Shift-Tab      Switch panes directly, preserving context mode'
+            'Ctrl-E / Ctrl-B      Focus diff reader / file navigator'
+            'Line numbers         Old file on the left; new file on the right'
+            'Reading              Scroll stays within this file; Escape returns'
+            'Snapshot             Read-only captured content; scope is shown above')
+    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == atlas ]] && lines+=(
+      'Ctrl-X               Change atlas: captured folders → files → diff; Escape returns')
+    (( _ZLE_PICKER_DOCUMENT_REFRESH )) && lines+=(
+      'Ctrl-R               Refresh file list and diff; also works with no results'
+      'Refresh              Retains filter, file/change kind and source area when available'
+      'Updates              Ctrl-R rereads this view’s scope')
+    if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+      lines+=(
+        'Ctrl-A               Pause or resume automatic Working changes refresh'
+        'Auto-refresh         Checks locally while idle; Ctrl-R still refreshes now')
+    fi
+  elif (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )); then
+    lines+=(
+    'Ctrl-X               Options: actions, sources, Browse and Recents'
+    'Action groups        Selected folder / Current folder / Go to'
+    'Go to                Independent navigation to this shell Recents'
+    'Browse               Children of the displayed folder; Enter inserts'
+    'Search               Submit fragments to search below this folder'
+    'Recents              Enter inserts a path; submit at the prompt to cd'
+    'Sources              Filesystem walk, Git files, or Spotlight index'
+    'Limits               Walk: 20,000 entries; captured matches: 2,000'
+    'Coverage             Git ignores untracked ignored files and empty dirs'
+    'Spotlight            Filename seed; unindexed/excluded paths may be absent'
+    'Refinement           Typing filters captured paths; discovery is explicit'
+    'Source choice        Ctrl-X selects Filesystem, Git files, or Spotlight')
+  fi
+  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
+    lines+=('Live                 Follow the newest output; resize keeps the tail visible'
+            'Up / Page up / Home  Scroll back and pause following'
+            'Down / Page down    Reaching the bottom resumes following'
+            'End                  Go to the newest output and follow'
+            'Keyboard guide       Scrolling this guide leaves live/paused state unchanged')
+  fi
+  if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+    lines+=('Right / Tab          Enter selected folder'
+            'Left / Shift-Tab     Go back, restoring filter and selection'
+            'Ctrl-T               Toggle hidden folders')
+  elif (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_DOCUMENT )); then
+    lines+=('Tab / Shift-Tab      Switch between list and details'
+            'Right / Ctrl-E       Focus details'
+            'Left / Ctrl-B        Focus list')
+  fi
+  lines+=('Control shortcuts apply only inside this picker.'
+          'Escape cancels; it is not a command prefix.'
+          'Fn-Up/Down and Option-Up/Down page; optional Meta key Option-V pages up,'
+          'Option-Delete deletes a word; Option-W copies where available.')
+  # Optional caller-owned facts; guide rendering never acquires new data.
+  (( ${#_ZLE_PICKER_GUIDE_CONTEXT} )) && lines+=("${_ZLE_PICKER_GUIDE_CONTEXT[@]}")
+  _zle_picker_body_height
+  height=$REPLY
+  (( height < 2 )) && height=2
+  _ZLE_PICKER_GUIDE_PAGE=$(( height - 1 ))
+  max_offset=$(( ${#lines} - _ZLE_PICKER_GUIDE_PAGE ))
+  (( max_offset < 0 )) && max_offset=0
+  (( _ZLE_PICKER_GUIDE_OFFSET > max_offset )) && _ZLE_PICKER_GUIDE_OFFSET=$max_offset
+  (( _ZLE_PICKER_GUIDE_OFFSET < 0 )) && _ZLE_PICKER_GUIDE_OFFSET=0
+  _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_DISPLAY_STYLES=() _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
+  for (( index=0; index<height; ++index )); do
+    if (( index == 0 )); then
+      row="Keyboard guide · $(( _ZLE_PICKER_GUIDE_OFFSET + 1 ))/${#lines}"
+      role=picker-header
+    else
+      row=${lines[index + _ZLE_PICKER_GUIDE_OFFSET]-}
+      role=picker-text
+    fi
+    _zle_picker_fit "$row" $width
+    _ZLE_PICKER_DISPLAY+=("$REPLY")
+    _ZLE_PICKER_DISPLAY_STYLES+=("$role")
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+  done
+  _zle_picker_footer $width ""
+  _ZLE_PICKER_DISPLAY+=("${(mr:$width:: :)REPLY}")
+  _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
+  _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+  _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+  _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
+  _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${_ZLE_PICKER_DISPLAY[@]/*/}")
+  _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=()
+  _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
+  _ZLE_PICKER_INDEXES_VISIBLE=0
+  _zle_picker_workspace
+}
+
+
+:

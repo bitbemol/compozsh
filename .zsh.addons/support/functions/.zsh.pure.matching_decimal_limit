@@ -1,0 +1,22 @@
+# Entry point: _matching_decimal_limit
+# Pure: decimal text and ceiling in; normalized bounded decimal in REPLY.
+
+_matching_decimal_limit() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local value=$1 ceiling=$2
+  REPLY=''
+  (( $# == 2 )) && [[ $value == <-> && $ceiling == <-> ]] || return 2
+  value=${value##0#} ceiling=${ceiling##0#}
+  value=${value:-0} ceiling=${ceiling:-0}
+  # Compare text before arithmetic: arbitrary-length input cannot overflow.
+  if (( ${#value} > ${#ceiling} )) ||
+      { (( ${#value} == ${#ceiling} )) && [[ $value > $ceiling ]]; }; then
+    REPLY=$ceiling
+  else
+    REPLY=$value
+  fi
+  return 0
+}
+
+:

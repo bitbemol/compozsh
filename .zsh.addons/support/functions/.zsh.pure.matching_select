@@ -1,0 +1,72 @@
+# Entry point: _matching_select
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Select indexes through explicit read-only array parameters. The array names
+# are validated identifiers, never expressions; element subscripts are our own
+# bounded indexes. This avoids copying/formatting every candidate per keystroke.
+# Text can be supplied directly, overridden by a nonempty captured field, or
+# extended with captured metadata. Only nonempty ranked queries deduplicate.
+_matching_select() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  reply=()
+  (( $# >= 5 && $# <= 7 )) || return 2
+  local _ms_mode=$1 _ms_query=$2 _ms_limit_text=$3 _ms_values=$4 _ms_texts=$5
+  local _ms_extra=${6:-} _ms_policy=${7:-text} _ms_name='' _ms_ref=''
+  local _ms_pattern='' _ms_text='' _ms_suffix='' _ms_value=''
+  [[ $_ms_mode == (source|ranked) && $_ms_policy == (text|fallback|append) ]] || return 2
+  for _ms_name in "$_ms_values" "$_ms_texts" ${_ms_extra:+"$_ms_extra"}; do
+    [[ $_ms_name == [A-Za-z_][A-Za-z0-9_]# && $_ms_name != (_ms_*|REPLY|reply) ]] || return 2
+    [[ ${(Pt)_ms_name} == array* || -z ${(Pt)_ms_name} ]] || return 2
+  done
+  [[ $_ms_policy == text || -n $_ms_extra ]] || return 2
+  # An absent optional override is the common plain-label catalog. Avoid an
+  # indirect read of a missing array for every candidate in every rank tier.
+  if [[ $_ms_policy == fallback ]] && (( ${(P)#_ms_extra} == 0 )); then
+    _ms_policy=text
+  fi
+  local -i _ms_count=${(P)#_ms_values} _ms_limit=0 _ms_index=0
+  local -a _ms_patterns=() _ms_selected=()
+  local -A _ms_seen=()
+  local REPLY=''
+  _matching_decimal_limit "$_ms_limit_text" "$_ms_count" || return
+  _ms_limit=$REPLY
+  (( _ms_limit )) || return 0
+  if [[ -z $_ms_query ]]; then
+    for (( _ms_index=1; _ms_index<=_ms_limit; ++_ms_index )); do reply+=($_ms_index); done
+    return 0
+  fi
+  _matching_compile "$_ms_query" || return
+  if [[ $_ms_mode == ranked ]]; then
+    _ms_patterns=("(#i)${reply[1]}*" "(#i)*${reply[1]}*" "$reply[2]")
+  else
+    _ms_patterns=("$reply[2]")
+  fi
+  for _ms_pattern in "${_ms_patterns[@]}"; do
+    for (( _ms_index=1; _ms_index<=_ms_count; ++_ms_index )); do
+      _ms_ref="${_ms_texts}[$_ms_index]" _ms_text=${(P)_ms_ref}
+      if [[ $_ms_policy != text ]]; then
+        _ms_ref="${_ms_extra}[$_ms_index]" _ms_suffix=${(P)_ms_ref}
+        if [[ $_ms_policy == append ]]; then
+          _ms_text+=" $_ms_suffix"
+        elif [[ -n $_ms_suffix ]]; then
+          _ms_text=$_ms_suffix
+        fi
+      fi
+      [[ $_ms_text == ${~_ms_pattern} ]] || continue
+      if [[ $_ms_mode == ranked ]]; then
+        _ms_ref="${_ms_values}[$_ms_index]" _ms_value=${(P)_ms_ref}
+        [[ -z ${_ms_seen[$_ms_value]-} ]] || continue
+        _ms_seen[$_ms_value]=1
+      fi
+      _ms_selected+=($_ms_index)
+      (( ${#_ms_selected} >= _ms_limit )) && break 2
+    done
+  done
+  reply=("${_ms_selected[@]}")
+  return 0
+}
+
+
+:

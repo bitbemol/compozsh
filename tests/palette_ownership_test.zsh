@@ -5,6 +5,7 @@ _test_palette_owner_provisions_both_schemes() {
   local scheme='' output='' expected=''
   for scheme in dark light; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home-$scheme" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
       ZSH_COLOR_SCHEME=$2
       zstyle ":completion:*" list-colors sentinel
       source "$1/.zsh.addons/support/.zsh.appearance"
@@ -30,6 +31,7 @@ _test_palette_consumers_never_install_defaults() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     typeset -gA ZSH_PROMPT_COLORS=(path 123)
     typeset -gA ZSH_OUTPUT_COLORS=(custom 124)
     typeset -gA ZSH_HIGHLIGHT_STYLES=(command "fg=125,bold")
@@ -41,11 +43,11 @@ _test_palette_consumers_never_install_defaults() {
     (( ${#ZSH_PROMPT_COLORS} == 1 && ${#ZSH_OUTPUT_COLORS} == 1 && ${#ZSH_HIGHLIGHT_STYLES} == 1 )) || exit 1
     (( !${+LSCOLORS} && !${+_COMPOZSH_COLOR_MANAGED} )) || exit 2
     [[ -z $_PROMPT_GIT_COLOR && -z $_PROMPT_SYMBOL_COLOR ]] || exit 3
-    _output_color custom || exit 4
+    _compozsh_palette_color output custom || exit 4
     [[ $REPLY == 124 ]] || exit 5
-    if _output_color missing 75; then exit 6; fi
+    if _compozsh_palette_color output missing 75; then exit 6; fi
     [[ -z $REPLY ]] || exit 7
-    _prompt_color path || exit 8
+    _compozsh_palette_color prompt path || exit 8
     [[ $REPLY == 123 ]] || exit 9
     print -r -- consumer-readers
   ' "$TEST_REPO_ROOT") || return
@@ -58,6 +60,7 @@ _test_palette_deleted_and_invalid_roles_resolve_at_runtime() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     typeset -gA ZSH_OUTPUT_COLORS=(success 71)
     source "$1/.zsh.addons/support/.zsh.appearance"
@@ -65,18 +68,18 @@ _test_palette_deleted_and_invalid_roles_resolve_at_runtime() {
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.highlighting"
     unset "ZSH_OUTPUT_COLORS[text]" "ZSH_PROMPT_COLORS[path]" "ZSH_HIGHLIGHT_STYLES[command]"
-    _output_color text || exit 1
+    _compozsh_palette_color output text || exit 1
     [[ $REPLY == 236 ]] || exit 2
-    _prompt_color path || exit 3
+    _compozsh_palette_color prompt path || exit 3
     [[ $REPLY == 25 ]] || exit 4
     local -a region_highlight=()
     _zle_add_highlight 0 2 command
     [[ $region_highlight == "0 2 fg=22,bold memo=compozsh" ]] || exit 5
     ZSH_OUTPUT_COLORS[heading]=invalid
     ZSH_PROMPT_COLORS[identity]="%F{red}"
-    _output_color heading || exit 6
+    _compozsh_palette_color output heading || exit 6
     [[ $REPLY == 25 ]] || exit 7
-    _prompt_color identity || exit 8
+    _compozsh_palette_color prompt identity || exit 8
     [[ $REPLY == 24 ]] || exit 9
     local peer=""
     for peer in output prompt highlighting; do source "$1/.zsh.addons/.zsh.$peer"; done
@@ -96,6 +99,7 @@ _test_palette_absence_native_adapters() {
   test_write_file "$fake_bin/man" $'#!/bin/zsh\nprint -r -- "${LESS_TERMCAP_md-unset}|${LESS_TERMCAP_mb-unset}|${LESS_TERMCAP_us-unset}|${LESS_TERMCAP_so-unset}"' || return
   command chmod +x "$fake_bin/man" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.output"
     local -a reply=()
     _output_lldb_color_arguments
@@ -126,6 +130,7 @@ _test_palette_late_appearance_updates_existing_renderers() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.highlighting"
     _PROMPT_PATH_TEXT="sample%path"
@@ -165,6 +170,7 @@ _test_palette_explicit_empty_syntax_override() {
   local scheme='' output=''
   for scheme in dark light; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home-$scheme" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
       ZSH_COLOR_SCHEME=$2
       typeset -gA ZSH_HIGHLIGHT_STYLES=(comment "")
       source "$1/.zsh.addons/support/.zsh.appearance"
@@ -198,6 +204,7 @@ _test_palette_project_extension_default() {
   local scheme='' output=''
   for scheme in dark light; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home-$scheme" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
       source "$1/.zsh.addons/.zsh.prompt"
       local -a _PROMPT_PROJECT_EXTRA_SEGMENTS=() _PROMPT_PROJECT_EXTRA_WIDTHS=()
       prompt_add_project_segment "tool 50%"

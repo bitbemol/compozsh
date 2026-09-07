@@ -4,12 +4,14 @@ _test_matching_scoped_contract() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.matching" || exit 1
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     (( ${+functions[_matching_compile]} && ${+functions[_matching_filter]} )) || exit 2
     local -a reply=(caller)
     local REPLY=scalar before=""
     before="${(j:,:)${(ok)parameters}}"
-    source "$1/.zsh.addons/support/.zsh.matching" || exit 3
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 3
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     [[ $reply[1] == caller && $REPLY == scalar ]] || exit 4
     [[ "${(j:,:)${(ok)parameters}}" == "$before" ]] || exit 5
     setopt KSH_ARRAYS SH_WORD_SPLIT GLOB_SUBST
@@ -31,7 +33,8 @@ _test_matching_literal_contract() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/support/.zsh.matching" || exit 1
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     setopt EXTENDED_GLOB
     local -a reply=() cases=(
       "*[?" "a*xxb[yyc?z" yes
@@ -76,7 +79,8 @@ _test_matching_generated_equivalence() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/support/.zsh.matching" || exit 1
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     setopt EXTENDED_GLOB
     local -a reply=() alphabet=(a A b " " "*" "\\" "]" Ä)
     local -a queries=("") candidates=("")
@@ -127,7 +131,8 @@ _test_matching_filter_indexes() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.matching" || exit 1
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     local -a reply=() texts=("" "A*b" "a---*---b" "A*b" unrelated)
     local pattern
     _matching_compile "a*b" || exit 2
@@ -158,7 +163,8 @@ _test_matching_long_and_repeated_inputs() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/support/.zsh.matching" || exit 1
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     local -a reply=()
     local pattern label mode
     for mode in characters word; do
@@ -189,7 +195,8 @@ _test_matching_unordered_data_interface() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/support/.zsh.matching" || exit 1
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     (( ${+functions[_matching_compile_fragments]} && ${+functions[_matching_search]} )) || exit 2
     setopt EXTENDED_GLOB
     local -a reply=() texts=("alpha/project" "Project/a-l-p-h-a" "alpha/else" "project/alpha")

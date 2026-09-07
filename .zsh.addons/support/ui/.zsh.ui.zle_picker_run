@@ -1,0 +1,56 @@
+# Entry point: _zle_picker_run
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_zle_picker_run() {
+  emulate -L zsh
+
+  local raw_limit=${1:-10} picker_buffer=''
+  local _zle_picker_start_query=${2:-} _zle_picker_start_index=${3:-1}
+  local _zle_picker_start_offset=${4:-0}
+  # Optional internal controller for several views in one nested editor.
+  # Scoped here so it cannot leak into a final cd/chpwd or application action.
+  local _zle_picker_session_callback=${5:-}
+  local -i _zle_picker_session_status=1
+  [[ $raw_limit == <-> ]] || raw_limit=10
+  (( raw_limit < 1 )) && raw_limit=1
+  (( raw_limit > 20 )) && raw_limit=20
+
+  _ZLE_PICKER_RUN_LIMIT=$raw_limit
+  _ZLE_PICKER_BOOTSTRAP='compozsh-picker'
+  if ! vared -i compozsh-picker-init picker_buffer; then
+    _ZLE_PICKER_BOOTSTRAP=''
+    return 2
+  fi
+  _ZLE_PICKER_BOOTSTRAP=''
+  [[ -n ${_zle_picker_session_callback:-} ]] && return $_zle_picker_session_status
+  (( _ZLE_PICKER_ACCEPTED )) && return 0
+  return 1
+}
+
+# Public commands launch the same picker through a short-lived nested ZLE.
+# The UI peer owns this lifecycle so navigation and search peers can detect it
+# at runtime without depending on each other or duplicating terminal handling.
+_zle_picker_widget() {
+  if [[ -n ${_zle_picker_session_callback:-} ]]; then
+    _zle_picker_screen_session "$_zle_picker_session_callback"
+    _zle_picker_session_status=$?
+  else
+    _zle_picker_loop "${_zle_picker_start_query:-}" "${_ZLE_PICKER_RUN_LIMIT:-10}" \
+      "${_zle_picker_start_index:-1}" "${_zle_picker_start_offset:-0}"
+  fi
+}
+
+_zle_picker_line_init() {
+  emulate -L zsh
+
+  [[ $_ZLE_PICKER_BOOTSTRAP == compozsh-picker ]] || return 0
+  _ZLE_PICKER_BOOTSTRAP=''
+  zle compozsh-picker
+  zle .accept-line
+}
+
+zle -N compozsh-picker _zle_picker_widget
+zle -N compozsh-picker-init _zle_picker_line_init
+
+:

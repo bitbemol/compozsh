@@ -8,25 +8,9 @@ zmodload -F zsh/stat b:zstat
 # Appearance owns defaults; this consumer preserves explicit public roles.
 typeset -gA ZSH_PROMPT_COLORS
 
-# Resolve current public roles without installing defaults. A missing appearance
-# peer leaves native text; malformed values never enter prompt expansion.
-_prompt_color() {
-  emulate -L zsh
-  local role=$1 value=''
-  if [[ ${(t)ZSH_PROMPT_COLORS} == association* ]]; then
-    value=${ZSH_PROMPT_COLORS[$role]-}
-  fi
-  if [[ $value != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
-    value=${_COMPOZSH_COLOR_FALLBACKS[prompt:$role]-}
-  fi
-  REPLY=''
-  [[ $value == <0-255> ]] || return 1
-  REPLY=$value
-}
-
 _prompt_color_text() {
   local text=$2
-  if _prompt_color "$1"; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt "$1"; then
     REPLY="%F{${REPLY}}${text}%f"
   else
     REPLY=$text
@@ -135,17 +119,11 @@ typeset -gi _PROMPT_TOP_BASE_WIDTH=0
 typeset -ga _PROMPT_PROJECT_ITEMS=()
 typeset -ga _PROMPT_PROJECT_ITEM_WIDTHS=()
 typeset -gA _PROMPT_GIT_DIR_CACHE=()
-# Replace terminal control characters before displaying text from paths,
-# repositories, tools, or custom hooks.
-_prompt_sanitize() {
-  REPLY=${1//[[:cntrl:]]/?}
-}
-
 # Sanitize dynamic text and preserve it literally through any prompt options the
 # user enabled. PROMPT_SUBST would otherwise make draft `$()` or backticks
 # executable when ZLE paints the prompt; PROMPT_BANG would rewrite `!`.
 _prompt_escape() {
-  _prompt_sanitize "$1"
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$1" || REPLY=${(V)1}
   if [[ -o promptsubst ]]; then
     REPLY=${REPLY//\\/\\\\}
     REPLY=${REPLY//\$/\\\$}
@@ -155,73 +133,14 @@ _prompt_escape() {
   REPLY=${REPLY//\%/%%}
 }
 
-# Abbreviate text to a visible width while preserving useful context at both
-# ends. "head" favors the beginning; "tail" favors the end.
-_prompt_abbreviate() {
-  emulate -L zsh
-  setopt localoptions multibyte
-  local text=$1 bias=${3:-tail} marker='…'
-  local prefix='' suffix='' char=''
-  local -i max_width=$2 total_width=${(m)#text}
-  local -i content_width=0 left_width=0 right_width=0
-  local -i used=0 char_width=0 index=0 char_count=${#text}
-
-  if (( max_width <= 0 )); then
-    REPLY=''
-    return
-  fi
-  if (( total_width <= max_width )); then
-    REPLY=$text
-    return
-  fi
-  if (( max_width < 5 )); then
-    REPLY=$marker
-    return
-  fi
-
-  content_width=$(( max_width - ${(m)#marker} ))
-  if [[ $bias == head ]]; then
-    left_width=$(( content_width * 2 / 3 ))
-  else
-    left_width=$(( content_width / 3 ))
-  fi
-  right_width=$(( content_width - left_width ))
-
-  for (( index = 1; index <= char_count; index++ )); do
-    char=$text[index]
-    char_width=${(m)#char}
-    (( used + char_width <= left_width )) || break
-    prefix+=$char
-    (( used += char_width ))
-  done
-
-  used=0
-  for (( index = char_count; index >= 1; index-- )); do
-    char=$text[index]
-    char_width=${(m)#char}
-    (( used + char_width <= right_width )) || break
-    suffix=$char$suffix
-    (( used += char_width ))
-  done
-  # If a wide base character missed the suffix boundary, do not leave its
-  # leading zero-width combining marks attached to the ellipsis.
-  while [[ -n $suffix ]]; do
-    char=$suffix[1]
-    (( ${(m)#char} == 0 )) || break
-    suffix=$suffix[2,-1]
-  done
-  REPLY="${prefix}${marker}${suffix}"
-}
-
 # Keep only a bounded visible prefix. This is used for an already-painted
 # autosuggestion: preserving its distant tail would disclose history text that
 # ZLE has not otherwise revealed beside the current BUFFER.
 _prompt_prefix_abbreviate() {
   emulate -L zsh
   setopt localoptions multibyte
-  local text=$1 marker='…' prefix='' char=''
+  local text=$1 marker='…'
   local -i max_width=$2 total_width=${(m)#text}
-  local -i content_width=0 used=0 char_width=0 index=0
 
   if (( max_width <= 0 )); then
     REPLY=''
@@ -236,15 +155,10 @@ _prompt_prefix_abbreviate() {
     return
   fi
 
-  content_width=$(( max_width - ${(m)#marker} ))
-  for (( index = 1; index <= ${#text}; index++ )); do
-    char=$text[index]
-    char_width=${(m)#char}
-    (( used + char_width <= content_width )) || break
-    prefix+=$char
-    (( used += char_width ))
-  done
-  REPLY="${prefix}${marker}"
+  REPLY=''
+  (( $+functions[_compozsh_cell_prefix] )) &&
+    _compozsh_cell_prefix "$text" $(( max_width - ${(m)#marker} ))
+  REPLY+=$marker
 }
 
 # Called by custom project-context functions to append a safe, colored item.
@@ -259,7 +173,8 @@ prompt_add_project_segment() {
   # input falls back through the same validated role as an omitted color.
   if [[ -z $color ||
         $color != (<0-255>|black|red|green|yellow|blue|magenta|cyan|white|default) ]]; then
-    _prompt_color tool || :
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt tool || :
     color=$REPLY
   fi
 
@@ -267,29 +182,12 @@ prompt_add_project_segment() {
   rendered=$REPLY
   [[ -n $color ]] && rendered="%F{${color}}${rendered}%f"
   _PROMPT_PROJECT_EXTRA_SEGMENTS+=("$rendered")
-  _prompt_sanitize "$text"
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$text" || REPLY=${(V)text}
   safe_text=$REPLY
   _PROMPT_PROJECT_EXTRA_WIDTHS+=("${(m)#safe_text}")
   REPLY=$rendered
 }
 
-_prompt_git_operation() {
-  local git_dir=$1
-
-  if [[ -f "$git_dir/MERGE_HEAD" ]]; then
-    REPLY='merge'
-  elif [[ -f "$git_dir/CHERRY_PICK_HEAD" ]]; then
-    REPLY='cherry-pick'
-  elif [[ -f "$git_dir/REVERT_HEAD" ]]; then
-    REPLY='revert'
-  elif [[ -f "$git_dir/BISECT_LOG" ]]; then
-    REPLY='bisect'
-  elif [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
-    REPLY='rebase'
-  else
-    REPLY=''
-  fi
-}
 
 # Avoid launching Git in ordinary directories. Standard repositories,
 # submodules, and linked worktrees all expose a .git directory or file in an
@@ -308,45 +206,6 @@ _prompt_has_git_context() {
   return 1
 }
 
-# Git status can invoke repository-configured clean/process filters while
-# comparing working files. Discover only their names, then override each
-# driver for the status invocation without evaluating or changing config.
-_prompt_git_filter_config() {
-  emulate -L zsh
-
-  local root=$1 packet='' config_output='' tail='' key='' driver=''
-  local -A seen=()
-  reply=()
-  packet=$( {
-      GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
-        GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
-        -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
-        -c core.hooksPath=/dev/null config --null --name-only \
-        --get-regexp '^filter\..*\.(clean|process|required)$' 2>/dev/null
-      print -rn -- $'\0'"$?"
-    } | {
-      local chunk=''
-      IFS= read -r -u 0 -k 65539 chunk || :
-      print -rn -- "$chunk"
-    } )
-  (( ${#packet} <= 65538 )) || return 1
-  [[ $packet == *$'\0'* ]] || return 1
-  tail=${packet##*$'\0'}
-  config_output=${packet%$'\0'*}
-  [[ $tail == 0 || $tail == 1 ]] || return 1
-
-  while IFS= read -r -d '' key; do
-    driver=${${key#filter.}%.*}
-    [[ -n $driver && -z ${seen[$driver]-} ]] || continue
-    seen[$driver]=1
-    reply+=(
-      -c "filter.${driver}.clean="
-      -c "filter.${driver}.process="
-      -c "filter.${driver}.required=false"
-    )
-  done <<< "$config_output"
-}
-
 # Render a compact Git summary. Porcelain v2 gives branch and file state in one
 # Git call. The metadata directory is resolved once per working directory so
 # operation checks do not require another Git process on every prompt.
@@ -359,7 +218,8 @@ _prompt_git() {
   local cache_key="${PWD}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
   local summary=''
   local color=''
-  _prompt_color success || :
+  REPLY=''
+  (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt success || :
   color=$REPLY
   local -i staged=0 modified=0 untracked=0 conflicted=0 ahead=0 behind=0 stash=0
   local -i detached=0
@@ -373,7 +233,9 @@ _prompt_git() {
   _PROMPT_GIT_OPERATION_TEXT=''
   _PROMPT_GIT_ATTENTION=''
   _prompt_has_git_context "$PWD" || return
-  _prompt_git_filter_config "$PWD" || return
+  (( ${+functions[_compozsh_git_filter_config]} &&
+     ${+functions[_compozsh_git_operation]} )) || return
+  _compozsh_git_filter_config "$PWD" clean || return
   filter_config=("${reply[@]}")
   # Prompt rendering is passive: suppress repository-controlled fsmonitor,
   # hook, and content-filter commands as well as lazy network fetches.
@@ -417,7 +279,8 @@ _prompt_git() {
 
   if [[ $branch == '(detached)' ]]; then
     branch="@${oid[1,7]}"
-    _prompt_color detached || :
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt detached || :
     color=$REPLY
     detached=1
   elif [[ -z $branch ]]; then
@@ -432,7 +295,7 @@ _prompt_git() {
     [[ -n $git_dir ]] && _PROMPT_GIT_DIR_CACHE[$cache_key]=$git_dir
   fi
   if [[ -n $git_dir ]]; then
-    _prompt_git_operation "$git_dir"
+    _compozsh_git_operation "$git_dir" 0
     operation=$REPLY
   fi
 
@@ -447,13 +310,16 @@ _prompt_git() {
   (( !detached )) && [[ -z $upstream ]] && indicators+=('no-upstream')
 
   if (( conflicted )) || [[ -n $operation ]]; then
-    _prompt_color danger || :
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt danger || :
     color=$REPLY
   elif (( staged || modified || untracked )); then
-    _prompt_color warning || :
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt warning || :
     color=$REPLY
   elif (( behind )); then
-    _prompt_color info || :
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt info || :
     color=$REPLY
   fi
 
@@ -485,9 +351,16 @@ _prompt_render_abbreviated() {
   local -i max_width=$3
   local plain='' styled=''
 
-  _prompt_sanitize "$text"
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$text" || REPLY=${(V)text}
   plain=$REPLY
-  _prompt_abbreviate "$plain" "$max_width" "$bias"
+  REPLY=$plain
+  if (( ${+functions[_zle_picker_abbreviate]} )); then
+    _zle_picker_abbreviate "$plain" "$max_width" "$bias"
+  elif (( max_width <= 0 )); then
+    REPLY=''
+  elif (( ${(m)#plain} > max_width )); then
+    REPLY=…
+  fi
   plain=$REPLY
   _prompt_escape "$plain"
   if [[ $role == git ]]; then
@@ -551,25 +424,7 @@ _prompt_interaction_add() {
   _PROMPT_INTERACTION_ROLES+=("${3:-info}")
 }
 
-_prompt_interaction_is_assignment() {
-  emulate -L zsh
-  local word=${(Q)1}
-  [[ $word =~ '^[A-Za-z_][A-Za-z0-9_]*(\[[^]]+\])?(\+)?=' ]]
-}
 
-_prompt_interaction_is_redirection() {
-  emulate -L zsh
-  setopt localoptions extendedglob
-  local operator=${1##[0-9]##}
-  case $operator in
-    '<'|'<>'|'>'|'>|'|'>!'|'>>'|'>>|'|'>>!'|\
-    '<<'|'<<-'|'<<<'|'<&'|'>&'|'>&|'|'>&!'|\
-    '&>'|'&>|'|'&>!'|'>>&'|'>>&|'|'>>&!'|'&>>'|'&>>|'|'&>>!')
-      return 0
-      ;;
-  esac
-  return 1
-}
 
 # Return whether one recognized option consumes the following lexical word.
 # This is deliberately small and conservative: its only purpose is to avoid
@@ -709,6 +564,16 @@ _prompt_interaction_model() {
     return 0
   fi
 
+  # Without lexical support, do not misidentify assignment values as commands
+  # or disclose arguments whose role cannot be established.
+  if (( ! ${+functions[_compozsh_is_assignment]} ||
+        ! ${+functions[_compozsh_is_redirection]} )); then
+    _PROMPT_INTERACTION_KIND=run
+    _prompt_interaction_add ANALYSIS 'Draft details unavailable' muted
+    _prompt_interaction_add_context
+    return 0
+  fi
+
   tokens=("${(@Z+c+)bounded_buffer}") 2>/dev/null
   if (( ! ${#tokens} )); then
     tokens=("${bounded_buffer%%[[:space:]]*}")
@@ -737,7 +602,7 @@ _prompt_interaction_model() {
   for (( index = 1; index <= token_count; index++ )); do
     token=${tokens[index]}
     plain=${plain_tokens[index]}
-    if _prompt_interaction_is_assignment "$token"; then
+    if _compozsh_is_assignment "$token"; then
       [[ -z $assignment_name ]] && assignment_name=${plain%%=*}
       continue
     fi
@@ -798,8 +663,8 @@ _prompt_interaction_model() {
     case $plain in
       '|'|'|&'|'&&'|'||'|';'|'&') continue ;;
     esac
-    _prompt_interaction_is_assignment "${tokens[index]}" && continue
-    _prompt_interaction_is_redirection "$plain" && continue
+    _compozsh_is_assignment "${tokens[index]}" && continue
+    _compozsh_is_redirection "$plain" && continue
     if [[ -z $operation && $plain != -* ]]; then
       operation=$plain
       operation_index=$index
@@ -872,18 +737,18 @@ _prompt_interaction_model() {
       continue
     fi
     if (( expect_flow )); then
-      if _prompt_interaction_is_assignment "${tokens[index]}"; then
+      if _compozsh_is_assignment "${tokens[index]}"; then
         continue
       fi
       case $plain in
         command|builtin|exec|noglob|nocorrect|time) continue ;;
         -*|'#'*) continue ;;
       esac
-      _prompt_interaction_is_redirection "$plain" && continue
+      _compozsh_is_redirection "$plain" && continue
       flow_heads+=("$plain")
       expect_flow=0
     fi
-    if _prompt_interaction_is_redirection "$plain"; then
+    if _compozsh_is_redirection "$plain"; then
       redirect_operator=$plain
       if (( index < token_count )); then
         redirect_text=${plain_tokens[index + 1]}
@@ -1333,7 +1198,7 @@ _prompt_interaction_model() {
   if [[ -n ${_ZLE_AUTOSUGGEST_SUFFIX:-} &&
         ${_ZLE_AUTOSUGGEST_CACHE_BUFFER:-} == "$buffer" &&
         ${POSTDISPLAY:-} == "${_ZLE_AUTOSUGGEST_DISPLAY:-}" ]]; then
-    _prompt_sanitize "$_ZLE_AUTOSUGGEST_SUFFIX"
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_ZLE_AUTOSUGGEST_SUFFIX" || REPLY=${(V)_ZLE_AUTOSUGGEST_SUFFIX}
     suggestion=$REPLY
     _prompt_prefix_abbreviate "$suggestion" 36
     [[ -n $REPLY ]] &&
@@ -1385,7 +1250,14 @@ _prompt_interaction_layout() {
 
   _prompt_interaction_color_role
   outline_role=$REPLY
-  _prompt_abbreviate "$header_plain" "$line_limit" head
+  REPLY=$header_plain
+  if (( ${+functions[_zle_picker_abbreviate]} )); then
+    _zle_picker_abbreviate "$header_plain" "$line_limit" head
+  elif (( line_limit <= 0 )); then
+    REPLY=''
+  elif (( ${(m)#header_plain} > line_limit )); then
+    REPLY=…
+  fi
   _prompt_escape "$REPLY"
   _prompt_color_text "$outline_role" "$REPLY"
   header=$REPLY
@@ -1456,7 +1328,14 @@ _prompt_lens_layout() {
     hint_text='' hint_width=0
   fi
   if (( left_plain_width > left_width )); then
-    _prompt_abbreviate "$left_plain" "$left_width" head
+    REPLY=$left_plain
+    if (( ${+functions[_zle_picker_abbreviate]} )); then
+      _zle_picker_abbreviate "$left_plain" "$left_width" head
+    elif (( left_width <= 0 )); then
+      REPLY=''
+    elif (( ${(m)#left_plain} > left_width )); then
+      REPLY=…
+    fi
     left_plain=$REPLY
     left_plain_width=${(m)#left_plain}
   fi
@@ -1582,10 +1461,10 @@ _prompt_layout() {
   _PROMPT_ENV_SEGMENT=''
   _PROMPT_PROJECT_SEGMENT=''
 
-  _prompt_sanitize "$_PROMPT_PATH_TEXT"; path_text=$REPLY
-  _prompt_sanitize "$_PROMPT_GIT_TEXT"; git_text=$REPLY
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_PATH_TEXT" || REPLY=${(V)_PROMPT_PATH_TEXT}; path_text=$REPLY
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_GIT_TEXT" || REPLY=${(V)_PROMPT_GIT_TEXT}; git_text=$REPLY
   if (( EUID == 0 )) || [[ -n ${SSH_CONNECTION:-}${SSH_TTY:-} ]]; then
-    _prompt_sanitize "$_PROMPT_IDENTITY_TEXT"; identity_text=$REPLY
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_IDENTITY_TEXT" || REPLY=${(V)_PROMPT_IDENTITY_TEXT}; identity_text=$REPLY
   fi
 
   path_width=${(m)#path_text}
@@ -1644,7 +1523,7 @@ _prompt_layout() {
   _PROMPT_TOP_BASE_WIDTH=$used_width
 
   if [[ -n $_PROMPT_ENV_TEXT ]]; then
-    _prompt_sanitize "$_PROMPT_ENV_TEXT"
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_ENV_TEXT" || REPLY=${(V)_PROMPT_ENV_TEXT}
     env_text=$REPLY
     _prompt_escape "py:${env_text}"
     _prompt_color_text environment "$REPLY"
@@ -1659,7 +1538,7 @@ _prompt_layout() {
     fi
   fi
   if (( optional_open )) && [[ -n $_PROMPT_JOBS_TEXT ]]; then
-    _prompt_sanitize "$_PROMPT_JOBS_TEXT"
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_JOBS_TEXT" || REPLY=${(V)_PROMPT_JOBS_TEXT}
     jobs_text=$REPLY
     _prompt_escape "$jobs_text"
     _prompt_color_text jobs "$REPLY"
@@ -2243,16 +2122,18 @@ _prompt_project_context() {
     _prompt_runtime_version "$language" "$project_root"
     version=$REPLY
     label=${_PROMPT_RUNTIME_LABELS[$language]:-$language}
-    _prompt_color tool || :
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt tool || :
     color=$REPLY
     if [[ $version == not-installed || $version == unavailable ||
           $version == unknown ]]; then
-      _prompt_color danger || :
+      REPLY=''
+      (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt danger || :
       color=$REPLY
       attention+=("runtime:${label}:${version}")
     fi
     runtime_text="${label} ${version}"
-    _prompt_sanitize "$runtime_text"
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$runtime_text" || REPLY=${(V)runtime_text}
     runtime_width=${(m)#REPLY}
     _prompt_escape "$runtime_text"
     rendered+=("%F{${color:-default}}${REPLY}%f")
@@ -2279,7 +2160,7 @@ _prompt_project_context() {
       [[ $relation == unknown ]] && relation=unverified
       [[ $relation == outside ]] && relation='outside range'
       warning_text="⚠ ${label} ${requirement_word} ${expected} · using ${version} — ${relation}"
-      _prompt_sanitize "$warning_text"
+      (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$warning_text" || REPLY=${(V)warning_text}
       warning_width=${(m)#REPLY}
       _prompt_escape "$warning_text"
       _prompt_color_text "$warning_role" "$REPLY"
@@ -2289,215 +2170,198 @@ _prompt_project_context() {
     fi
   done
 
-  if (( large_project )); then
-    # Keep custom extension hooks and mismatch warnings, but omit the optional
-    # wildcard-derived tool/framework decoration that would rescan a saturated
-    # root. Exact manifests and bounded source evidence still identify it.
-    _PROMPT_PROJECT_EXTRA_SEGMENTS=()
-    _PROMPT_PROJECT_EXTRA_WIDTHS=()
-    for hook in "${PROMPT_PROJECT_CONTEXT_FUNCTIONS[@]}"; do
-      (( ${+functions[$hook]} )) && "$hook" "$project_root"
-    done
-    for (( index = 1; index <= ${#_PROMPT_PROJECT_EXTRA_SEGMENTS}; index++ )); do
-      rendered+=("${_PROMPT_PROJECT_EXTRA_SEGMENTS[index]}")
-      rendered_widths+=("${_PROMPT_PROJECT_EXTRA_WIDTHS[index]:-0}")
-    done
-    rendered+=("${warnings[@]}")
-    rendered_widths+=("${warning_widths[@]}")
-    _PROMPT_PROJECT_NAME_TEXT=${project_root:t}
-    _PROMPT_PROJECT_ITEMS=("${rendered[@]}")
-    _PROMPT_PROJECT_ITEM_WIDTHS=("${rendered_widths[@]}")
-    _PROMPT_PROJECT_ATTENTION="${(j:|:)attention}"
-    return 0
-  fi
-
-  # Package managers and build systems. Lockfiles take precedence when several
-  # Node or Python artifacts coexist after a migration.
-  if [[ -f "$project_root/bun.lock" || -f "$project_root/bun.lockb" ]]; then
-    tools+=(bun)
-  elif [[ -f "$project_root/pnpm-lock.yaml" ]]; then
-    tools+=(pnpm)
-  elif [[ -f "$project_root/yarn.lock" ]]; then
-    tools+=(yarn)
-  elif [[ -f "$project_root/package-lock.json" ]]; then
-    tools+=(npm)
-  fi
-  [[ -f "$project_root/turbo.json" ]] && tools+=(turbo)
-  [[ -f "$project_root/nx.json" ]] && tools+=(nx)
-  [[ -f "$project_root/lerna.json" ]] && tools+=(lerna)
-  [[ -f "$project_root/rush.json" ]] && tools+=(rush)
-  [[ -f "$project_root/composer.json" || -f "$project_root/composer.lock" ]] && tools+=(composer)
-
-  [[ -f "$project_root/Package.swift" ]] && tools+=(swiftpm)
-  wildcard_matches=("$project_root"/*.xcodeproj(NY1oN) "$project_root"/*.xcworkspace(NY1oN))
-  if (( ${#wildcard_matches} )); then
-    tools+=(xcode)
-
-    wildcard_matches=("$project_root"/*.xcworkspace(NY1oN))
-    (( ${#wildcard_matches} )) && tools+=(xcworkspace)
-    [[ -f "$project_root/Podfile" || -f "$project_root/Podfile.lock" ]] && tools+=(cocoapods)
-    [[ -f "$project_root/Cartfile" || -f "$project_root/Cartfile.resolved" ]] && tools+=(carthage)
-    if [[ -f "$project_root/Tuist.swift" || -f "$project_root/Project.swift" ||
-          -f "$project_root/Workspace.swift" || -d "$project_root/Tuist" ]]; then
-      tools+=(tuist)
+  # Saturated roots skip optional wildcard-derived decoration. Both paths
+  # converge below on the same extension hooks, warnings and final arrays.
+  if (( ! large_project )); then
+    # Package managers and build systems. Lockfiles take precedence when several
+    # Node or Python artifacts coexist after a migration.
+    if [[ -f "$project_root/bun.lock" || -f "$project_root/bun.lockb" ]]; then
+      tools+=(bun)
+    elif [[ -f "$project_root/pnpm-lock.yaml" ]]; then
+      tools+=(pnpm)
+    elif [[ -f "$project_root/yarn.lock" ]]; then
+      tools+=(yarn)
+    elif [[ -f "$project_root/package-lock.json" ]]; then
+      tools+=(npm)
     fi
-    if [[ -f "$project_root/project.yml" || -f "$project_root/project.yaml" ]]; then
-      tools+=(xcodegen)
+    [[ -f "$project_root/turbo.json" ]] && tools+=(turbo)
+    [[ -f "$project_root/nx.json" ]] && tools+=(nx)
+    [[ -f "$project_root/lerna.json" ]] && tools+=(lerna)
+    [[ -f "$project_root/rush.json" ]] && tools+=(rush)
+    [[ -f "$project_root/composer.json" || -f "$project_root/composer.lock" ]] && tools+=(composer)
+
+    [[ -f "$project_root/Package.swift" ]] && tools+=(swiftpm)
+    wildcard_matches=("$project_root"/*.xcodeproj(NY1oN) "$project_root"/*.xcworkspace(NY1oN))
+    if (( ${#wildcard_matches} )); then
+      tools+=(xcode)
+
+      wildcard_matches=("$project_root"/*.xcworkspace(NY1oN))
+      (( ${#wildcard_matches} )) && tools+=(xcworkspace)
+      [[ -f "$project_root/Podfile" || -f "$project_root/Podfile.lock" ]] && tools+=(cocoapods)
+      [[ -f "$project_root/Cartfile" || -f "$project_root/Cartfile.resolved" ]] && tools+=(carthage)
+      if [[ -f "$project_root/Tuist.swift" || -f "$project_root/Project.swift" ||
+            -f "$project_root/Workspace.swift" || -d "$project_root/Tuist" ]]; then
+        tools+=(tuist)
+      fi
+      if [[ -f "$project_root/project.yml" || -f "$project_root/project.yaml" ]]; then
+        tools+=(xcodegen)
+      fi
+      [[ -f "$project_root/.swiftlint.yml" ||
+         -f "$project_root/.swiftlint.yaml" ]] && tools+=(swiftlint)
+      [[ -f "$project_root/.swiftformat" ]] && tools+=(swiftformat)
+      [[ -f "$project_root/Fastfile" ||
+         -f "$project_root/fastlane/Fastfile" ]] && tools+=(fastlane)
+      [[ -f "$project_root/Mintfile" ]] && tools+=(mint)
     fi
-    [[ -f "$project_root/.swiftlint.yml" ||
-       -f "$project_root/.swiftlint.yaml" ]] && tools+=(swiftlint)
-    [[ -f "$project_root/.swiftformat" ]] && tools+=(swiftformat)
-    [[ -f "$project_root/Fastfile" ||
-       -f "$project_root/fastlane/Fastfile" ]] && tools+=(fastlane)
-    [[ -f "$project_root/Mintfile" ]] && tools+=(mint)
-  fi
 
-  if [[ -f "$project_root/uv.lock" ]]; then
-    tools+=(uv)
-  elif [[ -f "$project_root/poetry.lock" ]]; then
-    tools+=(poetry)
-  elif [[ -f "$project_root/pdm.lock" ]]; then
-    tools+=(pdm)
-  elif [[ -f "$project_root/pixi.toml" || -f "$project_root/pixi.lock" ]]; then
-    tools+=(pixi)
-  elif [[ -f "$project_root/hatch.toml" ]]; then
-    tools+=(hatch)
-  elif [[ -f "$project_root/Pipfile" ]]; then
-    tools+=(pipenv)
-  elif [[ -f "$project_root/environment.yml" ||
-          -f "$project_root/environment.yaml" ]]; then
-    tools+=(conda)
-  elif [[ -f "$project_root/requirements.txt" ]]; then
-    tools+=(pip)
-  fi
+    if [[ -f "$project_root/uv.lock" ]]; then
+      tools+=(uv)
+    elif [[ -f "$project_root/poetry.lock" ]]; then
+      tools+=(poetry)
+    elif [[ -f "$project_root/pdm.lock" ]]; then
+      tools+=(pdm)
+    elif [[ -f "$project_root/pixi.toml" || -f "$project_root/pixi.lock" ]]; then
+      tools+=(pixi)
+    elif [[ -f "$project_root/hatch.toml" ]]; then
+      tools+=(hatch)
+    elif [[ -f "$project_root/Pipfile" ]]; then
+      tools+=(pipenv)
+    elif [[ -f "$project_root/environment.yml" ||
+            -f "$project_root/environment.yaml" ]]; then
+      tools+=(conda)
+    elif [[ -f "$project_root/requirements.txt" ]]; then
+      tools+=(pip)
+    fi
 
-  [[ -f "$project_root/Cargo.toml" ]] && tools+=(cargo)
-  [[ -f "$project_root/go.mod" ]] && tools+=('go-modules')
-  [[ -f "$project_root/buf.yaml" || -f "$project_root/buf.gen.yaml" ]] && tools+=(buf)
-  [[ -f "$project_root/stack.yaml" ]] && tools+=(stack)
-  wildcard_matches=("$project_root"/*.cabal(NY1oN))
-  [[ -f "$project_root/cabal.project" || ${#wildcard_matches} -gt 0 ]] && tools+=(cabal)
-  if (( ${languages[(I)haskell]} )) && [[ -f "$project_root/package.yaml" ]]; then
-    tools+=(hpack)
-  fi
-  [[ -f "$project_root/Gemfile" ]] && tools+=(bundler)
-  [[ -f "$project_root/pom.xml" ]] && tools+=(maven)
-  [[ -f "$project_root/build.gradle" || -f "$project_root/build.gradle.kts" ||
-     -f "$project_root/settings.gradle" ||
-     -f "$project_root/settings.gradle.kts" ]] && tools+=(gradle)
-  [[ -f "$project_root/build.sc" || -f "$project_root/mill-build/build.sc" ]] && tools+=(mill)
-  wildcard_matches=("$project_root"/*.sln(NY1oN) "$project_root"/*.slnx(NY1oN))
-  (( ${#wildcard_matches} )) && tools+=(solution)
-  [[ -f "$project_root/packages.lock.json" ||
-     -f "$project_root/Directory.Packages.props" ]] && tools+=(nuget)
-  [[ -f "$project_root/pubspec.yaml" ]] && tools+=(pub)
-  [[ -f "$project_root/melos.yaml" || -f "$project_root/melos.yml" ]] && tools+=(melos)
-  [[ -f "$project_root/mix.exs" ]] && tools+=(mix)
-  [[ -f "$project_root/renv.lock" ]] && tools+=(renv)
-  [[ -f "$project_root/pak.lock" ]] && tools+=(pak)
-  wildcard_matches=("$project_root"/*.rockspec(NY1oN))
-  (( ${#wildcard_matches} )) && tools+=(luarocks)
-  [[ -f "$project_root/cpanfile" || -f "$project_root/Makefile.PL" ||
-     -f "$project_root/Build.PL" ]] && tools+=(cpan)
-  [[ -f "$project_root/cpanfile.snapshot" ]] && tools+=(carton)
-  [[ -f "$project_root/dist.ini" ]] && tools+=(dzil)
-  [[ -f "$project_root/fpm.toml" ]] && tools+=(fpm)
-  [[ -f "$project_root/dune-project" ]] && tools+=(dune)
-  wildcard_matches=("$project_root"/*.opam(NY1oN))
-  (( ${#wildcard_matches} )) && tools+=(opam)
-  [[ -f "$project_root/build.sbt" ]] && tools+=(sbt)
-  [[ -f "$project_root/rebar.config" ]] && tools+=(rebar3)
+    [[ -f "$project_root/Cargo.toml" ]] && tools+=(cargo)
+    [[ -f "$project_root/go.mod" ]] && tools+=('go-modules')
+    [[ -f "$project_root/buf.yaml" || -f "$project_root/buf.gen.yaml" ]] && tools+=(buf)
+    [[ -f "$project_root/stack.yaml" ]] && tools+=(stack)
+    wildcard_matches=("$project_root"/*.cabal(NY1oN))
+    [[ -f "$project_root/cabal.project" || ${#wildcard_matches} -gt 0 ]] && tools+=(cabal)
+    if (( ${languages[(I)haskell]} )) && [[ -f "$project_root/package.yaml" ]]; then
+      tools+=(hpack)
+    fi
+    [[ -f "$project_root/Gemfile" ]] && tools+=(bundler)
+    [[ -f "$project_root/pom.xml" ]] && tools+=(maven)
+    [[ -f "$project_root/build.gradle" || -f "$project_root/build.gradle.kts" ||
+       -f "$project_root/settings.gradle" ||
+       -f "$project_root/settings.gradle.kts" ]] && tools+=(gradle)
+    [[ -f "$project_root/build.sc" || -f "$project_root/mill-build/build.sc" ]] && tools+=(mill)
+    wildcard_matches=("$project_root"/*.sln(NY1oN) "$project_root"/*.slnx(NY1oN))
+    (( ${#wildcard_matches} )) && tools+=(solution)
+    [[ -f "$project_root/packages.lock.json" ||
+       -f "$project_root/Directory.Packages.props" ]] && tools+=(nuget)
+    [[ -f "$project_root/pubspec.yaml" ]] && tools+=(pub)
+    [[ -f "$project_root/melos.yaml" || -f "$project_root/melos.yml" ]] && tools+=(melos)
+    [[ -f "$project_root/mix.exs" ]] && tools+=(mix)
+    [[ -f "$project_root/renv.lock" ]] && tools+=(renv)
+    [[ -f "$project_root/pak.lock" ]] && tools+=(pak)
+    wildcard_matches=("$project_root"/*.rockspec(NY1oN))
+    (( ${#wildcard_matches} )) && tools+=(luarocks)
+    [[ -f "$project_root/cpanfile" || -f "$project_root/Makefile.PL" ||
+       -f "$project_root/Build.PL" ]] && tools+=(cpan)
+    [[ -f "$project_root/cpanfile.snapshot" ]] && tools+=(carton)
+    [[ -f "$project_root/dist.ini" ]] && tools+=(dzil)
+    [[ -f "$project_root/fpm.toml" ]] && tools+=(fpm)
+    [[ -f "$project_root/dune-project" ]] && tools+=(dune)
+    wildcard_matches=("$project_root"/*.opam(NY1oN))
+    (( ${#wildcard_matches} )) && tools+=(opam)
+    [[ -f "$project_root/build.sbt" ]] && tools+=(sbt)
+    [[ -f "$project_root/rebar.config" ]] && tools+=(rebar3)
 
-  [[ -f "$project_root/CMakeLists.txt" ]] && tools+=(cmake)
-  [[ -f "$project_root/meson.build" ]] && tools+=(meson)
-  [[ -f "$project_root/configure.ac" || -f "$project_root/configure.in" ]] && tools+=(autotools)
-  [[ -f "$project_root/MODULE.bazel" || -f "$project_root/WORKSPACE" ||
-     -f "$project_root/WORKSPACE.bazel" ]] && tools+=(bazel)
-  [[ -f "$project_root/conanfile.py" || -f "$project_root/conanfile.txt" ]] && tools+=(conan)
-  [[ -f "$project_root/vcpkg.json" ]] && tools+=(vcpkg)
-  [[ -f "$project_root/xmake.lua" ]] && tools+=(xmake)
-  [[ -f "$project_root/Makefile" || -f "$project_root/makefile" ||
-     -f "$project_root/GNUmakefile" ]] && tools+=(make)
-  [[ -f "$project_root/build.ninja" ]] && tools+=(ninja)
-  [[ -f "$project_root/Justfile" || -f "$project_root/justfile" ]] && tools+=(just)
-  [[ -f "$project_root/Taskfile.yml" || -f "$project_root/Taskfile.yaml" ]] && tools+=(task)
-  [[ -f "$project_root/terragrunt.hcl" ]] && tools+=(terragrunt)
-  [[ -f "$project_root/.tflint.hcl" ]] && tools+=(tflint)
-  [[ -f "$project_root/Pulumi.yaml" ]] && tools+=(pulumi)
-  [[ -f "$project_root/Chart.yaml" ]] && tools+=(helm)
-  [[ -f "$project_root/kustomization.yaml" ||
-     -f "$project_root/kustomization.yml" ]] && tools+=(kustomize)
-  [[ -f "$project_root/serverless.yml" ||
-     -f "$project_root/serverless.yaml" ]] && tools+=(serverless)
-  wildcard_matches=("$project_root"/*.asd(NY1oN))
-  (( ${#wildcard_matches} )) && tools+=(asdf)
+    [[ -f "$project_root/CMakeLists.txt" ]] && tools+=(cmake)
+    [[ -f "$project_root/meson.build" ]] && tools+=(meson)
+    [[ -f "$project_root/configure.ac" || -f "$project_root/configure.in" ]] && tools+=(autotools)
+    [[ -f "$project_root/MODULE.bazel" || -f "$project_root/WORKSPACE" ||
+       -f "$project_root/WORKSPACE.bazel" ]] && tools+=(bazel)
+    [[ -f "$project_root/conanfile.py" || -f "$project_root/conanfile.txt" ]] && tools+=(conan)
+    [[ -f "$project_root/vcpkg.json" ]] && tools+=(vcpkg)
+    [[ -f "$project_root/xmake.lua" ]] && tools+=(xmake)
+    [[ -f "$project_root/Makefile" || -f "$project_root/makefile" ||
+       -f "$project_root/GNUmakefile" ]] && tools+=(make)
+    [[ -f "$project_root/build.ninja" ]] && tools+=(ninja)
+    [[ -f "$project_root/Justfile" || -f "$project_root/justfile" ]] && tools+=(just)
+    [[ -f "$project_root/Taskfile.yml" || -f "$project_root/Taskfile.yaml" ]] && tools+=(task)
+    [[ -f "$project_root/terragrunt.hcl" ]] && tools+=(terragrunt)
+    [[ -f "$project_root/.tflint.hcl" ]] && tools+=(tflint)
+    [[ -f "$project_root/Pulumi.yaml" ]] && tools+=(pulumi)
+    [[ -f "$project_root/Chart.yaml" ]] && tools+=(helm)
+    [[ -f "$project_root/kustomization.yaml" ||
+       -f "$project_root/kustomization.yml" ]] && tools+=(kustomize)
+    [[ -f "$project_root/serverless.yml" ||
+       -f "$project_root/serverless.yaml" ]] && tools+=(serverless)
+    wildcard_matches=("$project_root"/*.asd(NY1oN))
+    (( ${#wildcard_matches} )) && tools+=(asdf)
 
-  # Frameworks use distinctive config files rather than parsing arbitrary source.
-  wildcard_matches=("$project_root"/next.config.*(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(next)
-  wildcard_matches=("$project_root"/nuxt.config.*(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(nuxt)
-  wildcard_matches=("$project_root"/vite.config.*(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(vite)
-  wildcard_matches=("$project_root"/astro.config.*(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(astro)
-  wildcard_matches=("$project_root"/remix.config.*(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(remix)
-  wildcard_matches=("$project_root"/gatsby-config.*(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(gatsby)
-  [[ -f "$project_root/angular.json" ]] && frameworks+=(angular)
-  [[ -f "$project_root/svelte.config.js" ]] && frameworks+=(sveltekit)
-  [[ -f "$project_root/expo-env.d.ts" ]] && frameworks+=(expo)
-  [[ -f "$project_root/react-native.config.js" ]] && frameworks+=('react-native')
-  wildcard_matches=(
-    "$project_root"/forge.config.*(NY1oN)
-    "$project_root"/electron-builder.{yml,yaml,json,json5,js,ts}(NY1oN)
-  )
-  (( ${#wildcard_matches} )) && frameworks+=(electron)
-  wildcard_matches=("$project_root"/.storybook/main.*(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(storybook)
-  [[ -f "$project_root/prisma/schema.prisma" ]] && frameworks+=(prisma)
-  [[ -f "$project_root/manage.py" ]] && frameworks+=(django)
-  [[ -f "$project_root/mkdocs.yml" || -f "$project_root/mkdocs.yaml" ]] && frameworks+=(mkdocs)
-  [[ -f "$project_root/config/application.rb" && -f "$project_root/bin/rails" ]] && frameworks+=(rails)
-  wildcard_matches=("$project_root"/lib/*_web/router.ex(NY1oN))
-  (( ${#wildcard_matches} )) && frameworks+=(phoenix)
-  [[ -f "$project_root/src-tauri/tauri.conf.json" ||
-     -f "$project_root/src-tauri/tauri.conf.json5" ]] && frameworks+=(tauri)
-  if [[ -f "$project_root/pubspec.yaml" && -d "$project_root/lib" &&
-        ( -d "$project_root/android" || -d "$project_root/ios" ) ]]; then
-    frameworks+=(flutter)
-  fi
-  [[ -f "$project_root/artisan" ]] && frameworks+=(laravel)
-  [[ -f "$project_root/symfony.lock" ]] && frameworks+=(symfony)
-  [[ -f "$project_root/wp-config.php" ]] && frameworks+=(wordpress)
-  [[ -f "$project_root/core/lib/Drupal.php" ]] && frameworks+=(drupal)
-  [[ -f "$project_root/app/src/main/AndroidManifest.xml" ]] && frameworks+=(android)
-  [[ -f "$project_root/_quarto.yml" || -f "$project_root/_quarto.yaml" ]] && frameworks+=(quarto)
-  [[ -f "$project_root/lazy-lock.json" && -d "$project_root/lua" ]] && frameworks+=(neovim)
-  [[ -f "$project_root/supabase/config.toml" ]] && frameworks+=(supabase)
+    # Frameworks use distinctive config files rather than parsing arbitrary source.
+    wildcard_matches=("$project_root"/next.config.*(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(next)
+    wildcard_matches=("$project_root"/nuxt.config.*(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(nuxt)
+    wildcard_matches=("$project_root"/vite.config.*(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(vite)
+    wildcard_matches=("$project_root"/astro.config.*(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(astro)
+    wildcard_matches=("$project_root"/remix.config.*(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(remix)
+    wildcard_matches=("$project_root"/gatsby-config.*(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(gatsby)
+    [[ -f "$project_root/angular.json" ]] && frameworks+=(angular)
+    [[ -f "$project_root/svelte.config.js" ]] && frameworks+=(sveltekit)
+    [[ -f "$project_root/expo-env.d.ts" ]] && frameworks+=(expo)
+    [[ -f "$project_root/react-native.config.js" ]] && frameworks+=('react-native')
+    wildcard_matches=(
+      "$project_root"/forge.config.*(NY1oN)
+      "$project_root"/electron-builder.{yml,yaml,json,json5,js,ts}(NY1oN)
+    )
+    (( ${#wildcard_matches} )) && frameworks+=(electron)
+    wildcard_matches=("$project_root"/.storybook/main.*(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(storybook)
+    [[ -f "$project_root/prisma/schema.prisma" ]] && frameworks+=(prisma)
+    [[ -f "$project_root/manage.py" ]] && frameworks+=(django)
+    [[ -f "$project_root/mkdocs.yml" || -f "$project_root/mkdocs.yaml" ]] && frameworks+=(mkdocs)
+    [[ -f "$project_root/config/application.rb" && -f "$project_root/bin/rails" ]] && frameworks+=(rails)
+    wildcard_matches=("$project_root"/lib/*_web/router.ex(NY1oN))
+    (( ${#wildcard_matches} )) && frameworks+=(phoenix)
+    [[ -f "$project_root/src-tauri/tauri.conf.json" ||
+       -f "$project_root/src-tauri/tauri.conf.json5" ]] && frameworks+=(tauri)
+    if [[ -f "$project_root/pubspec.yaml" && -d "$project_root/lib" &&
+          ( -d "$project_root/android" || -d "$project_root/ios" ) ]]; then
+      frameworks+=(flutter)
+    fi
+    [[ -f "$project_root/artisan" ]] && frameworks+=(laravel)
+    [[ -f "$project_root/symfony.lock" ]] && frameworks+=(symfony)
+    [[ -f "$project_root/wp-config.php" ]] && frameworks+=(wordpress)
+    [[ -f "$project_root/core/lib/Drupal.php" ]] && frameworks+=(drupal)
+    [[ -f "$project_root/app/src/main/AndroidManifest.xml" ]] && frameworks+=(android)
+    [[ -f "$project_root/_quarto.yml" || -f "$project_root/_quarto.yaml" ]] && frameworks+=(quarto)
+    [[ -f "$project_root/lazy-lock.json" && -d "$project_root/lua" ]] && frameworks+=(neovim)
+    [[ -f "$project_root/supabase/config.toml" ]] && frameworks+=(supabase)
 
-  wildcard_matches=("$project_root"/*.ipynb(NY1oN) "$project_root"/notebooks/*.ipynb(NY1oN))
-  (( ${#wildcard_matches} )) && tools+=(jupyter)
+    wildcard_matches=("$project_root"/*.ipynb(NY1oN) "$project_root"/notebooks/*.ipynb(NY1oN))
+    (( ${#wildcard_matches} )) && tools+=(jupyter)
 
-  # Workspace and development-environment signals are intentionally compact.
-  if [[ -f "$project_root/pnpm-workspace.yaml" || -f "$project_root/turbo.json" ||
-        -f "$project_root/nx.json" || -f "$project_root/lerna.json" ||
-        -f "$project_root/rush.json" || -f "$project_root/melos.yaml" ||
-        -f "$project_root/melos.yml" || -f "$project_root/go.work" ]]; then
-    environment+=(workspace)
+    # Workspace and development-environment signals are intentionally compact.
+    if [[ -f "$project_root/pnpm-workspace.yaml" || -f "$project_root/turbo.json" ||
+          -f "$project_root/nx.json" || -f "$project_root/lerna.json" ||
+          -f "$project_root/rush.json" || -f "$project_root/melos.yaml" ||
+          -f "$project_root/melos.yml" || -f "$project_root/go.work" ]]; then
+      environment+=(workspace)
+    fi
+    if [[ -f "$project_root/Dockerfile" || -f "$project_root/compose.yaml" ||
+          -f "$project_root/compose.yml" || -f "$project_root/docker-compose.yaml" ||
+          -f "$project_root/docker-compose.yml" ]]; then
+      environment+=(docker)
+    fi
+    [[ -f "$project_root/.devcontainer/devcontainer.json" ]] && environment+=(devcontainer)
+    [[ -f "$project_root/flake.nix" || -f "$project_root/shell.nix" ]] && environment+=(nix)
+    [[ -f "$project_root/devenv.nix" || -f "$project_root/devenv.yaml" ]] && environment+=(devenv)
+    [[ -f "$project_root/mise.toml" || -f "$project_root/.mise.toml" ]] && environment+=(mise)
+    [[ -f "$project_root/.envrc" ]] && environment+=(direnv)
+    [[ -f "$project_root/Vagrantfile" ]] && environment+=(vagrant)
+
   fi
-  if [[ -f "$project_root/Dockerfile" || -f "$project_root/compose.yaml" ||
-        -f "$project_root/compose.yml" || -f "$project_root/docker-compose.yaml" ||
-        -f "$project_root/docker-compose.yml" ]]; then
-    environment+=(docker)
-  fi
-  [[ -f "$project_root/.devcontainer/devcontainer.json" ]] && environment+=(devcontainer)
-  [[ -f "$project_root/flake.nix" || -f "$project_root/shell.nix" ]] && environment+=(nix)
-  [[ -f "$project_root/devenv.nix" || -f "$project_root/devenv.yaml" ]] && environment+=(devenv)
-  [[ -f "$project_root/mise.toml" || -f "$project_root/.mise.toml" ]] && environment+=(mise)
-  [[ -f "$project_root/.envrc" ]] && environment+=(direnv)
-  [[ -f "$project_root/Vagrantfile" ]] && environment+=(vagrant)
 
   # Custom hooks run after built-in detection and append through the safe helper.
   _PROMPT_PROJECT_EXTRA_SEGMENTS=()
@@ -2506,21 +2370,23 @@ _prompt_project_context() {
     (( ${+functions[$hook]} )) && "$hook" "$project_root"
   done
 
-  for language in "${tools[@]}"; do
-    _prompt_color_text tool "$language"
-    rendered+=("$REPLY")
-    rendered_widths+=("${(m)#language}")
-  done
-  for language in "${frameworks[@]}"; do
-    _prompt_color_text framework "$language"
-    rendered+=("$REPLY")
-    rendered_widths+=("${(m)#language}")
-  done
-  for language in "${environment[@]}"; do
-    _prompt_color_text container "$language"
-    rendered+=("$REPLY")
-    rendered_widths+=("${(m)#language}")
-  done
+  if (( ! large_project )); then
+    for language in "${tools[@]}"; do
+      _prompt_color_text tool "$language"
+      rendered+=("$REPLY")
+      rendered_widths+=("${(m)#language}")
+    done
+    for language in "${frameworks[@]}"; do
+      _prompt_color_text framework "$language"
+      rendered+=("$REPLY")
+      rendered_widths+=("${(m)#language}")
+    done
+    for language in "${environment[@]}"; do
+      _prompt_color_text container "$language"
+      rendered+=("$REPLY")
+      rendered_widths+=("${(m)#language}")
+    done
+  fi
   for (( index = 1; index <= ${#_PROMPT_PROJECT_EXTRA_SEGMENTS}; index++ )); do
     rendered+=("${_PROMPT_PROJECT_EXTRA_SEGMENTS[index]}")
     rendered_widths+=("${_PROMPT_PROJECT_EXTRA_WIDTHS[index]:-0}")
@@ -2734,10 +2600,12 @@ _prompt_update() {
 
   _PROMPT_EXIT_SEGMENT=''
   _PROMPT_TIME_SEGMENT=''
-  _prompt_color symbol || :
+  REPLY=''
+  (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt symbol || :
   _PROMPT_SYMBOL_COLOR=$REPLY
   if (( last_status != 0 )); then
-    _prompt_color danger || :
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt danger || :
     _PROMPT_SYMBOL_COLOR=$REPLY
   fi
 
@@ -2810,7 +2678,8 @@ _prompt_update() {
   # Keep the window/tab title useful without printing anything in the terminal.
   if [[ $TERM != dumb && -t 1 ]]; then
     title_path=${(%):-%~}
-    _prompt_sanitize "${prompt_identity}: ${title_path}"
+    REPLY="${prompt_identity}: ${title_path}"
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$REPLY" || REPLY=${(V)REPLY}
     print -rn -- $'\e]0;'"${REPLY}"$'\a'
   fi
 }
@@ -2823,7 +2692,8 @@ _prompt_command_started() {
   if [[ $TERM != dumb && -t 1 ]]; then
     local command_name=${1%% *} title_identity=''
     title_identity=${(%):-%n@%m}
-    _prompt_sanitize "${title_identity}: ${command_name[1,60]}"
+    REPLY="${title_identity}: ${command_name[1,60]}"
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$REPLY" || REPLY=${(V)REPLY}
     print -rn -- $'\e]0;'"${REPLY}"$'\a'
   fi
 }

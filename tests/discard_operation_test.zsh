@@ -5,6 +5,7 @@ _test_discard_sequencer_guard() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     local repo="$HOME/repository" first="" second="" before="" after=""
     command git init -qb main "$repo" || exit 1

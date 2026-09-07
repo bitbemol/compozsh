@@ -3,6 +3,7 @@ _test_git_atlas_groups() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     (( ${+functions[_git_review_atlas_rows]} )) || { print -u2 missing-atlas; exit 1; }
     local -a _GIT_REVIEW_PATHS=(src/a src/a src/deep/b README $'"'"'odd\n%/file'"'"')
     local -a _GIT_REVIEW_KINDS=(staged unstaged untracked staged conflict)
@@ -28,7 +29,9 @@ _test_git_atlas_blocked_reads() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     local -a _GIT_REVIEW_PATHS=(file) _GIT_REVIEW_KINDS=(unstaged)
     local -a _GIT_REVIEW_LABELS=(file) _GIT_REVIEW_CONTEXTS=(Modified)
     local -i _git_review_reads_blocked=1 visits=0 notices=0
@@ -50,7 +53,9 @@ _test_git_atlas_comparison_scope() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     local -a _GIT_REVIEW_PATHS=(src/file) _GIT_REVIEW_KINDS=(comparison)
     local -a _GIT_REVIEW_LABELS=(file) _GIT_REVIEW_CONTEXTS=(Modified) _GIT_REVIEW_DETAILS=()
     local _ZLE_PICKER_SUBTITLE="Against main @ aaaa → Compare topic @ bbbb"

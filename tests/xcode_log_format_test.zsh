@@ -3,6 +3,7 @@ _test_xcode_log_format_compact_records() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     (( ${+functions[_xcode_logs_format_line]} )) || { print -u2 "missing compact log formatter"; exit 1; }
     local -a _xcode_logs_format_lines=() _xcode_logs_format_roles=()
     local level="" label="" role="" raw=""
@@ -34,6 +35,7 @@ _test_xcode_log_format_literal_fallback() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     cd -- "$HOME" || exit 1
     (( ${+functions[_xcode_logs_format_line]} )) || { print -u2 "missing compact log formatter"; exit 1; }
     local -a _xcode_logs_format_lines=() _xcode_logs_format_roles=()
@@ -66,6 +68,7 @@ _test_xcode_log_format_scoped_results() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     (( ${+functions[_xcode_logs_format_line]} )) || { print -u2 "missing compact log formatter"; exit 1; }
     local -a _xcode_logs_format_lines=() _xcode_logs_format_roles=()
     local MATCH=caller

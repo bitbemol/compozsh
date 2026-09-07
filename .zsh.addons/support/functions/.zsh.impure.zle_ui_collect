@@ -1,0 +1,46 @@
+# Entry point: _zle_ui_collect
+# Impure: project captured matching results into the caller's UI state.
+
+# Arguments: rank mode, query, limit, values, labels, searchable text,
+# optional extra text, text policy, numbering (none/source/visible/index array).
+# Array parameters are explicit read-only identifiers, never expressions.
+# Return parameters and UI output arrays cannot also be supplied as inputs.
+_zle_ui_collect() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  (( $# == 9 && ${+functions[_matching_select]} )) || {
+    typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    return 1
+  }
+  local _uc_mode=$1 _uc_query=$2 _uc_limit=$3 _uc_values=$4 _uc_labels=$5
+  local _uc_texts=$6 _uc_extra=$7 _uc_policy=$8 _uc_numbering=$9
+  local _uc_name='' _uc_ref=''
+  local -i _uc_index=0
+  local -a reply=() _uc_names=("$_uc_values" "$_uc_labels" "$_uc_texts")
+  [[ -n $_uc_extra ]] && _uc_names+=("$_uc_extra")
+  [[ $_uc_numbering == (none|source|visible) ]] || _uc_names+=("$_uc_numbering")
+  for _uc_name in "${_uc_names[@]}"; do
+    [[ $_uc_name == [A-Za-z_][A-Za-z0-9_]# && $_uc_name != (_uc_*|REPLY|reply|_ZLE_PICKER_RESULTS|_ZLE_PICKER_LABELS|_ZLE_PICKER_RESULT_INDEXES) ]] || return 2
+    [[ ${(Pt)_uc_name} == array* || -z ${(Pt)_uc_name} ]] || return 2
+  done
+  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _matching_select "$_uc_mode" "$_uc_query" "$_uc_limit" \
+    "$_uc_values" "$_uc_texts" "$_uc_extra" "$_uc_policy" || return
+  for _uc_index in "${reply[@]}"; do
+    _uc_ref="${_uc_values}[$_uc_index]"
+    _ZLE_PICKER_RESULTS+=("${(P)_uc_ref}")
+    _uc_ref="${_uc_labels}[$_uc_index]"
+    _ZLE_PICKER_LABELS+=("${(P)_uc_ref}")
+    case $_uc_numbering in
+      none) ;;
+      source) _ZLE_PICKER_RESULT_INDEXES+=($_uc_index) ;;
+      visible) _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS}) ;;
+      *)
+        _uc_ref="${_uc_numbering}[$_uc_index]"
+        _ZLE_PICKER_RESULT_INDEXES+=("${(P)_uc_ref}") ;;
+    esac
+  done
+  return 0
+}
+
+:

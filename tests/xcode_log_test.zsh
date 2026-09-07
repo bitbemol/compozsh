@@ -3,6 +3,7 @@ _test_xcode_log_sources_keep_fragments_separate() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_run_log="" _xcode_run_trimmed=0
     local -a _xcode_run_pending=("" "")
     (( ${+functions[_xcode_run_output_append]} )) || { print -u2 "missing independent log sources"; exit 1; }
@@ -45,6 +46,7 @@ fi' || return
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME SCENARIO=ready
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     zmodload zsh/system
     command mkfifo "$HOME/control"
     exec {control}<> "$HOME/control"
@@ -80,6 +82,7 @@ _test_xcode_log_fairness_and_independent_closure() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_run_log="" _xcode_run_trimmed=0 _xcode_run_context=fixture
     local -a _xcode_run_pending=("" "") reads=()
     local _xcode_run_fd=11 _xcode_run_unified_fd=12 _xcode_run_unified_status=following
@@ -124,10 +127,13 @@ _test_xcode_log_paused_source_failure_visibility() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_run_log="" _xcode_run_trimmed=0
     local _xcode_run_context="Fixture app and exact selected Simulator"
     local -a _xcode_run_pending=("" "")
@@ -206,6 +212,7 @@ _test_xcode_log_expired_child_cleanup() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     zmodload zsh/parameter
     local _xcode_run_logger=$$ signalled=0
     kill() { signalled=1; return 0; }

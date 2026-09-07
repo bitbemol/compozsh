@@ -3,23 +3,6 @@
 # Appearance owns defaults; this consumer preserves explicit public roles.
 typeset -gA ZSH_OUTPUT_COLORS
 
-# Return a validated 256-color index. A malformed local override falls back
-# instead of making an ordinary command fail inside Git's color parser.
-_output_color() {
-  emulate -L zsh
-
-  local role=$1 value=''
-  if [[ ${(t)ZSH_OUTPUT_COLORS} == association* ]]; then
-    value=${ZSH_OUTPUT_COLORS[$role]-}
-  fi
-  if [[ $value != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
-    value=${_COMPOZSH_COLOR_FALLBACKS[output:$role]-}
-  fi
-  REPLY=''
-  [[ $value == <0-255> ]] || return 1
-  REPLY=$value
-}
-
 # Choose black or white by relative luminance for the standard xterm cube and
 # grayscale. ANSI colors 0–15 are profile-defined; callers retain native inverse
 # video there. This calculation runs only for an explicit manual-page request.
@@ -70,16 +53,16 @@ _output_print_help() {
   local line='' body='' prefix='' remainder='' style=''
   local -i index=0 examples=0
   local -a rendered=()
-  if _output_color heading; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output heading; then
     heading=$'\e[1;38;5;'"${REPLY}m"
   fi
-  if _output_color accent; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output accent; then
     accent=$'\e[38;5;'"${REPLY}m"
   fi
-  if _output_color info; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output info; then
     info=$'\e[38;5;'"${REPLY}m"
   fi
-  if _output_color warning; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output warning; then
     warning=$'\e[1;38;5;'"${REPLY}m"
   fi
 
@@ -142,7 +125,7 @@ _output_lldb_color_arguments() {
   )
   reply=()
   for property role weight in "${specifications[@]}"; do
-    _output_color "$role" || continue
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output "$role" || continue
     prefix=$'\e['"${weight}38;5;${REPLY}m"
     reply+=(
       --one-line-before-file "settings set --exists ${property}-ansi-prefix \"${prefix}\""
@@ -201,7 +184,7 @@ _output_git_color_arguments() {
     color.transport.rejected error 'bold'
   )
   for role in heading accent success warning error info muted match text; do
-    _output_color "$role" && colors[$role]=$REPLY
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output "$role" && colors[$role]=$REPLY
   done
   typeset -ga _OUTPUT_GIT_COLOR_CONFIG=()
   for property role attributes in "${specifications[@]}"; do
@@ -324,7 +307,7 @@ grep() {
   fi
 
   if [[ -t 1 ]] && (( _GREP_SUPPORTS_COLOR )); then
-    if _output_color match; then
+    if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output match; then
       local match=$REPLY
       local -x GREP_COLOR=${GREP_COLOR-"1;38;5;$match"}
       local -x GREP_COLORS=${GREP_COLORS-"ms=1;38;5;$match:mc=1;38;5;$match"}
@@ -344,17 +327,17 @@ man() {
   local heading_style=$'\e[1m' match_style=$'\e[1m'
   local warning_style=$'\e[4m' selected_style=$'\e[7m'
   local heading=''
-  if _output_color heading; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output heading; then
     heading=$REPLY
     heading_style=$'\e[1;38;5;'"${heading}m"
     if _output_contrasting_foreground "$heading"; then
       selected_style=$'\e[1;38;5;'"$REPLY;48;5;${heading}m"
     fi
   fi
-  if _output_color warning; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output warning; then
     warning_style=$'\e[4;38;5;'"${REPLY}m"
   fi
-  if _output_color match; then
+  if (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output match; then
     match_style=$'\e[1;38;5;'"${REPLY}m"
   fi
 

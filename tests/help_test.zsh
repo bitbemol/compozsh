@@ -12,13 +12,16 @@ _test_public_commands_support_help() {
     path=("$2" $path)
     rehash
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     builtin cd -- "$HOME" || exit
 
     typeset -a help_lines=()
@@ -74,11 +77,14 @@ _test_public_command_names_use_kebab_case() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local helper command
     local -a invalid=()
     for helper in ${(k)functions[(I)_compozsh_help_*]}; do
@@ -132,7 +138,8 @@ _test_file_finder_help_is_static_and_errors_stay_short() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.help"
     builtin cd -- "$HOME" || exit
     path=()
@@ -171,11 +178,15 @@ _test_tool_help_explains_real_boundaries() {
   for tool in mkcd cpdir "compozsh --sudo-touch-id" g external-device xcode compozsh; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home" '
       source "$1/.zsh.addons/.zsh.tools"
+      for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
       source "$1/.zsh.addons/.zsh.navigation"
-      source "$1/.zsh.addons/support/.zsh.matching"
+      for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+      source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
       source "$1/.zsh.addons/.zsh.sudo-touch-id"
       source "$1/.zsh.addons/.zsh.usb"
+      source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
       source "$1/.zsh.addons/.zsh.xcode"
+      source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
       source "$1/.zsh.addons/.zsh.help"
       local -a invocation=( ${=2} )
       "${invocation[@]}" --help
@@ -278,13 +289,16 @@ _test_all_tool_help_is_static_without_optional_tools() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     builtin cd -- "$HOME" || exit
     path=()
     TERM=dumb
@@ -322,15 +336,19 @@ _test_help_terminal_colors_and_plain_fallbacks() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     setopt EXTENDED_GLOB
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     # Load output last: no help provider may depend on its source order.
     typeset -gA ZSH_OUTPUT_COLORS=(heading 123 accent 124 info 125 warning 126)
     source "$1/.zsh.addons/support/.zsh.appearance"
@@ -406,6 +424,7 @@ _test_help_color_treats_text_and_overrides_as_data() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     setopt EXTENDED_GLOB PROMPT_SUBST
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output"

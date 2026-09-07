@@ -16,7 +16,8 @@ _test_file_search_git_provider() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     _file_search_capture_git "$2" "net cli" || exit
     print -r -- "labels:${(j:|:)_FILE_SEARCH_LABELS}"
     print -r -- "ignored:${_FILE_SEARCH_VALUES[(I)*private-cache.bin]}"
@@ -40,7 +41,8 @@ _test_file_search_picker_ranking() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     typeset -ga _FILE_SEARCH_VALUES=(/tmp/one /tmp/two /tmp/three)
     typeset -ga _FILE_SEARCH_LABELS=(
       "· notes/alpha-project.md"
@@ -73,7 +75,8 @@ _test_file_search_candidate_summary() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     typeset -ga _FILE_SEARCH_VALUES=(/tmp/one)
     _FILE_SEARCH_TRUNCATED=0
     _file_search_candidate_summary needle
@@ -104,7 +107,8 @@ _test_file_search_local_boundaries() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     _file_search_capture_local "$2" hidden || exit
     print -r -- "hidden:${(j:|:)_FILE_SEARCH_LABELS}"
     _file_search_capture_local "$2" secret
@@ -144,7 +148,8 @@ _test_file_search_spotlight_boundary() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     export FAKE_MDFIND_LOG="$4"
     export FAKE_MDFIND_INSIDE="$HOME/Documents/Final Report.txt"
     export FAKE_MDFIND_OUTSIDE="$3"
@@ -177,7 +182,8 @@ _test_file_search_command_contract() {
   expected_quoted=${(q)selected_path}
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     _file_search_capture "$2" "final ready" local
     list_status=$?
     print -rl -- "${_FILE_SEARCH_VALUES[@]}"
@@ -208,7 +214,8 @@ _test_file_search_path_fidelity() {
   test_write_file "$root/$filename" 'result' || return
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     command git -C "$2" init -q || exit
     for provider in local git; do
       _file_search_capture "$2" "notes" "$provider" || exit
@@ -226,8 +233,10 @@ _test_ui_owns_command_picker_lifecycle() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     [[ ${widgets[compozsh-picker-init]} == user:_zle_picker_line_init ]] && registered=1
     print -r -- "${+functions[_zle_picker_run]}|${widgets[compozsh-picker]}|${registered:-0}"
   ' "$TEST_REPO_ROOT") || return

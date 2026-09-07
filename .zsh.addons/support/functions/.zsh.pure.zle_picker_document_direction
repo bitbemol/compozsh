@@ -1,0 +1,18 @@
+# Entry point: _zle_picker_document_direction
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Shared by key dispatch and hints. Empty mode means a single reading level;
+# empty reply means the current boundary has no further disclosure.
+_zle_picker_document_direction() {
+  REPLY=''
+  case "$1:$2:$3" in
+    (right:0:full|left:1:full) REPLY=focused ;;
+    (right:0:*) REPLY=read ;;
+    (right:1:focused) REPLY=full ;;
+    (left:1:*) REPLY=files ;;
+  esac
+  return 0
+}
+
+:

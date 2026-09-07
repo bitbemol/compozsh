@@ -1,0 +1,57 @@
+# Entry point: _zle_picker_abbreviate
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Bound display cells while preserving both ends. Optional head/tail bias
+# controls which end receives more room; the default favors the tail. Native
+# truncation supplies the fast path; zero-cell boundary marks stay with bases.
+_zle_picker_abbreviate() {
+  emulate -L zsh
+  setopt MULTIBYTE
+  local text=$1 head='' tail='' bias=${3:-tail} character=''
+  local -i max_width=$2 left_width=0 right_width=0 source_index=0
+
+  if (( max_width <= 0 )); then
+    REPLY=''
+    return
+  fi
+  if (( ${(m)#text} <= max_width )); then
+    REPLY=$text
+    return
+  fi
+  if (( max_width < 5 )); then
+    REPLY='…'
+    return
+  fi
+
+  left_width=$(( (max_width - 1) / 3 ))
+  [[ $bias == head ]] && left_width=$(( (max_width - 1) * 2 / 3 ))
+  right_width=$(( max_width - 1 - left_width ))
+  text=${text//\%/%%}
+  head="%$(( left_width + 1 ))>.>${text}%>>"
+  tail="%$(( right_width + 1 ))<.<${text}%<<"
+  head=${(%)head}
+  tail=${(%)tail}
+  head=${head%.}
+  tail=${tail#.}
+  while (( ${(m)#head} > left_width )); do head=${head[1,-2]}; done
+  while (( ${(m)#tail} > right_width )); do tail=${tail[2,-1]}; done
+  # Native truncation can omit zero-cell marks following the last kept base.
+  source_index=$(( ${#head} + 1 ))
+  while (( source_index <= ${#1} )); do
+    character=${1[source_index]}
+    (( ${(m)#character} == 0 )) || break
+    head+=$character
+    (( ++source_index ))
+  done
+  # A removed wide base must not leave its marks attached to the ellipsis.
+  while [[ -n $tail ]]; do
+    character=$tail[1]
+    (( ${(m)#character} == 0 )) || break
+    tail=$tail[2,-1]
+  done
+  REPLY="${head}…${tail}"
+}
+
+
+:

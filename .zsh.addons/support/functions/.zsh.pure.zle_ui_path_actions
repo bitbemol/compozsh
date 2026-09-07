@@ -1,0 +1,38 @@
+# Entry point: _zle_ui_path_actions
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Captured capabilities and requested order in; action/label/detail/acceptance
+# tuples out. No path is inspected here. Callers retain target groups and the
+# distinct primary insertion/directory-change intent of their entry point.
+_zle_ui_path_actions() {
+  emulate -L zsh
+  local can_open=$1 can_reveal=$2 can_copy=$3 can_enter=$4 copy_label=$5 action=''
+  shift 5
+  reply=()
+  for action in "$@"; do
+    case $action in
+      open)
+        [[ $can_open == 1 ]] || continue
+        reply+=(open 'Open with default app'
+          'Open using the macOS default application. This may launch an application; only open files you trust.' open) ;;
+      reveal)
+        [[ $can_reveal == 1 ]] || continue
+        reply+=(reveal 'Reveal in Finder' 'Reveal this item in Finder.' reveal) ;;
+      copy)
+        [[ $can_copy == 1 ]] || continue
+        reply+=(copy "$copy_label" 'Copy the absolute path, without a trailing newline.' copy) ;;
+      enter-link)
+        [[ $can_enter == 1 ]] || continue
+        reply+=(enter-link 'Enter linked directory' 'Follow this symbolic link and change directory.' 'follow link') ;;
+      insert)
+        reply+=(insert 'Insert path into command line'
+          'Insert a shell-quoted path for composing a command. Review the line before running it.' insert) ;;
+      *) reply=(); return 2 ;;
+    esac
+  done
+  return 0
+}
+
+
+:

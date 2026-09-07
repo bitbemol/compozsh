@@ -1,0 +1,45 @@
+# Entry point: _matching_compile
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# -----------------------------------------------------------------------------
+# Literal matching over caller-supplied text
+# -----------------------------------------------------------------------------
+
+# Return an escaped literal and a case-insensitive subsequence pattern in the
+# caller's local reply array. "characters" permits arbitrary gaps; "word"
+# forbids whitespace between required characters. Neither mode splits input.
+_matching_compile() {
+  emulate -L zsh
+  local query=$1 mode=${2:-characters} character='' excluded='' literal=''
+  local pattern='(#i)' gap=''
+  local -i index=0
+  reply=()
+  (( $# >= 1 && $# <= 2 )) || return 2
+  [[ $mode == characters || $mode == word ]] || return 2
+
+  for character in "${(@s::)query}"; do
+    literal=${(b)character}
+    excluded=$character
+    # A bracket class takes a literal character, not its outside-class escape.
+    # Only a backslash needs doubling so it cannot escape the closing bracket.
+    [[ $character == \\ ]] && excluded=$literal
+    if [[ $mode == word ]]; then
+      # The first occurrence can be in an incomplete word; allow a later word
+      # to supply the match. Subsequent gaps stay inside that chosen word.
+      gap='*'
+      (( index )) && gap="[^${excluded}[:space:]]#"
+    else
+      # Consume the earliest possible alignment. Unrestricted * gaps can
+      # backtrack combinatorially when a later character never occurs.
+      gap="[^${excluded}]#"
+    fi
+    pattern+="${gap}${literal}"
+    (( ++index ))
+  done
+  reply=("${(b)query}" "${pattern}*")
+  return 0
+}
+
+
+:

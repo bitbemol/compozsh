@@ -134,7 +134,7 @@ Completion and printable-stack color decisions inspect terminal capabilities and
 `NO_COLOR`; manual-page selection contrast uses fixed indexed-color arithmetic.
 These presentation steps perform no additional project or private-file reads,
 create no retained data, and launch no color-detection process. Inspect
-`.zsh.addons/support/.zsh.appearance`, `.zsh.addons/support/.zsh.ui`,
+`.zsh.addons/support/.zsh.appearance`, the peers in `.zsh.addons/support/ui/`,
 `.zsh.addons/.zsh.output`, `.zsh.addons/.zsh.editor`,
 `.zsh.addons/.zsh.navigation` and `.zsh.addons/.zsh.prompt`, and run
 `zsh tests/run.zsh appearance` for isolated contrast, customization,
@@ -246,6 +246,19 @@ path, persistence, automatic action or rollback claim is introduced.
 Bare `external-device` presents two fixed task choices without reading disks or
 images. Choosing a task closes that screen before its normal scoped capture;
 the flash and format modes retain their separate exact-device confirmations.
+Shared pure USB readers validate supplied SHA/CRC text and native progress
+records without consulting caller-local variables or performing device reads.
+Raw and Windows execution use the same digest validation; media-specific
+preflight, checksum requirements and final verification remain with their
+existing effect owners. Installer candidate labels reuse already captured
+metadata, while action-time identity checks still acquire fresh observations.
+USB and Xcode scalar extraction shares one fixed `/usr/bin/plutil` invocation
+over supplied document text; it adds no provider discovery or persistent state.
+Xcode child/failure counts are validated as literal decimal text and bounded
+before integer conversion. Missing count support retains neutral results;
+the existing traversal and retained-failure limits remain intact. Display-span
+offsets likewise accept bounded decimal inputs before arithmetic and use local
+whitespace splitting, without reading or modifying caller variables.
 `compozsh --refresh` clears only the current shell's existing in-memory runtime,
 manual-summary, help-description, Git-directory and grep-capability caches and
 runs `rehash`. It neither reloads
@@ -397,7 +410,7 @@ effect boundaries and data lifetimes documented here. Native regression tests
 exercise order convergence and re-sourcing; the website's algebraic model is an
 illustration, not evidence that arbitrary add-ons are safe or effect-free.
 
-The `support/.zsh.ui` peer owns reusable terminal views, input, painting and
+The `support/ui/` peers own reusable terminal views, input, painting and
 screen restoration. Frames derive from captured facts; layout and resize perform no
 provider discovery. View configuration is scoped around the feature callback,
 with caller-owned snapshots and operation/bookmark outputs. Disclosure navigation
@@ -442,15 +455,38 @@ completed records do not. It never lists, waits for, or acknowledges jobs to
 update the indicator. `jobs -l` can report a previously killed process and
 acknowledge that completed record; listing it does not kill the process.
 
-`support/.zsh.matching` compiles literal queries and filters caller-supplied
-captured text. Its generic keyword search accepts fragments in any order and
-returns indexes into the supplied candidates. Caller-local outputs are its only
-results: it reads no provider, UI state, filesystem, command metadata or history,
-and creates no persistent cache. Feature collectors retain their documented
+The pure `matching_*` entries under `support/functions/` compile literal queries
+and filter caller-supplied captured text. Generic keyword search accepts
+fragments in any order and returns indexes into the supplied candidates.
+Caller-local outputs are the only results: matching reads no provider, UI state,
+filesystem, command metadata or history, and creates no persistent cache.
+Feature collectors retain their documented
 ranking, duplicate policy and capture limits. Query punctuation is literal;
 decimal result limits are checked before arithmetic. Run
 `zsh tests/run.zsh 'matching component'` for query, Unicode, limit and isolation
 contracts. Missing matching support selects existing native/plain fallbacks.
+
+The `compozsh_effect_*` entries under `support/functions/` own explicit clipboard
+writes and file Open/Reveal actions. Each receives the exact caller-selected value
+and captured executable path, checks executable availability, and rechecks the
+absolute file target before opening it. Clipboard payloads are supplied as
+literal standard input without an added newline; the helper reads no clipboard
+contents and retains no payload after return. UI and result-model calculations
+never call these effects. Feature callers dispatch only after screen cleanup
+(or directly for explicit commands such as `cpdir`). Without the corresponding
+effect entry, its workspace capability is omitted and direct requests fail safely. Source-time
+loading and re-sourcing invoke no commands and require no peer load order.
+Run `zsh tests/run.zsh 'shared effects'` for synthetic executable/target checks
+and `zsh tests/run.zsh 'shared data'` for literal, provider-free selection and
+presentation checks. These tests use disposable files and stand-ins; they do
+not establish macOS application behavior or prevent OS clipboard synchronization.
+
+Shared callable files declare one first entry point and keep exclusive helpers
+below it. `pure` denotes calculation from supplied inputs with caller-local
+return values; `impure` includes external reads and mutable shared-state access,
+as well as writes and process execution. UI components have their own prefix.
+These filenames aid review; they do not sandbox a function or prove that
+arbitrary input is safe. Palette setup and UI state are configuration peers.
 
 Path + Tab can capture immediate directory entries from a lone path or an
 explicit directory argument such as `vim ~/Developer`. The editor retains the
@@ -841,6 +877,16 @@ network operation. Filter discovery and its generated inert override argv share
 a 4,096-entry bound in manual and automatic refresh. A filter driver name that
 contains `=` is refused because Git's command-line configuration form cannot
 unambiguously override that key.
+The same pure override builder now protects prompt status and guarded discard
+reads, including the generated-argument bound and refusal of `=` driver names.
+Discard explicitly requests additional inert smudge overrides. Filter names are
+captured through the shared bounded synchronous command reader; it retains
+completion and exit-status information separately from the payload. Review may
+display a marked partial prefix, while Worktree and filter discovery require a
+complete capture. The byte bound does not impose a wall-time deadline; automatic
+Review refresh retains its separate worker timeout and process ownership.
+Run `zsh tests/run.zsh 'shared Git'` for literal driver names, oversized capture,
+operation-marker policy and a synthetic local filter-execution regression.
 Comparison refresh retains both captured commit IDs and any resolved common
 ancestor. Missing objects and ambiguous ancestry fail visibly without fetching
 or choosing another method. The new ref catalog contains no author identities
@@ -871,9 +917,9 @@ that missing promised objects cannot initiate transport during branch details
 or initial cleanup validation. Branch switching separates options from the exact
 selected ref name; a native PTY regression covers a ref beginning with `--`.
 
-Runtime capture is owned by `.zsh.addons/support/.zsh.runtimes`; the prompt calls
-it at the existing fact-capture boundary. Sourcing this optional peer defines
-functions and shell-memory data only. It does not inspect the current project,
+Runtime capture is owned by the runtime functions in `.zsh.addons/support/functions/`; the prompt calls
+it at the existing fact-capture boundary. Sourcing these optional peers defines
+functions and shell-memory data only. Loading them does not inspect the current project,
 probe an executable, install a toolchain or register a background task.
 Numeric comparison consumes supplied strings; metadata observation is separate.
 The explicit source inventory and precedence are documented in README's
@@ -907,7 +953,7 @@ The existing shell-memory installed-version cache remains refreshable with
 is introduced. Missing runtime support leaves project identity/tool markers.
 
 Inspect this boundary without executing it using
-`git show HEAD:.zsh.addons/support/.zsh.runtimes`. Isolated regression commands
+`git grep -n . HEAD -- .zsh.addons/support/functions/`. Isolated regression commands
 are `zsh tests/run.zsh 'runtime versions'`,
 `zsh tests/run.zsh 'bounded direct metadata'` and
 `zsh tests/run.zsh 'prompt probes installed runtimes'`; expected results are
@@ -1015,11 +1061,14 @@ and must be audited separately.
 Search the executable shell surface for common network clients:
 
 ```sh
-git grep -nE '(^|[;&|[:space:]])(command[[:space:]]+)?(/usr/bin/)?(curl|wget|ssh|scp|sftp|nc|netcat|socat|telnet|rsync)([[:space:]]|$)' \
+git grep -nE -e '(^|[;&|[:space:]])(command[[:space:]]+)?(/usr/bin/)?(curl|wget|ssh|scp|sftp|nc|netcat|socat|telnet|rsync)([[:space:]]|$)' \
+  --and --not -e '^[[:space:]]*#' \
   -- .zshrc install.zsh '.zsh.addons/**' templates
 ```
 
-The command should print no matches and return status 1. This is a useful
+Full-line comments are excluded, matching the native regression check; the
+prompt classifier mentions network clients as inert draft text. The command
+should print no matches and return status 1. This is a useful
 regression check, not proof by keyword absence; also read new command execution,
 redirection, dynamic function dispatch, and source paths in the diff.
 

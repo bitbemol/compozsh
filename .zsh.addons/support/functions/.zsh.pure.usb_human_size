@@ -1,0 +1,24 @@
+# Entry point: _usb_human_size
+# Pure: explicit supplied numbers in; caller-local REPLY out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_usb_human_size() {
+  emulate -L zsh
+  local raw=${1:-0}
+  local -F value=0.0
+  [[ $raw == <-> ]] || raw=0
+  if (( raw >= 1073741824 )); then
+    value=$(( raw / 1073741824.0 ))
+    printf -v REPLY '%.1f GiB' $value
+  elif (( raw >= 1048576 )); then
+    value=$(( raw / 1048576.0 ))
+    printf -v REPLY '%.1f MiB' $value
+  elif (( raw >= 1024 )); then
+    value=$(( raw / 1024.0 ))
+    printf -v REPLY '%.1f KiB' $value
+  else
+    REPLY="$raw bytes"
+  fi
+}
+
+:

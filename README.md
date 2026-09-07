@@ -261,9 +261,68 @@ compozsh/
 │   ├── .zsh.xcode         Xcode actions, live logs, LLDB and reviewed skill export
 │   └── support/          maintained system-wide components and assets
 │       ├── .zsh.appearance shared light/dark palette and scheme selection
-│       ├── .zsh.matching   pure literal/fuzzy matching over captured text
-│       ├── .zsh.runtimes   installed versions, bounded requirements and comparison
-│       ├── .zsh.ui         shared docked input, responsive views, and screen restoration
+│       ├── functions/
+│       │   ├── .zsh.impure.compozsh_capture_bounded
+│       │   ├── .zsh.impure.compozsh_effect_copy
+│       │   ├── .zsh.impure.compozsh_effect_open
+│       │   ├── .zsh.impure.compozsh_git_filter_config
+│       │   ├── .zsh.impure.compozsh_git_operation
+│       │   ├── .zsh.impure.compozsh_palette_color
+│       │   ├── .zsh.impure.compozsh_plutil_raw
+│       │   ├── .zsh.impure.prompt_expected_runtime_version
+│       │   ├── .zsh.impure.prompt_runtime_binary_is_trusted
+│       │   ├── .zsh.impure.prompt_runtime_version
+│       │   ├── .zsh.impure.prompt_select_metadata_file
+│       │   ├── .zsh.impure.runtime_metadata_is_parseable
+│       │   ├── .zsh.impure.runtime_read_metadata
+│       │   ├── .zsh.impure.runtime_toml_scalar
+│       │   ├── .zsh.impure.usb_result_reset
+│       │   ├── .zsh.impure.zle_picker_body_height
+│       │   ├── .zsh.impure.zle_picker_can_accept
+│       │   ├── .zsh.impure.zle_picker_document_bookmark
+│       │   ├── .zsh.impure.zle_ui_collect
+│       │   ├── .zsh.pure.compozsh_cell_prefix
+│       │   ├── .zsh.pure.compozsh_git_filter_overrides
+│       │   ├── .zsh.pure.compozsh_git_valid_oid
+│       │   ├── .zsh.pure.compozsh_is_assignment
+│       │   ├── .zsh.pure.compozsh_is_redirection
+│       │   ├── .zsh.pure.compozsh_sanitize
+│       │   ├── .zsh.pure.matching_compile
+│       │   ├── .zsh.pure.matching_compile_fragments
+│       │   ├── .zsh.pure.matching_decimal_limit
+│       │   ├── .zsh.pure.matching_search
+│       │   ├── .zsh.pure.matching_select
+│       │   ├── .zsh.pure.runtime_comparable_version
+│       │   ├── .zsh.pure.runtime_version_relation
+│       │   ├── .zsh.pure.usb_checksum_output_read
+│       │   ├── .zsh.pure.usb_checksum_validate
+│       │   ├── .zsh.pure.usb_crc32_output_read
+│       │   ├── .zsh.pure.usb_dd_progress_bytes
+│       │   ├── .zsh.pure.usb_human_duration
+│       │   ├── .zsh.pure.usb_human_size
+│       │   ├── .zsh.pure.usb_progress_bar
+│       │   ├── .zsh.pure.usb_progress_model
+│       │   ├── .zsh.pure.zle_picker_abbreviate
+│       │   ├── .zsh.pure.zle_picker_document_direction
+│       │   ├── .zsh.pure.zle_picker_fit
+│       │   ├── .zsh.pure.zle_picker_highlights_shift
+│       │   ├── .zsh.pure.zle_ui_descriptions
+│       │   └── .zsh.pure.zle_ui_path_actions
+│       ├── ui/
+│       │   ├── .zsh.ui.state
+│       │   ├── .zsh.ui.zle_picker_capture
+│       │   ├── .zsh.ui.zle_picker_footer
+│       │   ├── .zsh.ui.zle_picker_guide_render
+│       │   ├── .zsh.ui.zle_picker_inspect_render
+│       │   ├── .zsh.ui.zle_picker_loop
+│       │   ├── .zsh.ui.zle_picker_redraw
+│       │   ├── .zsh.ui.zle_picker_render
+│       │   ├── .zsh.ui.zle_picker_run
+│       │   ├── .zsh.ui.zle_picker_screen_session
+│       │   ├── .zsh.ui.zle_picker_show
+│       │   ├── .zsh.ui.zle_picker_workspace
+│       │   ├── .zsh.ui.zle_ui_read_text
+│       │   └── .zsh.ui.zle_ui_view
 │       └── git-syntax.vim  trusted adapter; not an autoloaded shell add-on
 ├── templates/
 │   └── init.zsh           inert starter copied once for private initialization
@@ -315,9 +374,66 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.usb` | External-disk preparation | `external-device` opens a no-discovery task chooser; `--format` formats a selected whole external physical disk with an applicable Apple `diskutil` personality, and `--flash` handles raw/hybrid images and full macOS installer apps; shared task identity and review/recovery plans precede separate typed confirmation; Windows Setup media ends safely before target selection |
 | `.zsh.xcode` | Native Xcode integration | `xcode` composes schemes/destinations in a captured action plan, retaining action filter/focus after configuration; reports test outcomes and combines bounded Simulator stdout/stderr and scoped unified logs with Stop, live log reading, copying and LLDB; `--export-skills` reviews detected agent destinations before interactive export of Apple-authored skills |
 | `support/.zsh.appearance` | Sole owner of terminal palette defaults | One-shot color-scheme selection uses a passive terminal hint or an explicit preference to select coherent light or dark defaults across prompt, command line, workspaces, diffs, help, Git, and native file colors while preserving initializer overrides |
-| `support/.zsh.matching` | Shared matching algorithms | Compiles literal, ordered-character and unordered-keyword filters; returns matching indexes from supplied captured text without discovery, ranking, UI state or actions |
-| `support/.zsh.runtimes` | Runtime version capture and requirement interpretation | Owns installed-runtime probes/cache, version-file inventory, bounded literal requirement readers and numeric comparison; invoked by prompt capture, with no project reads or probes at source time |
-| `support/.zsh.ui` | Shared terminal components and interaction | Palette-driven title/context, bottom input/action dock with native caret, compact numbered choices with optional descriptions, action/plan views, primary help explanations beside topic navigation, disclosure, focus-responsive details, captured-text readers, notices, status, trail and keyboard guide; common view defaults, layout, input, live following and screen restoration; feature peers supply captured content and actions |
+| `support/functions/.zsh.impure.compozsh_capture_bounded` | Bounded synchronous command capture | Impure function; entry `_compozsh_capture_bounded` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.compozsh_effect_copy` | Exact clipboard writes | Impure function; entry `_compozsh_effect_copy` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.compozsh_effect_open` | Validated file Open/Reveal | Impure function; entry `_compozsh_effect_open` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.compozsh_git_filter_config` | Bounded Git filter-name acquisition | Impure function; entry `_compozsh_git_filter_config` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.compozsh_git_operation` | Scoped Git operation-marker reads | Impure function; entry `_compozsh_git_operation` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.compozsh_palette_color` | Shared mutable palette-role resolution | Impure function; entry `_compozsh_palette_color` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.compozsh_plutil_raw` | Native scalar extraction from captured documents | Impure function; entry `_compozsh_plutil_raw` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.prompt_expected_runtime_version` | Version-source inventory and requirement capture | Impure function; entry `_prompt_expected_runtime_version` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.prompt_runtime_binary_is_trusted` | Executable ownership validation | Impure function; entry `_prompt_runtime_binary_is_trusted` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.prompt_runtime_version` | Trusted installed-version probes and cache | Impure function; entry `_prompt_runtime_version` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.prompt_select_metadata_file` | Safe version-file selection | Impure function; entry `_prompt_select_metadata_file` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.runtime_metadata_is_parseable` | Configured metadata parse limits | Impure function; entry `_runtime_metadata_is_parseable` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.runtime_read_metadata` | Bounded metadata reads | Impure function; entry `_runtime_read_metadata` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.runtime_toml_scalar` | Bounded literal TOML interpretation | Impure function; entry `_runtime_toml_scalar` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.usb_result_reset` | Common USB operation-result initialization | Impure function; entry `_usb_result_reset` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.zle_picker_body_height` | View-state height budget | Impure function; entry `_zle_picker_body_height` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.zle_picker_can_accept` | Current-view acceptance capability | Impure function; entry `_zle_picker_can_accept` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.zle_picker_document_bookmark` | Reading-position updates | Impure function; entry `_zle_picker_document_bookmark` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.zle_ui_collect` | Captured matching results applied to UI state | Impure function; entry `_zle_ui_collect` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.compozsh_cell_prefix` | Literal display-cell prefix clipping with attached combining marks | Pure function; entry `_compozsh_cell_prefix` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.compozsh_git_filter_overrides` | Validated invocation-only Git filter overrides | Pure function; entry `_compozsh_git_filter_overrides` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.compozsh_git_valid_oid` | Full Git object-ID validation | Pure function; entry `_compozsh_git_valid_oid` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.compozsh_is_assignment` | Literal assignment-token recognition | Pure function; entry `_compozsh_is_assignment` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.compozsh_is_redirection` | Literal redirection-token recognition | Pure function; entry `_compozsh_is_redirection` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.compozsh_sanitize` | Literal display control-character sanitization | Pure function; entry `_compozsh_sanitize` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.matching_compile_fragments` | Unordered keyword compilation | Pure function; entry `_matching_compile_fragments` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.matching_compile` | Literal query compilation | Pure function; entry `_matching_compile` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.matching_decimal_limit` | Literal decimal validation and clamping | Pure function; entry `_matching_decimal_limit` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.matching_search` | Captured-text searching | Pure function; entry `_matching_search` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.matching_select` | Ranked or source-order selection | Pure function; entry `_matching_select` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.runtime_comparable_version` | Known version-decoration normalization | Pure function; entry `_runtime_comparable_version` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.runtime_version_relation` | Numeric version comparison | Pure function; entry `_runtime_version_relation` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_checksum_output_read` | Supplied SHA output interpretation | Pure function; entry `_usb_checksum_output_read` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_checksum_validate` | Literal SHA algorithm and digest validation | Pure function; entry `_usb_checksum_validate` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_crc32_output_read` | Supplied CRC and expected-size interpretation | Pure function; entry `_usb_crc32_output_read` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_dd_progress_bytes` | Native dd progress-record byte interpretation | Pure function; entry `_usb_dd_progress_bytes` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_human_duration` | Captured elapsed-duration formatting | Pure function; entry `_usb_human_duration` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_human_size` | Captured byte-size formatting | Pure function; entry `_usb_human_size` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_progress_bar` | Percentage bar construction | Pure function; entry `_usb_progress_bar` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.usb_progress_model` | Captured byte-progress presentation | Pure function; entry `_usb_progress_model` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.zle_picker_abbreviate` | Middle abbreviation | Pure function; entry `_zle_picker_abbreviate` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.zle_picker_document_direction` | Reading disclosure transitions | Pure function; entry `_zle_picker_document_direction` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.zle_picker_fit` | Display-cell padding and truncation | Pure function; entry `_zle_picker_fit` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.zle_picker_highlights_shift` | Highlight offset and clipping calculation | Pure function; entry `_zle_picker_highlights_shift` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.zle_ui_descriptions` | First-line descriptions | Pure function; entry `_zle_ui_descriptions` first, followed by exclusive helpers |
+| `support/functions/.zsh.pure.zle_ui_path_actions` | Capability-based path-action metadata | Pure function; entry `_zle_ui_path_actions` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_capture` | Capture-status presentation | UI component; entry `_zle_picker_capture` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_footer` | Action and navigation footer | UI component; entry `_zle_picker_footer` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_guide_render` | Keyboard-guide element | UI component; entry `_zle_picker_guide_render` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_inspect_render` | Inspector and document-reader rows | UI component; entry `_zle_picker_inspect_render` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction | UI component; entry `_zle_picker_loop` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_redraw` | Resize and redraw entry | UI component; entry `_zle_picker_redraw` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_render` | Complete frame assembly | UI component; entry `_zle_picker_render` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_run` | Nested ZLE entry | UI component; entry `_zle_picker_run` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_screen_session` | Terminal ownership and restoration | UI component; entry `_zle_picker_screen_session` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_show` | Terminal painting and semantic styles | UI component; entry `_zle_picker_show` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_workspace` | Pane layout | UI component; entry `_zle_picker_workspace` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_ui_read_text` | Captured-text reader | UI component; entry `_zle_ui_read_text` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_ui_view` | Scoped view configuration | UI component; entry `_zle_ui_view` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.state` | Shared transient view state | Data-only configuration peer; one owner for picker state declarations |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -981,7 +1097,7 @@ map. The maps remain writable. Re-sourcing a consumer does not write defaults.
 A missing or non-associative public map is treated as unavailable during
 rendering; consumers use the selected defaults without recreating the map.
 
-`.zsh.addons/support/.zsh.ui` owns terminal components and their screen cleanup
+The peers in `.zsh.addons/support/ui/` own terminal components and their screen cleanup
 independently of normal editor customization. Features supply captured content,
 labels, capabilities and action logic to those components.
 Action workspaces pair a choice with its exact scope and consequence. On owned
@@ -995,19 +1111,41 @@ options, and USB review/recovery share this presentation. Each keeps its own
 capture, action and confirmation rules. Native command output, completion and
 external tools retain their normal semantics and use the shared palette where
 their existing adapters support it.
-`.zsh.addons/support/.zsh.matching` owns reusable literal and fuzzy algorithms:
+Shared path-action catalogs and result models derive presentation from supplied
+facts. Clipboard writes and file Open/Reveal actions use the corresponding
+`compozsh_effect_*` functions after screen cleanup. Keep these support files
+installed, including for `cpdir`. Missing effect capabilities are omitted and
+explicit unavailable copy requests fail safely. Loading order is unrestricted.
+
+Shared callable files put their entry point first, followed by its exclusive
+private helpers. `support/functions/.zsh.pure.<entry>` identifies calculations
+from supplied data; `.zsh.impure.<entry>` identifies external reads, shared-state
+access or effects. UI elements use `support/ui/.zsh.ui.<entry>`. The filename
+omits the entry's leading underscore; function names remain internal library
+interfaces. These labels aid review and do not establish that an operation is
+safe for arbitrary inputs. Palette setup and UI state remain configuration peers.
+
+The pure `matching_*` entries under `.zsh.addons/support/functions/` own reusable literal and fuzzy algorithms:
 providers capture candidates, matching filters their text in memory, and views
-display the results while retaining exact action values. These support files
-ship with Compozsh and should stay installed; use the documented palette settings
+display the results while retaining exact action values. Callers choose source
+order or prefix/substring/fuzzy ranking; their duplicate policies remain intact.
+The shared UI collector projects those indexes into exact values, display labels
+and caller-selected numbering. Display sanitization, cell-aware abbreviation
+and byte-progress models consume captured inputs; Git acquisition and current
+palette reads have separate impure entries.
+These support files ship with Compozsh and should stay installed; use the documented palette settings
 instead of editing these implementations.
 
-If support is unavailable, for example when sourcing a feature independently,
-applicable explicit colors still work and missing roles use native text and
-attributes. Shared selection markers, emphasis and diff prefixes remain
+The shared palette resolver honors explicit color overrides when the appearance
+peer is absent. Without the resolver, for example when sourcing a feature alone,
+its presentation uses native text and attributes. Shared selection markers,
+emphasis and diff prefixes remain
 available when UI is loaded. Without UI or matching, normal Tab and Ctrl-R use native
 completion/history; tools retain their plain fallback or report that the shared
 selection components are unavailable. This adds no required load order, registration list or
 persistent UI storage.
+Without the shared lexical predicates, syntax highlighting stays plain and
+automatic draft details remain neutral; captured prompt context stays available.
 
 Completion reads the current `LS_COLORS` value at invocation, or uses the shared
 file-color defaults. Re-sourcing appearance does not replace a custom completion
@@ -4130,7 +4268,7 @@ infrastructure      terraform 1.14.0-tofu · terragrunt · tflint · helm
 numerical-model     fortran gfortran 15.2.0 · fpm
 ```
 
-The optional `support/.zsh.runtimes` peer owns installed-version capture and
+The optional runtime functions under `support/functions/` own installed-version capture and
 requirement interpretation. Loading it defines capabilities without reading a
 project or probing an executable. The prompt invokes capture at its existing
 fact boundary; typing and resize reuse captured text. Without this peer, project

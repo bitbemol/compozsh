@@ -1,0 +1,19 @@
+# Entry point: _zle_picker_redraw
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# A signal trap sees read-only ZLE parameters. Enter this registered widget
+# before changing POSTDISPLAY or region_highlight during a live resize.
+_zle_picker_redraw() {
+  emulate -L zsh
+  (( _ZLE_PICKER_ACTIVE || ${_ZLE_PICKER_BUSY:-0} )) || return 0
+  # Terminal.app reflows existing cells before SIGWINCH. The picker owns this
+  # temporary screen, so discard its old geometry without touching scrollback.
+  (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} )) && zle .clear-screen
+  _zle_picker_render "$_ZLE_PICKER_QUERY" $_ZLE_PICKER_SELECTED
+  _zle_picker_show
+}
+
+zle -N compozsh-picker-redraw _zle_picker_redraw
+
+:

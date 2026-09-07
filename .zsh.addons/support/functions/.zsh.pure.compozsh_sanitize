@@ -1,0 +1,11 @@
+# Entry point: _compozsh_sanitize
+# Pure: literal supplied text in; caller-local REPLY out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Replace terminal controls for display. Keep exact targets separately; prompt
+# escaping and shell quoting remain the caller's distinct responsibilities.
+_compozsh_sanitize() {
+  REPLY=${1//[[:cntrl:]]/?}
+}
+
+:

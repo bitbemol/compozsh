@@ -1,0 +1,25 @@
+# Entry point: _compozsh_git_operation
+# Impure: observes operation markers in the supplied Git metadata directory.
+# Destructive actions include stopped --no-commit sequencers; prompt callers
+# preserve their existing concise operation labels by opting out explicitly.
+_compozsh_git_operation() {
+  emulate -L zsh
+  local git_dir=$1 sequencer=${2:-0}
+  REPLY=''
+  if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+    REPLY=merge
+  elif [[ -f "$git_dir/CHERRY_PICK_HEAD" ]]; then
+    REPLY=cherry-pick
+  elif [[ -f "$git_dir/REVERT_HEAD" ]]; then
+    REPLY=revert
+  elif [[ -f "$git_dir/BISECT_LOG" ]]; then
+    REPLY=bisect
+  elif [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
+    REPLY=rebase
+  elif [[ $sequencer == 1 && -d "$git_dir/sequencer" ]]; then
+    REPLY=cherry-pick/revert
+  fi
+  return 0
+}
+
+:

@@ -1,0 +1,20 @@
+# Entry point: _usb_progress_bar
+# Pure: explicit supplied numbers in; caller-local REPLY out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_usb_progress_bar() {
+  emulate -L zsh
+  local -i percent=${1:-0} width=${2:-32} filled_count=0
+  local filled='' empty=''
+  (( percent < 0 )) && percent=0
+  (( percent > 100 )) && percent=100
+  (( width < 10 )) && width=10
+  filled_count=$(( percent * width / 100 ))
+  printf -v filled '%*s' $filled_count ''
+  printf -v empty '%*s' $(( width - filled_count )) ''
+  filled=${filled// /=}
+  empty=${empty// /·}
+  REPLY="[$filled$empty] ${percent}%"
+}
+
+:

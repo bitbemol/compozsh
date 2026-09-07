@@ -4,6 +4,7 @@ _test_xcode_capture_limit_validates_before_arithmetic() {
   local -i result=0
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     export TMPDIR=$2
     local limit="" expected="" captured_status=0 audit_marker=0
     local payload=${(l:5000::x:)}

@@ -4,7 +4,8 @@ _test_workspace_focus_navigation() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
     _ZLE_PICKER_RESULTS=(one two) _ZLE_PICKER_LABELS=(one two)
     _ZLE_PICKER_INSPECT_TEXTS=(one "Captured details")
@@ -61,7 +62,8 @@ _test_workspace_focus_geometry() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _ZLE_PICKER_SCREEN_ACTIVE=1 LINES=30
     _ZLE_PICKER_RESULTS=(one two) _ZLE_PICKER_LABELS=(one two)
     _ZLE_PICKER_INSPECT_TEXTS=(one "$(print -rl -- detail-{01..80})")
@@ -102,7 +104,8 @@ _test_workspace_focus_reading_anchor() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _ZLE_PICKER_INSPECT_TEXTS=(one "$(print -rl -- "A long first paragraph with many words that wrap onto multiple lines in the narrow preview." "Anchor paragraph" tail-{01..30})")
     _zle_picker_inspect_prepare one 28
     anchor="Anchor paragraph"

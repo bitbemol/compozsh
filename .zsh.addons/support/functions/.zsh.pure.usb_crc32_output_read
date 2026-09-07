@@ -1,0 +1,15 @@
+# Entry point: _usb_crc32_output_read
+# Pure: supplied cksum output and expected byte count in; checksum in REPLY.
+_usb_crc32_output_read() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local output=$1 expected_size=$2 checksum='' remainder='' size=''
+  REPLY=''
+  checksum=${output%%[[:space:]]*}
+  remainder=${output#*[[:space:]]##}
+  size=${remainder%%[[:space:]]*}
+  [[ $checksum == <-> && $size == <-> && $size == "$expected_size" ]] || return 1
+  REPLY=$checksum
+}
+
+:

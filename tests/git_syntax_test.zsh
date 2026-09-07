@@ -4,6 +4,7 @@ _test_git_syntax_protocol() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
     _GIT_REVIEW_DATA=$'\''@@ -1 +1 @@\n-let old = 1\n+let new = 2\n'\''
     _git_review_document_parse
@@ -31,6 +32,7 @@ _test_git_syntax_native() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
     # Removed comments must not contaminate the new side. Gaps reset context.
     _GIT_REVIEW_DATA=$'\''@@ -1,3 +1,3 @@\n-/* comment\n-let old = 1\n-*/\n+let new = 42 // note\n+let text = "é界"\n+// vim: set exrc:\n@@ -90 +90 @@\n let last = 7\n'\''
@@ -68,8 +70,10 @@ _test_git_syntax_render() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.git-syntax"
@@ -111,8 +115,10 @@ _test_git_syntax_visible_rows() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local -i index=0 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
     local _ZLE_PICKER_DOCUMENT_KEY=one
@@ -142,10 +148,13 @@ _test_git_syntax_cache() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
     local -A _git_document_cache=() _git_document_partial=() _git_document_contexts=() _git_document_anchors=()
     local -A _git_document_syntax_cache=() _git_document_syntax_notes=()
@@ -202,6 +211,7 @@ _test_git_syntax_viewport_schedule() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=101 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=110
     local -i _ZLE_PICKER_SELECTED=1
@@ -284,6 +294,7 @@ _test_git_syntax_read_ahead_failure_keeps_frame() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=31 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=38
     local -i _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_DOCUMENT_PENDING=0
@@ -344,10 +355,13 @@ _test_git_syntax_short_document_viewport_schedule() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
     local -i _GIT_REVIEW_DOCUMENT_HAS_CODE=1 _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=short.swift
@@ -412,6 +426,7 @@ _test_git_syntax_latest_viewport_wins() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
@@ -485,6 +500,7 @@ _test_git_syntax_transient_failure_retries() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
@@ -585,6 +601,7 @@ _test_git_syntax_transient_failure_is_viewport_scoped() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
@@ -675,6 +692,7 @@ _test_git_syntax_success_replaces_plain_status() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_DOCUMENT_PENDING=1
@@ -724,6 +742,7 @@ _test_git_syntax_snapshot_epoch() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
@@ -807,6 +826,7 @@ _test_git_syntax_selected_document_alignment() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=2
@@ -877,8 +897,10 @@ _test_git_syntax_pending_geometry() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local -i row=0 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_PENDING=1
     local _ZLE_PICKER_DOCUMENT_KEY=one
@@ -1045,6 +1067,7 @@ _test_git_syntax_atomic_window() {
     export LC_ALL=en_US.UTF-8 TMPDIR="$HOME/tmp"
     command mkdir -p "$TMPDIR"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
     _GIT_REVIEW_DATA=$'\''@@ -1 +1 @@\n-let old = 1\n+let new = 2\n'\''
     _git_review_document_parse
@@ -1098,6 +1121,7 @@ _test_git_syntax_job_scope() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/zpty
     zmodload zsh/zselect
     command mkfifo "$HOME/events"
@@ -1163,6 +1187,7 @@ _test_git_syntax_failure() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
     _GIT_REVIEW_DATA=$'\''@@ -0,0 +1 @@\n+let value = 1\n'\''
     _git_review_document_parse
@@ -1184,6 +1209,7 @@ _test_git_syntax_languages() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
     local name
     for name in sample.zsh sample.sh sample.json sample.py; do
@@ -1216,11 +1242,14 @@ _test_git_syntax_zle() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
     _GIT_REVIEW_DATA=$'\''@@ -1 +1,32 @@\n-let value = 1 // old\n'\''
     repeat 32; do _GIT_REVIEW_DATA+=$'\''+let value = 42 // new\n'\''; done

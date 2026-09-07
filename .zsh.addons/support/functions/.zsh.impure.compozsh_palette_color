@@ -1,0 +1,30 @@
+# Entry point: _compozsh_palette_color
+# Impure: observes the current public palette and central fallback roles.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Namespace and role identify one current color. Missing or malformed overrides
+# use the appearance peer's fallback; absent/invalid roles remain unstyled.
+# This never installs defaults or renders ANSI, prompt syntax, or ZLE styles.
+_compozsh_palette_color() {
+  emulate -L zsh
+  local namespace=$1 role=$2 value='' key="$1:$2"
+  REPLY=''
+  case $namespace in
+    output)
+      if [[ ${(t)ZSH_OUTPUT_COLORS} == association* ]]; then
+        value=${ZSH_OUTPUT_COLORS[$role]-}
+      fi ;;
+    prompt)
+      if [[ ${(t)ZSH_PROMPT_COLORS} == association* ]]; then
+        value=${ZSH_PROMPT_COLORS[$role]-}
+      fi ;;
+    *) return 2 ;;
+  esac
+  if [[ $value != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
+    value=${_COMPOZSH_COLOR_FALLBACKS[$key]-}
+  fi
+  [[ $value == <0-255> ]] || return 1
+  REPLY=$value
+}
+
+:

@@ -8,6 +8,7 @@ _test_palette_reset_consumer() {
     for table_state in absent scalar indexed; do
       result=0
       output=$(test_run_interactive "$TEST_TMP_DIR/home-$peer-$scheme-$table_state" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
         ZSH_COLOR_SCHEME=$3
         source "$1/.zsh.addons/support/.zsh.appearance"
         source "$1/.zsh.addons/.zsh.$2"
@@ -34,8 +35,8 @@ _test_palette_reset_consumer() {
         local -a region_highlight=()
         local -i result=0
         case $peer in
-          prompt) _prompt_color "$role" || exit 1; [[ $REPLY == "$expected" ]] || exit 2 ;;
-          output) _output_color "$role" || exit 1; [[ $REPLY == "$expected" ]] || exit 2 ;;
+          prompt) _compozsh_palette_color prompt "$role" || exit 1; [[ $REPLY == "$expected" ]] || exit 2 ;;
+          output) _compozsh_palette_color output "$role" || exit 1; [[ $REPLY == "$expected" ]] || exit 2 ;;
           highlighting)
             _zle_add_highlight 0 9 "$role" || exit 1
             [[ $region_highlight == "0 9 $expected memo=compozsh" ]] || exit 2 ;;
@@ -43,8 +44,8 @@ _test_palette_reset_consumer() {
         unset _COMPOZSH_COLOR_FALLBACKS
         region_highlight=()
         case $peer in
-          prompt) _prompt_color "$role" || result=$? ;;
-          output) _output_color "$role" || result=$? ;;
+          prompt) _compozsh_palette_color prompt "$role" || result=$? ;;
+          output) _compozsh_palette_color output "$role" || result=$? ;;
           highlighting) _zle_add_highlight 0 9 "$role" || result=$? ;;
         esac
         (( result == 1 )) || exit 3

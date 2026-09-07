@@ -5,8 +5,11 @@ _test_runtime_prompt_go_workspace() {
   test_write_file "$TEST_TMP_DIR/project/service/go.mod" $'module example.invalid/service\ngo 1.24.0\n' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     builtin cd "$2" || exit 1
     _prompt_runtime_version() { REPLY=1.23.0; }
     local phase name
@@ -33,11 +36,12 @@ _test_runtime_prompt_ready_toolchain() {
   test_write_file "$TEST_TMP_DIR/project/Package.swift" '// fixture' || return
   test_write_file "$TEST_TMP_DIR/project/.swift-version" '6.3.2' || return
   test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     TERM=dumb
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     builtin cd "$2" || exit 1
     _prompt_runtime_version() { REPLY=6.4; }
     COLUMNS=199 LINES=47 BUFFER=""
@@ -104,7 +108,7 @@ HISTFILE=/dev/null
 exec {event_fd}<> "$HOME/events"
 source "$RUNTIME_TEST_ROOT/.zsh.addons/.zsh.prompt"
 source "$RUNTIME_TEST_ROOT/.zsh.addons/.zsh.editor"
-source "$RUNTIME_TEST_ROOT/.zsh.addons/support/.zsh.runtimes"
+for support_component in "$RUNTIME_TEST_ROOT/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
 source "$RUNTIME_TEST_ROOT/.zsh.addons/support/.zsh.appearance"
 _prompt_runtime_version() { REPLY=6.4; }
 _runtime_frame() {

@@ -1,0 +1,430 @@
+# Entry point: _zle_picker_render
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_zle_picker_render() {
+  emulate -L zsh
+
+  (( _ZLE_PICKER_READER_ONLY )) && _ZLE_PICKER_INSPECT_FOCUS=1
+  local query=$1
+  local -i selected=$2 columns=${COLUMNS:-80} row_width content_width
+  _zle_picker_body_height
+  local -i body_height=$REPLY
+  local -i query_width=0
+  local -i context_width=0 context_start=0 name_width=0 detail_width=0
+  local -i full_width=0 left_width=0 inspector=$(( ${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT ))
+  local -i index=0 count=${#_ZLE_PICKER_RESULTS} index_width=2 index_end=0
+  local -i total=$count view_limit=$_ZLE_PICKER_VIEW_LIMIT first=1 last=0 position=0
+  local -i zero_based=0 trail_width=0 label_width=0 label_start=0
+  local -i passive_count=${#_ZLE_PICKER_PASSIVE_LINES} passive_limit=0
+  local -i stacked_reserve=0 action_rows=$(( count > 0 ? count : 1 )) show_descriptions=0
+  if (( _ZLE_PICKER_READER_ONLY )); then
+    inspector=1 count=0 total=0 passive_count=0
+  fi
+  if (( ${_ZLE_PICKER_INSPECT_STACKED:-0} && inspector && !_ZLE_PICKER_DOCUMENT &&
+        columns < 100 && !_ZLE_PICKER_INSPECT_FOCUS && body_height >= 3 )); then
+    stacked_reserve=2
+    # Keep at least a title and one log row even in a short window. Actions
+    # retain normal viewport navigation; secondary prose yields space first.
+    (( passive_count > body_height - action_rows - stacked_reserve )) &&
+      passive_count=$(( body_height - action_rows - stacked_reserve ))
+    (( passive_count < 0 )) && passive_count=0
+  fi
+  local shown_query='' shown_title='' shown_browse='' shown_empty=''
+  local query_label="${(V)${_ZLE_PICKER_QUERY_LABEL:-Search}} " query_open='‹' query_close='›'
+  if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 8 )); then
+    query_label="  ${(V)${_ZLE_PICKER_QUERY_LABEL:-Search}}  › "
+    query_open='' query_close=''
+  fi
+  local label='' row='' footer='' result_index='' context='' value='' accept_label='' highlight_specs=''
+  typeset -ga _ZLE_PICKER_DISPLAY=()
+  typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
+  typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
+  typeset -ga _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
+  _ZLE_PICKER_DISPLAY_LEFT_ENDS=()
+  _ZLE_PICKER_DISPLAY_RIGHT_ROLES=()
+  _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=()
+  _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=()
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=()
+  _ZLE_PICKER_DISPLAY_PREFIX_ENDS=()
+  _ZLE_PICKER_QUERY_ROW=''
+  _ZLE_PICKER_SUBTITLE_ROW=''
+  _ZLE_PICKER_QUERY_START=0
+  _ZLE_PICKER_QUERY_END=0
+  _ZLE_PICKER_INDEXES_VISIBLE=0
+  _ZLE_PICKER_VISIBLE_KEYS=()
+
+  (( columns < 4 )) && columns=4
+  (( view_limit < 1 )) && view_limit=1
+  if (( _ZLE_PICKER_DOCUMENT )); then
+    view_limit=$body_height
+  else
+    (( view_limit > 20 )) && view_limit=20
+    if (( passive_count )); then
+      (( passive_count >= body_height )) && passive_count=$(( body_height - 1 ))
+      (( passive_count < 0 )) && passive_count=0
+      (( view_limit > body_height - passive_count - stacked_reserve )) &&
+        view_limit=$(( body_height - passive_count - stacked_reserve ))
+    fi
+  fi
+  (( stacked_reserve && view_limit > body_height - passive_count - stacked_reserve )) &&
+    view_limit=$(( body_height - passive_count - stacked_reserve ))
+  (( LINES > 6 && view_limit > body_height )) && view_limit=$body_height
+  # Choices are compact everywhere. Real descriptions may use a second row
+  # when the entire configured viewport fits, independently of filter count.
+  # Documents and notices retain their source/semantic row geometry.
+  (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && !_ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_REFERENCE_VIEW &&
+     !passive_count && !stacked_reserve && body_height >= view_limit * 2 )) && show_descriptions=1
+  (( selected > total )) && selected=$total
+  (( selected < 1 && total )) && selected=1
+  (( total == 0 )) && selected=0
+  if (( selected > _ZLE_PICKER_VIEW_OFFSET + view_limit )); then
+    _ZLE_PICKER_VIEW_OFFSET=$(( selected - view_limit ))
+  elif (( selected <= _ZLE_PICKER_VIEW_OFFSET )); then
+    _ZLE_PICKER_VIEW_OFFSET=$(( selected - 1 ))
+  fi
+  (( _ZLE_PICKER_VIEW_OFFSET > total - view_limit )) && _ZLE_PICKER_VIEW_OFFSET=$(( total - view_limit ))
+  (( _ZLE_PICKER_VIEW_OFFSET < 0 )) && _ZLE_PICKER_VIEW_OFFSET=0
+  first=$(( _ZLE_PICKER_VIEW_OFFSET + 1 ))
+  last=$(( _ZLE_PICKER_VIEW_OFFSET + view_limit ))
+  (( last > total )) && last=$total
+  count=$(( last - first + 1 ))
+  _ZLE_PICKER_SELECTED=$selected
+  _ZLE_PICKER_QUERY=$query
+  _ZLE_PICKER_VISIBLE_COUNT=$count
+  row_width=$(( columns - 1 ))
+  full_width=$row_width
+  shown_query=${(V)query}
+  shown_title=${(V)_ZLE_PICKER_TITLE}
+  shown_browse=${(V)_ZLE_PICKER_BROWSE_LABEL}
+  shown_empty=${(V)_ZLE_PICKER_EMPTY_LABEL}
+
+  _ZLE_PICKER_TITLEBAR=''
+  _ZLE_PICKER_TITLEBAR_META_START=-1
+  if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} )); then
+    _zle_picker_titlebar $row_width
+    _ZLE_PICKER_HEADER=$shown_browse
+  else
+    _ZLE_PICKER_HEADER="${shown_title} · ${shown_browse}"
+  fi
+  if (( ${_ZLE_PICKER_BUSY:-0} || _ZLE_PICKER_READER_ONLY )); then
+    : # Capture has no count yet; a reader has no candidate count at all.
+  elif (( _ZLE_PICKER_HAS_MORE )); then
+    _ZLE_PICKER_HEADER+=" · ${first}–${last} · more ↓"
+  elif (( total > count )); then
+    _ZLE_PICKER_HEADER+=" · ${first}–${last} of ${total}"
+  else
+    _ZLE_PICKER_HEADER+=" · ${count} shown"
+  fi
+  if (( ${(m)#_ZLE_PICKER_HEADER} > row_width )); then
+    _zle_picker_fit "$_ZLE_PICKER_HEADER" $row_width
+    _ZLE_PICKER_HEADER=$REPLY
+  fi
+
+  if [[ -n $_ZLE_PICKER_SUBTITLE ]] && (( LINES >= 10 )); then
+    # A caller may preserve semantic boundaries using captured facts only.
+    # Busy chrome owns a different context; missing/failed formatters fall back.
+    if (( !${_ZLE_PICKER_BUSY:-0} )) &&
+       [[ -n ${_ZLE_PICKER_SUBTITLE_RENDERER:-} && ${+functions[$_ZLE_PICKER_SUBTITLE_RENDERER]} == 1 ]] &&
+       "$_ZLE_PICKER_SUBTITLE_RENDERER" "$row_width"; then
+      _zle_picker_fit "${(V)REPLY}" $row_width
+    else
+      _zle_picker_abbreviate "${(V)_ZLE_PICKER_SUBTITLE}" $row_width
+    fi
+    _ZLE_PICKER_SUBTITLE_ROW=$REPLY
+  fi
+
+  # A status view has no editable input. Other views retain a stable dedicated
+  # query row so filtering never shifts the body.
+  if (( _ZLE_PICKER_STATUS_VIEW )); then
+    _ZLE_PICKER_QUERY_ROW=''
+    _ZLE_PICKER_QUERY_START=0 _ZLE_PICKER_QUERY_END=0
+  else
+    query_width=$(( row_width - ${(m)#query_label} - ${#query_open} - ${#query_close} ))
+    if (( query_width > 0 )); then
+      _zle_picker_abbreviate "$shown_query" $query_width
+      shown_query=$REPLY
+      _ZLE_PICKER_QUERY_ROW="${query_label}${query_open}${shown_query}${query_close}"
+      _ZLE_PICKER_QUERY_START=${#query_label}
+      _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+    else
+      query_label='› '
+      query_width=$(( row_width - ${#query_label} ))
+      _zle_picker_abbreviate "$shown_query" $query_width
+      _ZLE_PICKER_QUERY_ROW="${query_label}${REPLY}"
+      _ZLE_PICKER_QUERY_START=0
+      _ZLE_PICKER_QUERY_END=${#_ZLE_PICKER_QUERY_ROW}
+    fi
+  fi
+
+  if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && !_ZLE_PICKER_STATUS_VIEW && LINES >= 8 )); then
+    _ZLE_PICKER_QUERY_ROW=${(mr:$row_width:: :)_ZLE_PICKER_QUERY_ROW}
+  fi
+
+  if (( ${#_ZLE_PICKER_TRAIL} && columns >= 120 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 10 && !_ZLE_PICKER_INSPECT_FOCUS )); then
+    trail_width=$(( columns / 7 ))
+    (( trail_width > 24 )) && trail_width=24
+    (( row_width -= trail_width + 3 ))
+    full_width=$row_width
+  fi
+  # An explicitly focused fallback has no selected row to sit beside. Give
+  # that context the workspace; list focus restores the informational summary.
+  if (( !count )) && [[ -n $_ZLE_PICKER_INSPECT_FALLBACK ]]; then
+    (( _ZLE_PICKER_INSPECT_FOCUS )) || inspector=0
+  fi
+  if (( inspector && (_ZLE_PICKER_DOCUMENT || _ZLE_PICKER_REFERENCE_VIEW) && !_ZLE_PICKER_READER_ONLY && columns >= 90 )); then
+    # The document is primary; information panels retain their list-first policy.
+    left_width=$(( (row_width - 3) / 3 ))
+    (( left_width > 42 )) && left_width=42
+    row_width=$left_width
+  elif (( inspector && _ZLE_PICKER_ACTION_VIEW && columns >= 90 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} )); then
+    # Actions and their consequences are co-primary. A shared action profile
+    # keeps the exact target and full plan visible while moving among choices.
+    left_width=$(( (row_width - 3) * 45 / 100 ))
+    (( left_width > 52 )) && left_width=52
+    row_width=$left_width
+  elif (( inspector && !_ZLE_PICKER_DOCUMENT && columns >= 100 && (count || !_ZLE_PICKER_INSPECT_FOCUS) )); then
+    # Browsing keeps a compact preview. On the owned screen, deliberate focus
+    # turns it into the primary reader beside a retained selection navigator.
+    # Inline fallback keeps its familiar geometry around the shell draft.
+    if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && _ZLE_PICKER_INSPECT_FOCUS )); then
+      left_width=$(( (row_width - 3) / 3 ))
+      (( left_width > 42 )) && left_width=42
+    else
+      detail_width=$(( (row_width - 3) / 3 ))
+      (( detail_width > 48 )) && detail_width=48
+      left_width=$(( row_width - 3 - detail_width ))
+    fi
+    row_width=$left_width
+  fi
+  [[ ${_ZLE_PICKER_RESULT_INDEXES[1]-} == 0 && -z $query ]] && zero_based=1
+  (( count && row_width >= index_width + 7 )) && _ZLE_PICKER_INDEXES_VISIBLE=1
+
+  if (( _ZLE_PICKER_READER_ONLY )); then
+    : # The document below owns the body; there is no empty navigator row.
+  elif (( count == 0 )); then
+    if (( ${#_ZLE_PICKER_EMPTY_LINES} )); then
+      # Captured empty-state context uses the main body without fake rows,
+      # digit shortcuts, path actions, or provider calls during rendering.
+      for row in "${_ZLE_PICKER_EMPTY_LINES[@][1,$body_height]}"; do
+        _zle_picker_fit "${(V)row}" $row_width
+        _ZLE_PICKER_DISPLAY+=("$REPLY")
+        (( ++index ))
+        if (( _ZLE_PICKER_STATUS_VIEW )) && [[ -n ${_ZLE_PICKER_BUSY_STYLES[index]-} ]]; then
+          _ZLE_PICKER_DISPLAY_STYLES+=("${_ZLE_PICKER_BUSY_STYLES[index]}")
+        elif (( index == 1 )); then
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-header)
+        else
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-text)
+        fi
+      done
+    else
+      _zle_picker_fit "  ${shown_empty}" $row_width
+      _ZLE_PICKER_DISPLAY+=("$REPLY")
+      _ZLE_PICKER_DISPLAY_STYLES+=(picker-empty)
+    fi
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS=("${_ZLE_PICKER_DISPLAY[@]/*/}")
+    _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+    _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
+  else
+    for label in "${_ZLE_PICKER_LABELS[@][$first,$last]}"; do
+      (( ++index ))
+      position=$(( _ZLE_PICKER_VIEW_OFFSET + index ))
+      label=${label//$'\n'/ ↵ }
+      label=${label//$'\t'/ ⇥ }
+      label=${(V)label}
+      result_index=$(( index - zero_based ))
+      (( _ZLE_PICKER_DIGIT_SELECT && !zero_based && index == 10 )) && result_index=0
+      _ZLE_PICKER_VISIBLE_KEYS+=("$result_index")
+      content_width=$(( row_width - 2 ))
+      (( _ZLE_PICKER_INDEXES_VISIBLE )) && content_width=$(( row_width - index_width - 5 ))
+      value=${_ZLE_PICKER_RESULTS[position]}
+      highlight_specs=${_ZLE_PICKER_LABEL_HIGHLIGHTS[$value]-}
+      context=${_ZLE_PICKER_CONTEXTS[$value]-}
+      context_start=0
+      if [[ -n $context ]] && (( content_width >= 24 )); then
+        context=${(V)context}
+        context_width=$(( content_width / 3 ))
+        (( context_width > 24 )) && context_width=24
+        name_width=$(( content_width - context_width - 2 ))
+        REPLY=$label
+        (( ${(m)#label} > name_width )) && _zle_picker_abbreviate "$label" $name_width
+        label=${(mr:$name_width:: :)REPLY}
+        context_start=$(( row_width - content_width + ${#label} + 2 ))
+        REPLY=$context
+        (( ${(m)#context} > context_width )) && _zle_picker_abbreviate "$context" $context_width
+        label+="  $REPLY"
+      elif (( ${(m)#label} > content_width )); then
+        # Context labels denote structured rows: preserve filename extensions
+        # and distinctive suffixes even when there is no room for the parent.
+        if [[ -n $context ]]; then
+          _zle_picker_abbreviate "$label" $content_width
+          label=$REPLY
+        else
+          label="${label[1,$(( content_width - 1 ))]}…"
+        fi
+      fi
+      if (( _ZLE_PICKER_INDEXES_VISIBLE )); then
+        if (( position == selected )); then
+          if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} )); then
+            row="[${(l:$index_width:: :)result_index}] ▸ ${label}"
+          else
+            row="[${(l:$index_width:: :)result_index}] ● ${label}"
+          fi
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-selected)
+          index_end=0
+        else
+          row="[${(l:$index_width:: :)result_index}]   ${label}"
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-text)
+          index_end=$(( index_width + 2 ))
+        fi
+      else
+        if (( position == selected )); then
+          row="● ${label}"
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-selected)
+        else
+          row="· ${label}"
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-text)
+        fi
+        index_end=0
+      fi
+      label_width=${#label}
+      label_start=$(( _ZLE_PICKER_INDEXES_VISIBLE ? index_width + 5 : 2 ))
+      _zle_picker_highlights_shift "$highlight_specs" $label_start $label_width
+      _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=("$REPLY")
+      if (( ${(m)#row} > row_width )); then
+        _zle_picker_fit "$row" $row_width
+        row=$REPLY
+      fi
+      _ZLE_PICKER_DISPLAY+=("${(mr:$row_width:: :)row}")
+      _ZLE_PICKER_DISPLAY_INDEX_ENDS+=($index_end)
+      _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=($context_start)
+      _ZLE_PICKER_DISPLAY_MATCH_STARTS+=($(( _ZLE_PICKER_INDEXES_VISIBLE ? index_width + 5 : 2 )))
+      row=${_ZLE_PICKER_DESCRIPTIONS[$value]-}
+      if (( show_descriptions )) && [[ -n ${row//[[:space:]]/} ]]; then
+        _zle_picker_fit "${(l:$label_start:: :)}${(V)row}" $row_width
+        row=$REPLY
+        _ZLE_PICKER_DISPLAY+=("$row")
+        if (( position == selected )); then
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-selected)
+        else
+          _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
+        fi
+        _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
+        _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+        _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
+        _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
+      fi
+    done
+  fi
+
+  # Passive context belongs to the current view, not its candidate set. Keep
+  # it visibly adjacent while excluding it from indexes and keyboard actions.
+  if (( passive_count )); then
+    passive_limit=$(( body_height - ${#_ZLE_PICKER_DISPLAY} ))
+    (( passive_limit > passive_count )) && passive_limit=$passive_count
+    for (( index = 1; index <= passive_limit; ++index )); do
+      row=${_ZLE_PICKER_PASSIVE_LINES[index]}
+      _zle_picker_fit "${(V)row}" $row_width
+      _ZLE_PICKER_DISPLAY+=("$REPLY")
+      _ZLE_PICKER_DISPLAY_STYLES+=("${_ZLE_PICKER_PASSIVE_STYLES[index]:-picker-text}")
+      _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
+      _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+      _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
+      _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
+    done
+  fi
+
+  (( _ZLE_PICKER_GUIDE_ACTIVE )) && { _zle_picker_guide_render $(( columns - 1 )); return; }
+  row_width=$full_width
+  if (( _ZLE_PICKER_STATUS_VIEW )); then
+    local separator=${(l:$(( columns - 1 ))::─:)}
+    _ZLE_PICKER_DISPLAY=("$separator" "${_ZLE_PICKER_DISPLAY[@]}")
+    _ZLE_PICKER_DISPLAY_STYLES=(picker-muted "${_ZLE_PICKER_DISPLAY_STYLES[@]}")
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS=(0 "${_ZLE_PICKER_DISPLAY_INDEX_ENDS[@]}")
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS=('' "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[@]}")
+    _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=(0 "${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[@]}")
+    _ZLE_PICKER_DISPLAY_MATCH_STARTS=(-1 "${_ZLE_PICKER_DISPLAY_MATCH_STARTS[@]}")
+  else
+    _zle_picker_footer $(( columns - 1 )) "$query"
+    footer=$REPLY
+    _ZLE_PICKER_DISPLAY+=("${(mr:$(( columns - 1 )):: :)footer}")
+    _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+    if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && !${_ZLE_PICKER_BUSY:-0} && !_ZLE_PICKER_GUIDE_ACTIVE )) &&
+       [[ $footer == ⏎* ]]; then
+      _ZLE_PICKER_DISPLAY_HIGHLIGHTS[-1]="0:${#${footer%% · *}}:picker-action"
+    fi
+    _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
+    _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
+    (( inspector )) && _zle_picker_inspect_render $selected $full_width $left_width
+    _zle_picker_workspace
+    _zle_picker_trail_render $trail_width
+  fi
+  return 0
+}
+
+# A quiet captured location trail precedes the existing list/details layout.
+# It disappears first on narrow screens; all action indexes still address the
+# central list. This composes rows, never starts another terminal renderer.
+_zle_picker_trail_render() {
+  emulate -L zsh
+  local -i width=$1 index=0 prefix_end=0 first=1 trail_index=0 row_visible_width=0
+  local left='' row=''
+  _ZLE_PICKER_DISPLAY_PREFIX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
+  (( width )) || return 0
+  # Retain the nearest ancestors if the trail is taller than the body.
+  first=$(( ${#_ZLE_PICKER_TRAIL} - (${#_ZLE_PICKER_DISPLAY} - 3) ))
+  (( first < 2 )) && first=2
+  for (( index=2; index<${#_ZLE_PICKER_DISPLAY}; ++index )); do
+    trail_index=$(( first + index - 3 ))
+    left=${_ZLE_PICKER_TRAIL[trail_index]-}
+    (( index == 2 )) && left=${_ZLE_PICKER_TRAIL[1]}
+    row=${_ZLE_PICKER_DISPLAY[index]}
+    [[ -n $left || -n $row ]] || continue
+    _zle_picker_fit "${(V)left}" $width
+    left="$REPLY │ " prefix_end=${#left}
+    _zle_picker_fit "$row" $(( COLUMNS - width - 4 ))
+    row_visible_width=${#REPLY}
+    _ZLE_PICKER_DISPLAY[index]="$left$REPLY"
+    _zle_picker_highlights_shift "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]-}" $prefix_end $row_visible_width
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]=$REPLY
+    _ZLE_PICKER_DISPLAY_PREFIX_ENDS[index]=$prefix_end
+    (( _ZLE_PICKER_DISPLAY_LEFT_ENDS[index] >= 0 )) && (( _ZLE_PICKER_DISPLAY_LEFT_ENDS[index] += prefix_end ))
+    (( _ZLE_PICKER_DISPLAY_INDEX_ENDS[index] )) && (( _ZLE_PICKER_DISPLAY_INDEX_ENDS[index] += prefix_end ))
+    (( _ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index] )) && (( _ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index] += prefix_end ))
+    (( _ZLE_PICKER_DISPLAY_MATCH_STARTS[index] >= 0 )) && (( _ZLE_PICKER_DISPLAY_MATCH_STARTS[index] += prefix_end ))
+  done
+  return 0
+}
+
+# Dedicated identity for the owned screen. Reuse its first row without taking
+# space from results; status/context and the input dock remain separate.
+# Optional metadata never displaces the tool name or makes provider calls.
+_zle_picker_titlebar() {
+  emulate -L zsh
+  local -i width=$1 title_width=0
+  local title=${(V)${_ZLE_PICKER_TITLE:-Picker}} meta=COMPOZSH
+  _ZLE_PICKER_TITLEBAR_META_START=-1
+  if (( ${_ZLE_PICKER_BUSY:-0} )); then
+    (( _ZLE_PICKER_STATUS_VIEW )) && meta='In progress' ||
+      meta=${_ZLE_PICKER_BUSY_LABEL:-Searching…}
+  fi
+  # Identity owns the top; acceptance and focus have their own dock/map.
+  # Keep a small inset when it fits, then drop branding before shortening it.
+  (( ${(m)#title} + 2 <= width )) && title="  $title"
+  if (( ${(m)#title} + ${(m)#meta} + 6 <= width )); then
+    title_width=$(( width - ${(m)#meta} ))
+    title=${(mr:$title_width:: :)title}
+    _ZLE_PICKER_TITLEBAR_META_START=${#title}
+    _ZLE_PICKER_TITLEBAR="$title$meta"
+  else
+    _zle_picker_fit "$title" $width
+    _ZLE_PICKER_TITLEBAR=$REPLY
+  fi
+}
+
+
+:

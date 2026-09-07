@@ -1,0 +1,39 @@
+# Entry point: _compozsh_cell_prefix
+# Pure: literal text and display-cell budget in; caller-local REPLY out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Return a literal prefix without separating retained characters from following
+# zero-cell marks. ${#REPLY} is its consumed character count for source offsets.
+_compozsh_cell_prefix() {
+  emulate -L zsh
+  setopt localoptions multibyte
+  local text=$1 prefix='' character=''
+  local -i width=$2 used=0 next=0 character_width=0 length=${#text}
+  REPLY=''
+  (( width > 0 )) || return 0
+  if [[ $text != *[^\ -~]* ]]; then
+    REPLY=${text[1,width]}
+    return 0
+  fi
+  # Native truncation quickly locates the boundary. Its character accounting
+  # can omit a zero-cell mark or straddle a wide character; repair only that
+  # boundary using actual display widths, without walking the whole prefix.
+  prefix="%$(( width + 1 ))>.>${text//\%/%%}%>>"
+  prefix=${${(%)prefix}%.}
+  used=${(m)#prefix}
+  while (( used > width )); do
+    prefix=${prefix[1,-2]}
+    used=${(m)#prefix}
+  done
+  next=$(( ${#prefix} + 1 ))
+  while (( next <= length )); do
+    character=$text[next]
+    character_width=${(m)#character}
+    (( used + character_width <= width )) || break
+    prefix+=$character
+    (( used += character_width, ++next ))
+  done
+  REPLY=$prefix
+}
+
+:

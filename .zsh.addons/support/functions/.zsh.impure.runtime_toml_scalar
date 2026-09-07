@@ -1,0 +1,95 @@
+# Entry point: _runtime_toml_scalar
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Parse supplied TOML text for a small literal string in one named table. This intentionally
+# does not evaluate TOML, resolve workspace inheritance, or parse expressions.
+# Unsupported/duplicate values return unknown instead of guessing. A caller may
+# require nonempty text when its source forbids an empty requirement.
+_runtime_toml_scalar() {
+  emulate -L zsh
+  setopt extendedglob
+  local text=$1 table=$2 key=$3 line section='' value='' found=''
+  local value_policy=${4:-}
+  local header='' tail='' assignment=''
+  local -i seen=0 table_seen=0 array_table=0
+  REPLY=''
+  _runtime_metadata_is_parseable "$text" || { REPLY=unknown; return 0; }
+  for line in "${(@f)text}"; do
+    # A partial reader must never interpret table/key-looking text inside a
+    # multiline string. Such documents require a full TOML parser: decline.
+    if [[ $line == *\"\"\"* || $line == *\'\'\'* ]]; then
+      REPLY=unknown
+      return 0
+    fi
+    line=${line#"${line%%[![:space:]]*}"}
+    if [[ $line == \[* ]]; then
+      array_table=0
+      if [[ $line == \[\[* ]]; then
+        array_table=1
+        header=${line#\[\[}
+        [[ $header == *\]\]* ]] || { REPLY=unknown; return 0; }
+        tail=${header#*\]\]}
+        header=${header%%\]\]*}
+      else
+        header=${line#\[}
+        [[ $header == *\]* ]] || { REPLY=unknown; return 0; }
+        tail=${header#*\]}
+        header=${header%%\]*}
+      fi
+      header=${header#"${header%%[![:space:]]*}"}
+      header=${header%"${header##*[![:space:]]}"}
+      tail=${tail#"${tail%%[![:space:]]*}"}
+      [[ -n $header && $header != *\[* && $header != *\\* &&
+         ( -z $tail || $tail == \#* ) ]] || { REPLY=unknown; return 0; }
+      section=$header
+      [[ $section == \"$table\" || $section == \'$table\' ]] && section=$table
+      if [[ $section == "$table" ]]; then
+        (( ! array_table && ++table_seen == 1 )) || { REPLY=unknown; return 0; }
+      elif (( array_table )); then
+        section=''
+      fi
+      continue
+    fi
+    [[ $section == "$table" && $line == *=* ]] || continue
+    assignment=${line%%=*}
+    assignment=${assignment%"${assignment##*[![:space:]]}"}
+    # An escaped quoted name could alias the requested key. Do not silently
+    # ignore it or introduce a TOML string decoder merely to compare versions.
+    if [[ $assignment == \"* && $assignment == *\\* ]]; then
+      REPLY=unknown
+      return 0
+    fi
+    [[ $assignment == "$key" || $assignment == \"$key\" ||
+       $assignment == \'$key\' ]] || continue
+    (( ++seen ))
+    value=${line#*=}
+    value=${value#"${value%%[![:space:]]*}"}
+    if [[ $value == \"* ]]; then
+      value=${value#\"}
+      found=${value%%\"*}
+      [[ $value != "$found" && $found != *\\* ]] || { REPLY=unknown; return 0; }
+      value=${value#*\"}
+    elif [[ $value == \'* ]]; then
+      value=${value#\'}
+      found=${value%%\'*}
+      [[ $value != "$found" ]] || { REPLY=unknown; return 0; }
+      value=${value#*\'}
+    else
+      REPLY=unknown; return 0
+    fi
+    value=${value#"${value%%[![:space:]]*}"}
+    [[ -z $value || $value == \#* ]] || { REPLY=unknown; return 0; }
+  done
+  REPLY=''
+  if (( seen == 1 )); then
+    REPLY=$found
+    if [[ $value_policy == nonempty && $found != *[![:space:]]* ]]; then
+      REPLY=unknown
+    fi
+  elif (( seen > 1 )); then REPLY=unknown
+  fi
+}
+
+
+:

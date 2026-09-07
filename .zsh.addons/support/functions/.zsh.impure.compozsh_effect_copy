@@ -1,0 +1,19 @@
+# Entry point: _compozsh_effect_copy
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Explicit local effects. Source-time work defines functions only. Callers own
+# intent, captured executable paths, screen cleanup and user-facing diagnostics.
+# This peer never reads the clipboard, discovers a target or chooses an action.
+
+_compozsh_effect_copy() {
+  emulate -L zsh
+  setopt PIPE_FAIL
+  (( $# == 2 )) || return 2
+  local value=$1 binary=$2
+  [[ -n $binary && -x $binary && ! -d $binary ]] || return 1
+  print -rn -- "$value" | command "$binary"
+}
+
+
+:

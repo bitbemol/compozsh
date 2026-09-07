@@ -1,0 +1,50 @@
+# Entry point: _zle_ui_read_text
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# A static reading journey over caller-captured text. No provider, evaluator,
+# clipboard, or file access; Enter/Escape returns to the calling workspace.
+# An explicit fourth argument, reference, enables help accents for this reader.
+_zle_ui_read_text() {
+  _zle_ui_view reader _zle_ui_text_view "$@"
+}
+
+_zle_ui_text_view() {
+  emulate -L zsh
+  [[ ${4-} == reference ]] && _ZLE_PICKER_REFERENCE_VIEW=1
+  _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2
+  local text=${3[1,32768]}
+  (( ${#3} > 32768 )) && text+=$'\n[Captured reader limited to 32,768 characters.]'
+  local -a _zle_text_lines=("${(@f)text}")
+  local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+  local -a _ZLE_PICKER_DISPLAY=()
+  local -A _ZLE_PICKER_DOCUMENT_SYNTAX=() _ZLE_PICKER_DOCUMENT_OFFSETS=()
+  local -A _ZLE_PICKER_DOCUMENT_ROWS=() _ZLE_PICKER_DOCUMENT_WIDTHS=()
+  _ZLE_PICKER_INSPECT_TITLE=Text _ZLE_PICKER_INSPECT_ACTION=back
+  _ZLE_PICKER_QUERY_LABEL='Filter lines' _ZLE_PICKER_COLLECTOR=_zle_ui_text_collect
+  _ZLE_PICKER_DOCUMENT_KEY=text _ZLE_PICKER_INSPECT_FIXED_KEY=text
+  _ZLE_PICKER_INSPECT_TEXTS=(text '')
+  _zle_picker_loop '' 10
+}
+
+_zle_ui_text_collect() {
+  emulate -L zsh
+  local query=$1 line=''
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+  for line in "${_zle_text_lines[@]}"; do
+    [[ ${line:l} == *"${query:l}"* ]] || continue
+    _ZLE_PICKER_DOCUMENT_LINES+=("$line")
+    if [[ $line == usage:* ]] && (( !_ZLE_PICKER_REFERENCE_VIEW )); then
+      _ZLE_PICKER_DOCUMENT_ROLES+=(heading)
+    else
+      _ZLE_PICKER_DOCUMENT_ROLES+=(text)
+    fi
+  done
+  _ZLE_PICKER_BROWSE_LABEL="${#_ZLE_PICKER_DOCUMENT_LINES} of ${#_zle_text_lines} captured lines"
+  _ZLE_PICKER_INSPECT_KEY='' _ZLE_PICKER_INSPECT_WIDTH=0 _ZLE_PICKER_INSPECT_OFFSET=0
+  return 0
+}
+
+
+:

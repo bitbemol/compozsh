@@ -5,8 +5,10 @@ _test_navigation_literal_option_branch() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
     source "$1/.zsh.addons/.zsh.navigation"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     local repo="$HOME/repository" original="" selected="" frame=""
     command git init -qb main "$repo" || exit 1
     command git -C "$repo" config user.name Fixture

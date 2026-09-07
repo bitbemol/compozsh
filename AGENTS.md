@@ -169,9 +169,13 @@ configuration base.
 - `.zsh.addons/` contains all shared behavior as focused peer units named
   `.zsh.<name>`. There is no privileged core tier. Keep every unit independently
   sourceable, re-source safe, narrow in purpose, and successful after setup.
-- `.zsh.addons/support/` groups repository-managed runtime, palette, matching, UI
-  components and adapter assets. Keep these implementations installed and intact
-  during normal customization; public settings belong in the machine-local initializer.
+- `.zsh.addons/support/functions/` contains classified shared function entries;
+  `.zsh.addons/support/ui/` contains shared UI entries and their state peer.
+  The support root retains palette setup and adapter assets. Follow the
+  [shared support organization](#shared-support-organization) contract for
+  filenames, purity, entry points and private-helper ownership.
+  Keep these implementations installed and intact during normal customization;
+  public settings belong in the machine-local initializer.
   Its `.zsh.<name>` files remain ordinary peers under recursive discovery, with
   no required ordering, special loader treatment or filesystem immutability.
   Preserve standalone fallbacks when support capabilities are unavailable.
@@ -445,18 +449,21 @@ requirements or silently rewriting their evidence.
   associative types where useful. Declare intentional global state explicitly
   with `typeset -g`, `typeset -gi`, `typeset -gF`, `typeset -ga`, or
   `typeset -gA`.
-- Prefix private functions and state with `_`. Reserve unprefixed names for
-  public commands and documented extension points. Public configuration uses
-  the existing `ZSH_*` and `PROMPT_*` families.
+- Prefix internal functions and state with `_`, including component-facing
+  shared entries and their file-private helpers. Reserve unprefixed names for
+  public terminal commands and documented extension points. Public configuration
+  uses the existing `ZSH_*` and `PROMPT_*` families.
 - ZLE widget names and Zsh special trap function names such as `TRAPWINCH` are
   shell-facing registrations, not public callable functions. Keep their
   implementation in underscore-prefixed helpers wherever Zsh permits an
   explicit mapping, and document unavoidable special-name exceptions locally.
-- Treat the leading underscore as an API boundary, not decoration. User-facing
-  documentation, examples, aliases, and local configuration must not call or
-  override private names. Zsh does not enforce privacy, so reviews and tests
-  must enforce the convention. Focused unit tests may invoke a private helper
-  when that is the narrowest way to verify its contract.
+- Treat the leading underscore as the boundary of the internal library.
+  User-facing command examples, aliases and local configuration must not call
+  or override internal names; the shipped-unit inventory may identify them.
+  Product components may call another file's declared shared entry point,
+  never its private helpers. Zsh does not enforce privacy, so reviews and tests
+  enforce ownership. Focused unit tests may invoke a private helper when that
+  is the narrowest way to verify its contract.
 - Give every public add-on command a descriptive collision-resistant name and
   document it in `README.md`. Keep orchestration public only when users need to
   invoke it; prefix its detectors, renderers, installers, and state with `_`.
@@ -577,13 +584,18 @@ requirements or silently rewriting their evidence.
 
 Apply DRY and SOLID as practical design heuristics:
 
-- Put every shared feature in one focused peer add-on, whether universally
-  useful or optional. Keep only initializer and peer discovery in `.zshrc`;
+- Give each task-specific behavior a focused owning peer and compose reusable
+  operations through shared support entries. A feature may use several entries;
+  it does not need to fit in one growing file.
+  Keep only initializer and peer discovery in `.zshrc`;
   keep only genuine pre-peer machine prerequisites in
   `~/.zsh.addons/local/init.zsh`, and put other private behavior in focused
   `.zsh.<name>` peers.
-- Split by cohesive behavior, not file size. A unit owns its defaults, private
-  helpers, hooks, cleanup, and fallbacks. Avoid both unguarded cross-unit calls
+- Choose boundaries by cohesive behavior and entry-point ownership. Keep an
+  entry's exclusive helpers with it; extract independently reusable operations
+  instead of collecting unrelated entry points in a broad utility file.
+  A unit owns its defaults, registrations, cleanup and fallbacks.
+  Avoid both unguarded cross-unit calls
   and duplicated frameworks; when optional interaction is valuable, detect the
   peer capability at runtime and preserve useful standalone behavior.
 - `support/.zsh.appearance` alone authors and installs terminal color defaults.
@@ -591,21 +603,102 @@ Apply DRY and SOLID as practical design heuristics:
   copy palettes nor write fallback keys. Public maps stay writable, and missing
   appearance uses native text and attributes. Completion owns its deferred
   style callback; appearance does not install another peer's registrations.
-- `support/.zsh.ui` owns shared terminal components, view defaults, layout, input,
+### Shared support organization
+
+Paths below are relative to `.zsh.addons/`. Strip only the entry function's
+leading underscore when forming its filename; retain the function name itself.
+
+| Responsibility | Filename | Existing example |
+| --- | --- | --- |
+| Calculation from supplied data | `support/functions/.zsh.pure.<entry>` | `.zsh.pure.matching_select` defines `_matching_select` |
+| External reads, shared-state access or effects | `support/functions/.zsh.impure.<entry>` | `.zsh.impure.compozsh_effect_copy` defines `_compozsh_effect_copy` |
+| UI element or interaction | `support/ui/.zsh.ui.<entry>` | `.zsh.ui.zle_picker_footer` defines `_zle_picker_footer` |
+
+- Every callable support file declares exactly one `# Entry point: name` before
+  its first function. That function is the component-facing entry. Put its
+  private helpers afterward; they may call each other within the owning file.
+  No other production file may call or depend on those private helpers.
+- When a second entry needs a private helper, promote it to a separately owned,
+  classified shared entry and update its callers. Do not duplicate it, retain
+  a forwarding alias at the old location, or add multiple shared entries to one
+  file. Search existing entries before creating another implementation.
+- Pure entries calculate from explicit inputs. Caller-local `REPLY`/`reply`
+  implements native Zsh returns; explicitly supplied read-only arrays may be
+  passed by validated name. Audit the complete call chain: pure calculations
+  must not invoke impure operations or UI callbacks, discover providers, or
+  read implicit mutable feature state. Text calculations use the supported
+  Zsh and locale environment.
+- Localize regex match parameters inside pure predicates so only the declared
+  result escapes. Initialize an input local before deriving another local from
+  it: Zsh expands every right-hand side in one `local` command before installing
+  those bindings, which can otherwise read a caller's same-named variable.
+- Validate raw numeric text before assigning an integer parameter, because the
+  assignment itself evaluates arithmetic. Pure text operations define their
+  splitting delimiters locally instead of depending on the caller's `IFS`.
+- External reads, filesystem/process operations and implicit mutable-state
+  dependencies are impure, including read-only operations. Reclassify and
+  rename an entry when its contract changes; update callers, tests and the
+  README inventory together. Purity labels aid review and do not enforce
+  effects or prove safety for arbitrary input.
+- Component-facing entries remain internal library interfaces, with no new
+  terminal command, help topic or user extension point implied by extraction.
+- Configuration peers are explicit exceptions: `support/.zsh.appearance` owns
+  palette setup, and `support/ui/.zsh.ui.state` owns transient declarations.
+  Do not invent callable wrappers for data initialization to satisfy naming,
+  or use these exceptions to house unrelated callable utilities.
+- Keep every peer independently sourceable and re-source safe. Directories and
+  filename prefixes organize code without load phases, registries, aggregator
+  loaders or runtime sourcing. Shared support remains installed as a unit;
+  sourceability does not promise that an entry can run with its callees absent.
+  Preserve capability checks and existing feature fallbacks at runtime.
+- Keep one terminal owner in `support/ui/.zsh.ui.zle_picker_screen_session`.
+  UI entries assemble captured data and return operation requests; final
+  actions retain their established validation and post-cleanup boundaries.
+
+### Shared behavior ownership
+
+- The peers in `support/ui/` own shared terminal components, view defaults, layout, input,
   painting and screen restoration. Feature peers supply captured content,
   labels and capabilities; they own task-specific collection, ranking,
   transitions and final actions.
   Scope common defaults around view execution and save caller bookmarks before
   returning. Keep explicit provider hooks outside frame construction and resize.
-  These private interfaces introduce no required peer, registry or load phase.
-- `support/.zsh.matching` owns query compilation and filtering over supplied
-  captured text. Keep its outputs caller-local and its calculations free of
-  provider reads, UI state and actions. Feature collectors retain task-specific
-  ranking, duplicate policy and capture bounds; display match spans remain a
-  presentation concern. Missing matching support selects existing runtime
-  fallbacks without an ordered load phase or a duplicate matcher.
-- `support/.zsh.runtimes` owns installed-version probes/cache, the version-source
-  inventory, bounded read-only requirement capture and pure numeric comparison.
+  This composition introduces no privileged peer tier, registry or load phase.
+- The pure `matching_*` entries under `support/functions/` own query compilation
+  and filtering over supplied captured text. Keep outputs caller-local and
+  calculations free of provider reads, UI state and actions. Feature collectors retain task-specific
+  ranking, duplicate policy and capture bounds. Shared selection implements
+  the caller-selected source-order or prefix/substring/fuzzy policy and returns
+  indexes into explicitly supplied arrays, without implicit feature-state inputs.
+  Display match spans remain a presentation concern. Missing matching support
+  selects existing runtime fallbacks without an ordered load phase or a
+  duplicate matcher.
+- The `compozsh_effect_*` entries under `support/functions/` own explicit
+  clipboard writes and file Open/Reveal execution. Callers pass exact values and captured executable paths after
+  screen cleanup; the helper revalidates mutable operands and reports status.
+  Source time defines functions only. Missing effect capabilities are omitted
+  from workspaces and direct calls fail safely, without a duplicate execution
+  path or runtime sourcing. Privileged/device/Git operations retain their
+  owning peers and domain-specific validation and confirmation rules.
+- Keep common presentation calculations data-in/results-out: shared functions own
+  path-action metadata and row adapters, and domain peers own their result
+  models. Pure helpers receive captured values and return caller-local outputs;
+  UI adapters apply those results to view state. Do not move provider reads,
+  commands or screen ownership into these calculations. Share repeated
+  mechanisms, while preserving distinct scopes, selection intents, limits and
+  return-navigation semantics instead of building a universal controller.
+- Shared palette resolution owns role validation and fallback selection;
+  consumers retain ANSI, prompt and ZLE encoding. Shared display sanitization
+  changes labels only, never exact targets. Progress models receive captured
+  bytes, totals and elapsed time; their callers own clocks, provider reads and
+  painting. Reuse these entries before adding a feature-specific copy.
+- Shared bounded capture returns payload, completion and command status;
+  callers retain their partial-result, timeout and action policies. Git filter
+  overrides have one validated builder with explicit clean/restore policy.
+  Keep asynchronous worker lifecycle and privileged actions with their owners.
+- The runtime functions in `support/functions/` own installed-version
+  probes/cache, the version-source inventory, bounded read-only requirement
+  capture and pure numeric comparison.
   Source time defines data/functions only; no project reads or executable probes.
   Prompt capture resolves this optional capability at invocation and retains
   project identity/tool markers without it. Do not duplicate probes or readers
@@ -634,14 +727,15 @@ Apply DRY and SOLID as practical design heuristics:
   `.zsh.editor` owns the optional ZLE adapters, hook registrations and
   `compozsh-context-lens` binding that invoke those prompt capabilities. Both
   peers must preserve existing widget state without depending on add-on order.
-  Shared full-screen components remain owned by `support/.zsh.ui`.
+  Shared full-screen components remain owned by `support/ui/`.
 - Extend project support through marker data, focused detector branches, and
   the documented `PROMPT_PROJECT_*` extension points. The add-on loader is not
   a plugin manager: do not add dependency resolution, remote installation,
   manifests, lifecycle hooks, or code discovery inside projects.
 - Extract a helper when it centralizes a repeated rule, security boundary, or
   non-trivial algorithm. Do not create a generic abstraction for two obvious
-  lines that are merely similar today.
+  lines that are merely similar today. This governs new abstractions; an
+  existing shared entry still gets its own file even when its body is small.
 - Prefer data tables for stable mappings such as palettes, runtime labels, and
   markers. Prefer functions when behavior, validation, or failure handling is
   involved.
@@ -2388,6 +2482,13 @@ Then select relevant checks from this list:
 - Whenever shipped add-ons change, compare every recursive repository-relative
   `.zsh.<name>` path with the README inventory. Every file must have exactly one
   current row and every row must resolve to a shipped file.
+- After adding, moving or changing shared support entries, run
+  `zsh tests/run.zsh 'support components'`,
+  `zsh tests/run.zsh 'support function filenames'` and
+  `zsh tests/run.zsh 'support private helpers'`. Review purity through the
+  callees as well; naming and ownership checks cannot establish it. Remove
+  obsolete paths and ownership claims from active instructions, documentation
+  and fixtures; keep historical investigation layouts explicitly historical.
 - When the loader or repository layout changes, exercise both symlinked and
   copied installations under disposable home directories and verify a public
   add-on command is discoverable in each.

@@ -4,6 +4,7 @@ _test_highlighting_stack_bounds() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.highlighting"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     source "$1/.zsh.addons/support/.zsh.appearance"
     command mkdir -p "$HOME/current" "$HOME/previous"
     builtin cd "$HOME/current"
@@ -37,6 +38,7 @@ _test_highlighting_stack_bounds_native() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.highlighting"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     zmodload zsh/zpty
     zmodload zsh/zselect
     command mkfifo "$HOME/events" || exit 1

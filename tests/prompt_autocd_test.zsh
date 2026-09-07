@@ -10,6 +10,7 @@ setopt AUTO_CD
 HISTFILE=/dev/null
 exec {event_fd}<> "$HOME/events"
 source "$AUTOCD_TEST_ROOT/.zsh.addons/.zsh.prompt"
+for lexical_unit in "$AUTOCD_TEST_ROOT/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
 source "$AUTOCD_TEST_ROOT/.zsh.addons/.zsh.editor"
 source "$AUTOCD_TEST_ROOT/.zsh.addons/.zsh.highlighting"
 source "$AUTOCD_TEST_ROOT/.zsh.addons/support/.zsh.appearance"
@@ -87,6 +88,7 @@ _test_prompt_autocd_snapshot() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.prompt"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD

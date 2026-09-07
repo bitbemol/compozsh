@@ -1,0 +1,133 @@
+# Entry point: _prompt_expected_runtime_version
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Read-only requirement capture. Caller-local metadata accompanies REPLY; no
+# capture happens merely by sourcing this peer or comparing supplied versions.
+_prompt_expected_runtime_version() {
+  emulate -L zsh
+  setopt extendedglob
+  local language=$1 project_root=$2 file='' name line wanted rest expected='' text=''
+  local value_policy=''
+  local tool_name=${_RUNTIME_TOOL_NAMES[$1]:-$1}
+  local -a names
+  local -i go_seen=0
+  _RUNTIME_REQUIREMENT_KIND=pin
+  _RUNTIME_REQUIREMENT_SOURCE=''
+  REPLY=''
+  names=(${=_RUNTIME_VERSION_FILES[$language]})
+  [[ $language == rust ]] && names=(rust-toolchain rust-toolchain.toml)
+  for name in "${names[@]}"; do
+    _prompt_select_metadata_file "$project_root" "$project_root/$name" || continue
+    file=$REPLY
+    if [[ $language == rust ]]; then
+      _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+    else
+      _runtime_read_metadata "$file" first-line || { REPLY=unknown; return 0; }
+    fi
+    text=$REPLY
+    expected=${REPLY%%$'\n'*}
+    expected=${expected##[[:space:]]#}
+    if [[ $language == rust ]]; then
+      if [[ $name == *.toml || -z $expected || $expected == \[* || $expected == \#* ]]; then
+        _runtime_toml_scalar "$text" toolchain channel
+        expected=${REPLY:-unknown}
+      fi
+    else
+      expected=${expected%%\#*}
+    fi
+    expected=${expected##[[:space:]]#}
+    expected=${expected%%[[:space:]]#}
+    [[ -n $expected ]] || expected=unknown
+    (( ${#expected} <= 240 )) || expected=unknown
+    _RUNTIME_REQUIREMENT_SOURCE=$name
+    REPLY=$expected
+    return 0
+  done
+  if _prompt_select_metadata_file "$project_root" "$project_root/.tool-versions"; then
+    file=$REPLY
+    _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+    text=$REPLY
+    for line in "${(@f)text}"; do
+      line=${line%%\#*}
+      names=(${=line})
+      [[ ${names[1]:-} == "$tool_name" ]] || continue
+      _RUNTIME_REQUIREMENT_SOURCE=.tool-versions
+      REPLY=${names[2]:-unknown}
+      # Multiple versions are alternatives, not a single comparable pin.
+      (( ${#names} == 2 )) || REPLY=unknown
+      (( ${#REPLY} <= 240 )) || REPLY=unknown
+      return 0
+    done
+  fi
+  case $language in
+    go)
+      for name in go.work go.mod; do
+        _prompt_select_metadata_file "$project_root" "$project_root/$name" || continue
+        file=$REPLY
+        _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+        text=$REPLY
+        for line in "${(@f)text}"; do
+          line=${line%%//*}
+          names=(${=line})
+          [[ ${names[1]:-} == go ]] || continue
+          _RUNTIME_REQUIREMENT_KIND=minimum
+          _RUNTIME_REQUIREMENT_SOURCE=$name
+          (( ++go_seen == 1 && ${#names} == 2 )) || { REPLY=unknown; return 0; }
+          expected=${names[2]}
+        done
+        break
+      done
+      ;;
+    swift)
+      if _prompt_select_metadata_file "$project_root" "$project_root/Package.swift"; then
+        file=$REPLY
+        _runtime_read_metadata "$file" first-line || { REPLY=unknown; return 0; }
+        line=${REPLY%%$'\n'*}
+        if [[ $line == '// swift-tools-version:'* ]]; then
+          expected=${line#*:}
+          _RUNTIME_REQUIREMENT_KIND=minimum
+          _RUNTIME_REQUIREMENT_SOURCE=Package.swift
+        fi
+      fi
+      ;;
+    rust|python)
+      if [[ $language == rust ]]; then
+        name=Cargo.toml; line=package; wanted=rust-version; value_policy=nonempty
+      else name=pyproject.toml; line=project; wanted=requires-python
+      fi
+      if _prompt_select_metadata_file "$project_root" "$project_root/$name"; then
+        file=$REPLY
+        _runtime_read_metadata "$file" || { REPLY=unknown; return 0; }
+        _runtime_toml_scalar "$REPLY" "$line" "$wanted" "$value_policy"
+        expected=$REPLY
+        _RUNTIME_REQUIREMENT_SOURCE=$name
+        _RUNTIME_REQUIREMENT_KIND=minimum
+        [[ $language == python ]] && _RUNTIME_REQUIREMENT_KIND=range
+      fi
+      ;;
+  esac
+  expected=${expected##[[:space:]]#}
+  expected=${expected%%[[:space:]]#}
+  (( ${#expected} <= 240 )) || expected=unknown
+  REPLY=$expected
+}
+
+typeset -gA _RUNTIME_VERSION_FILES=(
+  node '.nvmrc .node-version' python .python-version swift .swift-version
+  typescript .typescript-version deno .deno-version php .php-version
+  shell .bash-version powershell .powershell-version kotlin .kotlin-version
+  lua .lua-version r .R-version zig .zig-version gdscript .godot-version
+  terraform .terraform-version julia .julia-version perl .perl-version
+  fortran .fortran-version ocaml .ocaml-version scala .scala-version
+  erlang .erlang-version gleam .gleam-version groovy .groovy-version
+  haskell .ghc-version ruby .ruby-version java .java-version
+  dotnet .dotnet-version fsharp .dotnet-version visual-basic .dotnet-version
+  elixir .elixir-version dart .dart-version
+)
+typeset -gA _RUNTIME_TOOL_NAMES=(
+  node nodejs shell bash powershell powershell-core r R gdscript godot
+  haskell ghc go golang dotnet dotnet-core fsharp dotnet-core visual-basic dotnet-core
+)
+
+:

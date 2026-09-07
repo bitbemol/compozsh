@@ -168,24 +168,6 @@ typeset -gi _USB_GPT_ENTRY_LBA=0 _USB_GPT_ENTRY_COUNT=0 _USB_GPT_ENTRY_SIZE=0
 typeset -gi _USB_GPT_ENTRY_CRC=0
 typeset -g _USB_GPT_DISK_GUID=''
 
-_usb_human_size() {
-  emulate -L zsh
-  local raw=${1:-0}
-  local -F value=0.0
-  [[ $raw == <-> ]] || raw=0
-  if (( raw >= 1073741824 )); then
-    value=$(( raw / 1073741824.0 ))
-    printf -v REPLY '%.1f GiB' $value
-  elif (( raw >= 1048576 )); then
-    value=$(( raw / 1048576.0 ))
-    printf -v REPLY '%.1f MiB' $value
-  elif (( raw >= 1024 )); then
-    value=$(( raw / 1024.0 ))
-    printf -v REPLY '%.1f KiB' $value
-  else
-    REPLY="$raw bytes"
-  fi
-}
 
 _usb_image_extension_supported() {
   case ${1:e:l} in
@@ -295,30 +277,41 @@ _usb_hdiutil_detach() {
   command /usr/bin/hdiutil detach "/dev/$1"
 }
 
-_usb_inspect_cleanup() {
+# Detach before removing an empty, validated mount directory. The returned
+# pair contains resources still owned after partial failure, for caller retry.
+_usb_mount_cleanup() {
   emulate -L zsh
-  local device=${1:-$_USB_INSPECT_DEVICE}
-  local mount_point=${2:-$_USB_INSPECT_MOUNT}
-  local temp_root=${TMPDIR:-/tmp}
+  local device=$1 mount_point=$2 prefix=$3 temp_root=${TMPDIR:-/tmp}
   local -i cleanup_status=0
+  reply=("$device" "$mount_point")
   if [[ -n $device ]]; then
     if _usb_hdiutil_detach "$device" >/dev/null 2>&1; then
-      [[ $_USB_INSPECT_DEVICE == "$device" ]] && _USB_INSPECT_DEVICE=''
+      reply[1]=''
     else
       cleanup_status=1
     fi
   fi
   if (( cleanup_status == 0 )) &&
       [[ -n $mount_point && -d $mount_point && ! -L $mount_point &&
-        ${mount_point:t} == compozsh-usb-inspect.* &&
-        ${mount_point:h:A} == ${temp_root:A} ]]; then
+        ${mount_point:t} == "$prefix".* && ${mount_point:h:A} == ${temp_root:A} ]]; then
     if command /bin/rmdir "$mount_point" 2>/dev/null; then
-      [[ $_USB_INSPECT_MOUNT == "$mount_point" ]] && _USB_INSPECT_MOUNT=''
+      reply[2]=''
     else
       cleanup_status=1
     fi
   fi
   return $cleanup_status
+}
+
+_usb_inspect_cleanup() {
+  emulate -L zsh
+  local device=${1:-$_USB_INSPECT_DEVICE} mount_point=${2:-$_USB_INSPECT_MOUNT}
+  local -a reply=()
+  _usb_mount_cleanup "$device" "$mount_point" compozsh-usb-inspect
+  local -i result=$?
+  [[ $_USB_INSPECT_DEVICE == "$device" ]] && _USB_INSPECT_DEVICE=$reply[1]
+  [[ $_USB_INSPECT_MOUNT == "$mount_point" ]] && _USB_INSPECT_MOUNT=$reply[2]
+  return $result
 }
 
 _usb_windows_tree_capture() {
@@ -665,7 +658,8 @@ _usb_image_add() {
   fingerprint=$_USB_STAT_FINGERPRINT
   raw_size=$_USB_STAT_SIZE
   (( raw_size > 17408 )) || return 1
-  _usb_human_size "$raw_size"
+  REPLY='size unavailable'
+  (( ${+functions[_usb_human_size]} )) && _usb_human_size "$raw_size"
   size_label=$REPLY
   format="${path:e:u} raw disk image"
   _usb_format_epoch "$_USB_STAT_CREATED"
@@ -711,7 +705,8 @@ _usb_macos_installer_add() {
   (( _USB_IMAGE_PATHS[(Ie)$path] )) && return 0
   _usb_macos_installer_fingerprint "$path" || return 1
   fingerprint=$REPLY
-  root_stat=$(command /usr/bin/stat -f '%d:%i:%m:%B' "$path" 2>/dev/null) || return 1
+  # Reuse the root observation already retained in this exact fingerprint.
+  root_stat=${fingerprint%%|*}
   fields=("${(@s/:/)root_stat}")
   (( ${#fields} == 4 )) || return 1
   [[ ${fields[3]} == <-> && ${fields[4]} == <-> ]] || return 1
@@ -1011,7 +1006,8 @@ _usb_browser_capture() {
     raw_size=$(command /usr/bin/stat -f '%z' "$candidate" 2>/dev/null) || continue
     [[ $raw_size == <-> ]] || continue
     (( raw_size > 17408 )) || continue
-    _usb_human_size "$raw_size"
+    REPLY='size unavailable'
+    (( ${+functions[_usb_human_size]} )) && _usb_human_size "$raw_size"
     size_label=$REPLY
     filename=${candidate:t}
     _USB_PICKER_VALUES+=("${candidate:A}")
@@ -1184,17 +1180,11 @@ _usb_image_source_disk_capture() {
   _USB_IMAGE_SOURCE_DISK=$parent
 }
 
-_usb_plist_raw() {
-  emulate -L zsh
-  local plist=$1 key=$2
-  REPLY=$(print -rn -- "$plist" |
-    command /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null) || return
-}
 
 _usb_plist_optional() {
   emulate -L zsh
   local plist=$1 key=$2 fallback=${3:-}
-  _usb_plist_raw "$plist" "$key" || REPLY=$fallback
+  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$plist" "$key" || REPLY=$fallback
 }
 
 _usb_diskutil_run() {
@@ -1253,7 +1243,7 @@ _usb_disk_ids_capture() {
   local -i index=0
   _USB_DISK_IDS=()
   _usb_disk_list_read || return
-  _usb_plist_raw "$_USB_PLIST" AllDisks || return 1
+  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$_USB_PLIST" AllDisks || return 1
   count=$REPLY
   [[ $count == <-> ]] || return 1
   (( count <= 4096 )) || {
@@ -1261,7 +1251,7 @@ _usb_disk_ids_capture() {
     return 1
   }
   for (( index = 0; index < count; ++index )); do
-    _usb_plist_raw "$_USB_PLIST" "AllDisks.$index" || continue
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$_USB_PLIST" "AllDisks.$index" || continue
     identifier=$REPLY
     [[ $identifier == disk<-> ]] || continue
     _USB_DISK_IDS+=("$identifier")
@@ -1384,7 +1374,8 @@ _usb_external_disks_capture() {
       (( ++undersized_count ))
       continue
     }
-    _usb_human_size "$_USB_INFO_SIZE"
+    REPLY='size unavailable'
+    (( ${+functions[_usb_human_size]} )) && _usb_human_size "$_USB_INFO_SIZE"
     size_label=$REPLY
     _USB_DISK_IDS+=("$_USB_INFO_ID")
     _USB_DISK_LABELS+=("${_USB_INFO_NAME} · $size_label · ${_USB_INFO_PROTOCOL} · /dev/${_USB_INFO_ID}")
@@ -1424,47 +1415,12 @@ _usb_format_disks_capture() {
 }
 
 _usb_picker_collect() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern=''
-  local literal=''
-  local -a reply=()
-  local -i limit=$raw_limit index=0
-  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
-  [[ $limit == <-> ]] || limit=10
-  if [[ -z $query ]]; then
-    for (( index = 1; index <= ${#_USB_PICKER_VALUES} && index <= limit; ++index )); do
-      _ZLE_PICKER_RESULTS+=("${_USB_PICKER_VALUES[index]}")
-      _ZLE_PICKER_LABELS+=("${_USB_PICKER_LABELS[index]}")
-    done
-  else
-    _matching_compile "$query" || return
-    literal=${reply[1]} pattern=${reply[2]}
-    local candidate_pattern=''
-    for candidate_pattern in "(#i)${literal}*" "(#i)*${literal}*"; do
-      for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
-        value=${_USB_PICKER_VALUES[index]}
-        (( _ZLE_PICKER_RESULTS[(Ie)$value] )) && continue
-        label=${_USB_PICKER_LABELS[index]}
-        searchable="${label} ${_USB_PICKER_SEARCH[index]-}"
-        [[ $searchable == ${~candidate_pattern} ]] || continue
-        _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
-        (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break 2
-      done
-    done
-    if (( ${#_ZLE_PICKER_RESULTS} < limit )); then
-      for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
-        value=${_USB_PICKER_VALUES[index]}
-        (( _ZLE_PICKER_RESULTS[(Ie)$value] )) && continue
-        label=${_USB_PICKER_LABELS[index]}
-        searchable="${label} ${_USB_PICKER_SEARCH[index]-}"
-        [[ $searchable == ${~pattern} ]] || continue
-        _ZLE_PICKER_RESULTS+=("$value") _ZLE_PICKER_LABELS+=("$label")
-        (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
-      done
-    fi
-  fi
-  return 0
+  (( ${+functions[_zle_ui_collect]} )) || {
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    return 1
+  }
+  _zle_ui_collect ranked "$1" "$2" _USB_PICKER_VALUES _USB_PICKER_LABELS \
+    _USB_PICKER_LABELS _USB_PICKER_SEARCH append none
 }
 
 _usb_choose() {
@@ -1614,7 +1570,7 @@ _usb_formats_capture() {
     return 1
   }
   while (( index < 64 )); do
-    _usb_plist_raw "$_USB_PLIST" "$index.Personality" || break
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$_USB_PLIST" "$index.Personality" || break
     personality=$REPLY
     _usb_plist_optional "$_USB_PLIST" "$index.UserVisibleName" "$personality"
     visible_name=$REPLY
@@ -1627,13 +1583,15 @@ _usb_formats_capture() {
           ${#visible_name} -le 128 && $visible_name != *[[:cntrl:]]* &&
           $minimum == <-> && $maximum == <-> ]]; then
       if (( minimum > 0 )); then
-        _usb_human_size "$minimum"
+        REPLY='size unavailable'
+        (( ${+functions[_usb_human_size]} )) && _usb_human_size "$minimum"
         minimum_label=$REPLY
       else
         minimum_label='none reported'
       fi
       if (( maximum > 0 )); then
-        _usb_human_size "$maximum"
+        REPLY='size unavailable'
+        (( ${+functions[_usb_human_size]} )) && _usb_human_size "$maximum"
         maximum_label=$REPLY
       else
         maximum_label='none reported'
@@ -1646,7 +1604,7 @@ _usb_formats_capture() {
     fi
     (( ++index ))
   done
-  if (( index == 64 )) && _usb_plist_raw "$_USB_PLIST" '64.Personality'; then
+  if (( index == 64 )) && (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$_USB_PLIST" '64.Personality'; then
     _USB_CAPTURE_ERROR='diskutil reported more than 64 filesystem personalities'
     return 1
   fi
@@ -1739,7 +1697,8 @@ _usb_format_workspace_controller() {
       _USB_FORMAT_ERROR=${_USB_CAPTURE_ERROR:-'diskutil did not return a usable filesystem catalog'}
       return 1
     }
-    _usb_human_size "${_USB_DISK_SIZES[disk_index]}"
+    REPLY='size unavailable'
+    (( ${+functions[_usb_human_size]} )) && _usb_human_size "${_USB_DISK_SIZES[disk_index]}"
     size_label=$REPLY
     format_subtitle="Drive  ›  FORMAT · /dev/$disk · $size_label"
     while true; do
@@ -1880,7 +1839,8 @@ _usb_windows_unsupported_choose() {
 
 _usb_macos_review_choose() {
   emulate -L zsh
-  local installer=$1 disk_index=$2 disk=${_USB_DISK_IDS[disk_index]}
+  local installer=$1 disk_index=$2
+  local disk=${_USB_DISK_IDS[disk_index]}
   local source_label='Source validation · Verified · Apple-signed full installer'
   _USB_PICKER_VALUES=(flash-verify source image target)
   _USB_PICKER_LABELS=(
@@ -1927,8 +1887,6 @@ _usb_workspace_controller() {
   local -i target_minimum=0
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
   local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
-  local -a previous_disk_ids=() previous_disk_labels=() previous_disk_details=()
-  local -a previous_disk_sizes=() previous_disk_fingerprints=()
 
   while true; do
     _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
@@ -2051,37 +2009,17 @@ _usb_workspace_controller() {
         case $selected in
           (image) break ;;
           (target)
-            previous_disk_ids=("${_USB_DISK_IDS[@]}")
-            previous_disk_labels=("${_USB_DISK_LABELS[@]}")
-            previous_disk_details=("${_USB_DISK_DETAILS[@]}")
-            previous_disk_sizes=("${_USB_DISK_SIZES[@]}")
-            previous_disk_fingerprints=("${_USB_DISK_FINGERPRINTS[@]}")
-            _usb_target_choose "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
+            _usb_workspace_retarget "${_USB_IMAGE_SIZES[image_index]}" "${image:t}" \
               target 'Keep current target' "$source_disk" \
               'Media  ›  DRIVE  ›  Create macOS installer · refreshed' "$media_kind"
             result=$?
-            if (( result == 1 )); then
-              _USB_DISK_IDS=("${previous_disk_ids[@]}")
-              _USB_DISK_LABELS=("${previous_disk_labels[@]}")
-              _USB_DISK_DETAILS=("${previous_disk_details[@]}")
-              _USB_DISK_SIZES=("${previous_disk_sizes[@]}")
-              _USB_DISK_FINGERPRINTS=("${previous_disk_fingerprints[@]}")
-              continue
-            fi
+            (( result == 1 )) && continue
             (( result == 0 )) || return $result
             disk_index=$_ZLE_PICKER_SELECTED_VALUE
             disk=${_USB_DISK_IDS[disk_index]} ;;
           (flash-verify)
-            _USB_REQUEST=$selected _USB_SELECTED_IMAGE=$image _USB_SELECTED_DISK=$disk
-            _USB_SELECTED_MEDIA_KIND=$media_kind
-            _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[image_index]}
-            _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[image_index]}
-            _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[disk_index]}
-            _USB_SELECTED_DISK_SIZE=${_USB_DISK_SIZES[disk_index]}
-            _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[disk_index]}
-            _USB_SELECTED_SOURCE_DISK=$source_disk
-            _USB_SELECTED_CHECKSUM='' _USB_SELECTED_CHECKSUM_ALGORITHM=''
-            _USB_SELECTED_IMAGE_INTEGRITY=apple-signed
+            _usb_workspace_request "$selected" "$image_index" "$disk_index" "$image" "$disk" \
+              "$source_disk" "$media_kind" '' '' apple-signed
             return 0 ;;
         esac
       done
@@ -2210,26 +2148,14 @@ _usb_workspace_controller() {
           checksum='' checksum_algorithm='' checksum_state=not-provided checksum_actual=''
           continue ;;
         (target)
-          previous_disk_ids=("${_USB_DISK_IDS[@]}")
-          previous_disk_labels=("${_USB_DISK_LABELS[@]}")
-          previous_disk_details=("${_USB_DISK_DETAILS[@]}")
-          previous_disk_sizes=("${_USB_DISK_SIZES[@]}")
-          previous_disk_fingerprints=("${_USB_DISK_FINGERPRINTS[@]}")
           target_subtitle='Image  ›  DRIVE  ›  Flash · refreshed'
           [[ $media_kind == windows-installer ]] &&
             target_subtitle='Media  ›  DRIVE  ›  Create Windows installer · refreshed'
-          _usb_target_choose "$target_minimum" "${image:t}" \
+          _usb_workspace_retarget "$target_minimum" "${image:t}" \
             target 'Keep current target' "$source_disk" \
             "$target_subtitle" "$media_kind"
           result=$?
-          if (( result == 1 )); then
-            _USB_DISK_IDS=("${previous_disk_ids[@]}")
-            _USB_DISK_LABELS=("${previous_disk_labels[@]}")
-            _USB_DISK_DETAILS=("${previous_disk_details[@]}")
-            _USB_DISK_SIZES=("${previous_disk_sizes[@]}")
-            _USB_DISK_FINGERPRINTS=("${previous_disk_fingerprints[@]}")
-            continue
-          fi
+          (( result == 1 )) && continue
           (( result == 0 )) || return $result
           disk_index=$_ZLE_PICKER_SELECTED_VALUE
           disk=${_USB_DISK_IDS[disk_index]} ;;
@@ -2239,21 +2165,44 @@ _usb_workspace_controller() {
             checksum_subtitle='The image integrity check must match before flashing; paste the correct checksum or go back and remove it'
             continue
           fi
-          _USB_REQUEST=$selected _USB_SELECTED_IMAGE=$image _USB_SELECTED_DISK=$disk
-          _USB_SELECTED_MEDIA_KIND=$media_kind
-          _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[image_index]}
-          _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[image_index]}
-          _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[disk_index]}
-          _USB_SELECTED_DISK_SIZE=${_USB_DISK_SIZES[disk_index]}
-          _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[disk_index]}
-          _USB_SELECTED_SOURCE_DISK=$source_disk
-          _USB_SELECTED_CHECKSUM=$checksum
-          _USB_SELECTED_CHECKSUM_ALGORITHM=$checksum_algorithm
-          _USB_SELECTED_IMAGE_INTEGRITY=$checksum_state
+          _usb_workspace_request "$selected" "$image_index" "$disk_index" "$image" "$disk" \
+            "$source_disk" "$media_kind" "$checksum" "$checksum_algorithm" "$checksum_state"
           return 0 ;;
       esac
     done
   done
+}
+
+# A cancelled explicit recapture retains the exact prior disk snapshot. Abort
+# and successful capture keep their existing status and ownership semantics.
+_usb_workspace_retarget() {
+  local -a _retarget_ids=("${_USB_DISK_IDS[@]}") _retarget_labels=("${_USB_DISK_LABELS[@]}")
+  local -a _retarget_details=("${_USB_DISK_DETAILS[@]}") _retarget_sizes=("${_USB_DISK_SIZES[@]}")
+  local -a _retarget_fingerprints=("${_USB_DISK_FINGERPRINTS[@]}")
+  local -i _retarget_status=0
+  _usb_target_choose "$@"; _retarget_status=$?
+  if (( _retarget_status == 1 )); then
+    _USB_DISK_IDS=("${_retarget_ids[@]}") _USB_DISK_LABELS=("${_retarget_labels[@]}")
+    _USB_DISK_DETAILS=("${_retarget_details[@]}") _USB_DISK_SIZES=("${_retarget_sizes[@]}")
+    _USB_DISK_FINGERPRINTS=("${_retarget_fingerprints[@]}")
+  fi
+  return $_retarget_status
+}
+
+# Capture the accepted exact target after media-specific checks. This assembles
+# a request only; confirmation, validation and writes retain their boundaries.
+_usb_workspace_request() {
+  local -i _request_image_index=$2 _request_disk_index=$3
+  _USB_REQUEST=$1 _USB_SELECTED_IMAGE=$4 _USB_SELECTED_DISK=$5
+  _USB_SELECTED_MEDIA_KIND=$7
+  _USB_SELECTED_IMAGE_SIZE=${_USB_IMAGE_SIZES[_request_image_index]}
+  _USB_SELECTED_IMAGE_FINGERPRINT=${_USB_IMAGE_FINGERPRINTS[_request_image_index]}
+  _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[_request_disk_index]}
+  _USB_SELECTED_DISK_SIZE=${_USB_DISK_SIZES[_request_disk_index]}
+  _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[_request_disk_index]}
+  _USB_SELECTED_SOURCE_DISK=$6
+  _USB_SELECTED_CHECKSUM=$8 _USB_SELECTED_CHECKSUM_ALGORITHM=$9
+  _USB_SELECTED_IMAGE_INTEGRITY=${10}
 }
 
 _usb_image_revalidate() {
@@ -2273,36 +2222,7 @@ _usb_target_revalidate() {
   (( _USB_INFO_SIZE >= image_size ))
 }
 
-_usb_human_duration() {
-  emulate -L zsh
-  local -i total=${1:-0} hours=0 minutes=0 seconds=0
-  (( total < 0 )) && total=0
-  hours=$(( total / 3600 ))
-  minutes=$(( (total % 3600) / 60 ))
-  seconds=$(( total % 60 ))
-  if (( hours )); then
-    REPLY="${hours}h ${minutes}m ${seconds}s"
-  elif (( minutes )); then
-    REPLY="${minutes}m ${seconds}s"
-  else
-    REPLY="${seconds}s"
-  fi
-}
 
-_usb_progress_bar() {
-  emulate -L zsh
-  local -i percent=${1:-0} width=${2:-32} filled_count=0
-  local filled='' empty=''
-  (( percent < 0 )) && percent=0
-  (( percent > 100 )) && percent=100
-  (( width < 10 )) && width=10
-  filled_count=$(( percent * width / 100 ))
-  printf -v filled '%*s' $filled_count ''
-  printf -v empty '%*s' $(( width - filled_count )) ''
-  filled=${filled// /=}
-  empty=${empty// /·}
-  REPLY="[$filled$empty] ${percent}%"
-}
 
 _usb_noop() {
   return 0
@@ -2378,17 +2298,19 @@ _usb_progress_view() {
 
 _usb_dd_progress_read() {
   emulate -L zsh
+  (( ${+functions[_usb_dd_progress_bytes]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt EXTENDED_GLOB
   local progress_file=$1 total=$2 started=$3 raw='' chunk='' line='' byte_text=''
   local complete='' parse_stage=$_USB_WRITE_PROGRESS_STAGE
   local -i progress_fd=-1 chunk_size=0 new_size=0 raw_size=0
   local -i bytes=0 write_bytes=0 verify_bytes=0
-  local -i percent=0 elapsed=$(( SECONDS - started )) bar_width=32
-  local done_label='' total_label=''
+  local -i elapsed=$(( SECONDS - started )) bar_width=32
+  local -a reply=()
   bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
   (( bar_width < 24 )) && bar_width=24
   (( bar_width > 64 )) && bar_width=64
-  _usb_progress_bar 0 $bar_width
+  REPLY=''
+  (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar 0 $bar_width
   _USB_PROGRESS_BAR=$REPLY
   REPLY='Preparing the first write block…'
   [[ -f $progress_file && $total == <-> ]] || return 0
@@ -2434,22 +2356,16 @@ _usb_dd_progress_read() {
     complete=$raw
   fi
   for line in "${(f)complete}"; do
-    line=${line##[[:space:]]#}
-    # Apple dd uses two native status shapes. Periodic status=progress records
-    # include human-readable units between "bytes" and "transferred", while
-    # the completion record keeps those words adjacent. Accept both without
-    # interpreting any other stderr line as progress.
-    if [[ $line == <->' bytes '*transferred* ]]; then
-      byte_text=${line%% *}
-      if [[ $byte_text == <-> ]]; then
-        if [[ $parse_stage == verify ]]; then
-          verify_bytes=$byte_text
-        else
-          write_bytes=$byte_text
-        fi
+    if _usb_dd_progress_bytes "$line"; then
+      byte_text=$REPLY
+      if [[ $parse_stage == verify ]]; then
+        verify_bytes=$byte_text
+      else
+        write_bytes=$byte_text
       fi
       continue
     fi
+    line=${line##[[:space:]]#}
     case $line in
       (compozsh-write-stage:*)
         parse_stage=${line#compozsh-write-stage:}
@@ -2482,16 +2398,14 @@ _usb_dd_progress_read() {
   else
     bytes=$_USB_WRITE_BYTES_OBSERVED
   fi
-  (( bytes > total )) && bytes=$total
-  (( total > 0 )) && percent=$(( bytes * 100 / total ))
-  _usb_progress_bar $percent $bar_width
-  _USB_PROGRESS_BAR=$REPLY
-  _usb_human_size $bytes
-  done_label=$REPLY
-  _usb_human_size $total
-  total_label=$REPLY
-  _usb_human_duration $elapsed
-  REPLY="$done_label of $total_label · $REPLY elapsed"
+  if (( ${+functions[_usb_progress_model]} && ${+functions[_usb_progress_bar]} &&
+        ${+functions[_usb_human_size]} && ${+functions[_usb_human_duration]} )) &&
+      _usb_progress_model "$bytes" "$total" "$elapsed" "$bar_width"; then
+    _USB_PROGRESS_BAR=$reply[1]
+    REPLY=$reply[2]
+  else
+    REPLY='Write progress detail unavailable'
+  fi
 }
 
 _usb_authorize() {
@@ -2668,6 +2582,10 @@ _usb_write_image() {
   _USB_WRITE_PROGRESS_OFFSET=0 _USB_WRITE_PROGRESS_STAGE=''
   _USB_WRITE_PROGRESS_REMAINDER=''
   _USB_WRITE_ERROR='' _USB_WRITE_STAGE=''
+  (( ${+functions[_usb_dd_progress_bytes]} )) || {
+    _USB_WRITE_ERROR='Shared byte-progress parsing support unavailable; nothing was written.'
+    return 1
+  }
   [[ $image_size == <-> && $target_size == <-> && $verify == [01] &&
      $block_size == <-> ]] || return 2
   (( block_size >= 512 && block_size % 512 == 0 )) || return 2
@@ -2744,8 +2662,9 @@ _usb_dd_read_run() {
 
 _usb_dd_bytes_observed() {
   emulate -L zsh
+  (( ${+functions[_usb_dd_progress_bytes]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt EXTENDED_GLOB
-  local path=$1 raw='' line='' byte_text=''
+  local path=$1 raw='' line=''
   local -i raw_size=0 bytes=-1
   [[ -f $path ]] || return 1
   raw_size=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 1
@@ -2753,10 +2672,7 @@ _usb_dd_bytes_observed() {
   raw=$(<"$path")
   raw=${raw//$'\r'/$'\n'}
   for line in "${(f)raw}"; do
-    line=${line##[[:space:]]#}
-    [[ $line == <->' bytes '*transferred* ]] || continue
-    byte_text=${line%% *}
-    [[ $byte_text == <-> ]] && bytes=$byte_text
+    _usb_dd_progress_bytes "$line" && bytes=$REPLY
   done
   (( bytes >= 0 )) || return 1
   REPLY=$bytes
@@ -2840,13 +2756,15 @@ _usb_cmp_run() {
 _usb_verify_progress_read() {
   emulate -L zsh
   local progress_file=$1 meta_file=$2 started=$3
-  local phase='Preparing raw read' meta='' done_label='' total_label=''
-  local -i total=0 intra=0 raw_bytes=0 bytes=0 percent=0
+  local phase='Preparing raw read' meta=''
+  local -a reply=()
+  local -i total=0 intra=0 raw_bytes=0 bytes=0
   local -i elapsed=$(( SECONDS - started )) bar_width=32
   bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
   (( bar_width < 24 )) && bar_width=24
   (( bar_width > 64 )) && bar_width=64
-  _usb_progress_bar 0 $bar_width
+  REPLY=''
+  (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar 0 $bar_width
   _USB_VERIFY_PROGRESS_BAR=$REPLY
   REPLY='Preparing the first raw read block…'
   [[ -f $meta_file ]] || return 0
@@ -2858,15 +2776,14 @@ _usb_verify_progress_read() {
     bytes=$(( raw_bytes > intra ? raw_bytes - intra : 0 ))
     (( bytes > total )) && bytes=$total
   fi
-  (( total > 0 )) && percent=$(( bytes * 100 / total ))
-  _usb_progress_bar $percent $bar_width
-  _USB_VERIFY_PROGRESS_BAR=$REPLY
-  _usb_human_size $bytes
-  done_label=$REPLY
-  _usb_human_size $total
-  total_label=$REPLY
-  _usb_human_duration $elapsed
-  REPLY="$phase · $done_label of $total_label · $REPLY elapsed"
+  if (( ${+functions[_usb_progress_model]} && ${+functions[_usb_progress_bar]} &&
+        ${+functions[_usb_human_size]} && ${+functions[_usb_human_duration]} )) &&
+      _usb_progress_model "$bytes" "$total" "$elapsed" "$bar_width" "$phase"; then
+    _USB_VERIFY_PROGRESS_BAR=$reply[1]
+    REPLY=$reply[2]
+  else
+    REPLY="$phase · progress detail unavailable"
+  fi
 }
 
 _usb_image_checksum_run() {
@@ -2874,22 +2791,9 @@ _usb_image_checksum_run() {
   command /usr/bin/shasum -a "$algorithm" -b < "$image"
 }
 
-_usb_checksum_output_read() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-  local output=$1 algorithm=$2 digest=${output%%[[:space:]]*}
-  digest=${digest:l}
-  case $algorithm in
-    (256) (( ${#digest} == 64 )) || return 1 ;;
-    (512) (( ${#digest} == 128 )) || return 1 ;;
-    (*) return 1 ;;
-  esac
-  [[ $digest == [0-9a-f]## ]] || return 1
-  REPLY=$digest
-}
-
 _usb_image_checksum() {
   emulate -L zsh
+  (( ${+functions[_usb_checksum_output_read]} && ${+functions[_usb_checksum_validate]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   local image=$1 algorithm=$2 output=''
   output=$(_usb_image_checksum_run "$algorithm" "$image") || return 1
   _usb_checksum_output_read "$output" "$algorithm"
@@ -2924,6 +2828,7 @@ _usb_od_hex() {
 
 _usb_file_range_digest() {
   emulate -L zsh
+  (( ${+functions[_usb_checksum_output_read]} && ${+functions[_usb_checksum_validate]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt PIPE_FAIL
   local path=$1 offset=$2 count=$3 output=''
   local -i sectors=0
@@ -2936,18 +2841,9 @@ _usb_file_range_digest() {
   _usb_checksum_output_read "$output" 256
 }
 
-_usb_crc32_output_read() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-  local output=$1 expected_size=$2 checksum=${output%%[[:space:]]*}
-  local remainder=${output#*[[:space:]]##}
-  local size=${remainder%%[[:space:]]*}
-  [[ $checksum == <-> && $size == <-> && $size == "$expected_size" ]] || return 1
-  REPLY=$checksum
-}
-
 _usb_file_range_crc32() {
   emulate -L zsh
+  (( ${+functions[_usb_crc32_output_read]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt PIPE_FAIL
   local path=$1 offset=$2 count=$3 output=''
   (( offset >= 0 && count > 0 )) || return 2
@@ -2958,6 +2854,7 @@ _usb_file_range_crc32() {
 
 _usb_gpt_header_crc_validate() {
   emulate -L zsh
+  (( ${+functions[_usb_crc32_output_read]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt PIPE_FAIL
   local path=$1 offset=$2 header_size=$3 output='' expected=''
   (( offset >= 0 && header_size >= 92 && header_size <= 512 )) || return 2
@@ -2977,6 +2874,7 @@ _usb_gpt_header_crc_validate() {
 
 _usb_raw_range_digest() {
   emulate -L zsh
+  (( ${+functions[_usb_checksum_output_read]} && ${+functions[_usb_checksum_validate]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt PIPE_FAIL
   local identifier=$1 offset=$2 count=$3 output=''
   local -i sectors=0
@@ -3496,30 +3394,13 @@ _usb_diskutil_erase_run() {
 
 _usb_windows_source_close() {
   emulate -L zsh
-  local device=${1:-$_USB_WINDOWS_SOURCE_DEVICE}
-  local mount_point=${2:-$_USB_WINDOWS_SOURCE_MOUNT}
-  local temp_root=${TMPDIR:-/tmp}
-  local -i cleanup_status=0
-  if [[ -n $device ]]; then
-    if _usb_hdiutil_detach "$device" >/dev/null 2>&1; then
-      [[ $_USB_WINDOWS_SOURCE_DEVICE == "$device" ]] &&
-        _USB_WINDOWS_SOURCE_DEVICE=''
-    else
-      cleanup_status=1
-    fi
-  fi
-  if (( cleanup_status == 0 )) &&
-      [[ -n $mount_point && -d $mount_point && ! -L $mount_point &&
-        ${mount_point:t} == compozsh-usb-windows.* &&
-        ${mount_point:h:A} == ${temp_root:A} ]]; then
-    if command /bin/rmdir "$mount_point" 2>/dev/null; then
-      [[ $_USB_WINDOWS_SOURCE_MOUNT == "$mount_point" ]] &&
-        _USB_WINDOWS_SOURCE_MOUNT=''
-    else
-      cleanup_status=1
-    fi
-  fi
-  return $cleanup_status
+  local device=${1:-$_USB_WINDOWS_SOURCE_DEVICE} mount_point=${2:-$_USB_WINDOWS_SOURCE_MOUNT}
+  local -a reply=()
+  _usb_mount_cleanup "$device" "$mount_point" compozsh-usb-windows
+  local -i result=$?
+  [[ $_USB_WINDOWS_SOURCE_DEVICE == "$device" ]] && _USB_WINDOWS_SOURCE_DEVICE=$reply[1]
+  [[ $_USB_WINDOWS_SOURCE_MOUNT == "$mount_point" ]] && _USB_WINDOWS_SOURCE_MOUNT=$reply[2]
+  return $result
 }
 
 _usb_windows_source_open() {
@@ -3736,11 +3617,14 @@ _usb_windows_copy_tree() {
       _usb_windows_target_bytes_capture "$target"
       copied=$REPLY
       percent=$(( copied * 100 / _USB_WINDOWS_TOTAL_BYTES ))
-      _usb_progress_bar $percent $width
+      REPLY=''
+      (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar $percent $width
       bar=$REPLY
-      _usb_human_size $copied
+      REPLY='size unavailable'
+      (( ${+functions[_usb_human_size]} )) && _usb_human_size $copied
       progress_text="$REPLY of "
-      _usb_human_size $_USB_WINDOWS_TOTAL_BYTES
+      REPLY='size unavailable'
+      (( ${+functions[_usb_human_size]} )) && _usb_human_size $_USB_WINDOWS_TOTAL_BYTES
       progress_text+=$REPLY
       _usb_progress_stage 'Copying Windows installer files' \
         progress "$bar" \
@@ -3826,11 +3710,14 @@ _usb_windows_verify_tree() {
       _usb_dd_bytes_observed "$progress_file" && current_bytes=$REPLY || current_bytes=0
       (( current_bytes > expected_size )) && current_bytes=$expected_size
       percent=$(( (verified_bytes + current_bytes) * 100 / _USB_WINDOWS_TOTAL_BYTES ))
-      _usb_progress_bar $percent $width
+      REPLY=''
+      (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar $percent $width
       bar=$REPLY
-      _usb_human_size $(( verified_bytes + current_bytes ))
+      REPLY='size unavailable'
+      (( ${+functions[_usb_human_size]} )) && _usb_human_size $(( verified_bytes + current_bytes ))
       progress_text="$REPLY of "
-      _usb_human_size $_USB_WINDOWS_TOTAL_BYTES
+      REPLY='size unavailable'
+      (( ${+functions[_usb_human_size]} )) && _usb_human_size $_USB_WINDOWS_TOTAL_BYTES
       progress_text+="$REPLY verified"
       _usb_progress_stage 'Verifying Windows installer files' \
         progress "$bar" info "$progress_text" \
@@ -3847,9 +3734,11 @@ _usb_windows_verify_tree() {
     esac
     (( verified_bytes += expected_size ))
     percent=$(( verified_bytes * 100 / _USB_WINDOWS_TOTAL_BYTES ))
-    _usb_progress_bar $percent $width
+    REPLY=''
+    (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar $percent $width
     bar=$REPLY
-    _usb_human_size $verified_bytes
+    REPLY='size unavailable'
+    (( ${+functions[_usb_human_size]} )) && _usb_human_size $verified_bytes
     progress_text="$REPLY verified"
     _usb_progress_stage 'Verifying Windows installer files' \
       progress "$bar" info "$progress_text" \
@@ -3900,7 +3789,8 @@ _usb_createinstallmedia_progress_read() {
   bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
   (( bar_width < 24 )) && bar_width=24
   (( bar_width > 64 )) && bar_width=64
-  _usb_progress_bar 0 $bar_width
+  REPLY=''
+  (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar 0 $bar_width
   _USB_PROGRESS_BAR=$REPLY
   REPLY=$latest
   [[ -f $path ]] || return 0
@@ -3920,7 +3810,8 @@ _usb_createinstallmedia_progress_read() {
     fi
   done
   (( percent > 100 )) && percent=100
-  _usb_progress_bar $percent $bar_width
+  REPLY=''
+  (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar $percent $bar_width
   _USB_PROGRESS_BAR=$REPLY
   REPLY=$latest
 }
@@ -3986,11 +3877,11 @@ _usb_macos_execute() {
   local minimum_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
   local target_size=${11:-$minimum_size} volume=''
   local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
-  _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
-  _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
-  _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
-  _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
-  _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
+  if (( ! ${+functions[_usb_result_reset]} )); then
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Shared USB result support is unavailable; nothing was written.'
+    return 1
+  fi
+  _usb_result_reset
   _USB_RESULT_SOURCE_VALIDATED=0
   [[ $minimum_size == <-> && $target_size == <-> ]] || return 2
   (( target_size >= minimum_size )) || return 2
@@ -4081,23 +3972,19 @@ _usb_windows_execute() {
   local -i action_status=0 eject_status=0 close_status=0 source_opened=0
   local -i verify_mount_created=0 verify_cleanup_status=0
   local -i execution_started=$SECONDS stage_started=0
-  _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
-  _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
+  if (( ! ${+functions[_usb_result_reset]} )); then
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Shared USB result support is unavailable; nothing was written.'
+    return 1
+  fi
+  _usb_result_reset
   _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
   _USB_RESULT_EXPECTED_CHECKSUM=$expected_checksum _USB_RESULT_IMAGE_CHECKSUM=''
   _USB_RESULT_CHECKSUM_ERROR=''
-  _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
-  _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
-  _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
   _USB_RESULT_SOURCE_VALIDATED=0 _USB_PAYLOAD_VERIFY_ERROR=''
   [[ $image_size == <-> && $target_size == <-> && $request == flash-verify ]] || return 2
   if [[ -n $expected_checksum ]]; then
-    case $checksum_algorithm in
-      (256) (( ${#expected_checksum} == 64 )) ;;
-      (512) (( ${#expected_checksum} == 128 )) ;;
-      (*) return 2 ;;
-    esac || return 2
-    [[ $expected_checksum == [0-9a-f]## ]] || return 2
+    (( ${+functions[_usb_checksum_validate]} )) &&
+      _usb_checksum_validate "$checksum_algorithm" "$expected_checksum" || return 2
   elif [[ -n $checksum_algorithm ]]; then
     return 2
   fi
@@ -4336,7 +4223,7 @@ _usb_windows_execute() {
     _USB_RESULT_ERROR='The Windows installer was created and verified, but macOS could not eject the external drive.'
     return $eject_status
   fi
-  if (( _USB_RESULT_WRITE_SECONDS > 0 )); then
+  if (( _USB_RESULT_WRITE_SECONDS > 0 && ${+functions[_usb_human_size]} )); then
     _usb_human_size $(( _USB_WINDOWS_TOTAL_BYTES / _USB_RESULT_WRITE_SECONDS ))
     _USB_RESULT_RATE="$REPLY/s"
   fi
@@ -4380,13 +4267,13 @@ _usb_execute() {
   local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
   local -i verify_during_write=0
   local -i target_block_size=512
-  _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
-  _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
+  if (( ! ${+functions[_usb_result_reset]} )); then
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Shared USB result support is unavailable; nothing was written.'
+    return 1
+  fi
+  _usb_result_reset
   _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
   _USB_RESULT_EXPECTED_CHECKSUM=$expected_checksum _USB_RESULT_IMAGE_CHECKSUM=''
-  _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
-  _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
-  _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
   [[ $image_size == <-> && $target_size == <-> ]] || return 2
   (( target_size >= image_size )) || return 2
   case $request in
@@ -4395,12 +4282,8 @@ _usb_execute() {
   esac
   [[ $request == flash-verify ]] && verify_during_write=1
   if [[ -n $expected_checksum ]]; then
-    case $checksum_algorithm in
-      (256) (( ${#expected_checksum} == 64 )) ;;
-      (512) (( ${#expected_checksum} == 128 )) ;;
-      (*) return 2 ;;
-    esac || return 2
-    [[ $expected_checksum == [0-9a-f]## ]] || return 2
+    (( ${+functions[_usb_checksum_validate]} )) &&
+      _usb_checksum_validate "$checksum_algorithm" "$expected_checksum" || return 2
   elif [[ -n $checksum_algorithm ]]; then
     return 2
   fi
@@ -4496,8 +4379,10 @@ _usb_execute() {
       _USB_RESULT_VERIFY_REASON=''
       _USB_RESULT_VERIFY_SECONDS=$_USB_WRITE_VERIFY_SECONDS
     fi
-    _usb_human_size $(( image_size / (_USB_RESULT_WRITE_SECONDS > 0 ? _USB_RESULT_WRITE_SECONDS : 1) ))
-    _USB_RESULT_RATE="$REPLY/s"
+    if (( ${+functions[_usb_human_size]} )); then
+      _usb_human_size $(( image_size / (_USB_RESULT_WRITE_SECONDS > 0 ? _USB_RESULT_WRITE_SECONDS : 1) ))
+      _USB_RESULT_RATE="$REPLY/s"
+    fi
   else
     _USB_RESULT_OUTCOME=failed
     if (( action_status == 3 )); then
@@ -4641,293 +4526,194 @@ _usb_result_choose() {
   _usb_choose "$1" "$2" 'Done' 0 0 1
 }
 
-_usb_result_screen() {
+# Pure presentation from supplied result facts. Output is title/subtitle followed
+# by five-field rows: exact value, label, semantic role, search text, details.
+_usb_result_model() {
   emulate -L zsh
-  local result_status=${1:-1} size_label='' duration_label=''
-  local verification_label='' eject_label=''
-  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
-  local -a _USB_PICKER_HIGHLIGHTS=()
-  local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
-  if (( result_status == 0 )) && [[ $_USB_RESULT_OUTCOME == complete ]]; then
-    _usb_human_size $_USB_RESULT_BYTES
-    size_label=$REPLY
-    _usb_human_duration $_USB_RESULT_SECONDS
-    duration_label=$REPLY
-    if (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == full ]]; then
-      verification_label='USB verification · Full image byte-for-byte matched'
-    elif (( _USB_RESULT_VERIFIED )) && [[ $_USB_RESULT_VERIFY_SCOPE == boot-and-installer-payload ]]; then
-      verification_label='USB verification · Boot bytes and installer payload matched'
-    elif (( _USB_RESULT_VERIFIED )); then
-      verification_label='USB verification · Selected image bytes matched'
-    else
-      verification_label='USB verification · Not performed · Flash only'
-    fi
-    eject_label='Safe to remove · external drive ejected'
-    _USB_PICKER_VALUES=(done bytes time)
-    _USB_PICKER_LABELS=(
-      'Done'
-      "Flash complete · $size_label written"
-      "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}")
-    _USB_PICKER_HIGHLIGHTS=(
-      "0:${#_USB_PICKER_LABELS[1]}:picker-success"
-      "0:${#_USB_PICKER_LABELS[2]}:picker-success"
-      '')
-    _USB_PICKER_SEARCH=(done complete time)
-    _USB_PICKER_DETAILS=('' '' '')
-    _USB_PICKER_VALUES+=(image-checksum)
-    if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
-      _USB_PICKER_LABELS+=("Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
-      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-success")
-      _USB_PICKER_SEARCH+=('image integrity checksum matched')
-      _USB_PICKER_DETAILS+=("Provided checksum matched"$'\n\n'"SHA-$_USB_RESULT_CHECKSUM_ALGORITHM"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
-    else
-      _USB_PICKER_LABELS+=('Image integrity · Not verified · no checksum provided')
-      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
-      _USB_PICKER_SEARCH+=('image integrity not verified no checksum')
-      _USB_PICKER_DETAILS+=('No checksum was provided. USB verification establishes fidelity to this local image, but does not establish the local image’s origin.')
-    fi
-    _USB_PICKER_VALUES+=(verify eject)
-    _USB_PICKER_LABELS+=("$verification_label" "$eject_label")
-    if (( _USB_RESULT_VERIFIED )); then
-      _USB_PICKER_HIGHLIGHTS+=("0:${#verification_label}:picker-success")
-    else
-      _USB_PICKER_HIGHLIGHTS+=('')
-    fi
-    _USB_PICKER_HIGHLIGHTS+=("0:${#eject_label}:picker-success")
-    _USB_PICKER_SEARCH+=(verified safe)
-    case $_USB_RESULT_VERIFY_REASON in
-      (gpt-geometry-diff)
-        _USB_PICKER_DETAILS+=('Source and target GPT headers, CRCs, partition arrays, and relocated backup map were structurally validated. MBR boot code, boot signature, and every compared installer byte matched; only physical-disk GPT geometry differed.' '') ;;
-      (gpt-source-bounds)
-        _USB_PICKER_DETAILS+=('The complete image-sized primary and backup GPT structures matched at their original image bounds. The physical tail outside the image was cleared and verified, the hybrid MBR partition records matched, and every compared boot and installer byte matched. Extra drive capacity remains intentionally unused.' '') ;;
-      (*) _USB_PICKER_DETAILS+=('' '') ;;
-    esac
-    _usb_result_choose 'External device / Flash · Complete' 'Image  ›  Drive  ›  DONE'
+  local kind=$1 result_status=$2
+  shift 2
+  local -A facts=("$@")
+  local REPLY='' duration='' size='' label='' role='' detail='' eject_label='' eject_role=''
+  local -i complete=0
+  _usb_human_duration "${facts[seconds]:-0}"
+  duration=$REPLY
+  [[ $result_status == 0 && ${facts[outcome]} == complete ]] && complete=1
+  if [[ $kind == windows-installer ]] &&
+      [[ ${facts[verified]} != 1 || ${facts[verify_scope]} != windows-file-tree ]]; then
+    complete=0
+  fi
+  if (( complete )) || [[ ${facts[ejected]} == 1 ]]; then
+    eject_label='Safe to remove · external drive ejected' eject_role=picker-success
   else
-    if (( !_USB_RESULT_STARTED )); then
-      eject_label='Nothing was written · drive remains mounted'
-    elif (( _USB_RESULT_EJECTED )); then
-      eject_label='Safe to remove · external drive ejected'
+    eject_label='Check the drive before removing it' eject_role=picker-error
+  fi
+  if (( !complete )) && [[ ${facts[started]} != 1 ]]; then
+    eject_label='Nothing was written · drive remains mounted'
+    [[ ${facts[ejected]} == 1 ]] || eject_role=''
+  fi
+  local trail=Media heading='External device / Flash · Couldn’t complete' outcome=FAILED
+  [[ $kind == raw ]] && trail=Image
+  if (( complete )); then heading='External device / Flash · Complete'; outcome=DONE; fi
+  reply=("$heading" "$trail  ›  Drive  ›  $outcome")
+  role=''
+  (( complete )) && role=picker-success
+  reply+=(done Done "$role" done '')
+  if (( complete )); then
+    case $kind in
+      raw)
+        _usb_human_size "${facts[bytes]:-0}"; size=$REPLY
+        reply+=(bytes "Flash complete · $size written" picker-success complete '') ;;
+      macos-installer)
+        reply+=(complete 'macOS installer complete · Apple createinstallmedia succeeded' picker-success complete
+          'Apple createinstallmedia completed successfully and reported the bootable installer as available.') ;;
+      windows-installer)
+        reply+=(complete 'Windows installer complete · complete FAT32 file tree verified' picker-success complete
+          'The complete UEFI Windows installer tree was copied to FAT32, flushed, remounted read-only, and verified from uncached reads.') ;;
+      *) return 2 ;;
+    esac
+    label="Time · $duration"
+    [[ $kind == macos-installer ]] || label+=" · ${facts[rate]:-rate unavailable}"
+    reply+=(time "$label" '' time '')
+  else
+    label='Flash failed' detail=''
+    case $kind in
+      macos-installer) label='macOS installer failed'; detail=${facts[error]:-No additional diagnostic was retained.} ;;
+      windows-installer) label='Windows installer failed'; detail=${facts[error]:-No additional diagnostic was retained.} ;;
+      raw) ;;
+      *) return 2 ;;
+    esac
+    reply+=(error "$label · ${facts[error]:-The operation did not complete.}" picker-error failed "$detail")
+  fi
+  if [[ $kind == macos-installer ]]; then
+    role=picker-error
+    if (( complete )); then
+      label='Source validation · Verified · Apple-signed full installer' role=picker-success
+      detail='The installer application and its createinstallmedia executable passed Apple signature validation before the target was erased.'
+    elif [[ ${facts[source_validated]} == 1 ]]; then
+      label='Source validation · Verified before preparation · Apple-signed installer' role=picker-success detail=''
     else
-      eject_label='Check the drive before removing it'
+      label='Source validation · FAILED · installer was not accepted' detail=''
     fi
-    _USB_PICKER_VALUES=(done error)
-    _USB_PICKER_LABELS=(
-      'Done'
-      "Flash failed · ${_USB_RESULT_ERROR:-The operation did not complete.}")
-    _USB_PICKER_HIGHLIGHTS=(
-      ''
-      "0:${#_USB_PICKER_LABELS[2]}:picker-error")
-    _USB_PICKER_SEARCH=(done failed)
-    _USB_PICKER_DETAILS=('' '')
-    _USB_PICKER_VALUES+=(image-integrity)
-    if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
-      _USB_PICKER_LABELS+=("Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched")
-      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-success")
-      _USB_PICKER_SEARCH+=('image integrity checksum verified matched')
-      _USB_PICKER_DETAILS+=("Provided checksum matched before writing"$'\n\n'"Expected"$'\n'"$_USB_RESULT_EXPECTED_CHECKSUM"$'\n\n'"Actual"$'\n'"$_USB_RESULT_IMAGE_CHECKSUM")
-    elif [[ -n $_USB_RESULT_EXPECTED_CHECKSUM ]]; then
-      _USB_PICKER_LABELS+=("Image integrity · FAILED · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM did not match")
-      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
-      _USB_PICKER_SEARCH+=('image integrity checksum failed expected actual')
-      _USB_PICKER_DETAILS+=("Expected"$'\n'"$_USB_RESULT_EXPECTED_CHECKSUM"$'\n\n'"Actual"$'\n'"${_USB_RESULT_IMAGE_CHECKSUM:-unavailable}")
-    else
-      _USB_PICKER_LABELS+=('Image integrity · Not verified · no checksum provided')
-      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
-      _USB_PICKER_SEARCH+=('image integrity not verified no checksum')
-      _USB_PICKER_DETAILS+=('The selected local image had no provided checksum. Finished-drive comparison can validate the copy, but cannot establish the image’s origin.')
-    fi
-    if [[ -n $_USB_RESULT_VERIFY_REASON ]]; then
-      _USB_PICKER_VALUES+=(verification-error)
-      case $_USB_RESULT_VERIFY_REASON in
-        (mismatch)
-          _USB_PICKER_LABELS+=('USB verification · FAILED · installer or boot bytes differ') ;;
-        (gpt-invalid)
-          _USB_PICKER_LABELS+=('USB verification · FAILED · GPT layout is invalid') ;;
-        (stale-tail-gpt)
-          _USB_PICKER_LABELS+=('USB verification · FAILED · old GPT metadata remains at physical tail') ;;
-        (drive-read-failed)
-          _USB_PICKER_LABELS+=('USB verification · Could not read the finished drive') ;;
-        (image-read-failed)
-          _USB_PICKER_LABELS+=('USB verification · Could not reread the selected image') ;;
-        (unmount-failed)
-          _USB_PICKER_LABELS+=('USB verification · Could not unmount the finished drive') ;;
-        (authorization-expired)
-          _USB_PICKER_LABELS+=('USB verification · Administrator authorization expired') ;;
-        (*)
-          _USB_PICKER_LABELS+=('USB verification · Could not complete') ;;
+    local search=source
+    (( complete )) && search=apple
+    reply+=(source "$label" "$role" "$search" "$detail")
+  else
+    role=picker-error
+    if [[ ${facts[checksum_validated]} == 1 ]]; then
+      label="Image integrity · Verified · SHA-${facts[checksum_algorithm]} matched" role=picker-success
+    elif [[ -n ${facts[expected_checksum]} ]] && { [[ $kind == windows-installer ]] || (( !complete )); }; then
+      case ${facts[checksum_error]} in
+        changed-or-unreadable) label='Image integrity · FAILED · source changed or could not be reread' ;;
+        mismatch) label="Image integrity · FAILED · SHA-${facts[checksum_algorithm]} did not match" ;;
+        *) label="Image integrity · FAILED · SHA-${facts[checksum_algorithm]} could not be calculated" ;;
       esac
-      _USB_PICKER_HIGHLIGHTS+=("0:${#_USB_PICKER_LABELS[-1]}:picker-error")
-      _USB_PICKER_SEARCH+=('usb verification read error recovery')
-      _USB_PICKER_DETAILS+=("Verification reason"$'\n'"$_USB_RESULT_VERIFY_REASON"$'\n\n'"${_USB_RESULT_ERROR:-No additional diagnostic was retained.}")
+      [[ $kind == raw ]] && label="Image integrity · FAILED · SHA-${facts[checksum_algorithm]} did not match"
+    else
+      label='Image integrity · Not verified · no checksum provided'
     fi
-    _USB_PICKER_VALUES+=(eject)
-    _USB_PICKER_LABELS+=("$eject_label")
-    if (( _USB_RESULT_EJECTED )); then
-      _USB_PICKER_HIGHLIGHTS+=("0:${#eject_label}:picker-success")
-    elif (( _USB_RESULT_STARTED )); then
-      _USB_PICKER_HIGHLIGHTS+=("0:${#eject_label}:picker-error")
+    local value=integrity search=integrity
+    if [[ $kind == windows-installer ]]; then
+      detail='ISO integrity and finished USB fidelity are independent evidence.'
+      (( complete )) && detail='A publisher checksum proves the selected ISO origin only when one was provided and matched.'
+    else
+      value=image-integrity
+      (( complete )) && value=image-checksum
+      if [[ ${facts[checksum_validated]} == 1 ]]; then
+        search='image integrity checksum verified matched'
+        detail="Provided checksum matched before writing"$'\n\n'"Expected"$'\n'"${facts[expected_checksum]}"$'\n\n'"Actual"$'\n'"${facts[image_checksum]}"
+        if (( complete )); then
+          search='image integrity checksum matched'
+          detail="Provided checksum matched"$'\n\n'"SHA-${facts[checksum_algorithm]}"$'\n'"${facts[image_checksum]}"
+        fi
+      elif [[ -n ${facts[expected_checksum]} ]] && (( !complete )); then
+        search='image integrity checksum failed expected actual'
+        detail="Expected"$'\n'"${facts[expected_checksum]}"$'\n\n'"Actual"$'\n'"${facts[image_checksum]:-unavailable}"
+      else
+        search='image integrity not verified no checksum'
+        detail='The selected local image had no provided checksum. Finished-drive comparison can validate the copy, but cannot establish the image’s origin.'
+        (( complete )) && detail='No checksum was provided. USB verification establishes fidelity to this local image, but does not establish the local image’s origin.'
+      fi
+    fi
+    reply+=("$value" "$label" "$role" "$search" "$detail")
+    if (( complete )); then
+      role=picker-success detail=''
+      if [[ $kind == windows-installer ]]; then
+        label='USB verification · Every captured installer file byte-for-byte matched'
+        detail='Every captured regular source file matched the corresponding finished USB file exactly.'
+      elif [[ ${facts[verified]} != 1 ]]; then
+        label='USB verification · Not performed · Flash only' role=''
+      else
+        case ${facts[verify_scope]} in
+          full) label='USB verification · Full image byte-for-byte matched' ;;
+          boot-and-installer-payload) label='USB verification · Boot bytes and installer payload matched' ;;
+          *) label='USB verification · Selected image bytes matched' ;;
+        esac
+      fi
+      if [[ $kind == raw ]]; then
+        case ${facts[verify_reason]} in
+          gpt-geometry-diff) detail='Source and target GPT headers, CRCs, partition arrays, and relocated backup map were structurally validated. MBR boot code, boot signature, and every compared installer byte matched; only physical-disk GPT geometry differed.' ;;
+          gpt-source-bounds) detail='The complete image-sized primary and backup GPT structures matched at their original image bounds. The physical tail outside the image was cleared and verified, the hybrid MBR partition records matched, and every compared boot and installer byte matched. Extra drive capacity remains intentionally unused.' ;;
+        esac
+      fi
+      reply+=(verify "$label" "$role" verified "$detail")
+    elif [[ $kind == raw && -n ${facts[verify_reason]} ]]; then
+      case ${facts[verify_reason]} in
+        mismatch) label='USB verification · FAILED · installer or boot bytes differ' ;;
+        gpt-invalid) label='USB verification · FAILED · GPT layout is invalid' ;;
+        stale-tail-gpt) label='USB verification · FAILED · old GPT metadata remains at physical tail' ;;
+        drive-read-failed) label='USB verification · Could not read the finished drive' ;;
+        image-read-failed) label='USB verification · Could not reread the selected image' ;;
+        unmount-failed) label='USB verification · Could not unmount the finished drive' ;;
+        authorization-expired) label='USB verification · Administrator authorization expired' ;;
+        *) label='USB verification · Could not complete' ;;
+      esac
+      reply+=(verification-error "$label" picker-error 'usb verification read error recovery'
+        "Verification reason"$'\n'"${facts[verify_reason]}"$'\n\n'"${facts[error]:-No additional diagnostic was retained.}")
+    fi
+  fi
+  local search=recovery
+  (( complete )) && search=safe
+  reply+=(eject "$eject_label" "$eject_role" "$search" '')
+  return 0
+}
+
+# Capture the existing invocation state once, then adapt pure rows to the UI.
+_usb_result_present() {
+  emulate -L zsh
+  local -a reply=() _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
+  local -a _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  if (( ! ${+functions[_usb_human_size]} || ! ${+functions[_usb_human_duration]} )); then
+    print -r -- "External device / Flash · ${(V)_USB_RESULT_OUTCOME}"
+    print -r -- "${(V)_USB_RESULT_ERROR}"
+    print -r -- "External drive ejected: ${_USB_RESULT_EJECTED:-0}"
+    return 0
+  fi
+  _usb_result_model "$1" "${2:-1}" \
+    bytes "${_USB_RESULT_BYTES:-0}" seconds "${_USB_RESULT_SECONDS:-0}" rate "${_USB_RESULT_RATE:-}" \
+    outcome "${_USB_RESULT_OUTCOME:-}" error "${_USB_RESULT_ERROR:-}" \
+    started "${_USB_RESULT_STARTED:-0}" ejected "${_USB_RESULT_EJECTED:-0}" \
+    verified "${_USB_RESULT_VERIFIED:-0}" verify_scope "${_USB_RESULT_VERIFY_SCOPE:-}" \
+    verify_reason "${_USB_RESULT_VERIFY_REASON:-}" source_validated "${_USB_RESULT_SOURCE_VALIDATED:-0}" \
+    checksum_validated "${_USB_RESULT_CHECKSUM_VALIDATED:-0}" checksum_algorithm "${_USB_RESULT_CHECKSUM_ALGORITHM:-}" \
+    expected_checksum "${_USB_RESULT_EXPECTED_CHECKSUM:-}" image_checksum "${_USB_RESULT_IMAGE_CHECKSUM:-}" \
+    checksum_error "${_USB_RESULT_CHECKSUM_ERROR:-}" || return
+  local title=$reply[1] subtitle=$reply[2] value='' label='' role='' search='' detail=''
+  for value label role search detail in "${reply[@]:2}"; do
+    _USB_PICKER_VALUES+=("$value") _USB_PICKER_LABELS+=("$label")
+    if [[ -n $role ]]; then
+      _USB_PICKER_HIGHLIGHTS+=("0:${#label}:$role")
     else
       _USB_PICKER_HIGHLIGHTS+=('')
     fi
-    _USB_PICKER_SEARCH+=(recovery)
-    _USB_PICKER_DETAILS+=('')
-    _usb_result_choose 'External device / Flash · Couldn’t complete' 'Image  ›  Drive  ›  FAILED'
-  fi
-}
-
-_usb_macos_result_screen() {
-  emulate -L zsh
-  local result_status=${1:-1} duration_label='' eject_label='' source_label=''
-  local source_style='picker-error'
-  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
-  local -a _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
-  _usb_human_duration $_USB_RESULT_SECONDS
-  duration_label=$REPLY
-  if (( result_status == 0 )) && [[ $_USB_RESULT_OUTCOME == complete ]]; then
-    eject_label='Safe to remove · external drive ejected'
-    _USB_PICKER_VALUES=(done complete time source eject)
-    _USB_PICKER_LABELS=(
-      'Done'
-      'macOS installer complete · Apple createinstallmedia succeeded'
-      "Time · $duration_label"
-      'Source validation · Verified · Apple-signed full installer'
-      "$eject_label")
-    _USB_PICKER_HIGHLIGHTS=(
-      "0:${#_USB_PICKER_LABELS[1]}:picker-success"
-      "0:${#_USB_PICKER_LABELS[2]}:picker-success"
-      ''
-      "0:${#_USB_PICKER_LABELS[4]}:picker-success"
-      "0:${#eject_label}:picker-success")
-    _USB_PICKER_SEARCH=(done complete time apple safe)
-    _USB_PICKER_DETAILS=(
-      ''
-      'Apple createinstallmedia completed successfully and reported the bootable installer as available.'
-      ''
-      'The installer application and its createinstallmedia executable passed Apple signature validation before the target was erased.'
-      '')
-    _usb_result_choose 'External device / Flash · Complete' 'Media  ›  Drive  ›  DONE'
-    return
-  fi
-  if (( !_USB_RESULT_STARTED )); then
-    eject_label='Nothing was written · drive remains mounted'
-  elif (( _USB_RESULT_EJECTED )); then
-    eject_label='Safe to remove · external drive ejected'
-  else
-    eject_label='Check the drive before removing it'
-  fi
-  if (( _USB_RESULT_SOURCE_VALIDATED )); then
-    source_label='Source validation · Verified before preparation · Apple-signed installer'
-    source_style=picker-success
-  else
-    source_label='Source validation · FAILED · installer was not accepted'
-  fi
-  _USB_PICKER_VALUES=(done error source eject)
-  _USB_PICKER_LABELS=(
-    'Done'
-    "macOS installer failed · ${_USB_RESULT_ERROR:-The operation did not complete.}"
-    "$source_label"
-    "$eject_label")
-  _USB_PICKER_HIGHLIGHTS=(
-    '' "0:${#_USB_PICKER_LABELS[2]}:picker-error"
-    "0:${#source_label}:$source_style" '')
-  (( _USB_RESULT_EJECTED )) &&
-    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-success"
-  (( _USB_RESULT_STARTED && !_USB_RESULT_EJECTED )) &&
-    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-error"
-  _USB_PICKER_SEARCH=(done failed source recovery)
-  _USB_PICKER_DETAILS=('' "${_USB_RESULT_ERROR:-No additional diagnostic was retained.}" '' '')
-  _usb_result_choose 'External device / Flash · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
-}
-
-_usb_windows_result_screen() {
-  emulate -L zsh
-  local result_status=${1:-1} duration_label='' eject_label=''
-  local integrity_label='' integrity_style=picker-error
-  local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=()
-  local -a _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
-  _usb_human_duration $_USB_RESULT_SECONDS
-  duration_label=$REPLY
-  if (( _USB_RESULT_CHECKSUM_VALIDATED )); then
-    integrity_label="Image integrity · Verified · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM matched"
-    integrity_style=picker-success
-  elif [[ -n $_USB_RESULT_EXPECTED_CHECKSUM ]]; then
-    case $_USB_RESULT_CHECKSUM_ERROR in
-      (mismatch)
-        integrity_label="Image integrity · FAILED · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM did not match" ;;
-      (changed-or-unreadable)
-        integrity_label='Image integrity · FAILED · source changed or could not be reread' ;;
-      (*)
-        integrity_label="Image integrity · FAILED · SHA-$_USB_RESULT_CHECKSUM_ALGORITHM could not be calculated" ;;
-    esac
-  else
-    integrity_label='Image integrity · Not verified · no checksum provided'
-  fi
-  if (( result_status == 0 )) && [[ $_USB_RESULT_OUTCOME == complete &&
-        $_USB_RESULT_VERIFIED -eq 1 && $_USB_RESULT_VERIFY_SCOPE == windows-file-tree ]]; then
-    eject_label='Safe to remove · external drive ejected'
-    _USB_PICKER_VALUES=(done complete time integrity verify eject)
-    _USB_PICKER_LABELS=(
-      'Done'
-      'Windows installer complete · complete FAT32 file tree verified'
-      "Time · $duration_label · ${_USB_RESULT_RATE:-rate unavailable}"
-      "$integrity_label"
-      'USB verification · Every captured installer file byte-for-byte matched'
-      "$eject_label")
-    _USB_PICKER_HIGHLIGHTS=(
-      "0:${#_USB_PICKER_LABELS[1]}:picker-success"
-      "0:${#_USB_PICKER_LABELS[2]}:picker-success"
-      ''
-      "0:${#integrity_label}:$integrity_style"
-      "0:${#_USB_PICKER_LABELS[5]}:picker-success"
-      "0:${#eject_label}:picker-success")
-    _USB_PICKER_SEARCH=(done complete time integrity verified safe)
-    _USB_PICKER_DETAILS=(
-      ''
-      'The complete UEFI Windows installer tree was copied to FAT32, flushed, remounted read-only, and verified from uncached reads.'
-      ''
-      'A publisher checksum proves the selected ISO origin only when one was provided and matched.'
-      'Every captured regular source file matched the corresponding finished USB file exactly.'
-      '')
-    _usb_result_choose 'External device / Flash · Complete' 'Media  ›  Drive  ›  DONE'
-    return
-  fi
-  if (( !_USB_RESULT_STARTED )); then
-    eject_label='Nothing was written · drive remains mounted'
-  elif (( _USB_RESULT_EJECTED )); then
-    eject_label='Safe to remove · external drive ejected'
-  else
-    eject_label='Check the drive before removing it'
-  fi
-  _USB_PICKER_VALUES=(done error integrity eject)
-  _USB_PICKER_LABELS=(
-    'Done'
-    "Windows installer failed · ${_USB_RESULT_ERROR:-The operation did not complete.}"
-    "$integrity_label"
-    "$eject_label")
-  _USB_PICKER_HIGHLIGHTS=(
-    ''
-    "0:${#_USB_PICKER_LABELS[2]}:picker-error"
-    "0:${#integrity_label}:$integrity_style"
-    '')
-  (( _USB_RESULT_EJECTED )) &&
-    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-success"
-  (( _USB_RESULT_STARTED && !_USB_RESULT_EJECTED )) &&
-    _USB_PICKER_HIGHLIGHTS[4]="0:${#eject_label}:picker-error"
-  _USB_PICKER_SEARCH=(done failed integrity recovery)
-  _USB_PICKER_DETAILS=(
-    ''
-    "${_USB_RESULT_ERROR:-No additional diagnostic was retained.}"
-    'ISO integrity and finished USB fidelity are independent evidence.'
-    '')
-  _usb_result_choose 'External device / Flash · Couldn’t complete' 'Media  ›  Drive  ›  FAILED'
+    _USB_PICKER_SEARCH+=("$search") _USB_PICKER_DETAILS+=("$detail")
+  done
+  _usb_result_choose "$title" "$subtitle"
 }
 
 _usb_media_result_screen() {
   case $1 in
-    (macos-installer) _usb_macos_result_screen "$2" ;;
-    (windows-installer) _usb_windows_result_screen "$2" ;;
-    (*) _usb_result_screen "$2" ;;
+    (macos-installer|windows-installer) _usb_result_present "$1" "$2" ;;
+    (*) _usb_result_present raw "$2" ;;
   esac
 }
 
@@ -4945,28 +4731,6 @@ _usb_progress_controller() {
   return $execution_status
 }
 
-# Share the same optional palette boundary for confirmation and native output.
-# Appearance may supply defaults without the output peer; absent roles are plain.
-_usb_output_color() {
-  emulate -L zsh
-  local role=$1 key="output:$1" value=''
-  REPLY=''
-  if (( ${+functions[_output_color]} )); then
-    _output_color "$role"
-    [[ $REPLY == <0-255> ]] && return 0
-    REPLY=''
-    return 1
-  fi
-  if [[ ${(t)ZSH_OUTPUT_COLORS} == association* ]]; then
-    value=${ZSH_OUTPUT_COLORS[$role]-}
-  fi
-  if [[ $value != <0-255> && ${(t)_COMPOZSH_COLOR_FALLBACKS} == association* ]]; then
-    value=${_COMPOZSH_COLOR_FALLBACKS[$key]-}
-  fi
-  [[ $value == <0-255> ]] || return 1
-  REPLY=$value
-}
-
 _usb_confirmation_prompt() {
   emulate -L zsh
   local expected=$1 color='' style='' reset=$'\e[0m'
@@ -4974,7 +4738,7 @@ _usb_confirmation_prompt() {
   [[ -t 0 && -t 2 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
   zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
   (( ${terminfo[colors]:-0} >= 256 )) || return 0
-  _usb_output_color warning || {
+  (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output warning || {
     REPLY="Type exactly $expected to continue: "
     return 0
   }
@@ -4983,16 +4747,11 @@ _usb_confirmation_prompt() {
   REPLY="Type exactly ${style}${expected}${reset} to continue: "
 }
 
-_usb_format_confirm() {
+# Read only after the caller prints its exact operation preview. The default
+# remains refusal; no normalization of the typed phrase is permitted.
+_usb_confirm_exact() {
   emulate -L zsh
-  local identifier=$1 disk_label=$2 format_label=$3 volume_name=$4 answer=''
-  local expected="ERASE $identifier"
-  _USB_CONFIRM_ERROR=''
-  print -r -- "Target: $disk_label"
-  print -r -- "Format: $format_label"
-  print -r -- "Volume name: $volume_name"
-  print -r -- 'Action: Replace the whole disk with one volume using Apple diskutil.'
-  print -r -- 'This can permanently destroy every existing partition and all data on the selected drive.'
+  local expected=$1 answer=''
   _usb_confirmation_prompt "$expected"
   IFS= read -r "answer?$REPLY" || {
     _USB_CONFIRM_ERROR='Confirmation was not completed.'
@@ -5004,6 +4763,19 @@ _usb_format_confirm() {
   }
 }
 
+_usb_format_confirm() {
+  emulate -L zsh
+  local identifier=$1 disk_label=$2 format_label=$3 volume_name=$4
+  local expected="ERASE $identifier"
+  _USB_CONFIRM_ERROR=''
+  print -r -- "Target: $disk_label"
+  print -r -- "Format: $format_label"
+  print -r -- "Volume name: $volume_name"
+  print -r -- 'Action: Replace the whole disk with one volume using Apple diskutil.'
+  print -r -- 'This can permanently destroy every existing partition and all data on the selected drive.'
+  _usb_confirm_exact "$expected"
+}
+
 _usb_format_color_style() {
   emulate -L zsh
   local role=$1 bold=${2:-0} color=''
@@ -5011,7 +4783,7 @@ _usb_format_color_style() {
   [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
   zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
   (( ${terminfo[colors]:-0} >= 256 )) || return 0
-  _usb_output_color "$role" || return 0
+  (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output "$role" || return 0
   color=$REPLY
   if (( bold )); then
     REPLY=$'\e[1;38;5;'"${color}m"
@@ -5121,7 +4893,7 @@ _usb_format_execute() {
 _usb_confirm() {
   emulate -L zsh
   local image=$1 identifier=$2 disk_label=$3 request=$4
-  local checksum_algorithm=${5:-} checksum=${6:-} answer=''
+  local checksum_algorithm=${5:-} checksum=${6:-}
   local expected="ERASE $identifier"
   _USB_CONFIRM_ERROR=''
   if [[ ${_USB_SELECTED_MEDIA_KIND:-raw-image} == macos-installer ]]; then
@@ -5163,15 +4935,7 @@ _usb_confirm() {
     print -r -- 'Action: Flash and eject without verification'
   fi
   print -r -- 'This can permanently destroy every existing partition and all data on the selected drive.'
-  _usb_confirmation_prompt "$expected"
-  IFS= read -r "answer?$REPLY" || {
-    _USB_CONFIRM_ERROR='Confirmation was not completed.'
-    return 1
-  }
-  [[ $answer == "$expected" ]] || {
-    _USB_CONFIRM_ERROR="Confirmation did not match. Expected exactly: $expected"
-    return 1
-  }
+  _usb_confirm_exact "$expected"
 }
 
 _usb_help_flash() {

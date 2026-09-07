@@ -1,0 +1,23 @@
+# Entry point: _runtime_metadata_is_parseable
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Bound parsing work separately from the file-read ceiling. Check lengths and
+# line count before any whitespace/glob parsing, including direct TOML callers.
+_runtime_metadata_is_parseable() {
+  emulate -L zsh
+  unsetopt multibyte
+  local text=$1 line
+  (( ${#text} <= _PROMPT_METADATA_MAX_BYTES &&
+     ${#text} <= _RUNTIME_METADATA_PARSE_MAX_BYTES )) || return 1
+  local -a lines=("${(@f)text}")
+  (( ${#lines} <= 256 )) || return 1
+  for line in "${lines[@]}"; do
+    (( ${#line} <= 4096 )) || return 1
+  done
+  return 0
+}
+
+typeset -gi _RUNTIME_METADATA_PARSE_MAX_BYTES=65536
+
+:

@@ -1,0 +1,11 @@
+# Entry point: _usb_checksum_output_read
+# Pure: parse supplied shasum output, independently of caller-local variables.
+# The supplied algorithm determines the required length; uppercase is normalized.
+_usb_checksum_output_read() {
+  emulate -L zsh
+  local output=$1 algorithm=$2 digest=''
+  digest=${output%%[[:space:]]*}
+  _usb_checksum_validate "$algorithm" "${digest:l}"
+}
+
+:

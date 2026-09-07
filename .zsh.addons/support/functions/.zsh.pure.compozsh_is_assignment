@@ -1,0 +1,13 @@
+# Entry point: _compozsh_is_assignment
+# Pure: literal supplied text in; predicate status out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_compozsh_is_assignment() {
+  emulate -L zsh
+  local word=${(Q)1} MATCH=''
+  local -i MBEGIN=0 MEND=0
+  local -a match=() mbegin=() mend=()
+  [[ $word =~ '^[A-Za-z_][A-Za-z0-9_]*(\[[^]]+\])?(\+)?=' ]]
+}
+
+:

@@ -98,12 +98,15 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     zmodload -F zsh/parameter p:functions_source || exit
 
     typeset -a public_commands=(
@@ -198,7 +201,8 @@ _test_compozsh_picker_fuzzily_filters_the_live_catalog() {
 
   output=$(test_run_interactive "$home" $'
     source "$1/.zsh.addons/.zsh.help" || exit
-    source "$1/.zsh.addons/support/.zsh.matching" || exit
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$2" || exit
     _compozsh_tool_capture || exit
     _compozsh_tool_picker_collect msrch 10

@@ -1,0 +1,34 @@
+# Entry point: _compozsh_capture_bounded
+# Impure: invokes explicitly supplied, trusted command argv and captures stdout.
+# The bound covers the packet, including the private trailing NUL/exit status.
+# reply returns payload, complete/truncated/incomplete, and command status.
+# A partial packet has no trustworthy command status. This bounds retained
+# bytes, not wall time; asynchronous deadline/PID ownership stays with callers.
+_compozsh_capture_bounded() {
+  emulate -L zsh
+  local -x LC_ALL=C
+  local _ccb_limit_text=$1 _ccb_packet='' _ccb_result=''
+  local -i _ccb_limit=0
+  reply=()
+  (( $# >= 2 )) && [[ $_ccb_limit_text == <-> && ${#_ccb_limit_text} -le 9 ]] || return 2
+  _ccb_limit=$(( 10#$_ccb_limit_text ))
+  (( _ccb_limit > 0 )) || return 2
+  shift
+  _ccb_packet=$( { "$@" 2>/dev/null; print -rn -- $'\0'"$?"; } |
+    { local _ccb_chunk=''; IFS= read -r -u 0 -k $(( _ccb_limit + 1 )) _ccb_chunk || :;
+      print -rn -- "$_ccb_chunk"; } )
+  if (( ${#_ccb_packet} > _ccb_limit )); then
+    reply=("${_ccb_packet[1,_ccb_limit]}" truncated '')
+  elif [[ $_ccb_packet == *$'\0'* ]]; then
+    _ccb_result=${_ccb_packet##*$'\0'}
+    [[ $_ccb_result == <-> && ${#_ccb_result} -le 3 ]] || {
+      reply=('' incomplete ''); return 0
+    }
+    reply=("${_ccb_packet%$'\0'*}" complete "$_ccb_result")
+  else
+    reply=('' incomplete '')
+  fi
+  return 0
+}
+
+:

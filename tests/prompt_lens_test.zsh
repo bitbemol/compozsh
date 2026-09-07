@@ -12,6 +12,7 @@ _test_living_prompt_auto_lens_tracks_exact_project_context() {
   test_write_file "$second/.fixture-project" '' || return
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     TERM=dumb
     typeset -ga PROMPT_PROJECT_MARKERS=(.fixture-project)
     source "$1/.zsh.addons/.zsh.shell"
@@ -88,12 +89,15 @@ _test_living_prompt_fingerprint_uses_only_high_signal_changes() {
   command git -C "$git_only" branch -M main || return
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     TERM=dumb
     typeset -ga PROMPT_PROJECT_MARKERS=(.fixture-project)
     source "$1/.zsh.addons/.zsh.shell"
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.editor"
     (( ${+functions[_prompt_editing_started]} )) || exit 90
+
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
 
     _consume_lens() {
       BUFFER=x
@@ -180,6 +184,7 @@ _test_living_prompt_manual_lens_and_transcript_state() {
   test_write_file "$project/.fixture-project" '' || return
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     TERM=dumb
     typeset -ga PROMPT_PROJECT_MARKERS=(.fixture-project)
     source "$1/.zsh.addons/.zsh.shell"
@@ -259,6 +264,7 @@ _test_living_prompt_standalone_and_noninteractive_fallbacks() {
     'noninteractive bootstrap installed living-prompt capabilities' || return
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     TERM=dumb
     unset SSH_CONNECTION SSH_TTY
     typeset -ga PROMPT_PROJECT_MARKERS=(.fixture-project)
@@ -290,6 +296,7 @@ _test_living_prompt_outcome_receipt_policy() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     TERM=dumb
     source "$1/.zsh.addons/.zsh.prompt"
     (( ${+functions[_prompt_outcome_receipt]} )) || exit 90
@@ -353,13 +360,17 @@ _test_living_prompt_interaction_lens_ready_morphs_and_returns_to_base() {
   command git -C "$project" branch -M main || return
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE PROMPT_SUBST PROMPT_BANG
     TERM=dumb COLUMNS=120 LINES=30
     typeset -ga PROMPT_PROJECT_MARKERS=(.fixture-project)
     source "$1/.zsh.addons/.zsh.shell"
     source "$1/.zsh.addons/.zsh.prompt"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     source "$1/.zsh.addons/.zsh.editor"
+
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
 
     _focus_render() {
       _prompt_editing_started || :
@@ -497,10 +508,12 @@ _test_living_prompt_interaction_lenses_cover_local_work_intents() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE PROMPT_SUBST PROMPT_BANG
     TERM=dumb COLUMNS=140 LINES=30
     source "$1/.zsh.addons/.zsh.prompt"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
 
     # Establish one captured snapshot. Every edit below must derive only from
     # these exact facts and the literal BUFFER.
@@ -594,8 +607,12 @@ _test_living_prompt_interaction_lenses_cover_remote_flow_and_caution() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     TERM=dumb COLUMNS=140 LINES=30
     source "$1/.zsh.addons/.zsh.prompt"
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
     _PROMPT_VIEW=compact
     _PROMPT_PATH_TEXT="~/project"
     _PROMPT_FULL_PATH_TEXT="~/project"
@@ -739,10 +756,14 @@ exit 97" || return
   done
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE PROMPT_SUBST PROMPT_BANG
     TERM=dumb COLUMNS=60 LINES=30
     source "$1/.zsh.addons/.zsh.prompt"
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
     source "$1/.zsh.addons/.zsh.editor"
 
     _PROMPT_VIEW=compact
@@ -923,6 +944,7 @@ exit 97" || return
     # completion intentionally has no corresponding persistent adapter state.
     BUFFER="git st" CURSOR=${#BUFFER}
     local padding=${(l:100::x:)}
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _ZLE_AUTOSUGGEST_CACHE_BUFFER=$BUFFER
     _ZLE_AUTOSUGGEST_SUFFIX="atus --short ${padding} PRIVATE-TAIL"
     _ZLE_AUTOSUGGEST_DISPLAY=$_ZLE_AUTOSUGGEST_SUFFIX
@@ -961,10 +983,12 @@ _test_living_prompt_interaction_lens_unicode_rows_fit_terminal_cells() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE
     TERM=dumb COLUMNS=28 LINES=12
     source "$1/.zsh.addons/.zsh.prompt"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     _PROMPT_VIEW=compact
     _PROMPT_PATH_TEXT="~/專案/非常に長い資料"
     _PROMPT_FULL_PATH_TEXT="~/專案/非常に長い資料"
@@ -1052,6 +1076,7 @@ _test_living_prompt_unicode_layout_respects_terminal_cells() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE
     TERM=dumb
@@ -1091,6 +1116,7 @@ _test_living_prompt_peer_hooks_converge_and_missing_capabilities_noop() {
 
   for mode in editor-first prompt-first highlighting-first; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home-$mode" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
       case $2 in
         (editor-first)
           source "$1/.zsh.addons/.zsh.editor"

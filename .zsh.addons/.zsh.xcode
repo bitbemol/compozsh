@@ -151,13 +151,6 @@ _xcode_capture_command() {
   return $command_status
 }
 
-_xcode_json_raw() {
-  emulate -L zsh
-  local json=$1 key=$2
-  (( $+commands[plutil] )) || return 1
-  REPLY=$(print -rn -- "$json" |
-    command /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null) || return
-}
 
 # Decode the five named XML entities emitted by plutil for string values. Decode
 # ampersands last so literal text such as "&lt;" makes exactly one round trip.
@@ -217,10 +210,10 @@ _xcode_test_node_sources_capture() {
   (( depth <= 12 && _XCODE_TEST_DETAIL_NODE_COUNT < 256 )) || return 0
   (( ++_XCODE_TEST_DETAIL_NODE_COUNT ))
 
-  if _xcode_json_raw "$json" "$key.sourceLocation.filePath"; then
+  if (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key.sourceLocation.filePath"; then
     file=$REPLY
     if [[ -n $file && ${#file} -le 4096 && $file != *[[:cntrl:]]* ]]; then
-      if _xcode_json_raw "$json" "$key.sourceLocation.lineNumber" &&
+      if (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key.sourceLocation.lineNumber" &&
           [[ $REPLY == <-> ]]; then
         line=$REPLY
       fi
@@ -229,10 +222,11 @@ _xcode_test_node_sources_capture() {
         _XCODE_TEST_DETAIL_FILES+=("$file")
     fi
   fi
-  _xcode_json_raw "$json" "$key.children" || return 0
+  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key.children" || return 0
+  # Validate provider text before an integer assignment can evaluate it.
+  (( ${+functions[_matching_decimal_limit]} )) &&
+    _matching_decimal_limit "$REPLY" 64 || return 0
   children=$REPLY
-  [[ $children == <-> ]] || return 0
-  (( children > 64 )) && children=64
   for (( index = 0; index < children; ++index )); do
     _xcode_test_node_sources_capture "$json" "$key.children.$index" $(( depth + 1 ))
     (( _XCODE_TEST_DETAIL_NODE_COUNT < 256 )) || break
@@ -250,7 +244,7 @@ _xcode_test_failure_files_capture() {
   _xcode_capture_command xcrun xcresulttool get test-results test-details \
     --path "$bundle" --test-id "$identifier" --compact || return
   json=$_XCODE_CAPTURE
-  _xcode_json_raw "$json" testRuns || return 1
+  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" testRuns || return 1
   count=$REPLY
   [[ $count == <-> ]] || return 1
   (( count > 64 )) && count=64
@@ -278,16 +272,16 @@ _xcode_test_build_issues_capture() {
   _xcode_capture_command xcrun xcresulttool get build-results \
     --path "$bundle" --compact || return
   json=$_XCODE_CAPTURE
-  _xcode_json_raw "$json" errors || return 0
+  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" errors || return 0
   count=$REPLY
   [[ $count == <-> ]] || return 1
   _XCODE_TEST_BUILD_ERROR_TOTAL=$count
   (( count > 20 )) && count=20
   for (( index = 0; index < count; ++index )); do
-    _xcode_json_raw "$json" "errors.$index.issueType" && issue=$REPLY || issue='Build error'
-    _xcode_json_raw "$json" "errors.$index.targetName" && target=$REPLY || target=''
-    _xcode_json_raw "$json" "errors.$index.message" && message=$REPLY || message='No diagnostic was reported.'
-    _xcode_json_raw "$json" "errors.$index.sourceURL" && source=$REPLY || source=''
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.issueType" && issue=$REPLY || issue='Build error'
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.targetName" && target=$REPLY || target=''
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.message" && message=$REPLY || message='No diagnostic was reported.'
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.sourceURL" && source=$REPLY || source=''
     (( ${#issue} > 256 )) && issue=${issue[1,256]}
     (( ${#target} > 256 )) && target=${target[1,256]}
     (( ${#message} > 4096 )) && message=${message[1,4096]}
@@ -317,26 +311,27 @@ _xcode_test_result_capture() {
   if _xcode_capture_command xcrun xcresulttool get test-results summary \
        --path "$bundle" --compact; then
     json=$_XCODE_CAPTURE
-    _xcode_json_raw "$json" result && _XCODE_TEST_RESULT=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" result && _XCODE_TEST_RESULT=$REPLY
     case $_XCODE_TEST_RESULT in
       (Passed|Failed|'Expected Failure'|Skipped|unknown) ;;
       (*) _XCODE_TEST_RESULT='' ;;
     esac
-    _xcode_json_raw "$json" totalTestCount && [[ $REPLY == <-> ]] && _XCODE_TEST_TOTAL=$REPLY
-    _xcode_json_raw "$json" passedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_PASSED=$REPLY
-    _xcode_json_raw "$json" failedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_FAILED=$REPLY
-    _xcode_json_raw "$json" skippedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_SKIPPED=$REPLY
-    _xcode_json_raw "$json" expectedFailures && [[ $REPLY == <-> ]] && _XCODE_TEST_EXPECTED_FAILURES=$REPLY
-    _xcode_json_raw "$json" testFailures && failure_count=$REPLY || failure_count=0
-    [[ $failure_count == <-> ]] || failure_count=0
-    (( failure_count > 20 )) && failure_count=20
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" totalTestCount && [[ $REPLY == <-> ]] && _XCODE_TEST_TOTAL=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" passedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_PASSED=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" failedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_FAILED=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" skippedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_SKIPPED=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" expectedFailures && [[ $REPLY == <-> ]] && _XCODE_TEST_EXPECTED_FAILURES=$REPLY
+    if (( ${+functions[_compozsh_plutil_raw]} && ${+functions[_matching_decimal_limit]} )) &&
+        _compozsh_plutil_raw "$json" testFailures && _matching_decimal_limit "$REPLY" 20; then
+      failure_count=$REPLY
+    fi
     for (( index = 0; index < failure_count; ++index )); do
-      _xcode_json_raw "$json" "testFailures.$index.testName" && name=$REPLY || name="Failed test $(( index + 1 ))"
-      _xcode_json_raw "$json" "testFailures.$index.targetName" && target=$REPLY || target=''
-      _xcode_json_raw "$json" "testFailures.$index.failureText" && reason=$REPLY || reason='No failure reason was reported.'
-      _xcode_json_raw "$json" "testFailures.$index.testIdentifierURL" && identifier=$REPLY || identifier=''
+      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.testName" && name=$REPLY || name="Failed test $(( index + 1 ))"
+      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.targetName" && target=$REPLY || target=''
+      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.failureText" && reason=$REPLY || reason='No failure reason was reported.'
+      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.testIdentifierURL" && identifier=$REPLY || identifier=''
       [[ -n $identifier ]] ||
-        { _xcode_json_raw "$json" "testFailures.$index.testIdentifierString" && identifier=$REPLY || identifier=''; }
+        { (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.testIdentifierString" && identifier=$REPLY || identifier=''; }
       [[ ${#identifier} -le 4096 && $identifier != *[[:cntrl:]]* ]] || identifier=''
       (( ${#name} > 512 )) && name=${name[1,512]}
       (( ${#target} > 256 )) && target=${target[1,256]}
@@ -489,7 +484,8 @@ _xcode_test_report_copy() {
     return 1
   }
   _xcode_test_report_build "$action_status" || return
-  print -rn -- "$REPLY" | command "$clipboard_binary" || {
+  (( ${+functions[_compozsh_effect_copy]} )) &&
+    _compozsh_effect_copy "$REPLY" "$clipboard_binary" || {
     print -u2 -r -- 'xcode: could not copy the test report'
     return 1
   }
@@ -526,7 +522,7 @@ _xcode_schemes_capture() {
   _xcode_capture_command "${_XCODE_COMMAND[@]}" || return
   json=$_XCODE_CAPTURE
   key="$kind.schemes"
-  _xcode_json_raw "$json" "$key" || {
+  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key" || {
     _XCODE_CAPTURE_ERROR='Xcode returned no readable scheme list'
     return 1
   }
@@ -787,15 +783,15 @@ _xcode_build_settings_capture() {
   # The root is an array. Probe a bounded number of target dictionaries;
   # plutil intentionally has no empty-key extraction for the root count.
   for (( index = 0; index < 100; ++index )); do
-    _xcode_json_raw "$json" "$index.buildSettings" || break
-    _xcode_json_raw "$json" "$index.buildSettings.WRAPPER_EXTENSION" || continue
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings" || break
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings.WRAPPER_EXTENSION" || continue
     extension=$REPLY
     [[ $extension == app ]] || continue
-    _xcode_json_raw "$json" "$index.buildSettings.TARGET_BUILD_DIR" || continue
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings.TARGET_BUILD_DIR" || continue
     build_dir=$REPLY
-    _xcode_json_raw "$json" "$index.buildSettings.FULL_PRODUCT_NAME" || continue
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings.FULL_PRODUCT_NAME" || continue
     product=$REPLY
-    _xcode_json_raw "$json" "$index.buildSettings.PRODUCT_BUNDLE_IDENTIFIER" || continue
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings.PRODUCT_BUNDLE_IDENTIFIER" || continue
     bundle_id=$REPLY
     [[ $build_dir == /* && -n $product && $product != */* &&
        $bundle_id == [[:alnum:]][[:alnum:].-]# ]] || continue
@@ -1446,7 +1442,8 @@ _xcode_logs_copy() {
     _xcode_logs_notice='Copy failed: clipboard unavailable'
     return 1
   fi
-  if ! print -rn -- "$_xcode_logs_copy_payload" | command "$_xcode_run_clipboard"; then
+  if ! { (( ${+functions[_compozsh_effect_copy]} )) &&
+      _compozsh_effect_copy "$_xcode_logs_copy_payload" "$_xcode_run_clipboard"; }; then
     _xcode_logs_notice='Copy failed: clipboard write failed'
     return 1
   fi
@@ -1620,7 +1617,8 @@ _xcode_run_live() {
     _xcode_run_identity "$_xcode_run_pid" && _xcode_run_identity=$REPLY
     _xcode_run_lldb=$(command xcrun --find lldb 2>/dev/null)
     [[ $_xcode_run_lldb == /* && -x $_xcode_run_lldb && ! -d $_xcode_run_lldb ]] || _xcode_run_lldb=''
-    _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
+    (( ${+functions[_compozsh_effect_copy]} )) &&
+      _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
     while true; do
       _zle_picker_run 20 '' 1 0 _xcode_run_controller
       screen_result=$?
@@ -1688,26 +1686,12 @@ _xcode_run_live() {
 # Workspace menus own a small source array but reuse the shared UI renderer,
 # screen lifecycle, focus language, filtering and resize behavior.
 _xcode_picker_collect() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-  local query=$1 raw_limit=$2 value='' label='' searchable='' pattern=''
-  local -a reply=()
-  local -i limit=$raw_limit index=0
-  typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
-  [[ $limit == <-> ]] || limit=10
-  if [[ -n $query ]]; then
-    _matching_compile "$query" || return
-    pattern=${reply[2]}
-  fi
-  for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
-    value=${_XCODE_PICKER_VALUES[index]}
-    label=${_XCODE_PICKER_LABELS[index]}
-    searchable="${label} ${_XCODE_PICKER_SEARCH[index]-}"
-    [[ -z $query || $searchable == ${~pattern} ]] || continue
-    _ZLE_PICKER_RESULTS+=("$value")
-    _ZLE_PICKER_LABELS+=("$label")
-    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && break
-  done
+  (( ${+functions[_zle_ui_collect]} )) || {
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    return 1
+  }
+  _zle_ui_collect source "$1" "$2" _XCODE_PICKER_VALUES _XCODE_PICKER_LABELS \
+    _XCODE_PICKER_LABELS _XCODE_PICKER_SEARCH append none
 }
 
 _xcode_choose() {
@@ -2316,7 +2300,9 @@ xcode() {
       return $?
     fi
 
-    _XCODE_TEST_CLIPBOARD_BINARY=${commands[pbcopy]:-}
+    _XCODE_TEST_CLIPBOARD_BINARY=''
+    (( ${+functions[_compozsh_effect_copy]} )) &&
+      _XCODE_TEST_CLIPBOARD_BINARY=${commands[pbcopy]:-}
     _zle_picker_run 20 '' 1 0 _xcode_workspace_controller
     picker_status=$?
     (( picker_status == 1 )) && return 0

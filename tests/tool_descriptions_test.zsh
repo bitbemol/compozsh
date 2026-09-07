@@ -5,8 +5,11 @@ _test_prompt_owned_descriptions() {
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.prompt"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     (( ${+functions[_compozsh_prompt_capture]} )) || {
       print -u2 "missing captured help descriptions"; exit 1
     }
@@ -74,6 +77,7 @@ _compozsh_help_demo() { print -rl -- "usage: demo" "Updated fixture metadata."; 
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.prompt"
+    for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     source "$1/.zsh.addons/.zsh.tools"
     source "$HOME/.zsh.addons/.zsh.fixture"
     [[ ! -e $HOME/help-called && ! -e $HOME/public-called ]] || exit 1
@@ -119,6 +123,7 @@ _test_prompt_descriptions_native() {
 HISTFILE=/dev/null
 exec {event_fd}<> "$HOME/events"
 for peer in help navigation tools prompt editor; do source "$DESCRIPTION_ROOT/.zsh.addons/.zsh.$peer"; done
+for lexical_unit in "$DESCRIPTION_ROOT/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
 _description_observe() {
   local slot=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
   (( slot )) || slot=${_PROMPT_INTERACTION_LABELS[(Ie)ABOUT]}

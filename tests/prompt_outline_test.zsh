@@ -1,6 +1,7 @@
 _test_prompt_outline_color() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.prompt"
     local COLUMNS=120 LINES=30 kind="" expected="" row=""

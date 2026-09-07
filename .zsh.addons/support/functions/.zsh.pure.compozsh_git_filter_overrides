@@ -1,0 +1,28 @@
+# Entry point: _compozsh_git_filter_overrides
+# Pure: captured NUL-delimited filter names and clean/restore policy yield argv.
+# Success certifies the complete override set. Failure may retain a bounded
+# partial reply for diagnostics; callers must never execute it after failure.
+_compozsh_git_filter_overrides() {
+  emulate -L zsh
+  local names=$1 mode=${2:-clean} key='' driver=''
+  local -A seen=()
+  local -i width=6
+  reply=()
+  [[ $mode == (clean|restore) ]] || return 2
+  [[ $mode == restore ]] && width=8
+  while IFS= read -r -d '' key; do
+    driver=${${key#filter.}%.*}
+    [[ -n $driver && -z ${seen[$driver]-} ]] || continue
+    # Git splits -c key=value at the first equals sign. Such a subsection
+    # cannot be overridden exactly through argv, so fail before any Git read.
+    [[ $driver != *'='* ]] || return 2
+    (( ${#reply} + width <= 4096 )) || return 2
+    seen[$driver]=1
+    reply+=(-c "filter.${driver}.clean=")
+    [[ $mode == restore ]] && reply+=(-c "filter.${driver}.smudge=")
+    reply+=(-c "filter.${driver}.process=" -c "filter.${driver}.required=false")
+  done <<< "$names"
+  return 0
+}
+
+:

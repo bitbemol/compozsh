@@ -6,6 +6,7 @@ _test_appearance_runtime_labels_use_tool_role() {
   for scheme in dark light; do
     for order in first last; do
       output=$(test_run_interactive "$TEST_TMP_DIR/$scheme-$order" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
         ZSH_COLOR_SCHEME=$2
         [[ $3 == first ]] && source "$1/.zsh.addons/support/.zsh.appearance"
         source "$1/.zsh.addons/.zsh.prompt"
@@ -49,6 +50,7 @@ _test_appearance_navigation_native_colors_and_plain_fallbacks() {
   local scheme='' output=''
   for scheme in dark light; do
   output=$(test_run_interactive "$TEST_TMP_DIR/$scheme" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     setopt EXTENDED_GLOB
     export LC_ALL=en_US.UTF-8
     ZSH_COLOR_SCHEME=$2
@@ -88,7 +90,7 @@ _test_appearance_navigation_native_colors_and_plain_fallbacks() {
         _navigation_capture || exit 5
         captured=$REPLY
         for role in heading accent success muted; do
-          _output_color "$role" 75
+          _compozsh_palette_color output "$role" 75
           color=$REPLY
           [[ $captured == *$'\''\e[38;5;'\''"${color}m"* ]] || {
             print -u2 -- "navigation did not paint semantic $role"
@@ -123,10 +125,12 @@ _test_appearance_completion_chrome_uses_runtime_palette() {
   for scheme in dark light; do
     for order in first last; do
       output=$(test_run_interactive "$TEST_TMP_DIR/$scheme-$order" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
         ZSH_COLOR_SCHEME=$2
         [[ $3 == first ]] && source "$1/.zsh.addons/support/.zsh.appearance"
         source "$1/.zsh.addons/.zsh.editor"
-        source "$1/.zsh.addons/support/.zsh.ui"
+        for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+        source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
         [[ $3 == last ]] && source "$1/.zsh.addons/support/.zsh.appearance"
         zmodload zsh/zpty || exit 1
         _completion_fixture() {
@@ -161,8 +165,8 @@ _test_appearance_completion_chrome_uses_runtime_palette() {
           for mode in default custom invalid; do
             [[ $mode == custom ]] && ZSH_OUTPUT_COLORS=(heading 123 error 124)
             [[ $mode == invalid ]] && ZSH_OUTPUT_COLORS=(heading invalid error invalid)
-            _zle_picker_output_color heading 75; heading=$REPLY
-            _zle_picker_output_color error 203; error=$REPLY
+            _compozsh_palette_color output heading 75; heading=$REPLY
+            _compozsh_palette_color output error 203; error=$REPLY
             _completion_capture || exit 2
             captured=$REPLY
             [[ $captured == *$'\''\e[38;5;'\''"${heading}m"* &&
@@ -196,6 +200,7 @@ _test_appearance_completion_candidates_respect_color_capability() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/support/.zsh.appearance"
@@ -263,6 +268,7 @@ _test_appearance_completion_unset_output_palette() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/support/.zsh.appearance"
     unset ZSH_OUTPUT_COLORS
@@ -295,6 +301,7 @@ _test_appearance_autosuggestion_unset_highlight_palette() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/support/.zsh.appearance"
     unset ZSH_HIGHLIGHT_STYLES

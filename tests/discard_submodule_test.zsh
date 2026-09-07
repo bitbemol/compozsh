@@ -4,6 +4,7 @@ _test_discard_preserves_submodule_edits() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     local parent="$HOME/parent" child="$HOME/parent/child" repo=""
     command mkdir -p "$child"

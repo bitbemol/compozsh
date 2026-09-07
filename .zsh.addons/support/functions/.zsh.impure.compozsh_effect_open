@@ -1,0 +1,27 @@
+# Entry point: _compozsh_effect_open
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_compozsh_effect_open() {
+  emulate -L zsh
+  (( $# == 3 )) || return 2
+  local action=$1 target=$2 binary=$3
+  REPLY=unavailable
+  [[ $target == /* ]] || return 2
+  [[ -n $binary && -x $binary && ! -d $binary ]] || return 1
+  REPLY=stale
+  case $action in
+    open)
+      [[ -f $target || -d $target ]] || return 1
+      REPLY=executed
+      command "$binary" -- "$target" ;;
+    reveal)
+      [[ -e $target || -L $target ]] || return 1
+      REPLY=executed
+      command "$binary" -R -- "$target" ;;
+    *) return 2 ;;
+  esac
+}
+
+
+:

@@ -1,0 +1,450 @@
+# Entry point: _zle_picker_inspect_render
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Compose the existing result rows with an optional help pane. The same ZLE
+# display owns both panes, including cleanup, colors, and resize behavior.
+_zle_picker_inspect_render() {
+  emulate -L zsh
+  local -i selected=$1 width=$2 left_width=$3
+  local name=${_ZLE_PICKER_INSPECT_FIXED_KEY:-${_ZLE_PICKER_RESULTS[selected]:-$_ZLE_PICKER_INSPECT_FALLBACK}} left='' right='' title='' role='' row_highlights=''
+  local -i rows=${#_ZLE_PICKER_DISPLAY} height=6 index=0 line_index=0 right_width=$width
+  local -i stacked=0
+  local -a display=() styles=() indexes=() highlights=() left_ends=() right_roles=() context_starts=() match_starts=() right_syntax=()
+  _zle_picker_body_height
+  local -i body_height=$REPLY
+  # A caller can keep shared information visible beneath the actions when a
+  # side pane does not fit. Focus still grants the whole reading area.
+  if (( ${_ZLE_PICKER_INSPECT_STACKED:-0} && !_ZLE_PICKER_DOCUMENT &&
+        !left_width && !_ZLE_PICKER_INSPECT_FOCUS && body_height - rows >= 1 )); then
+    stacked=1
+  fi
+  (( left_width )) && right_width=$(( width - left_width - 3 ))
+  _zle_picker_inspect_prepare "$name" $right_width
+  # Passive details stay compact beside short lists. Deliberate focus grants
+  # more reading room; terminal height still bounds the shared display.
+  (( _ZLE_PICKER_INSPECT_FOCUS )) && height=12
+  if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 8 )) &&
+     { (( _ZLE_PICKER_INSPECT_FOCUS || _ZLE_PICKER_DOCUMENT || _ZLE_PICKER_ACTION_VIEW || _ZLE_PICKER_REFERENCE_VIEW )) || [[ -n $name && $name == "$_ZLE_PICKER_INSPECT_EXPAND_KEY" ]]; }; then
+    height=$body_height
+  else
+    (( LINES > 0 && height > LINES / 2 )) && height=$(( LINES / 2 ))
+  fi
+  (( ${#_ZLE_PICKER_INSPECT_LINES} + 1 < height )) && height=$(( ${#_ZLE_PICKER_INSPECT_LINES} + 1 ))
+  if (( stacked )); then
+    height=$(( body_height - rows + 1 ))
+  else
+    (( rows - 1 > height )) && height=$(( rows - 1 ))
+  fi
+  (( LINES > 0 && height > body_height )) && height=$body_height
+  (( height < 2 )) && height=2
+  _ZLE_PICKER_INSPECT_PAGE=$(( height - 1 ))
+  local -i max_offset=$(( ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE ))
+  (( max_offset < 0 )) && max_offset=0
+  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW == 1 )) &&
+     [[ $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+    _ZLE_PICKER_INSPECT_OFFSET=$max_offset
+  fi
+  (( _ZLE_PICKER_INSPECT_OFFSET > max_offset )) && _ZLE_PICKER_INSPECT_OFFSET=$max_offset
+  (( _ZLE_PICKER_INSPECT_OFFSET < 0 )) && _ZLE_PICKER_INSPECT_OFFSET=0
+  _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=0
+  _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=0
+  if (( _ZLE_PICKER_DOCUMENT )) && [[ -n $name && $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+    _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=${_ZLE_PICKER_INSPECT_SOURCE_LINES[_ZLE_PICKER_INSPECT_OFFSET+1]:-0}
+    # The shared pane may be taller than a short document because the file list
+    # establishes the workspace height. Clamp the source-map lookup to the last
+    # prepared row; indexing the unused pane space would publish zero geometry
+    # and prevent the syntax provider from ever receiving this document.
+    local -i document_last_display=$((_ZLE_PICKER_INSPECT_OFFSET + _ZLE_PICKER_INSPECT_PAGE))
+    (( document_last_display > ${#_ZLE_PICKER_INSPECT_SOURCE_LINES} )) &&
+      document_last_display=${#_ZLE_PICKER_INSPECT_SOURCE_LINES}
+    _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=${_ZLE_PICKER_INSPECT_SOURCE_LINES[document_last_display]:-0}
+  fi
+  (( left_width || _ZLE_PICKER_INSPECT_FOCUS || stacked )) || return
+  if (( stacked )); then
+    # Retain action metadata exactly; appended output rows never gain digits.
+    display=("${_ZLE_PICKER_DISPLAY[@][1,-2]}")
+    styles=("${_ZLE_PICKER_DISPLAY_STYLES[@][1,-2]}")
+    indexes=("${_ZLE_PICKER_DISPLAY_INDEX_ENDS[@][1,-2]}")
+    highlights=("${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[@][1,-2]}")
+    context_starts=("${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[@][1,-2]}")
+    match_starts=("${_ZLE_PICKER_DISPLAY_MATCH_STARTS[@][1,-2]}")
+    left_ends=("${display[@]/*/-1}")
+    right_roles=("${display[@]/*/}")
+    right_syntax=("${display[@]/*/}")
+  fi
+  title=${(V)_ZLE_PICKER_INSPECT_TITLE}
+  if (( _ZLE_PICKER_DOCUMENT )) && [[ -n $name ]]; then
+    (( _ZLE_PICKER_READER_ONLY )) || title=${(V)_ZLE_PICKER_LABELS[selected]}
+    [[ $name == "$_ZLE_PICKER_DOCUMENT_KEY" && -n $_ZLE_PICKER_DOCUMENT_TITLE ]] && title=${(V)_ZLE_PICKER_DOCUMENT_TITLE}
+  fi
+  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
+    (( _ZLE_PICKER_DOCUMENT_FOLLOW )) && title+=' · Live' || title+=' · Paused'
+  fi
+  (( _ZLE_PICKER_INSPECT_FOCUS )) && title="▸ $title"
+  # The body already identifies the selection. A counter is useful only when
+  # there is more content to scroll, so short details stay quiet.
+  if (( max_offset )); then
+    title+=" · $(( _ZLE_PICKER_INSPECT_OFFSET + 1 ))/${#_ZLE_PICKER_INSPECT_LINES}"
+  fi
+  for (( index=1; index<=height; ++index )); do
+    if (( index == 1 )); then
+      right=$title
+      role=heading
+    else
+      line_index=$(( index - 1 + _ZLE_PICKER_INSPECT_OFFSET ))
+      right=${_ZLE_PICKER_INSPECT_LINES[line_index]-}
+      role=${_ZLE_PICKER_INSPECT_ROLES[line_index]:-text}
+    fi
+    if (( !_ZLE_PICKER_INSPECT_FOCUS )) && [[ $role == heading ]]; then
+      role=info
+      (( index == 1 )) && role=muted
+    fi
+    _zle_picker_fit "$right" $right_width
+    right=$REPLY
+    if (( left_width )); then
+      left=''
+      (( index < rows )) && left=${_ZLE_PICKER_DISPLAY[index]}
+      _zle_picker_fit "$left" $left_width
+      left=$REPLY
+      if (( _ZLE_PICKER_INSPECT_FOCUS )); then
+        display+=("${left} ┃ ${right}")
+      else
+        display+=("${left} │ ${right}")
+      fi
+      left_ends+=(${#left})
+      if (( _ZLE_PICKER_INSPECT_FOCUS )) &&
+         [[ ${_ZLE_PICKER_DISPLAY_STYLES[index]:-picker-text} == picker-selected ]]; then
+        styles+=(picker-selected-inactive)
+      else
+        styles+=("${_ZLE_PICKER_DISPLAY_STYLES[index]:-picker-text}")
+      fi
+      indexes+=("${_ZLE_PICKER_DISPLAY_INDEX_ENDS[index]:-0}")
+      # Rows beyond the navigator are reader space, not its former footer.
+      row_highlights=''
+      (( index < rows )) && row_highlights=${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]-}
+      _zle_picker_highlights_shift "$row_highlights" 0 ${#left}
+      highlights+=("$REPLY")
+      context_starts+=("${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index]:-0}")
+      match_starts+=("${_ZLE_PICKER_DISPLAY_MATCH_STARTS[index]:--1}")
+    else
+      display+=("$right")
+      left_ends+=(0)
+      styles+=(picker-text)
+      indexes+=(0)
+      highlights+=('')
+      context_starts+=(0)
+      match_starts+=(-1)
+      (( stacked )) || _ZLE_PICKER_INDEXES_VISIBLE=0
+    fi
+    right_roles+=("$role")
+    if (( (_ZLE_PICKER_DOCUMENT || _ZLE_PICKER_REFERENCE_VIEW) && index > 1 )); then
+      right_syntax+=("${_ZLE_PICKER_INSPECT_SYNTAX[line_index]-}")
+    else
+      right_syntax+=('')
+    fi
+  done
+  display+=("${_ZLE_PICKER_DISPLAY[-1]}")
+  styles+=(picker-muted)
+  indexes+=(0)
+  highlights+=("${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[-1]-}")
+  left_ends+=(-1)
+  right_roles+=('')
+  right_syntax+=('')
+  context_starts+=(0)
+  match_starts+=(-1)
+  _ZLE_PICKER_DISPLAY=("${display[@]}")
+  _ZLE_PICKER_DISPLAY_STYLES=("${styles[@]}")
+  _ZLE_PICKER_DISPLAY_INDEX_ENDS=("${indexes[@]}")
+  _ZLE_PICKER_DISPLAY_HIGHLIGHTS=("${highlights[@]}")
+  _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${left_ends[@]}")
+  _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${right_roles[@]}")
+  _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=("${right_syntax[@]}")
+  _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${context_starts[@]}")
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${match_starts[@]}")
+}
+
+# Wrap only when the selected item or pane width changes, never on scroll.
+# Information previews retain 256 visual lines; primary documents retain
+# 20,000. No ANSI or prompt syntax is evaluated as input.
+_zle_picker_inspect_prepare() {
+  emulate -L zsh
+  local name=$1 line='' part='' words='' role='' text=''
+  local -i width=$2 first=1 max_lines=256 source_index=0 character_offset=0 document_pending=0
+  local -i clip_lines=${_ZLE_PICKER_INSPECT_CLIP_LINES:-0}
+  local -i ascii_wrap=0 remaining_width=0 restore_multibyte=0 inspect_source_row=0
+  local -a source_lines=() reply=() syntax=()
+  [[ -o MULTIBYTE ]] && restore_multibyte=1
+  (( _ZLE_PICKER_DOCUMENT )) && max_lines=20000
+  if [[ $name == "$_ZLE_PICKER_INSPECT_KEY" ]] &&
+     (( width == _ZLE_PICKER_INSPECT_WIDTH )); then
+    return
+  fi
+  # A focus transition can rewrap ordinary help/preview text. Keep the source
+  # paragraph at the top, not an obsolete wrapped-row number. No new capture.
+  if (( !_ZLE_PICKER_DOCUMENT && _ZLE_PICKER_INSPECT_WIDTH > 0 )) &&
+     [[ $name == "$_ZLE_PICKER_INSPECT_KEY" ]]; then
+    inspect_source_row=${_ZLE_PICKER_INSPECT_SOURCE_LINES[_ZLE_PICKER_INSPECT_OFFSET+1]:-0}
+  fi
+  if [[ $name != "$_ZLE_PICKER_INSPECT_KEY" ]]; then
+    if (( _ZLE_PICKER_DOCUMENT )); then
+      _zle_picker_document_bookmark
+      _ZLE_PICKER_INSPECT_OFFSET=${_ZLE_PICKER_DOCUMENT_OFFSETS[$name]:-0}
+      if (( _ZLE_PICKER_READER_ONLY && !_ZLE_PICKER_DOCUMENT_TARGET_ROW &&
+            ${_ZLE_PICKER_DOCUMENT_WIDTHS[$name]:-0} != width )); then
+        _ZLE_PICKER_DOCUMENT_TARGET_ROW=${_ZLE_PICKER_DOCUMENT_ROWS[$name]:-0}
+      fi
+    else
+      _ZLE_PICKER_INSPECT_OFFSET=0
+    fi
+  elif (( _ZLE_PICKER_READER_ONLY && _ZLE_PICKER_INSPECT_WIDTH > 0 &&
+          !_ZLE_PICKER_DOCUMENT_TARGET_ROW )); then
+    # Rewrapping the same captured document preserves its source row. A
+    # caller invalidating width to zero for a new filter owns that transition.
+    _ZLE_PICKER_DOCUMENT_TARGET_ROW=${_ZLE_PICKER_INSPECT_SOURCE_LINES[_ZLE_PICKER_INSPECT_OFFSET+1]:-0}
+  fi
+  _ZLE_PICKER_INSPECT_KEY=$name
+  _ZLE_PICKER_INSPECT_WIDTH=$width
+  _ZLE_PICKER_INSPECT_LINES=()
+  _ZLE_PICKER_INSPECT_ROLES=()
+  _ZLE_PICKER_INSPECT_SOURCE_LINES=()
+  _ZLE_PICKER_INSPECT_SYNTAX=()
+  if [[ -z $name ]]; then
+    text='No matching selection.'
+  else
+    if (( _ZLE_PICKER_VALUE_INSPECT )); then
+      # History already captured this exact value. No second history lookup,
+      # expansion, command classification, or execution is needed to read it.
+      text=${name[1,32768]}
+      (( ${#name} > 32768 )) && text+=$'\n[Preview limited to 32,768 characters.]'
+      [[ -n $name ]] || text='No command selected.'
+    else
+      text=${_ZLE_PICKER_INSPECT_TEXTS[$name]-'Details unavailable in this snapshot.'}
+    fi
+    if (( _ZLE_PICKER_ACTION_VIEW )) && [[ -n $_ZLE_PICKER_ACTION_CONTEXT ]]; then
+      text="${_ZLE_PICKER_ACTION_CONTEXT[1,32768]}"$'\n\n'"$text"
+    fi
+  fi
+  source_lines=("${(@f)text}")
+  if (( _ZLE_PICKER_DOCUMENT )); then
+    if [[ -n $name && $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+      if (( _ZLE_PICKER_DOCUMENT_PENDING )); then
+        document_pending=1
+        # Preserve one prepared row per source row while optional presentation
+        # metadata is pending. Replacing the document with a single notice row
+        # destroys the source-coordinate viewport that the asynchronous
+        # provider needs to finish the request. The renderer therefore keeps
+        # the geometry but never exposes an unhighlighted source intermediate.
+        source_lines=("${_ZLE_PICKER_DOCUMENT_LINES[@]}")
+      else
+        source_lines=("${_ZLE_PICKER_DOCUMENT_LINES[@]}")
+      fi
+    elif [[ -n $name ]]; then
+      source_lines=('Reading selected file…')
+    fi
+  fi
+  for line in "${source_lines[@]}"; do
+    (( ++source_index ))
+    syntax=() character_offset=0
+    if (( _ZLE_PICKER_DOCUMENT )) && [[ $name == "$_ZLE_PICKER_DOCUMENT_KEY" && -n ${_ZLE_PICKER_DOCUMENT_SYNTAX[$source_index]-} ]]; then
+      _zle_picker_syntax_prepare "$line" "${_ZLE_PICKER_DOCUMENT_SYNTAX[$source_index]}"
+      syntax=("${reply[@]}")
+    fi
+    if (( document_pending )); then
+      # Keep wrapping and source-row maps stable without painting plain code.
+      # One short notice at the first source row makes the state explicit;
+      # remaining rows are intentionally blank placeholders.
+      [[ $source_index == 1 ]] && line='Preparing highlighted preview…' || line=''
+    fi
+    (( _ZLE_PICKER_DOCUMENT )) && line=${line//$'\t'/    }
+    line=${(V)line}
+    if (( _ZLE_PICKER_REFERENCE_VIEW )); then
+      _zle_picker_help_spans "$line"
+      syntax=("${reply[@]}")
+    fi
+    role=text
+    if (( _ZLE_PICKER_DOCUMENT )); then
+      if (( document_pending )); then
+        role=info
+      elif [[ $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+        role=${_ZLE_PICKER_DOCUMENT_ROLES[source_index]:-text}
+      fi
+    elif (( clip_lines )); then
+      # Stream snapshots keep one source line per row across resizing. Clip
+      # from captured text here so a narrower pane cannot hide the newest tail
+      # behind the ordinary inspector's wrapped-row bound.
+      if (( ${(m)#line} > width )); then
+        _zle_picker_fit "$line" $width
+        line=$REPLY
+      fi
+    elif (( _ZLE_PICKER_ACTION_VIEW || _ZLE_PICKER_VALUE_INSPECT )); then
+      # Plans and literal commands are prose/data, not the help companion's
+      # heading grammar. Only known plan labels get structural emphasis.
+      if (( _ZLE_PICKER_ACTION_VIEW )); then
+        case $line in
+          (TARGET|SCOPE|PLAN|DRAFT|FOLDER|PROJECT|SCHEME|DESTINATION|REPOSITORY|COMPARISON|'CAPTURED LOGS') role=heading ;;
+          (Safety*|Unavailable:*) role=warning ;;
+        esac
+      fi
+    elif (( _ZLE_PICKER_REFERENCE_VIEW )); then
+      # A topic can start with an indented option paragraph. Keep explanation
+      # prose neutral instead of treating its first two lines as help headers.
+      if (( source_index == 1 )) && [[ $line != ' '* && $line != usage:* ]]; then
+        role=heading
+        case $line in (Safety*|Limits*|Unavailable:*|*recovery:) role=warning ;; esac
+      fi
+    elif (( first == 1 )); then
+      role=heading
+    elif (( first == 2 )); then
+      role=info
+    elif [[ $line != ' '* && -n $line ]]; then
+      role=heading
+      case $line in
+        (Safety*|Limits*|Unavailable:*|*recovery:) role=warning ;;
+      esac
+    fi
+    (( ++first ))
+    ascii_wrap=0
+    if (( _ZLE_PICKER_READER_ONLY && _ZLE_PICKER_DOCUMENT && width > 1 )) &&
+       [[ $line != *[^\ -~]* ]]; then
+      # Every printable ASCII character occupies one cell. Avoid repeatedly
+      # prompt-expanding a long JSON/log remainder just to retain width-1
+      # cells, the same geometry as native truncation with its one-cell dot.
+      # Byte slicing also avoids rescanning an ASCII remainder as UTF-8.
+      ascii_wrap=1
+      unsetopt MULTIBYTE
+    fi
+    remaining_width=${(m)#line}
+    while (( remaining_width > width )); do
+      if (( ascii_wrap )); then
+        part=${line[$(( character_offset + 1 )),$(( character_offset + width - 1 ))]}
+      else
+        (( $+functions[_compozsh_cell_prefix] )) || break
+        _compozsh_cell_prefix "$line" $(( width - 1 ))
+        part=$REPLY
+      fi
+      [[ -n $part ]] || break
+      words=${part% *}
+      if (( !_ZLE_PICKER_DOCUMENT )) && [[ $words != "$part" && -n ${words// /} ]]; then
+        part=$words
+      fi
+      _ZLE_PICKER_INSPECT_LINES+=("$part")
+      _ZLE_PICKER_INSPECT_ROLES+=("$role")
+      REPLY=''
+      (( ${#syntax} )) && _zle_picker_syntax_slice $character_offset $(( character_offset + ${#part} )) "${syntax[@]}"
+      _ZLE_PICKER_INSPECT_SYNTAX+=("$REPLY")
+      (( character_offset += ${#part} ))
+      _ZLE_PICKER_INSPECT_SOURCE_LINES+=($source_index)
+      if (( !ascii_wrap )); then
+        line=${line[$(( ${#part} + 1 )),-1]}
+        if (( !_ZLE_PICKER_DOCUMENT )) && [[ $line == ' '* ]]; then
+          line=${line# }
+          (( ++character_offset ))
+        fi
+      fi
+      (( ${#_ZLE_PICKER_INSPECT_LINES} >= max_lines - 1 )) && break
+      if (( ascii_wrap )); then
+        (( remaining_width -= ${#part} ))
+      else
+        remaining_width=${(m)#line}
+      fi
+    done
+    (( ascii_wrap )) && line=${line[$(( character_offset + 1 )),-1]}
+    (( ascii_wrap && restore_multibyte )) && setopt MULTIBYTE
+    _ZLE_PICKER_INSPECT_LINES+=("$line")
+    _ZLE_PICKER_INSPECT_ROLES+=("$role")
+    REPLY=''
+    (( ${#syntax} )) && _zle_picker_syntax_slice $character_offset $(( character_offset + ${#line} )) "${syntax[@]}"
+    _ZLE_PICKER_INSPECT_SYNTAX+=("$REPLY")
+    _ZLE_PICKER_INSPECT_SOURCE_LINES+=($source_index)
+    if (( ${#_ZLE_PICKER_INSPECT_LINES} >= max_lines )); then
+      _ZLE_PICKER_INSPECT_LINES[max_lines]='[Preview truncated.]'
+      (( _ZLE_PICKER_DOCUMENT )) && _ZLE_PICKER_INSPECT_LINES[max_lines]='Limits: 20,000 wrapped lines; use Git for the remaining text.'
+      (( _ZLE_PICKER_READER_ONLY )) && _ZLE_PICKER_INSPECT_LINES[max_lines]='Limits: 20,000 wrapped lines; narrow the filter to read more.'
+      _ZLE_PICKER_INSPECT_ROLES[max_lines]=warning
+      _ZLE_PICKER_INSPECT_SYNTAX[max_lines]=''
+      break
+    fi
+  done
+  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_TARGET_ROW > 0 )) &&
+     [[ $name == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+    _ZLE_PICKER_INSPECT_OFFSET=$(( ${_ZLE_PICKER_INSPECT_SOURCE_LINES[(i)$_ZLE_PICKER_DOCUMENT_TARGET_ROW]} - 1 ))
+    _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+  elif (( inspect_source_row > 0 )); then
+    _ZLE_PICKER_INSPECT_OFFSET=$(( ${_ZLE_PICKER_INSPECT_SOURCE_LINES[(i)$inspect_source_row]} - 1 ))
+  fi
+  return 0
+}
+
+# Convert raw character offsets through the same tab/control sanitization as
+# document text, then clip to each wrapped row. Token metadata never contains
+# styles or escape codes. Both operations are pure and run only during wrapping.
+_zle_picker_syntax_prepare() {
+  emulate -L zsh
+  local raw=$1 span='' prefix='' role=''
+  local -a fields=()
+  local -i start=0 end=0
+  reply=()
+  for span in ${=2}; do
+    fields=("${(@s.:.)span}")
+    start=$fields[1] end=$fields[2] role=$fields[3]
+    prefix=''
+    (( start )) && prefix=${raw[1,start]}
+    prefix=${prefix//$'\t'/    }
+    prefix=${(V)prefix} start=${#prefix}
+    prefix=${raw[1,end]}
+    prefix=${prefix//$'\t'/    }
+    prefix=${(V)prefix} end=${#prefix}
+    reply+=("$start:$end:$role")
+  done
+}
+
+# Literal documentation accents on already sanitized text. The documented
+# two-space separator identifies argument/mode/example prefixes; elsewhere
+# recognize only option and placeholder spelling, without parsing shell code.
+_zle_picker_help_spans() {
+  emulate -L zsh
+  local line=$1 body='' prefix='' remaining=$1
+  local pattern='(^|[^[:alnum:]_/-])(--[[:alnum:]][[:alnum:]_-]*|<[[:alnum:]_][[:alnum:]_ .|/-]*>)'
+  local MATCH=''
+  local -a match=() mbegin=() mend=()
+  local -i MBEGIN=0 MEND=0 offset=0 start=0 end=0
+  reply=()
+  if [[ $line == '  '[^[:space:]]* ]]; then
+    body=${line#'  '}
+    if [[ $body == *'  '* ]]; then
+      prefix=${body%%  *}
+      offset=$(( 2 + ${#prefix} ))
+      reply+=("2:$offset:picker-header")
+      remaining=${line[$((offset+1)),-1]}
+    fi
+  fi
+  while (( ${#reply} < 128 )) && [[ $remaining == *--* || $remaining == *'<'* ]] &&
+        [[ $remaining =~ $pattern ]]; do
+    start=$(( offset + mbegin[2] - 1 )) end=$(( offset + mend[2] ))
+    reply+=("$start:$end:picker-header")
+    remaining=${remaining[$((mend[2]+1)),-1]}
+    offset=$end
+  done
+  return 0
+}
+
+_zle_picker_syntax_slice() {
+  emulate -L zsh
+  local -i first=$1 last=$2 start=0 end=0
+  shift 2
+  local span=''
+  local -a fields=()
+  REPLY=''
+  for span in "$@"; do
+    fields=("${(@s.:.)span}")
+    start=$fields[1] end=$fields[2]
+    (( end > first && start < last )) || continue
+    (( start < first )) && start=$first
+    (( end > last )) && end=$last
+    REPLY+="$(( start - first )):$(( end - first )):$fields[3] "
+  done
+}
+
+
+:

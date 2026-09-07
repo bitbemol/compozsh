@@ -1,0 +1,20 @@
+# Entry point: _runtime_comparable_version
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Only normalize implementation decorations whose meaning is known here.
+# Never order unrelated compiler families or erase prerelease suffixes.
+_runtime_comparable_version() {
+  emulate -L zsh
+  setopt extendedglob
+  local language=$1 value=$2
+  case $language in
+    java) value=${value#\"}; value=${value%\"} ;;
+    ruby) [[ $value == *p<-> ]] && value=${value%p<->} ;;
+    fortran) [[ $value == 'gfortran '* ]] && value=${value#gfortran } ;;
+  esac
+  REPLY=$value
+}
+
+
+:

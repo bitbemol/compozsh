@@ -1,0 +1,56 @@
+# Entry point: _prompt_runtime_binary_is_trusted
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# A runtime found through PATH is still untrusted when its lexical path or
+# resolved target lives inside the project being rendered or its enclosing Git
+# repository. Entering a project must never execute code supplied by that
+# project merely to draw the prompt.
+_prompt_runtime_binary_is_trusted() {
+  emulate -L zsh
+
+  local binary=$1 project_root=$2
+  local binary_path=${binary:a} binary_target=${binary:A}
+  local root='' root_path=${project_root:a} root_target=${project_root:A}
+  local boundary='' boundary_path='' boundary_target=''
+  local -a boundaries=()
+
+  [[ $binary_path != "$root_path" && $binary_path != "$root_path"/* &&
+     $binary_target != "$root_target" && $binary_target != "$root_target"/* ]] ||
+    return 1
+
+  for root in "$root_path" "$root_target"; do
+    _prompt_repository_boundary "$root" || continue
+    (( ${boundaries[(Ie)$REPLY]} )) || boundaries+=("$REPLY")
+  done
+  for boundary in "${boundaries[@]}"; do
+    boundary_path=${boundary:a}
+    boundary_target=${boundary:A}
+    [[ $binary_path != "$boundary_path" &&
+       $binary_path != "$boundary_path"/* &&
+       $binary_target != "$boundary_target" &&
+       $binary_target != "$boundary_target"/* ]] || return 1
+  done
+  return 0
+}
+
+# Find the nearest native Git ownership boundary without running Git or reading
+# project data. Nested package manifests may become the displayed project root,
+# but their enclosing repository can still control binaries placed on PATH.
+_prompt_repository_boundary() {
+  emulate -L zsh
+
+  local dir=${1:a}
+  REPLY=''
+  while [[ -n $dir && $dir != / ]]; do
+    if [[ -e "$dir/.git" || -L "$dir/.git" ]]; then
+      REPLY=$dir
+      return 0
+    fi
+    dir=${dir:h}
+  done
+  return 1
+}
+
+
+:

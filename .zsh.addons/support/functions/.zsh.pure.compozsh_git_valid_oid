@@ -1,0 +1,9 @@
+# Entry point: _compozsh_git_valid_oid
+# Pure: literal supplied text in; predicate status out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_compozsh_git_valid_oid() {
+  [[ $1 != *[^[:xdigit:]]* ]] && (( ${#1} == 40 || ${#1} == 64 ))
+}
+
+:

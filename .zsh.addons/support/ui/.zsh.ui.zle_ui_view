@@ -1,0 +1,68 @@
+# Entry point: _zle_ui_view
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Scope common view configuration around its feature-owned setup and loop.
+# Snapshots stay in the caller; operation/selection/bookmark outputs escape this
+# scope intentionally. A view can therefore return without leaking its reader,
+# clipboard, hierarchy or live-stream capabilities into the next view.
+_zle_ui_view() {
+  emulate -L zsh
+  (( $# >= 2 )) || return 2
+  local kind=$1 configure=$2
+  shift 2
+  (( ${+functions[$configure]} )) || return 2
+  local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE='' _ZLE_PICKER_SUBTITLE_RENDERER=''
+  local _ZLE_PICKER_QUERY_LABEL='Filter choices' _ZLE_PICKER_COLLECTOR=''
+  local _ZLE_PICKER_BROWSE_LABEL='captured choices' _ZLE_PICKER_EMPTY_LABEL='no matches'
+  local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=choose
+  local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_SEARCH_ACTION=''
+  local _ZLE_PICKER_INSPECT_FALLBACK='' _ZLE_PICKER_INSPECT_FIXED_KEY=''
+  local _ZLE_PICKER_INSPECT_EXPAND_KEY='' _ZLE_PICKER_OPTIONS_KIND=''
+  local _ZLE_PICKER_ACTION_CONTEXT=''
+  local -i _ZLE_PICKER_ACTION_VIEW=0 _ZLE_PICKER_VALUE_INSPECT=0 _ZLE_PICKER_REFERENCE_VIEW=0
+  local -A _ZLE_PICKER_DESCRIPTIONS=()
+  local _ZLE_PICKER_IDLE_CALLBACK='' _ZLE_PICKER_IDLE_ACTION=''
+  local _ZLE_PICKER_DEADLINE_CALLBACK=''
+  local _ZLE_PICKER_DOCUMENT_KEY=''
+  local _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
+  local -i _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT_FOLLOW=-1
+  local -i _ZLE_PICKER_DOCUMENT_REFRESH=0 _ZLE_PICKER_DOCUMENT_PENDING=0
+  local -i _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0 _ZLE_PICKER_AUTO_REFRESH=-1
+  local -i _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+  local -i _ZLE_PICKER_INSPECT_STACKED=0 _ZLE_PICKER_INSPECT_CLIP_LINES=0
+  local -i _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_REFRESH_ENABLED=0
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_DIRECTORY_ACTIONS=0
+  local -i _ZLE_PICKER_HIERARCHY_ENABLED=0 _ZLE_PICKER_QUERY_SUBMIT=0
+  local -i _ZLE_PICKER_QUERY_EMPTY_CANCEL=0
+  local -i _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_STATUS_VIEW=0 _ZLE_PICKER_BUSY=0
+  local -i _ZLE_PICKER_IDLE_PREPAINT=1 _zle_picker_start_focus=0
+  local -F _ZLE_PICKER_IDLE_WAIT=0 _ZLE_PICKER_DEADLINE_AT=0
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
+  local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_PASSIVE_STYLES=()
+  local -a _ZLE_PICKER_BUSY_LINES=() _ZLE_PICKER_BUSY_STYLES=()
+  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
+  local -A _ZLE_PICKER_ACCEPT_LABELS=() _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+  case $kind in
+    choice|notice) ;;
+    action) _ZLE_PICKER_ACTION_VIEW=1; _ZLE_PICKER_INSPECT_TITLE='On Enter' ;;
+    reference) _ZLE_PICKER_REFERENCE_VIEW=1 ;;
+    query)
+      _ZLE_PICKER_QUERY_SUBMIT=1 _ZLE_PICKER_DIGIT_SELECT=0
+      _ZLE_PICKER_COLLECTOR=_zle_picker_query_collect ;;
+    document) _ZLE_PICKER_DOCUMENT=1 ;;
+    reader) _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DIGIT_SELECT=0 ;;
+    status) _ZLE_PICKER_STATUS_VIEW=1 _ZLE_PICKER_DIGIT_SELECT=0 ;;
+    *) return 2 ;;
+  esac
+  "$configure" "$@"
+}
+
+# Query entry uses the same editor and renderer. Enter submits literal text;
+# movement, typing and resize cannot trigger discovery.
+_zle_picker_query_collect() {
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+}
+
+
+:

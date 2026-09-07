@@ -1,0 +1,17 @@
+# Entry point: _zle_ui_descriptions
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Key/text pairs in, key/first-line pairs out. Reading descriptions never
+# re-enters a provider or treats a key, newline or shell expression as code.
+_zle_ui_descriptions() {
+  emulate -L zsh
+  local key='' detail=''
+  reply=()
+  (( $# % 2 == 0 )) || return 2
+  for key detail in "$@"; do reply+=("$key" "${detail%%$'\n'*}"); done
+  return 0
+}
+
+
+:

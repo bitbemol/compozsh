@@ -1,0 +1,105 @@
+# Entry point: _zle_picker_footer
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Shared chrome is built from capabilities, never caller-written key strings.
+# Keep the action, escape route and keyboard guide before optional hints. Add
+# only whole hints so a narrow screen cannot conceal half a key sequence.
+_zle_picker_footer() {
+  emulate -L zsh
+  local -i width=$1 can_accept=0
+  local query=$2 value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
+  local action=${_ZLE_PICKER_ACCEPT_LABELS[$value]:-$_ZLE_PICKER_INSPECT_ACTION}
+  local cancel=${_ZLE_PICKER_CANCEL_LABEL:-cancel} hint='' options_label=options direction='' arrow=''
+  local -a hints=()
+  if (( ${_ZLE_PICKER_BUSY:-0} )); then
+    _zle_picker_fit "${_ZLE_PICKER_BUSY_LABEL:-Waiting for the search source…}" $width
+    return 0
+  fi
+  action=${(V)action} cancel=${(V)cancel}
+  if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    REPLY='Esc back'
+    hints=('↑/↓ scroll' 'Fn/Option ↑/↓ page' '^K keys')
+  else
+    _zle_picker_can_accept "$query" && can_accept=1
+    REPLY="Esc ${cancel}"
+    if (( can_accept )); then
+      REPLY="⏎ ${action} · $REPLY"
+      (( ${(m)#REPLY} > width )) && REPLY='⏎ apply · Esc'
+    fi
+    hints=('^K keys')
+    if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
+      (( _ZLE_PICKER_DOCUMENT_FOLLOW )) && hints+=('↑ pause') || hints+=('End follow')
+    fi
+    (( (_ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_REFRESH) ||
+       _ZLE_PICKER_REFRESH_ENABLED )) && hints+=('^R refresh')
+    if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+      (( _ZLE_PICKER_AUTO_REFRESH )) && hints+=('^A pause auto') || hints+=('^A resume auto')
+    fi
+    # Put the available disclosure steps ahead of convenience shortcuts.
+    if (( _ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY )) && [[ -n $value ]]; then
+      local footer=$REPLY
+      for direction in right left; do
+        [[ $direction == right ]] && arrow=→ || arrow=←
+        _zle_picker_document_direction "$direction" "$_ZLE_PICKER_INSPECT_FOCUS" "$_ZLE_PICKER_DOCUMENT_MODE"
+        case $REPLY in
+          (read|files) hints+=("$arrow $REPLY") ;;
+          (focused) hints+=("$arrow focused diff") ;;
+          (full) hints+=("$arrow full file") ;;
+        esac
+      done
+      REPLY=$footer
+    elif (( !_ZLE_PICKER_DOCUMENT &&
+            (_ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0}) )); then
+      [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == git ]] && options_label=review
+      hints+=("^X $options_label")
+    fi
+    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == atlas ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )) && hints+=('^X atlas')
+    [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]] && hints+=('^F search')
+    if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
+      hints+=('^O preview')
+    elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 )); then
+      hints+=('^O browse')
+    fi
+    (( _ZLE_PICKER_COPY_ENABLED )) && hints+=('^Y copy')
+    if (( _ZLE_PICKER_INSPECT_FOCUS )); then
+      hints+=('↑/↓ scroll')
+      if (( !_ZLE_PICKER_READER_ONLY )); then
+        (( _ZLE_PICKER_HIERARCHY_ENABLED )) && hints+=('^B list') || hints+=('Tab list')
+      fi
+    else
+      hints+=('↑/↓ move')
+    fi
+    if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+      hints+=('→ open / ← back' '^T hidden')
+      (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_INSPECT_FOCUS )) && hints+=('^E details')
+    elif (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_INSPECT_FOCUS )); then
+      hints+=('Tab details')
+    fi
+    if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE && !_ZLE_PICKER_INSPECT_FOCUS )) && [[ -z $query ]]; then
+      hints+=("0–9 ${action}")
+    fi
+    hints+=('Fn/Option ↑/↓ page')
+    if (( !_ZLE_PICKER_INSPECT_FOCUS || _ZLE_PICKER_READER_ONLY )); then
+      (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && hints+=('type query') || hints+=('type filter')
+      hints+=('^U clear')
+    fi
+  fi
+  local -i shown_hints=0
+  for hint in "${hints[@]}"; do
+    (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && shown_hints >= 5 )) && break
+    if (( ${(m)#REPLY} + ${(m)#hint} + 3 <= width )); then
+      REPLY+=" · ${hint}"
+      (( ++shown_hints ))
+    fi
+  done
+  if (( ${(m)#REPLY} > width )); then
+    REPLY=Esc
+    (( can_accept )) && REPLY='⏎ · Esc'
+    (( ${(m)#REPLY} > width )) && REPLY=${REPLY[1,$width]}
+  fi
+  return 0
+}
+
+
+:

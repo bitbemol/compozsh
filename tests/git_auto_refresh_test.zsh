@@ -7,11 +7,14 @@ _test_git_auto_refresh_native() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     ZSH_GIT_REVIEW_AUTO_REFRESH=1
     _GIT_REVIEW_AUTO_REFRESH_INTERVAL=0.12
     mkdir -p "$HOME/repo"
@@ -195,6 +198,7 @@ _test_git_auto_refresh_ages() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
     local -i _git_auto_failed=0 _git_auto_checked_at=$(( EPOCHSECONDS - 5 ))
@@ -225,8 +229,10 @@ test_case 'Git auto-refresh indicator distinguishes checks from visible updates'
 _test_git_auto_refresh_filtered_selection() {
   local output
   output=$(/bin/zsh -fc '
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i _git_auto_candidate_match=1
     local -a _git_auto_candidate_labels=(file.zsh)
     local -a _git_auto_candidate_contexts=("Staged M")
@@ -246,6 +252,7 @@ _test_git_auto_refresh_pending_wording() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=1
     local -i _git_auto_failed=0 _git_auto_checked_at=$EPOCHSECONDS _git_auto_updated_at=$EPOCHSECONDS
@@ -267,9 +274,11 @@ test_case 'Git pending refresh distinguishes resolution from filter exclusion' \
 _test_git_auto_refresh_pending_identity() {
   local output
   output=$(/bin/zsh -fc '
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local context=3 loaded="" loaded_data=""
     local -a bookmark=("" 1 0)
     local -i focus=1 _ZLE_PICKER_DOCUMENT_KEY=2 _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=1
@@ -328,6 +337,7 @@ _test_git_auto_refresh_cancel_drain() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/system
     zmodload zsh/zselect
     unsetopt BG_NICE
@@ -359,6 +369,7 @@ _test_git_auto_refresh_exit_drain() {
   local scenario=$1 expected=$2 output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     zmodload zsh/zselect
     unsetopt BG_NICE
@@ -437,6 +448,7 @@ _test_git_auto_refresh_packet_numbers() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local _git_auto_session_buffer=""
     local -a packets=(
       $'"'"'compozsh-review-1\n999999999999999999999999999999999999999999:x'"'"'
@@ -457,6 +469,7 @@ _test_git_auto_refresh_manual_pause_state() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local -i _ZLE_PICKER_AUTO_REFRESH=0 _git_auto_failed=0
     local -i _git_auto_checked_at=0 _git_auto_updated_at=0
@@ -481,6 +494,7 @@ _test_git_auto_refresh_manual_retry_controller() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i turns=0 refreshes=0
     _git_review_load() {
       _GIT_REVIEW_PATHS=(file) _GIT_REVIEW_LABELS=(file)
@@ -520,6 +534,7 @@ _test_git_auto_refresh_safety_publication() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i _git_auto_candidate_ready=1 _git_auto_candidate_prepare_result=0
     local -i _git_review_reads_blocked=1
     local -a _GIT_REVIEW_CONFIG=(old) _git_auto_candidate_config=(safe)
@@ -539,6 +554,7 @@ _test_git_auto_refresh_pending_context() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local context=1000000000 _git_auto_candidate_request_context=3
     local _git_review_event_status="" _git_review_refresh_status=""
@@ -564,6 +580,7 @@ _test_git_auto_refresh_other_bookmarks() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local context=3
     local -i _ZLE_PICKER_SELECTED=1
     local -a _ZLE_PICKER_RESULTS=(1)
@@ -588,6 +605,7 @@ _test_git_auto_refresh_selection_floor() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local root=/fixture context=3 old_next=""
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_GUIDE_ACTIVE=0
@@ -616,6 +634,7 @@ _test_git_auto_refresh_immutable_views() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local -i _ZLE_PICKER_AUTO_REFRESH=-1 launches=0
     local -F _ZLE_PICKER_IDLE_WAIT=0
     _git_review_auto_launch() { (( ++launches )); }
@@ -631,6 +650,7 @@ _test_git_filter_configuration_bound() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local fixture="" key="" driver=0
     _git_review_capture() { _GIT_REVIEW_DATA=$fixture; _GIT_REVIEW_TRUNCATED=0; return 1; }
     for driver in {1..682}; do fixture+="filter.driver${driver}.clean"$'"'"'\0'"'"'; done
@@ -664,6 +684,7 @@ _test_git_filter_equals_name_fails_closed() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export COMPOZSH_MARKER="$2/filter-ran"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     _git_review_prepare "$2/repo"
     local manual=$?
     local packet=$(_git_review_auto_worker "$2/repo" 4 file unstaged 3 "$2")$'"'"'\n'"'"'
@@ -687,6 +708,7 @@ _test_git_auto_refresh_timeout() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local root=/fixture context=3 _git_review_event_status="" _git_review_refresh_status=""
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_GUIDE_ACTIVE=0 stopped=0
@@ -716,6 +738,7 @@ exec /bin/sleep 30' || return
     PATH="$2/bin:$PATH"
     export COMPOZSH_SPY_PID="$2/provider.pid"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     # Observe the worker-owned provider before exec. A first launch of a newly
     # written script can itself exceed this deliberately short deadline; the
     # deadline correctly kills it before the script can publish a sentinel.
@@ -773,6 +796,7 @@ exec /bin/sleep 30' || return
     PATH="$2/bin:$PATH"
     export COMPOZSH_SPY_PID="$2/provider.pid"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     # Publish the exact owned PID before a potentially slow first exec, as in
     # the deadline fixture. No grandchild or parent-visible PID inference.
     functions[_cancel_provider_git]=$functions[_git_review_git]
@@ -818,8 +842,10 @@ test_case 'Git auto-refresh cancellation is owned and reaped by its worker' \
 _test_git_auto_refresh_narrow_status() {
   local output
   output=$(/bin/zsh -fc '
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
     local -i _git_auto_failed=0 _git_auto_checked_at=$EPOCHSECONDS _git_auto_updated_at=$EPOCHSECONDS
@@ -850,6 +876,7 @@ _test_git_auto_refresh_failure_safety_packet() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     _git_review_prepare() {
       _GIT_REVIEW_CONFIG=(-c filter.safe.clean= -c filter.safe.process= -c filter.safe.required=false)
@@ -878,6 +905,7 @@ _test_git_auto_refresh_maximum_config_packet() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local _git_auto_packet=$'"'"'compozsh-review-1\n'"'"'
     local -i index=0 driver=0 _git_auto_candidate_ready=0
@@ -925,6 +953,7 @@ _test_git_auto_refresh_hostile_paths() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local session="$2/session" request=$'"'"'line\nname'"'"'
     command mkdir -m 700 "$session" || exit 1
@@ -959,6 +988,7 @@ _test_git_auto_refresh_untracked_inline_reader() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     local _GIT_REVIEW_WORKER_DIR=owned
     local absolute="$2/parent/new file"
     absolute=${absolute:A}
@@ -979,8 +1009,10 @@ _test_git_auto_refresh_starts_paused() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     ZSH_GIT_REVIEW_AUTO_REFRESH=0
     _zle_picker_capture() { shift 3; "$@"; }
     _git_review_changes_capture() { return 2; }

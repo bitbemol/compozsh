@@ -31,97 +31,28 @@ typeset -ga _NAVIGATION_PICKER_LABELS=()
 typeset -ga _NAVIGATION_PICKER_INDEXES=()
 typeset -ga _NAVIGATION_PICKER_SEARCH_LABELS=()
 
-# Navigation remains usable without the prompt add-on. Keep these display
-# helpers private to this unit so peer add-on order never becomes a dependency.
-_navigation_sanitize() {
-  REPLY=${1//[[:cntrl:]]/?}
-}
-
-_navigation_abbreviate() {
-  local text=$1
-  local -i max_width=$2 left_width=0 right_width=0
-
-  if (( max_width <= 0 )); then
-    REPLY=''
-    return
-  fi
-  if (( ${#text} <= max_width )); then
-    REPLY=$text
-    return
-  fi
-  if (( max_width < 5 )); then
-    REPLY='…'
-    return
-  fi
-
-  left_width=$(( (max_width - 1) / 3 ))
-  right_width=$(( max_width - 1 - left_width ))
-  REPLY="${text[1,left_width]}…${text[-right_width,-1]}"
-}
-
-_navigation_picker_append_matches() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-
-  local pattern=$1 raw_limit=$2 value='' label=''
-  local -i limit=$raw_limit index=0
-
-  for (( index = 1; index <= ${#_NAVIGATION_PICKER_VALUES}; ++index )); do
-    label=${_NAVIGATION_PICKER_LABELS[index]}
-    [[ ${_NAVIGATION_PICKER_SEARCH_LABELS[index]:-$label} == ${~pattern} ]] || continue
-    value=${_NAVIGATION_PICKER_VALUES[index]}
-    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
-    _ZLE_PICKER_RESULTS+=("$value")
-    _ZLE_PICKER_LABELS+=("$label")
-    _ZLE_PICKER_RESULT_INDEXES+=("${_NAVIGATION_PICKER_INDEXES[index]}")
-    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-  done
-}
-
+# Display calculations are optional runtime support capabilities.
 # Rank literal prefix and substring matches before character-ordered fuzzy ones.
 _navigation_picker_collect() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-
-  local query=$1 raw_limit=$2 literal='' pattern=''
-  local -a reply=()
-  local -i limit=$raw_limit index=0
-  typeset -ga _ZLE_PICKER_RESULTS=()
-  typeset -ga _ZLE_PICKER_LABELS=()
-  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
-
-  if [[ -z $query ]]; then
-    for (( index = 1; index <= ${#_NAVIGATION_PICKER_VALUES}; ++index )); do
-      _ZLE_PICKER_RESULTS+=("${_NAVIGATION_PICKER_VALUES[index]}")
-      _ZLE_PICKER_LABELS+=("${_NAVIGATION_PICKER_LABELS[index]}")
-      _ZLE_PICKER_RESULT_INDEXES+=("${_NAVIGATION_PICKER_INDEXES[index]}")
-      (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-    done
-    return 0
-  fi
-
-  (( ${+functions[_matching_compile]} )) || return 1
-  _matching_compile "$query"
-  literal=$reply[1] pattern=$reply[2]
-  _navigation_picker_append_matches "(#i)${literal}*" $limit
-  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-  _navigation_picker_append_matches "(#i)*${literal}*" $limit
-  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-
-  _navigation_picker_append_matches "$pattern" $limit
+  (( ${+functions[_zle_ui_collect]} )) || {
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    return 1
+  }
+  _zle_ui_collect ranked "$1" "$2" _NAVIGATION_PICKER_VALUES _NAVIGATION_PICKER_LABELS \
+    _NAVIGATION_PICKER_LABELS _NAVIGATION_PICKER_SEARCH_LABELS fallback _NAVIGATION_PICKER_INDEXES
 }
 
-# The optional output peer validates colors at invocation; standalone stacks
-# stay plain without a second palette or a source-time ordering dependency.
+# Shared support validates colors at invocation. Preserve the optional Output
+# gate so standalone stacks stay plain without a source-time dependency.
 _navigation_color_style() {
   emulate -L zsh
   local role=$1
   REPLY=''
   [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
-  (( ${+functions[_output_color]} )) || return 0
+  (( ${+functions[_output_print_help]} && ${+functions[_compozsh_palette_color]} )) || return 0
   zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
   (( ${terminfo[colors]:-0} >= 256 )) || return 0
-  _output_color "$role" || return 0
+  _compozsh_palette_color output "$role" || return 0
   REPLY=$'\e[38;5;'"${REPLY}m"
 }
 
@@ -135,9 +66,16 @@ _stack_print_entry() {
   (( columns > 0 )) || columns=80
   label_width=$(( columns - ${#index} - 5 ))
   (( label_width > 0 )) || label_width=1
-  _navigation_sanitize "$label"
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$label" || REPLY=${(V)label}
   label=$REPLY
-  _navigation_abbreviate "$label" $label_width
+  REPLY=$label
+  if (( ${+functions[_zle_picker_abbreviate]} )); then
+    _zle_picker_abbreviate "$label" "$label_width"
+  elif (( label_width <= 0 )); then
+    REPLY=''
+  elif (( ${(m)#label} > label_width )); then
+    REPLY=…
+  fi
   label=$REPLY
 
   _navigation_color_style accent
@@ -398,11 +336,12 @@ _navigation_copy() {
     print -u2 -r -- "$owner: clipboard support is unavailable on this host"
     return 1
   }
-  print -rn -- "$value" | command "$clipboard_binary" || {
+  (( ${+functions[_compozsh_effect_copy]} )) &&
+    _compozsh_effect_copy "$value" "$clipboard_binary" || {
     print -u2 -r -- "$owner: could not copy the selected $noun"
     return 1
   }
-  _navigation_sanitize "$value"
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$value" || REPLY=${(V)value}
   display=$REPLY
   print -r -- "Copied $noun ${display}."
 }
@@ -880,6 +819,7 @@ g() {
   unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
 
   local root='' branch='' clipboard_binary=${commands[pbcopy]:-}
+  (( ${+functions[_compozsh_effect_copy]} )) || clipboard_binary=''
   local -i picker_status=0
   _git_branch_stack_load || return
   root=$REPLY

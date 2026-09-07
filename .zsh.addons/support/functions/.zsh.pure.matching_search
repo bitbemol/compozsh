@@ -1,0 +1,45 @@
+# Entry point: _matching_search
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# High-level data-in/results-out matching: providers supply captured text, and
+# callers retain exact targets, ranking and actions. Results are source indexes.
+_matching_search() {
+  emulate -L zsh
+  local query=$1 limit=$2 pattern=''
+  reply=()
+  (( $# >= 2 )) || return 2
+  shift 2
+  _matching_compile_fragments "$query" || return
+  pattern=$reply[3]
+  _matching_filter "$pattern" "$limit" "$@"
+}
+
+# Return one-based indexes into the supplied captured texts, preserving source
+# order, duplicates and empty entries. The pattern comes from trusted caller
+# composition of _matching_compile outputs; no provider or UI state is read.
+# A zero limit returns no indexes; oversized decimal limits mean all matches.
+_matching_filter() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local pattern=$1 raw_limit=$2 text=''
+  local -i index=0 limit=0
+  reply=()
+  (( $# >= 2 )) || return 2
+  shift 2
+  local -i available=$#
+  local REPLY=''
+  _matching_decimal_limit "$raw_limit" "$available" || return
+  limit=$REPLY
+  (( limit )) || return 0
+  for text in "$@"; do
+    (( ++index ))
+    [[ $text == ${~pattern} ]] || continue
+    reply+=($index)
+    (( ${#reply} >= limit )) && break
+  done
+  return 0
+}
+
+
+:

@@ -3,7 +3,8 @@ _test_ui_paint_styles_follow_current_roles() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     local painted=""
     zle() { painted=${(j:|:)region_highlight}; }
     BUFFER="" PREDISPLAY="" POSTDISPLAY="" region_highlight=()

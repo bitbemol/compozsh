@@ -1,0 +1,77 @@
+# Entry point: _runtime_version_relation
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Pure comparison of explicit numeric components. Partial pins retain the
+# existing prefix semantics (3.12 selects 3.12.x); minima compare missing
+# components as zero. Outputs: match, older, newer, outside or unknown.
+_runtime_version_relation() {
+  emulate -L zsh
+  setopt extendedglob
+  local active=$1 expected=$2 kind=${3:-pin} a e term op bound relation
+  local -a av ev terms
+  local -i i count left right outside=0
+  _runtime_numeric_version "$active" || { REPLY=unknown; return 0; }
+  a=$REPLY
+  if [[ $kind == range ]]; then
+    (( ${#expected} <= 240 )) || { REPLY=unknown; return 0; }
+    terms=("${(@s:,:)expected}")
+    (( ${#terms} && ${#terms} <= 8 )) || { REPLY=unknown; return 0; }
+    for term in "${terms[@]}"; do
+      term=${term##[[:space:]]#}
+      term=${term%%[[:space:]]#}
+      op=${term%%[0-9v]*}
+      bound=${term#$op}
+      op=${op%%[[:space:]]#}
+      [[ $op == ('>='|'>'|'<='|'<'|'=='|'!=') ]] || { REPLY=unknown; return 0; }
+      _runtime_version_relation "$a" "$bound" exact
+      relation=$REPLY
+      [[ $relation != unknown ]] || return 0
+      case $op in
+        '>=') [[ $relation == older ]] && outside=1 ;;
+        '>') [[ $relation != newer ]] && outside=1 ;;
+        '<=') [[ $relation == newer ]] && outside=1 ;;
+        '<') [[ $relation != older ]] && outside=1 ;;
+        '==') [[ $relation != match ]] && outside=1 ;;
+        '!=') [[ $relation == match ]] && outside=1 ;;
+      esac
+    done
+    REPLY=match
+    (( outside )) && REPLY=outside
+    return 0
+  fi
+  _runtime_numeric_version "$expected" || { REPLY=unknown; return 0; }
+  e=$REPLY
+  av=("${(@s:.:)a}") ev=("${(@s:.:)e}")
+  count=$(( ${#av} > ${#ev} ? ${#av} : ${#ev} ))
+  [[ $kind == pin ]] && count=${#ev}
+  REPLY=match
+  for (( i=1; i<=count; ++i )); do
+    left=$(( 10#${av[i]:-0} )) right=$(( 10#${ev[i]:-0} ))
+    if (( left < right )); then REPLY=older; break; fi
+    if (( left > right )); then REPLY=newer; break; fi
+  done
+  [[ $kind == minimum && $REPLY == newer ]] && REPLY=match
+  return 0
+}
+
+# Pure numeric normalization. Reject suffixes/channels rather than interpreting
+# prerelease, vendor or language-specific ordering as universal SemVer.
+_runtime_numeric_version() {
+  emulate -L zsh
+  setopt extendedglob
+  local value=${1#v} part
+  local -a parts
+  REPLY=''
+  (( ${#value} <= 64 )) || return 1
+  [[ $value == <->(.<->)# ]] || return 1
+  parts=("${(@s:.:)value}")
+  (( ${#parts} <= 4 )) || return 1
+  for part in "${parts[@]}"; do
+    (( ${#part} <= 8 )) || return 1
+  done
+  REPLY=$value
+}
+
+
+:

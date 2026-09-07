@@ -12,6 +12,7 @@ _test_usb_media_classifier_routes_supported_families() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_installer_detect() { [[ $1 == */windows.iso ]]; }
     _usb_media_kind_capture "$2" || exit 2
     print -r -- "macos:$REPLY"
@@ -39,6 +40,7 @@ _test_usb_named_windows_media_skips_native_attachment() {
   test_write_file "$linux" "${(l:20000::l:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_windows_installer_detect() {
       trace+=("inspect:${1:t}")
@@ -79,6 +81,7 @@ _test_usb_ambiguous_iso_uses_native_archive_table_without_attachment() {
     "$linux_root" -iso -joliet || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_hdiutil_attach_readonly() {
       trace+=("attach:${1:t}")
@@ -107,6 +110,7 @@ _test_usb_windows_detection_is_structural_and_always_detaches() {
   test_write_file "$iso" "${(l:20000::w:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_hdiutil_attach_readonly() {
       trace+=(attach-readonly)
@@ -163,6 +167,7 @@ _test_usb_windows_detection_avoids_obsolete_tree_preflight() {
   test_write_file "$iso" "${(l:20000::w:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_hdiutil_attach_readonly() {
       command mkdir -p "$2/SOURCES" || return
@@ -196,6 +201,7 @@ _test_usb_windows_partial_attach_failure_stops_classification() {
   test_write_file "$iso" image || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_hdiutil_attach_readonly() {
       _USB_INSPECT_DEVICE=disk77
@@ -225,6 +231,7 @@ _test_usb_windows_preflight_captures_a_fat32_compatible_tree() {
   test_write_file "$root/setup.exe" setup || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|arch:$_USB_WINDOWS_ARCHITECTURE"
     print -r -- "layout:$_USB_WINDOWS_LAYOUT|files:$_USB_WINDOWS_FILE_COUNT|minimum:$_USB_WINDOWS_REQUIRED_BYTES"
@@ -253,6 +260,7 @@ _test_usb_windows_preflight_rejects_an_oversized_file_before_targeting() {
   test_write_file "$root/boot/boot.sdi" sdi || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
   ' "$TEST_REPO_ROOT" "$root") || return
@@ -273,6 +281,7 @@ _test_usb_unmountable_iso_remains_raw_flashable() {
   test_write_file "$iso" "${(l:20000::l:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_hdiutil_attach_readonly() { return 1; }
     _usb_media_kind_capture "$2"
     print -r -- "status:$?|kind:$REPLY|error:$_USB_MEDIA_ERROR"
@@ -292,6 +301,7 @@ _test_usb_capture_accepts_full_macos_installer_apps() {
   command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_images_capture "$2" || exit 2
     print -r -- "kind:${_USB_IMAGE_KINDS[1]}|path:${_USB_IMAGE_PATHS[1]}"
     print -r -- "label:${_USB_IMAGE_LABELS[1]}"
@@ -315,6 +325,7 @@ _test_usb_apple_signature_boundary_rejects_unsigned_tools() {
   command chmod +x "$unsigned" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_codesign_is_apple /usr/bin/hdiutil
     print -r -- "apple:$?"
     _usb_codesign_is_apple "$2" >/dev/null 2>&1
@@ -333,7 +344,9 @@ _test_usb_media_dispatcher_rejects_windows_execution() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_execute() { trace+=(raw); return 0; }
     _usb_macos_execute() { trace+=(macos); return 0; }
@@ -358,6 +371,7 @@ _test_usb_workspace_ends_on_windows_media_before_target_capture() {
   test_write_file "$image" "${(l:20000::w:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_IMAGE_PATHS=("$2") _USB_IMAGE_LABELS=(windows.iso)
     _USB_IMAGE_HIGHLIGHTS=("") _USB_IMAGE_DETAILS=(Windows)
     _USB_IMAGE_SIZES=(20000) _USB_IMAGE_FINGERPRINTS=(fingerprint)
@@ -432,6 +446,8 @@ _test_usb_windows_copy_and_verification_cover_every_file() {
   test_write_file "$source/setup.exe" 'setup-payload' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_progress_stage() { return 0; }
     _usb_windows_tree_capture "$2" || exit 2
     _usb_windows_copy_tree "$2" "$3" || exit 3
@@ -456,6 +472,7 @@ _test_usb_windows_prepare_uses_fat32_mbr_and_validates_the_mount() {
   command mkdir -p "$volumes" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_VOLUME_ROOT=$2
     local volume_root=$2
     local -a trace=()
@@ -496,6 +513,7 @@ _test_usb_windows_prepare_revalidates_identity_inside_the_erase_boundary() {
   command mkdir -p "$volumes" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_VOLUME_ROOT=$2
     local -i erased=0
     _usb_disk_info_capture() {
@@ -527,6 +545,7 @@ _test_usb_windows_partial_family_fails_closed_in_dispatch() {
   test_write_file "$root/boot/boot.sdi" sdi || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local fixture=$3
     _usb_hdiutil_attach_readonly() {
       _USB_INSPECT_DEVICE=disk88 _USB_INSPECT_MOUNT=$2
@@ -553,6 +572,7 @@ _test_usb_generic_uefi_loader_does_not_claim_windows_family() {
   test_write_file "$root/boot/boot.sdi" unrelated-name || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2" >/dev/null 2>&1
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
   ' "$TEST_REPO_ROOT" "$root") || return
@@ -576,6 +596,7 @@ _test_usb_windows_fat32_boundary_and_architecture_labels() {
   test_write_file "$root/boot/boot.sdi" sdi || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2"
     local capture_status=$?
     _usb_image_architecture_short_label "$_USB_WINDOWS_ARCHITECTURE"
@@ -600,6 +621,7 @@ _test_usb_windows_non_install_wim_oversize_has_precise_recovery() {
   test_write_file "$root/boot/boot.sdi" sdi || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
   ' "$TEST_REPO_ROOT" "$root") || return
@@ -620,6 +642,7 @@ _test_usb_windows_family_without_uefi_fails_closed() {
   test_write_file "$root/sources/install.esd" install || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
   ' "$TEST_REPO_ROOT" "$root") || return
@@ -641,6 +664,7 @@ _test_usb_windows_preflight_requires_the_uefi_boot_chain() {
   test_write_file "$root/EFI/BOOT/BOOTX64.EFI" uefi || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
   ' "$TEST_REPO_ROOT" "$root") || return
@@ -664,6 +688,8 @@ _test_usb_windows_copy_rejects_a_symlink_target() {
   command ln -s "$victim" "$target" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_progress_stage() { return 0; }
     _usb_windows_tree_capture "$2" || exit 2
     _usb_windows_copy_tree "$2" "$3" >/dev/null 2>&1
@@ -687,6 +713,8 @@ _test_usb_windows_verification_distinguishes_mismatch_and_read_failure() {
   command /usr/bin/ditto "$source/" "$target" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_progress_stage() { return 0; }
     _usb_windows_tree_capture "$2" || exit 2
     _usb_windows_cmp_run() { return 1; }
@@ -715,6 +743,7 @@ _test_usb_windows_preflight_rejects_fat32_reserved_paths() {
   test_write_file "$root/CON.txt" reserved || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_windows_tree_capture "$2"
     print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|arch:$_USB_WINDOWS_ARCHITECTURE|error:$_USB_WINDOWS_ERROR"
   ' "$TEST_REPO_ROOT" "$root") || return
@@ -731,7 +760,9 @@ _test_usb_windows_handler_revalidates_before_erase_and_verifies_after_copy() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_progress_stage() { return 0; }
     _usb_windows_source_open() {
@@ -789,7 +820,9 @@ _test_usb_windows_authorization_swap_never_reaches_prepare() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -i target_checks=0 prepared=0
     _usb_progress_stage() { return 0; }
     _usb_windows_source_open() {
@@ -825,6 +858,7 @@ _test_usb_windows_source_cleanup_preserves_identity_until_detach_succeeds() {
   command mkdir -p "$mount" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=${2:h}
     _USB_WINDOWS_SOURCE_DEVICE=disk88 _USB_WINDOWS_SOURCE_MOUNT=$2
     local -i detach_status=1
@@ -849,6 +883,7 @@ _test_usb_windows_partial_source_attach_retains_cleanup_identity() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     local -i detach_status=1
     _usb_hdiutil_attach_readonly() {
@@ -876,7 +911,8 @@ _test_usb_partial_inspection_cleanup_is_retriable_and_wired_outermost() {
   local mount="$TEST_TMP_DIR/compozsh-usb-inspect.test" output=''
   command mkdir -p "$mount" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=${2:h}
     _USB_INSPECT_DEVICE=disk77 _USB_INSPECT_MOUNT=$2
     local -i detach_status=1
@@ -906,6 +942,7 @@ _test_usb_new_iso_inspection_cannot_discard_prior_cleanup_ownership() {
   command mkdir -p "$retained_mount" "$next_mount" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=${2:h}
     _USB_INSPECT_DEVICE=disk77 _USB_INSPECT_MOUNT=$2
     _usb_hdiutil_detach() { return 1; }
@@ -923,7 +960,8 @@ _test_usb_macos_handler_revalidates_before_destructive_effects() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_progress_stage() { return 0; }
     _usb_macos_installer_revalidate() { trace+=(installer-check); return ${installer_status:-0}; }
@@ -958,6 +996,7 @@ _test_usb_createinstallmedia_progress_is_live_and_temporary() {
   command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$4
     local -a frames=() leftovers=()
     _usb_progress_stage() { frames+=("$1|$3|$5"); }
@@ -978,11 +1017,31 @@ _test_usb_createinstallmedia_progress_is_live_and_temporary() {
 test_case 'USB createinstallmedia publishes live progress and cleans its capture' \
   _test_usb_createinstallmedia_progress_is_live_and_temporary
 
+_test_usb_result_dispatch_preserves_media_and_status() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb"
+    _usb_result_present() { print -r -- "$1:$2"; return 7; }
+    local kind="" result=0
+    for kind in macos-installer windows-installer raw-image unknown; do
+      _usb_media_result_screen "$kind" 4
+      result=$?
+      (( result == 7 )) || exit 1
+    done
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'macos-installer:4\nwindows-installer:4\nraw:4\nraw:4' "$output"
+}
+test_case 'USB result dispatch preserves media, unknown raw fallback and presenter status' \
+  _test_usb_result_dispatch_preserves_media_and_status
+
 _test_usb_macos_result_screen_reports_native_outcome() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_result_choose() {
       print -r -- "title:$1|trail:$2"
       print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"
@@ -990,10 +1049,10 @@ _test_usb_macos_result_screen_reports_native_outcome() {
     }
     _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=75 _USB_RESULT_SOURCE_VALIDATED=1
     _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1 _USB_RESULT_SOURCE_VALIDATED=1
-    _usb_macos_result_screen 0
+    _usb_media_result_screen macos-installer 0
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Apple createinstallmedia failed: media is too small"
     _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
-    _usb_macos_result_screen 1
+    _usb_media_result_screen macos-installer 1
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" \
@@ -1016,6 +1075,8 @@ _test_usb_windows_result_screen_reports_file_tree_evidence() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_result_choose() {
       print -r -- "title:$1|trail:$2"
       print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"
@@ -1046,18 +1107,20 @@ _test_usb_windows_result_never_claims_a_failed_checksum_matched() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_result_choose() { print -rl -- "${_USB_PICKER_LABELS[@]}"; }
     _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0
     _USB_RESULT_CHECKSUM_ALGORITHM=256
     _USB_RESULT_EXPECTED_CHECKSUM=${(l:64::a:)}
     _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_CHECKSUM_ERROR=calculation-failed
     _USB_RESULT_ERROR="The Windows ISO SHA-256 could not be calculated; nothing was written."
-    _usb_windows_result_screen 1
+    _usb_media_result_screen windows-installer 1
     print -r -- ---
     _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_CHECKSUM_ERROR=changed-or-unreadable
     _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
     _USB_RESULT_ERROR="The Windows ISO SHA-256 changed or could not be reread; the drive must not be used."
-    _usb_windows_result_screen 1
+    _usb_media_result_screen windows-installer 1
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'Image integrity · FAILED · SHA-256 could not be calculated' \
@@ -1077,6 +1140,8 @@ _test_usb_result_screens_keep_facts_passive() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_choose() {
       print -r -- "$1|values:${(j:,:)_USB_PICKER_VALUES}|labels:${(j:,:)_USB_PICKER_LABELS}|passive:${(j:|:)_USB_PICKER_PASSIVE_LINES}"
     }
@@ -1085,26 +1150,26 @@ _test_usb_result_screens_keep_facts_passive() {
     _USB_RESULT_RATE="1.0 MiB/s" _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
     _USB_RESULT_VERIFIED=1 _USB_RESULT_VERIFY_SCOPE=full
     _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_VERIFY_REASON=""
-    _usb_result_screen 0
+    _usb_media_result_screen raw-image 0
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="raw failure"
     _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_VERIFIED=0
-    _usb_result_screen 1
+    _usb_media_result_screen raw-image 1
 
     _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=2 _USB_RESULT_STARTED=1
     _USB_RESULT_EJECTED=1 _USB_RESULT_SOURCE_VALIDATED=1
-    _usb_macos_result_screen 0
+    _usb_media_result_screen macos-installer 0
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="macOS failure"
     _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_SOURCE_VALIDATED=0
-    _usb_macos_result_screen 1
+    _usb_media_result_screen macos-installer 1
 
     _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=3 _USB_RESULT_STARTED=1
     _USB_RESULT_EJECTED=1 _USB_RESULT_VERIFIED=1
     _USB_RESULT_VERIFY_SCOPE=windows-file-tree _USB_RESULT_CHECKSUM_VALIDATED=0
     _USB_RESULT_EXPECTED_CHECKSUM="" _USB_RESULT_CHECKSUM_ERROR=""
-    _usb_windows_result_screen 0
+    _usb_media_result_screen windows-installer 0
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Windows failure"
     _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_VERIFIED=0
-    _usb_windows_result_screen 1
+    _usb_media_result_screen windows-installer 1
   ' "$TEST_REPO_ROOT") || return
 
   for line in "${(@f)output}"; do
@@ -1138,6 +1203,8 @@ _test_usb_windows_round_trip_on_a_real_fat32_image() {
   test_write_file "$source/boot/boot.sdi" 'sdi-payload' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local source=$2 image=$3 target_mount=$4 verify_mount=$5
     local attach_output="" line="" device="" partition="" verify_device=""
     local -i integration_status=1
@@ -1225,6 +1292,7 @@ _test_usb_image_capture_is_bounded_and_exact() {
 
   output=$(test_run_interactive "$home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     builtin cd -- "$2" || exit
     _usb_images_capture || exit 2
     print -r -- "count:${#_USB_IMAGE_PATHS}"
@@ -1274,6 +1342,8 @@ _test_usb_home_index_capture_is_newest_first_with_metadata() {
   test_write_file "$work/local.iso" "${(l:25000::l:)}" || return
   output=$(test_run_interactive "$home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     builtin cd -- "$2" || exit
     _usb_spotlight_run() {
       [[ $1 == -0 && $2 == -onlyin && $3 == "${HOME:A}" ]] || return 9
@@ -1316,10 +1386,13 @@ _test_usb_step_one_alone_has_secondary_image_details() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_PICKER_VALUES=(custom-path image:1)
     _USB_PICKER_LABELS=(Custom Linux)
     _USB_PICKER_HIGHLIGHTS=("" "7:12:picker-size")
@@ -1347,9 +1420,12 @@ _test_usb_long_image_path_stays_in_passive_details() {
   test_write_file "$image" "${(l:20000::i:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor" || exit
-    source "$1/.zsh.addons/support/.zsh.ui" || exit
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done || exit
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_image_add "$2" || exit 2
     typeset -A _ZLE_PICKER_INSPECT_TEXTS=()
     _ZLE_PICKER_INSPECT_TEXTS[image]=$_USB_IMAGE_DETAILS[1]
@@ -1376,6 +1452,7 @@ _test_usb_image_architecture_is_passive_context() {
   test_write_file "$unknown" "${(l:20000::c:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_image_add "$2" || exit 2
     _usb_image_add "$3" || exit 3
     _usb_image_add "$4" || exit 4
@@ -1411,6 +1488,7 @@ _test_usb_disk_capture_filters_unsafe_targets() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_disk_ids_capture() {
       _USB_DISK_IDS=(disk7 disk8 disk9 disk10 disk11 disk12 disk13)
     }
@@ -1456,6 +1534,7 @@ _test_usb_plist_capture_uses_whole_disk_facts() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     list_plist="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>AllDisks</key><array><string>disk7</string><string>disk7s1</string><string>disk9</string></array></dict></plist>"
     _usb_disk_list_read() { _USB_PLIST=$list_plist; }
     _usb_disk_ids_capture || exit 2
@@ -1487,6 +1566,7 @@ _test_usb_plist_capture_ignores_custom_path() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     path=()
     TMPDIR=$2
     _usb_diskutil_run() {
@@ -1514,6 +1594,7 @@ _test_usb_custom_path_browses_from_home() {
   test_write_file "$home/Downloads/linux.iso" "${(l:20000::i:)}" || return
   output=$(test_run_interactive "$home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     choose_call=0
     _usb_browse_choose() {
       (( ++choose_call ))
@@ -1552,9 +1633,12 @@ _test_usb_custom_path_matches_tab_navigation_contract() {
   test_write_file "$home/.hidden.img" "${(l:20000::h:)}" || return
   output=$(test_run_interactive "$home" '
     source "$1/.zsh.addons/.zsh.editor" || exit
-    source "$1/.zsh.addons/support/.zsh.ui" || exit
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done || exit
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -a _USB_PICKER_VALUES=(middle exact fuzzy)
     typeset -a _USB_PICKER_LABELS=(my-linux.iso linux.iso lxinux.iso)
     typeset -a _USB_PICKER_SEARCH=("" "" "")
@@ -1601,10 +1685,13 @@ _test_usb_steps_use_clean_single_pane_choices() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_PICKER_VALUES=(one two)
     _USB_PICKER_LABELS=(One Two)
     _USB_PICKER_SEARCH=(one two)
@@ -1632,6 +1719,8 @@ _test_usb_workspace_requires_explicit_image_target_action() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_IMAGE_PATHS=(/images/older.iso /images/newer.iso)
     _USB_IMAGE_LABELS=(older newer)
     _USB_IMAGE_DETAILS=(older-details newer-details)
@@ -1699,6 +1788,8 @@ _test_usb_checksum_input_accepts_one_modern_digest() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     sha256=${(l:64::a:)}
     sha512=${(l:128::b:)}
     _usb_checksum_parse "$sha256" || exit 2
@@ -1732,6 +1823,8 @@ _test_usb_workspace_retains_optional_checksum() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     digest=${(l:64::d:)}
     _USB_IMAGE_PATHS=(/images/linux.iso)
     _USB_IMAGE_LABELS=(linux)
@@ -1787,6 +1880,8 @@ _test_usb_step3_blocks_a_mismatched_image_checksum() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     expected=${(l:64::d:)} actual=${(l:64::e:)}
     _USB_IMAGE_PATHS=(/images/linux.iso) _USB_IMAGE_LABELS=(linux)
     _USB_IMAGE_DETAILS=(image-details) _USB_IMAGE_SIZES=(30000)
@@ -1838,10 +1933,14 @@ _test_usb_step3_hashing_never_claims_early_success() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _zle_picker_capture() { print -r -- "lines:${(j:|:)_ZLE_PICKER_BUSY_LINES}"; }
     _usb_step3_checksum_progress /images/linux.iso disk7 external-target \
       ${(l:64::a:)} 256 x86_64
@@ -1862,6 +1961,8 @@ _test_usb_native_image_checksum() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     print -rn -- abc >| "$HOME/abc"
     _usb_image_checksum "$HOME/abc" 256 || exit 2
     print -r -- "full:$REPLY"
@@ -1883,6 +1984,7 @@ _test_usb_compare_treats_cmp_as_authoritative() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_unmount() { return 0; }
     typeset -ga statuses=() calls=()
     _usb_cmp_run() {
@@ -1936,6 +2038,8 @@ _test_usb_compare_uses_real_byte_boundaries() {
   command /bin/cp "$source_image" "$target_image" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source_image=$2 target_image=$3
     _usb_dd_read_run() {
       local -a arguments=("$@")
@@ -2095,6 +2199,8 @@ _test_usb_compare_understands_real_hybrid_gpt_geometry() {
   command /bin/cp "$target_image" "$pristine_target" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source_image=$2 target_image=$3 pristine_target=$4
     _usb_dd_read_run() {
       local -a arguments=("$@")
@@ -2162,6 +2268,8 @@ _test_usb_compare_accepts_nonadjacent_relocated_backup_entries() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     target_image=$3
     _usb_dd_read_run() {
       local -a arguments=("$@")
@@ -2199,6 +2307,8 @@ _test_usb_compare_accepts_source_bounded_gpt_on_larger_media() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     target_image=$3 pristine_target=$4
     _usb_dd_read_run() {
       local -a arguments=("$@")
@@ -2258,6 +2368,8 @@ _test_usb_readback_bypasses_cache_and_compares_exact_range() {
   command /bin/cp "$source_image" "$target_image" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     target_image=$3 trace_file=$4
     _usb_dd_read_run() {
       local -a arguments=("$@")
@@ -2308,6 +2420,8 @@ _test_usb_large_readback_uses_aligned_multi_megabyte_blocks() {
   command /bin/cp "$source_image" "$target_image" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     target_image=$3 trace_file=$4
     _usb_dd_read_run() {
       local -a arguments=("$@")
@@ -2337,6 +2451,8 @@ _test_usb_verification_paints_live_read_progress() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     typeset -ga frames=()
     _usb_unmount() { return 0; }
     _usb_progress_stage() { frames+=("$*"); }
@@ -2369,7 +2485,9 @@ _test_usb_unmounts_immediately_after_write() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { return 0; }
     _usb_authorize() { trace+=(authorize); }
@@ -2397,6 +2515,8 @@ _test_usb_checksum_verification_keeps_cmp_authoritative() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_unmount() { return 0; }
     _usb_compare_written_image() {
       _USB_PAYLOAD_VERIFY_SCOPE=full _USB_PAYLOAD_VERIFY_ERROR=""
@@ -2417,6 +2537,8 @@ _test_usb_privileged_verification_never_hides_a_prompt() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     print -r -- "read:${functions[_usb_dd_read_run]}"
   ' "$TEST_REPO_ROOT") || return
   [[ $output == *'/usr/bin/sudo -n /bin/dd'* ]] || {
@@ -2432,7 +2554,9 @@ _test_usb_expired_write_authorization_is_refreshed_before_unmount() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { trace+=("stage:$1"); }
     _usb_image_revalidate() { trace+=(image-revalidate); return 0; }
@@ -2465,7 +2589,9 @@ _test_usb_expired_verification_authorization_is_explicit() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { trace+=("stage:$1"); }
     _usb_image_revalidate() { return 0; }
@@ -2503,6 +2629,7 @@ _test_usb_workspace_retries_transient_target_permission() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_IMAGE_PATHS=(/images/linux.iso)
     _USB_IMAGE_LABELS=(linux)
     _USB_IMAGE_DETAILS=(linux-details)
@@ -2556,6 +2683,7 @@ _test_usb_workspace_refreshes_after_late_attachment() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_IMAGE_PATHS=(/images/linux.iso)
     _USB_IMAGE_LABELS=(linux)
     _USB_IMAGE_DETAILS=(linux-details)
@@ -2608,6 +2736,7 @@ _test_usb_ejected_drive_recovery_is_explicit() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_disks_capture() {
       _USB_CAPTURE_ERROR="no whole external physical disks are attached"
       return 1
@@ -2641,6 +2770,7 @@ _test_usb_workspace_refreshes_images_with_spotlight_snapshot() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_IMAGE_PATHS=(/images/old.iso)
     _USB_IMAGE_LABELS=(old.iso)
     _USB_IMAGE_HIGHLIGHTS=("7:15:picker-size")
@@ -2704,6 +2834,7 @@ _test_usb_external_device_capture_is_shared_by_flash_and_format() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_disk_ids_capture() { _USB_DISK_IDS=(disk7 disk8); }
     _usb_disk_info_capture() {
       _USB_INFO_ID=$1 _USB_INFO_NAME="Drive $1" _USB_INFO_PROTOCOL=USB
@@ -2736,8 +2867,9 @@ _test_usb_format_catalog_comes_from_diskutil() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_diskutil_plist_capture() { _USB_PLIST=catalog; }
-    _usb_plist_raw() {
+    _compozsh_plutil_raw() {
       local key=$2
       case $key in
         (0.Personality) REPLY=APFS ;;
@@ -2775,6 +2907,7 @@ _test_usb_format_workspace_reloads_drives_then_selects_a_format() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     capture_count=0 choose_count=0
     _usb_format_disks_capture() {
       (( ++capture_count ))
@@ -2827,6 +2960,7 @@ _test_usb_format_workspace_validates_a_custom_volume_name() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_format_disks_capture() {
       _USB_DISK_IDS=(disk9) _USB_DISK_LABELS=(external-drive)
       _USB_DISK_DETAILS=(drive-details) _USB_DISK_SIZES=(9000000000)
@@ -2879,6 +3013,7 @@ _test_usb_volume_name_validation_is_format_aware() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_volume_name_validate "Portable 1" ExFAT
     print -r -- "fat-valid:$?|$REPLY"
     _usb_volume_name_validate "Bad.Name" "MS-DOS FAT32" >/dev/null
@@ -2911,6 +3046,7 @@ _test_usb_format_execution_revalidates_immediately_before_erase() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     check_count=0
     _usb_target_revalidate() {
@@ -2944,6 +3080,7 @@ _test_usb_format_confirmation_is_target_bound() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_format_confirm disk9 "External SSD · /dev/disk9" ExFAT External <<< "ERASE disk8" >/dev/null
     print -r -- "wrong:$?|$_USB_CONFIRM_ERROR"
     _usb_format_confirm disk9 "External SSD · /dev/disk9" ExFAT External <<< "ERASE disk9" >/dev/null
@@ -2963,8 +3100,10 @@ _test_usb_format_report_uses_semantic_colors_with_plain_fallbacks() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     setopt EXTENDED_GLOB
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -gA ZSH_OUTPUT_COLORS=(heading 123 info 124 accent 125 success 126)
     TERM=xterm-256color
     zmodload zsh/zpty || exit 2
@@ -3035,6 +3174,7 @@ _test_usb_format_report_preserves_diskutil_failure_status() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_diskutil_erase_run() {
       print -r -- "args:${(j:|:)@}"
       print -u2 -r -- native-format-error
@@ -3059,6 +3199,7 @@ _test_usb_target_revalidation_detects_reuse() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_disk_info_capture() {
       _USB_INFO_ID=$1 _USB_INFO_SIZE=9000000 _USB_INFO_NAME=SameName
       _USB_INFO_PROTOCOL=USB _USB_INFO_EXTERNAL=1 _USB_INFO_WHOLE=1
@@ -3088,6 +3229,7 @@ _test_usb_confirmation_explains_exact_mismatch() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     read() { answer=ERASE; }
     _usb_confirm /images/linux.iso disk28 "DataTraveler · /dev/disk28" flash-verify >/dev/null
     print -r -- "short:$?|$_USB_CONFIRM_ERROR"
@@ -3110,6 +3252,7 @@ _test_usb_windows_confirmation_names_filesystem_aware_action() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_SELECTED_MEDIA_KIND=windows-installer
     _USB_SELECTED_IMAGE_ARCHITECTURE=x86_64
     read() { answer="ERASE disk28"; }
@@ -3131,9 +3274,11 @@ _test_usb_confirmation_colors_only_exact_phrase() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_confirmation_prompt "ERASE disk28"
     [[ $REPLY == "Type exactly ERASE disk28 to continue: " ]] || exit 2
     zmodload zsh/zpty || exit 3
@@ -3172,7 +3317,9 @@ _test_usb_execution_preserves_failures_and_ejects() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_authorize() { trace+=(authorize); }
     _usb_authorization_valid() { return 0; }
@@ -3215,7 +3362,9 @@ _test_usb_checksum_gates_write_and_reuses_algorithm() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     expected=${(l:64::a:)}
     typeset -ga trace=()
     _usb_progress_stage() { trace+=("stage:$1"); }
@@ -3240,7 +3389,7 @@ _test_usb_checksum_gates_write_and_reuses_algorithm() {
       8388608 flash-verify "" 1 256 "$expected" >/dev/null 2>&1
     print -r -- "matched:$?|${(j:,:)trace}|$_USB_RESULT_CHECKSUM_VALIDATED|$_USB_RESULT_VERIFIED"
     _usb_result_choose() { print -r -- "summary:${(j:|:)_USB_PICKER_LABELS}"; }
-    _usb_result_screen 0
+    _usb_media_result_screen raw-image 0
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'mismatch:1|stage:Validating image and drive,image-revalidate,stage:Checking image SHA-256,image-sha:256|0|The image SHA-256 does not match' \
@@ -3263,6 +3412,8 @@ _test_usb_native_dd_progress_is_determinate() {
   test_write_file "$progress_file" $'  1048576 bytes (1049 kB, 1024 KiB) transferred 1.001s, 1048 kB/s\r  4194304 bytes (4194 kB, 4096 KiB) transferred 4.001s, 1048 kB/s\r' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     SECONDS=20
     _usb_dd_progress_read "$2" 8388608 10
     print -r -- "bar:${_USB_PROGRESS_BAR}"
@@ -3283,10 +3434,13 @@ _test_usb_progress_uses_prominent_status_view() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_SELECTED_IMAGE=/Users/example/Downloads/linux.iso
     _USB_SELECTED_DISK=disk28
     _USB_SELECTED_DISK_LABEL="DataTraveler 3.0 · 57.7 GiB · USB · /dev/disk28"
@@ -3321,6 +3475,8 @@ _test_usb_write_worker_is_bounded_and_cleaned() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     job_marker="$2/job-options-on"
     setopt NOTIFY
@@ -3355,6 +3511,8 @@ _test_usb_write_rejects_successful_early_eof() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
     _usb_raw_write_session_run() {
@@ -3377,6 +3535,8 @@ _test_usb_raw_session_is_bounded_to_captured_sectors() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
     _usb_raw_write_session_run() {
@@ -3401,6 +3561,8 @@ _test_usb_write_clears_stale_physical_tail_gpt() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     trace_file=$2/write-calls
     _usb_progress_stage() { return 0; }
@@ -3439,6 +3601,7 @@ _test_usb_raw_session_writes_exact_offsets_through_one_descriptor() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_raw_write_script_capture || exit
     script=$REPLY
     command /bin/zsh -fc "$script" compozsh-write-test \
@@ -3523,6 +3686,7 @@ _test_usb_atomic_verifier_uses_exact_multi_megabyte_reads() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_raw_write_script_capture || exit
     script=$REPLY
     print -r -- "bulk:$([[ $script == *'\''verify_bulk_label=4m'\''*'\''if="$device" bs="$verify_bulk_label"'\''*'\''count="$verify_bulk_blocks" iflag=direct,fullblock'\''* ]] && print yes || print no)"
@@ -3582,6 +3746,7 @@ _test_usb_atomic_verifier_handles_exact_bulk_blocks() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_raw_write_script_capture || exit
     command /bin/zsh -fc "$REPLY" compozsh-aligned-verify \
       "$2" "$3" 16384 0 0 1 512 "$4" 2>| "$5"
@@ -3611,6 +3776,8 @@ _test_usb_atomic_split_read_progress_is_exact() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_dd_progress_read "$2" 4198400 0
     print -r -- "bytes:$_USB_WRITE_VERIFY_BYTES_OBSERVED|verified:$_USB_WRITE_VERIFIED|detail:$REPLY"
   ' "$TEST_REPO_ROOT" "$progress_file") || return
@@ -3628,6 +3795,8 @@ _test_usb_atomic_split_read_preserves_mismatch_status() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
     _usb_raw_write_session_run() {
@@ -3662,6 +3831,7 @@ _test_usb_raw_session_pins_the_captured_source() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_raw_write_script_capture || exit
     command /bin/zsh -fc "$REPLY" compozsh-source-race \
       "$2" "$3" 1 0 0 0 512 "$4" 2>/dev/null
@@ -3680,7 +3850,9 @@ _test_usb_execution_uses_atomic_premount_verification() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { trace+=("stage:$1"); }
     _usb_authorize() { return 0; }
@@ -3720,7 +3892,9 @@ _test_usb_atomic_failure_retains_semantic_reason() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_progress_stage() { return 0; }
     _usb_authorize() { return 0; }
     _usb_authorization_valid() { return 0; }
@@ -3737,7 +3911,7 @@ _test_usb_atomic_failure_retains_semantic_reason() {
       8388608 flash-verify "" 1 >/dev/null 2>&1
     result_status=$?
     _usb_result_choose() { print -r -- "rows:${(j:|:)_USB_PICKER_LABELS}"; }
-    _usb_result_screen "$result_status"
+    _usb_media_result_screen raw-image "$result_status"
     print -r -- "status:$result_status|reason:$_USB_RESULT_VERIFY_REASON"
   ' "$TEST_REPO_ROOT") || return
 
@@ -3756,6 +3930,8 @@ _test_usb_atomic_verification_distinguishes_short_reads() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
     _usb_raw_write_session_run() {
@@ -3782,6 +3958,8 @@ _test_usb_write_respects_target_logical_block_size() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
     _usb_raw_write_session_run() {
@@ -3812,6 +3990,8 @@ _test_usb_atomic_progress_separates_write_and_verify() {
   test_write_file "$progress_file" $'compozsh-write-stage:image\n8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\rcompozsh-write-stage:tail\ncompozsh-write-stage:verify\n4194304 bytes transferred in 2.0 secs (2097152 bytes/sec)\r8388608 bytes transferred in 4.0 secs (2097152 bytes/sec)\rcompozsh-write-tail-verified\ncompozsh-write-verified\n' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_dd_progress_read "$2" 8388608 0
     print -r -- "stage:$_USB_WRITE_STAGE|write:$_USB_WRITE_BYTES_OBSERVED|verify:$_USB_WRITE_VERIFY_BYTES_OBSERVED|verified:$_USB_WRITE_VERIFIED|detail:$REPLY"
   ' "$TEST_REPO_ROOT" "$progress_file") || return
@@ -3828,6 +4008,8 @@ _test_usb_atomic_progress_is_incrementally_bounded() {
   local progress_file="$TEST_TMP_DIR/long-atomic-progress" output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     print -r -- "compozsh-write-stage:image" >| "$2" || exit
     command /bin/dd if=/dev/zero bs=600000 count=1 status=none |
       command /usr/bin/tr "\0" "\n" >> "$2" || exit
@@ -3857,7 +4039,9 @@ _test_usb_execution_rejects_unaligned_target_before_unmount() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { return 0; }
     _usb_authorize() { trace+=(authorize); return 0; }
@@ -3887,6 +4071,8 @@ _test_usb_write_retains_a_bounded_native_failure() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
     _usb_raw_write_session_run() {
@@ -3910,6 +4096,7 @@ _test_usb_verification_owns_subprocess_output() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_unmount() { print -r -- "Unmount of all volumes was successful"; }
     _usb_cmp_run() { return 0; }
     _usb_verify_payload /images/linux.iso disk7 8388608
@@ -3925,7 +4112,9 @@ _test_usb_execution_reports_stages_and_completion_stats() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     typeset -ga stages=()
     _usb_progress_stage() { stages+=("$1"); }
     _usb_authorize() { return 0; }
@@ -3943,7 +4132,7 @@ _test_usb_execution_reports_stages_and_completion_stats() {
     _usb_result_choose() {
       print -r -- "summary:${(j:|:)_USB_PICKER_LABELS}"
     }
-    _usb_result_screen 0
+    _usb_media_result_screen raw-image 0
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'stages:Validating image and drive,Unmounting external drive,Writing image,Verifying USB against image,Ejecting external drive' \
@@ -3966,7 +4155,9 @@ _test_usb_execution_closes_image_and_target_races() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     image_checks=0 target_checks=0
     _usb_progress_stage() { return 0; }
@@ -4013,7 +4204,8 @@ _test_usb_outer_cleanup_ejects_only_an_started_exact_target() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_eject() { trace+=("eject:$1"); return 0; }
     _USB_SELECTED_DISK=disk7 _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0
@@ -4046,6 +4238,8 @@ _test_usb_failure_screen_separates_image_and_drive_evidence() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_choose() {
       local specification="" role=""
       local -a roles=()
@@ -4065,17 +4259,17 @@ _test_usb_failure_screen_separates_image_and_drive_evidence() {
     _USB_RESULT_IMAGE_CHECKSUM=$_USB_RESULT_EXPECTED_CHECKSUM
     _USB_RESULT_CHECKSUM_VALIDATED=1
     _USB_RESULT_VERIFY_REASON=drive-read-failed
-    _usb_result_screen 4
+    _usb_media_result_screen raw-image 4
 
     _USB_RESULT_EXPECTED_CHECKSUM="" _USB_RESULT_IMAGE_CHECKSUM=""
     _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_VERIFY_REASON=mismatch
-    _usb_result_screen 1
+    _usb_media_result_screen raw-image 1
 
     _USB_RESULT_EXPECTED_CHECKSUM=${(l:64::d:)}
     _USB_RESULT_IMAGE_CHECKSUM=$_USB_RESULT_EXPECTED_CHECKSUM
     _USB_RESULT_CHECKSUM_VALIDATED=1 _USB_RESULT_VERIFY_REASON=mismatch
     _USB_RESULT_ERROR="The finished USB installer or boot bytes differ from the selected image."
-    _usb_result_screen 1
+    _usb_media_result_screen raw-image 1
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · Could not read the finished drive' \

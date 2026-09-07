@@ -4,10 +4,14 @@ _test_action_ui_acceptance_defaults() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local fixture="" expected_action=choose expected_value="" result=0
     _ZLE_PICKER_ACCEPT_LABELS=(outer execute)
     _ZLE_PICKER_INSPECT_ACTION=execute
@@ -73,6 +77,7 @@ _test_action_ui_format_name_contract() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=() erased=()
     local name="" personality="" result=0
     _usb_target_revalidate() { trace+=("check:$1:$2:$3"); }
@@ -114,6 +119,7 @@ _test_action_ui_format_failure_status() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_target_revalidate() { return 0; }
     _usb_authorize() { return 0; }
     _usb_diskutil_erase_run() { print -u2 -- native-format-error; return 7; }

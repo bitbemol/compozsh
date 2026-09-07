@@ -1,0 +1,113 @@
+# Entry point: _zle_picker_workspace
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Stable chrome belongs to the owned screen only. Empty rows are represented
+# by newlines, keeping padding cheap and leaving ZLE in charge of painting.
+_zle_picker_workspace() {
+  emulate -L zsh
+  (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 8 )) || return 0
+  _zle_picker_body_height
+  local -i gap=$(( REPLY - (${#_ZLE_PICKER_DISPLAY} - 1) )) width=$(( COLUMNS - 1 ))
+  local separator=''
+  local -a padding=() reply=()
+  # Inline rows need no pane metadata. Supply it before inserting spacer rows
+  # so every parallel array continues to describe the same physical row.
+  if (( !${#_ZLE_PICKER_DISPLAY_LEFT_ENDS} )); then
+    _ZLE_PICKER_DISPLAY_LEFT_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
+    _ZLE_PICKER_DISPLAY_RIGHT_ROLES=("${_ZLE_PICKER_DISPLAY[@]/*/}")
+  fi
+  if (( !${#_ZLE_PICKER_DISPLAY_RIGHT_SYNTAX} )); then
+    _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=("${_ZLE_PICKER_DISPLAY[@]/*/}")
+  fi
+  (( gap < 0 )) && gap=0
+  (( width < 1 )) && width=1
+  _zle_picker_navigation $width
+  separator=$REPLY
+  repeat $gap; do padding+=(''); done
+  _ZLE_PICKER_DISPLAY=("$separator" "${_ZLE_PICKER_DISPLAY[@][1,-2]}" "${padding[@]}" "${_ZLE_PICKER_DISPLAY[-1]}")
+  _ZLE_PICKER_DISPLAY_STYLES=(picker-muted "${_ZLE_PICKER_DISPLAY_STYLES[@][1,-2]}" "${padding[@]}" picker-muted)
+  _ZLE_PICKER_DISPLAY_INDEX_ENDS=(0 "${_ZLE_PICKER_DISPLAY_INDEX_ENDS[@][1,-2]}" "${padding[@]}" 0)
+  _ZLE_PICKER_DISPLAY_HIGHLIGHTS=("${(j: :)reply}" "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[@][1,-2]}" "${padding[@]}" "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[-1]-}")
+  _ZLE_PICKER_DISPLAY_LEFT_ENDS=(-1 "${_ZLE_PICKER_DISPLAY_LEFT_ENDS[@][1,-2]}" "${padding[@]}" -1)
+  _ZLE_PICKER_DISPLAY_RIGHT_ROLES=('' "${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[@][1,-2]}" "${padding[@]}" '')
+  _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=('' "${_ZLE_PICKER_DISPLAY_RIGHT_SYNTAX[@][1,-2]}" "${padding[@]}" '')
+  _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=(0 "${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[@][1,-2]}" "${padding[@]}" 0)
+  _ZLE_PICKER_DISPLAY_MATCH_STARTS=(-1 "${_ZLE_PICKER_DISPLAY_MATCH_STARTS[@][1,-2]}" "${padding[@]}" -1)
+}
+
+# A passive map of the current disclosure, in the existing separator row.
+# Stages and the next gesture come only from this view's captured capabilities;
+# they are neither selectable results nor a workflow registry. REPLY is plain
+# text; reply contains its active-stage style span for the shared painter.
+_zle_picker_navigation() {
+  emulate -L zsh
+  local -i width=$1 active=1 index=0 start=0 end=0 remaining=0
+  local detail=${(V)_ZLE_PICKER_INSPECT_TITLE} hint='' route='' label=''
+  local -a stages=(Results)
+  (( _ZLE_PICKER_ACTION_VIEW )) && stages=(Actions)
+  (( _ZLE_PICKER_REFERENCE_VIEW )) && stages=(Topics)
+  reply=()
+  if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    stages=('Keyboard guide') hint='Esc back'
+  elif (( ${_ZLE_PICKER_BUSY:-0} )); then
+    stages=('In progress')
+  elif (( _ZLE_PICKER_READER_ONLY )); then
+    stages=("${detail:-Reader}")
+  elif (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )); then
+    stages=(Query)
+  elif (( _ZLE_PICKER_DOCUMENT )); then
+    stages=(Files)
+    if (( _ZLE_PICKER_SELECTED > 0 )); then
+      if [[ $_ZLE_PICKER_DOCUMENT_MODE == (focused|full) &&
+            ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]} == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+        stages+=('Focused diff' 'Full file')
+        if (( _ZLE_PICKER_INSPECT_FOCUS )); then
+          active=2 hint='→ full file'
+          [[ $_ZLE_PICKER_DOCUMENT_MODE == full ]] && { active=3; hint='← focused diff'; }
+        else
+          hint='→ read'
+        fi
+      else
+        stages+=("${detail:-Reader}") hint='→ read'
+        (( _ZLE_PICKER_INSPECT_FOCUS )) && { active=2; hint='← files'; }
+      fi
+    fi
+  elif (( ${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT )); then
+    stages+=("${detail:-Details}") hint='^E inspect'
+    (( _ZLE_PICKER_INSPECT_FOCUS )) && { active=2; hint='^B results'; }
+  fi
+  for label in "${stages[@]}"; do
+    (( ++index ))
+    [[ -n $route ]] && route+='  ›  '
+    if (( index == active )); then
+      start=${#route}
+      route+="▸ $label"
+      end=${#route}
+    else
+      route+=$label
+    fi
+  done
+  # Preserve the active stage before adjacent stages and optional hints. Never
+  # truncate a key hint or let a long caller label wrap the screen.
+  if (( ${(m)#route} > width - 4 )); then
+    route="▸ ${stages[active]}"
+    _zle_picker_abbreviate "$route" $(( width > 4 ? width - 4 : 0 ))
+    route=$REPLY start=0 end=${#REPLY}
+  fi
+  if (( width < 5 )); then
+    REPLY=${(l:$width::─:)}
+    return 0
+  fi
+  REPLY="─ $route "
+  (( end > start )) && reply=("$((start+2)):$((end+2)):picker-focus")
+  remaining=$(( width - ${(m)#REPLY} ))
+  if [[ -n $hint ]] && (( remaining >= ${(m)#hint} + 4 )); then
+    REPLY+="${(l:$((remaining-${(m)#hint}-3))::─:)} $hint ─"
+  else
+    REPLY+=${(l:$remaining::─:)}
+  fi
+}
+
+
+:

@@ -1,0 +1,795 @@
+# Entry point: _zle_picker_loop
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_zle_picker_loop() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+
+  local query=$1 raw_limit=$2 key='' sequence='' suffix='' collected_query=''
+  local collector=$_ZLE_PICKER_COLLECTOR
+  local -i configured_limit=8 limit=8 selected=1 count=0 direct_position=0
+  local -i accepted=0 cancelled=0 aborted=0 copy_requested=0
+  local -i collected=0 request_limit=0 wanted=0
+  local -i read_columns=0 read_lines=0
+  local -i start_index=1 start_offset=0
+  local -i meta_sequence=0 idle_repaint=0 idle_result=1 idle_prepaint=0
+  local -i document_preview_pending=0 document_settle_ticks=${_ZLE_PICKER_DOCUMENT_SETTLE_TICKS:-0}
+  local -i document_ticks_left=0
+  local document_target=''
+  local -a reply=()
+
+  [[ $raw_limit == <-> ]] && configured_limit=$raw_limit
+  (( configured_limit < 1 )) && configured_limit=1
+  (( configured_limit > 20 )) && configured_limit=20
+  (( ${+functions[$collector]} )) || return 2
+  [[ ${3:-} == <-> ]] && (( $3 > 0 )) && start_index=$3
+  [[ ${4:-} == <-> ]] && start_offset=$4
+
+  if (( !${_ZLE_PICKER_SESSION:-0} )); then
+    _zle_picker_screen_session _zle_picker_loop "$@"
+    return $?
+  fi
+
+  _ZLE_PICKER_SELECTED_VALUE=''
+  _ZLE_PICKER_BOOKMARK=()
+  _ZLE_PICKER_BOOKMARK_FOCUS=0
+  _ZLE_PICKER_ACCEPTED=0
+  _ZLE_PICKER_ACTION='select'
+  _ZLE_PICKER_IDLE_ACTION=''
+  _ZLE_PICKER_GUIDE_ACTIVE=0
+  _ZLE_PICKER_GUIDE_OFFSET=0
+  _ZLE_PICKER_ACTIVE=1
+  _ZLE_PICKER_VIEW_LIMIT=$configured_limit
+  _ZLE_PICKER_VIEW_OFFSET=0
+  _ZLE_PICKER_HAS_MORE=0
+  _ZLE_PICKER_INSPECT_FOCUS=${_zle_picker_start_focus:-0}
+  _ZLE_PICKER_INSPECT_OFFSET=0
+  _ZLE_PICKER_INSPECT_KEY=''
+  _ZLE_PICKER_INSPECT_WIDTH=0
+  # Viewport-dependent providers retain their first-paint handoff. A caller
+  # publishing captured live data may use only timed idle to avoid two updates
+  # between paints; the default behavior remains unchanged.
+  [[ -n ${_ZLE_PICKER_IDLE_CALLBACK:-} &&
+     ${+functions[$_ZLE_PICKER_IDLE_CALLBACK]} == 1 ]] &&
+    (( ${_ZLE_PICKER_IDLE_PREPAINT:-1} )) && idle_prepaint=1
+  {
+    while (( !accepted && !cancelled && !aborted )); do
+      # A caller may own a strict lifecycle deadline independently from its
+      # ordinary input-idle work. Check it once per key-loop turn even while
+      # bytes remain queued; the callback may stop an existing provider but
+      # must not start discovery or perform foreground capture.
+      if [[ -n ${_ZLE_PICKER_DEADLINE_CALLBACK:-} &&
+            ${+functions[$_ZLE_PICKER_DEADLINE_CALLBACK]} == 1 ]] &&
+         (( ${_ZLE_PICKER_DEADLINE_AT:-0} > 0 &&
+            EPOCHREALTIME >= _ZLE_PICKER_DEADLINE_AT )); then
+        "$_ZLE_PICKER_DEADLINE_CALLBACK" || true
+      fi
+      # Query editing retains the primary reader. Ordinary pickers continue to
+      # return focus to their result list through the same key handlers.
+      (( _ZLE_PICKER_READER_ONLY )) && _ZLE_PICKER_INSPECT_FOCUS=1
+      limit=$configured_limit
+      _zle_picker_body_height
+      (( _ZLE_PICKER_DOCUMENT )) && limit=$REPLY
+      (( LINES > 0 && limit > REPLY )) && limit=$REPLY
+      (( limit < 1 )) && limit=1
+      # Retain a ranked prefix for this query. Grow it geometrically only when
+      # the viewport reaches its edge; providers remain captured outside ZLE.
+      wanted=$(( _ZLE_PICKER_VIEW_OFFSET + limit ))
+      (( selected > wanted )) && wanted=$selected
+      (( ++wanted ))
+      if (( !collected )) || [[ $query != "$collected_query" ]]; then
+        request_limit=$(( limit + 1 ))
+        selected=1
+        _ZLE_PICKER_VIEW_OFFSET=0
+        if (( !collected && start_index )); then
+          selected=$start_index
+          _ZLE_PICKER_VIEW_OFFSET=$start_offset
+          (( request_limit < selected + 1 )) && request_limit=$(( selected + 1 ))
+          (( request_limit < start_offset + limit + 1 )) && request_limit=$(( start_offset + limit + 1 ))
+          start_index=0
+        fi
+        collected=0
+      elif (( _ZLE_PICKER_HAS_MORE && wanted > ${#_ZLE_PICKER_RESULTS} )); then
+        (( request_limit *= 2 ))
+        (( request_limit < wanted )) && request_limit=$wanted
+        collected=0
+      fi
+      if (( !collected )); then
+        "$collector" "$query" $request_limit
+        _ZLE_PICKER_HAS_MORE=$(( ${#_ZLE_PICKER_RESULTS} >= request_limit ))
+        collected_query=$query
+        collected=1
+      fi
+      count=${#_ZLE_PICKER_RESULTS}
+      (( count == 0 )) && selected=0
+      (( count > 0 && selected < 1 )) && selected=1
+      (( selected > count )) && selected=$count
+
+      _ZLE_PICKER_QUERY=$query
+      _ZLE_PICKER_SELECTED=$selected
+      document_preview_pending=0
+      # Terminal.app supplies input bytes, not key-release events. Never flush
+      # repeated arrows: every complete sequence updates selection. A document
+      # workspace may nevertheless defer its expensive preview until selection
+      # is quiet. Intermediate rows paint the existing loading state inside
+      # this input loop; only the latest exact target reaches the controller.
+      if (( _ZLE_PICKER_DOCUMENT && count )) &&
+         [[ ${_ZLE_PICKER_RESULTS[selected]} != "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
+        if (( document_settle_ticks > 0 )); then
+          document_preview_pending=1
+          if [[ $document_target != ${_ZLE_PICKER_RESULTS[selected]} ]]; then
+            document_target=${_ZLE_PICKER_RESULTS[selected]}
+            document_ticks_left=$document_settle_ticks
+          fi
+        else
+          _ZLE_PICKER_ACTION=inspect
+          accepted=1
+          continue
+        fi
+      fi
+      key=''
+      _zle_picker_render "$query" $selected
+      if (( idle_prepaint )); then
+        # Layout has now published the exact document viewport. Consume one
+        # already-queued byte before touching optional presentation work: a
+        # held-key stream owns the UI thread, even when a completed syntax
+        # packet is ready. Unlike fd readability, `read -t 0 -k 1` succeeds
+        # only when Zsh can actually return a byte, so a readable PTY without a
+        # complete key does not starve the callback.
+        if ! IFS= read -r -t 0 -k 1 key; then
+          # With input idle, one nonblocking callback handoff may publish
+          # completed metadata or schedule the current viewport. Provider
+          # startup, requests and completion waits must never occur here.
+          _zle_picker_idle_call
+          idle_result=$reply[1] accepted=$reply[2]
+          (( accepted )) && break
+          if (( idle_result == 0 )); then
+            _zle_picker_render "$query" $selected
+          fi
+        fi
+      fi
+      _zle_picker_show
+
+      read_columns=$COLUMNS
+      read_lines=$LINES
+      idle_repaint=0
+      if (( document_preview_pending )); then
+        # Consume input throughout the quiet window. Every received key resets
+        # settlement; no preview provider, syntax callback or document parse
+        # runs for an intermediate selection. Four ticks gives Git review a
+        # 120 ms window, longer than the observed 83 ms held-key cadence while
+        # keeping a single tap visibly responsive.
+        if [[ -z $key ]]; then
+          while ! IFS= read -r -t 0.03 -k 1 key; do
+            if (( COLUMNS != read_columns || LINES != read_lines )); then
+              idle_repaint=1
+              break
+            fi
+            if (( --document_ticks_left <= 0 )); then
+              _ZLE_PICKER_ACTION=inspect
+              accepted=1
+              break
+            fi
+          done
+        fi
+        if [[ -n $key ]]; then
+          document_ticks_left=$document_settle_ticks
+        fi
+        (( idle_repaint || accepted )) && continue
+      elif [[ -n ${_ZLE_PICKER_IDLE_CALLBACK:-} && ${+functions[$_ZLE_PICKER_IDLE_CALLBACK]} == 1 ]]; then
+        # Optional caller work is polled only while input is idle. The short
+        # timed read gives terminal bytes priority; callbacks may publish
+        # already-computed metadata, schedule work without waiting and request
+        # a repaint. Input still receives priority before every callback.
+        if [[ -z $key ]]; then
+          while ! IFS= read -r -t 0.03 -k 1 key; do
+            if (( COLUMNS != read_columns || LINES != read_lines )); then
+              idle_repaint=1
+              break
+            fi
+            _zle_picker_idle_call
+            idle_result=$reply[1] accepted=$reply[2]
+            (( accepted )) && break
+            if (( idle_result == 0 )); then
+              idle_repaint=1
+              break
+            elif (( idle_result == 2 )); then
+              # The caller has no pending work for this frame. Return to a true
+              # blocking read unless it supplied a future idle deadline. A
+              # timed wait wakes exactly once for that deadline; it does not
+              # turn the native 30 ms pending-work poll into a permanent timer.
+              if (( ${_ZLE_PICKER_IDLE_WAIT:-0} > 0 )); then
+                if IFS= read -r -t $_ZLE_PICKER_IDLE_WAIT -k 1 key; then
+                  :
+                elif (( COLUMNS != read_columns || LINES != read_lines )); then
+                  idle_repaint=1
+                  break
+                else
+                  continue
+                fi
+              elif ! IFS= read -r -k 1 key; then
+                if (( COLUMNS != read_columns || LINES != read_lines )); then
+                  idle_repaint=1
+                else
+                  cancelled=1
+                fi
+              fi
+              break
+            fi
+          done
+        fi
+        (( idle_repaint )) && continue
+        (( accepted )) && continue
+        (( cancelled )) && break
+      elif [[ -z $key ]] && ! IFS= read -r -k 1 key; then
+        # A terminal resize may interrupt read before ZLE's resize callback can
+        # repaint. Keep the selection and redraw the cached viewport next turn.
+        (( COLUMNS != read_columns || LINES != read_lines )) && continue
+        cancelled=1
+        break
+      fi
+
+      # A resize can redraw while read waits. Only currently visible rows may
+      # be accepted by index, and the highlighted row remains the selected one.
+      selected=$_ZLE_PICKER_SELECTED
+      count=${#_ZLE_PICKER_RESULTS}
+
+      # A guide never applies a result or edits the hidden filter. Only its
+      # scrolling, dismissal and whole-session abort keys remain active.
+      if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+        case $key in
+          ($'\r'|$'\n'|$'\x07'|$'\x0b') _ZLE_PICKER_GUIDE_ACTIVE=0; continue ;;
+          ($'\e'|$'\x03'|$'\x0c'|$'\x10'|$'\x0e'|$'\x16'|$'\x04') ;;
+          (*) zle beep; continue ;;
+        esac
+      fi
+      local -i focus_before=$_ZLE_PICKER_INSPECT_FOCUS
+      case $key in
+        ($'\x01')
+          if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
+            _ZLE_PICKER_ACTION=document-auto-toggle
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x0b')
+          _ZLE_PICKER_GUIDE_ACTIVE=1
+          _ZLE_PICKER_GUIDE_OFFSET=0
+          ;;
+        ($'\x0f')
+          if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
+            _ZLE_PICKER_ACTION=preview
+            accepted=1
+          elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 && count )); then
+            _ZLE_PICKER_ACTION=browse
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x18')
+          if { (( !_ZLE_PICKER_DOCUMENT &&
+                (_ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0}) )); } ||
+             { [[ $_ZLE_PICKER_OPTIONS_KIND == atlas ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )); }; then
+            _ZLE_PICKER_ACTION=actions
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x14')
+          if (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+            _ZLE_PICKER_ACTION=toggle-hidden
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x06')
+          if [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]]; then
+            _ZLE_PICKER_ACTION=$_ZLE_PICKER_SEARCH_ACTION
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x05'|$'\x02')
+          if (( ${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT )); then
+            [[ $key == $'\x05' ]] && _ZLE_PICKER_INSPECT_FOCUS=1 || _ZLE_PICKER_INSPECT_FOCUS=0
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x16'|$'\x04')
+          [[ $key == $'\x16' ]] && _zle_picker_page 1 $selected $count ||
+            _zle_picker_page -1 $selected $count
+          selected=$REPLY
+          ;;
+        ($'\r'|$'\n')
+          if (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} && ${_ZLE_PICKER_QUERY_EMPTY_CANCEL:-0} )) && [[ -z ${query//[[:space:]]/} ]]; then
+            cancelled=1
+          elif (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${query//[[:space:]]/} ]]; then
+            _ZLE_PICKER_ACTION=query
+            accepted=1
+          elif _zle_picker_can_accept "$query"; then
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x03')
+          aborted=1
+          ;;
+        ($'\x07')
+          cancelled=1
+          ;;
+        ($'\x7f'|$'\x08')
+          _ZLE_PICKER_INSPECT_FOCUS=0
+          if [[ -n $query ]]; then
+            query=${query[1,-2]}
+            selected=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x15')
+          _ZLE_PICKER_INSPECT_FOCUS=0
+          query=''
+          selected=1
+          ;;
+        ($'\x19')
+          if (( _ZLE_PICKER_COPY_ENABLED && (count || _ZLE_PICKER_READER_ONLY) )); then
+            copy_requested=1
+            accepted=1
+          else
+            zle beep
+          fi
+          ;;
+        ($'\x17')
+          _ZLE_PICKER_INSPECT_FOCUS=0
+          query=${query%%[[:space:]]#}
+          query=${query%%[^[:space:]]#}
+          selected=1
+          ;;
+        ($'\x0c')
+          zle clear-screen
+          ;;
+        ($'\x12')
+          if (( _ZLE_PICKER_DOCUMENT )); then
+            if (( _ZLE_PICKER_DOCUMENT_REFRESH )); then
+              _ZLE_PICKER_ACTION=document-refresh
+              accepted=1
+            else
+              zle beep
+            fi
+          elif (( _ZLE_PICKER_REFRESH_ENABLED )); then
+            _ZLE_PICKER_ACTION=refresh
+            accepted=1
+          else
+            _zle_picker_step 1 $selected $count
+            selected=$REPLY
+          fi
+          ;;
+        ($'\x0e'|$'\t')
+          if (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_HIERARCHY_ENABLED )) && [[ $key == $'\t' ]]; then
+            (( _ZLE_PICKER_INSPECT_FOCUS = !_ZLE_PICKER_INSPECT_FOCUS ))
+          elif (( _ZLE_PICKER_HIERARCHY_ENABLED )) && [[ $key == $'\t' ]]; then
+            if (( count )); then
+              _ZLE_PICKER_ACTION='descend'
+              accepted=1
+            else
+              zle beep
+            fi
+          else
+            _zle_picker_step 1 $selected $count
+            selected=$REPLY
+          fi
+          ;;
+        ($'\x10')
+          _zle_picker_step -1 $selected $count
+          selected=$REPLY
+          ;;
+        ($'\e')
+          sequence=''
+          meta_sequence=0
+          # Only allow transport time for arrows, paste and optional Meta keys.
+          # No human Escape-then-letter commands: cancellation stays responsive.
+          if ! IFS= read -r -t 0.02 -k 1 sequence; then
+            if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+              _ZLE_PICKER_GUIDE_ACTIVE=0
+            else
+              cancelled=1
+            fi
+            continue
+          fi
+          # Terminal.app can represent Option-arrow by prefixing the ordinary
+          # cursor sequence with a second Escape. Accept only cursor transport
+          # after that prefix; it never creates a human Escape chord.
+          if [[ $sequence == $'\e' ]]; then
+            meta_sequence=1
+            suffix=''
+            if ! IFS= read -r -t 0.1 -k 1 suffix || [[ $suffix != ('['|O) ]]; then
+              cancelled=1
+              continue
+            fi
+            sequence=$suffix
+          fi
+          if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != (v|'['|O) ]]; then
+            zle beep
+            continue
+          fi
+          case $sequence in
+            ('v')
+              _zle_picker_page -1 $selected $count
+              selected=$REPLY
+              ;;
+            ('w'|'W')
+              if (( _ZLE_PICKER_COPY_ENABLED && (count || _ZLE_PICKER_READER_ONLY) )); then
+                copy_requested=1
+                accepted=1
+              else
+                zle beep
+              fi
+              ;;
+            ($'\x7f'|$'\x08')
+              _ZLE_PICKER_INSPECT_FOCUS=0
+              query=${query%%[[:space:]]#}
+              query=${query%%[^[:space:]]#}
+              selected=1
+              ;;
+            ('['|'O')
+              suffix=''
+              if ! IFS= read -r -t 0.1 -k 1 suffix; then
+                cancelled=1
+                continue
+              fi
+              sequence+=$suffix
+              if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != ('[A'|'OA'|'[B'|'OB'|'[5'|'[6'|'[2'|'[1') ]]; then
+                zle beep
+                continue
+              fi
+              case $sequence in
+                ('[A'|'OA')
+                  if (( meta_sequence )); then
+                    _zle_picker_page -1 $selected $count
+                  else
+                    _zle_picker_step -1 $selected $count
+                  fi
+                  selected=$REPLY
+                  ;;
+                ('[Z')
+                  if (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_HIERARCHY_ENABLED )); then
+                    (( _ZLE_PICKER_INSPECT_FOCUS = !_ZLE_PICKER_INSPECT_FOCUS ))
+                  elif (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+                    _ZLE_PICKER_ACTION='parent'
+                    accepted=1
+                  else
+                    _zle_picker_step -1 $selected $count
+                    selected=$REPLY
+                  fi
+                  ;;
+                ('[C'|'OC'|'[D'|'OD')
+                  if (( meta_sequence )); then
+                    zle beep
+                    continue
+                  fi
+                  if (( _ZLE_PICKER_DOCUMENT )); then
+                    if (( !count )); then zle beep; continue; fi
+                    local direction=right
+                    [[ $sequence == ('[D'|'OD') ]] && direction=left
+                    _zle_picker_document_direction "$direction" "$_ZLE_PICKER_INSPECT_FOCUS" "$_ZLE_PICKER_DOCUMENT_MODE"
+                    case $REPLY in
+                      (read) _ZLE_PICKER_INSPECT_FOCUS=1 ;;
+                      (files) _ZLE_PICKER_INSPECT_FOCUS=0 ;;
+                      (focused|full)
+                        _ZLE_PICKER_INSPECT_FOCUS=1
+                        _ZLE_PICKER_ACTION="document-$REPLY"
+                        accepted=1 ;;
+                      (*) zle beep ;;
+                    esac
+                  elif (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_HIERARCHY_ENABLED )); then
+                    [[ $sequence == ('[C'|'OC') ]] && _ZLE_PICKER_INSPECT_FOCUS=1 || _ZLE_PICKER_INSPECT_FOCUS=0
+                  elif (( _ZLE_PICKER_HIERARCHY_ENABLED )); then
+                    if [[ $sequence == ('[D'|'OD') ]]; then
+                      _ZLE_PICKER_ACTION=parent
+                      accepted=1
+                    elif (( count )); then
+                      _ZLE_PICKER_ACTION=descend
+                      accepted=1
+                    else
+                      zle beep
+                    fi
+                  else
+                    cancelled=1
+                  fi
+                  ;;
+                ('[B'|'OB')
+                  if (( meta_sequence )); then
+                    _zle_picker_page 1 $selected $count
+                  else
+                    _zle_picker_step 1 $selected $count
+                  fi
+                  selected=$REPLY
+                  ;;
+                ('[H'|'OH'|'[F'|'OF')
+                  local -i edge=1
+                  [[ $sequence == ('[H'|'OH') ]] && edge=-1
+                  if _zle_picker_document_edge $edge $selected $count; then
+                    selected=$REPLY
+                  else
+                    cancelled=1
+                  fi
+                  ;;
+                ('[5'|'[6')
+                  suffix=''
+                  if IFS= read -r -t 0.1 -k 1 suffix && [[ $suffix == '~' ]]; then
+                    if [[ $sequence == '[6' ]]; then
+                      _zle_picker_page 1 $selected $count
+                    else
+                      _zle_picker_page -1 $selected $count
+                    fi
+                    selected=$REPLY
+                  else
+                    zle beep
+                  fi
+                  ;;
+                ('[1')
+                  # Option-Up/Down with Terminal.app's Option-as-Meta setting.
+                  # xterm names these kUP3/kDN3: ESC [ 1 ; 3 A/B.
+                  suffix=''
+                  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
+                    IFS= read -r -t 0.1 -k 1 suffix
+                    if [[ $suffix == '~' ]]; then
+                      if _zle_picker_document_edge -1 $selected $count; then
+                        selected=$REPLY
+                      else
+                        zle beep
+                      fi
+                      continue
+                    fi
+                    if [[ $suffix == ';' ]]; then
+                      local remainder=''
+                      IFS= read -r -t 0.1 -k 2 remainder
+                      suffix+=$remainder
+                    fi
+                  else
+                    IFS= read -r -t 0.1 -k 3 suffix
+                  fi
+                  if [[ $suffix == (';3A'|';3B') ]]; then
+                    [[ $suffix == ';3B' ]] && _zle_picker_page 1 $selected $count ||
+                      _zle_picker_page -1 $selected $count
+                    selected=$REPLY
+                  else
+                    zle beep
+                  fi
+                  ;;
+                ('[4')
+                  suffix=''
+                  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )) &&
+                     IFS= read -r -t 0.1 -k 1 suffix && [[ $suffix == '~' ]] &&
+                     _zle_picker_document_edge 1 $selected $count; then
+                    selected=$REPLY
+                  else
+                    cancelled=1
+                  fi
+                  ;;
+                ('[3')
+                  suffix=''
+                  IFS= read -r -t 0.1 -k 1 suffix
+                  if [[ $suffix == '~' && -n $query ]]; then
+                    _ZLE_PICKER_INSPECT_FOCUS=0
+                    query=${query[1,-2]}
+                    selected=1
+                  fi
+                  ;;
+                ('[2')
+                  suffix=''
+                  if IFS= read -r -t 0.1 -k 3 suffix && [[ $suffix == '00~' ]] &&
+                     _zle_picker_read_bracketed_paste; then
+                    # Consume the whole paste even in the guide: its payload
+                    # may contain Enter, digits or Escape, never action keys.
+                    if (( !_ZLE_PICKER_GUIDE_ACTIVE )); then
+                      _ZLE_PICKER_INSPECT_FOCUS=0
+                      query+=$REPLY
+                      selected=1
+                    fi
+                  else
+                    cancelled=1
+                  fi
+                  ;;
+                (*)
+                  cancelled=1
+                  ;;
+              esac
+              ;;
+            (*)
+              cancelled=1
+              ;;
+          esac
+          ;;
+        ([0-9])
+          # Shortcuts identify currently visible slots, never hidden results.
+          # Exact result values are indexed only after applying the viewport.
+          direct_position=0
+          if (( _ZLE_PICKER_DIGIT_SELECT && _ZLE_PICKER_INDEXES_VISIBLE && !_ZLE_PICKER_INSPECT_FOCUS )) &&
+             [[ -z $query ]]; then
+            direct_position=${_ZLE_PICKER_VISIBLE_KEYS[(Ie)$key]}
+          fi
+          if (( direct_position )); then
+            if (( direct_position > _ZLE_PICKER_VISIBLE_COUNT )); then
+              zle beep
+              continue
+            fi
+            selected=$(( _ZLE_PICKER_VIEW_OFFSET + direct_position ))
+            accepted=1
+          else
+            _ZLE_PICKER_INSPECT_FOCUS=0
+            query+=$key
+            selected=1
+          fi
+          ;;
+        (*)
+          if [[ $key == [[:print:]] ]]; then
+            _ZLE_PICKER_INSPECT_FOCUS=0
+            query+=$key
+            selected=1
+          else
+            zle beep
+          fi
+          ;;
+      esac
+      if (( !accepted && _ZLE_PICKER_DOCUMENT_UPDATE_PENDING &&
+            focus_before && !_ZLE_PICKER_INSPECT_FOCUS )); then
+        _ZLE_PICKER_ACTION=document-auto-apply
+        accepted=1
+      fi
+    done
+
+    if (( accepted )); then
+      _ZLE_PICKER_ACCEPTED=1
+      _ZLE_PICKER_SELECTED_VALUE=${_ZLE_PICKER_RESULTS[selected]-}
+      [[ $_ZLE_PICKER_ACTION == query ]] && _ZLE_PICKER_SELECTED_VALUE=$query
+      _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
+      _ZLE_PICKER_BOOKMARK_FOCUS=$_ZLE_PICKER_INSPECT_FOCUS
+      (( copy_requested )) && _ZLE_PICKER_ACTION='copy'
+    fi
+  } always {
+    _ZLE_PICKER_ACTIVE=0
+    if (( _ZLE_PICKER_READER_ONLY )); then
+      _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
+      _ZLE_PICKER_BOOKMARK_FOCUS=1
+    fi
+    _zle_picker_document_bookmark
+    region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+    _ZLE_PICKER_POSTDISPLAY=''
+    _ZLE_PICKER_QUERY=''
+    _ZLE_PICKER_GUIDE_ACTIVE=0
+    _ZLE_PICKER_GUIDE_OFFSET=0
+    _ZLE_PICKER_QUERY_ROW=''
+    _ZLE_PICKER_TITLEBAR=''
+    _ZLE_PICKER_TITLEBAR_META_START=-1
+    _ZLE_PICKER_SUBTITLE_ROW=''
+    _ZLE_PICKER_QUERY_START=0
+    _ZLE_PICKER_QUERY_END=0
+    _ZLE_PICKER_SELECTED=0
+    _ZLE_PICKER_DIGIT_SELECT=0
+    _ZLE_PICKER_COPY_ENABLED=0
+    _ZLE_PICKER_HIERARCHY_ENABLED=0
+    _ZLE_PICKER_REFRESH_ENABLED=0
+    _ZLE_PICKER_DIRECTORY_ACTIONS=0
+    _ZLE_PICKER_INDEXES_VISIBLE=0
+    _ZLE_PICKER_VIEW_LIMIT=20
+    _ZLE_PICKER_VIEW_OFFSET=0
+    _ZLE_PICKER_HAS_MORE=0
+    _ZLE_PICKER_VISIBLE_KEYS=()
+    _ZLE_PICKER_RESULTS=()
+    _ZLE_PICKER_LABELS=()
+    _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_INSPECT_FOCUS=0
+    _ZLE_PICKER_INSPECT_OFFSET=0
+    _ZLE_PICKER_INSPECT_KEY=''
+    _ZLE_PICKER_INSPECT_WIDTH=0
+    _ZLE_PICKER_INSPECT_LINES=()
+    _ZLE_PICKER_INSPECT_ROLES=()
+    _ZLE_PICKER_INSPECT_SOURCE_LINES=()
+  }
+
+  if (( aborted )); then
+    zle .send-break
+    return 130
+  fi
+  (( accepted ))
+}
+
+# Both idle phases interpret the same callback protocol. Their scheduling,
+# rendering and waiting decisions remain in the owning input loop.
+_zle_picker_idle_call() {
+  local -i _idle_callback_status=0
+  if "$_ZLE_PICKER_IDLE_CALLBACK"; then _idle_callback_status=0; else _idle_callback_status=$?; fi
+  reply=("$_idle_callback_status" 0)
+  if [[ -n ${_ZLE_PICKER_IDLE_ACTION:-} ]]; then
+    _ZLE_PICKER_ACTION=$_ZLE_PICKER_IDLE_ACTION
+    reply[2]=1
+  fi
+  return 0
+}
+
+# ZLE enables bracketed paste in modern terminals. Consume its complete closing
+# marker here so pasted filter text cannot leak into the normal command buffer.
+_zle_picker_read_bracketed_paste() {
+  emulate -L zsh
+
+  local character='' pasted='' marker=$'\e[201~'
+  local -i content_length=0 max_length=1048576
+  REPLY=''
+
+  # A malformed or interrupted terminal sequence must not trap the editor in
+  # an unbounded read or grow memory forever.
+  while IFS= read -r -t 1 -k 1 character; do
+    pasted+=$character
+    (( ${#pasted} <= max_length )) || return 1
+    if (( ${#pasted} >= ${#marker} )) && [[ $pasted[-${#marker},-1] == $marker ]]; then
+      content_length=$(( ${#pasted} - ${#marker} ))
+      (( content_length > 0 )) && REPLY=${pasted[1,$content_length]}
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Run one searchable selector inside the active line editor. Collection is a
+# narrow callback; input parsing, layout, color, cancellation, and cleanup stay
+# centralized so every picker has identical ergonomics and safety behavior.
+_zle_picker_step() {
+  local -i delta=$1 selected=$2 count=$3 max_offset=0
+  REPLY=$selected
+  if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    (( _ZLE_PICKER_GUIDE_OFFSET += delta ))
+  elif (( _ZLE_PICKER_INSPECT_FOCUS )); then
+    (( _ZLE_PICKER_INSPECT_OFFSET += delta ))
+    if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
+      if (( delta < 0 )); then
+        _ZLE_PICKER_DOCUMENT_FOLLOW=0
+      elif (( delta > 0 )); then
+        max_offset=$(( ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE ))
+        (( max_offset < 0 )) && max_offset=0
+        (( _ZLE_PICKER_INSPECT_OFFSET >= max_offset )) && _ZLE_PICKER_DOCUMENT_FOLLOW=1
+      fi
+    fi
+  elif (( count )); then
+    REPLY=$(( selected + delta ))
+    (( REPLY < 1 )) && REPLY=1
+    (( REPLY > count && !_ZLE_PICKER_HAS_MORE )) && REPLY=$count
+  else
+    zle beep
+  fi
+  return 0
+}
+
+# Home/End transport is available only to an opted-in live document. Use the
+# same scroll operation so guide isolation and follow transitions stay shared.
+_zle_picker_document_edge() {
+  emulate -L zsh
+  (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_INSPECT_FOCUS &&
+     _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 && !_ZLE_PICKER_GUIDE_ACTIVE )) || return 1
+  _zle_picker_step $(( $1 * (${#_ZLE_PICKER_INSPECT_LINES} + 1) )) $2 $3
+}
+
+_zle_picker_page() {
+  local -i page_size=$_ZLE_PICKER_VISIBLE_COUNT
+  if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+    page_size=$_ZLE_PICKER_GUIDE_PAGE
+    (( page_size > 1 )) && (( --page_size ))
+  elif (( _ZLE_PICKER_INSPECT_FOCUS )); then
+    page_size=$_ZLE_PICKER_INSPECT_PAGE
+    # Preserve one visual landmark between reader pages. The stride follows
+    # the current rendered height, so resize/font changes need no stale cache.
+    (( page_size > 1 )) && (( --page_size ))
+  fi
+  _zle_picker_step $(( $1 * page_size )) $2 $3
+}
+
+
+:

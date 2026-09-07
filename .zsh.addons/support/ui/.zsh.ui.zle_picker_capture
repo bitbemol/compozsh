@@ -1,0 +1,35 @@
+# Entry point: _zle_picker_capture
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Paint once before a synchronous capture, keeping cached status resizeable.
+# No extra input loop, timer, worker or screen session. Provider work remains
+# outside the active picker; caller-owned cleanup also covers interruptions.
+_zle_picker_capture() {
+  emulate -L zsh
+  if ! zle; then
+    shift 3
+    "$@"
+    return $?
+  fi
+  local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY=$3
+  shift 3
+  local _ZLE_PICKER_QUERY_LABEL=Query _ZLE_PICKER_BROWSE_LABEL=${_ZLE_PICKER_BUSY_LABEL:-Searching…}
+  local _ZLE_PICKER_INSPECT_FALLBACK=''
+  local -i _ZLE_PICKER_BUSY=1 _ZLE_PICKER_ACTIVE=0 _ZLE_PICKER_GUIDE_ACTIVE=0
+  local -i _ZLE_PICKER_SELECTED=0 _ZLE_PICKER_INSPECT_FOCUS=0
+  local -i _ZLE_PICKER_VIEW_OFFSET=0 _ZLE_PICKER_VIEW_LIMIT=10 _ZLE_PICKER_HAS_MORE=0
+  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
+    'Waiting for the selected source to return results'
+    'The scope and query above remain unchanged.'
+    'Search is synchronous; protected folders or mounted drives may delay it.')
+  (( ${#_ZLE_PICKER_BUSY_LINES} )) && _ZLE_PICKER_EMPTY_LINES=("${_ZLE_PICKER_BUSY_LINES[@]}")
+  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  _zle_picker_render "$_ZLE_PICKER_QUERY" 0
+  _zle_picker_show || return $?
+  "$@"
+}
+
+
+:

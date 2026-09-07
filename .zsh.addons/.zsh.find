@@ -470,27 +470,20 @@ _file_search_copy() {
 
   local path=$1 binary=$2
   [[ -n $binary && -x $binary ]] || return 1
-  print -rn -- "$path" | command "$binary" || return 1
+  (( ${+functions[_compozsh_effect_copy]} )) &&
+    _compozsh_effect_copy "$path" "$binary" || return 1
   print -r -- 'Copied path.'
 }
 
 # The action menu is another shared picker. Its tiny caller-owned catalog is
 # filtered in memory; dispatch happens only after the line editor is closed.
 _file_search_actions_collect() {
-  emulate -L zsh
-  local query=$1
-  local -a reply=()
-  local -i limit=$2 index=0
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
-  (( ${+functions[_matching_compile]} && ${+functions[_matching_filter]} )) || return 1
-  _matching_compile "$query"
-  _matching_filter "$reply[2]" $limit "${_file_action_labels[@]}"
-  for index in "${reply[@]}"; do
-    _ZLE_PICKER_RESULTS+=("${_file_action_values[index]}")
-    _ZLE_PICKER_LABELS+=("${_file_action_labels[index]}")
-    _ZLE_PICKER_RESULT_INDEXES+=($index)
-  done
-  return 0
+  (( ${+functions[_zle_ui_collect]} )) || {
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    return 1
+  }
+  _zle_ui_collect source "$1" "$2" _file_action_values _file_action_labels \
+    _file_action_labels "" text source
 }
 
 _file_search_actions() {
@@ -504,44 +497,24 @@ _file_search_actions_view() {
   local -a _file_action_values=() _file_action_labels=()
   _ZLE_PICKER_INSPECT_TITLE=Action _ZLE_PICKER_INSPECT_ACTION=apply
   _ZLE_PICKER_SUBTITLE=${selected:t}
-  local action='' detail='' display_path=${(V)selected}
+  local action='' label='' detail='' accept='' display_path=${(V)selected}
+  local -i can_open=0 can_enter=0 can_reveal=0 can_copy=0
+  local -a reply=()
   _ZLE_PICKER_ACTION_CONTEXT="TARGET"$'\n'"$selected"
-
   if [[ -L $selected ]]; then
     kind='Symbolic link'
-    if [[ -d $selected ]]; then
-      _file_action_values+=(enter-link)
-      _file_action_labels+=('Enter linked directory')
-    fi
+    [[ -d $selected ]] && can_enter=1
   fi
-  if [[ -n $open_binary ]]; then
-    if [[ -f $selected || -d $selected ]]; then
-      _file_action_values+=(open)
-      _file_action_labels+=('Open with default app')
-    fi
-    _file_action_values+=(reveal)
-    _file_action_labels+=('Reveal in Finder')
-  fi
-  if [[ -n $clipboard_binary ]]; then
-    _file_action_values+=(copy)
-    _file_action_labels+=('Copy path')
-  fi
-  _file_action_values+=(insert)
-  _file_action_labels+=('Insert path into command line')
-  for action in "${_file_action_values[@]}"; do
-    case $action in
-      (enter-link) detail='Follow this symbolic link and change directory.' ;;
-      (open) detail='Open using the macOS default application. This may launch an application; only open files you trust.' ;;
-      (reveal) detail='Reveal this item in Finder.' ;;
-      (copy) detail='Copy the absolute path, without a trailing newline.' ;;
-      (insert) detail='Insert a shell-quoted path for composing a command. Review the line before running it.' ;;
-    esac
+  [[ -n $open_binary ]] && (( ${+functions[_compozsh_effect_open]} )) && can_reveal=1
+  (( can_reveal )) && [[ -f $selected || -d $selected ]] && can_open=1
+  [[ -n $clipboard_binary ]] && (( ${+functions[_compozsh_effect_copy]} )) && can_copy=1
+  _zle_ui_path_actions $can_open $can_reveal $can_copy $can_enter 'Copy path' \
+    enter-link open reveal copy insert
+  for action label detail accept in "${reply[@]}"; do
+    _file_action_values+=("$action") _file_action_labels+=("$label")
     _ZLE_PICKER_INSPECT_TEXTS[$action]="$kind"$'\n\n'"$detail"$'\n\n  '"$display_path"
     _ZLE_PICKER_DESCRIPTIONS[$action]=$detail
-    case $action in
-      (enter-link) _ZLE_PICKER_ACCEPT_LABELS[$action]='follow link' ;;
-      (*) _ZLE_PICKER_ACCEPT_LABELS[$action]=$action ;;
-    esac
+    _ZLE_PICKER_ACCEPT_LABELS[$action]=$accept
   done
   _ZLE_PICKER_TITLE='File actions'
   _ZLE_PICKER_BROWSE_LABEL=$kind
@@ -574,18 +547,18 @@ _file_search_apply() {
         return 1
       fi ;;
     (open|reveal)
-      [[ -n $open_binary && -x $open_binary ]] || {
-        print -u2 -r -- 'Files: macOS opening is unavailable'
-        return 1
-      }
-      if [[ $action == open && ( -f $selected || -d $selected ) ]]; then
-        command "$open_binary" -- "$selected"
-      elif [[ $action == reveal && ( -e $selected || -L $selected ) ]]; then
-        command "$open_binary" -R -- "$selected"
+      local REPLY=unavailable result=0
+      if (( ${+functions[_compozsh_effect_open]} )); then
+        _compozsh_effect_open "$action" "$selected" "$open_binary"
+        result=$?
       else
-        print -u2 -r -- 'Files: selected item changed or is unavailable; search again'
-        return 1
-      fi ;;
+        result=1
+      fi
+      case $REPLY in
+        unavailable) print -u2 -r -- 'Files: macOS opening is unavailable' ;;
+        stale) print -u2 -r -- 'Files: selected item changed or is unavailable; search again' ;;
+      esac
+      return $result ;;
     (*) return 2 ;;
   esac
 }

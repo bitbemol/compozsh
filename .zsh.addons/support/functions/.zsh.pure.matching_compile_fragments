@@ -1,0 +1,30 @@
+# Entry point: _matching_compile_fragments
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Compile every whitespace-separated keyword without imposing their order in
+# the candidate. Return the escaped whole query, literal intersection and fuzzy
+# intersection. Empty/whitespace-only input admits every supplied candidate.
+_matching_compile_fragments() {
+  emulate -L zsh
+  local query=$1 fragment='' literal_pattern='' fuzzy_pattern=''
+  local IFS=$' \t\n'
+  local -a fragments=( ${=query} )
+  reply=()
+  (( $# == 1 )) || return 2
+  for fragment in "${fragments[@]}"; do
+    _matching_compile "$fragment" || return
+    # a~^b is native intersection: a excluding the complement of b.
+    if [[ -n $literal_pattern ]]; then
+      literal_pattern+='~^'
+      fuzzy_pattern+='~^'
+    fi
+    literal_pattern+="(#i)*${reply[1]}*"
+    fuzzy_pattern+=${reply[2]}
+  done
+  reply=("${(b)query}" "${literal_pattern:-(#i)*}" "${fuzzy_pattern:-(#i)*}")
+  return 0
+}
+
+
+:

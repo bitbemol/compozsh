@@ -1,0 +1,483 @@
+# Entry point: _prompt_runtime_version
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Resolve a runtime once per project and relevant shell environment. Checking
+# the cache before executable lookup keeps missing tools cheap too; PATH and
+# environment selectors ensure activations and toolchain switches get new keys.
+_prompt_runtime_version() {
+  setopt localoptions noglobsubst
+
+  local language=$1 project_root=$2
+  local binary='' output='' first_line='' version=''
+  local separator=$'\x1f'
+  local cache_key="${language}${separator}${project_root}${separator}${PATH}"
+  local candidate implementation='' token=''
+  local -i version_ok=1
+  local -a words parts
+
+  # Version-manager shims may keep the same executable path while environment
+  # selectors change the implementation behind it. Include only selectors
+  # relevant to this runtime so unrelated environment changes do not fragment
+  # the per-project cache.
+  case $language in
+    python)
+      cache_key+="${separator}${VIRTUAL_ENV:-}${separator}${CONDA_PREFIX:-}"
+      cache_key+="${separator}${PYENV_VERSION:-}"
+      ;;
+    node|typescript)
+      cache_key+="${separator}${NODENV_VERSION:-}"
+      ;;
+    ruby)
+      cache_key+="${separator}${RBENV_VERSION:-}"
+      ;;
+    java|kotlin|scala|groovy)
+      cache_key+="${separator}${JAVA_HOME:-}${separator}${JENV_VERSION:-}"
+      ;;
+    go)
+      cache_key+="${separator}${GOENV_VERSION:-}${separator}${GOTOOLCHAIN:-}"
+      ;;
+    rust)
+      cache_key+="${separator}${RUSTUP_TOOLCHAIN:-}"
+      ;;
+    terraform)
+      cache_key+="${separator}${TFENV_TERRAFORM_VERSION:-}"
+      ;;
+    php)
+      cache_key+="${separator}${PHPENV_VERSION:-}"
+      ;;
+    perl)
+      cache_key+="${separator}${PLENV_VERSION:-}"
+      ;;
+    c-cpp|objective-c|asm|swift)
+      cache_key+="${separator}${DEVELOPER_DIR:-}${separator}${SDKROOT:-}"
+      cache_key+="${separator}${TOOLCHAINS:-}"
+      ;;
+    dotnet|fsharp|visual-basic)
+      cache_key+="${separator}${DOTNET_ROOT:-}"
+      ;;
+  esac
+
+  if (( ${+_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]} )); then
+    REPLY=${_PROMPT_RUNTIME_VERSION_CACHE[$cache_key]}
+    return
+  fi
+
+  case $language in
+    zsh)     binary=${commands[zsh]:-} ;;
+    c-cpp)
+      binary=${commands[c++]:-}
+      [[ -z $binary ]] && binary=${commands[clang++]:-}
+      [[ -z $binary ]] && binary=${commands[g++]:-}
+      ;;
+    objective-c)
+      binary=${commands[clang]:-}
+      [[ -z $binary ]] && binary=${commands[cc]:-}
+      ;;
+    asm)
+      binary=${commands[nasm]:-}
+      [[ -z $binary ]] && binary=${commands[cc]:-}
+      ;;
+    scheme)
+      for candidate in mit-scheme guile chezscheme scheme racket; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    racket)  binary=${commands[racket]:-} ;;
+    lisp)
+      for candidate in sbcl ccl clisp ecl; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    typescript)  binary=${commands[tsc]:-} ;;
+    deno)        binary=${commands[deno]:-} ;;
+    php)        binary=${commands[php]:-} ;;
+    shell)      binary=${commands[bash]:-} ;;
+    powershell) binary=${commands[pwsh]:-} ;;
+    kotlin)     binary=${commands[kotlinc]:-} ;;
+    lua)
+      for candidate in lua lua5.5 lua5.4 lua5.3 luajit; do
+        binary=${commands[$candidate]:-}
+        [[ -n $binary ]] && break
+      done
+      ;;
+    r)          binary=${commands[R]:-} ;;
+    zig)        binary=${commands[zig]:-} ;;
+    gdscript)
+      binary=${commands[godot]:-}
+      [[ -z $binary ]] && binary=${commands[godot4]:-}
+      ;;
+    terraform)
+      binary=${commands[terraform]:-}
+      if [[ -n $binary ]]; then
+        implementation=terraform
+      else
+        binary=${commands[tofu]:-}
+        [[ -n $binary ]] && implementation=tofu
+      fi
+      ;;
+    julia)      binary=${commands[julia]:-} ;;
+    perl)       binary=${commands[perl]:-} ;;
+    fortran)
+      for candidate in gfortran flang ifx ifort; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    ocaml)      binary=${commands[ocamlc]:-} ;;
+    scala)
+      for candidate in scala-cli scalac scala; do
+        binary=${commands[$candidate]:-}
+        if [[ -n $binary ]]; then
+          implementation=$candidate
+          break
+        fi
+      done
+      ;;
+    erlang)     binary=${commands[erl]:-} ;;
+    gleam)      binary=${commands[gleam]:-} ;;
+    groovy)     binary=${commands[groovy]:-} ;;
+    fsharp|visual-basic) binary=${commands[dotnet]:-} ;;
+    swift)   binary=${commands[swift]:-} ;;
+    node)    binary=${commands[node]:-} ;;
+    python)
+      if [[ -n ${VIRTUAL_ENV:-} ]]; then
+        binary=${commands[python]:-}
+      fi
+      [[ -z $binary ]] && binary=${commands[python3]:-}
+      [[ -z $binary ]] && binary=${commands[python]:-}
+      ;;
+    haskell) binary=${commands[ghc]:-} ;;
+    rust)    binary=${commands[rustc]:-} ;;
+    go)      binary=${commands[go]:-} ;;
+    ruby)    binary=${commands[ruby]:-} ;;
+    java)    binary=${commands[java]:-} ;;
+    dotnet)  binary=${commands[dotnet]:-} ;;
+    dart)    binary=${commands[dart]:-} ;;
+    elixir)  binary=${commands[elixir]:-} ;;
+  esac
+
+  if [[ -n $binary ]] &&
+     ! _prompt_runtime_binary_is_trusted "$binary" "$project_root"; then
+    binary=''
+  fi
+
+  if [[ -z $binary && $language == kotlin && -x "$project_root/gradlew" ]]; then
+    REPLY='gradle-managed'
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return
+  fi
+
+  if [[ -z $binary ]]; then
+    REPLY='not-installed'
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return
+  fi
+
+  # `scala` can be a classic runner or a modern CLI launcher. Their version
+  # interfaces differ and the latter can check for updates. Do not probe an
+  # ambiguous launcher to identify which command would be safe to run.
+  if [[ $language == scala && $implementation == scala ]]; then
+    REPLY=launcher-managed
+    _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
+    return 0
+  fi
+
+  case $language in
+    zsh)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    c-cpp|objective-c|asm)
+      if [[ ${binary:t} == nasm ]]; then
+        output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
+        words=(${=output})
+        version="nasm ${words[3]:-}"
+      else
+        output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+        first_line=${output%%$'\n'*}
+        if [[ $first_line == *'clang version '* ]]; then
+          version=${first_line#*clang version }
+          version="clang ${version%% *}"
+        elif [[ $first_line == *'GCC '* || $first_line == *'gcc '* ]]; then
+          words=(${=first_line})
+          version="gcc ${words[-1]}"
+        else
+          words=(${=first_line})
+          version="${binary:t} ${words[-1]:-}"
+        fi
+      fi
+      ;;
+    scheme)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      if [[ $implementation == racket ]]; then
+        version=${first_line#*Racket v}
+        version="racket ${version%% *}"
+      else
+        for token in "${words[@]}"; do
+          if [[ $token == [0-9]* ]]; then
+            version="${implementation} ${token//[\(\),]/}"
+            break
+          fi
+        done
+      fi
+      ;;
+    racket)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*Racket v}
+      version="${version%% *}"
+      ;;
+    lisp)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version="${implementation} ${token//[\(\),]/}"
+          break
+        fi
+      done
+      ;;
+    typescript)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    deno)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+    php)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+    shell)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*version }
+      version=${version%%[^0-9.]*}
+      ;;
+    powershell)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    kotlin)
+      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      words=(${=output})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version=${token//[\(\),]/}
+          break
+        fi
+      done
+      ;;
+    lua)
+      output=$(_prompt_version_probe "$binary" -v 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      [[ ${words[1]:-} == LuaJIT ]] && version="luajit $version"
+      ;;
+    r)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[3]}
+      ;;
+    zig)
+      version=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      ;;
+    gdscript)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      first_line=${first_line%% *}
+      version=$first_line
+      # Stable build identifiers do not change the release number; retain all
+      # other suffixes so prereleases cannot masquerade as a final release.
+      [[ $first_line == *.stable.* ]] && version=${first_line%%.stable.*}
+      ;;
+    terraform)
+      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      version=${words[2]#v}
+      [[ $implementation == tofu ]] && version+="-tofu"
+      ;;
+    julia)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]}
+      ;;
+    perl)
+      version=$(_prompt_version_probe "$binary" -e 'print $^V' 2>&1) || version_ok=0
+      version=${version#v}
+      ;;
+    fortran)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version="${implementation} ${token//[\(\),]/}"
+          break
+        fi
+      done
+      ;;
+    ocaml)
+      version=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      ;;
+    scala)
+      if [[ $implementation == scala-cli ]]; then
+        output=$(_prompt_version_probe "$binary" version --offline 2>&1) || version_ok=0
+        first_line=''
+        for token in "${(@f)output}"; do
+          [[ $token == 'Scala version'*:* ]] && first_line=${token#*:}
+        done
+      else
+        output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+        first_line=${output%%$'\n'*}
+      fi
+      words=(${=first_line})
+      for token in "${words[@]}"; do
+        if [[ $token == [0-9]* ]]; then
+          version=${token//[\(\),]/}
+          break
+        fi
+      done
+      ;;
+    erlang)
+      version=$(_prompt_version_probe "$binary" -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().' 2>&1) || version_ok=0
+      ;;
+    gleam)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    groovy)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]}
+      ;;
+    fsharp|visual-basic)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      ;;
+    swift)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      version=${first_line#*Swift version }
+      version=${version%% *}
+      ;;
+    node)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      version=${version#v}
+      ;;
+    python)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      version=${output#Python }
+      ;;
+    haskell)
+      version=$(_prompt_version_probe "$binary" --numeric-version 2>&1) || version_ok=0
+      ;;
+    rust)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    go)
+      output=$(_prompt_version_probe "$binary" version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[3]#go}
+      ;;
+    ruby)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[2]}
+      ;;
+    java)
+      output=$(_prompt_version_probe "$binary" -version 2>&1) || version_ok=0
+      first_line=${output%%$'\n'*}
+      words=(${(z)first_line})
+      version=${words[3]}
+      ;;
+    dotnet)
+      version=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      ;;
+    dart)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      words=(${=output})
+      version=${words[4]}
+      ;;
+    elixir)
+      output=$(_prompt_version_probe "$binary" --version 2>&1) || version_ok=0
+      first_line=${output##*$'\n'}
+      words=(${=first_line})
+      version=${words[2]}
+      ;;
+  esac
+
+  # A command may exist as a system stub but fail to provide a usable runtime.
+  if (( version_ok )); then
+    version=${version%%$'\n'*}
+    words=(${=version})
+    version="${(j: :)words}"
+    [[ -z $version ]] && version='unknown'
+  else
+    version='unavailable'
+  fi
+  _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$version
+  REPLY=$version
+}
+
+# Version commands must describe the installed tool, not activate project
+# policy. Command substitution already isolates this helper's directory and
+# environment changes from the interactive shell, so probes run from `/` and
+# common toolchain proxies are explicitly forbidden from auto-installing.
+_prompt_version_probe() {
+  emulate -L zsh
+
+  local -x GOTOOLCHAIN=local
+  local -x RUSTUP_AUTO_INSTALL=0
+  local -x CHECKPOINT_DISABLE=1
+  local -x DOTNET_CLI_TELEMETRY_OPTOUT=1
+  local -x DOTNET_NOLOGO=1
+  builtin cd -- / || return 1
+  command "$@"
+}
+
+typeset -gA _PROMPT_RUNTIME_VERSION_CACHE
+typeset -gA _PROMPT_RUNTIME_LABELS=(
+  c-cpp 'c/c++'
+  objective-c 'objective-c'
+  asm asm
+  scheme scheme
+  racket racket
+  lisp lisp
+  typescript typescript
+  shell shell
+  powershell powershell
+  gdscript godot
+  terraform terraform
+  fsharp 'f#'
+  visual-basic 'visual-basic'
+)
+
+:

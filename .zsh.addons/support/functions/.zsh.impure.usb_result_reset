@@ -1,0 +1,15 @@
+# Entry point: _usb_result_reset
+# Impure: clears the current USB operation's shared result evidence.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# All execution kinds begin with empty common evidence. Source validation and
+# checksum identity are caller-owned and are initialized separately.
+_usb_result_reset() {
+  _USB_RESULT_OUTCOME='' _USB_RESULT_ERROR='' _USB_RESULT_RATE=''
+  _USB_RESULT_VERIFY_REASON='' _USB_RESULT_VERIFY_SCOPE=''
+  _USB_RESULT_BYTES=0 _USB_RESULT_SECONDS=0 _USB_RESULT_WRITE_SECONDS=0
+  _USB_RESULT_VERIFY_SECONDS=0 _USB_RESULT_VERIFIED=0 _USB_RESULT_EJECTED=0
+  _USB_RESULT_STARTED=0 _USB_RESULT_CHECKSUM_VALIDATED=0
+}
+
+:

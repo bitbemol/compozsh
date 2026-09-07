@@ -3,6 +3,8 @@ _test_xcode_log_reader_literal_filter() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     local _xcode_logs_snapshot=$'\''Info: first\nERROR: [a]* literal\nerror: second\nlast without newline'\''
     local _xcode_logs_text="" _xcode_logs_query="" _xcode_logs_notice=""
     local _xcode_logs_total=0 _xcode_logs_matches=0 _xcode_logs_trimmed=0
@@ -31,10 +33,14 @@ _test_xcode_log_reader_navigation() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_logs_snapshot=$'\''first\nERROR here\nlast\n'\'' _xcode_logs_query=ERROR
     local _xcode_logs_offset=4 _xcode_logs_row=2 _xcode_logs_trimmed=0 _xcode_logs_notice=""
     local _xcode_logs_follow=0
@@ -79,6 +85,8 @@ command cat > "$HOME/clipboard"' || return
   command chmod +x "$TEST_TMP_DIR/home/pbcopy spy" || return
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     local _xcode_run_clipboard="$HOME/pbcopy spy" _xcode_logs_copy_payload=$'\''error: %(literal) [*]\n'\''
     local _xcode_logs_copy_count=1 _xcode_logs_notice=""
     (( ${+functions[_xcode_logs_copy]} )) || { print -u2 "missing captured-log copy"; exit 1; }
@@ -102,10 +110,13 @@ _test_xcode_log_reader_feedback() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_logs_notice="Copy failed: clipboard write failed"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log=message _xcode_run_eof=0 _xcode_run_trimmed=0 _xcode_run_context=fixture
@@ -160,6 +171,8 @@ exit 0' || return
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     local calls=0
     _zle_picker_run() {
       (( ++calls ))
@@ -190,10 +203,14 @@ _test_xcode_logs_live_publication() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_logs_snapshot="" _xcode_logs_query=ERROR _xcode_logs_notice=""
     local _xcode_logs_text="" _xcode_run_log="" _xcode_run_context=fixture _xcode_run_clipboard=/fixture/pbcopy
     local -a _xcode_run_pending=("" "")
@@ -245,6 +262,8 @@ _test_xcode_logs_formatted_copy() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     local first="2026-09-02 22:44:52.390 Er Example[123:456] [com.example:network] Request failed"
     local second="2026-09-02 22:44:53.390 In Example[123:456] [com.example:network] Retry started"
     local _xcode_logs_snapshot="$first"$'\''\n'\''"$second"$'\''\n'\''

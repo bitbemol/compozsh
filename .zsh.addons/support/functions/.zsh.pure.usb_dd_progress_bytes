@@ -1,0 +1,16 @@
+# Entry point: _usb_dd_progress_bytes
+# Pure: one literal native dd record in; observed decimal byte count in REPLY.
+# Accept periodic records with units and final records without units; unrelated
+# stderr remains with the caller's stage/error handling.
+_usb_dd_progress_bytes() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local line=$1
+  REPLY=''
+  line=${line##[[:space:]]#}
+  [[ $line == <->' bytes '*transferred* ]] || return 1
+  REPLY=${line%% *}
+  [[ $REPLY == <-> ]]
+}
+
+:

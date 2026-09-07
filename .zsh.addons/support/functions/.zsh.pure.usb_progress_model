@@ -1,0 +1,25 @@
+# Entry point: _usb_progress_model
+# Pure: captured byte counts, elapsed seconds, width and optional phase in;
+# caller-local reply=(bar text) out. Ordinary peer; no source-time calls.
+
+_usb_progress_model() {
+  emulate -L zsh
+  reply=()
+  (( $# == 4 || $# == 5 )) || return 2
+  [[ $1 == <-> && $2 == <-> && $3 == (|-|+)<-> && $4 == <-> ]] || return 2
+  local -i bytes=$1 total=$2 elapsed=$3 width=$4 percent=0
+  local phase=${5:-} REPLY='' bar='' done_label='' total_label=''
+  (( bytes > total )) && bytes=$total
+  (( total > 0 )) && percent=$(( bytes * 100 / total ))
+  _usb_progress_bar "$percent" "$width"
+  bar=$REPLY
+  _usb_human_size "$bytes"
+  done_label=$REPLY
+  _usb_human_size "$total"
+  total_label=$REPLY
+  _usb_human_duration "$elapsed"
+  reply=("$bar" "${phase:+$phase · }$done_label of $total_label · $REPLY elapsed")
+  return 0
+}
+
+:

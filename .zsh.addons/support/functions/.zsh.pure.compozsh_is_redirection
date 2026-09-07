@@ -1,0 +1,17 @@
+# Entry point: _compozsh_is_redirection
+# Pure: literal supplied text in; predicate status out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_compozsh_is_redirection() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local operator=${1##[0-9]##}
+  case $operator in
+    '<'|'<>'|'>'|'>|'|'>!'|'>>'|'>>|'|'>>!'|\
+    '<<'|'<<-'|'<<<'|'<&'|'>&'|'>&|'|'>&!'|\
+    '&>'|'&>|'|'&>!'|'>>&'|'>>&|'|'>>&!'|'&>>'|'&>>|'|'&>>!') return 0 ;;
+  esac
+  return 1
+}
+
+:

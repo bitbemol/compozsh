@@ -5,8 +5,11 @@ _test_runtime_versions_warning_severity() {
   test_write_file "$TEST_TMP_DIR/project/.swift-version" '6.3.2' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.prompt"
-    [[ ! -f "$1/.zsh.addons/support/.zsh.runtimes" ]] || source "$1/.zsh.addons/support/.zsh.runtimes"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/.zsh.appearance"
     ZSH_PROMPT_COLORS[warning]=123
     ZSH_PROMPT_COLORS[danger]=124
@@ -27,8 +30,8 @@ _test_runtime_versions_comparison() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    [[ -f "$1/.zsh.addons/support/.zsh.runtimes" ]] || { print -u2 "runtime comparison capability absent"; exit 1; }
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    [[ -f "$1/.zsh.addons/support/functions/.zsh.pure.runtime_version_relation" ]] || { print -u2 "runtime comparison capability absent"; exit 1; }
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     check() {
       _runtime_version_relation "$1" "$2" "$3"
       [[ $REPLY == "$4" ]] || { print -u2 -- "$*: $REPLY"; return 1; }
@@ -67,7 +70,7 @@ _test_runtime_versions_sources() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.prompt"
-    [[ ! -f "$1/.zsh.addons/support/.zsh.runtimes" ]] || source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     for pair in rust:rust go:go swift:swift rust:cargo python:python rust:rust-legacy; do
       _prompt_expected_runtime_version "${pair%%:*}" "$2/${pair#*:}"
       print -r -- "$REPLY|$_RUNTIME_REQUIREMENT_KIND|$_RUNTIME_REQUIREMENT_SOURCE"
@@ -85,7 +88,7 @@ _test_runtime_versions_malformed_sources() {
   test_write_file "$TEST_TMP_DIR/alternatives/.tool-versions" 'python 3.12 3.13' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     for pair in rust:multiline rust:duplicate python:long python:alternatives; do
       _prompt_expected_runtime_version "${pair%%:*}" "$2/${pair#*:}"
       [[ $REPLY == unknown ]] || { print -u2 -- "$pair returned $REPLY"; exit 1; }
@@ -104,7 +107,7 @@ _test_runtime_versions_scala_probe() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     path=("$2/bin" /usr/bin /bin)
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version scala "$2/project"
     print -r -- "$REPLY"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
@@ -118,14 +121,14 @@ _test_runtime_versions_inventory_and_order() {
   for order in first last rotated; do
     output=$(test_run_interactive "$TEST_TMP_DIR/$order" '
       zmodload zsh/parameter
-      local -a units=(.zsh.prompt support/.zsh.runtimes support/.zsh.appearance)
+      local -a units=("$1/.zsh.addons/.zsh.prompt" "$1/.zsh.addons"/support/functions/.zsh.{pure,impure}.{runtime,prompt}_*(N.) "$1/.zsh.addons/support/.zsh.appearance")
       case $2 in first) units=("${(Oa)units[@]}");; rotated) units=("$units[-1]" "${(@)units[1,-2]}");; esac
-      for unit in "$units[@]"; do source "$1/.zsh.addons/$unit" || exit; done
+      for unit in "$units[@]"; do source "$unit" || exit; done
       _PROMPT_RUNTIME_VERSION_CACHE[fixture]=retained
-      source "$1/.zsh.addons/support/.zsh.runtimes"
+      for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
       [[ $_PROMPT_RUNTIME_VERSION_CACHE[fixture] == retained ]] || exit 2
-      [[ $functions_source[_prompt_runtime_version] == */support/.zsh.runtimes &&
-         $functions_source[_prompt_expected_runtime_version] == */support/.zsh.runtimes ]] || exit 3
+      [[ $functions_source[_prompt_runtime_version] == */support/functions/.zsh.impure.prompt_runtime_version &&
+         $functions_source[_prompt_expected_runtime_version] == */support/functions/.zsh.impure.prompt_expected_runtime_version ]] || exit 3
       command mkdir "$HOME/project" || exit
       local language name actual=2.0
       local -a filenames
@@ -153,11 +156,13 @@ _test_runtime_versions_missing_peer() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
     builtin cd "$2"
     _prompt_project_context
     [[ $_PROMPT_PROJECT_NAME_TEXT == project && ${(j:|:)_PROMPT_PROJECT_ITEMS} != *wants* ]] || exit 1
     (( ! ${+functions[_prompt_runtime_version]} )) || exit 2
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version() { REPLY=6.4; }
     _prompt_project_context
     [[ ${(j:|:)_PROMPT_PROJECT_ITEMS} == *"swift wants 6.3.2 · using 6.4 — newer"* ]] || exit 3
@@ -175,7 +180,7 @@ _test_runtime_versions_metadata_read() {
   command mkfifo "$TEST_TMP_DIR/pipe" || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     (( ${+functions[_runtime_read_metadata]} )) || { print -u2 "bounded descriptor reader absent"; exit 1; }
     _runtime_read_metadata "$2/value" || exit 2
     [[ $REPLY == 6.3.2* ]] || exit 3
@@ -203,7 +208,7 @@ _test_runtime_versions_implementation_identity() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     path=("$2/bin" /usr/bin /bin)
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version lua "$2/project"; print -r -- "$REPLY"
     _prompt_runtime_version gdscript "$2/project"; print -r -- "$REPLY"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
@@ -217,9 +222,13 @@ _test_runtime_versions_native_prompt() {
   test_write_file "$TEST_TMP_DIR/project/.swift-version" '6.3.2' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.prompt"
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/.zsh.appearance"
     ZSH_PROMPT_COLORS[warning]=123 ZSH_PROMPT_COLORS[danger]=124
     zmodload zsh/zpty
@@ -276,7 +285,7 @@ _test_runtime_versions_ambiguous_scala_launcher() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export SCALA_PROBE="$2/scala-probe"
     path=("$2/bin" /usr/bin /bin)
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_runtime_version scala "$2/project"
     print -r -- "$REPLY"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
@@ -292,7 +301,7 @@ _test_runtime_versions_incomplete_first_line() {
   test_write_file "$TEST_TMP_DIR/complete" '6.3' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_expected_runtime_version swift "$2/project"
     [[ $REPLY == unknown ]] || { print -u2 -- "incomplete selector accepted: $REPLY"; exit 1; }
     _runtime_read_metadata "$2/exact" first-line && exit 2
@@ -326,7 +335,7 @@ _test_runtime_versions_parser_budgets() {
   done
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     local pair filename flavor
     for pair in rust:rust-toolchain.toml rust:Cargo.toml python:pyproject.toml python:.tool-versions go:go.mod go:go.work; do
       for flavor in wide many total; do
@@ -346,7 +355,7 @@ _test_runtime_versions_toml_headers_and_keys() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     local text
     for text in "$@"; do
       [[ $text == "$1" ]] && continue
@@ -368,7 +377,7 @@ _test_runtime_versions_oversized_fallback() {
   test_write_file "$TEST_TMP_DIR/project/.tool-versions" 'python 3.12' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _prompt_expected_runtime_version python "$2/project"
     print -r -- "$REPLY|$_RUNTIME_REQUIREMENT_SOURCE"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
@@ -384,7 +393,7 @@ _test_runtime_versions_bounded_whitespace() {
   text+="$padding"$'\n# comment\n'
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _runtime_toml_scalar "$2" toolchain channel
     [[ $REPLY == 1.88 ]] || { print -u2 -- "bounded whitespace changed parsing: $REPLY"; exit 1; }
     print whitespace
@@ -397,7 +406,7 @@ _test_runtime_versions_escaped_toml_key() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _runtime_toml_scalar "$2" toolchain channel
     [[ $REPLY == unknown ]] || { print -u2 -- "escaped key could conceal duplicate: $REPLY"; exit 1; }
     print unverified
@@ -410,7 +419,7 @@ _test_runtime_versions_escaped_toml_table() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     _runtime_toml_scalar "$2" package rust-version
     [[ $REPLY == unknown ]] || { print -u2 -- "escaped table could conceal duplicate: $REPLY"; exit 1; }
     print unverified
@@ -426,7 +435,7 @@ _test_runtime_versions_empty_toml_requirement() {
   test_write_file "$TEST_TMP_DIR/python/pyproject.toml" $'[project]\nrequires-python = ""' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     local fixture
     for fixture in rust rust-space; do
       _prompt_expected_runtime_version rust "$2/$fixture"
@@ -450,7 +459,7 @@ _test_runtime_versions_go_directives() {
   done
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.runtimes"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     local name flavor expected
     for name in go.mod go.work; do
       for flavor in extra duplicate comment; do

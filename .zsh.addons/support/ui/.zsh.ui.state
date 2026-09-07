@@ -1,0 +1,141 @@
+# Shared UI state; ordinary order-independent support peer.
+# Keep installed with the other UI components. Cross-component work is runtime-only.
+
+# Keep keyed fallback lookups safe when the optional highlighting peer is absent.
+typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_OUTPUT_COLORS _COMPOZSH_COLOR_FALLBACKS
+
+# Shared state for the native history and navigation pickers. Collection stays
+# feature-specific; rendering, input, resize, and cleanup use this one contract.
+typeset -ga _ZLE_PICKER_RESULTS=()
+typeset -ga _ZLE_PICKER_LABELS=()
+# Optional secondary labels, keyed by the unchanged action value.
+typeset -gA _ZLE_PICKER_CONTEXTS=()
+# Optional second-line explanations and a fixed target for action workspaces.
+# These are captured presentation data, never command previews to execute.
+typeset -gA _ZLE_PICKER_DESCRIPTIONS=()
+typeset -g _ZLE_PICKER_ACTION_CONTEXT=''
+typeset -gi _ZLE_PICKER_ACTION_VIEW=0 _ZLE_PICKER_VALUE_INSPECT=0 _ZLE_PICKER_REFERENCE_VIEW=0
+# Optional zero-based, end-exclusive label spans keyed by the unchanged action
+# value. Each `start:end:picker-role` token describes presentation metadata;
+# labels remain plain text and retain exact width and matching semantics.
+typeset -gA _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
+typeset -ga _ZLE_PICKER_DISPLAY=()
+typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
+typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
+typeset -ga _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
+typeset -g _ZLE_PICKER_TITLE=''
+# Optional caller-owned location, separate from the title and editable filter.
+typeset -g _ZLE_PICKER_SUBTITLE=''
+typeset -g _ZLE_PICKER_SUBTITLE_RENDERER=''
+typeset -g _ZLE_PICKER_SUBTITLE_ROW=''
+typeset -g _ZLE_PICKER_BROWSE_LABEL='items'
+typeset -g _ZLE_PICKER_EMPTY_LABEL='no matches'
+# Optional informational rows; never added to the selectable result array.
+typeset -ga _ZLE_PICKER_EMPTY_LINES=()
+# Optional passive rows shown after selectable results. They consume body space
+# but never receive selection indexes, matching, navigation, or actions.
+typeset -ga _ZLE_PICKER_PASSIVE_LINES=()
+typeset -ga _ZLE_PICKER_PASSIVE_STYLES=()
+typeset -gi _ZLE_PICKER_GUIDE_ACTIVE=0
+typeset -gi _ZLE_PICKER_GUIDE_OFFSET=0
+typeset -gi _ZLE_PICKER_GUIDE_PAGE=1
+typeset -g _ZLE_PICKER_CANCEL_LABEL=''
+typeset -g _ZLE_PICKER_COLLECTOR=''
+typeset -g _ZLE_PICKER_HEADER=''
+typeset -g _ZLE_PICKER_TITLEBAR=''
+typeset -gi _ZLE_PICKER_TITLEBAR_META_START=-1
+typeset -g _ZLE_PICKER_QUERY_ROW=''
+typeset -gi _ZLE_PICKER_QUERY_START=0
+typeset -gi _ZLE_PICKER_QUERY_END=0
+typeset -g _ZLE_PICKER_POSTDISPLAY=''
+typeset -g _ZLE_PICKER_QUERY=''
+typeset -gi _ZLE_PICKER_SELECTED=0
+typeset -g _ZLE_PICKER_SELECTED_VALUE=''
+# A caller can return from a secondary picker using this accepted position.
+typeset -ga _ZLE_PICKER_BOOKMARK=()
+typeset -gi _ZLE_PICKER_BOOKMARK_FOCUS=0
+typeset -gA _ZLE_PICKER_ACCEPT_LABELS=()
+typeset -gi _ZLE_PICKER_ACTIVE=0
+typeset -gi _ZLE_PICKER_ACCEPTED=0
+typeset -gi _ZLE_PICKER_DIGIT_SELECT=0
+typeset -gi _ZLE_PICKER_COPY_ENABLED=0
+typeset -gi _ZLE_PICKER_HIERARCHY_ENABLED=0
+typeset -gi _ZLE_PICKER_REFRESH_ENABLED=0
+typeset -gi _ZLE_PICKER_STATUS_VIEW=0
+typeset -ga _ZLE_PICKER_BUSY_STYLES=()
+# Optional folder-workspace capabilities: 1 browser, 2 recent locations.
+typeset -gi _ZLE_PICKER_DIRECTORY_ACTIONS=0
+typeset -ga _ZLE_PICKER_TRAIL=()
+typeset -ga _ZLE_PICKER_GUIDE_CONTEXT=()
+typeset -ga _ZLE_PICKER_DISPLAY_PREFIX_ENDS=()
+typeset -g _ZLE_PICKER_ACTION='select'
+typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
+typeset -gi _ZLE_PICKER_VISIBLE_COUNT=0
+typeset -gi _ZLE_PICKER_VIEW_LIMIT=20
+typeset -gi _ZLE_PICKER_VIEW_OFFSET=0
+typeset -gi _ZLE_PICKER_HAS_MORE=0
+typeset -ga _ZLE_PICKER_VISIBLE_KEYS=()
+typeset -g _ZLE_PICKER_BOOTSTRAP=''
+typeset -gi _ZLE_PICKER_RUN_LIMIT=10
+
+# Optional, caller-owned snapshot. Rendering and input never invoke providers.
+typeset -gA _ZLE_PICKER_INSPECT_TEXTS=()
+# Optional snapshot key used when the caller has context but no selected row.
+typeset -g _ZLE_PICKER_INSPECT_FALLBACK=''
+typeset -g _ZLE_PICKER_INSPECT_TITLE=Details
+typeset -g _ZLE_PICKER_INSPECT_ACTION=select
+typeset -gi _ZLE_PICKER_INSPECT_FOCUS=0
+typeset -gi _ZLE_PICKER_INSPECT_OFFSET=0
+typeset -gi _ZLE_PICKER_INSPECT_WIDTH=0
+typeset -gi _ZLE_PICKER_INSPECT_PAGE=1
+typeset -g _ZLE_PICKER_INSPECT_KEY=''
+# A caller may request more reading room for one explicitly loaded snapshot.
+typeset -g _ZLE_PICKER_INSPECT_EXPAND_KEY=''
+typeset -ga _ZLE_PICKER_INSPECT_LINES=()
+typeset -ga _ZLE_PICKER_INSPECT_ROLES=()
+# A document is the primary reading surface; providers remain caller-owned.
+typeset -gi _ZLE_PICKER_DOCUMENT=0
+# An optional single document has no navigator or selectable content rows.
+# Its collector refines captured document lines and returns zero candidates.
+typeset -gi _ZLE_PICKER_READER_ONLY=0
+# Caller-owned live state: -1 static, 0 paused, 1 following the newest output.
+# Capture/publication remains caller-owned; navigation only changes this state.
+typeset -gi _ZLE_PICKER_DOCUMENT_FOLLOW=-1
+typeset -g _ZLE_PICKER_DOCUMENT_MODE=''
+typeset -gi _ZLE_PICKER_DOCUMENT_REFRESH=0
+typeset -gi _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
+typeset -gi _ZLE_PICKER_AUTO_REFRESH=-1
+typeset -g _ZLE_PICKER_DOCUMENT_KEY=''
+typeset -g _ZLE_PICKER_DOCUMENT_TITLE=''
+typeset -gi _ZLE_PICKER_DOCUMENT_PENDING=0
+# Document workspaces may let list selection outrun expensive preview capture.
+# Zero preserves immediate controller handoff; Git review opts into a small
+# input-idle settlement measured in the loop's native 30 ms ticks.
+typeset -gi _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=0
+typeset -g _ZLE_PICKER_IDLE_ACTION=''
+typeset -gF _ZLE_PICKER_IDLE_WAIT=0
+typeset -g _ZLE_PICKER_DEADLINE_CALLBACK=''
+typeset -gF _ZLE_PICKER_DEADLINE_AT=0
+typeset -ga _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+typeset -gA _ZLE_PICKER_DOCUMENT_SYNTAX=()
+# The renderer publishes the source-row interval currently visible in the
+# document reader. Providers may use this captured geometry to prepare bounded
+# presentation metadata; they must never run from the renderer itself.
+typeset -gi _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=0
+typeset -gi _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=0
+typeset -ga _ZLE_PICKER_INSPECT_SYNTAX=() _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=()
+typeset -gA _ZLE_PICKER_DOCUMENT_OFFSETS=()
+# Source-row mapping lets a caller preserve meaning when document content changes.
+typeset -gA _ZLE_PICKER_DOCUMENT_ROWS=()
+# Reader-only bookmarks keep an exact wrapped offset at the same width and
+# use their source row when the terminal changed while another view was open.
+typeset -gA _ZLE_PICKER_DOCUMENT_WIDTHS=()
+typeset -ga _ZLE_PICKER_INSPECT_SOURCE_LINES=()
+typeset -gi _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+typeset -ga _ZLE_PICKER_DISPLAY_LEFT_ENDS=()
+typeset -ga _ZLE_PICKER_DISPLAY_RIGHT_ROLES=()
+typeset -ga _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=()
+typeset -ga _ZLE_PICKER_DISPLAY_MATCH_STARTS=()
+
+:

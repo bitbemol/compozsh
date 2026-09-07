@@ -37,19 +37,20 @@ _git_worktree_git() {
 # against truncated output and failed commands. Bounds do not limit wall time.
 _git_worktree_capture() {
   emulate -L zsh
-  local -x LC_ALL=C
-  local packet='' result=''
+  local -a reply=()
   _GWT_DATA=''
-  packet=$( { _git_worktree_git "$@" 2>/dev/null; print -rn -- $'\0'"$?"; } |
-    { local chunk=''; IFS= read -r -u 0 -k 262145 chunk || :; print -rn -- "$chunk"; } )
-  (( ${#packet} <= 262144 )) && [[ $packet == *$'\0'* ]] || {
+  (( ${+functions[_compozsh_capture_bounded]} )) || {
+    _git_worktree_fail 'Shared Git capture support is unavailable; no action applied.'
+    return 2
+  }
+  _compozsh_capture_bounded 262144 _git_worktree_git "$@" || return 2
+  [[ $reply[2] == complete ]] || {
     _git_worktree_fail 'Git capture exceeded 256 KiB or was incomplete; no action applied.'
     return 2
   }
-  result=${packet##*$'\0'}
-  _GWT_DATA=${packet%$'\0'*}
-  [[ $result == 0 ]] && return 0
-  [[ $result == 1 ]] && return 1
+  _GWT_DATA=$reply[1]
+  [[ $reply[3] == 0 ]] && return 0
+  [[ $reply[3] == 1 ]] && return 1
   _git_worktree_fail 'Git could not read the selected local repository.'
   return 2
 }
@@ -63,9 +64,6 @@ _git_worktree_identity() {
   REPLY="$info[device]:$info[inode]"
 }
 
-_git_worktree_valid_oid() {
-  [[ $1 != *[^[:xdigit:]]* ]] && (( ${#1} == 40 || ${#1} == 64 ))
-}
 
 _git_worktree_context() {
   emulate -L zsh
@@ -88,7 +86,7 @@ _git_worktree_context() {
     return 1
   }
   _GWT_HEAD=${_GWT_DATA%$'\n'}
-  _git_worktree_valid_oid "$_GWT_HEAD" || return 1
+  (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$_GWT_HEAD" || return 1
   _GWT_HEAD_REF=''
   if _git_worktree_capture "$_GWT_ROOT" symbolic-ref --quiet --short HEAD; then
     _GWT_HEAD_REF=${_GWT_DATA%$'\n'}
@@ -139,7 +137,7 @@ _git_worktree_branches() {
     '--format=%(refname)%00%(objectname)%00' refs/heads/ || return
   while IFS= read -r -d '' ref && IFS= read -r -d '' oid; do
     ref=${ref#$'\n'}
-    [[ $ref == refs/heads/* ]] && _git_worktree_valid_oid "$oid" || return 1
+    [[ $ref == refs/heads/* ]] && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 1
     (( ${#refs} < 1000 )) || { _git_worktree_fail 'More than 1,000 local branches; catalog unavailable.'; return 1; }
     refs+=("${ref#refs/heads/}") tips+=("$oid")
   done <<< "$_GWT_DATA"
@@ -196,7 +194,7 @@ _git_worktree_plan() {
   local -i result=0
   _GWT_ERROR=''
   _git_worktree_repository_current && _git_worktree_snapshot || return
-  _git_worktree_name_valid "$branch" && _git_worktree_valid_oid "$oid" || return 1
+  _git_worktree_name_valid "$branch" && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 1
   _git_worktree_destination_safe "$destination" || return
   local parent_id=$REPLY
   _git_worktree_filters_safe "$_GWT_ROOT" && _git_worktree_tree_safe "$_GWT_ROOT" "$oid" || return
@@ -466,11 +464,9 @@ _git_worktree_choice_view() {
   _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_GWT_LABELS}")
   if (( _ZLE_PICKER_ACTION_VIEW )); then
     _ZLE_PICKER_ACTION_CONTEXT="SCOPE"$'\n'"$2"
-    local value='' detail=''
-    for value in "${(@k)_GWT_DETAILS}"; do
-      detail=${_GWT_DETAILS[$value]}
-      _ZLE_PICKER_DESCRIPTIONS[$value]=${detail%%$'\n'*}
-    done
+    local -a reply=()
+    _zle_ui_descriptions "${(@kv)_GWT_DETAILS}"
+    _ZLE_PICKER_DESCRIPTIONS=("${reply[@]}")
   fi
   _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
 }

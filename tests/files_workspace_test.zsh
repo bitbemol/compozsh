@@ -8,8 +8,10 @@ _test_files_workspace_boundary() {
     (( ! ${+functions[_compozsh_help_d]} && ! ${+functions[_compozsh_help_f]} )) || exit 12
     for TERM in xterm-256color screen-256color; do
       source "$1/.zsh.addons/.zsh.editor"
-      source "$1/.zsh.addons/support/.zsh.ui"
-      source "$1/.zsh.addons/support/.zsh.matching"
+      for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+      source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+      for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+      source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
       source "$1/.zsh.addons/support/.zsh.appearance"
       [[ $(bindkey "^[^I") == *files-recents* ]] || exit 13
       [[ $(bindkey "^I") == *directory-context-complete* ]] || exit 17
@@ -30,8 +32,10 @@ _test_files_recents_missing_peer() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local BUFFER=sentinel CURSOR=5 message="" initial_pwd=$PWD
     zle() { [[ $1 == -M ]] && message=$2; }
@@ -81,7 +85,8 @@ _test_files_workspace_scope() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     root=${2:A}
     _file_search_capture "$root/inside" needle local || exit 1
     [[ ${#_FILE_SEARCH_VALUES} == 1 && $_FILE_SEARCH_VALUES[1] == "$root/inside/deeper/needle.txt" ]] || exit 2
@@ -129,8 +134,10 @@ _test_files_workspace_capabilities() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local _FILES_WORKSPACE=1 _DIRECTORY_PICKER_LOCATION=./
     local _directory_browser_clipboard="" _directory_browser_open="" mode=insert
@@ -142,7 +149,8 @@ _test_files_workspace_capabilities() {
     _directory_browser_actions "" insert
     (( $? == 1 )) || exit 1
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     _file_search_capture() { _file_search_reset; return 2; }
     local -i actions=0
     _zle_picker_loop() {

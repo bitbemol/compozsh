@@ -4,6 +4,7 @@ _test_manual_summary_native() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.prompt"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.manual"
     source "$1/.zsh.addons/support/.zsh.appearance"

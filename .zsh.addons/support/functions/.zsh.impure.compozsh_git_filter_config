@@ -1,0 +1,23 @@
+# Entry point: _compozsh_git_filter_config
+# Impure: observes bounded Git filter names without evaluating their values.
+# Prompt and discard retain inherited Git context and select clean/restore
+# policy explicitly. Explicit-root review keeps its own capture lifecycle.
+_compozsh_git_filter_config() {
+  emulate -L zsh
+  local root=$1 mode=${2:-clean} pattern='^filter\..*\.(clean|process|required)$'
+  reply=()
+  (( ${+functions[_compozsh_capture_bounded]} &&
+     ${+functions[_compozsh_git_filter_overrides]} )) || return 2
+  [[ $mode == (clean|restore) ]] || return 2
+  [[ $mode == restore ]] && pattern='^filter\..*\.(clean|smudge|process|required)$'
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
+  local -x GIT_ALLOW_PROTOCOL=''
+  _compozsh_capture_bounded 65538 command git --no-pager --no-replace-objects \
+    -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null config --null --name-only --get-regexp "$pattern" || return 2
+  [[ $reply[2] == complete && $reply[3] == (0|1) ]] || return 2
+  local names=$reply[1]
+  _compozsh_git_filter_overrides "$names" "$mode"
+}
+
+:

@@ -3,6 +3,7 @@ _test_xcode_run_log_bounds() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     (( ${+functions[_xcode_run_log_append]} )) || { print -u2 "missing bounded run log"; exit 1; }
     local _xcode_run_log="" _xcode_run_trimmed=0
     _xcode_run_log_append "$(print -rl -- row-{001..300})"
@@ -22,8 +23,10 @@ _test_xcode_run_log_resize_tail() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local -i _ZLE_PICKER_INSPECT_CLIP_LINES=1
     local text="" width=0 index=0
@@ -51,6 +54,7 @@ _test_xcode_run_read_error() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_run_fd=-1 _xcode_run_eof=0 _xcode_run_publish=0
     local _xcode_run_log="" _xcode_run_trimmed=0 _xcode_run_context=fixture
     local _xcode_run_read_error=0 _ZLE_PICKER_SUBTITLE=""
@@ -74,6 +78,7 @@ _test_xcode_run_delayed_output() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     zmodload zsh/system
     command mkfifo "$HOME/output" || exit 1
     local _xcode_run_fd=-1 writer=-1 _xcode_run_eof=0 _xcode_run_publish=1
@@ -106,6 +111,7 @@ _test_xcode_run_pipe_mapping() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     export TMPDIR=$HOME
     local root="$HOME/simulator data" scenario="" launches=0 captures=0
     command mkdir -p "$root/tmp" "$HOME/other/tmp"
@@ -151,10 +157,13 @@ _test_xcode_run_idle_freezes_reading() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     zmodload zsh/system
     command mkfifo "$HOME/output" || exit 1
     exec {fd}<> "$HOME/output"
@@ -191,10 +200,13 @@ _test_xcode_run_action_continuity() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log=$(print -rl -- row-{001..100})
     local _xcode_run_eof=1 _xcode_run_trimmed=0 _xcode_run_context=fixture
@@ -248,10 +260,13 @@ _test_xcode_run_quiet_feedback() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log="" _xcode_run_eof=0 _xcode_run_trimmed=0 _xcode_run_context=fixture
     local _xcode_run_publish=1 _xcode_run_read_error=0 _xcode_run_fd=-1
@@ -296,10 +311,13 @@ _test_xcode_run_narrow_layout() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log=$(print -rl -- row-{001..100})
     local _xcode_run_eof=1 _xcode_run_trimmed=0 _xcode_run_context=fixture
@@ -360,6 +378,7 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _zle_picker_run() {
       _ZLE_PICKER_SELECTED_VALUE=stop
       command rm -f -- "$HOME/identity"
@@ -404,6 +423,7 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME SCENARIO=failed
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _zle_picker_run() { print screen >> "$HOME/effects"; _ZLE_PICKER_SELECTED_VALUE=stop; }
     _xcode_run_live SIM-456 com.example.app fixture
     [[ $? == 65 && ! -f $HOME/effects ]] || exit 1
@@ -453,6 +473,7 @@ exit 23' || return
     path=("$2" $path); rehash
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     (( ${+functions[_xcode_run_live]} )) || { print -u2 "missing run view"; exit 1; }
     _zle_picker_run() {
       [[ -p $_xcode_run_fifo && $_xcode_run_pid == 12345 ]] || return 8
@@ -488,7 +509,9 @@ for argument in "$@"; do print -r -- "${(V)argument}"; done
 exit 23' || return
   command chmod +x "$TEST_TMP_DIR/home/lldb spy" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -gA ZSH_OUTPUT_COLORS=(heading 123 warning 124 muted 125)
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output"
@@ -609,10 +632,14 @@ command cat > "$HOME/copied"' || return
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     PROMPT="fixture> " RPROMPT="clock"
     exec {events}<> "$HOME/events"
     functions[_run_original]=$functions[_zle_picker_run]

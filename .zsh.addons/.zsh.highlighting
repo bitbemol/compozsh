@@ -27,26 +27,7 @@ _zle_add_highlight() {
     region_highlight+=("$start $end $style memo=compozsh")
 }
 
-_zle_is_redirection() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
 
-  local operator=${1##[0-9]##}
-  case $operator in
-    '<'|'<>'|'>'|'>|'|'>!'|'>>'|'>>|'|'>>!'|\
-    '<<'|'<<-'|'<<<'|'<&'|'>&'|'>&|'|'>&!'|\
-    '&>'|'&>|'|'&>!'|'>>&'|'>>&|'|'>>&!'|'&>>'|'&>>|'|'&>>!')
-      return 0
-      ;;
-  esac
-  return 1
-}
-
-_zle_is_assignment() {
-  emulate -L zsh
-  local word=${(Q)1}
-  [[ $word =~ '^[A-Za-z_][A-Za-z0-9_]*(\[[^]]+\])?(\+)?=' ]]
-}
 
 _zle_is_number() {
   emulate -L zsh
@@ -163,6 +144,8 @@ _zle_syntax_highlight() {
   # Zsh 5.9 memo tags let this highlighter replace only its own regions while
   # preserving selection colors and highlights added by other native widgets.
   region_highlight=("${(@)region_highlight:#*memo=compozsh}")
+  (( ${+functions[_compozsh_is_assignment]} &&
+     ${+functions[_compozsh_is_redirection]} )) || return 0
   (( ${_ZLE_PICKER_ACTIVE:-0} )) && return 0
   (( ${REGION_ACTIVE:-0} )) && return 0
   [[ -n $BUFFER ]] || return 0
@@ -253,7 +236,7 @@ _zle_syntax_highlight() {
       continue
     fi
 
-    if _zle_is_redirection "$token"; then
+    if _compozsh_is_redirection "$token"; then
       _zle_add_highlight $start $end redirection
       redirection_target=1
       redirection_operator=$token
@@ -380,7 +363,7 @@ _zle_syntax_highlight() {
     fi
 
     # Assignments before a command do not consume the command position.
-    if (( command_expected )) && _zle_is_assignment "$token"; then
+    if (( command_expected )) && _compozsh_is_assignment "$token"; then
       _zle_add_highlight $start $end assignment
       if [[ $token == *'=(' ]]; then
         array_assignment=1
@@ -455,7 +438,7 @@ _zle_syntax_highlight() {
     fi
 
     if (( declaration_context )) &&
-       _zle_is_assignment "$token"; then
+       _compozsh_is_assignment "$token"; then
       _zle_add_highlight $start $end assignment
       continue
     fi

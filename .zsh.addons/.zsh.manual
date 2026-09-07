@@ -143,7 +143,7 @@ _manual_summary_lookup() {
   if (( ${+functions[$name]} )); then
     [[ -n $source && ${functions_source[_compozsh_help_$name]-} == "$source" ]] && return 1
     [[ $name == (git|grep|man) && -n $source &&
-       $source == ${functions_source[_output_color]-} ]] || return 1
+       $source == ${functions_source[_output_git_color_arguments]-} ]] || return 1
   fi
   REPLY=${_MANUAL_SUMMARIES[$name]-}
   [[ -n $REPLY ]]

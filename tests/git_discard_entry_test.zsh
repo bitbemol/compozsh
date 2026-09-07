@@ -7,6 +7,7 @@ _test_git_discard_entry() {
     alias git-discard-all=obsolete
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.help"
     [[ ${+aliases[git-discard-all]} == 0 &&
        ${+functions[git-discard-all]} == 0 &&
@@ -39,6 +40,8 @@ _test_git_discard_prompt() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.prompt"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     _prompt_interaction_model "g --discard-all"
     [[ $_PROMPT_INTERACTION_KIND == caution ]] || exit 1
     _prompt_interaction_model "g --discard-all --help"

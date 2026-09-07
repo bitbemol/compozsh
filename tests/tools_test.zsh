@@ -23,6 +23,8 @@ _test_cpdir_contract() {
     PATH="$2"
     rehash
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$3" || exit
     cpdir
@@ -47,8 +49,12 @@ _test_cpdir_path_color() {
   test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh\n(( ${CLIPBOARD_STATUS:-0} )) && exit "$CLIPBOARD_STATUS"\nIFS= read -r -d \'\' value\nprint -rn -- "$value" >| "$HOME/clipboard"\n' || return
   command chmod +x "$fake_bin/pbcopy" || return
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
     path=("$2" /usr/bin /bin)
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     # The palette is a runtime input; it can be loaded after this peer.
     typeset -A ZSH_PROMPT_COLORS=(path 123)
@@ -122,6 +128,8 @@ _test_cpdir_missing_clipboard() {
     PATH="$2"
     rehash
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     cpdir
   ' "$TEST_REPO_ROOT" "$empty_bin" 2>&1) || exit_status=$?
@@ -153,6 +161,7 @@ _test_git_discard_all_scope() {
 
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$2" || exit
     g --discard-all <<< y >/dev/null 2>&1 || exit
@@ -188,6 +197,7 @@ _test_git_discard_all_disables_repository_filters() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     export FILTER_PROBE=$2
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd -- "$3" || exit
     g --discard-all <<< y >/dev/null 2>&1
@@ -216,6 +226,7 @@ _test_git_discard_all_revalidates_after_confirmation() {
 
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd -- "$2" || exit
     read() {
@@ -248,6 +259,7 @@ _test_git_discard_all_refuses_without_commit() {
 
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$2" || exit
     g --discard-all
@@ -273,6 +285,7 @@ _test_prompt_refresh_invalidates_memory_only() {
     typeset -gi _GREP_SUPPORTS_COLOR=1
     typeset -g _GREP_COLOR_BINARY=/usr/bin/grep
     source "$1/.zsh.addons/.zsh.tools"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.help"
     compozsh --refresh

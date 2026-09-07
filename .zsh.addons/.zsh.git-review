@@ -121,25 +121,23 @@ _git_review_capture_worker() {
 # read pipe stops oversized writers; it is not a wall-clock Git timeout.
 _git_review_capture() {
   emulate -L zsh
-  local -x LC_ALL=C
-  local packet='' tail=''
+  local -a reply=()
   _GIT_REVIEW_DATA='' _GIT_REVIEW_TRUNCATED=0
   if [[ -n ${_GIT_REVIEW_WORKER_DIR:-} ]]; then
     _git_review_capture_worker "$@"
     return $?
   fi
-  packet=$( { _git_review_git "$@" 2>/dev/null; print -rn -- $'\0'"$?"; } |
-    { local chunk=''; IFS= read -r -u 0 -k 262145 chunk || :; print -rn -- "$chunk"; } )
-  if (( ${#packet} > 262144 )); then
-    _GIT_REVIEW_DATA=${packet[1,262144]}
+  (( ${+functions[_compozsh_capture_bounded]} )) || return 2
+  _compozsh_capture_bounded 262144 _git_review_git "$@" || return 2
+  if [[ $reply[2] == truncated ]]; then
+    _GIT_REVIEW_DATA=$reply[1]
     _GIT_REVIEW_TRUNCATED=1
     return 0
   fi
-  [[ $packet == *$'\0'* ]] || return 2
-  tail=${packet##*$'\0'}
-  _GIT_REVIEW_DATA=${packet%$'\0'*}
-  [[ $tail == 0 ]] && return 0
-  [[ $tail == 1 ]] && return 1
+  [[ $reply[2] == complete ]] || return 2
+  _GIT_REVIEW_DATA=$reply[1]
+  [[ $reply[3] == 0 ]] && return 0
+  [[ $reply[3] == 1 ]] && return 1
   return 2
 }
 
@@ -148,28 +146,18 @@ _git_review_capture() {
 # syntax, then override every configured driver for this invocation only.
 _git_review_prepare() {
   emulate -L zsh
-  local root=$1 key='' driver=''
-  local -A seen=()
+  local root=$1
+  local -a reply=()
   local -i result=0
   _GIT_REVIEW_CONFIG=()
+  (( ${+functions[_compozsh_git_filter_overrides]} )) || return 2
   _git_review_capture "$root" config --null --name-only --get-regexp '^filter\..*\.(clean|process|required)$'
   result=$?
   (( result <= 1 && !_GIT_REVIEW_TRUNCATED )) || return 2
-  while IFS= read -r -d '' key; do
-    driver=${${key#filter.}%.*}
-    [[ -n $driver && -z ${seen[$driver]-} ]] || continue
-    # Git's `-c key=value` transport splits at the first equals sign. A valid
-    # config subsection can contain `=`, but its exact filter key cannot then
-    # be overridden through this argv form. Fail closed before any diff read.
-    [[ $driver != *'='* ]] || return 2
-    seen[$driver]=1
-    # The same bound applies to manual and automatic refresh. Besides keeping
-    # the argv below the native exec limit, this prevents an untrusted local
-    # repository from turning filter discovery into an unbounded UI parse.
-    (( ${#_GIT_REVIEW_CONFIG} + 6 <= 4096 )) || return 2
-    _GIT_REVIEW_CONFIG+=(-c "filter.${driver}.clean=" -c "filter.${driver}.process=" -c "filter.${driver}.required=false")
-  done <<< "$_GIT_REVIEW_DATA"
-  return 0
+  _compozsh_git_filter_overrides "$_GIT_REVIEW_DATA" clean
+  result=$?
+  _GIT_REVIEW_CONFIG=("${reply[@]}")
+  return $result
 }
 
 _git_review_reset() {
@@ -237,9 +225,6 @@ _git_review_changes_capture() {
   _git_review_changes_parse
 }
 
-_git_review_valid_oid() {
-  [[ -n $1 && $1 != *[^[:xdigit:]]* ]] && (( ${#1} == 40 || ${#1} == 64 ))
-}
 
 # Resolve only the documented input forms. Successful rev-parse alone can
 # silently prefer a tag to a same-named branch, so check namespaces explicitly.
@@ -298,7 +283,7 @@ _git_review_resolve() {
     _GIT_REVIEW_ERROR='Revision does not resolve to an available local commit.'; return 1
   }
   object=${_GIT_REVIEW_DATA%$'\n'}
-  (( !_GIT_REVIEW_TRUNCATED )) && _git_review_valid_oid "$object" || {
+  (( !_GIT_REVIEW_TRUNCATED )) && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$object" || {
     _GIT_REVIEW_ERROR='Invalid or incomplete commit resolution.'; return 1
   }
   REPLY=$object
@@ -309,7 +294,7 @@ _git_review_compare_base() {
   local root=$1 method=$2 from=$3 to=$4
   local -a bases=()
   REPLY='' _GIT_REVIEW_ERROR=''
-  _git_review_valid_oid "$from" && _git_review_valid_oid "$to" || return 2
+  (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$from" && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$to" || return 2
   [[ $method == exact ]] && { REPLY=$from; return 0; }
   [[ $method == ancestor ]] || return 2
   _git_review_capture "$root" merge-base --all "$from" "$to" || {
@@ -321,7 +306,7 @@ _git_review_compare_base() {
     _GIT_REVIEW_ERROR='Incomplete or multiple common ancestors. Choose an explicit Against commit with All differences.'
     return 1
   fi
-  _git_review_valid_oid "$bases[1]" || {
+  (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$bases[1]" || {
     _GIT_REVIEW_ERROR='No common ancestor available in local history.'; return 1
   }
   REPLY=$bases[1]
@@ -340,7 +325,7 @@ _git_review_refs_capture() {
   while IFS= read -r -d '' ref && IFS= read -r -d '' kind && IFS= read -r -d '' oid; do
     (( ++count <= 1000 )) || { _GIT_REVIEW_TRUNCATED=1; break; }
     ref=${ref#$'\n'}
-    [[ $kind == (commit|tag) ]] && _git_review_valid_oid "$oid" || continue
+    [[ $kind == (commit|tag) ]] && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || continue
     case $ref in
       (refs/heads/*) label="${ref#refs/heads/} · branch" ;;
       (refs/tags/*) label="${ref#refs/tags/} · tag" ;;
@@ -356,7 +341,7 @@ _git_review_commits_capture() {
   emulate -L zsh
   local root=$1 oid=$2 hash='' short='' date='' subject='' parents=''
   _git_review_reset
-  _git_review_valid_oid "$oid" || return 2
+  (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 2
   _git_review_capture "$root" log --max-count=201 --date-order \
     --format='%H%x00%h%x00%cs%x00%s%x00%P%x00' "$oid" -- || return 2
   while IFS= read -r -d '' hash && IFS= read -r -d '' short &&
@@ -379,8 +364,10 @@ _git_review_committed_files_capture() {
   local root=$1 oid=$2 before=$3 kind=$4 record='' added='' removed='' name='' summary=''
   local -a args=(diff)
   _git_review_reset
-  _git_review_valid_oid "$oid" || return 2
-  [[ -z $before ]] || _git_review_valid_oid "$before" || return 2
+  (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 2
+  [[ -z $before ]] || {
+    (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$before"
+  } || return 2
   [[ -n $before ]] || args=(diff-tree --root --no-commit-id -r)
   args+=(--numstat -z --no-renames --no-ext-diff --no-textconv --ignore-submodules=all)
   [[ -n $before ]] && args+=("$before")
@@ -408,7 +395,7 @@ _git_review_commit_files_capture() {
 }
 
 _git_review_comparison_files_capture() {
-  _git_review_valid_oid "$3" || return 2
+  (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$3" || return 2
   _git_review_committed_files_capture "$1" "$2" "$3" comparison || return $?
   _GIT_REVIEW_SUMMARY="${_git_compare_method_label:-All differences} · ${1:t} · $_GIT_REVIEW_SUMMARY"
 }
@@ -535,9 +522,11 @@ _git_review_diff_capture() {
         return 2
       fi ;;
     (commit|comparison)
-      _git_review_valid_oid "$oid" || return 2
+      (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 2
       [[ $kind != comparison || -n $parent ]] || return 2
-      [[ -z $parent ]] || _git_review_valid_oid "$parent" || return 2
+      [[ -z $parent ]] || {
+        (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$parent"
+      } || return 2
       if [[ -n $parent ]]; then args+=("$parent" "$oid")
       else args=(show --format= --root "$oid"); fi ;;
     (*) return 2 ;;
@@ -1714,11 +1703,28 @@ _git_review_auto_schedule_context_check() {
   (( ${_git_auto_next_at:-0} >= earliest )) || _git_auto_next_at=$earliest
 }
 
+# Invalidate derived document state only after a replacement snapshot is ready.
+_git_review_document_reset() {
+  _git_document_cache=() _git_document_partial=() _git_document_order=()
+  _git_document_syntax_cache=() _git_document_syntax_notes=()
+  _git_document_syntax_first=() _git_document_syntax_last=()
+  _git_document_syntax_failures=()
+  _git_document_contexts=() _git_document_anchors=()
+  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+  _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
+  _ZLE_PICKER_DOCUMENT_PENDING=0
+  (( ++_git_review_snapshot_epoch ))
+  _git_review_syntax_cleanup
+  _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+}
+
 _git_review_auto_idle() {
   emulate -L zsh
   local old_status=$_git_review_refresh_status current='' current_name='' current_kind=''
   local -F now=$EPOCHREALTIME duration=0 interval=$_GIT_REVIEW_AUTO_REFRESH_INTERVAL
   local -i poll_result=2 changed=0 candidate_visible=0
+  local -a reply=()
   _ZLE_PICKER_IDLE_WAIT=0
   (( _ZLE_PICKER_AUTO_REFRESH >= 0 )) || return 2
 
@@ -1727,20 +1733,9 @@ _git_review_auto_idle() {
   # the user returns to the unchanged review context.
   if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
     if (( _git_auto_session_pid > 0 )); then
-      _git_review_auto_poll; poll_result=$?
-      if (( poll_result == 1 )); then
-        if (( EPOCHREALTIME >= _git_auto_deadline_at )); then
-          _git_review_auto_fail 'automatic refresh timed out'
-          return 0
-        fi
-        _ZLE_PICKER_IDLE_WAIT=0.10
-        return 2
-      fi
-      if (( poll_result == 3 )); then
-        (( EPOCHREALTIME >= _git_auto_deadline_at )) &&
-          _git_review_auto_fail 'automatic refresh timed out' || _git_review_auto_fail
-        return 0
-      fi
+      _git_review_auto_poll_outcome
+      poll_result=$reply[1]
+      (( reply[2] >= 0 )) && return $reply[2]
     fi
     return 2
   fi
@@ -1771,20 +1766,9 @@ _git_review_auto_idle() {
   fi
 
   if (( _git_auto_session_pid > 0 )); then
-    _git_review_auto_poll; poll_result=$?
-    if (( poll_result == 1 )); then
-      if (( EPOCHREALTIME >= _git_auto_deadline_at )); then
-        _git_review_auto_fail 'automatic refresh timed out'
-        return 0
-      fi
-      _ZLE_PICKER_IDLE_WAIT=0.10
-      return 2
-    fi
-    if (( poll_result == 3 )); then
-      (( EPOCHREALTIME >= _git_auto_deadline_at )) &&
-        _git_review_auto_fail 'automatic refresh timed out' || _git_review_auto_fail
-      return 0
-    fi
+    _git_review_auto_poll_outcome
+    poll_result=$reply[1]
+    (( reply[2] >= 0 )) && return $reply[2]
     if (( poll_result == 0 )); then
       duration=$_git_auto_candidate_capture_duration
       (( duration * 4.0 > interval )) && interval=$(( duration * 4.0 ))
@@ -1859,6 +1843,27 @@ _git_review_auto_idle() {
   return 2
 }
 
+# Drain an existing request and interpret its wait/failure outcome. Never
+# start discovery or adopt a candidate here: the guide and review differ there.
+_git_review_auto_poll_outcome() {
+  local -i _auto_poll_status=0 _auto_poll_outcome=-1
+  _git_review_auto_poll; _auto_poll_status=$?
+  if (( _auto_poll_status == 1 )); then
+    if (( EPOCHREALTIME >= _git_auto_deadline_at )); then
+      _git_review_auto_fail 'automatic refresh timed out'
+      _auto_poll_outcome=0
+    else
+      _ZLE_PICKER_IDLE_WAIT=0.10
+      _auto_poll_outcome=2
+    fi
+  elif (( _auto_poll_status == 3 )); then
+    (( EPOCHREALTIME >= _git_auto_deadline_at )) &&
+      _git_review_auto_fail 'automatic refresh timed out' || _git_review_auto_fail
+    _auto_poll_outcome=0
+  fi
+  reply=("$_auto_poll_status" "$_auto_poll_outcome")
+}
+
 _git_review_idle() {
   emulate -L zsh
   local -i auto_result=2 syntax_result=2
@@ -1916,18 +1921,7 @@ _git_review_auto_publish() {
   _GIT_REVIEW_NOTICE=$_git_auto_candidate_notice
   _GIT_REVIEW_TRUNCATED=$_git_auto_candidate_list_truncated
 
-  _git_document_cache=() _git_document_partial=() _git_document_order=()
-  _git_document_syntax_cache=() _git_document_syntax_notes=()
-  _git_document_syntax_first=() _git_document_syntax_last=()
-  _git_document_syntax_failures=()
-  _git_document_contexts=() _git_document_anchors=()
-  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
-  _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
-  _ZLE_PICKER_DOCUMENT_PENDING=0
-  (( ++_git_review_snapshot_epoch ))
-  _git_review_syntax_cleanup
-  _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
-  _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+  _git_review_document_reset
   _GIT_REVIEW_DOCUMENT_HAS_CODE=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
   _GIT_REVIEW_DOCUMENT_SUMMARY=''
   _ZLE_PICKER_EMPTY_LINES=()
@@ -2010,18 +2004,7 @@ _git_review_refresh() {
     return 0
   fi
 
-  _git_document_cache=() _git_document_partial=() _git_document_order=()
-  _git_document_syntax_cache=() _git_document_syntax_notes=()
-  _git_document_syntax_first=() _git_document_syntax_last=()
-  _git_document_syntax_failures=()
-  _git_document_contexts=() _git_document_anchors=()
-  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
-  _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
-  _ZLE_PICKER_DOCUMENT_PENDING=0
-  (( ++_git_review_snapshot_epoch ))
-  _git_review_syntax_cleanup
-  _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
-  _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
+  _git_review_document_reset
   _GIT_REVIEW_DOCUMENT_HAS_CODE=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0 _GIT_REVIEW_DOCUMENT_SUMMARY=''
   _git_review_event_status='refreshed'
   _ZLE_PICKER_SUBTITLE="${root:t} · read-only snapshot"
@@ -2464,11 +2447,9 @@ _git_review_choice_view() {
   _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_git_compare_actions}")
   if (( _ZLE_PICKER_ACTION_VIEW )); then
     _ZLE_PICKER_ACTION_CONTEXT="COMPARISON"$'\n'"$2"$'\n\nRead-only · captured endpoints'
-    local value='' detail=''
-    for value in "${(@k)_git_compare_details}"; do
-      detail=${_git_compare_details[$value]}
-      _ZLE_PICKER_DESCRIPTIONS[$value]=${detail%%$'\n'*}
-    done
+    local -a reply=()
+    _zle_ui_descriptions "${(@kv)_git_compare_details}"
+    _ZLE_PICKER_DESCRIPTIONS=("${reply[@]}")
   fi
   _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}"
 }
@@ -2551,10 +2532,10 @@ _git_review_endpoint_choose() {
       return $result
     fi
     oid=${_GIT_REVIEW_REF_OIDS[value]}
-    if _git_review_valid_oid "$oid" &&
+    if (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" &&
        _git_review_load _git_review_capture "$root" rev-parse --verify --end-of-options "$oid^{commit}"; then
       oid=${_GIT_REVIEW_DATA%$'\n'}
-      if (( !_GIT_REVIEW_TRUNCATED )) && _git_review_valid_oid "$oid"; then
+      if (( !_GIT_REVIEW_TRUNCATED )) && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid"; then
         REPLY=$oid
         if [[ $_GIT_REVIEW_REFS[value] == refs/heads/* ]]; then
           _git_compare_label=${_GIT_REVIEW_REFS[value]#refs/heads/}
@@ -2582,7 +2563,7 @@ _git_review_comparison_context() {
   fi
 }
 
-# Pure, cell-aware presentation of captured endpoints. Preserve the direction
+# Cell-aware presentation of the current comparison state. Preserve direction
 # and both IDs before secondary labels; the summary keeps repository/method.
 _git_review_comparison_subtitle() {
   emulate -L zsh

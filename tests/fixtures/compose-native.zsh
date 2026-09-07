@@ -4,11 +4,14 @@ source "$repo/.zsh.addons/.zsh.editor"
 source "$repo/.zsh.addons/.zsh.tools"
 source "$repo/.zsh.addons/.zsh.navigation"
 source "$repo/.zsh.addons/.zsh.git-review"
+for git_support_component in "$repo/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$repo/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
 source "$repo/.zsh.addons/.zsh.help"
 source "$repo/.zsh.addons/.zsh.compose"
-source "$repo/.zsh.addons/support/.zsh.ui"
+for support_component in "$repo/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$repo/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+source "$repo/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
 source "$repo/.zsh.addons/support/.zsh.appearance"
-source "$repo/.zsh.addons/support/.zsh.matching"
+for support_component in "$repo/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+source "$repo/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
 command git init -qb main "$HOME/repo"
 print -r -- base > "$HOME/repo/file"
 command git -C "$HOME/repo" add file

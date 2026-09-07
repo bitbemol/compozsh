@@ -4,14 +4,17 @@ _test_ui_components_have_one_owner() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     (( !${+functions[_zle_picker_render]} && !${+functions[_zle_picker_run]} )) || exit 1
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     zmodload zsh/parameter
-    for component in _zle_picker_titlebar _zle_picker_footer _zle_picker_guide_render \
-        _zle_picker_inspect_render _zle_picker_render _zle_picker_show \
-        _zle_picker_loop _zle_picker_screen_session _zle_picker_run _zle_ui_view; do
-      [[ ${functions_source[$component]} == "$1/.zsh.addons/support/.zsh.ui" ]] || exit 2
+    for component owner in _zle_picker_titlebar zle_picker_render _zle_picker_footer zle_picker_footer \
+        _zle_picker_guide_render zle_picker_guide_render _zle_picker_inspect_render zle_picker_inspect_render \
+        _zle_picker_render zle_picker_render _zle_picker_show zle_picker_show _zle_picker_loop zle_picker_loop \
+        _zle_picker_screen_session zle_picker_screen_session _zle_picker_run zle_picker_run _zle_ui_view zle_ui_view; do
+      [[ ${functions_source[$component]} == "$1/.zsh.addons/support/ui/.zsh.ui.$owner" ]] || exit 2
     done
     [[ ${widgets[compozsh-picker-init]} == user:_zle_picker_line_init ]] || exit 3
     (( !${zle_line_init_functions[(Ie)_zle_picker_line_init]:-0} )) || exit 4
@@ -26,6 +29,7 @@ _test_ui_components_missing_editor_fallbacks() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     zle() { print -r -- "$*"; }
     BUFFER="./" CURSOR=2
@@ -42,7 +46,9 @@ _test_ui_components_scoped_view_defaults() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT_FOLLOW=1
     _ZLE_PICKER_COPY_ENABLED=1 _ZLE_PICKER_REFRESH_ENABLED=1 _ZLE_PICKER_INSPECT_FALLBACK=secret-context
     _ZLE_PICKER_INSPECT_TEXTS=(outer "outer document")
@@ -79,15 +85,18 @@ test_case 'UI components scope view defaults while preserving operation and book
 _test_ui_components_neutral_palette_fallback() {
   test_make_temp_dir || return
   local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '\
-    source "$1/.zsh.addons/support/.zsh.ui"
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+\
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _zle_picker_style picker-selected
     print -r -- "$REPLY"
     _zle_picker_style picker-selected-inactive
     print -r -- "$REPLY"
     _zle_picker_review_style added
     print -r -- "$REPLY"
-    _zle_picker_output_color warning 221
+    _compozsh_palette_color output warning 221
     print -r -- "${REPLY}|$?"
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal $'standout,bold\nunderline\nnone\n|1' "$output" \
@@ -100,7 +109,9 @@ _test_ui_components_neutral_overlay() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     _zle_picker_label_highlight_style picker-size 1 "fg=231,bg=24,bold"
     [[ $REPLY == *fg=231* && $REPLY == *bg=24* && $REPLY != *none* ]] || exit 1
     _zle_ui_overlay_style "fg=231,bg=22" none
@@ -119,6 +130,7 @@ _test_ui_completion_reads_palette_at_invocation() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     LS_COLORS="di=38;5;123:ex=38;5;124"
     local -a colors=()
@@ -144,7 +156,9 @@ _test_ui_command_views_clear_previous_reader() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_QUERY_SUBMIT=1
@@ -217,7 +231,7 @@ _test_ui_palette_source_order_and_resource_convergence() {
             print -r -- "$REPLY"
             _zle_picker_review_style added
             print -r -- "$REPLY"
-            _output_color heading
+            _compozsh_palette_color output heading
             print -r -- "$REPLY"
             zstyle -a ":completion:*" list-colors colors
             print -r -- "${(j:|:)colors}"

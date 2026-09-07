@@ -1,0 +1,43 @@
+# Entry point: _prompt_select_metadata_file
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_prompt_select_metadata_file() {
+  emulate -L zsh
+
+  local project_root=$1 candidate=''
+  shift
+  REPLY=''
+  for candidate in "$@"; do
+    _prompt_metadata_file_is_safe "$project_root" "$candidate" || continue
+    return 0
+  done
+  return 1
+}
+
+# Version metadata is inert text, but it still comes from an untrusted project.
+# Reject symlinks, paths escaping the project, and unexpectedly large files
+# before any read so prompt rendering cannot disclose arbitrary local content
+# or allocate an unbounded line.
+_prompt_metadata_file_is_safe() {
+  emulate -L zsh
+  zmodload -F zsh/stat b:zstat || return 1
+
+  local project_root=$1 candidate=$2
+  local candidate_path=${candidate:a} candidate_target=''
+  local root_path=${project_root:a} root_target=${project_root:A}
+  local -a facts=()
+  REPLY=''
+
+  [[ -f $candidate && ! -L $candidate ]] || return 1
+  candidate_target=${candidate:A}
+  [[ $candidate_path == "$root_path"/* &&
+     $candidate_target == "$root_target"/* ]] || return 1
+  zstat -A facts +size -- "$candidate" 2>/dev/null || return 1
+  (( ${facts[1]:--1} >= 0 &&
+     ${facts[1]} <= _PROMPT_METADATA_MAX_BYTES )) || return 1
+  REPLY=$candidate
+}
+
+
+:

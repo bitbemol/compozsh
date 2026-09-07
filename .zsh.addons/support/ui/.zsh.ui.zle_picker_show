@@ -1,0 +1,365 @@
+# Entry point: _zle_picker_show
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Draw every selector through POSTDISPLAY so native region_highlight provides
+# color without embedding escape sequences or corrupting width calculations.
+_zle_picker_show() {
+  emulate -L zsh
+
+  local previous_postdisplay=$POSTDISPLAY previous_predisplay=$PREDISPLAY
+  local -i dock=$(( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && !_ZLE_PICKER_STATUS_VIEW && LINES >= 8 )) caret=-1
+  local row='' style_key='' style='' index_style='' query_style=''
+  local -i index=0 index_end=0 left_end=0 row_end=0 right_start=0 context_start=0
+  local role='' color='' highlight_style=''
+  local match_style='' span='' overlay_key=''
+  local -a reply=() bounds=() fields=()
+  local -A syntax_styles=() label_styles=()
+  local -i span_start=0 span_end=0 selected_row=0
+  local -i match_start=0 match_end=0
+  local -i offset=$(( ${#PREDISPLAY} + ${#BUFFER} + 1 )) end=0
+
+  region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+  POSTDISPLAY=''
+  if (( _ZLE_PICKER_SCREEN_ACTIVE )) && [[ -n $_ZLE_PICKER_TITLEBAR ]]; then
+    POSTDISPLAY=$_ZLE_PICKER_TITLEBAR
+    _zle_picker_style picker-title 'bold'
+    end=$(( offset - 1 + ${#_ZLE_PICKER_TITLEBAR} ))
+    region_highlight+=("P$(( offset - 1 )) ${end} ${REPLY} memo=my-zsh-picker")
+    if (( _ZLE_PICKER_TITLEBAR_META_START >= 0 )); then
+      _zle_picker_style picker-muted 'none'
+      region_highlight+=("P$(( offset - 1 + _ZLE_PICKER_TITLEBAR_META_START )) ${end} none,${REPLY} memo=my-zsh-picker")
+    fi
+    (( offset = end + 1 ))
+  fi
+  POSTDISPLAY+=$'\n'"$_ZLE_PICKER_HEADER"
+
+  if (( _ZLE_PICKER_STATUS_VIEW )); then
+    REPLY=''
+    (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output heading || :
+    _zle_picker_style picker-status-heading "${REPLY:+fg=$REPLY,}bold"
+  elif (( _ZLE_PICKER_SCREEN_ACTIVE )); then
+    _zle_picker_style picker-muted 'none'
+  else
+    _zle_picker_style picker-header 'bold'
+  fi
+  style=$REPLY
+  end=$(( offset + ${#_ZLE_PICKER_HEADER} ))
+  region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
+  (( offset = end + 1 ))
+
+  if [[ -n $_ZLE_PICKER_SUBTITLE_ROW ]]; then
+    POSTDISPLAY+=$'\n'"$_ZLE_PICKER_SUBTITLE_ROW"
+    _zle_picker_style picker-location 'none'
+    end=$(( offset + ${#_ZLE_PICKER_SUBTITLE_ROW} ))
+    region_highlight+=("P${offset} ${end} ${REPLY} memo=my-zsh-picker")
+    (( offset = end + 1 ))
+  fi
+
+  for (( index = 0; index <= ${#_ZLE_PICKER_DISPLAY}; ++index )); do
+    if (( !_ZLE_PICKER_STATUS_VIEW && ((!dock && index == 0) || (dock && index == ${#_ZLE_PICKER_DISPLAY})) )); then
+      POSTDISPLAY+=$'\n'"$_ZLE_PICKER_QUERY_ROW"
+      if (( dock )); then
+        _zle_picker_style picker-surface 'none'
+      else
+        _zle_picker_style picker-muted 'none'
+      fi
+      style=$REPLY
+      end=$(( offset + ${#_ZLE_PICKER_QUERY_ROW} ))
+      region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
+      if (( _ZLE_PICKER_QUERY_END > _ZLE_PICKER_QUERY_START )); then
+        _zle_picker_style picker-query 'bold'
+        query_style=$REPLY
+        region_highlight+=(
+          "P$(( offset + _ZLE_PICKER_QUERY_START )) $(( offset + _ZLE_PICKER_QUERY_END )) ${query_style} memo=my-zsh-picker"
+        )
+      fi
+      (( dock )) && caret=$(( offset + _ZLE_PICKER_QUERY_END ))
+      (( offset = end + 1 ))
+    fi
+    (( index == 0 )) && continue
+    row=${_ZLE_PICKER_DISPLAY[index]}
+    POSTDISPLAY+=$'\n'"$row"
+    if [[ -z $row ]]; then
+      (( ++offset ))
+      continue
+    fi
+    style_key=${_ZLE_PICKER_DISPLAY_STYLES[index]}
+    if [[ $style_key == picker-selected-inactive ]]; then
+      _zle_picker_style "$style_key" 'none'
+    elif [[ $style_key == picker-status-* ]]; then
+      local status_role=${style_key#picker-status-} status_attributes=''
+      case $status_role in
+        (heading|warning) status_attributes=bold ;;
+        (progress) status_role=success status_attributes=bold ;;
+      esac
+      REPLY=''
+      (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output "$status_role" || :
+      _zle_picker_style "$style_key" "${REPLY:+fg=$REPLY}${REPLY:+${status_attributes:+,}}$status_attributes"
+    else
+      _zle_picker_style "$style_key" 'none'
+    fi
+    style=$REPLY
+    index_end=${_ZLE_PICKER_DISPLAY_INDEX_ENDS[index]}
+    end=$(( offset + ${#row} ))
+    row_end=$end
+    left_end=${_ZLE_PICKER_DISPLAY_LEFT_ENDS[index]:--1}
+    if (( left_end >= 0 )); then
+      end=$(( offset + left_end ))
+      right_start=$end
+      if (( left_end )); then
+        if (( _ZLE_PICKER_INSPECT_FOCUS )); then
+          _zle_picker_style picker-focus 'bold'
+        else
+          _zle_picker_style picker-muted 'none'
+        fi
+        region_highlight+=("P${end} $(( end + 3 )) ${REPLY} memo=my-zsh-picker")
+        right_start=$(( end + 3 ))
+      fi
+      role=${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[index]:-text}
+      case $role in
+        heading|info|muted|warning|success|error) ;;
+        *) role=text ;;
+      esac
+      REPLY=''
+      (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output "$role" || :
+      color=${REPLY:+fg=$REPLY}
+      [[ $role == heading || $role == warning ]] && color+="${color:+,}bold"
+      [[ -n $color ]] || color=none
+      if (( _ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY )); then
+        case $role in
+          (success) _zle_picker_review_style added; color=$REPLY ;;
+          (error) _zle_picker_review_style removed; color=$REPLY ;;
+        esac
+      fi
+      region_highlight+=("P${right_start} ${row_end} ${color} memo=my-zsh-picker")
+      if (( _ZLE_PICKER_DOCUMENT || _ZLE_PICKER_REFERENCE_VIEW )); then
+        for span in ${=_ZLE_PICKER_DISPLAY_RIGHT_SYNTAX[index]}; do
+          bounds=("${(@s.:.)span}")
+          # Compose each surface/token pair once per paint; a length prefix
+          # separates arbitrary style text from the semantic token role.
+          overlay_key="${#color}:$color:${bounds[3]}"
+          if (( !${+syntax_styles[$overlay_key]} )); then
+            if [[ $bounds[3] == picker-header ]]; then
+              _zle_picker_style picker-header bold
+            else
+              _zle_picker_review_style "$bounds[3]"
+            fi
+            _zle_ui_overlay_style "$color" "$REPLY"
+            syntax_styles[$overlay_key]=$REPLY
+          fi
+          region_highlight+=("P$(( right_start + bounds[1] )) $(( right_start + bounds[2] )) ${syntax_styles[$overlay_key]} memo=my-zsh-picker")
+        done
+      fi
+    fi
+    if (( index_end )); then
+      _zle_picker_style picker-index 'bold'
+      index_style=$REPLY
+      region_highlight+=(
+        "P${offset} $(( offset + index_end )) ${index_style} memo=my-zsh-picker"
+        "P$(( offset + index_end )) ${end} ${style} memo=my-zsh-picker"
+      )
+    else
+      region_highlight+=("P${offset} ${end} ${style} memo=my-zsh-picker")
+    fi
+    selected_row=0
+    case $style_key in
+      (picker-selected) selected_row=1 ;;
+      (picker-selected-inactive) selected_row=2 ;;
+    esac
+    for span in ${=_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]}; do
+      fields=( "${(@s.:.)span}" )
+      (( ${#fields} == 3 )) || continue
+      [[ ${fields[1]} == <-> && ${fields[2]} == <-> ]] || continue
+      span_start=${fields[1]} span_end=${fields[2]} role=${fields[3]}
+      (( span_start >= 0 && span_end > span_start && span_end <= end - offset )) || continue
+      # Repeated metadata roles share a style within this paint only. Include
+      # focus and the complete surface so active/inactive rows remain distinct.
+      overlay_key="$selected_row:${#style}:$style:$role"
+      if (( !${+label_styles[$overlay_key]} )); then
+        _zle_picker_label_highlight_style "$role" $selected_row "$style"
+        label_styles[$overlay_key]=$REPLY
+      fi
+      highlight_style=${label_styles[$overlay_key]}
+      region_highlight+=("P$(( offset + span_start )) $(( offset + span_end )) ${highlight_style} memo=my-zsh-picker")
+    done
+    context_start=${_ZLE_PICKER_DISPLAY_CONTEXT_STARTS[index]:-0}
+    if (( context_start && offset + context_start < end && !selected_row )); then
+      _zle_picker_style picker-muted 'none'
+      region_highlight+=("P$(( offset + context_start )) ${end} ${REPLY} memo=my-zsh-picker")
+    fi
+    match_start=${_ZLE_PICKER_DISPLAY_MATCH_STARTS[index]:--1}
+    match_end=$(( end - offset ))
+    if [[ -n $_ZLE_PICKER_QUERY ]] && (( match_start >= 0 && match_start < match_end )); then
+      _zle_picker_match_spans "${row[$(( match_start + 1 )),$match_end]}" "$_ZLE_PICKER_QUERY"
+      if (( ${#reply} )); then
+        if (( selected_row )); then
+          match_style="${style},underline"
+        else
+          _zle_picker_style picker-match 'bold,underline'
+          match_style=$REPLY
+        fi
+        for span in "${reply[@]}"; do
+          bounds=( "${(@s: :)span}" )
+          region_highlight+=("P$(( offset + match_start + bounds[1] )) $(( offset + match_start + bounds[2] )) ${match_style} memo=my-zsh-picker")
+        done
+      fi
+    fi
+    if (( ${_ZLE_PICKER_DISPLAY_PREFIX_ENDS[index]:-0} )); then
+      _zle_picker_style picker-muted 'none'
+      region_highlight+=("P${offset} $(( offset + _ZLE_PICKER_DISPLAY_PREFIX_ENDS[index] )) none,${REPLY} memo=my-zsh-picker")
+    fi
+    (( offset = row_end + 1 ))
+  done
+
+  _ZLE_PICKER_POSTDISPLAY=$POSTDISPLAY
+  {
+    # ZLE owns the real cursor. Split the same frame at the input insertion
+    # point for this paint only; its P-prefixed highlight coordinates still
+    # address the complete frame. The caller draft is never used as UI data.
+    if (( dock && caret >= 0 && !_ZLE_PICKER_GUIDE_ACTIVE && !${_ZLE_PICKER_BUSY:-0} )); then
+      PREDISPLAY=${POSTDISPLAY[1,$caret]}
+      POSTDISPLAY=${POSTDISPLAY[$((caret+1)),-1]}
+    fi
+    zle -R
+  } always {
+    # Zsh 5.9 refreshes before TRAPWINCH. Leave the painted frame on screen,
+    # but do not leave its width-dependent text in the next automatic refresh:
+    # shrinking the window would wrap/scroll it before our resize widget runs.
+    # The widget paints a fresh frame from the captured results. Restoring these
+    # parameters alone emits nothing and preserves the caller's editor state.
+    POSTDISPLAY=$previous_postdisplay
+    PREDISPLAY=$previous_predisplay
+    region_highlight=("${(@)region_highlight:#*memo=my-zsh-picker}")
+  }
+}
+
+# Resolve picker colors when drawing rather than copying legacy overrides at
+# bootstrap time. This preserves initializer-defined legacy roles without
+# creating a peer add-on ordering dependency.
+_zle_picker_style() {
+  local role=$1 fallback=${2:-none} legacy="history-search-${1#picker-}"
+  local key="highlight:$1"
+  case $role in
+    picker-selected) fallback=standout,bold ;;
+    picker-selected-inactive) fallback=underline ;;
+    picker-query) fallback=standout,bold ;;
+    picker-focus|picker-header|picker-index) fallback=bold ;;
+    picker-match) fallback=bold,underline ;;
+  esac
+
+  REPLY=${_COMPOZSH_COLOR_FALLBACKS[$key]:-$fallback}
+  if [[ ${(t)ZSH_HIGHLIGHT_STYLES} == association* ]]; then
+    if (( ${+ZSH_HIGHLIGHT_STYLES[$legacy]} )); then
+      REPLY=${ZSH_HIGHLIGHT_STYLES[$legacy]}
+    else
+      REPLY=${ZSH_HIGHLIGHT_STYLES[$role]:-$REPLY}
+    fi
+  fi
+}
+
+# Zero-based character ranges within visible text, never executable patterns.
+# Emphasis is bounded independently of searching; long queries still match in
+# the collectors. The caller declares reply locally to retain these ranges.
+_zle_picker_match_spans() {
+  emulate -L zsh
+  local text=${1:l} query=${2:l} fragment='' before='' remaining='' character=''
+  local IFS=$' \t\n'
+  local -a fragments=( ${=query} ) spans=()
+  local -i position=0 next=0 start=-1 last=-1
+  reply=()
+  (( ${#query} && ${#query} <= 256 && ${#fragments} <= 16 )) || return 0
+  for fragment in "${fragments[@]}"; do
+    if [[ $text == *"$fragment"* ]]; then
+      before=${text%%"$fragment"*}
+      reply+=("${#before} $(( ${#before} + ${#fragment} ))")
+      continue
+    fi
+    spans=() next=1 start=-1 last=-1 position=0 remaining=$text
+    # Native prefix matching skips gaps without a shell iteration per column.
+    for character in "${(s::)fragment}"; do
+      [[ $remaining == *"$character"* ]] || break
+      before=${remaining%%"$character"*}
+      (( position += ${#before} + 1 ))
+      remaining=${remaining#*"$character"}
+      if (( start >= 0 && position != last + 1 )); then
+        spans+=("$start $last")
+        start=-1
+      fi
+      (( start < 0 )) && start=$(( position - 1 ))
+      last=$position
+      (( ++next > ${#fragment} )) && break
+    done
+    if (( next > ${#fragment} )); then
+      spans+=("$start $last")
+      reply+=("${spans[@]}")
+    fi
+  done
+}
+
+# Compose a lexical/metadata role over an existing surface. An absent color
+# leaves its foreground intact; an overlay never replaces the row background.
+_zle_ui_overlay_style() {
+  emulate -L zsh
+  local base=$1 overlay=$2
+  local -a row_attributes=( "${(@s:,:)base}" )
+  local -a role_attributes=( "${(@s:,:)overlay}" )
+  role_attributes=( "${(@)role_attributes:#bg=*}" )
+  role_attributes=( "${(@)role_attributes:#none}" )
+  if [[ ,${(j:,:)role_attributes}, == *,fg=*,* ]]; then
+    row_attributes=( "${(@)row_attributes:#fg=*}" )
+  fi
+  REPLY="${(j:,:)row_attributes}${row_attributes:+${role_attributes:+,}}${(j:,:)role_attributes}"
+  [[ -n $REPLY ]] || REPLY=none
+}
+
+# Semantic label colors keep the selected-row background and replace only its
+# foreground. This makes metadata distinct without weakening selection focus.
+# Selection is 0 for ordinary rows, 1 for active and 2 for inactive selection.
+_zle_picker_label_highlight_style() {
+  emulate -L zsh
+  local role=$1 selected=${2:-0} row_style=${3:-} fallback='none'
+  local selected_role="${role}-selected"
+  (( selected == 2 )) && selected_role+=-inactive
+  case $role in
+    (picker-header)
+      # An option name must not put the header blue on the selection blue.
+      # Preserve the configured active/inactive selection contrast verbatim.
+      if (( selected )); then
+        REPLY=$row_style
+        return 0
+      fi
+      fallback='bold' ;;
+    (picker-architecture) fallback='bold' ;;
+    (picker-size) fallback='none' ;;
+    (picker-error) fallback='bold' ;;
+    (picker-success) fallback='bold' ;;
+  esac
+  if (( selected )); then
+    case $role in
+      (picker-architecture) fallback='bold' ;;
+      (picker-size) fallback='bold' ;;
+      (picker-error) fallback='bold' ;;
+      (picker-success) fallback='bold' ;;
+    esac
+    _zle_picker_style "$selected_role" "$fallback"
+    _zle_ui_overlay_style "$row_style" "$REPLY"
+  else
+    _zle_picker_style "$role" "$fallback"
+  fi
+}
+
+# Review tokens are deliberately lighter than command-line comments: they
+# must stay legible on both diff backgrounds. All roles remain customizable
+# through the shared palette; standalone UI uses native text when absent.
+_zle_picker_review_style() {
+  local key="highlight:review-$1"
+  REPLY=${_COMPOZSH_COLOR_FALLBACKS[$key]:-none}
+  if [[ ${(t)ZSH_HIGHLIGHT_STYLES} == association* ]]; then
+    REPLY=${ZSH_HIGHLIGHT_STYLES[review-$1]:-$REPLY}
+  fi
+}
+
+zmodload zsh/terminfo
+
+:

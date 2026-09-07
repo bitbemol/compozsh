@@ -1,0 +1,55 @@
+# Entry point: _runtime_read_metadata
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Called only after scope validation. A non-following/nonblocking descriptor
+# prevents leaf replacement with a symlink/FIFO; fstat and a byte budget bound
+# reads even when a regular file grows after the initial path check.
+_runtime_read_metadata() {
+  emulate -L zsh
+  unsetopt multibyte
+  zmodload -F zsh/system b:sysopen b:sysread || return 1
+  zmodload -F zsh/stat b:zstat || return 1
+  local text='' chunk='' mode=${2:-full}
+  local -A metadata
+  local -i runtime_fd=-1 read_status=0 complete=0 remaining=$(( _RUNTIME_METADATA_PARSE_MAX_BYTES + 1 ))
+  [[ $mode == first-line ]] && remaining=4096
+  REPLY=''
+  sysopen -r -o cloexec,nofollow,nonblock -u runtime_fd "$1" 2>/dev/null || return 1
+  {
+    zstat -H metadata -f $runtime_fd 2>/dev/null || return 1
+    (( (metadata[mode] & 8#170000) == 8#100000 &&
+       metadata[size] <= _PROMPT_METADATA_MAX_BYTES )) || return 1
+    if [[ $mode != first-line ]]; then
+      (( metadata[size] <= _RUNTIME_METADATA_PARSE_MAX_BYTES )) || return 1
+    fi
+    while (( remaining > 0 )); do
+      chunk=''
+      sysread -i $runtime_fd -s $(( remaining < 16384 ? remaining : 16384 )) chunk 2>/dev/null
+      read_status=$?
+      text+=$chunk
+      remaining=$(( remaining - ${#chunk} ))
+      if [[ $mode == first-line && $text == *$'\n'* ]]; then
+        text=${text%%$'\n'*}
+        complete=1
+        break
+      fi
+      if (( read_status == 5 )); then complete=1; break; fi
+      (( read_status == 0 && ${#chunk} > 0 )) || return 1
+    done
+    (( ${#text} <= _PROMPT_METADATA_MAX_BYTES )) || return 1
+    if [[ $mode == first-line ]]; then
+      (( complete )) || return 1
+    else
+      _runtime_metadata_is_parseable "$text" || return 1
+    fi
+    [[ $text != *$'\0'* ]] || return 1
+    REPLY=$text
+  } always {
+    exec {runtime_fd}<&-
+  }
+}
+
+typeset -gi _PROMPT_METADATA_MAX_BYTES=1048576
+
+:

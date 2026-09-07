@@ -3,8 +3,10 @@ _test_files_action_menu_empty_state() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.find"
     _ZLE_PICKER_EMPTY_LINES=("No matching captured paths" "Ctrl-F edits the search")
     _ZLE_PICKER_TRAIL=(Location parent)
@@ -50,8 +52,10 @@ _test_files_folder_menu_capabilities() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     local _DIRECTORY_PICKER_LOCATION="$HOME/current/"
     local _directory_browser_clipboard="" _directory_browser_open=""
     local target="$HOME/selected/"
@@ -93,7 +97,8 @@ _test_files_git_capture_no_monitor() {
   command chmod +x "$TEST_TMP_DIR/home/monitor" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     command git init -q "$HOME/repository" || exit 1
     print -r -- fixture > "$HOME/repository/note.txt"
     command git -C "$HOME/repository" add note.txt || exit 2
@@ -118,7 +123,8 @@ _test_files_git_explicit_folder_scope() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     local name="" root=""
     for name in current foreign; do
       command git init -qb main "$HOME/$name" || exit 1
@@ -171,7 +177,8 @@ _test_files_fuzzy_character_contract() {
     export LC_ALL=en_US.UTF-8
     setopt EXTENDED_GLOB
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     local query="" candidate="" expected="" actual=""
     local -a cases=(
       "alpha project" "project/alpha" 3

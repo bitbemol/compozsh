@@ -1,0 +1,19 @@
+# Entry point: _compozsh_plutil_raw
+# Impure: supplied document and key in; native scalar capture in REPLY.
+# Use the fixed system binary; PATH aliases and optional-key policy belong
+# to callers. No source-time calls or retained document state.
+_compozsh_plutil_raw() {
+  emulate -L zsh
+  local document=$1 key=$2
+  local -i capture_status=0
+  REPLY=''
+  (( $# == 2 )) && [[ -x /usr/bin/plutil ]] || return 1
+  REPLY=$(print -rn -- "$document" |
+    command /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null) || {
+    capture_status=$?
+    REPLY=''
+    return $capture_status
+  }
+}
+
+:

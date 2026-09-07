@@ -89,6 +89,7 @@ _prompt_test_emit "SOURCE|$(command tty)"
 :' || return
 
   output=$(test_run_interactive "$home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE
     # Fail before starting a PTY when the feature is absent, so the red phase is
@@ -389,6 +390,7 @@ _prompt_test_emit "SOURCE|$(command tty)"
 :' || return
 
   output=$(test_run_interactive "$home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.prompt"
     for capability in _prompt_editing_started _prompt_layout _prompt_project_layout \

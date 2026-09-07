@@ -5,8 +5,11 @@ _test_folder_actions_groups() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local _DIRECTORY_PICKER_LOCATION="$HOME/current/"
     local selected="$HOME/selected %F{red}; literal/" choice=""
@@ -75,7 +78,8 @@ _test_folder_actions_groups() {
     [[ $_ZLE_PICKER_ACTION == insert && $_ZLE_PICKER_SELECTED_VALUE == "$_DIRECTORY_PICKER_LOCATION" ]] || exit 9
     # The runtime peer supplies app dispatch, including for an empty folder.
     source "$1/.zsh.addons/.zsh.find"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     choice=open
     _directory_browser_actions "" insert || exit 10
     [[ $_ZLE_PICKER_ACTION == open && $_ZLE_PICKER_SELECTED_VALUE == "$_DIRECTORY_PICKER_LOCATION" ]] || exit 11
@@ -90,8 +94,11 @@ _test_folder_actions_optional_groups() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    source "$1/.zsh.addons/support/.zsh.matching"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local _DIRECTORY_PICKER_LOCATION="$HOME/"
     local _directory_browser_clipboard="" _directory_browser_open=""
@@ -121,3 +128,36 @@ _test_folder_actions_optional_groups() {
   test_assert_equal optional "$output"
 }
 test_case 'folder actions omit empty groups and unavailable capabilities and preserve cancellation' _test_folder_actions_optional_groups
+
+_test_folder_actions_metadata_contract() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    mkdir -p "$HOME/folder"
+    ln -s "$HOME/folder" "$HOME/link"
+    local _DIRECTORY_PICKER_LOCATION="$HOME/"
+    local _directory_browser_clipboard=available _directory_browser_open=available
+    _file_search_apply() { return 99; }
+    _directory_browser_pick() {
+      [[ $_ZLE_PICKER_ACCEPT_LABELS[copy] == copy &&
+         $_ZLE_PICKER_ACCEPT_LABELS[open] == open &&
+         $_ZLE_PICKER_ACCEPT_LABELS[reveal] == reveal &&
+         $_ZLE_PICKER_ACCEPT_LABELS[insert] == insert ]] || return 31
+      [[ $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Open using the macOS default application."* &&
+         $_ZLE_PICKER_INSPECT_TEXTS[reveal] == *"Reveal this item in Finder."* ]] || return 32
+      [[ $_ZLE_PICKER_DESCRIPTIONS[copy] == "$HOME/link" &&
+         $_ZLE_PICKER_ACCEPT_LABELS[enter-link] == "change directory" &&
+         $_ZLE_PICKER_INSPECT_TEXTS[enter-link] == *"Follow this symbolic link and change directory."* ]] || return 33
+      return 1
+    }
+    _directory_browser_actions "$HOME/link" insert link
+    (( $? == 1 )) || exit 1
+    print preserved
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal preserved "$output"
+}
+test_case 'folder actions preserve shared metadata and the linked directory acceptance wording' \
+  _test_folder_actions_metadata_contract

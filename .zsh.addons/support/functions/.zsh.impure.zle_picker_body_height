@@ -1,0 +1,14 @@
+# Entry point: _zle_picker_body_height
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# One shared height budget keeps collection, layout, and footer anchoring in
+# agreement when a caller provides a location row. Tiny windows omit that row.
+_zle_picker_body_height() {
+  REPLY=$(( LINES - 6 - (${#_ZLE_PICKER_SUBTITLE} > 0 && LINES >= 10) ))
+  (( REPLY < 1 )) && REPLY=1
+  return 0
+}
+
+
+:

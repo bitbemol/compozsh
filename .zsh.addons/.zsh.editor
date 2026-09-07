@@ -114,14 +114,7 @@ _zle_completion_format() {
   [[ -t 1 && -n $TERM && $TERM != dumb && -z ${NO_COLOR:-} ]] || return 0
   zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 0
   (( ${terminfo[colors]:-0} >= 256 )) || return 0
-  if (( ${+functions[_output_color]} )); then
-    _output_color "$role"
-  else
-    local key="output:$role" value=''
-    [[ ${(t)ZSH_OUTPUT_COLORS} == association* ]] && value=${ZSH_OUTPUT_COLORS[$role]-}
-    [[ $value == <0-255> ]] || value=${_COMPOZSH_COLOR_FALLBACKS[$key]-}
-    [[ $value == <0-255> ]] && REPLY=$value
-  fi
+  (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color output "$role" || :
   [[ -n $REPLY ]] && reply=("%F{${REPLY}}${text}%f")
   return 0
 }
@@ -813,24 +806,34 @@ _directory_browser_pick() {
 }
 
 _directory_browser_actions_collect() {
-  emulate -L zsh
-  local query=$1
-  local -a reply=()
-  local -i limit=$2 index=0
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
-  (( ${+functions[_matching_compile]} && ${+functions[_matching_filter]} )) || return 1
-  _matching_compile "$query"
-  _matching_filter "$reply[2]" $limit "${_directory_action_labels[@]}"
-  for index in "${reply[@]}"; do
-    _ZLE_PICKER_RESULTS+=("${_directory_action_values[index]}")
-    _ZLE_PICKER_LABELS+=("${_directory_action_labels[index]}")
-    _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
-  done
-  return 0
+  (( ${+functions[_zle_ui_collect]} )) || {
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    return 1
+  }
+  _zle_ui_collect source "$1" "$2" _directory_action_values _directory_action_labels \
+    _directory_action_labels "" text visible
 }
 
 _directory_browser_actions() {
   _zle_ui_view action _directory_browser_actions_view "$@"
+}
+
+# Shared secondary actions, assembled for the caller-selected target group.
+_directory_browser_path_actions() {
+  emulate -L zsh
+  local can_open=$1 can_enter=${2:-0} action='' label='' detail='' accept=''
+  local -a reply=() actions=(copy open reveal)
+  (( $# > 2 )) && actions=("${@:3}")
+  (( ${+functions[_compozsh_effect_open]} )) || can_open=0
+  _zle_ui_path_actions "$can_open" "$(( ${#_directory_browser_open} > 0 && ${+functions[_compozsh_effect_open]} ))" \
+    "$(( ${#_directory_browser_clipboard} > 0 && ${+functions[_compozsh_effect_copy]} ))" "$can_enter" 'Copy absolute path' "${actions[@]}"
+  for action label detail accept in "${reply[@]}"; do
+    _directory_action_values+=("$action") _directory_action_labels+=("$label")
+    _directory_action_details[$action]=$detail
+    # This workspace names the resulting directory change in its footer.
+    [[ $action == enter-link ]] && accept='change directory'
+    _directory_action_accepts[$action]=$accept
+  done
 }
 
 _directory_browser_actions_view() {
@@ -851,6 +854,7 @@ _directory_browser_actions_view() {
   _ZLE_PICKER_INSPECT_ACTION=apply _ZLE_PICKER_INSPECT_TITLE=Action
   _ZLE_PICKER_COLLECTOR=_directory_browser_actions_collect
   local -a _directory_action_values=() _directory_action_labels=()
+  local -A _directory_action_details=() _directory_action_accepts=()
   # Keep each group contiguous. Prefixes travel with filtered/paged rows; they
   # are ordinary captured labels, never fake selectable section headings.
   if [[ -n $target ]]; then
@@ -868,20 +872,16 @@ _directory_browser_actions_view() {
         _directory_browser_absolute "$target"
         target_path=$REPLY
         if [[ -d $target_path ]] && (( ${+functions[_file_search_apply]} )); then
-          _directory_action_values+=(enter-link) _directory_action_labels+=('Enter linked directory')
+          _directory_browser_path_actions 0 1 enter-link
         fi
       fi
     fi
-    if [[ -n $_directory_browser_clipboard ]]; then
-      _directory_action_values+=(copy) _directory_action_labels+=('Copy absolute path')
+    local -i can_open=0
+    if [[ -n $_directory_browser_open ]] && (( ${+functions[_file_search_apply]} )) &&
+       [[ $target_kind != link || -f $target_path || -d $target_path ]]; then
+      can_open=1
     fi
-    if [[ -n $_directory_browser_open ]]; then
-      if (( ${+functions[_file_search_apply]} )) &&
-         [[ $target_kind != link || -f $target_path || -d $target_path ]]; then
-        _directory_action_values+=(open) _directory_action_labels+=('Open with default app')
-      fi
-      _directory_action_values+=(reveal) _directory_action_labels+=('Reveal in Finder')
-    fi
+    _directory_browser_path_actions $can_open
   fi
   _directory_action_values+=(current) _directory_action_labels+=("$primary_label")
   if [[ $mode == insert ]]; then
@@ -892,15 +892,7 @@ _directory_browser_actions_view() {
     if [[ $mode != insert ]]; then
       _directory_action_values+=(insert) _directory_action_labels+=('Insert path into command line')
     fi
-    if [[ -n $_directory_browser_clipboard ]]; then
-      _directory_action_values+=(copy) _directory_action_labels+=('Copy absolute path')
-    fi
-    if [[ -n $_directory_browser_open ]]; then
-      if (( ${+functions[_file_search_apply]} )); then
-        _directory_action_values+=(open) _directory_action_labels+=('Open with default app')
-      fi
-      _directory_action_values+=(reveal) _directory_action_labels+=('Reveal in Finder')
-    fi
+    _directory_browser_path_actions "$(( ${#_directory_browser_open} > 0 && ${+functions[_file_search_apply]} ))"
   fi
   if (( ${_FILES_WORKSPACE:-0} )); then
     _directory_action_values+=(view-browse) _directory_action_labels+=('Browse children')
@@ -926,21 +918,20 @@ _directory_browser_actions_view() {
         [[ -n $1 ]] && { group=$selected_group; action_target=$target; } ;;
     esac
     _ZLE_PICKER_INSPECT_TEXTS[$action]="$group"$'\n\n'"$action_target"
-    case $action in
-      (open) _ZLE_PICKER_INSPECT_TEXTS[$action]+=$'\n\nOpen with the registered macOS app. This may launch an app; open only items you trust.' ;;
-      (reveal) _ZLE_PICKER_INSPECT_TEXTS[$action]+=$'\n\nSelect this exact item in Finder.' ;;
-      (enter-link) _ZLE_PICKER_INSPECT_TEXTS[$action]+=$'\n\nFollow this symbolic link and change directory.' ;;
-    esac
+    if [[ $action == (open|reveal|enter-link) ]]; then
+      _ZLE_PICKER_INSPECT_TEXTS[$action]+=$'\n\n'"${_directory_action_details[$action]}"
+    fi
     if [[ $action == view-recents ]]; then
       _ZLE_PICKER_INSPECT_TEXTS[$action]=$'Go to\n\nVisited locations from this shell directory stack.\nChoosing this view does not change directory.'
     fi
     _directory_action_labels[index]="$group · ${_directory_action_labels[index]}"
     _ZLE_PICKER_DESCRIPTIONS[$action]=$action_target
+    if (( ${+_directory_action_accepts[$action]} )); then
+      _ZLE_PICKER_ACCEPT_LABELS[$action]=${_directory_action_accepts[$action]}
+      continue
+    fi
     case $action in
-      (copy) _ZLE_PICKER_ACCEPT_LABELS[$action]=copy ;;
-      (open) _ZLE_PICKER_ACCEPT_LABELS[$action]=open ;;
-      (reveal) _ZLE_PICKER_ACCEPT_LABELS[$action]=reveal ;;
-      (cd|current-cd|enter-link) _ZLE_PICKER_ACCEPT_LABELS[$action]='change directory' ;;
+      (cd|current-cd) _ZLE_PICKER_ACCEPT_LABELS[$action]='change directory' ;;
       (select|current) _ZLE_PICKER_ACCEPT_LABELS[$action]=${primary_label:l} ;;
       (insert) _ZLE_PICKER_ACCEPT_LABELS[$action]=insert ;;
       (view-browse) _ZLE_PICKER_ACCEPT_LABELS[$action]=browse ;;
@@ -1001,7 +992,8 @@ _directory_browser_session() {
   local _directory_browser_clipboard=${commands[pbcopy]:-} selected_path=''
   local _directory_browser_open=''
   local -i result=0
-  [[ $OSTYPE == darwin* ]] && _directory_browser_open=${commands[open]:-}
+  [[ $OSTYPE == darwin* ]] && (( ${+functions[_compozsh_effect_open]} )) && _directory_browser_open=${commands[open]:-}
+  (( ${+functions[_compozsh_effect_copy]} )) || _directory_browser_clipboard=''
   local -i result_limit=10
 
   [[ ${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10} == <-> ]] &&
@@ -1036,13 +1028,13 @@ _directory_browser_session() {
       [[ $runner == widget && $_ZLE_PICKER_ACTION == enter-link ]] && zle reset-prompt
       return $result ;;
     (copy)
-      [[ -x $_directory_browser_clipboard ]] &&
-        print -rn -- "$selected_path" | command "$_directory_browser_clipboard" || return 4
+      (( ${+functions[_compozsh_effect_copy]} )) &&
+        _compozsh_effect_copy "$selected_path" "$_directory_browser_clipboard" || return 4
       [[ $runner == widget ]] && zle -M 'Copied path.'
       return 0 ;;
     (reveal)
-      [[ -x $_directory_browser_open && ( -e $selected_path || -L $selected_path ) ]] || return 4
-      command "$_directory_browser_open" -R -- "$selected_path"
+      (( ${+functions[_compozsh_effect_open]} )) || return 4
+      _compozsh_effect_open reveal "$selected_path" "$_directory_browser_open"
       return $? ;;
     (insert|select)
       if [[ $mode == cd && $_ZLE_PICKER_ACTION == select ]]; then

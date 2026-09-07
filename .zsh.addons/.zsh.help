@@ -620,14 +620,10 @@ _compozsh_help_compozsh() {
     '  compozsh help g   Read the Git workspace guide.'
 }
 
-_compozsh_tool_sanitize() {
-  REPLY=${1//[[:cntrl:]]/?}
-}
-
 _compozsh_tool_source_label() {
   local source=$1 label=${1##*/.zsh.addons/}
   [[ $label != "$source" ]] || label=${source:t}
-  _compozsh_tool_sanitize "$label"
+  (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$label" || REPLY=${(V)label}
 }
 
 # A companion provider is both documentation and a capability marker. Requiring
@@ -724,7 +720,7 @@ _compozsh_tool_show_help() {
   local name=$1 helper='' source=''
   _compozsh_tool_capture || return
   (( ${_COMPOZSH_TOOL_NAMES[(Ie)$name]} )) || {
-    _compozsh_tool_sanitize "$name"
+    (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$name" || REPLY=${(V)name}
     print -u2 -r -- "compozsh: no loaded add-on function named ${REPLY}"
     return 1
   }
@@ -740,56 +736,13 @@ _compozsh_tool_show_help() {
   print -r -- "No Compozsh help is available for ${name}."
   print -r -- "Defined in: ${source}"
 }
-
-_compozsh_tool_append_matches() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-
-  local pattern=$1 raw_limit=$2 value='' label='' search_text=''
-  local -i limit=$raw_limit index=0
-  for (( index = 1; index <= ${#_COMPOZSH_TOOL_NAMES}; ++index )); do
-    search_text=${_COMPOZSH_TOOL_SEARCH_TEXTS[index]}
-    [[ $search_text == ${~pattern} ]] || continue
-    value=${_COMPOZSH_TOOL_NAMES[index]}
-    (( ${_ZLE_PICKER_RESULTS[(Ie)$value]} )) && continue
-    label=${_COMPOZSH_TOOL_LABELS[index]}
-    _ZLE_PICKER_RESULTS+=("$value")
-    _ZLE_PICKER_LABELS+=("$label")
-    _ZLE_PICKER_RESULT_INDEXES+=("${_COMPOZSH_TOOL_INDEXES[index]}")
-    (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-  done
-}
-
 _compozsh_tool_picker_collect() {
-  emulate -L zsh
-  setopt EXTENDED_GLOB
-
-  local query=$1 raw_limit=$2 literal='' pattern=''
-  local -a reply=()
-  local -i limit=$raw_limit index=0
-  typeset -ga _ZLE_PICKER_RESULTS=()
-  typeset -ga _ZLE_PICKER_LABELS=()
-  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
-
-  if [[ -z $query ]]; then
-    for (( index = 1; index <= ${#_COMPOZSH_TOOL_NAMES}; ++index )); do
-      _ZLE_PICKER_RESULTS+=("${_COMPOZSH_TOOL_NAMES[index]}")
-      _ZLE_PICKER_LABELS+=("${_COMPOZSH_TOOL_LABELS[index]}")
-      _ZLE_PICKER_RESULT_INDEXES+=("${_COMPOZSH_TOOL_INDEXES[index]}")
-      (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-    done
-    return 0
-  fi
-
-  (( ${+functions[_matching_compile]} )) || return 1
-  _matching_compile "$query"
-  literal=$reply[1] pattern=$reply[2]
-  _compozsh_tool_append_matches "(#i)${literal}*" $limit
-  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-  _compozsh_tool_append_matches "(#i)*${literal}*" $limit
-  (( ${#_ZLE_PICKER_RESULTS} >= limit )) && return 0
-
-  _compozsh_tool_append_matches "$pattern" $limit
+  (( ${+functions[_zle_ui_collect]} )) || {
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    return 1
+  }
+  _zle_ui_collect ranked "$1" "$2" _COMPOZSH_TOOL_NAMES _COMPOZSH_TOOL_LABELS \
+    _COMPOZSH_TOOL_SEARCH_TEXTS "" text _COMPOZSH_TOOL_INDEXES
 }
 
 _compozsh_choose() {

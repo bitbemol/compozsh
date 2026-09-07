@@ -1,0 +1,24 @@
+# Entry point: _zle_picker_fit
+# Pure: explicit captured inputs; caller-local REPLY/reply outputs only.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Fit literal text using the shared cell prefix, then apply this element's
+# ellipsis and right-padding policy.
+_zle_picker_fit() {
+  emulate -L zsh
+  local text=$1 marker='…'
+  local -i width=$2
+  if (( width <= 0 )); then
+    REPLY=''
+    return
+  fi
+  if (( ${(m)#text} > width )); then
+    (( ${(m)#marker} > width )) && marker='.'
+    _compozsh_cell_prefix "$text" $(( width - ${(m)#marker} ))
+    text=$REPLY$marker
+  fi
+  REPLY=${(mr:$width:: :)text}
+}
+
+
+:

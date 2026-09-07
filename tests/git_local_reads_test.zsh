@@ -23,13 +23,15 @@ _test_git_missing_object_reads() {
     export GIT_TRACE="$HOME/git-trace"
     if [[ $3 == navigation ]]; then
       source "$1/.zsh.addons/.zsh.navigation"
-      source "$1/.zsh.addons/support/.zsh.matching"
+      for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+      source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
       builtin cd "$repo" || exit 4
       _git_branch_stack_load || exit 5
       _git_branch_inspector_capture "$repo" || exit 6
       [[ ${_ZLE_PICKER_INSPECT_TEXTS[main]} == *"Commit details unavailable"* ]] || exit 7
     else
       source "$1/.zsh.addons/.zsh.tools"
+      for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
       builtin cd "$repo" || exit 8
       g --discard-all <<< y > "$HOME/output" 2> "$HOME/error"

@@ -44,6 +44,7 @@ _test_manual_summary_lens() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.prompt"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/.zsh.manual" || exit
     source "$1/.zsh.addons/.zsh.output"
     source "$1/.zsh.addons/.zsh.tools"
@@ -90,6 +91,7 @@ _test_manual_summary_lifecycle() {
     source "$1/.zsh.addons/.zsh.manual"
     (( _MANUAL_SUMMARIES_READY && ${#_MANUAL_SUMMARIES} == 1 )) || exit 3
     source "$1/.zsh.addons/.zsh.prompt"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$support_component"; done
     _manual_prompt_capture() { print -u2 forbidden-capture; return 99; }
     _MANUAL_SUMMARIES[ls]='"'"'literal $(print unsafe) `print unsafe` %F{red} !'"'"'
     _MANUAL_SOURCES[ls]="ls(1)"

@@ -1,0 +1,21 @@
+# Entry point: _usb_human_duration
+# Pure: explicit supplied numbers in; caller-local REPLY out.
+# Ordinary support peer; no cross-peer calls at source time.
+
+_usb_human_duration() {
+  emulate -L zsh
+  local -i total=${1:-0} hours=0 minutes=0 seconds=0
+  (( total < 0 )) && total=0
+  hours=$(( total / 3600 ))
+  minutes=$(( (total % 3600) / 60 ))
+  seconds=$(( total % 60 ))
+  if (( hours )); then
+    REPLY="${hours}h ${minutes}m ${seconds}s"
+  elif (( minutes )); then
+    REPLY="${minutes}m ${seconds}s"
+  else
+    REPLY="${seconds}s"
+  fi
+}
+
+:

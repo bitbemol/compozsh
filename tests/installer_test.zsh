@@ -79,7 +79,7 @@ _test_installer_fresh_symlink() {
     source "$HOME/.zshrc" || exit 1
     source "$HOME/.zshrc" || exit 2
     (( ${+functions[_zle_ui_view]} && ${+functions[_zle_picker_screen_session]} )) || exit 3
-    _prompt_color path || exit 4
+    _compozsh_palette_color prompt path || exit 4
     [[ $REPLY == 25 ]] || exit 5
     compozsh --list
   ' 2> "$TEST_TMP_DIR/load.err") || return
@@ -182,7 +182,7 @@ _test_installer_copy_is_namespaced() {
     source "$HOME/.zshrc" || exit 1
     source "$HOME/.zshrc" || exit 2
     (( ${+functions[_zle_ui_view]} && ${+functions[_zle_picker_screen_session]} )) || exit 3
-    _prompt_color path || exit 4
+    _compozsh_palette_color prompt path || exit 4
     [[ $REPLY == 25 ]] || exit 5
     local catalog=$(compozsh --list)
     [[ $catalog == *"mkcd · ✓ help · compozsh/.zsh.tools"* ]] || exit 6

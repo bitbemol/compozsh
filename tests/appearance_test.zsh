@@ -5,6 +5,7 @@ _test_light_palette_preserves_initializer_roles() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     typeset -gA ZSH_HIGHLIGHT_STYLES=(command "fg=77,bold")
     typeset -gA ZSH_PROMPT_COLORS=(identity 109)
@@ -29,6 +30,7 @@ _test_automatic_light_palette_is_order_independent() {
   test_make_temp_dir || return
   local mode='' output='' expected=''
   local script=$'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     COLORFGBG="0;15"
     case $2 in
       appearance-first)
@@ -47,7 +49,7 @@ _test_automatic_light_palette_is_order_independent() {
         ;;
     esac
     ZSH_OUTPUT_COLORS[error]=invalid
-    _output_color error 203
+    _compozsh_palette_color output error 203
     print -r -- "$_COMPOZSH_COLOR_SCHEME|${ZSH_HIGHLIGHT_STYLES[picker-selected]}|${ZSH_HIGHLIGHT_STYLES[review-added]}|${ZSH_PROMPT_COLORS[success]}|${ZSH_OUTPUT_COLORS[heading]}|$REPLY|$LSCOLORS"
   '
 
@@ -73,16 +75,19 @@ _test_light_completion_colors_are_order_independent() {
   test_make_temp_dir || return
   local mode='' output='' expected=''
   local script=$'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     case $2 in
       appearance-first)
         source "$1/.zsh.addons/support/.zsh.appearance"
         source "$1/.zsh.addons/.zsh.editor"
-        source "$1/.zsh.addons/support/.zsh.ui"
+        for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+        source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
         ;;
       appearance-last)
         source "$1/.zsh.addons/.zsh.editor"
-        source "$1/.zsh.addons/support/.zsh.ui"
+        for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+        source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
         source "$1/.zsh.addons/support/.zsh.appearance"
         ;;
     esac
@@ -115,11 +120,13 @@ _test_completion_colors_preserve_ls_colors() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     LS_COLORS="di=38;5;123:ex=38;5;124"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     local -a colors=()
     zstyle -a ":completion:*" list-colors colors
     print -r -- "${(j:|:)colors}"
@@ -138,6 +145,7 @@ _test_light_manual_selection_uses_contrasting_text() {
   command chmod +x "$fake_bin/man" || return
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     path=("$2" $path)
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
@@ -156,6 +164,7 @@ _test_color_scheme_detection_precedence_and_index_classification() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local index classifications=""
     for index in 9 12 15 16 231 232 255; do
@@ -194,6 +203,7 @@ _test_appearance_source_preserves_queued_terminal_input() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     zmodload zsh/zpty || exit 2
     zmodload zsh/zselect || exit 2
     _appearance_test_driver() {
@@ -239,6 +249,7 @@ _test_scheme_selection_is_one_shot_and_preserves_empty_initializer_value() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
     ZSH_COLOR_SCHEME=dark
@@ -262,16 +273,18 @@ _test_editor_uses_light_output_roles_without_output_peer() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
-    _zle_picker_output_color heading 75
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    _compozsh_palette_color output heading 75
     heading=$REPLY
-    _zle_picker_output_color info 111
+    _compozsh_palette_color output info 111
     info=$REPLY
     ZSH_OUTPUT_COLORS[warning]=invalid
-    _zle_picker_output_color warning 221
+    _compozsh_palette_color output warning 221
     print -r -- "$heading|$info|$REPLY"
   ' "$TEST_REPO_ROOT") || return
 
@@ -286,6 +299,7 @@ _test_palette_owners_restore_selected_scheme_after_unset() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
     for peer in highlighting prompt output shell; do
@@ -337,10 +351,12 @@ _test_status_header_uses_selected_output_palette() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.editor"
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     BUFFER="" PREDISPLAY="" POSTDISPLAY=""
     _ZLE_PICKER_STATUS_VIEW=1 _ZLE_PICKER_HEADER=Working
     _ZLE_PICKER_DISPLAY=()
@@ -376,6 +392,7 @@ _test_appearance_malformed_hints_remain_inert() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/support/.zsh.appearance"
     ZSH_COLOR_SCHEME=AuTo
     local hint="" expected="" REPLY=""
@@ -407,6 +424,7 @@ _test_manual_selection_contrasts_with_custom_heading() {
   ' || return
   command chmod +x "$fake_bin/man" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     path=("$2" $path)
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
@@ -437,8 +455,10 @@ _test_editor_review_fallback_contrast() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/tests/appearance_support.zsh"
-    source "$1/.zsh.addons/support/.zsh.ui"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/support/.zsh.appearance"
     local row="" token="" background="" row_style="" field=""
     for row in added removed; do
