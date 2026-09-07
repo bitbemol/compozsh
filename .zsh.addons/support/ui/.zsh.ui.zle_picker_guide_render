@@ -6,8 +6,8 @@
 # Selection, filter, focus and viewport are untouched; no provider is called.
 _zle_picker_guide_render() {
   emulate -L zsh
-  local -i width=$1 height=0 max_offset=0 index=0
-  local row='' role=''
+  local -i width=$1 height=0 max_offset=0 index=0 source_index=0 notes_first=0 notes_last=0
+  local row='' role='' label='' highlights=''
   local -a lines=(
     'Type                 Filter results; punctuation stays searchable'
     '↑ / ↓ or Ctrl-P/N    Move selection; stop at either end'
@@ -136,10 +136,12 @@ _zle_picker_guide_render() {
             'Right / Ctrl-E       Focus details'
             'Left / Ctrl-B        Focus list')
   fi
+  notes_first=$(( ${#lines} + 1 ))
   lines+=('Control shortcuts apply only inside this picker.'
           'Escape cancels; it is not a command prefix.'
           'Fn-Up/Down and Option-Up/Down page; optional Meta key Option-V pages up,'
           'Option-Delete deletes a word; Option-W copies where available.')
+  notes_last=${#lines}
   # Optional caller-owned facts; guide rendering never acquires new data.
   (( ${#_ZLE_PICKER_GUIDE_CONTEXT} )) && lines+=("${_ZLE_PICKER_GUIDE_CONTEXT[@]}")
   _zle_picker_body_height
@@ -152,17 +154,30 @@ _zle_picker_guide_render() {
   (( _ZLE_PICKER_GUIDE_OFFSET < 0 )) && _ZLE_PICKER_GUIDE_OFFSET=0
   _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_DISPLAY_STYLES=() _ZLE_PICKER_DISPLAY_HIGHLIGHTS=()
   for (( index=0; index<height; ++index )); do
+    label='' highlights=''
     if (( index == 0 )); then
       row="Keyboard guide · $(( _ZLE_PICKER_GUIDE_OFFSET + 1 ))/${#lines}"
       role=picker-header
     else
-      row=${lines[index + _ZLE_PICKER_GUIDE_OFFSET]-}
+      source_index=$(( index + _ZLE_PICKER_GUIDE_OFFSET ))
+      row=${lines[source_index]-}
       role=picker-text
+      if (( source_index >= notes_first && source_index <= notes_last )); then
+        role=picker-muted
+      elif (( source_index < notes_first )) && [[ $row == *'  '* ]]; then
+        # Only authored key/fact labels carry emphasis. Caller-owned context
+        # stays literal prose even when it contains column-like whitespace.
+        label=${row%%  *}
+      fi
     fi
     _zle_picker_fit "$row" $width
     _ZLE_PICKER_DISPLAY+=("$REPLY")
     _ZLE_PICKER_DISPLAY_STYLES+=("$role")
-    _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')
+    if [[ -n $label ]]; then
+      _zle_picker_highlights_shift "0:${#label}:picker-header" 0 ${#REPLY}
+      highlights=$REPLY
+    fi
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=("$highlights")
   done
   _zle_picker_footer $width ""
   _ZLE_PICKER_DISPLAY+=("${(mr:$width:: :)REPLY}")

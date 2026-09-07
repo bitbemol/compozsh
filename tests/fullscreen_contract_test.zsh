@@ -314,6 +314,9 @@ _test_directory_workspace_native() {
       local footer=${_ZLE_PICKER_DISPLAY[-1]} suffix="^K all keys"
       (( _ZLE_PICKER_GUIDE_ACTIVE )) && suffix="^K close"
       [[ ${footer%"${footer##*[^ ]}"} == *"$suffix" ]] || print -r -u $efd BAD-GUIDE-SUFFIX
+      if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
+        [[ ${(j: :)_ZLE_PICKER_DISPLAY_HIGHLIGHTS} == *picker-header* ]] || print -r -u $efd BAD-GUIDE-STYLES
+      fi
       print -r -u $efd -- "FRAME|$_ZLE_PICKER_GUIDE_ACTIVE|$_ZLE_PICKER_QUERY|${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}|$COLUMNS|$LINES"
     }
     _contract_driver() {

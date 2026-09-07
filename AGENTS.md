@@ -1265,7 +1265,7 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Fn/Option-Up/Down, Ctrl-V/Ctrl-D | Page up/down in the focused view; reader pages retain one overlapping line |
 | Ctrl-U / Ctrl-W | Clear the active field / delete its last word |
 | Ctrl-] | Reveal exclusion and switch positive/exclusion field editing in candidate filters |
-| Backspace | Delete the last query character |
+| Backspace | Delete the last character in the active positive/exclusion field |
 | Ctrl-Y | Copy the selected value and close, when available |
 | Ctrl-L | Redraw |
 | Ctrl-F | Start descendant discovery in Browse; edit discovery query in Search results |
@@ -1273,9 +1273,9 @@ omits its hint; never repurpose that key for an unrelated per-tool action.
 | Tab / Shift-Tab | Switch list/details focus; in the browser, enter/go Back |
 | Ctrl-O | Inspect a folder: browse from Recents, preview inside the browser |
 | Ctrl-X | Open **review** on Branches, **options** in filesystem/worktree views, or **View options** in Git file-review views; otherwise inactive |
-| Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence |
+| Right / Left in a document workspace | Disclose files → focused diff → full-file context / reverse the sequence; on a folder summary, focus the summary / return to the file list |
 | Ctrl-A in an auto-refresh document workspace | Pause/resume automatic refresh for the current screen session |
-| Ctrl-R in a document workspace | Refresh the file list and selected diff, retaining available selection/focus/source area |
+| Ctrl-R in a refreshable workspace | Refresh the captured choices or document; Git review retains available selection/focus/source area |
 | Ctrl-T | Toggle hidden folders in the browser |
 
 Candidate filters share positive and optional exclusion fields. Ctrl-] reveals
@@ -1312,12 +1312,17 @@ new binding. A key-map change must update this table, shared handler, hints,
 guide, public help, README and native PTY tests together. Keep contract coverage
 across history, Recents, branches, files, tool discovery and secondary menus.
 Collectors and tool providers must not implement their own key parsers or hints.
-Ctrl-R's refresh meaning is limited to document workspaces. Preserve prompt
-history search and the existing next-result alias in other pickers. Refresh is
-available with empty/filtered-out document lists, allowing new changes to be
-discovered. Ctrl-A remains beginning-of-line at the prompt and is advertised
+Ctrl-R refreshes a document workspace or candidate view only when it explicitly
+exposes the corresponding shared refresh capability. Preserve prompt history search and the existing
+next-result alias in other pickers. Refresh remains available with empty or
+filtered-out refreshable lists, allowing new changes to be discovered.
+Ctrl-A remains beginning-of-line at the prompt and is advertised
 only when the active document workspace provides automatic refresh. The
 keyboard guide must never trigger refresh or an automatic provider check.
+Its authored key and fact labels use the shared heading style, descriptions
+use ordinary text, and general keyboard notes use muted text. Clip emphasis
+spans to the visible row; caller-owned context remains literal prose. These
+passive labels never acquire candidate numbers or selection behavior.
 
 - Preserve spatial landmarks when results shrink. Blank space is acceptable;
   do not fill the screen with unrelated widgets, repeated paths or decoration.
@@ -1378,6 +1383,10 @@ keyboard guide must never trigger refresh or an automatic provider check.
   replace the map, and narrow screens retain the active stage first. Never
   give these passive labels indexes or reduce result capacity to fit them.
 - Treat selection and pane focus as separate state in every split-pane tool.
+  Keep the pane title, including a selected file path or Folder summary, in the
+  shared heading color and bold style regardless of keyboard focus. Only
+  secondary body headings soften while the list is focused; never dim the
+  selected target's identity merely because navigation remains on the left.
   List focus uses the normal high-emphasis selected row. Detail/reader focus
   retains that selection with a subdued background and marks the active pane
   with the semantic focus rail plus its `▸` heading. Keep the rail on the shared

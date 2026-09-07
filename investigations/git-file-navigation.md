@@ -58,6 +58,13 @@ Literal path controls are made visible before joining summary prose, so a newlin
 in a name cannot create a false summary heading. Unsupported line-count fields
 produce an incomplete-totals notice rather than a silently incomplete sum.
 
+The shared shortcut bar reserves its final `^K all keys` entry before fitting
+optional hints. Ctrl-K opens the complete applicable keyboard guide and returns
+without changing the review position; inside the guide the final hint is
+`^K close`. Ctrl-] reveals the exclusion field and switches field editing.
+The selected path or folder-summary title keeps its heading style with either
+pane focused; the caret, divider and selection surface convey keyboard focus.
+
 The canonical behavior is in [AGENTS.md](../AGENTS.md#git-review-workspace-boundary).
 The earlier direct Ctrl-X-to-atlas route in
 [composer-and-atlas.md](composer-and-atlas.md) is historical; the map remains

@@ -1878,8 +1878,11 @@ filtering supports exclusion, including when a file or folder is selected. It
 names the actual action (`cd`, `switch`, `insert`, or file actions), and only
 advertises copying or details when supported. It never cuts a shortcut in half.
 
-Press **Ctrl-K** to open the **keyboard guide**. Arrow keys scroll line by line;
-Fn/Option-Up/Down or Ctrl-V/Ctrl-D scroll by a page. Ctrl-K, Escape, Ctrl-G or Enter closes the guide and restores
+Press **Ctrl-K** to open the **keyboard guide**. Key and fact labels use the
+shared bold heading color, with readable descriptions
+and quieter general keyboard notes. Your palette overrides apply here too.
+Arrow keys scroll line by line; Fn/Option-Up/Down or Ctrl-V/Ctrl-D scroll by a page.
+Ctrl-K, Escape, Ctrl-G or Enter closes the guide and restores
 the exact search, selection, scroll position and pane focus. Ctrl-C aborts the
 whole picker. Typing or pressing a number in the guide cannot apply a result.
 A plain `?` remains searchable. Primary shortcuts use Control and require no
@@ -1965,9 +1968,9 @@ partial-result limits still apply.
 | Ctrl-E / Ctrl-B | Focus details / list, when available |
 | Ctrl-O | Browse a selected recent location; inside the browser, preview a folder |
 | Ctrl-X | Open **review** on Branches, **options** for filesystem/worktree tasks, or **View options** in supported Git file-review views |
-| Right / Left in Git review | Progress files → focused diff → full-file context / reverse those steps |
+| Right / Left in Git review | Progress files → focused diff → full-file context / reverse those steps; on a folder summary, focus the summary / return to the file list |
 | Ctrl-A in Working changes | Pause or resume automatic local refresh for this review screen |
-| Ctrl-R in Git review | Refresh the selected snapshot, preserving focus and source area |
+| Ctrl-R when refresh is available | Refresh captured choices or the document; Git review preserves focus and source area |
 | Enter in Xcode Logs | Open options for the displayed logs; log lines are not selectable results |
 | Up/Down in Xcode Logs | Scroll up to pause; return to the bottom to follow live output |
 | Home/End in Xcode Logs | Pause at the beginning / follow the latest output, when sent by the terminal |
@@ -3495,9 +3498,9 @@ Run **`g` → Ctrl-X review**, or **`g --review`**, to choose a review context:
 
 | View | Scope | Enter does |
 | --- | --- | --- |
-| Working changes | The current checkout, independent of the highlighted branch | Focus the selected staged or unstaged diff |
+| Working changes | The current checkout, independent of the highlighted branch | Expand/collapse a folder, open a deeper scope, or focus the selected file's diff |
 | Branch commits | Captured local history of the selected branch | List that commit's changed files |
-| Commit files | Selected commit versus its first parent, or the empty tree for a root commit | Focus the selected file's diff |
+| Commit files | Selected commit versus its first parent, or the empty tree for a root commit | Expand/collapse a folder, open a deeper scope, or focus the selected file's diff |
 | Compare branches or commits | Two chosen local branches, tags or commit IDs | Change either choice, then Review differences opens the two-pane reader |
 | Change atlas | Captured working changes, grouped by exact folder prefixes | Open a folder, then read one exact change |
 
@@ -3592,6 +3595,29 @@ files are excluded from revision comparisons.
 `g --review` requires the shared UI peer and an interactive terminal; use
 `git diff A B` for plain output. `g --review --help` opens the same
 guide as `g --help`, without reading the repository.
+
+#### Try the review flow
+
+Open a fresh shell after updating Compozsh, then run **`g --review`**.
+Choose **Working changes** to review your current edits. If the checkout is
+clean, choose **Branch commits** and open a commit to explore its changed files.
+Both lead to the same file navigator and reader.
+
+1. Move onto a folder: the right pane shows its captured **Folder summary**.
+   Press Enter to collapse or expand it. Files within the first three visible
+   directory levels are already exposed; **Open folder** enters a deeper scope.
+2. Move onto a file: its diff appears, with its path in a readable heading even
+   while the left pane has focus. Right/Tab focuses the reader; Left returns
+   from a focused diff to the file list.
+3. Press **Ctrl-]** and type a literal phrase to exclude matching changes.
+   Ctrl-U clears that field; Ctrl-] switches back to the positive filter.
+4. Press **Ctrl-X**, then **2** for **All files**. Use Ctrl-X, then **1** to
+   return to **Tree**, preserving the current change and filters.
+5. Press **Ctrl-K** for all applicable keys. Its shortcut stays at the end of
+   the bar when other hints are omitted. Ctrl-K closes the guide and restores
+   your position; Escape returns through deeper scopes or exits the review.
+
+#### Tree, folder summaries, and file reading
 
 Working changes, Commit files and comparisons start with **Tree** in a
 **two-pane review workspace**. The first three directory levels open by default,
