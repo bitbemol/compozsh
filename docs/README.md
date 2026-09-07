@@ -82,7 +82,8 @@ facts in the fixture. Inferred `ACTION` uses qualified language such as
 “likely”, “appears” or “may”; help-derived `ACTION` names documented intent
 and identifies its captured Compozsh help source. Neither validates the draft.
 Stock aliases retain their authored descriptions only for unchanged definitions;
-custom aliases receive a neutral label without revealing their bodies.
+custom aliases receive a neutral label and a bounded, literal definition preview.
+The preview is sanitized for display and never evaluates the alias body.
 Toolchain warnings distinguish older pins (danger), newer pins (warning), and
 unverified requirements (warning); a satisfied minimum has no mismatch warning.
 READY retains available toolchain facts, while a folder without them omits the row.

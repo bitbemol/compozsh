@@ -104,8 +104,9 @@ state:
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh --sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, the living prompt's Context trigger/disclosure flags, positive/exclusion fields and their return bookmarks, and temporary view snapshots; discarded with the shell or view |
-| Local manual summaries | Shell memory until `compozsh --refresh` or shell exit | A first-interactive-prompt snapshot of bounded NAME descriptions and page-name/section attribution from fixed installed manual roots; lookup is memory-only and describes literal names, not executable identity |
-| Interaction lens state | Shell memory for the active ordinary prompt | The current interaction kind, sanitized and bounded literal excerpts/structural summaries, captured context anchors, latest command outcome, and an optional bounded prefix of matching editor-owned autosuggestion state; replaced as the buffer or command outcome changes and discarded with the shell. Leading assignment values are not copied into this presentation state; the actual ZLE buffer remains native shell state |
+| Local manual summaries | Shell memory until `compozsh --refresh` or shell exit | A first-interactive-prompt snapshot of bounded NAME descriptions and page-name/section attribution from MANPATH, absolute PATH-associated roots, literal manual configuration, conventional installations and Apple-selected SDK/toolchain roots; lookup describes literal names, not executable identity |
+| Manual formatter directory | Private mode-0700 temporary directory during capture | Empty working directory for native mandoc; page text travels through bounded shell memory and kernel pipes, never a page file. Normal and handled-error cleanup removes the directory; an uncatchable termination can leave an empty directory |
+| Interaction lens state | Shell memory for the active ordinary prompt | The current interaction kind, bounded literal excerpts/structural summaries, up to eight alias-definition previews of at most 240 characters each, captured context anchors, latest command outcome, and an optional bounded prefix of matching editor-owned autosuggestion state; sanitized for display, replaced as the buffer or command outcome changes and discarded with the shell. Leading assignment values are not copied into this presentation state; the actual ZLE buffer remains native shell state |
 | Draft inspector | Invocation-scoped shell memory, only after Option-Return | At most 32,768 literal draft characters plus a truncation notice, cursor/length/current-folder facts, reading filters and frames; released on return. The exact full draft is preserved by the native editing/screen-restoration state. Explicit Read can display assignment values and other sensitive text; no redaction or execution occurs |
 | Captured help and command readers | View-scoped shell memory | Tool help reuses at most 64 same-source companions of 32,768 characters each; direct help captures only its selected companion. Topic navigation, argument excerpts and full-width reading derive from that capture. History's inspector reads at most 32,768 characters from the selected captured command and retains no second history catalog. History acceptance inserts the original full command; ordinary help topics only read, while the separately labeled Compose example action opens an authored template |
 | Command composer | Invocation-scoped shell memory; an explicitly accepted draft moves to ZLE or the native prompt buffer stack until edited/submitted/discarded | Supported literal prefill up to 4,096 characters, bounded fields of at most 4,096 characters each, current folder and generated quoted draft; optional explicit Git revision selection uses the existing local ref capture. No file, clipboard or custom history write. Normal shell command acceptance retains normal history behavior |
@@ -120,7 +121,7 @@ state:
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The exact user-selected device, under Apple's native device tools and device storage policy; a local run-scoped temporary FIFO and shell memory | Build & Run / Rebuild & Run delegate installation of the selected built app to `devicectl`, replacing its installed copy; it remains installed after the console exits or launch fails. Interactive monitoring retains at most 32 KiB/200 source lines plus bounded reading snapshots in memory through a mode-0600 FIFO under a mode-0700 temporary directory, removed on normal/handled-error cleanup. No persistent Compozsh log file; explicit clipboard copies outlive the run. Plain fallback uses terminal-owned scrollback |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
-| Clipboard values | The clipboard of the machine running Zsh; may outlive the originating view or run under operating-system/user control | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, bounded Xcode test report, or retained matching Simulator log lines with local paths, diagnostics and sensitive app values; never read back by Compozsh |
+| Clipboard values | The clipboard of the machine running Zsh; may outlive the originating view or run under operating-system/user control | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, bounded Xcode test report, or retained matching Simulator/device log lines with local paths, diagnostics and sensitive app values; never read back by Compozsh |
 
 Appearance selection reads only `ZSH_COLOR_SCHEME` and the optional passive
 `COLORFGBG` environment hint, then retains a `light` or `dark` classification.
@@ -334,11 +335,22 @@ character guide bound and discards an incomplete final line. Control-bearing
 or overlong descriptions are omitted. Source and function definitions used for
 invalidation stay in shell memory and are never written or transmitted.
 
-Edit-time descriptions read those snapshots and current loaded-definition
-identity only. They name documented tool/option intent, not successful target
+Edit-time descriptions read those snapshots, current loaded-definition identity
+and bounded alias definitions only. They name documented tool/option intent, not successful target
 resolution or argument validation. Compound/danger cues take priority. Stock
-alias descriptions require the exact current definition; custom alias bodies
-are never echoed or evaluated. Run `zsh tests/run.zsh 'tool descriptions'` for
+alias descriptions require the exact current definition. Ordinary, global and
+suffix aliases display previews at literal command positions, including
+pipelines/chains and leading assignments. Global aliases also match literal
+arguments/redirection targets; trailing-space aliases enable the next word's
+preview. Within 512 draft characters and 64 lexical tokens, at most eight
+definitions are retained, each capped at 240 characters with an omission marker.
+Quoted/escaped words and native alias suppression are respected; here-document
+operators stop inspection, and nested substitutions are not inspected.
+Each preview is sanitized, prompt-escaped and fitted
+to the terminal width. It may expose sensitive text already present in an alias
+to someone viewing the terminal; it is not a credential-redaction feature.
+Definitions are read from shell memory, never evaluated, recursively expanded,
+written to a separate cache or transmitted. Run `zsh tests/run.zsh 'tool descriptions'` for
 capture reuse, invalidation, override handling and native ZLE checks that type
 Touch ID modes without submitting them or requesting administrator access.
 
@@ -350,20 +362,46 @@ including skipped passes; a changed draft or folder cannot reuse it. It is not
 a command resolver or guarantee that the directory remains available at Return.
 
 The optional `.zsh.manual` peer adds one first-TTY-`precmd` capture of local
-manual NAME descriptions. It reads no project or personal configuration: the
-fixed roots are `/usr/share/man`,
-`/Library/Developer/CommandLineTools/usr/share/man`,
-`/Applications/Xcode.app/Contents/Developer/usr/share/man`,
-`/opt/homebrew/share/man` and `/usr/local/share/man`. It skips symlink roots,
-section directories and pages, uses non-following/nonblocking opens and checks
-the opened descriptor is regular. This is not a filesystem sandbox against an
-administrator replacing ancestor directories. Capture bounds are 4,096 pages,
-8 KiB per page and 8,192 retained name/summary pairs; descriptions are capped at
-240 characters. The snapshot and page-name/section attribution live only in
-shell memory until refresh or shell exit. Source time performs no capture.
-No MANPATH/configuration read, index generation, formatter, roff include/macro
-execution, command invocation, subprocess, persistent file or network operation
-is involved. Unsupported pages fail quietly. Rendered ABOUT text is inert and
+manual NAME descriptions. Roots come from literal MANPATH (including relative
+paths resolved at capture), conventions associated with the first 128 absolute
+PATH entries, documented installation fallbacks, and literal MANPATH/MANCONFIG
+directives in `/etc/man.conf` and at most 16 selected configuration files.
+Configuration reads are capped at 8 KiB each and never evaluated as shell code;
+formatter settings and other directives are ignored. An explicit MANPATH
+without empty fields skips default/configuration discovery; empty fields insert
+defaults. This can read manuals in user-selected project folders, but does not
+read private shell peers, the initializer or history.
+
+One fixed `/usr/bin/xcode-select --show-manpaths` query contributes at most 16
+absolute, control-free selected SDK/platform/developer/toolchain roots, honoring
+DEVELOPER_DIR. Selection output is validated against a 64 KiB bound; accepted
+paths are at most 4,096 characters. Deduplication and a 64-root cap apply to the
+combined scope. Sections precede roots; MANSECT environment entries are validated
+and capped at 16. Missing native selection retains conventional roots.
+
+Capture considers at most 4,096 entries, reads at most 64 KiB per page, and
+retains at most 8,192 name/summary pairs of 240 characters. Symlinks and literal
+whole-page `.so` aliases can reach installed manual files outside a starting
+root, with at most eight file reads per forwarding chain. Resolved paths use
+non-following/nonblocking opens and regular-descriptor checks. This is not an
+ancestor-race filesystem sandbox. Compressed files pass at most 64 KiB input
+through fixed native gzip with at most 64 KiB decoded output and a one-second
+child CPU limit. Corrupt, unreadable or unresolved pages fail quietly.
+
+The fast parser extracts inert NAME text. Formatting-heavy NAME sections can
+use fixed native mandoc on captured stdin, with at most 64 KiB output and a
+one-second child CPU limit (not a wall-clock deadline). Native mandoc ignores
+command/file-writing roff requests and refuses absolute/parent includes; a
+private empty working directory prevents relative includes from reading the
+caller's folder. This is native document formatting, not a general OS sandbox.
+The owned mode-0700 directory contains no page data and is removed during normal
+and handled-error cleanup. An uncatchable termination may leave it empty.
+Readable pages without usable NAME text retain an explicit manual-available
+notice. No man, manpath, whatis, index generator or documented command is invoked.
+No manual text becomes shell code; no network operation is involved.
+
+The snapshot and page-name/section attribution live only in shell memory until
+refresh or shell exit. Source time performs no capture. Rendered ABOUT text is inert and
 describes a literal name, not resolved executable identity or argument effects;
 arbitrary aliases/functions do not inherit it. Typing and resizing only consult
 this snapshot and loaded shell metadata. The normal prompt escaping applies to
@@ -1202,6 +1240,23 @@ remain inert; the resize PTY separately instruments provider calls. The tests
 use disposable repositories and synthetic commands; they do not prove that the
 limited CAUTION recognizer covers arbitrary shell text or how a custom terminal
 stores or exports its scrollback.
+
+Audit alias previews and manual capture without reading private shell settings:
+
+```sh
+zsh tests/run.zsh 'alias coverage'
+zsh tests/run.zsh 'tool descriptions'
+zsh tests/run.zsh 'manual coverage'
+zsh tests/run.zsh 'manual summaries'
+```
+
+Read `_prompt_alias_expansions` and the `.zsh.manual` capture/reader/formatter
+helpers alongside these tests. Disposable fixtures cover current definitions,
+quoted/suppressed aliases, nonexecution during native ZLE painting, MANPATH
+ordering, links/compression/forwarding, literal configuration and unavailable
+NAME summaries. Formatter fixtures check that command requests and caller-folder
+includes remain inert. These checks do not establish exhaustive shell grammar,
+manual-format coverage, or a general operating-system sandbox.
 
 Audit Simulator and device monitoring without launching Xcode or a real app:
 

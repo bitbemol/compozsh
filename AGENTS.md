@@ -978,14 +978,25 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
   from the user. Zsh's native completion dump is not feature-state storage.
 - The approved local manual-summary exception is one bounded capture by the
   optional `.zsh.manual` peer at the first TTY `precmd`, never source time or
-  editing. Read only regular uncompressed section 1/8 pages beneath the fixed
-  conventional installation roots documented in the README: at most 4,096
-  pages, 8 KiB per page, 8,192 retained names and 240 characters per summary.
-  Use native non-following/nonblocking opens and descriptor type checks; parse
-  only inert NAME text, never roff includes, formatters, man/whatis, config,
-  indexes or documented executables. Keep summaries in shell memory and clear
-  them with `compozsh --refresh`. Missing pages/unsupported formats are quiet
-  misses. Measure first-prompt capture separately from source time and warmed
+  editing. Resolve at most 64 roots from literal MANPATH, the first 128 absolute
+  PATH entries, conventional installations, inert MANPATH/MANCONFIG directives
+  (17 configuration files, 8 KiB each), and one native
+  `/usr/bin/xcode-select --show-manpaths` query (16 validated paths). Honor empty
+  MANPATH fields and the validated MANSECT environment value; prioritize
+  sections across roots. Read at most 4,096 entries, 64 KiB per page, 8,192
+  retained names and 240 characters per summary. Installed symlinks and literal
+  whole-page `.so` forwarders may resolve outside the initial root; cap a chain
+  at eight file reads. Use non-following/nonblocking opens on resolved paths
+  and regular-descriptor checks. Native gzip may decode bounded compressed
+  input. Try the inert NAME parser first; native mandoc may format captured
+  stdin from an owned, empty mode-0700 temporary directory, with bounded output
+  and a one-second child CPU limit. Remove that empty directory in guaranteed
+  cleanup; never write page text to disk or interpret manual configuration as
+  shell code. Never invoke man, manpath, whatis, indexes or documented commands.
+  Missing/unreadable pages are quiet misses; readable pages without a usable
+  NAME description retain an explicit manual-available notice. Keep summaries
+  in shell memory and clear them with `compozsh --refresh`.
+  Measure first-prompt capture separately from source time and warmed
   redraw; see `investigations/manual-summaries.md` for the accepted tradeoff.
 - Working-changes auto-refresh in the Git review screen is the narrowly approved
   screen-session worker exception. Its ownership, bounds, lifecycle and local-only
@@ -1108,9 +1119,20 @@ never optimize from a single timing sample.
   an ACTION prediction. Tool help is the canonical source for its summaries and
   option descriptions; do not duplicate that prose in the prompt. Stock aliases
   share their default expansion and description in the owning navigation peer.
-  Show EXPANSION only for an exact matching current stock definition and a
-  literal command head; custom definitions retain a neutral alias description
-  without exposing their possibly sensitive bodies. Never evaluate aliases or
+  Show EXPANSION for current ordinary, global and suffix alias definitions,
+  including machine-local aliases. Within the existing 512-character/64-token
+  draft bound, observe at most eight literal references: command positions in
+  pipelines/chains, leading assignments, global argument/redirection aliases,
+  and the word following a trailing-space alias. Respect quoted/escaped tokens,
+  disabled ALIASES and native alias-suppressing modifiers. Keep at most 240
+  characters per definition with an omission marker; sanitize and escape each
+  preview through the shared prompt renderer. Empty definitions display `""`. Custom
+  definitions retain a neutral alias description; stock descriptions require an
+  exact current default match. Caution views retain their warning alongside the
+  definition, while compound views keep structural priority alongside previews.
+  Stop at here-document operators; do not inspect nested substitutions or
+  promise full shell-parser coverage. Never evaluate
+  aliases, follow alias chains, borrow executable manuals for an alias, or
   reinterpret a precommand modifier to manufacture an owned-tool claim.
   Generic RUN replaces its filler ACTION with ABOUT plus SOURCE attribution;
   specific action cues and owned same-source-help commands retain priority.

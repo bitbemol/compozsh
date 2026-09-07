@@ -7,7 +7,8 @@ This records the original manual-summary implementation. The later
 same-source help-derived intent and unchanged stock-alias descriptions.
 Its sourced ACTION descriptions supersede the blanket qualified-ACTION rule
 below; inferred actions remain qualified. The original manual capture boundary
-and evidence remain unchanged.
+and evidence below describe that initial version. The selected-developer capture
+follow-up at the end records the later root and parser changes.
 
 The adopted behavior preserves Compozsh-owned cues and supplements ordinary
 commands with the short NAME description from installed local manuals. ABOUT
@@ -112,3 +113,110 @@ manual summaries enabled, measured 0.950 / 0.986 / 0.975 ms/frame at 120 columns
 and 0.980 / 1.005 / 0.984 ms/frame at 40 columns. Earlier values were about
 0.79 ms/frame; the extra separately reset color spans add small rendering work,
 with concurrent-suite timing noise also present. No per-edit capture was added.
+
+## Follow-up: selected developer manuals and NAME separators
+
+This intermediate implementation and its measurements are retained as history;
+the expanded capture below supersedes its root, format and byte restrictions.
+
+On September 7, 2026, `man -w swift` on the development Mac identified
+`/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/share/man/man1/swift.1`.
+The original capture omitted both the selected alternative Xcode location and
+the default toolchain's manual directory. Independently, Swift's Pod::Man NAME
+line used `\-\-` as its separator, while the parser accepted only `\-`.
+The installed page was 7,087 bytes, within the existing 8 KiB read bound.
+
+Capture now makes one fixed `/usr/bin/xcode-select --print-path` query on macOS,
+validates its absolute, control-free existing directory result, and includes
+that directory's default toolchain and developer manual roots. This honors
+Apple's `DEVELOPER_DIR` selection rather than scanning application directories.
+The system root remains first; the selected developer roots precede conventional
+fallbacks, which now also include the default toolchain inside `Xcode.app`.
+Exact duplicate roots are removed. Missing selection retains those fallbacks.
+The selector runs only for a fresh snapshot, including after explicit refresh.
+
+NAME parsing now recognizes the first literal or escaped single/double dash
+separator. Later dashes remain part of the description. This remains inert
+bounded parsing, with no formatter, roff evaluation, include following or
+documented-command execution. The page, byte, retained-name and summary bounds
+are unchanged. Compressed pages, page symlinks and unsupported formatting still
+produce quiet misses; this is not an exhaustive replacement for native `man`.
+
+Regression tests first failed for Swift's separator and omitted selected roots.
+The resulting coverage includes first-separator behavior, unsupported includes,
+paths with spaces, selection capture once per snapshot, missing-selection
+fallback, root deduplication, and native ZLE display of a Swift fixture at 120
+and 40 columns with further capture and selection queries forbidden. The real
+installed page was also captured locally and supplied the expected ABOUT text
+and `Local manual · swift(1)` attribution to the Interaction model.
+
+Three fresh captures over warm filesystem data in isolated shells measured
+534.6 / 451.6 / 447.8 ms before, retaining 1,371 names without Swift, and
+582.8 / 520.3 / 519.2 ms afterward, retaining 1,639 names including Swift.
+These are host observations, not general latency guarantees. Source time still
+performs no capture, and warmed lookup and paint remain memory-only.
+
+The final native suite passed all 793 tests, including the pending alias-preview
+changes, in 189,103.7 ms. Syntax checks, isolated double sourcing and whitespace
+checks passed. Native developer selection was verified with `DEVELOPER_DIR`
+set to both the installed Xcode app bundle and its `Contents/Developer` directory.
+
+## Follow-up: custom installations and broader literal alias previews
+
+The user requested broader coverage before committing the initial fixes.
+Capture now respects literal MANPATH replacement/empty-field ordering, absolute
+PATH installation conventions, inert MANPATH/MANCONFIG path directives, and
+Apple's selected SDK/platform/developer/toolchain roots from `--show-manpaths`.
+Sections precede roots and the MANSECT environment can select their order.
+Installed symlinks, Unicode filenames, native gzip-decodable compression and
+bounded whole-page `.so` forwarding are supported. Regular descriptor checks
+remain mandatory; forwarding can leave the initial root to reach installed
+manuals. The current README and SECURITY document all bounds and trust limits.
+
+The fast NAME parser handles header comments, CRLF and simple cross references.
+Native mandoc handles formatting-heavy NAME sections from captured stdin in a
+private empty directory. Native roff documentation identifies command/file-write
+requests as ignored and restricts `.so` to non-parent relative paths; the empty
+working directory prevents caller-file inclusion. The child has bounded output
+and CPU time. Page text stays in memory/pipes. Readable pages without usable
+NAME descriptions retain an explicit availability notice. This is bounded local
+metadata capture, not a full manual reader or executable-identity resolver.
+
+The initial broadened implementation took about 7.1 seconds on this host.
+Fast-parser improvements, native overstrike removal in Zsh and one shared empty
+formatter directory reduced a fresh capture over warm filesystem data to
+3,410.2 ms, retaining 2,308 names including the installed Swift description.
+A separate instrumentation run recorded 200 native formatter fallbacks.
+These observations are machine-specific; the broader first-prompt cost is real.
+Source setup still performs no capture and edit-time lookup remains memory-only.
+
+Alias observations now cover unquoted command positions in pipelines/chains,
+leading assignments, global argument/redirection aliases and trailing-space
+aliases. At most eight definitions are observed within the existing bounded
+draft, with 240 characters per definition. Native suppression and quoted/escaped
+tokens retain their semantics. Definitions are literal previews: they are never
+evaluated or recursively substituted, and nested substitutions/here-document
+bodies are not inspected. Structural and warning presentations retain priority.
+
+Red/green regressions cover each added discovery/format capability, absent NAME
+summaries, inert formatter/configuration inputs, forwarding loops, special-file
+rejection, and compound/global/suffix alias observations and suppression. Native
+ZLE tests also paint combined alias previews, preserve the exact draft/cursor,
+and render Swift metadata at 120 and 40 columns with capture forbidden while
+editing. No physical device or private project is needed for these checks.
+Final review added a failing regression for a `.so` target whose installed page
+exists only as `.gz`; forwarding now checks the same fixed compression suffixes
+before declaring the target unavailable. A 1,200-model loop alternating a
+synthetic alias pipeline, global alias argument and `git status` averaged
+0.326 ms per model on this host; it excludes layout and Terminal.app painting.
+Review also established red/green coverage for disabled ALIASES with a custom
+`env` definition. The caller's option now survives local emulation through
+prompt layout, redraw, disclosure and resize. The real ZLE regression disables
+alias expansion while a definition is visible and confirms that EXPANSION is
+removed without submitting the draft.
+
+Final verification passed all 801 native tests with zero failures in
+190,634.7 ms, all 26 Node website tests, native syntax checks, isolated double
+sourcing and whitespace checks. Native PTY coverage includes the expanded alias
+and manual journeys and both Xcode log owners. Physical-device behavior remains
+covered by synthetic command spies rather than a paired-hardware launch.

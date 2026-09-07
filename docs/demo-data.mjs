@@ -97,7 +97,7 @@ export const scenes = {
     promptState: 'interaction', promptKind: 'RUN', buffer: 'la',
     command: 'la', entryLabel: 'DRAFT', title: 'Stock alias description', query: '',
     benefit: 'Short commands carry useful explanations.',
-    description: 'The unchanged stock alias keeps its authored description and expansion. Custom alias definitions receive a neutral label; their bodies are never exposed or evaluated to describe them.',
+    description: 'The unchanged stock alias keeps its authored description and expansion. Custom aliases show a bounded, literal definition preview with a neutral description. Previewing never evaluates the alias body.',
     hint: 'Fixed simulation: la remains an alias. Descriptions do not execute alias expansions.',
     docs: `${readme}living-prompt`, items: [],
     rows: [

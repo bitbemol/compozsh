@@ -22,6 +22,69 @@ _test_manual_summary_parser() {
 }
 test_case 'manual summaries parse bounded NAME text without interpreting roff' _test_manual_summary_parser
 
+_test_manual_summary_name_separators() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.manual" || exit
+    local separator="" text=""
+    # Swift ships a Pod::Man NAME section with two escaped hyphens.
+    for separator in "\\-\\-" "\\-" "--" "-"; do
+      text=$'"'"'.SH "NAME"\n'"'"'"swift $separator Safe, fast, and expressive general\\-purpose programming language"$'"'"'\n.SH "SYNOPSIS"\n'"'"'
+      _manual_summary_parse "$text" || {
+        print -u2 -r -- "unsupported literal NAME separator: $separator"; exit 1
+      }
+      [[ $REPLY == "Safe, fast, and expressive general-purpose programming language" ]] || exit 2
+    done
+    _manual_summary_parse $'"'"'.SH NAME\ntool \\- Preserve \\-\\- later separators\n.SH SYNOPSIS\n'"'"' || exit 3
+    [[ $REPLY == "Preserve -- later separators" ]] || exit 4
+    _manual_summary_parse $'"'"'.SH NAME\ntool \\-\\- inert\n.so /never/read\n.SH SYNOPSIS\n'"'"' && exit 5
+    exit 0
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'manual summaries parse Swift and conventional literal NAME separators' _test_manual_summary_name_separators
+
+_test_manual_selected_developer_capture() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.manual" || exit
+    local PATH=/usr/bin:/bin
+    local selection_calls=0 capture_calls=0
+    local -a captured_roots=()
+    _manual_configuration_roots() { reply=(); }
+    _manual_developer_roots() {
+      (( ++selection_calls ))
+      reply=("$HOME/Developer Tools/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/share/man"
+             "$HOME/Developer Tools/Xcode-beta.app/Contents/Developer/usr/share/man"
+             "$HOME/Developer Tools/Selected SDK/usr/share/man")
+    }
+    _manual_summary_capture() {
+      (( ++capture_calls ))
+      captured_roots=("$@")
+      _MANUAL_SUMMARIES_READY=1
+    }
+    _manual_prompt_capture
+    _manual_prompt_capture
+    [[ $selection_calls == 1 && $capture_calls == 1 &&
+       ${captured_roots[2]} == "$HOME/Developer Tools/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/share/man" &&
+       ${captured_roots[3]} == "$HOME/Developer Tools/Xcode-beta.app/Contents/Developer/usr/share/man" &&
+       ${captured_roots[4]} == "$HOME/Developer Tools/Selected SDK/usr/share/man" ]] || {
+      print -u2 "capture omitted the selected developer toolchain or resolved it during warmed capture"; exit 1
+    }
+    _manual_summary_reset
+    _manual_developer_roots() { reply=(); return 1; }
+    _manual_prompt_capture
+    [[ ${captured_roots[1]} == /usr/share/man &&
+       ${captured_roots[-1]} == /usr/local/share/man &&
+       ${captured_roots[*]} != *"Developer Tools"* ]] || exit 2
+    _manual_summary_reset
+    _manual_developer_roots() { reply=(/Applications/Xcode.app/Contents/Developer/usr/share/man); }
+    _manual_prompt_capture
+    local -a unique_roots=("${(@u)captured_roots}")
+    (( $#unique_roots == $#captured_roots )) || exit 3
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'manual summaries capture the selected Xcode toolchain once with fallback and deduplication' _test_manual_selected_developer_capture
+
 _test_manual_summary_capture() {
   test_make_temp_dir || return
   test_write_file "$TEST_TMP_DIR/manual/man1/ls.1" $'.Sh NAME\n.Nm ls\n.Nd list directory contents\n.Sh SYNOPSIS'
@@ -80,6 +143,8 @@ _test_manual_summary_lifecycle() {
     source "$1/.zsh.addons/.zsh.manual" || exit
     (( ! _MANUAL_SUMMARIES_READY && ! ${#_MANUAL_SUMMARIES} )) || exit 1
     local captures=0
+    _manual_developer_roots() { reply=(); return 1; }
+    _manual_configuration_roots() { reply=(); }
     _manual_summary_capture() {
       (( ++captures ))
       _MANUAL_SUMMARIES_READY=1

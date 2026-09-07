@@ -251,10 +251,10 @@ compozsh/
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery, captured prompt help and maintenance dispatch
 │   ├── .zsh.highlighting  command-line syntax highlighting
-│   ├── .zsh.manual        bounded local manual summaries for the prompt
+│   ├── .zsh.manual        installed/custom manual summaries for the prompt
 │   ├── .zsh.navigation    directory/branch workspaces and unified g dispatch/help
 │   ├── .zsh.output        help/LLDB styling and native output wrappers
-│   ├── .zsh.prompt        prompt, Git state, and project/toolchain context
+│   ├── .zsh.prompt        prompt, alias previews, Git and project/toolchain context
 │   ├── .zsh.sudo-touch-id private operations for compozsh --sudo-touch-id
 │   ├── .zsh.tools         small commands, guarded discard and memory refresh
 │   ├── .zsh.usb           external-device tasks, formatting and bootable media
@@ -367,10 +367,10 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette; shares its exact bare-directory observation with the optional prompt lens |
-| `.zsh.manual` | Local manual summaries | Captures bounded, inert NAME descriptions once before interactive editing; supplies memory-only ABOUT rows without invoking commands or a manual formatter |
+| `.zsh.manual` | Installed/custom manual summaries, including selected Apple SDKs and toolchains | Captures bounded NAME descriptions once before interactive editing, with native decompression/formatting fallbacks; supplies memory-only ABOUT rows without invoking the documented command |
 | `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases with shared default-expansion descriptions; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
-| `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
+| `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens with alias previews; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication operations | Private operations behind `compozsh --sudo-touch-id` inspect, enable, or safely disable Apple Touch ID through the system-supported `sudo_local` PAM policy; no separate public command |
 | `.zsh.tools` | Focused utility commands | `mkcd`, `cpdir`, guarded `g --discard-all` with a scoped default-no confirmation screen and plain fallback, and `compozsh --refresh` |
 | `.zsh.usb` | External-disk preparation | `external-device` opens a no-discovery task chooser; `--format` formats a selected whole external physical disk with an applicable Apple `diskutil` personality, and `--flash` handles raw/hybrid images and full macOS installer apps; shared task identity and review/recovery plans precede separate typed confirmation; Windows Setup media ends safely before target selection; shared candidate exclusion preserves each view’s matching and action rules |
@@ -4107,9 +4107,26 @@ retain the tool description. No alternate `--enable-touch-id` entry is added.
 
 The five stock aliases remain aliases: `la` → `ls -A`, `ll` → `ls -lah`, and
 `..` / `...` / `....` → one / two / three parent directories. Their exact default
-definitions show `EXPANSION` and `ABOUT`; parent aliases use NAVIGATE. A custom
-definition receives a neutral alias label, without displaying its potentially
-sensitive body or borrowing the stock meaning.
+definitions show `EXPANSION` and `ABOUT`; parent aliases use NAVIGATE. User-defined
+aliases also show `EXPANSION`, directly from the current shell definition, with
+a neutral alias description. Ordinary and suffix aliases are recognized at
+unquoted command positions, including pipelines, chains and leading assignments.
+Global aliases are also recognized in arguments and redirections; a trailing-space
+alias allows the following word's alias preview. For example, an alias named
+`work-status` defined as `git status --short` shows that literal definition as
+you type its name. Changes and removals take effect on the next redraw.
+
+Each definition preview is limited to 240 characters, sanitized and fitted to the
+terminal width; `…` marks an omitted suffix and `""` represents an empty alias.
+It never evaluates substitutions or recursively expands another alias. Alias
+bodies can contain sensitive text and are now visible in this local preview.
+Caution cues remain visible alongside the definition. Compound commands retain
+their structural view with combined alias previews. Capture is limited to eight
+references within the first 512 draft characters and 64 lexical tokens. Quoted
+or escaped words, disabled alias expansion, and native suppressors such as
+`command` retain normal shell semantics. The preview stops at here-document
+operators and does not inspect nested substitutions. It describes definitions, not
+the fully expanded command that Zsh will execute.
 
 Help capture happens at a TTY prompt boundary, once per changed command/help
 definition, and `compozsh --refresh` clears it. It discovers at most 64 loaded
@@ -4126,23 +4143,47 @@ chain and redirection presentations retain priority. `ABOUT` describes the
 literal command name, not what its arguments will do or which executable your
 PATH will resolve. User aliases and functions do not inherit an external
 manual; the shipped transparent `git`, `grep` and `man` wrappers may do so.
-Missing or unsupported summaries quietly retain the existing presentation.
+Missing manuals quietly retain the existing presentation. A readable page without
+a usable NAME description instead shows that its manual is available.
 
 The optional `.zsh.manual` peer captures once at the first interactive prompt,
 then typing and resizing use shell memory only. `compozsh --refresh` clears this
-snapshot for capture at the next prompt. No pager, `man`, `whatis`, formatter,
-index generator, or documented command runs. No manual text is evaluated.
-Capture examines at most 4,096 regular uncompressed section 1/8 pages, reads at
-most 8 KiB per page, and retains at most 8,192 descriptions of 240 characters.
-It checks `/usr/share/man`,
+snapshot for capture at the next prompt. No pager, `man`, `manpath`, `whatis`,
+index generator, or documented command runs. Manual text never becomes shell
+code. Custom installations are discovered through `MANPATH`, conventional
+manual folders associated with absolute `PATH` entries, and literal `MANPATH`
+directives in `/etc/man.conf` and its `MANCONFIG` files. An explicit nonempty
+`MANPATH` replaces defaults; an empty colon-separated field inserts defaults at
+that position. Relative MANPATH roots are resolved at capture time. Relative
+PATH entries are skipped.
+
+Defaults include PATH-associated roots, `/usr/share/man`, Apple's selected SDK,
+platform, developer and toolchain roots from one
+`/usr/bin/xcode-select --show-manpaths` query, then conventional fallbacks:
 `/Library/Developer/CommandLineTools/usr/share/man`,
+`/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/share/man`,
 `/Applications/Xcode.app/Contents/Developer/usr/share/man`,
-`/opt/homebrew/share/man`, then `/usr/local/share/man`; the first captured name
-wins. It does not follow page
-symlinks or roff includes, use MANPATH, or discover alternative Xcode locations.
-Compressed pages and complex NAME formatting may have no summary. Initial
-capture adds a one-time first-prompt cost; it creates no persistent cache or
-background monitor. See [measurement evidence](investigations/manual-summaries.md).
+`/opt/homebrew/share/man` and `/usr/local/share/man`, followed by configured roots.
+The native selector honors `DEVELOPER_DIR`; missing selection retains conventional
+fallbacks. Duplicate roots are removed. Sections are searched across all roots
+in order `1:8:2:3:3lua:n:4:5:6:7:9:l`, or a validated `MANSECT` environment value.
+The first captured name wins. Configuration-provided MANSECT is not interpreted.
+
+Capture supports installed symlinks, compression formats decoded by macOS gzip
+(including gzip and bzip2), and literal whole-page `.so` forwarding, capped at
+eight file reads. The fast NAME parser handles Swift's escaped double dash;
+formatting-heavy pages can use native `mandoc` on captured text in a private
+empty directory. Its output and child CPU time are bounded, command/file-writing
+roff requests are ignored, and document includes cannot read the caller's folder.
+No page text is written to disk. This is a description preview, not a full manual
+reader or a guarantee that every installed page falls within its capture limits.
+
+Capture considers at most 64 roots and 4,096 entries, reads at most 64 KiB per
+page, and retains at most 8,192 descriptions of 240 characters. Initial capture
+adds a one-time first-prompt cost; it creates no persistent cache or background
+monitor. After changing PATH, MANPATH, MANSECT, manuals or developer selection,
+use `compozsh --refresh`. See [measurement evidence](investigations/manual-summaries.md)
+and the [manual trust boundary](SECURITY.md).
 
 Owned task modes receive their own advisory cues: bare `xcode` describes opening
 its action workspace, `xcode --export-skills` describes skill export, and

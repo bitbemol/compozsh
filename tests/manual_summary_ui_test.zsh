@@ -1,6 +1,7 @@
 _test_manual_summary_native() {
   test_make_temp_dir || return
   test_write_file "$TEST_TMP_DIR/manual/man1/ls.1" $'.Sh NAME\n.Nm ls\n.Nd list directory contents\n.Sh SYNOPSIS'
+  test_write_file "$TEST_TMP_DIR/manual/man1/swift.1" $'.SH "NAME"\nswift \\-\\- Safe, fast, and expressive general\\-purpose programming language\n.SH "SYNOPSIS"'
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.prompt"
@@ -11,6 +12,7 @@ _test_manual_summary_native() {
     _manual_summary_capture "$2" || exit 1
     # Everything after this point is real ZLE editing over captured facts.
     _manual_summary_capture() { print -u2 unexpected-manual-read; return 99; }
+    _manual_developer_roots() { print -u2 unexpected-manual-selection; return 99; }
     zmodload zsh/zpty
     zmodload zsh/zselect
     command mkfifo "$HOME/events" || exit 2
@@ -56,16 +58,20 @@ _test_manual_summary_native() {
       zpty -w -n manual $'"'"'ls -la\x18\x1a'"'"'
       _manual_expect "FRAME|120|ls -la|6|" || exit 7
       [[ $event == *ABOUT* && $event == *"list directory contents"* && $event == *"ls(1)"* ]] || exit 8
+      zpty -w -n manual $'"'"'\x15swift\x18\x1a'"'"'
+      _manual_expect "FRAME|120|swift|5|" || exit 15
+      [[ $event == *ABOUT* && $event == *"Safe, fast, and expressive general-purpose programming language"* &&
+         $event == *"swift(1)"* ]] || exit 16
       command stty rows 14 cols 40 < "$device"
       zpty -w -n manual $'"'"'\x18\x1a'"'"'
-      _manual_expect "FRAME|40|ls -la|6|" || exit 9
+      _manual_expect "FRAME|40|swift|5|" || exit 9
       [[ $event == *ABOUT* && $event == *SOURCE* ]] || exit 10
       zpty -w -n manual $'"'"'\x15unknown-command\x18\x1a'"'"'
       _manual_expect "FRAME|40|unknown-command|15|" || exit 11
       [[ $event != *ABOUT* ]] || exit 12
       zpty -w -n manual $'"'"'\r'"'"'
       _manual_expect "DONE|unknown-command" || exit 13
-      [[ $trace != *unexpected-manual-read* ]] || exit 14
+      [[ $trace != *unexpected-manual-* ]] || exit 14
     } always {
       zpty -d manual
     }

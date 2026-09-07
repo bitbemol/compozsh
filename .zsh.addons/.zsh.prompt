@@ -500,10 +500,77 @@ _prompt_interaction_add_context() {
     _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
 }
 
+# Return bounded alias observations as token-index/name/kind/definition tuples.
+# Positions follow literal shell structure; definitions are never evaluated or
+# recursively substituted into the draft. Quoting and native suppression win.
+_prompt_alias_expansions() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local token='' plain='' kind='' definition='' suffix='' last=''
+  local -i index=0 expected=1 suppressed=0 redirect=0 trailing=0 skip_word=0
+  reply=()
+  for token in "$@"; do
+    (( ++index ))
+    (( $#reply < 32 )) || break
+    plain=${(Q)token}
+    case $token in
+      '|'|'|&'|'&&'|'||'|';'|'&'|'('|')'|'{'|'}'|$'\n')
+        expected=1 suppressed=0 redirect=0 trailing=0 skip_word=0
+        continue ;;
+      \#*) continue ;;
+    esac
+    if _compozsh_is_redirection "$token"; then
+      # Here-document bodies are literal input, not command positions.
+      [[ $token == *'<<'* ]] && break
+      redirect=1
+      continue
+    fi
+    if (( skip_word )); then
+      skip_word=0
+      continue
+    fi
+    if (( expected && !redirect )) && _compozsh_is_assignment "$token"; then
+      continue
+    fi
+    kind='' definition='' last=''
+    if [[ $token == "$plain" ]]; then
+      if (( !redirect && !suppressed && (expected || trailing) && ${+aliases[$plain]} )); then
+        kind='Shell alias' definition=${aliases[$plain][1,241]} last=${aliases[$plain][-1]}
+      elif (( ${+galiases[$plain]} )); then
+        kind='Shell global alias' definition=${galiases[$plain][1,241]} last=${galiases[$plain][-1]}
+      elif (( expected && !redirect && !suppressed )); then
+        suffix=${plain:e}
+        if [[ -n $suffix ]] && (( ${+saliases[$suffix]} )); then
+          kind='Shell suffix alias' definition=${saliases[$suffix][1,241]}
+        fi
+      fi
+    fi
+    trailing=0
+    if [[ -n $kind ]]; then
+      [[ $last == [[:blank:]] ]] && trailing=1
+      [[ -n $definition ]] && (( !redirect )) && expected=0
+      (( ${#definition} > 240 )) && definition="${definition[1,239]}…"
+      reply+=("$index" "$plain" "$kind" "${definition:-\"\"}")
+    elif (( expected && !redirect )) && [[ $token == "$plain" ]]; then
+      case $plain in
+        if|then|elif|else|do|while|until|time|coproc|'!') continue ;;
+        repeat|function) skip_word=1; continue ;;
+        command|builtin|exec|noglob|nocorrect) suppressed=1; continue ;;
+        -*) (( suppressed )) && continue ;;
+      esac
+      expected=0
+    elif (( !redirect )); then
+      expected=0
+    fi
+    redirect=0
+  done
+}
+
 # Derive an interaction model from literal editor text and already-captured
 # prompt/editor facts. Zsh's lexer identifies structure without evaluating,
 # expanding, resolving, or executing anything from BUFFER.
 _prompt_interaction_model() {
+  local alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
   emulate -L zsh
   setopt localoptions extendedglob multibyte
 
@@ -513,11 +580,12 @@ _prompt_interaction_model() {
   local query_text='' task_text='' environment_text='' remote_text=''
   local redirect_operator='' redirect_text='' flow_text='' assignment_name=''
   local action='' suggestion='' control_text='' caution_command=''
+  local alias_text='' alias_kind='' alias_summary=''
   local comment_text=''
   local endpoint_scheme='' endpoint_authority=''
   local redirect_label='OUTPUT TEXT'
   local redirect_action='likely redirect command output'
-  local -a tokens=() plain_tokens=() flow_heads=() flow_operators=()
+  local -a tokens=() plain_tokens=() flow_heads=() flow_operators=() alias_records=()
   local -i index=0 command_index=0 operation_index=0 token_count=0
   local -i pipe_count=0 chain_count=0 expect_flow=0
   local -i caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0
@@ -584,6 +652,10 @@ _prompt_interaction_model() {
   for token in "${tokens[@]}"; do
     plain_tokens+=("${(Q)token}")
   done
+  if [[ $alias_enabled == on ]]; then
+    _prompt_alias_expansions "${tokens[@]}"
+    alias_records=("${reply[@]}")
+  fi
 
   if [[ ${tokens[1]} == \#* ]]; then
     _PROMPT_INTERACTION_KIND=comment
@@ -605,6 +677,14 @@ _prompt_interaction_model() {
     if _compozsh_is_assignment "$token"; then
       [[ -z $assignment_name ]] && assignment_name=${plain%%=*}
       continue
+    fi
+    # A literal alias named env/command/etc. is the head itself, not evidence
+    # that the draft uses the native precommand form. Read its definition below.
+    if (( index == 1 && (${+aliases[$plain]} || ${+galiases[$plain]}) )) &&
+       [[ $alias_enabled == on && $token == "$plain" ]]; then
+      command_name=$plain
+      command_index=$index
+      break
     fi
     if (( env_precommand )); then
       if (( skip_next )); then
@@ -1133,15 +1213,27 @@ _prompt_interaction_model() {
     fi
   fi
 
-  # Same-source help and exact shipped aliases enrich only a simple literal
-  # command. Preserve structural/caution views and do not inspect ghost text.
-  if [[ $_PROMPT_INTERACTION_KIND != (caution|pipeline|chain|redirect|remote) ]] &&
+  # Same-source help and current alias definitions enrich only a simple literal
+  # command. Preserve structural views and do not inspect ghost text.
+  if [[ $_PROMPT_INTERACTION_KIND != (pipeline|chain|redirect) ]] &&
      (( !autocd && command_index == 1 && ${#buffer} <= 512 && token_count < 64 )) &&
      [[ ${tokens[1]} == "$command_name" ]]; then
     local -i description_index=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
     local description_label='' description_text=''
-    if (( ${+aliases[$command_name]} )); then
-      if (( ${+functions[_navigation_alias_description]} )) &&
+    if [[ ${alias_records[1]-} == 1 ]]; then
+      alias_kind=$alias_records[3] alias_text=$alias_records[4]
+    fi
+    if [[ -n $alias_kind ]]; then
+      (( ${#alias_text} > 240 )) && alias_text="${alias_text[1,239]}…"
+      [[ -n $alias_text ]] || alias_text='""'
+      if [[ $_PROMPT_INTERACTION_KIND == caution ]]; then
+        # Keep the warning and its literal target ahead of the definition in
+        # short windows. Optional context yields to this concrete alias fact.
+        _PROMPT_INTERACTION_LABELS=("${(@)_PROMPT_INTERACTION_LABELS[1,description_index]}" EXPANSION "${(@)_PROMPT_INTERACTION_LABELS[description_index+1,-1]}")
+        _PROMPT_INTERACTION_VALUES=("${(@)_PROMPT_INTERACTION_VALUES[1,description_index]}" "$alias_text" "${(@)_PROMPT_INTERACTION_VALUES[description_index+1,-1]}")
+        _PROMPT_INTERACTION_ROLES=("${(@)_PROMPT_INTERACTION_ROLES[1,description_index]}" info "${(@)_PROMPT_INTERACTION_ROLES[description_index+1,-1]}")
+      elif [[ $alias_kind == 'Shell alias' ]] &&
+         (( ${+functions[_navigation_alias_description]} )) &&
          _navigation_alias_description "$command_name" &&
          [[ ${aliases[$command_name]} == "$reply[1]" ]]; then
         description_label=ABOUT description_text=$reply[2]
@@ -1152,11 +1244,15 @@ _prompt_interaction_model() {
         _PROMPT_INTERACTION_KIND=run
         _PROMPT_INTERACTION_LABELS=() _PROMPT_INTERACTION_VALUES=() _PROMPT_INTERACTION_ROLES=()
         _prompt_interaction_add "COMMAND TEXT" "$command_name" info
+        # Rendering sanitizes/escapes the definition; never expand substitutions
+        # or follow alias chains to manufacture a purpose for a custom alias.
+        _prompt_interaction_add EXPANSION "$alias_text" info
         _prompt_interaction_add_context
         description_index=0
-        description_label=ABOUT description_text='Shell alias · custom definition'
+        description_label=ABOUT description_text="$alias_kind · custom definition"
       fi
-    elif (( ${+functions[_compozsh_prompt_description]} )) &&
+    elif [[ $_PROMPT_INTERACTION_KIND != (caution|remote) ]] &&
+         (( ${+functions[_compozsh_prompt_description]} )) &&
          _compozsh_prompt_description "$command_name" "${(@)plain_tokens[2,-1]}"; then
       description_label=$reply[1] description_text=$reply[2]
       _prompt_interaction_add SOURCE "Compozsh help · $command_name" frame
@@ -1174,10 +1270,32 @@ _prompt_interaction_model() {
     fi
   fi
 
+  # Compound drafts keep their task/flow and warning cues. A shared definition
+  # row discloses aliases at later command positions and global argument sites.
+  if (( $#alias_records )); then
+    local -i expansion_index=${_PROMPT_INTERACTION_LABELS[(Ie)EXPANSION]} insert_after=1
+    if (( !expansion_index || $#alias_records > 4 )); then
+      for (( index = 1; index <= $#alias_records; index += 4 )); do
+        [[ -n $alias_summary ]] && alias_summary+=' · '
+        alias_summary+="${alias_records[index+1]} → ${alias_records[index+3]}"
+      done
+      if (( expansion_index )); then
+        _PROMPT_INTERACTION_VALUES[expansion_index]=$alias_summary
+      else
+        [[ $_PROMPT_INTERACTION_KIND == caution ]] &&
+          insert_after=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
+        _PROMPT_INTERACTION_LABELS=("${(@)_PROMPT_INTERACTION_LABELS[1,insert_after]}" EXPANSION "${(@)_PROMPT_INTERACTION_LABELS[insert_after+1,-1]}")
+        _PROMPT_INTERACTION_VALUES=("${(@)_PROMPT_INTERACTION_VALUES[1,insert_after]}" "$alias_summary" "${(@)_PROMPT_INTERACTION_VALUES[insert_after+1,-1]}")
+        _PROMPT_INTERACTION_ROLES=("${(@)_PROMPT_INTERACTION_ROLES[1,insert_after]}" info "${(@)_PROMPT_INTERACTION_ROLES[insert_after+1,-1]}")
+      fi
+    fi
+  fi
+
   # Manual metadata is ABOUT the tool, never a prediction of draft effects.
   # Keep owned/specific ACTION cues; replace only the generic filler. This
   # optional lookup does no capture, path resolution or filesystem access.
-  if (( !autocd && ${+functions[_manual_summary_lookup]} )) &&
+  if [[ -z ${alias_kind:-} ]] &&
+     (( !autocd && ${+functions[_manual_summary_lookup]} )) &&
      _manual_summary_lookup "$command_name"; then
     local manual_summary=$REPLY
     local -i action_index=${_PROMPT_INTERACTION_LABELS[(i)ACTION]}
@@ -1443,6 +1561,7 @@ _prompt_lens_layout() {
 # detection. The compact row always retains path and applicable Git; remaining
 # width is assigned to environment, jobs, then project facts by priority.
 _prompt_layout() {
+  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
   emulate -L zsh
   setopt localoptions multibyte
   local path_text='' git_text='' identity_text=''
@@ -2478,6 +2597,8 @@ _prompt_context_observe() {
 # The first actual edit consumes an automatic lens. Erasing that draft does not
 # recreate it; only the next captured high-signal change may do so.
 _prompt_interaction_update() {
+  # Keep the shell option across layout helpers that use local emulation.
+  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
   emulate -L zsh
   local buffer=${1:-${BUFFER:-}}
   local old_prompt=$PROMPT old_segment=$_PROMPT_INTERACTION_SEGMENT
@@ -2508,6 +2629,7 @@ _prompt_editing_started() {
 # Manual disclosure has three intuitive states: automatic becomes pinned,
 # pinned closes, and compact opens pinned. It changes presentation only.
 _prompt_toggle_lens() {
+  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
   emulate -L zsh
   if [[ $_PROMPT_VIEW == lens ]]; then
     if (( _PROMPT_LENS_PINNED )); then
@@ -2592,6 +2714,7 @@ _prompt_outcome_receipt() {
 
 _prompt_update() {
   local last_status=$?
+  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
   emulate -L zsh
 
   local -F 3 elapsed=0
@@ -2720,6 +2843,7 @@ fi
 # detection while a window edge is being dragged.
 if (( _prompt_install_TRAPWINCH )); then
   TRAPWINCH() {
+    local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
     local -i previous_status=0
     if (( ${+functions[_prompt_previous_TRAPWINCH]} )); then
       _prompt_previous_TRAPWINCH "$@" || previous_status=$?

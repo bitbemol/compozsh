@@ -1,6 +1,5 @@
-# Inert NAME summaries for the living prompt. Capture once before editing;
-# lookup and paint use shell memory only. No man/whatis, formatter or executable
-# is invoked, and roff includes/macros are never interpreted.
+# Local NAME summaries for the living prompt. Capture once before editing;
+# lookup and paint use shell memory only. Documented commands are never invoked.
 zmodload -F zsh/parameter p:functions_source
 zmodload -F zsh/system b:sysopen b:sysread
 zmodload -F zsh/stat b:zstat
@@ -13,17 +12,18 @@ _manual_summary_reset() {
 }
 
 # REPLY is plain description; reply contains only simple documented NAME aliases.
-# Unsupported formatting is a miss, not a reason to render or follow a page.
+# This fast parser declines layouts that need the separate native formatter.
 _manual_summary_parse() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   unsetopt MULTIBYTE
   local text=$'\n'"${1[1,8192]}" body='' line='' description='' name=''
-  local pattern=$'\n[.](Sh NAME|SH "NAME"|SH NAME)\n'
+  local pattern=$'\n[.](Sh NAME|SH "NAME"|SH NAME)[[:blank:]]*(\\\\"[^\n]*)?\n'
   local MATCH='' MBEGIN=0 MEND=0
-  local -a match=() mbegin=() mend=()
+  local -a match=() mbegin=() mend=() fields=()
   local -i collecting=0
   REPLY='' reply=()
+  text=${text//$'\r\n'/$'\n'}
   [[ $text =~ $pattern ]] || return 1
   name=$match[1]
   body=${text[$((MEND+1)),-1]}
@@ -32,7 +32,9 @@ _manual_summary_parse() {
   body=${body[1,$((MBEGIN-1))]}
   if [[ $name == 'Sh NAME' ]]; then
     for line in "${(@f)body}"; do
-      if [[ $line == '.Nm '* ]] && (( !collecting )); then
+      if [[ $line == '.\"'* ]]; then
+        continue
+      elif [[ $line == '.Nm '* ]] && (( !collecting )); then
         name=${line#'.Nm '}
         name=${name%% *}
         [[ $name == [a-zA-Z0-9][a-zA-Z0-9_.+-]# ]] &&
@@ -41,6 +43,11 @@ _manual_summary_parse() {
         continue
       elif [[ $line == '.Nd '* ]]; then
         description=${line#'.Nd '} collecting=1
+      elif (( collecting )) && [[ $line == '.Xr '* ]]; then
+        fields=(${=line})
+        [[ $#fields == 3 && $fields[2] == [[:alnum:]_.+-]## &&
+           $fields[3] == [[:alnum:]]## ]] || return 1
+        description+=" $fields[2]($fields[3])"
       elif [[ $line == .* ]]; then
         return 1
       elif (( collecting )) && [[ -n $line ]]; then
@@ -48,10 +55,19 @@ _manual_summary_parse() {
       fi
     done
   else
-    [[ $body == *' \- '* ]] || return 1
-    description=${body#*' \- '}
-    [[ $description != *$'\n.'* ]] || return 1
-    description=${description//$'\n'/ }
+    # man/Pod::Man pages use literal or escaped single/double hyphens. Match
+    # the first separator so later dashes in the description stay literal.
+    pattern='[[:blank:]](\\-\\-|\\-|--|-)[[:blank:]]'
+    [[ $body =~ $pattern ]] || return 1
+    description=${body[$((MEND+1)),-1]}
+    body=''
+    for line in "${(@f)description}"; do
+      [[ $line == . || $line == '.\"'* ]] && continue
+      [[ $line != .* ]] || return 1
+      [[ -n $body ]] && body+=' '
+      body+=$line
+    done
+    description=$body
   fi
   # A small literal escape vocabulary, never a roff interpreter.
   [[ $description == \"*\" ]] && description=${description[2,-2]}
@@ -65,71 +81,331 @@ _manual_summary_parse() {
   return 0
 }
 
-# Roots are fixed by the production caller. Tests supply disposable fixtures.
-# Only shallow, regular, uncompressed pages are read; symlinks are skipped.
+# Native formatting is a fallback for NAME sections with layout macros. Feed
+# only captured text through stdin, from a fresh empty directory: mandoc rejects
+# absolute/parent includes and ignores command/file-writing roff requests.
+# The child pipeline has a CPU limit and bounded output, and writes no page file.
+_manual_summary_format() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local input=${1[1,65536]} directory=${2:-} output='' line='' body='' pattern=''
+  local MATCH='' MBEGIN=0 MEND=0
+  local -a match=() mbegin=() mend=() entries=()
+  local -i collecting=0 owns_directory=0
+  REPLY='' reply=()
+  [[ $input == *NAME* || $input == *Name* ]] || return 1
+  [[ -x /usr/bin/mandoc && -x /usr/bin/head ]] || return 1
+  if [[ -z $directory ]]; then
+    directory=$(command /usr/bin/mktemp -d "${TMPDIR:-/tmp}/compozsh-manual.XXXXXXXX" 2>/dev/null) || return 1
+    owns_directory=1
+  else
+    [[ -d $directory && ! -L $directory && ${directory:t} == compozsh-manual.* ]] || return 1
+    entries=("$directory"/*(ND[1,1]))
+    (( ! $#entries )) || return 1
+  fi
+  {
+    output=$( (
+      ulimit -c 0 || exit 1
+      ulimit -t 1 || exit 1
+      builtin cd -q -- "$directory" || exit 1
+      print -rn -- "$input" |
+        command /usr/bin/mandoc -c -T ascii -O width=1000 |
+        command /usr/bin/head -c 65536
+    ) 2>/dev/null )
+  } always {
+    if (( owns_directory )); then
+      [[ -d $directory && ! -L $directory && ${directory:t} == compozsh-manual.* ]] &&
+        command rmdir -- "$directory" 2>/dev/null
+    fi
+  }
+  # Terminal mandoc output uses overstruck glyphs for bold/underline.
+  output=${output//?$'\b'/}
+  output=${output//$'\t'/ }
+  for line in "${(@f)output}"; do
+    line=${line##[[:blank:]]#}
+    line=${line%%[[:blank:]]#}
+    if (( !collecting )); then
+      [[ ${(U)line} == NAME ]] && collecting=1
+    elif [[ -n $line ]]; then
+      body+=" $line"
+    elif [[ -n $body ]]; then
+      break
+    fi
+  done
+  pattern='[[:blank:]](--|-)[[:blank:]]'
+  [[ $body =~ $pattern ]] || return 1
+  body=${body[$((MEND+1)),-1]}
+  [[ -n $body && $body != *[[:cntrl:]]* ]] || return 1
+  REPLY=${body[1,240]}
+  (( ${#body} > 240 )) && REPLY="${body[1,239]}…"
+  return 0
+}
+
+# Read an exact manual file, including installed symlinks and compressed pages.
+# Whole-page .so aliases follow at most eight literal manual-file targets; roff
+# includes inside a document are never executed here.
+_manual_page_read() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local page='' root=$2 resolved='' text='' include='' stem='' target='' compression=''
+  local -a targets=("$1")
+  local -A metadata=()
+  local -i manual_fd=-1 hop=0
+  REPLY=''
+  for (( hop = 0; hop < 8; hop++ )); do
+    page=''
+    for target in "${targets[@]}"; do
+      for compression in '' .gz .bz .bz2 .xz .lz .lzma .Z; do
+        if [[ -f $target$compression ]]; then
+          page=$target$compression
+          break 2
+        fi
+      done
+    done
+    [[ -n $page ]] || return 1
+    resolved=${page:A}
+    if sysopen -r -o cloexec,nofollow,nonblock -u manual_fd "$resolved" 2>/dev/null; then
+      {
+        zstat -H metadata -f $manual_fd 2>/dev/null &&
+          (( (metadata[mode] & 8#170000) == 8#100000 )) || return 1
+        if [[ $resolved == *.(gz|bz|bz2|xz|lz|lzma|Z) ]]; then
+          [[ -x /usr/bin/gzip && -x /usr/bin/head ]] || return 1
+          text=$( (
+            ulimit -c 0 || exit 1
+            ulimit -t 1 || exit 1
+            command /usr/bin/head -c 65536 <&$manual_fd |
+              command /usr/bin/gzip -cd |
+              command /usr/bin/head -c 65536
+          ) 2>/dev/null )
+        else
+          text=''
+          sysread -i $manual_fd -s 65536 text 2>/dev/null || :
+        fi
+      } always {
+        exec {manual_fd}<&-
+      }
+    else
+      return 1
+    fi
+    include=${text%%$'\n'*}
+    if [[ $include == '.so '* && ${text#"$include"} != *[^[:space:]]* ]]; then
+      include=${(Q)${include#'.so '}}
+      [[ -n $include && ${#include} -le 4096 && $include != *[[:cntrl:]]* ]] || return 1
+      stem=${include:t}
+      [[ $stem == *.(gz|bz|bz2|xz|lz|lzma|Z) ]] && stem=${stem:r}
+      [[ ${stem:e} == [1-9nl][[:alnum:]]# ]] || return 1
+      if [[ $include == /* ]]; then
+        targets=("$include")
+      else
+        targets=("$root/$include" "${page:h}/$include")
+      fi
+    else
+      REPLY=$text
+      [[ -n $REPLY ]]
+      return
+    fi
+  done
+  return 1
+}
+
+# Roots are explicit installation paths from the production caller. Tests supply
+# disposable fixtures; capture never discovers additional roots from page text.
+# Enumeration is shallow; readers validate the resolved regular-file descriptor.
 _manual_summary_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local root='' directory='' page='' name='' section='' text='' summary=''
+  local stem='' page_section='' origin_name='' format_directory=''
   local -a pages=() reply=()
-  local -A metadata=()
-  local -i remaining=4096 manual_fd=-1
+  local -aU sections=()
+  local -i remaining=4096 formatter_ready=0
   _manual_summary_reset
   _MANUAL_SUMMARIES_READY=1
-  for root in "$@"; do
-    (( remaining > 0 )) || return 0
-    [[ -d $root && ! -L $root ]] || continue
-    for section in 1 8; do
-      directory=$root/man$section
-      [[ -d $directory && ! -L $directory ]] || continue
-      pages=("$directory"/*.$section(N.[1,$remaining]))
-      for page in "${pages[@]}"; do
+  if [[ -n ${MANSECT:-} ]]; then
+    for section in "${(@s.:.)MANSECT}"; do
+      (( $#sections < 16 )) || break
+      [[ $section == [1-9nl][[:alnum:]]# && ${#section} -le 16 ]] && sections+=("$section")
+    done
+  fi
+  (( $#sections )) || sections=(1 8 2 3 3lua n 4 5 6 7 9 l)
+  {
+    for section in "${sections[@]}"; do
+      for root in "$@"; do
         (( remaining > 0 )) || return 0
-        (( --remaining ))
-        name=${${page:t}%.*}
-        [[ $name == [a-zA-Z0-9][a-zA-Z0-9_.+-]# && ${#name} -le 80 ]] || continue
-        if (( ! ${+_MANUAL_SUMMARIES[$name]} )); then
-          text=''
-          # One bounded native read; -k would read regular files byte by byte.
-          # Nonblocking/no-follow open plus descriptor type validation avoids
-          # following a replaced symlink or waiting on a replaced FIFO.
-          if sysopen -r -o cloexec,nofollow,nonblock -u manual_fd "$page" 2>/dev/null; then
-            {
-              if zstat -H metadata -f $manual_fd 2>/dev/null &&
-                 (( (metadata[mode] & 8#170000) == 8#100000 )); then
-                sysread -i $manual_fd -s 8192 text 2>/dev/null || :
+        [[ -d $root ]] || continue
+        directory=$root/man$section
+        [[ -d $directory ]] || directory=$root/man${section[1]}
+        [[ -d $directory ]] || continue
+        pages=("$directory"/*.$section*(N[1,$remaining]))
+        for page in "${pages[@]}"; do
+          (( remaining > 0 )) || return 0
+          (( --remaining ))
+          stem=${page:t}
+          [[ $stem == *.(gz|bz|bz2|xz|lz|lzma|Z) ]] && stem=${stem:r}
+          page_section=${stem:e}
+          [[ $page_section == ${section}[[:alnum:]]# ]] || continue
+          name=${stem:r}
+          [[ -n $name && ${#name} -le 255 && $name != *[[:cntrl:]]* ]] || continue
+          if (( ! ${+_MANUAL_SUMMARIES[$name]} )); then
+            _manual_page_read "$page" "$root" || continue
+            text=$REPLY
+            if _manual_summary_parse "$text"; then
+              summary=$REPLY
+            else
+              summary='Manual page available; NAME summary unavailable'
+              if (( formatter_ready == 0 )); then
+                formatter_ready=-1
+                if [[ -x /usr/bin/mandoc && -x /usr/bin/head ]] &&
+                   format_directory=$(command /usr/bin/mktemp -d "${TMPDIR:-/tmp}/compozsh-manual.XXXXXXXX" 2>/dev/null); then
+                  formatter_ready=1
+                fi
               fi
-            } always {
-              exec {manual_fd}<&-
-            }
-          fi
-          if _manual_summary_parse "$text"; then
-            summary=$REPLY
+              if (( formatter_ready == 1 )) && _manual_summary_format "$text" "$format_directory"; then
+                summary=$REPLY
+              fi
+            fi
             _MANUAL_SUMMARIES[$name]=$summary
-            _MANUAL_SOURCES[$name]="${page:t:r}($section)"
+            _MANUAL_SOURCES[$name]="$name($page_section)"
+            origin_name=$name
             for name in "${reply[@]}"; do
               (( ${#_MANUAL_SUMMARIES} < 8192 )) || break
               if (( ! ${+_MANUAL_SUMMARIES[$name]} )); then
                 _MANUAL_SUMMARIES[$name]=$summary
-                _MANUAL_SOURCES[$name]="${page:t:r}($section)"
+                _MANUAL_SOURCES[$name]="$origin_name($page_section)"
               fi
             done
           fi
-        fi
-        (( remaining > 0 && ${#_MANUAL_SUMMARIES} < 8192 )) || return 0
+          (( remaining > 0 && ${#_MANUAL_SUMMARIES} < 8192 )) || return 0
+        done
       done
     done
-  done
+  } always {
+    if [[ -n $format_directory && -d $format_directory && ! -L $format_directory &&
+          ${format_directory:t} == compozsh-manual.* ]]; then
+      command rmdir -- "$format_directory" 2>/dev/null
+    fi
+  }
   return 0
+}
+
+# Read Apple's selected SDK, platform, developer and toolchain manual roots.
+# This one native query belongs to capture, never source time or edit-time lookup.
+_manual_developer_roots() {
+  emulate -L zsh
+  local selected='' root=''
+  reply=()
+  [[ -x /usr/bin/xcode-select ]] || return 1
+  selected=$(command /usr/bin/xcode-select --show-manpaths 2>/dev/null) || return 1
+  (( ${#selected} <= 65536 )) || return 1
+  for root in "${(@f)selected}"; do
+    (( $#reply < 16 )) || break
+    [[ $root == /* && ${#root} -le 4096 && $root != *[[:cntrl:]]* ]] || continue
+    reply+=("${root%/}")
+  done
+  (( $#reply ))
+}
+
+# Read only path directives from native man configuration. Other settings can
+# contain shell code in man(1); they are deliberately never interpreted here.
+_manual_configuration_roots() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local config='' text='' line='' value='' setting=''
+  local config_spec='/usr/local/etc/man.d/*.conf'
+  local -a files=("$1") roots=()
+  local -A metadata=()
+  local -i index=1 config_fd=-1
+  reply=()
+  while (( index <= $#files && index <= 17 )); do
+    config=$files[index]
+    text=''
+    if [[ -f $config ]] &&
+       sysopen -r -o cloexec,nofollow,nonblock -u config_fd "${config:A}" 2>/dev/null; then
+      {
+        if zstat -H metadata -f $config_fd 2>/dev/null &&
+           (( (metadata[mode] & 8#170000) == 8#100000 )); then
+          sysread -i $config_fd -s 8192 text 2>/dev/null || :
+        fi
+      } always {
+        exec {config_fd}<&-
+      }
+    fi
+    for line in "${(@f)text}"; do
+      line=${line##[[:blank:]]#}
+      setting=${line%%[[:blank:]]*}
+      [[ $setting == (MANPATH|MANCONFIG) ]] || continue
+      value=${line#"$setting"}
+      value=${value##[[:blank:]]#}
+      value=${value%%[[:blank:]]#}
+      [[ $value == /* && ${#value} -le 4096 && $value != *[[:cntrl:]]* ]] || continue
+      if [[ $setting == MANPATH ]]; then
+        (( $#roots < 64 )) && roots+=("$value")
+      elif (( index == 1 )); then
+        config_spec=$value
+      fi
+    done
+    if (( index == 1 )); then
+      if [[ ${config_spec:t} == '*.conf' ]]; then
+        files+=("${config_spec:h}"/*.conf(N[1,16]))
+      elif [[ $config_spec != *[\*\?\[\]\(\)]* ]]; then
+        files+=("$config_spec")
+      fi
+    fi
+    (( ++index ))
+  done
+  reply=("${roots[@]}")
 }
 
 _manual_prompt_capture() {
   emulate -L zsh
   (( _MANUAL_SUMMARIES_READY )) && return 0
-  _manual_summary_capture /usr/share/man \
-    /Library/Developer/CommandLineTools/usr/share/man \
-    /Applications/Xcode.app/Contents/Developer/usr/share/man \
-    /opt/homebrew/share/man /usr/local/share/man
+  local entry='' root=''
+  local -aU roots=() defaults=()
+  local -a requested=() reply=()
+  # An explicit MANPATH without empty fields replaces native defaults.
+  if [[ -n ${MANPATH:-} && $MANPATH != :* && $MANPATH != *: && $MANPATH != *::* ]]; then
+    requested=("${(@s.:.)MANPATH}")
+  else
+    # Match the native PATH-to-man conventions using literal path values only.
+    for entry in "${path[@]:0:128}"; do
+      [[ $entry == /* && $entry != *[[:cntrl:]]* ]] || continue
+      if [[ -d $entry/man ]]; then
+        defaults+=("$entry/man")
+      elif [[ -d $entry/MAN ]]; then
+        defaults+=("$entry/MAN")
+      elif [[ $entry == */bin ]]; then
+        [[ -d ${entry:h}/share/man ]] && defaults+=("${entry:h}/share/man")
+        [[ -d ${entry:h}/man ]] && defaults+=("${entry:h}/man")
+      fi
+    done
+    defaults+=(/usr/share/man)
+    if _manual_developer_roots; then
+      defaults+=("${reply[@]}")
+    fi
+    defaults+=(/Library/Developer/CommandLineTools/usr/share/man
+      /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/share/man
+      /Applications/Xcode.app/Contents/Developer/usr/share/man
+      /opt/homebrew/share/man /usr/local/share/man)
+    _manual_configuration_roots /etc/man.conf
+    defaults+=("${reply[@]}")
+    if [[ -n ${MANPATH:-} ]]; then
+      for entry in "${(@s.:.)MANPATH}"; do
+        if [[ -z $entry ]]; then
+          requested+=("${defaults[@]}")
+        else
+          requested+=("$entry")
+        fi
+      done
+    else
+      requested=("${defaults[@]}")
+    fi
+  fi
+  for root in "${requested[@]}"; do
+    (( $#roots < 64 )) || break
+    [[ -n $root && ${#root} -le 4096 && $root != *[[:cntrl:]]* ]] || continue
+    roots+=("${root:a}")
+  done
+  _manual_summary_capture "${roots[@]}"
 }
 
 # This is a manual for a literal name, not executable resolution. In particular

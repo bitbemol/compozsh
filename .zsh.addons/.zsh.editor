@@ -1480,6 +1480,7 @@ _zle_prompt_is_shell_editor() {
 typeset -gi _ZLE_PROMPT_RESETTING=0
 
 _zle_prompt_pre_redraw() {
+  local _prompt_alias_enabled=${options[aliases]}
   emulate -L zsh
 
   _zle_prompt_is_shell_editor || return 0
@@ -1526,6 +1527,7 @@ _zle_prompt_line_finish() {
 }
 
 _zle_prompt_toggle_widget() {
+  local _prompt_alias_enabled=${options[aliases]}
   emulate -L zsh
 
   if _zle_prompt_is_shell_editor &&
