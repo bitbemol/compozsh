@@ -1868,6 +1868,8 @@ each tool keeps its existing accept and cancel behavior.
 Every tool uses the same shortcut bar. **Enter**, **Escape**, and **Ctrl-K for
 keys** have priority; at most five complete supplementary hints appear as space
 allows on the full screen. The guide keeps all applicable controls. The bar
+prioritizes **Ctrl-] filter/exclude** after the keyboard guide when candidate
+filtering supports exclusion, including when a file or folder is selected. It
 names the actual action (`cd`, `switch`, `insert`, or file actions), and only
 advertises copying or details when supported. It never cuts a shortcut in half.
 

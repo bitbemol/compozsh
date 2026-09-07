@@ -28,6 +28,9 @@ _test_git_tree_native() {
     _zle_picker_show() {
       _tree_native_show
       (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
+      if [[ $_ZLE_PICKER_TITLE == "Working changes" ]] && (( COLUMNS >= 120 )); then
+        [[ ${_ZLE_PICKER_DISPLAY[-1]} == *"^] filter/exclude"* ]] || print -r -u $efd BAD-FILTER-HINT
+      fi
       local selected=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
       if [[ $selected == d:* ]]; then
         local summary_ok=0
@@ -76,6 +79,10 @@ _test_git_tree_native() {
       zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 1
       device=${event#READY:}
       _tree_native_expect "FRAME|Working changes|tree||1||1|0||120" || exit 2
+      _tree_native_key $'\''\x1d'\'' "FRAME|Working changes|tree||1||1|0||120" || exit 41
+      _tree_native_key README "FRAME|Working changes|tree||2||2|0||120" || exit 42
+      _tree_native_key $'\''\x15'\'' "FRAME|Working changes|tree||1||1|0||120" || exit 43
+      _tree_native_key $'\''\x1d'\'' "FRAME|Working changes|tree||1||1|0||120" || exit 44
       _tree_native_key $'\''\e[B'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 3
       [[ $summary_event == SUMMARY\|1 ]] || exit 32
       local summary_captures=$(<"$HOME/captures")

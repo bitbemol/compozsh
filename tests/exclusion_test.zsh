@@ -1,4 +1,48 @@
 # Two literal fields refine one captured candidate source; no query operators.
+_test_exclusion_footer_priority() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zshrc"
+    _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_DOCUMENT=1
+    _ZLE_PICKER_DOCUMENT_REFRESH=1 _ZLE_PICKER_AUTO_REFRESH=1
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_OPTIONS_KIND=file-views
+    _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_CANCEL_LABEL=back
+    _ZLE_PICKER_DOCUMENT_MODE=focused _ZLE_PICKER_EXCLUSION_ENABLED=1
+    local value width focus footer
+    local -a fragments=()
+    for value in 1 d:src/ empty; do
+      _ZLE_PICKER_RESULTS=("$value") _ZLE_PICKER_SELECTED=1
+      _ZLE_PICKER_DOCUMENT_BRANCHES=() _ZLE_PICKER_ACCEPT_LABELS=()
+      if [[ $value == d:* ]]; then
+        _ZLE_PICKER_DOCUMENT_BRANCHES[$value]=1
+        _ZLE_PICKER_ACCEPT_LABELS[$value]=collapse
+      elif [[ $value == empty ]]; then
+        _ZLE_PICKER_RESULTS=() _ZLE_PICKER_SELECTED=0
+      fi
+      for focus in 0 1; do
+        _ZLE_PICKER_INSPECT_FOCUS=$focus
+        for width in 69 119 179; do
+          _zle_picker_footer $width ""
+          footer=$REPLY fragments=("${(@s: · :)REPLY}")
+          [[ $footer == *"^K keys · ^] filter/exclude"* ]] || {
+            print -u2 -r -- "Missing filter control for $value focus=$focus width=$width: $footer"
+            exit 1
+          }
+          (( ${(m)#footer} <= width && ${#fragments} <= 7 )) || exit 2
+        done
+        _zle_picker_footer 39 ""
+        [[ $REPLY == *"^K keys"* && $REPLY != *"^] filter/" ]] || exit 3
+        (( ${(m)#REPLY} <= 39 )) || exit 4
+      done
+    done
+    _ZLE_PICKER_EXCLUSION_ENABLED=0
+    _zle_picker_footer 179 ""
+    [[ $REPLY != *"^]"* ]] || exit 5
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'exclusion footer stays discoverable with files folders empty results and reader focus' _test_exclusion_footer_priority
+
 _test_exclusion_matching() {
   test_make_temp_dir || return
   local output

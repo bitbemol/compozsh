@@ -32,6 +32,9 @@ _zle_picker_footer() {
       (( ${(m)#REPLY} > width )) && REPLY='⏎ apply · Esc'
     fi
     hints=('^K keys')
+    # Keep the input-field toggle discoverable when selection adds reader or
+    # workspace actions to the bounded hint list.
+    (( ${_ZLE_PICKER_EXCLUSION_ENABLED:-0} )) && hints+=('^] filter/exclude')
     [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )) && hints+=('^X views')
     if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
       (( _ZLE_PICKER_DOCUMENT_FOLLOW )) && hints+=('↑ pause') || hints+=('End follow')
@@ -68,7 +71,6 @@ _zle_picker_footer() {
     elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 2 )); then
       hints+=('^O browse')
     fi
-    (( ${_ZLE_PICKER_EXCLUSION_ENABLED:-0} )) && hints+=('^] filter/exclude')
     (( _ZLE_PICKER_COPY_ENABLED )) && hints+=('^Y copy')
     if (( _ZLE_PICKER_INSPECT_FOCUS )); then
       hints+=('↑/↓ scroll')
