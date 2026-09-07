@@ -92,7 +92,7 @@ _test_overhaul_action_surface() {
     footer=$_ZLE_PICKER_DISPLAY[-1]
     fragments=("${(@s: · :)footer}")
     (( ${#fragments} <= 7 )) || exit 2
-    [[ $footer == *"⏎ insert"* && $footer == *"Esc cancel"* && $footer == *"^K keys"* ]] || exit 3
+    [[ $footer == *"⏎ insert"* && $footer == *"Esc cancel"* && $footer == *"^K all keys"* ]] || exit 3
     _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     _zle_picker_render "" 0
     [[ $_ZLE_PICKER_DISPLAY_HIGHLIGHTS[-1] != *picker-action* && $_ZLE_PICKER_DISPLAY[-1] != *⏎* ]] || exit 4

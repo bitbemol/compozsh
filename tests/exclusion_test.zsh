@@ -25,14 +25,14 @@ _test_exclusion_footer_priority() {
         for width in 69 119 179; do
           _zle_picker_footer $width ""
           footer=$REPLY fragments=("${(@s: · :)REPLY}")
-          [[ $footer == *"^K keys · ^] filter/exclude"* ]] || {
+          [[ $footer == *"^] filter/exclude"*"^K all keys" ]] || {
             print -u2 -r -- "Missing filter control for $value focus=$focus width=$width: $footer"
             exit 1
           }
           (( ${(m)#footer} <= width && ${#fragments} <= 7 )) || exit 2
         done
         _zle_picker_footer 39 ""
-        [[ $REPLY == *"^K keys"* && $REPLY != *"^] filter/" ]] || exit 3
+        [[ $REPLY == *"^K all keys" && $REPLY != *"^] filter/" ]] || exit 3
         (( ${(m)#REPLY} <= 39 )) || exit 4
       done
     done

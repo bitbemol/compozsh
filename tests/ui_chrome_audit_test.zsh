@@ -26,7 +26,7 @@ _test_ui_chrome_acceptance() {
         }
       fi
       if [[ $scenario == (empty|blank) ]]; then
-        [[ $footer != *⏎* && $footer == *"Esc back"* && $footer == *"^K keys"* ]] || {
+        [[ $footer != *⏎* && $footer == *"Esc back"* && $footer == *"^K all keys"* ]] || {
           print -u2 -- "unavailable Enter is advertised: $footer"; return 3
         }
       else

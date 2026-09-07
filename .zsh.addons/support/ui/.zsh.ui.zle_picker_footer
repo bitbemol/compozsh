@@ -3,8 +3,8 @@
 # Ordinary support peer; no cross-peer calls at source time.
 
 # Shared chrome is built from capabilities, never caller-written key strings.
-# Keep the action, escape route and keyboard guide before optional hints. Add
-# only whole hints so a narrow screen cannot conceal half a key sequence.
+# Reserve the trailing keyboard guide before fitting optional hints. Add only
+# whole hints so a narrow screen cannot conceal half a key sequence.
 _zle_picker_footer() {
   emulate -L zsh
   local -i width=$1 can_accept=0
@@ -22,7 +22,7 @@ _zle_picker_footer() {
   action=${(V)action} cancel=${(V)cancel}
   if (( _ZLE_PICKER_GUIDE_ACTIVE )); then
     REPLY='Esc back'
-    hints=('↑/↓ scroll' 'Fn/Option ↑/↓ page' '^K keys')
+    hints=('↑/↓ scroll' 'Fn/Option ↑/↓ page')
   else
     _zle_picker_can_accept "$query" && can_accept=1
     [[ $mode == summary ]] && (( _ZLE_PICKER_INSPECT_FOCUS )) && can_accept=0
@@ -31,7 +31,6 @@ _zle_picker_footer() {
       REPLY="⏎ ${action} · $REPLY"
       (( ${(m)#REPLY} > width )) && REPLY='⏎ apply · Esc'
     fi
-    hints=('^K keys')
     # Keep the input-field toggle discoverable when selection adds reader or
     # workspace actions to the bounded hint list.
     (( ${_ZLE_PICKER_EXCLUSION_ENABLED:-0} )) && hints+=('^] filter/exclude')
@@ -95,19 +94,36 @@ _zle_picker_footer() {
       hints+=('^U clear')
     fi
   fi
-  local -i shown_hints=0
+  local guide_hint='^K all keys'
+  (( width < 24 )) && guide_hint='^K keys'
+  (( _ZLE_PICKER_GUIDE_ACTIVE )) && guide_hint='^K close'
+  local -i hint_width=$(( width - ${(m)#guide_hint} - 3 )) shown_hints=1
+  if (( ${(m)#REPLY} > hint_width )); then
+    REPLY=Esc
+    (( can_accept )) && REPLY="⏎ $action · Esc"
+    if (( ${(m)#REPLY} > hint_width && can_accept )); then
+      REPLY='⏎ · Esc'
+    fi
+    (( ${(m)#REPLY} > hint_width )) && REPLY=Esc
+  fi
+  if (( ${(m)#REPLY} > hint_width )); then
+    # Tiny terminals keep whole escape/guide keys before any descriptive text.
+    guide_hint='^K' hint_width=$(( width - 5 ))
+    if (( hint_width < 3 )); then
+      REPLY=Esc
+      (( width < 3 )) && REPLY=''
+      (( width == 2 )) && REPLY='^K'
+      return 0
+    fi
+  fi
   for hint in "${hints[@]}"; do
     (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && shown_hints >= 5 )) && break
-    if (( ${(m)#REPLY} + ${(m)#hint} + 3 <= width )); then
+    if (( ${(m)#REPLY} + ${(m)#hint} + 3 <= hint_width )); then
       REPLY+=" · ${hint}"
       (( ++shown_hints ))
     fi
   done
-  if (( ${(m)#REPLY} > width )); then
-    REPLY=Esc
-    (( can_accept )) && REPLY='⏎ · Esc'
-    (( ${(m)#REPLY} > width )) && REPLY=${REPLY[1,$width]}
-  fi
+  REPLY+=" · $guide_hint"
   return 0
 }
 

@@ -75,3 +75,45 @@ _test_shortcut_shared_chrome() {
   ' "$TEST_REPO_ROOT"
 }
 test_case 'shortcut layout keeps shared hints separated whole and within terminal columns' _test_shortcut_shared_chrome
+
+_test_shortcut_guide_suffix() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zshrc"
+    local width screen guide focus populated label expected
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1
+    _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_WORKSPACE_ACTIONS=1
+    _ZLE_PICKER_OPTIONS_KIND=file-views _ZLE_PICKER_EXCLUSION_ENABLED=1
+    _ZLE_PICKER_COPY_ENABLED=1 _ZLE_PICKER_DOCUMENT_MODE=focused
+    for screen in 0 1; do
+      _ZLE_PICKER_SCREEN_ACTIVE=$screen
+      for guide in 0 1; do
+        _ZLE_PICKER_GUIDE_ACTIVE=$guide
+        for focus in 0 1; do
+          _ZLE_PICKER_INSPECT_FOCUS=$focus
+          for populated in 0 1; do
+            _ZLE_PICKER_RESULTS=() _ZLE_PICKER_SELECTED=0
+            (( populated )) && { _ZLE_PICKER_RESULTS=(1); _ZLE_PICKER_SELECTED=1; }
+            for label in read "Open a very long 界界 named operation"; do
+              _ZLE_PICKER_INSPECT_ACTION=$label
+              for width in 8 18 24 39 69 119 179; do
+                _zle_picker_footer $width ""
+                expected="^K all keys"
+                (( width < 24 )) && expected="^K keys"
+                (( guide )) && expected="^K close"
+                (( width == 8 )) && expected="^K"
+                [[ $REPLY == *"$expected" ]] || {
+                  print -u2 -r -- "Guide must end footer at width=$width guide=$guide: $REPLY"
+                  exit 1
+                }
+                (( ${(m)#REPLY} <= width )) || exit 2
+              done
+            done
+          done
+        done
+      done
+    done
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'shortcut dock reserves its trailing keyboard guide across widths actions and view states' _test_shortcut_guide_suffix

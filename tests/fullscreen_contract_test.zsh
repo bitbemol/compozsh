@@ -18,7 +18,7 @@ _test_fullscreen_footer_contract() {
     for width in 39 69 119 179; do
       _zle_picker_footer $width "" || exit 1
       [[ $REPLY == *"⏎ switch"* && $REPLY == *"Esc cancel"* &&
-         $REPLY == *"^K keys"* && $REPLY != *…* ]] || exit 2
+         $REPLY == *"^K all keys"* && $REPLY != *…* ]] || exit 2
       (( ${(m)#REPLY} <= width )) || exit 3
     done
     _zle_picker_footer 179 ""
@@ -133,7 +133,7 @@ _test_files_primary_action_hints() {
     for width in 59 79 119; do
       _zle_picker_footer $width notes
       [[ $REPLY == "⏎ file actions"* && $REPLY == *"Esc back"* &&
-         $REPLY == *"^K keys"* && $REPLY == *"^X options"* ]] || {
+         $REPLY == *"^K all keys"* && $REPLY == *"^X options"* ]] || {
         print -u2 -- "File action/options hints missing at $width columns: $REPLY"
         exit 1
       }
@@ -171,7 +171,7 @@ _test_git_review_shortcut_label() {
     for width in 49 69 119 179; do
       _zle_picker_footer $width ""
       [[ $REPLY == *"^X review"* && $REPLY != *"^X options"* &&
-         $REPLY == *"Esc cancel"* && $REPLY == *"^K keys"* ]] || {
+         $REPLY == *"Esc cancel"* && $REPLY == *"^K all keys"* ]] || {
         print -u2 -- "Branch hint must name review: $REPLY"; exit 1
       }
       (( ${(m)#REPLY} <= width )) || exit 2
@@ -311,6 +311,9 @@ _test_directory_workspace_native() {
     _zle_picker_show() {
       _contract_show
       (( BUFFERLINES == LINES - 1 )) || print -r -u $efd BAD-GEOMETRY
+      local footer=${_ZLE_PICKER_DISPLAY[-1]} suffix="^K all keys"
+      (( _ZLE_PICKER_GUIDE_ACTIVE )) && suffix="^K close"
+      [[ ${footer%"${footer##*[^ ]}"} == *"$suffix" ]] || print -r -u $efd BAD-GUIDE-SUFFIX
       print -r -u $efd -- "FRAME|$_ZLE_PICKER_GUIDE_ACTIVE|$_ZLE_PICKER_QUERY|${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}|$COLUMNS|$LINES"
     }
     _contract_driver() {

@@ -181,7 +181,7 @@ _test_picker_keyboard_shared_contract() {
       _ZLE_PICKER_GUIDE_ACTIVE=0
       _zle_picker_footer 199 ""
       footer=$REPLY
-      for token in "Esc cancel" "^K keys"; do
+      for token in "Esc cancel" "^K all keys"; do
         [[ $footer == *"$token"* ]] || exit 1
       done
       _ZLE_PICKER_GUIDE_ACTIVE=1 _ZLE_PICKER_GUIDE_OFFSET=0

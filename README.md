@@ -1373,7 +1373,7 @@ Hidden: off · child directories · 3 files · 2 shown
 
 [2]   experiments/
   Filter folders  ›
-⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑/↓ move
+⏎ insert · Esc cancel · ^Y copy · ↑/↓ move · ^K all keys
 ```
 
 This condensed example shows the navigator's title, breadcrumb and search.
@@ -1867,8 +1867,11 @@ each tool keeps its existing accept and cancel behavior.
 
 Every tool uses the same shortcut bar. **Enter**, **Escape**, and **Ctrl-K for
 keys** have priority; at most five complete supplementary hints appear as space
-allows on the full screen. The guide keeps all applicable controls. The bar
-prioritizes **Ctrl-] filter/exclude** after the keyboard guide when candidate
+allows on the full screen. **`^K all keys` always ends the shortcut bar**, with
+space reserved before optional hints are fitted. It opens the complete keyboard
+guide for the current view; **`^K close`** returns to your previous position.
+Narrow windows use shorter whole labels (`^K keys`, then `^K`). The bar
+prioritizes **Ctrl-] filter/exclude** among optional hints when candidate
 filtering supports exclusion, including when a file or folder is selected. It
 names the actual action (`cd`, `switch`, `insert`, or file actions), and only
 advertises copying or details when supported. It never cuts a shortcut in half.
@@ -3254,7 +3257,7 @@ Search ‹›
 [ 0] ● example-app/       current · ~/Projects
 [ 1]   api/               previous · ~/Work
 [ 2]   api/               visited · ~/Personal
-⏎ insert · Esc cancel · ^K keys · ^Y copy · ↑/↓ move · Tab details
+⏎ insert · Esc cancel · ^Y copy · ↑/↓ move · Tab details · ^K all keys
 ```
 
 Folder names are primary, with quiet parent paths so identically named folders
@@ -3310,7 +3313,7 @@ Search ‹›
 [ 0] ● feature/prompt-navigation
 [ 1]   main
 [ 2]   feature/runtime-line
-⏎ switch · Esc cancel · ^K keys · ^X review · ^Y copy · ↑/↓ move
+⏎ switch · Esc cancel · ^X review · ^Y copy · ↑/↓ move · ^K all keys
 ```
 
 The familiar Git shorthand remains intact: `g status`, `g switch`, and other
