@@ -30,6 +30,7 @@ typeset -g _ZLE_PICKER_SUBTITLE=''
 typeset -g _ZLE_PICKER_SUBTITLE_RENDERER=''
 typeset -g _ZLE_PICKER_SUBTITLE_ROW=''
 typeset -g _ZLE_PICKER_BROWSE_LABEL='items'
+typeset -g _ZLE_PICKER_BROWSE_RENDERER=''
 typeset -g _ZLE_PICKER_EMPTY_LABEL='no matches'
 # Optional informational rows; never added to the selectable result array.
 typeset -ga _ZLE_PICKER_EMPTY_LINES=()

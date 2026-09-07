@@ -343,7 +343,10 @@ _zle_picker_loop() {
           selected=$REPLY
           ;;
         ($'\r'|$'\n')
-          if (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} && ${_ZLE_PICKER_QUERY_EMPTY_CANCEL:-0} )) && [[ -z ${query//[[:space:]]/} && -z $_ZLE_PICKER_EXCLUDE ]]; then
+          if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_INSPECT_FOCUS )) &&
+             [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[${_ZLE_PICKER_RESULTS[selected]}]-} ]]; then
+            zle beep
+          elif (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} && ${_ZLE_PICKER_QUERY_EMPTY_CANCEL:-0} )) && [[ -z ${query//[[:space:]]/} && -z $_ZLE_PICKER_EXCLUDE ]]; then
             cancelled=1
           elif (( ${_ZLE_PICKER_QUERY_SUBMIT:-0} )) && [[ -n ${query//[[:space:]]/} || -n $_ZLE_PICKER_EXCLUDE ]]; then
             _ZLE_PICKER_ACTION=query
@@ -512,9 +515,10 @@ _zle_picker_loop() {
                   fi
                   if (( _ZLE_PICKER_DOCUMENT )); then
                     if (( !count )); then zle beep; continue; fi
-                    local direction=right
+                    local direction=right mode=$_ZLE_PICKER_DOCUMENT_MODE
                     [[ $sequence == ('[D'|'OD') ]] && direction=left
-                    _zle_picker_document_direction "$direction" "$_ZLE_PICKER_INSPECT_FOCUS" "$_ZLE_PICKER_DOCUMENT_MODE"
+                    [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[${_ZLE_PICKER_RESULTS[selected]}]-} ]] && mode=summary
+                    _zle_picker_document_direction "$direction" "$_ZLE_PICKER_INSPECT_FOCUS" "$mode"
                     case $REPLY in
                       (read) _ZLE_PICKER_INSPECT_FOCUS=1 ;;
                       (files) _ZLE_PICKER_INSPECT_FOCUS=0 ;;

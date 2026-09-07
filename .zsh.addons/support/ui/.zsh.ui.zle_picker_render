@@ -97,6 +97,11 @@ _zle_picker_render() {
   shown_query=${(V)query}
   shown_title=${(V)_ZLE_PICKER_TITLE}
   shown_browse=${(V)_ZLE_PICKER_BROWSE_LABEL}
+  if (( !${_ZLE_PICKER_BUSY:-0} )) &&
+     [[ -n ${_ZLE_PICKER_BROWSE_RENDERER:-} && ${+functions[$_ZLE_PICKER_BROWSE_RENDERER]} == 1 ]] &&
+     "$_ZLE_PICKER_BROWSE_RENDERER" "$row_width"; then
+    shown_browse=${(V)REPLY}
+  fi
   shown_empty=${(V)_ZLE_PICKER_EMPTY_LABEL}
 
   _ZLE_PICKER_TITLEBAR=''

@@ -246,7 +246,7 @@ compozsh/
 │   ├── .zsh.editor        completion, history, draft inspection, and Files entry
 │   ├── .zsh.compose       guided literal command drafts and trusted templates
 │   ├── .zsh.find          bounded search, path details, and explicit file actions
-│   ├── .zsh.git-review    read-only review with Tree / All files and revision comparisons
+│   ├── .zsh.git-review    read-only Tree summaries / All files and revision comparisons
 │   ├── .zsh.git-worktree  guided worktree creation, entry, moving and removal
 │   ├── .zsh.git-syntax    optional bounded system-Vim token snapshots
 │   ├── .zsh.help          live tool discovery, captured prompt help and maintenance dispatch
@@ -362,7 +362,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.editor` | Completion, ZLE editing, and prompt interaction | Native completion and directory argument browsing; the continuous-screen Browse/Search/Recents workspace and prompt Recents shortcut; living-prompt redraw/accept transitions, Option-I Context toggle and Option-Return draft inspection; location trail, captured file summaries, shallow previews, action plans and Back bookmarks; fuzzy `Ctrl-R` with literal command reading and history autosuggestions; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.find` | Workspace search and path actions | Scoped Git, home/root Spotlight and bounded filesystem defaults; explicit source choices and failure reporting; filename-first results and type-aware action cards with exact-target plans for files, folders and links; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.compose` | Guided command drafts | Option-Return on supported drafts and explicit Compose example actions in help open editable fields with a literal command preview; Git review and directory templates opt in through same-source companions; Replace draft inserts after screen cleanup and never executes; shared candidate exclusion preserves each view’s matching and action rules |
-| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; file review defaults to a bounded Tree, with All files, Jump to ancestor and Change atlas in Ctrl-X View options; shared file → focused diff → full-context reading preserves exact changes, filters and reading positions; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
+| `.zsh.git-review` | Read-only Git review | `g` → Ctrl-X and `g --review` open working changes, branch commits or revision comparisons; `g --review A B` compares captured commits directly; file review defaults to a bounded Tree with captured-folder summaries, with All files, Jump to ancestor and Change atlas in Ctrl-X View options; shared file → focused diff → full-context reading preserves exact changes, filters and reading positions; Working changes auto-refreshes locally with Ctrl-A pause/resume and Ctrl-R refresh-now |
 | `.zsh.git-worktree` | Git worktree actions | `g --worktree` exposes Create, Enter, Move / rename, Remove and Refresh in the main menu; captured action plans compose exact targets and editable destinations, with effects after terminal restoration; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently; shared candidate exclusion preserves each view’s matching and action rules |
@@ -394,7 +394,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/functions/.zsh.impure.zle_picker_body_height` | View-state height budget | Impure function; entry `_zle_picker_body_height` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.zle_picker_can_accept` | Current-view acceptance capability | Impure function; entry `_zle_picker_can_accept` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.zle_picker_can_select_digit` | Visible-digit acceptance capability | Impure function; shares the field/focus rule between key handling and footer hints |
-| `support/functions/.zsh.impure.zle_picker_document_bookmark` | Reading-position updates | Impure function; entry `_zle_picker_document_bookmark` first, followed by exclusive helpers |
+| `support/functions/.zsh.impure.zle_picker_document_bookmark` | Reading-position updates | Impure function; `_zle_picker_document_bookmark` retains independent document and captured-folder summary positions |
 | `support/functions/.zsh.impure.zle_ui_collect` | Captured matching results applied to UI state | Impure function; entry `_zle_ui_collect` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.compozsh_cell_prefix` | Literal display-cell prefix clipping with attached combining marks | Pure function; entry `_compozsh_cell_prefix` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.compozsh_git_filter_overrides` | Validated invocation-only Git filter overrides | Pure function; entry `_compozsh_git_filter_overrides` first, followed by exclusive helpers |
@@ -427,17 +427,17 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/ui/.zsh.ui.zle_picker_capture` | Capture-status presentation | UI component; entry `_zle_picker_capture` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_footer` | Action and navigation footer | UI component; `_zle_picker_footer` derives folder, reader and View options actions from capabilities |
 | `support/ui/.zsh.ui.zle_picker_guide_render` | Keyboard-guide element | UI component; `_zle_picker_guide_render` includes supported tree, flat-list and reading controls |
-| `support/ui/.zsh.ui.zle_picker_inspect_render` | Inspector and document-reader rows | UI component; `_zle_picker_inspect_render` retains the current document while selecting captured folder branches |
+| `support/ui/.zsh.ui.zle_picker_inspect_render` | Inspector and document-reader rows | UI component; `_zle_picker_inspect_render` presents captured-folder summaries and file documents with independent reading positions |
 | `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction | UI component; `_zle_picker_loop` handles branch acceptance, matching-document selection, view requests and independent reading |
 | `support/ui/.zsh.ui.zle_picker_redraw` | Resize and redraw entry | UI component; entry `_zle_picker_redraw` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_render` | Complete frame assembly | UI component; `_zle_picker_render` preserves explicit structural prefixes and caller-requested compact status width |
+| `support/ui/.zsh.ui.zle_picker_render` | Complete frame assembly | UI component; `_zle_picker_render` preserves explicit structural prefixes, compact status width and caller-derived selection headers |
 | `support/ui/.zsh.ui.zle_picker_run` | Nested ZLE entry | UI component; entry `_zle_picker_run` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_screen_session` | Terminal ownership and restoration | UI component; entry `_zle_picker_screen_session` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_show` | Terminal painting and semantic styles | UI component; entry `_zle_picker_show` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_workspace` | Pane layout | UI component; `_zle_picker_workspace` and its helpers retain reader disclosure while a folder branch is selected |
+| `support/ui/.zsh.ui.zle_picker_workspace` | Pane layout | UI component; `_zle_picker_workspace` and its helpers derive folder-summary or file-disclosure navigation from selection |
 | `support/ui/.zsh.ui.zle_ui_read_text` | Captured-text reader | UI component; entry `_zle_ui_read_text` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_ui_view` | Scoped view configuration | UI component; `_zle_ui_view` isolates capabilities, including document branches, structural prefixes and compact metadata widths |
-| `support/ui/.zsh.ui.state` | Shared transient view state | Data-only configuration peer; one owner for picker declarations, including document branches, structural prefixes and compact metadata widths |
+| `support/ui/.zsh.ui.zle_ui_view` | Scoped view configuration | UI component; `_zle_ui_view` isolates capabilities, including document branches, selection header formatters, structural prefixes and compact metadata widths |
+| `support/ui/.zsh.ui.state` | Shared transient view state | Data-only configuration peer; one owner for picker declarations, including document branches, selection header formatters, structural prefixes and compact metadata widths |
 
 `~/.zsh.addons/local/init.zsh` is different from those peers. It is a private,
 user-editable initializer and the only file with a guaranteed position: it
@@ -3598,7 +3598,7 @@ captured change entries, including separate staged and unstaged entries.
 or use the menu's visible digits (`Ctrl-X`, then `1` or `2`). All files gives
 each change a clean filename and a separate status label. Duplicate filenames
 from different folders include their parent path. The menu's details show the
-selected change's captured path; Tab focuses that wrapped explanation.
+selected file or folder's captured path; Tab focuses that wrapped explanation.
 **Jump to ancestor** lists the current scope's or selected file's parent
 directories. Its details expose each captured path. The chooser retains at
 most 200 entries and 262,144 prefix characters, with a partial notice and
@@ -3607,8 +3607,18 @@ Repository always available. **Change atlas** remains the separate entry-count m
 Both file views retain the current change, positive/exclusion filters, reading
 mode and source position. Switching back restores that view's selected row and
 viewport while the change and filters remain the same; choosing the current
-view leaves its position intact. Opening a folder keeps the current diff visible;
-its header continues to identify the file being read. Filtering searches all
+view leaves its position intact. Selecting a folder shows a **Folder summary**:
+the captured path, distinct paths, direct entries, child folders, a change-state
+mix, and the six busiest child areas. Proportional bars count change entries;
+staged and unstaged entries for the same path count separately. Commit and
+comparison summaries also total their captured line additions, deletions and
+binary entries. Filtered and partial snapshots are labeled.
+Right/Tab focuses the summary; Left returns to the tree. Enter expands or
+collapses the selected folder from the tree and is inactive while reading its
+summary. Folder digits perform the same action as Enter on that row. Returning
+to a file restores its reading position. Folder summary positions survive
+refresh while the folder remains captured, and filters that temporarily hide it.
+Filtering searches all
 captured changes, including collapsed folders, and temporarily reveals matching
 ancestors. Clearing the filters restores the unfiltered folds and scope.
 Refresh keeps surviving folds and the selected row's screen position where

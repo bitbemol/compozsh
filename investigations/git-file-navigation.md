@@ -16,8 +16,8 @@ the captured path through the existing wrapped inspector.
 Tree shows at most three directory levels. Common directory stretches without
 captured branches or intervening files share one label, with an ellipsis for
 omitted components. Enter expands/collapses folders; at the depth boundary
-Open folder moves the panel into that scope. Its selectable root preserves
-the current document instead of implicitly reading the first child. Escape
+Open folder moves the panel into that scope. Its selectable root shows the
+folder summary and preserves the previous file's bookmark. Escape
 restores the previous scope, selected folder and viewport. Ancestor navigation
 returns directly to a retained parent, with Repository always available.
 Ancestor choices are capped at 200 rows and 262,144 prefix characters; partial
@@ -26,8 +26,9 @@ lists are labeled.
 Filtering and exclusion operate on complete captured path/state text. They
 use separate temporary folds and scope; clearing restores the unfiltered tree.
 A changed filter selects the first visible matching document where available.
-Folder selection retains the reader, syntax viewport and reading offset. The
-existing refresh worker remains bound to that document's path/change kind.
+Folder selection displays a captured change summary, clears the file syntax
+viewport and retains the file reading offset for return. The existing refresh
+worker remains bound to that retained document's path/change kind.
 Refresh reconciles vanished prefixes and removes obsolete folds. Grouping,
 scope changes, resize and paint never scan directories, read unselected
 content, persist preferences or add workers.
@@ -39,6 +40,22 @@ Refresh invalidates those saved numeric identities, rebinds the reader by exact
 path and change kind, and preserves the surviving file or folder's screen slot
 after projecting the new list. All files ancestor navigation uses its selected
 file even when a previous Tree scope is retained.
+
+The folder pane presents distinct path and entry counts, change-state bars,
+direct paths/child-folder counts and up to six busiest child areas. Commit and
+comparison views also total existing captured numstat facts, separating binary
+entries. Bars always count entries, and filtered/partial coverage is explicit.
+Only folders in the retained result prefix receive full summaries; rank
+resolution builds none. Reading a summary performs no discovery or file read.
+Right/Tab focuses it, Left returns, and Enter while summary-focused is inert.
+Numbered folders keep the same acceptance behavior as other actionable rows.
+Prepared summaries invalidate their wrapping when a filter changes their facts.
+Folder scroll bookmarks use exact prefixes, survive temporary filtering and
+unchanged observations, and are pruned only when their prefix vanishes from a
+replacement capture. Numeric file identities still follow snapshot invalidation.
+Literal path controls are made visible before joining summary prose, so a newline
+in a name cannot create a false summary heading. Unsupported line-count fields
+produce an incomplete-totals notice rather than a silently incomplete sum.
 
 The canonical behavior is in [AGENTS.md](../AGENTS.md#git-review-workspace-boundary).
 The earlier direct Ctrl-X-to-atlas route in
@@ -97,6 +114,15 @@ The review also fixed projection round-trip bookmarks, flat-view ancestor
 selection, refresh viewport drift and filenames whose literal leading spaces
 were mistaken for indentation. Only explicit generated prefixes are now fixed
 during abbreviation; literal filename text retains the remaining display budget.
+
+The folder-summary follow-up measured actual collection with 1,000 changes
+over nine samples in isolated stock Zsh 5.9/C locale. With 50 folders, the median
+was 53.8 ms for the first 21 rows and 63.9 ms for the first 1,001 rows. With
+1,000 singleton folders, those medians were 100.7 ms and 136.0 ms. Limiting
+summary construction to the retained prefix reduced singleton-folder summary
+text from roughly 325K to 23.4K characters for the first 21 rows. Reproduce with
+synthetic `groupN/fileN` captured arrays and `_git_review_file_collect` at the
+stated limits. These local observations do not establish latency guarantees.
 
 The first broad development run found five integration failures involving
 automatic-refresh identity, eager initial capture and the old atlas route.

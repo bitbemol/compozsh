@@ -1810,8 +1810,16 @@ keyboard guide must never trigger refresh or an automatic provider check.
   captured directory chains, and opens a deeper scope in the same panel at
   the boundary. Enter expands/collapses folders or reads files; Escape restores
   a previous tree scope and bookmark. Left/Right retain document disclosure.
-  Folder selection keeps the current independently titled reader and its
-  offset; it never becomes a diff-provider target. Filter the whole captured
+  Folder selection shows a captured summary in the right pane, with independent
+  scroll position and retained file bookmarks. Preserve surviving literal folder
+  bookmarks across refresh and filters that temporarily hide them; invalidate
+  obsolete numeric file identities. Show path/change counts, state
+  mix and up to six child areas; bars count captured entries. Commit/comparison
+  line totals use existing numstat facts only. Label filtered/partial coverage.
+  Build summaries only for the retained result prefix, never on paint. Right
+  and Tab focus the summary, Left returns to the tree; focused-summary Enter
+  is inert. Folder rows retain ordinary digit acceptance. A folder never
+  becomes a diff or syntax-provider target. Filter the whole captured
   list, reveal ancestors temporarily, and restore unfiltered folds on clear.
   Ancestor choices retain at most 200 rows/262,144 prefix characters, with a
   partial notice and Repository always reachable. Refresh reconciles folders

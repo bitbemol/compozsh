@@ -78,19 +78,19 @@ _test_git_tree_reader() {
     _ZLE_PICKER_OPTIONS_KIND=file-views _ZLE_PICKER_WORKSPACE_ACTIONS=1
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
     _zle_picker_render "" 1
-    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"captured document"* &&
-       ${(F)_ZLE_PICKER_DISPLAY} == *"src/file.swift"* &&
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"Folder summary"* &&
+       ${(F)_ZLE_PICKER_DISPLAY} != *"captured document"* &&
        ${_ZLE_PICKER_DISPLAY[-1]} == *"collapse"* &&
        ${_ZLE_PICKER_DISPLAY[-1]} == *"^X views"* ]] || exit 1
     _ZLE_PICKER_INSPECT_FOCUS=1
     _zle_picker_render "" 1
-    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"captured document"* && ${_ZLE_PICKER_DISPLAY[-1]} != *collapse* ]] || exit 2
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"Folder summary"* && ${_ZLE_PICKER_DISPLAY[-1]} != *collapse* ]] || exit 2
     COLUMNS=40
     _zle_picker_render "" 1
-    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"captured document"* ]] || exit 3
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"Folder summary"* ]] || exit 3
   ' "$TEST_REPO_ROOT"
 }
-test_case 'Git tree folder selection retains the independent reader and capability derived actions' _test_git_tree_reader
+test_case 'Git tree folder selection shows a separate summary with capability derived actions' _test_git_tree_reader
 
 _test_git_tree_refresh_scope() {
   test_make_temp_dir || return

@@ -17,7 +17,7 @@ _test_git_tree_native() {
     zmodload zsh/zselect
     zmodload zsh/datetime
     command mkfifo "$HOME/events"
-    local efd pfd event="" trace="" device="" chunk=""
+    local efd pfd event="" trace="" device="" chunk="" summary_event=""
     exec {efd}<> "$HOME/events"
     functions -c _zle_picker_show _tree_native_show
     functions -c _git_review_diff_capture _tree_native_capture
@@ -29,6 +29,14 @@ _test_git_tree_native() {
       _tree_native_show
       (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
       local selected=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
+      if [[ $selected == d:* ]]; then
+        local summary_ok=0
+        [[ ${(F)_ZLE_PICKER_INSPECT_LINES} == *"Where changes are"* &&
+           ${(F)_ZLE_PICKER_INSPECT_LINES} != *"Reading selected file"* &&
+           $_ZLE_PICKER_SUBTITLE_ROW != *"focused diff"* && $_ZLE_PICKER_SUBTITLE_ROW != *syntax* &&
+           $_ZLE_PICKER_DOCUMENT_VISIBLE_FIRST == 0 ]] && summary_ok=1
+        print -r -u $efd -- "SUMMARY|$summary_ok"
+      fi
       print -r -u $efd -- "FRAME|$_ZLE_PICKER_TITLE|${_git_file_view:-}|${_git_tree_scope:-}|$selected|${_ZLE_PICKER_ACCEPT_LABELS[$selected]-}|$_ZLE_PICKER_DOCUMENT_KEY|$_ZLE_PICKER_INSPECT_FOCUS|$_ZLE_PICKER_QUERY|$COLUMNS"
     }
     _tree_native_driver() {
@@ -52,6 +60,7 @@ _test_git_tree_native() {
       while (( EPOCHREALTIME < deadline )) && zselect -r $efd $pfd -t 50; do
         while zpty -r tree chunk; do trace+=$chunk; done
         if IFS= read -r -t 0 -u $efd event; then
+          if [[ $event == SUMMARY\|* ]]; then summary_event=$event; continue; fi
           [[ $event == "$wanted" || ( $wanted == *\* && $event == "${wanted%\*}"* ) ]] && return 0
           [[ $event == BAD-* ]] && break
         fi
@@ -68,8 +77,15 @@ _test_git_tree_native() {
       device=${event#READY:}
       _tree_native_expect "FRAME|Working changes|tree||1||1|0||120" || exit 2
       _tree_native_key $'\''\e[B'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 3
+      [[ $summary_event == SUMMARY\|1 ]] || exit 32
+      local summary_captures=$(<"$HOME/captures")
+      _tree_native_key $'\''\e[C'\'' "FRAME|Working changes|tree||d:src/|collapse|1|1||120" || exit 33
+      _tree_native_key $'\''\e[C'\'' "FRAME|Working changes|tree||d:src/|collapse|1|1||120" || exit 34
+      _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/|collapse|1|1||120" || exit 35
+      _tree_native_key $'\''\e[D'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 36
+      [[ $(<"$HOME/captures") == "$summary_captures" ]] || exit 37
       _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/|expand|1|0||120" || exit 4
-      _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 5
+      _tree_native_key 2 "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 5
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 6
       _tree_native_key 2 "FRAME|Working changes|flat||1||1|0||120" || exit 7
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 26

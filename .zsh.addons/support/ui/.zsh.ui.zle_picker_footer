@@ -10,6 +10,8 @@ _zle_picker_footer() {
   local -i width=$1 can_accept=0
   local query=$2 value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
   local action=${_ZLE_PICKER_ACCEPT_LABELS[$value]:-$_ZLE_PICKER_INSPECT_ACTION}
+  local mode=$_ZLE_PICKER_DOCUMENT_MODE
+  [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$value]-} ]] && mode=summary
   (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_INSPECT_FOCUS )) && action=$_ZLE_PICKER_INSPECT_ACTION
   local cancel=${_ZLE_PICKER_CANCEL_LABEL:-cancel} hint='' options_label=options direction='' arrow=''
   local -a hints=()
@@ -23,6 +25,7 @@ _zle_picker_footer() {
     hints=('↑/↓ scroll' 'Fn/Option ↑/↓ page' '^K keys')
   else
     _zle_picker_can_accept "$query" && can_accept=1
+    [[ $mode == summary ]] && (( _ZLE_PICKER_INSPECT_FOCUS )) && can_accept=0
     REPLY="Esc ${cancel}"
     if (( can_accept )); then
       REPLY="⏎ ${action} · $REPLY"
@@ -43,9 +46,11 @@ _zle_picker_footer() {
       local footer=$REPLY
       for direction in right left; do
         [[ $direction == right ]] && arrow=→ || arrow=←
-        _zle_picker_document_direction "$direction" "$_ZLE_PICKER_INSPECT_FOCUS" "$_ZLE_PICKER_DOCUMENT_MODE"
+        _zle_picker_document_direction "$direction" "$_ZLE_PICKER_INSPECT_FOCUS" "$mode"
         case $REPLY in
-          (read|files) hints+=("$arrow $REPLY") ;;
+          (read)
+            [[ $mode == summary ]] && hints+=("$arrow summary") || hints+=("$arrow read") ;;
+          (files) hints+=("$arrow files") ;;
           (focused) hints+=("$arrow focused diff") ;;
           (full) hints+=("$arrow full file") ;;
         esac

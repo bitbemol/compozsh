@@ -741,8 +741,7 @@ _git_review_syntax_idle() {
   # loaded document. Do not poll, schedule or publish syntax for that obsolete
   # reader; preview settlement will install the final exact document first.
   (( _ZLE_PICKER_SELECTED > 0 )) &&
-    [[ ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} == "$_ZLE_PICKER_DOCUMENT_KEY" ||
-       -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}]-} ]] || return 2
+    [[ ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} == "$_ZLE_PICKER_DOCUMENT_KEY" ]] || return 2
   _git_review_document_cache_key "$_ZLE_PICKER_DOCUMENT_KEY" "$context"
   cache_key=$REPLY
   covered_first=${_git_document_syntax_first[$cache_key]:-0}
@@ -1056,6 +1055,15 @@ _git_review_file_collect() {
   (( ${+functions[_navigation_picker_collect]} )) || return 1
   local query=$1 exclusion=${_ZLE_PICKER_EXCLUDE:-} value='' name='' parent=''
   local -i limit=$2 index=0
+  local -i _git_tree_summary_limit=${3:-$2}
+  local prepared_branch='' prepared_text=''
+  if [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$_ZLE_PICKER_INSPECT_KEY]-} ]]; then
+    prepared_branch=$_ZLE_PICKER_INSPECT_KEY
+    prepared_text=${_ZLE_PICKER_INSPECT_TEXTS[$prepared_branch]-}
+    # The next projection may hide this folder, removing the branch capability
+    # needed by the ordinary inspector transition to save its current offset.
+    (( ${+functions[_zle_picker_document_bookmark]} )) && _zle_picker_document_bookmark
+  fi
   for value in "${(@k)_ZLE_PICKER_DOCUMENT_BRANCHES}"; do
     unset "_ZLE_PICKER_CONTEXTS[$value]" "_ZLE_PICKER_INSPECT_TEXTS[$value]"
   done
@@ -1108,6 +1116,10 @@ _git_review_file_collect() {
         _git_tree_depths[$value]=-1
         _ZLE_PICKER_CONTEXTS[$value]="$scoped_count changes"
         _ZLE_PICKER_INSPECT_TEXTS[$value]=$scope
+        if (( _git_tree_summary_limit )); then
+          _git_review_folder_summary "$scope" "${matches[@]}"
+          _ZLE_PICKER_INSPECT_TEXTS[$value]=$REPLY
+        fi
         if (( ${expanded[$scope]:-1} )); then
           _ZLE_PICKER_LABELS=("▾ ${${scope%/}:t}/")
           _ZLE_PICKER_LABEL_PREFIXES[$value]='▾ '
@@ -1129,12 +1141,22 @@ _git_review_file_collect() {
   _ZLE_PICKER_RESULTS=("${_ZLE_PICKER_RESULTS[@]:0:$limit}")
   _ZLE_PICKER_LABELS=("${_ZLE_PICKER_LABELS[@]:0:$limit}")
   _ZLE_PICKER_RESULT_INDEXES=("${_ZLE_PICKER_RESULTS[@]/*/1}")
+  # A refinement can change a folder summary without changing its exact key.
+  # Rewrap its new captured text while retaining independent scroll offsets.
+  if [[ -n $prepared_branch && $prepared_text != "${_ZLE_PICKER_INSPECT_TEXTS[$prepared_branch]-}" ]]; then
+    _ZLE_PICKER_INSPECT_WIDTH=0
+  fi
   return 0
 }
 
 _git_review_file_subtitle() {
   local -i width=$1 location_width=$(( $1 / 3 ))
   local location='' source=''
+  local value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
+  if [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$value]-} ]]; then
+    local _ZLE_PICKER_SUBTITLE="${root:t} · captured folder · read-only"
+    [[ $kind == comparison ]] && _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${root:t} · captured folder"
+  fi
   _zle_picker_abbreviate "$_git_file_location" $location_width
   location=$REPLY
   if [[ $kind == comparison ]]; then
@@ -1147,12 +1169,103 @@ _git_review_file_subtitle() {
   REPLY="$location · $source"
 }
 
+# Summarize only the matching captured entries beneath this exact prefix.
+# Directory names and bars are passive information, never new action targets.
+_git_review_folder_summary() {
+  emulate -L zsh
+  local directory=$1 name='' tail='' area='' state='' label='' bar='' item='' added='' removed=''
+  shift
+  local -i index=0 count=0 direct=0 filled=0 shown=0
+  local -i additions=0 removals=0 binaries=0 line_entries=0 missing_totals=0
+  local -A paths=() folders=() states=() areas=()
+  local -a ranked=() lines=()
+  for index in "$@"; do
+    name=${_GIT_REVIEW_PATHS[index]}
+    [[ $name == "$directory"* ]] || continue
+    (( ++count ))
+    state=${_GIT_REVIEW_KINDS[index]:-unknown}
+    (( ++states[$state] ))
+    if [[ $state == (commit|comparison) ]]; then
+      item=${_GIT_REVIEW_CONTEXTS[index]}
+      if [[ $item == Binary ]]; then
+        (( ++binaries ))
+      elif [[ $item == +<->' -'<-> ]]; then
+        added=${${item%% *}#+} removed=${item##* -}
+        if (( ${#added} <= 10 && ${#removed} <= 10 )); then
+          (( additions += 10#$added, removals += 10#$removed, ++line_entries ))
+        else
+          (( ++missing_totals ))
+        fi
+      else
+        (( ++missing_totals ))
+      fi
+    fi
+    tail=${name#"$directory"}
+    if [[ $tail == */?* ]]; then
+      area="${tail%%/*}/"
+      folders[$area]=1
+    else
+      area=''
+      [[ -n ${paths[$name]-} ]] || (( ++direct ))
+    fi
+    paths[$name]=1
+    # Prefix the literal area so an empty direct group has an ordinary key.
+    (( ++areas[d:$area] ))
+  done
+  lines=("Captured path" "${(V)directory}" ''
+    "$count change entries · ${#paths} distinct paths"
+    "Direct paths: $direct · Child folders: ${#folders}" '')
+  (( line_entries || binaries )) && lines+=("Lines: +$additions -$removals · Binary entries: $binaries" '')
+  (( missing_totals )) && lines+=("Incomplete line totals · Entries without totals: $missing_totals" '')
+  for state label in staged Staged unstaged Unstaged untracked New conflict Conflicts commit Committed comparison Compared unknown Other; do
+    if (( ${states[$state]:-0} )); then
+      filled=$(( (16 * states[$state] + count - 1) / count ))
+      bar=${(l:$filled::━:)}
+      lines+=("$label: ${states[$state]}  $bar")
+    fi
+  done
+  lines+=('' 'Where changes are')
+  for area in "${(@k)areas}"; do
+    ranked+=("${(l:4::0:)areas[$area]} $area")
+  done
+  # Captures hold at most 1,000 entries, so four digits sort counts exactly.
+  for item in "${(@On)ranked}"; do
+    (( ++shown <= 6 )) || break
+    area=${item#* } label=${area#d:}
+    [[ -n $label ]] || label='Direct entries'
+    label=${(V)label}
+    filled=$(( (16 * areas[$area] + count - 1) / count ))
+    bar=${(l:$filled::━:)}
+    lines+=("$bar  ${areas[$area]}  $label")
+  done
+  (( ${#areas} > 6 )) && lines+=("… $(( ${#areas} - 6 )) more areas in this folder")
+  lines+=('' 'Bars count change entries; staged and unstaged count separately.')
+  if [[ -n $_git_tree_filter || -n $_git_tree_exclude ]]; then
+    lines+=('Filtered captured changes · clear filters to see the captured scope.')
+  else
+    lines+=('Captured changes only · unchanged and ignored paths are not listed.')
+  fi
+  [[ $_GIT_REVIEW_SUMMARY == *'partial snapshot'* ]] && lines+=('Partial snapshot · counts cover captured entries only.')
+  REPLY=${(F)lines}
+}
+
+_git_review_file_browse() {
+  local value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
+  if [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$value]-} ]]; then
+    REPLY="${_git_review_refresh_status}${_git_review_refresh_status:+ · }$_GIT_REVIEW_SUMMARY · Folder summary"
+  else
+    REPLY=$_ZLE_PICKER_BROWSE_LABEL
+  fi
+}
+
 # Retain exact row identity across a projection change. The reader key remains
 # the original numeric change entry, independently of directory selection.
 _git_review_file_reselect() {
   local wanted=$1
   local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
-  _git_review_file_collect "${bookmark[1]}" 10000
+  # Resolve ranks only. The input loop recollects its retained prefix before
+  # painting, so summaries outside that prefix need not be built here.
+  _git_review_file_collect "${bookmark[1]}" 10000 0
   local -i rank=${_ZLE_PICKER_RESULTS[(Ie)$wanted]}
   if (( !rank )) && [[ $wanted == <-> && -n ${_GIT_REVIEW_PATHS[wanted]-} ]]; then
     local value='' directory=''
@@ -1326,7 +1439,7 @@ _git_review_file_options_view() {
     ancestor 'Choose a parent of the current tree scope or selected file. The exact captured path determines the choices.'
     atlas 'Explore captured directory entry counts, then read a selected change. Escape restores this review.')
   for option in tree flat ancestor atlas; do
-    [[ -n $captured_path ]] && _ZLE_PICKER_INSPECT_TEXTS[$option]+=$'\n\nSelected change path:\n'"$captured_path"
+    [[ -n $captured_path ]] && _ZLE_PICKER_INSPECT_TEXTS[$option]+=$'\n\nSelected path:\n'"$captured_path"
   done
   _zle_picker_loop '' 10
 }
@@ -1362,7 +1475,7 @@ _git_review_file_options() {
   local -i outcome=0
   local captured_path=''
   [[ $selected == <-> ]] && captured_path=${_GIT_REVIEW_PATHS[selected]-}
-  [[ $selected == d:* && $_ZLE_PICKER_DOCUMENT_KEY == <-> ]] && captured_path=${_GIT_REVIEW_PATHS[$_ZLE_PICKER_DOCUMENT_KEY]-}
+  [[ $selected == d:* ]] && captured_path=${selected#d:}
   _zle_ui_view choice _git_review_file_options_view "$captured_path"
   outcome=$?
   (( outcome == 0 )) || { (( outcome == 1 )) && return 0; return $outcome; }
@@ -1462,7 +1575,11 @@ _git_review_tree_rows() {
       _ZLE_PICKER_LABEL_PREFIXES[$value]="${(l:$((depth*2)):: :)}$marker "
       _ZLE_PICKER_DOCUMENT_BRANCHES[$value]=1
       _ZLE_PICKER_CONTEXTS[$value]="${#members} changes"
-      _ZLE_PICKER_INSPECT_TEXTS[$value]="$directory"
+      _ZLE_PICKER_INSPECT_TEXTS[$value]=$directory
+      if (( ${#_ZLE_PICKER_RESULTS} <= ${_git_tree_summary_limit:-0} )); then
+        _git_review_folder_summary "$directory" "${members[@]}"
+        _ZLE_PICKER_INSPECT_TEXTS[$value]=$REPLY
+      fi
       _ZLE_PICKER_ACCEPT_LABELS[$value]=$action
       _git_tree_depths[$value]=$depth
       (( open )) && _git_review_tree_rows "$directory" $(( depth + 1 )) "${members[@]}"
@@ -2069,6 +2186,17 @@ _git_review_auto_forget_other_documents() {
   [[ $current == d:* ]] && current=$_ZLE_PICKER_DOCUMENT_KEY
   local saved_context='' saved_anchor=''
   local -i saved_offset=0 saved_row=0
+  local -A folder_offsets=() folder_rows=()
+  if [[ $_ZLE_PICKER_INSPECT_KEY == d:* ]] && (( ${+functions[_zle_picker_document_bookmark]} )); then
+    _zle_picker_document_bookmark
+  fi
+  # An unchanged capture leaves literal folder identities intact. Numeric file
+  # bookmarks still follow the existing active-reader invalidation rule below.
+  for key in "${(@k)_ZLE_PICKER_DOCUMENT_OFFSETS}"; do
+    [[ $key == d:* ]] || continue
+    folder_offsets[$key]=${_ZLE_PICKER_DOCUMENT_OFFSETS[$key]}
+    folder_rows[$key]=${_ZLE_PICKER_DOCUMENT_ROWS[$key]:-0}
+  done
   [[ $current == <-> ]] && { _git_review_document_cache_key "$current" "$context"; keep=$REPLY; }
   if [[ $current == <-> ]]; then
     saved_context=${_git_document_contexts[$current]-}
@@ -2090,7 +2218,8 @@ _git_review_auto_forget_other_documents() {
   # even when labels and the selected diff compare equal. Only the active
   # reader can prove that its source anchor still belongs to retained bytes.
   _git_document_contexts=() _git_document_anchors=()
-  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+  _ZLE_PICKER_DOCUMENT_OFFSETS=("${(@kv)folder_offsets}")
+  _ZLE_PICKER_DOCUMENT_ROWS=("${(@kv)folder_rows}")
   if [[ $current == <-> ]]; then
     [[ -n $saved_context ]] && _git_document_contexts[$current]=$saved_context
     [[ -n $saved_anchor ]] && _git_document_anchors[$current]=$saved_anchor
@@ -2141,12 +2270,28 @@ _git_review_auto_schedule_context_check() {
 
 # Invalidate derived document state only after a replacement snapshot is ready.
 _git_review_document_reset() {
+  local key='' pattern=''
+  local -A folder_offsets=() folder_rows=()
+  if [[ $_ZLE_PICKER_INSPECT_KEY == d:* ]] && (( ${+functions[_zle_picker_document_bookmark]} )); then
+    _zle_picker_document_bookmark
+  fi
+  # Snapshot indices are obsolete, but exact surviving directory prefixes can
+  # retain summary positions. Test each saved prefix once against captured paths;
+  # no traversal or prefix catalog is needed even for deeply nested paths.
+  for key in "${(@k)_ZLE_PICKER_DOCUMENT_OFFSETS}"; do
+    [[ $key == d:* ]] || continue
+    pattern="${(b)${key#d:}}*"
+    (( ${_GIT_REVIEW_PATHS[(I)${~pattern}]} )) || continue
+    folder_offsets[$key]=${_ZLE_PICKER_DOCUMENT_OFFSETS[$key]}
+    folder_rows[$key]=${_ZLE_PICKER_DOCUMENT_ROWS[$key]:-0}
+  done
   _git_document_cache=() _git_document_partial=() _git_document_order=()
   _git_document_syntax_cache=() _git_document_syntax_notes=()
   _git_document_syntax_first=() _git_document_syntax_last=()
   _git_document_syntax_failures=()
   _git_document_contexts=() _git_document_anchors=()
-  _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+  _ZLE_PICKER_DOCUMENT_OFFSETS=("${(@kv)folder_offsets}")
+  _ZLE_PICKER_DOCUMENT_ROWS=("${(@kv)folder_rows}")
   _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
   _ZLE_PICKER_DOCUMENT_PENDING=0
   (( ++_git_review_snapshot_epoch ))
@@ -2696,6 +2841,7 @@ _git_review_view() {
   local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
   local _ZLE_PICKER_OPTIONS_KIND=''
   local _ZLE_PICKER_SUBTITLE_RENDERER=''
+  local _ZLE_PICKER_BROWSE_RENDERER=''
   local _ZLE_PICKER_INSPECT_TITLE=Details _ZLE_PICKER_INSPECT_ACTION=diff
   local _ZLE_PICKER_CANCEL_LABEL=back _ZLE_PICKER_QUERY_LABEL='Filter files'
   local _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_BROWSE_LABEL=''
@@ -2805,6 +2951,7 @@ _git_review_view() {
     _ZLE_PICKER_OPTIONS_KIND=file-views
     _ZLE_PICKER_COLLECTOR=_git_review_file_collect
     _ZLE_PICKER_SUBTITLE_RENDERER=_git_review_file_subtitle
+    _ZLE_PICKER_BROWSE_RENDERER=_git_review_file_browse
     _ZLE_PICKER_CONTEXT_MIN_WIDTH=11
     _ZLE_PICKER_WORKSPACE_ACTIONS=1
   fi
