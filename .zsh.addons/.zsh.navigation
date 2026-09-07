@@ -549,7 +549,8 @@ _compozsh_help_g() {
     '  Ctrl-X review opens the Git review chooser when .zsh.git-review is enabled.' \
     '  g --review opens these choices directly in the current checkout.' \
     '  File review starts in Tree. Enter expands/collapses a captured folder;' \
-    '  at the third directory level, Open folder moves the tree scope inward.' \
+    '  files within the first three directory levels are visible by default.' \
+    '  At the fourth directory level, Open folder moves the tree scope inward.' \
     '  Nonbranching captured directory chains are compacted. Escape restores' \
     '  the previous tree scope; folder selection shows a captured change summary.' \
     '  Folder summaries show change-state bars, the busiest child areas, and' \

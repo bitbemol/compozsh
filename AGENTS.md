@@ -1806,9 +1806,11 @@ keyboard guide must never trigger refresh or an automatic provider check.
   Restore each projection's selected row and viewport when returning with the
   same change and filters; choosing the active projection is inert. Invalidate
   saved projection bookmarks when a new capture replaces numeric identities.
-  Tree uses at most three visible directory levels, compresses nonbranching
-  captured directory chains, and opens a deeper scope in the same panel at
-  the boundary. Enter expands/collapses folders or reads files; Escape restores
+  Tree opens three directory levels including their files and shows fourth-level
+  folders as collapsed scope entries. Compress nonbranching captured directory
+  chains and open deeper scopes in the same panel. Use one cell of indentation
+  per directory level, a space after folder arrows, and align nested files with
+  their parent name. Enter expands/collapses folders or reads files; Escape restores
   a previous tree scope and bookmark. Left/Right retain document disclosure.
   Folder selection shows a captured summary in the right pane, with independent
   scroll position and retained file bookmarks. Preserve surviving literal folder

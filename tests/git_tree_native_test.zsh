@@ -97,12 +97,15 @@ _test_git_tree_native() {
       _tree_native_key $'\''\e[B'\'' "FRAME|Working changes|flat||2||2|0||120" || exit 8
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 9
       _tree_native_key 1 "FRAME|Working changes|tree||2||2|0||120" || exit 10
-      _tree_native_key $'\''\e[B\e[B\e[B'\'' "FRAME|Working changes|tree||d:src/deep/more/|open folder|2|0||120" || exit 11
+      _tree_native_key $'\''\e[B\e[B\e[B'\'' "FRAME|Working changes|tree||d:src/deep/more/|collapse|2|0||120" || exit 11
+      _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/deep/more/|expand|2|0||120" || exit 38
+      _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/deep/more/|collapse|2|0||120" || exit 39
+      _tree_native_key $'\''\e[B\e[B'\'' "FRAME|Working changes|tree||d:src/deep/more/next/|open folder|2|0||120" || exit 40
       local captures=$(<"$HOME/captures")
-      _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree|src/deep/more/|d:src/deep/more/|collapse|2|0||120" || exit 12
-      _tree_native_key $'\''\e'\'' "FRAME|Working changes|tree||d:src/deep/more/|open folder|2|0||120" || exit 13
+      _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree|src/deep/more/next/|d:src/deep/more/next/|collapse|2|0||120" || exit 12
+      _tree_native_key $'\''\e'\'' "FRAME|Working changes|tree||d:src/deep/more/next/|open folder|2|0||120" || exit 13
       [[ $(<"$HOME/captures") == "$captures" ]] || exit 24
-      _tree_native_key $'\''\x12'\'' "FRAME|Working changes|tree||d:src/deep/more/|open folder|2|0||120" || exit 14
+      _tree_native_key $'\''\x12'\'' "FRAME|Working changes|tree||d:src/deep/more/next/|open folder|2|0||120" || exit 14
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 15
       captures=$(<"$HOME/captures")
       _tree_native_key 3 "FRAME|Git / Jump to ancestor|*" || exit 16

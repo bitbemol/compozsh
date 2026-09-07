@@ -15,7 +15,11 @@ _test_git_tree_capture() {
     _git_review_file_collect "" 1000
     [[ ${_ZLE_PICKER_RESULTS[(Ie)1]} != 0 && ${_ZLE_PICKER_RESULTS[(Ie)d:src/]} != 0 &&
        ${_ZLE_PICKER_RESULTS[(Ie)2]} != 0 && ${_ZLE_PICKER_RESULTS[(Ie)3]} != 0 &&
-       ${_ZLE_PICKER_RESULTS[(Ie)6]} == 0 && $_ZLE_PICKER_ACCEPT_LABELS[d:src/deep/more/] == "open folder" ]] || exit 2
+       ${_ZLE_PICKER_RESULTS[(Ie)5]} != 0 && ${_ZLE_PICKER_RESULTS[(Ie)6]} == 0 &&
+       $_ZLE_PICKER_ACCEPT_LABELS[d:src/deep/more/] == collapse &&
+       $_ZLE_PICKER_ACCEPT_LABELS[d:src/deep/more/next/] == "open folder" ]] || exit 2
+    [[ ${_ZLE_PICKER_LABEL_PREFIXES[d:src/deep/more/]} == "  ▾ " &&
+       ${_ZLE_PICKER_LABEL_PREFIXES[5]} == "    " ]] || exit 8
     _git_tree_expanded[src/]=0
     _git_review_file_collect "" 1000
     [[ ${_ZLE_PICKER_RESULTS[(Ie)2]} == 0 && $_ZLE_PICKER_ACCEPT_LABELS[d:src/] == expand ]] || exit 3
@@ -229,7 +233,7 @@ _test_git_tree_reachable() {
       values=("${_ZLE_PICKER_RESULTS[@]}")
       for value in "${values[@]}"; do
         if [[ $value == d:* ]]; then
-          (( ${_git_tree_depths[$value]} <= 2 )) || exit 2
+          (( ${_git_tree_depths[$value]} <= 3 )) || exit 2
           if [[ $_ZLE_PICKER_ACCEPT_LABELS[$value] == "open folder" && -z ${opened[$value]-} ]]; then
             opened[$value]=1
             pending+=("${value#d:}")

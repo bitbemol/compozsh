@@ -13,7 +13,8 @@ unstaged entries remain distinct. All files uses filenames with separate
 status metadata and adds parent paths for duplicate names. Its details expose
 the captured path through the existing wrapped inspector.
 
-Tree shows at most three directory levels. Common directory stretches without
+Tree opens three directory levels including their files; fourth-level folders
+appear as collapsed scope entries. Common directory stretches without
 captured branches or intervening files share one label, with an ellipsis for
 omitted components. Enter expands/collapses folders; at the depth boundary
 Open folder moves the panel into that scope. Its selectable root shows the
@@ -94,8 +95,8 @@ are additional actionable navigation choices.
 
 Projection runs on collection/filter changes and navigation, not paint. The
 shared result prefix retains rows for ordinary arrow movement and coalesces
-selected-file provider work. Recursive grouping follows at most three visible
-directory levels; a 100-component chain uses common-prefix calculation rather
+selected-file provider work. Recursive grouping follows three expanded directory
+levels plus collapsed fourth-level entries; a 100-component chain uses common-prefix calculation rather
 than 100 recursive calls.
 
 Independent review found two pathological deep-path costs. Repeatedly removing

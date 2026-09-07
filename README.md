@@ -3587,12 +3587,15 @@ files are excluded from revision comparisons.
 guide as `g --help`, without reading the repository.
 
 Working changes, Commit files and comparisons start with **Tree** in a
-**two-pane review workspace**. Enter expands or collapses a folder. At the
-third visible directory level, the action becomes **Open folder**: the same
+**two-pane review workspace**. The first three directory levels open by default,
+including their files. Enter expands or collapses a folder. At the
+fourth visible directory level, the action becomes **Open folder**: the same
 panel shows that folder's children, with its scope above. Escape returns to
 the previous scope, selection and viewport. Nonbranching stretches of captured
 directories share one row; `…` marks omitted components. Counts describe
 captured change entries, including separate staged and unstaged entries.
+One space per directory level keeps the tree compact; a space after each
+folder arrow separates it from the name, and files align with their parent name.
 
 **Ctrl-X opens View options**. Choose **Tree** or **All files** with Enter,
 or use the menu's visible digits (`Ctrl-X`, then `1` or `2`). All files gives

@@ -1373,7 +1373,7 @@ _git_review_tree_scope_set() {
 _git_review_tree_enter() {
   local value=$1 directory=${1#d:}
   local -i depth=${_git_tree_depths[$value]:-0}
-  if (( depth >= 2 )); then
+  if (( depth >= 3 )); then
     if [[ -n ${bookmark[1]} || -n ${bookmark[4]-} ]]; then
       _git_tree_filter_scopes+=("$_git_tree_filter_scope")
       _git_tree_filter_returns+=("$value" "${bookmark[3]}")
@@ -1434,7 +1434,7 @@ _git_review_file_options_view() {
   local -a _NAVIGATION_PICKER_INDEXES=(1 2 3 4) _NAVIGATION_PICKER_SEARCH_LABELS=()
   _ZLE_PICKER_CONTEXTS=("$_git_file_view" current)
   _ZLE_PICKER_INSPECT_TEXTS=(
-    tree 'Three visible directory levels. Enter expands or collapses folders; deeper folders open in the same panel.'
+    tree 'Three expanded directory levels, including their files. Enter expands or collapses folders; fourth-level folders open in the same panel.'
     flat 'All captured file entries in one list. Duplicate filenames retain their parent path. Status labels and the selected diff stay visible.'
     ancestor 'Choose a parent of the current tree scope or selected file. The exact captured path determines the choices.'
     atlas 'Explore captured directory entry counts, then read a selected change. Escape restores this review.')
@@ -1513,7 +1513,8 @@ _git_review_file_options() {
   return 0
 }
 
-# At most three directory rows deep. Compress a nonbranching stretch by its
+# Open three directory levels, then show deeper folders as collapsed entries.
+# Compress a nonbranching stretch by its
 # common parent prefix, including arbitrarily deep literal paths without a
 # recursive call per path component. Recursion is only for visible levels.
 _git_review_tree_rows() {
@@ -1562,7 +1563,7 @@ _git_review_tree_rows() {
       tail=${label%/}
       if [[ $tail == */*/* ]]; then label="${tail%%/*}/…/${tail:t}/"; fi
       open=${expanded[$directory]:-1}
-      if (( depth >= 2 )); then
+      if (( depth >= 3 )); then
         open=0 action='open folder'
       elif (( open )); then
         action=collapse
@@ -1571,8 +1572,8 @@ _git_review_tree_rows() {
       fi
       (( open )) && marker=▾ || marker=▸
       _ZLE_PICKER_RESULTS+=("$value")
-      _ZLE_PICKER_LABELS+=("${(l:$((depth*2)):: :)}$marker $label")
-      _ZLE_PICKER_LABEL_PREFIXES[$value]="${(l:$((depth*2)):: :)}$marker "
+      _ZLE_PICKER_LABELS+=("${(l:$depth:: :)}$marker $label")
+      _ZLE_PICKER_LABEL_PREFIXES[$value]="${(l:$depth:: :)}$marker "
       _ZLE_PICKER_DOCUMENT_BRANCHES[$value]=1
       _ZLE_PICKER_CONTEXTS[$value]="${#members} changes"
       _ZLE_PICKER_INSPECT_TEXTS[$value]=$directory
@@ -1585,8 +1586,10 @@ _git_review_tree_rows() {
       (( open )) && _git_review_tree_rows "$directory" $(( depth + 1 )) "${members[@]}"
     else
       _ZLE_PICKER_RESULTS+=("$value")
-      _ZLE_PICKER_LABELS+=("${(l:$((depth*2)):: :)}${_GIT_REVIEW_PATHS[value]:t}")
-      _ZLE_PICKER_LABEL_PREFIXES[$value]="${(l:$((depth*2)):: :)}"
+      # A one-cell step keeps hierarchy compact; nested files align with their
+      # parent folder's name, beyond its disclosure arrow and separator.
+      _ZLE_PICKER_LABELS+=("${(l:$((depth + (depth > 0))):: :)}${_GIT_REVIEW_PATHS[value]:t}")
+      _ZLE_PICKER_LABEL_PREFIXES[$value]="${(l:$((depth + (depth > 0))):: :)}"
     fi
   done
   return 0

@@ -90,8 +90,8 @@ _zle_picker_guide_render() {
       'Ctrl-X               Change atlas: captured folders → files → diff; Escape returns')
     [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && lines+=(
       'Ctrl-X               View options: Tree / All files / Jump to ancestor / Change atlas'
-      'Enter on a folder    Expand or collapse; Open folder at the third directory level'
-      'Tree                 Three directory levels; nonbranching captured paths are compacted'
+      'Enter on a folder    Expand or collapse; Open folder at the fourth directory level'
+      'Tree                 Three expanded levels with files; nonbranching paths are compacted'
       'Folder selection     Captured change mix and child areas; file reading position is saved'
       'Folder summary       Right/Tab focuses the summary; Left returns to files'
       'Escape in a folder   Restore the previous tree scope, selection and viewport'
