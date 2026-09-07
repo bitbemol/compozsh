@@ -30,6 +30,12 @@ _test_git_tree_native() {
       (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
       if [[ $_ZLE_PICKER_TITLE == "Working changes" ]] && (( COLUMNS >= 120 )); then
         [[ ${_ZLE_PICKER_DISPLAY[-1]} == *"^] filter/exclude"* ]] || print -r -u $efd BAD-FILTER-HINT
+        local first_role
+        for first_role in "${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[@]}"; do
+          [[ -n $first_role ]] || continue
+          [[ $first_role == heading ]] || print -r -u $efd BAD-PANE-TITLE
+          break
+        done
       fi
       local selected=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
       if [[ $selected == d:* ]]; then

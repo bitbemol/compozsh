@@ -1861,9 +1861,11 @@ Action labels use plain text; the shared number and selection marker provide
 their visual framing. Ordinary empty results use neutral text, while actual
 failures retain error styling. Your palette overrides remain respected.
 Inline and very short fallbacks keep input above the results.
-Filtering down to one result keeps these landmarks in place. Your unfinished
-command and prompt are hidden while browsing, then restored when you leave;
-each tool keeps its existing accept and cancel behavior.
+Filtering down to one result keeps these landmarks in place. The selected
+file path or pane title stays in the heading style while the left list has
+focus; the focus marker and divider identify which pane receives navigation.
+Your unfinished command and prompt are hidden while browsing, then restored when
+you leave; each tool keeps its existing accept and cancel behavior.
 
 Every tool uses the same shortcut bar. **Enter**, **Escape**, and **Ctrl-K for
 keys** have priority; at most five complete supplementary hints appear as space

@@ -64,6 +64,7 @@ _test_git_document_focus_visibility() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
     for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
@@ -77,7 +78,7 @@ _test_git_document_focus_visibility() {
     _ZLE_PICKER_CONTEXTS=("Unstaged M" "Unstaged M")
     _ZLE_PICKER_INSPECT_TEXTS=(README.md snapshot)
     _ZLE_PICKER_DOCUMENT_KEY=README.md
-    _ZLE_PICKER_DOCUMENT_TITLE=README.md
+    _ZLE_PICKER_DOCUMENT_TITLE=src/界界/components/README.md
     _ZLE_PICKER_DOCUMENT_LINES=("@@ -1 +1 @@" "-old" "+new")
     _ZLE_PICKER_DOCUMENT_ROLES=(info error success)
     _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_VIEW_START=1
@@ -87,15 +88,20 @@ _test_git_document_focus_visibility() {
     _zle_picker_render "" 1
     [[ ${_ZLE_PICKER_DISPLAY_STYLES[(i)picker-selected]} -le ${#_ZLE_PICKER_DISPLAY_STYLES} ]] || exit 1
     [[ ${(F)_ZLE_PICKER_DISPLAY} == *" │ "* && ${(F)_ZLE_PICKER_DISPLAY} != *" ┃ "* ]] || exit 2
+    [[ ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[(r)heading]} == heading &&
+       ${(F)_ZLE_PICKER_DISPLAY} == *"$_ZLE_PICKER_DOCUMENT_TITLE"* ]] || {
+      print -u2 -r -- "Selected document identity must stay readable with file-list focus"
+      exit 7
+    }
 
     _ZLE_PICKER_INSPECT_FOCUS=1
     _zle_picker_render "" 1
     [[ ${_ZLE_PICKER_DISPLAY_STYLES[(i)picker-selected-inactive]} -le ${#_ZLE_PICKER_DISPLAY_STYLES} ]] || exit 3
-    [[ ${(F)_ZLE_PICKER_DISPLAY} == *" ┃ "* && ${(F)_ZLE_PICKER_DISPLAY} == *"▸ README.md"* ]] || exit 4
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *" ┃ "* && ${(F)_ZLE_PICKER_DISPLAY} == *"▸ $_ZLE_PICKER_DOCUMENT_TITLE"* ]] || exit 4
 
     COLUMNS=70
     _zle_picker_render "" 1
-    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"▸ README.md"* ]] || exit 5
+    [[ ${(F)_ZLE_PICKER_DISPLAY} == *"▸ $_ZLE_PICKER_DOCUMENT_TITLE"* ]] || exit 5
     [[ ${(F)_ZLE_PICKER_DISPLAY} != *" │ "* && ${(F)_ZLE_PICKER_DISPLAY} != *" ┃ "* ]] || exit 6
     print focus-visible
   ' "$TEST_REPO_ROOT") || return

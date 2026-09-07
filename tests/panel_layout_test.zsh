@@ -1,4 +1,4 @@
-# Shared information panels stay secondary until the user focuses them.
+# Shared information panels retain readable identity and distinct focus.
 _test_panel_layout_hierarchy() {
   test_make_temp_dir || return
   local output
@@ -32,7 +32,7 @@ _test_panel_layout_hierarchy() {
           print -u2 -r -- "$_ZLE_PICKER_INSPECT_TITLE: passive details inflate a three-result list"
           exit 2
         }
-        [[ ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[1]} == muted &&
+        [[ ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[1]} == heading &&
            ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[2]} == info &&
            ${_ZLE_PICKER_DISPLAY_RIGHT_ROLES[5]} == warning ]] || exit 3
         [[ ${_ZLE_PICKER_DISPLAY_STYLES[(i)picker-selected]} -le ${#_ZLE_PICKER_DISPLAY_STYLES} &&

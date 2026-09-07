@@ -97,9 +97,10 @@ _zle_picker_inspect_render() {
       right=${_ZLE_PICKER_INSPECT_LINES[line_index]-}
       role=${_ZLE_PICKER_INSPECT_ROLES[line_index]:-text}
     fi
-    if (( !_ZLE_PICKER_INSPECT_FOCUS )) && [[ $role == heading ]]; then
+    # Pane identity stays readable while the list owns keyboard focus. Only
+    # secondary body headings soften; the marker and divider convey focus.
+    if (( index > 1 && !_ZLE_PICKER_INSPECT_FOCUS )) && [[ $role == heading ]]; then
       role=info
-      (( index == 1 )) && role=muted
     fi
     _zle_picker_fit "$right" $right_width
     right=$REPLY
