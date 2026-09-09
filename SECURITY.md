@@ -609,14 +609,29 @@ identifiable directory under their own temporary directory.
 Xcode provider captures enforce their stdout and diagnostic limits while the
 command runs, including bytes retained in temporary files. Stdout retains at
 most `ZSH_XCODE_CAPTURE_MAX_BYTES` bytes (262,144 by default, minimum 4,096);
-diagnostics retain at most 8,192 bytes. Two completion records, each two bytes
-long, identify successfully finished stream capture. An incomplete capture is
-rejected. Each stream reader holds at most one 8-KiB chunk while draining excess data without
+diagnostics retain at most 8,192 bytes. Synchronous captures use two completion
+records, each two bytes long, to identify successfully finished stream capture.
+An incomplete capture is rejected. Each stream reader holds at most one 8-KiB chunk while draining excess data without
 retaining it. Stdout overflow is rejected without parsing a partial response.
 The capture keeps stdout and stderr separate and preserves the native command
 status for output within the stdout limit. These byte bounds do not impose a
 command-duration limit. Normal and handled-error cleanup removes the private
 capture directory.
+
+Interactive scheme and destination discovery uses three private mode-0600
+FIFOs in a mode-0700 temporary directory. Stdout and stderr stream into the same
+bounded in-memory budgets; only an atomically published native exit-status
+record of at most four bytes is written to disk. After the provider exits,
+capture consumes its queued output without waiting for inherited writers to
+close. The shared input loop drains at most eight 8-KiB chunks per stream per
+poll, so a busy provider cannot monopolize keyboard handling. A supervisor
+retains the provider process group's identity until cleanup; Compozsh checks
+its owned child state before signaling that group and then reaps the supervisor.
+Normal completion, Escape and Ctrl-C remove the FIFOs and completion record.
+Discovery reads no terminal stdin. No provider starts during paint or resize,
+and successful parsed destination snapshots and explicit selections remain
+bounded to four schemes in the current workspace. Closing the workspace releases
+them; canceled choices and removed destinations never become implicit selections.
 
 The Xcode dashboard's Test and Rebuild & Test actions ask Xcode to create a
 transient result bundle while disabling verbose test-diagnostic collection.

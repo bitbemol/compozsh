@@ -3153,12 +3153,27 @@ pages through the complete captured list. A pathological response above 4,096
 schemes is rejected explicitly with no partial list, rather than silently
 hiding later schemes.
 
+Actions appears after scheme discovery. Destinations load when you open
+**Destination** or request an action without a selected destination. Browsing
+schemes does not start destination discovery. If an action needs a destination,
+the destination picker names that action; choosing a row schedules it after the
+workspace closes. Escape returns to Actions without selecting a destination or
+running the pending action.
+
+During interactive discovery, the shared screen shows what Xcode is loading.
+Escape cancels discovery; Ctrl-C aborts the workspace. Resizing remains
+available while Xcode runs. Canceling initial scheme discovery closes the
+workspace; canceling destination discovery returns to Actions.
+
 Destination discovery is reused only inside the current dashboard. Compozsh
 keeps a least-recently-used set of up to four successful, validated destination
 snapshots, so switching back to a scheme does not start another
 `xcodebuild -showdestinations`. Choose **Refresh destinations** after connected
 devices or installed runtimes change; it replaces the current scheme’s snapshot
-and preserves the selected destination when that exact identifier remains.
+and preserves the selected destination when its exact specification remains,
+including architecture and variant. A removed destination becomes unselected;
+the next action requires a new choice. Cached results and selected destinations
+are separate: canceling a choice never implicitly selects a cached result.
 Closing and reopening `xcode` discards these snapshots and performs fresh
 discovery. No project-specific disk or shell-session cache is created.
 
@@ -3179,7 +3194,8 @@ destination output is size-bounded: stdout retains at most
 diagnostics retain at most 8,192 bytes. These bounds apply while capturing,
 including temporary files. Excess output is drained and discarded; oversized
 stdout fails without parsing a partial response. These are output bounds, not a
-command-duration limit. Discovery and actions disable automatic
+command-duration limit. Interactive discovery owns a temporary process group
+and stops it on cancellation or completion. Discovery and actions disable automatic
 package resolution and package updates and require versions from
 `Package.resolved`; Compozsh does not enable provisioning updates or bypass
 package-plugin or macro validation. Xcode can still inspect project and package

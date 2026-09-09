@@ -2013,14 +2013,27 @@ passive labels never acquire candidate numbers or selection behavior.
   kind and is not a symlink immediately before execution. Test may
   start a new screen session after xcodebuild returns, using only its already
   captured result snapshot; it must never run a provider from the renderer.
+  Present Actions after scheme discovery. Defer destination discovery until
+  opening Destination or requesting an action with no selected destination;
+  uncached scheme browsing must not start a provider. An unresolved action
+  requires explicit destination selection with its pending action and relevant
+  execution effects visible. Canceling that choice never grants a selection.
+  Interactive discovery uses the shared status view and input loop, with one
+  invocation-owned supervisor process group, bounded nonblocking streams and
+  ownership-checked cleanup. Never background an untracked synchronous capture
+  or launch a provider from an idle callback. Escape cancels initial discovery
+  or returns to Actions from destination discovery; Ctrl-C aborts the workspace.
   Destination compatibility may reuse an LRU of at most four successful parsed
   scheme snapshots inside this controller only. Retain exact IDs, platforms and
   names, architectures and variants; never merge destinations solely by device
   ID. Preserve the complete validated destination specification through refresh,
-  cached restoration, build, test, settings and launch. Never cache raw output or
-  failures. Returning to a cached scheme performs
-  no provider call. **Refresh destinations** explicitly replaces the current
-  snapshot while preserving an exact surviving destination specification. Release every entry
+  cached restoration, build, test, settings and launch. Keep explicitly selected
+  specifications separate from successful snapshots and evict them together.
+  Never cache raw output or failures. Returning to a cached scheme performs no
+  provider call. **Refresh destinations** explicitly replaces the current
+  snapshot while preserving an exact surviving destination specification. A
+  missing refreshed selection becomes unresolved and requires an explicit new
+  choice. Release every remaining entry
   on action, cancellation or workspace exit; reopening `xcode` is always fresh.
   A refresh that cannot retain its newly parsed snapshot must forget the prior
   scheme entry and fail explicitly rather than allowing stale restoration.

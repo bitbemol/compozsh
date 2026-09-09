@@ -548,6 +548,211 @@ _xcode_test_result_apply() {
   return $action_status
 }
 
+# Discovery owns one temporary native job group. Its supervisor remains alive
+# after the provider exits, retaining group identity until this owner cancels
+# or consumes the complete bounded result. Paint and input never launch work.
+_xcode_discovery_capture() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local label=$1
+  shift
+  _XCODE_DISCOVERY_CANCELLED=0
+  _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+  if [[ ! -o interactive || ! -t 1 || $TERM == dumb ]] || ! zle 2>/dev/null ||
+     (( !${+functions[_zle_ui_view]} || !${+functions[_zle_picker_loop]} )); then
+    _xcode_capture_command "$@"
+    return $?
+  fi
+  zmodload zsh/system zsh/parameter zsh/zselect || {
+    _XCODE_CAPTURE_ERROR='native Xcode discovery support is unavailable'
+    return 1
+  }
+  setopt MONITOR 2>/dev/null || {
+    _XCODE_CAPTURE_ERROR='native job control is unavailable for Xcode discovery'
+    return 1
+  }
+  unsetopt BG_NICE NOTIFY
+  local temp_root=${TMPDIR:-/tmp} _xcode_discovery_dir=''
+  local _xcode_discovery_out='' _xcode_discovery_error=''
+  local max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144} integer_max=9223372036854775807
+  local -a _xcode_discovery_fds=(-1 -1) _xcode_discovery_eof=(0 0)
+  local -i _xcode_discovery_pid=0 _xcode_discovery_done=0 _xcode_discovery_failed=0
+  local -i _xcode_discovery_overflow=0 _xcode_discovery_status=-1
+  local -i hold_reader=-1 hold_writer=-1 fd=-1 result=1 attempt=0 view_finished=0
+  _XCODE_CAPTURE_ERROR='cannot prepare the bounded Xcode discovery capture'
+  [[ $max_bytes == <-> ]] || max_bytes=262144
+  max_bytes=${max_bytes##0#}
+  [[ -n $max_bytes ]] || max_bytes=0
+  if (( ${#max_bytes} > ${#integer_max} )) ||
+     { (( ${#max_bytes} == ${#integer_max} )) && [[ $max_bytes > $integer_max ]]; }; then
+    max_bytes=262144
+  fi
+  (( max_bytes < 4096 )) && max_bytes=4096
+  _xcode_discovery_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-discovery.XXXXXXXX") || return 1
+  {
+    command mkfifo -m 600 -- "$_xcode_discovery_dir"/{stdout,stderr,hold} || return 1
+    sysopen -r -o nonblock,cloexec,nofollow -u fd "$_xcode_discovery_dir/stdout" || return 1
+    _xcode_discovery_fds[1]=$fd
+    sysopen -r -o nonblock,cloexec,nofollow -u fd "$_xcode_discovery_dir/stderr" || return 1
+    _xcode_discovery_fds[2]=$fd
+    sysopen -r -o nonblock,cloexec,nofollow -u hold_reader "$_xcode_discovery_dir/hold" || return 1
+    sysopen -w -o nonblock,cloexec,nofollow -u hold_writer "$_xcode_discovery_dir/hold" || return 1
+    {
+    (
+      unsetopt MONITOR
+      # Caught signals reset to their defaults for the external command. The
+      # supervisor survives TERM long enough for ownership-checked group KILL.
+      trap ':' INT TERM HUP
+      exec {hold_writer}>&-
+      local -i provider_status=0 hold_status=0
+      local hold_byte=''
+      command "$@" < /dev/null
+      provider_status=$?
+      exec 1>&- 2>&-
+      print -r -- "$provider_status" >| "$_xcode_discovery_dir/status.pending" &&
+        command mv -- "$_xcode_discovery_dir/status.pending" "$_xcode_discovery_dir/status" || exit 1
+      while true; do
+        sysread -i $hold_reader -s 1 -t 60 hold_byte 2>/dev/null
+        hold_status=$?
+        (( hold_status == 0 || hold_status == 5 )) && break
+      done
+    ) > "$_xcode_discovery_dir/stdout" 2> "$_xcode_discovery_dir/stderr" &
+    _xcode_discovery_pid=$!
+    } 2>/dev/null
+    exec {hold_reader}<&-
+    hold_reader=-1
+    _zle_ui_view status _xcode_discovery_view "$label"
+    result=$?
+    view_finished=1
+    if (( result != 0 )); then
+      _XCODE_DISCOVERY_CANCELLED=$result
+      _XCODE_CAPTURE_ERROR='Xcode discovery cancelled'
+    elif (( _xcode_discovery_failed )); then
+      result=1
+      _XCODE_CAPTURE_ERROR='could not complete the bounded Xcode discovery'
+    elif (( _xcode_discovery_overflow )); then
+      result=1
+      _XCODE_CAPTURE_ERROR="output exceeded the ${max_bytes}-byte capture limit"
+    else
+      result=$_xcode_discovery_status
+      if (( result == 0 )); then
+        # Match command substitution semantics without retaining a second copy
+        # on disk: all trailing newlines are removed from successful stdout.
+        _XCODE_CAPTURE=${_xcode_discovery_out%%$'\n'#}
+        _XCODE_CAPTURE_ERROR=''
+      else
+        _XCODE_CAPTURE_ERROR=${_xcode_discovery_error%%$'\n'#}
+        [[ -n $_XCODE_CAPTURE_ERROR ]] || _XCODE_CAPTURE_ERROR='xcodebuild returned a nonzero status'
+      fi
+    fi
+  } always {
+    # Native ZLE send-break unwinds the view rather than returning normally.
+    # Keep that abort distinct from a provider's own nonzero exit status.
+    if (( _xcode_discovery_pid > 1 && !view_finished )); then
+      _XCODE_DISCOVERY_CANCELLED=130
+      _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR='Xcode discovery cancelled'
+    fi
+    if (( _xcode_discovery_pid > 1 )); then
+      if _xcode_run_child_state "$_xcode_discovery_pid"; then
+        kill -TERM -- -$_xcode_discovery_pid 2>/dev/null
+        _xcode_run_child_state "$_xcode_discovery_pid" &&
+          kill -CONT -- -$_xcode_discovery_pid 2>/dev/null
+        for (( attempt=0; attempt<20; ++attempt )); do
+          [[ -f $_xcode_discovery_dir/status ]] && break
+          _xcode_discovery_poll
+          zselect -t 5
+        done
+        _xcode_run_child_state "$_xcode_discovery_pid" &&
+          kill -KILL -- -$_xcode_discovery_pid 2>/dev/null
+      fi
+      _xcode_run_wait_child "$_xcode_discovery_pid"
+    fi
+    for fd in "${_xcode_discovery_fds[@]}" $hold_reader $hold_writer; do
+      (( fd >= 0 )) && exec {fd}>&-
+    done
+    if [[ ${_xcode_discovery_dir:t} == compozsh-xcode-discovery.* &&
+          ${_xcode_discovery_dir:h:A} == ${temp_root:A} && ! -L $_xcode_discovery_dir ]]; then
+      command rm -f -- "$_xcode_discovery_dir"/{stdout,stderr,hold,status,status.pending}
+      command rmdir -- "$_xcode_discovery_dir"
+    fi
+  }
+  return $result
+}
+
+_xcode_discovery_poll() {
+  emulate -L zsh
+  local -x LC_ALL=C
+  local chunk='' captured_status=''
+  local -i source=0 attempt=0 read_status=0 remaining=0
+  (( _xcode_discovery_done )) && return 0
+  if (( _xcode_discovery_status < 0 )) && [[ -f $_xcode_discovery_dir/status ]]; then
+    captured_status=$(<"$_xcode_discovery_dir/status")
+    if [[ $captured_status == <0-255> ]]; then
+      _xcode_discovery_status=$captured_status
+    else
+      _xcode_discovery_failed=1 _xcode_discovery_done=1
+      return 0
+    fi
+  fi
+  for source in 1 2; do
+    for (( attempt=0; attempt<8; ++attempt )); do
+      chunk=''
+      sysread -i $_xcode_discovery_fds[source] -s 8192 -t 0 chunk 2>/dev/null
+      read_status=$?
+      if (( read_status == 5 || read_status == 4 )); then
+        # The provider publishes status only after exiting: its writes are
+        # already queued. Drain those bytes, but do not wait for an inherited
+        # writer in a longer-lived descendant or Xcode service to close.
+        (( _xcode_discovery_status >= 0 )) && _xcode_discovery_eof[source]=1
+        break
+      fi
+      if (( read_status != 0 )); then
+        _xcode_discovery_failed=1 _xcode_discovery_done=1
+        return 0
+      fi
+      if (( source == 1 )); then
+        remaining=$(( max_bytes - ${#_xcode_discovery_out} ))
+      else
+        remaining=$(( 8192 - ${#_xcode_discovery_error} ))
+      fi
+      if (( ${#chunk} > remaining )); then
+        (( source == 1 )) && _xcode_discovery_overflow=1
+        if (( remaining > 0 )); then chunk=${chunk[1,remaining]}; else chunk=''; fi
+      fi
+      if (( source == 1 )); then _xcode_discovery_out+=$chunk; else _xcode_discovery_error+=$chunk; fi
+    done
+  done
+  if (( _xcode_discovery_eof[1] && _xcode_discovery_eof[2] )); then
+    _xcode_discovery_done=1
+  elif ! _xcode_run_child_state "$_xcode_discovery_pid"; then
+    _xcode_discovery_failed=1 _xcode_discovery_done=1
+  fi
+}
+
+_xcode_discovery_idle() {
+  _xcode_discovery_poll
+  (( _xcode_discovery_done )) && { _ZLE_PICKER_IDLE_ACTION=complete; return 0; }
+  return 1
+}
+
+_xcode_discovery_collect() {
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+}
+
+_xcode_discovery_view() {
+  _ZLE_PICKER_TITLE='Xcode / Discovery'
+  _ZLE_PICKER_SUBTITLE=$1
+  _ZLE_PICKER_BROWSE_LABEL='Read-only discovery'
+  _ZLE_PICKER_BUSY=1
+  _ZLE_PICKER_BUSY_LINES=("$1" 'Escape cancels · Ctrl-C aborts')
+  _ZLE_PICKER_EMPTY_LINES=("${_ZLE_PICKER_BUSY_LINES[@]}")
+  _ZLE_PICKER_COLLECTOR=_xcode_discovery_collect
+  _ZLE_PICKER_IDLE_CALLBACK=_xcode_discovery_idle
+  _ZLE_PICKER_CANCEL_LABEL=cancel
+  _ZLE_PICKER_BUSY_LABEL='Waiting for Xcode · Escape cancels'
+  _zle_picker_loop '' 10
+}
+
 _xcode_schemes_capture() {
   emulate -L zsh
   local kind=$1 container=$2 json='' xml='' count='' scheme='' key=''
@@ -561,7 +766,7 @@ _xcode_schemes_capture() {
   _xcode_safe_arguments
   _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}"
     "${_XCODE_SAFE_ARGUMENTS[@]}" -list -json)
-  _xcode_capture_command "${_XCODE_COMMAND[@]}" || return
+  _xcode_discovery_capture 'Loading schemes' "${_XCODE_COMMAND[@]}" || return
   json=$_XCODE_CAPTURE
   key="$kind.schemes"
   (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key" || {
@@ -710,7 +915,7 @@ _xcode_destinations_capture() {
   _xcode_safe_arguments
   _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" -scheme "$scheme"
     "${_XCODE_SAFE_ARGUMENTS[@]}" -showdestinations)
-  _xcode_capture_command "${_XCODE_COMMAND[@]}" || return
+  _xcode_discovery_capture 'Loading destinations' "${_XCODE_COMMAND[@]}" || return
   _xcode_destinations_parse "$_XCODE_CAPTURE" || {
     _XCODE_CAPTURE_ERROR='Xcode reported no concrete destinations with stable identifiers'
     return 1
@@ -752,6 +957,9 @@ _xcode_destination_cache_forget() {
   emulate -L zsh
   local scheme=$1
   local -i slot=0
+  if (( ${+parameters[_XCODE_DESTINATION_SELECTIONS]} )); then
+    unset "_XCODE_DESTINATION_SELECTIONS[$scheme]"
+  fi
   (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
      ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
      ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
@@ -810,6 +1018,9 @@ _xcode_destination_cache_store() {
   fi
   _xcode_destination_cache_touch $slot || return
   if (( ${#_XCODE_DESTINATION_CACHE_SCHEMES} > 4 )); then
+    if (( ${+parameters[_XCODE_DESTINATION_SELECTIONS]} )); then
+      unset "_XCODE_DESTINATION_SELECTIONS[${_XCODE_DESTINATION_CACHE_SCHEMES[1]}]"
+    fi
     _XCODE_DESTINATION_CACHE_SCHEMES=("${_XCODE_DESTINATION_CACHE_SCHEMES[@][2,-1]}")
     _XCODE_DESTINATION_CACHE_IDS=("${_XCODE_DESTINATION_CACHE_IDS[@][2,-1]}")
     _XCODE_DESTINATION_CACHE_PLATFORMS=("${_XCODE_DESTINATION_CACHE_PLATFORMS[@][2,-1]}")
@@ -2214,6 +2425,11 @@ _xcode_choice_view() {
   elif [[ $label_kind == run-products ]]; then
     _ZLE_PICKER_INSPECT_ACTION=run
     _ZLE_PICKER_BROWSE_LABEL='Choose the exact built product to run'
+  elif [[ $label_kind == action-destination ]]; then
+    _ZLE_PICKER_BROWSE_LABEL="Choose destination for $_XCODE_PENDING_ACTION_LABEL"
+    for value in "${_XCODE_PICKER_VALUES[@]}"; do
+      _ZLE_PICKER_ACCEPT_LABELS[$value]=${_XCODE_PENDING_ACTION_LABEL:l}
+    done
   fi
   if [[ -n $initial_value ]]; then
     _xcode_picker_collect "$initial_query" 1000
@@ -2409,19 +2625,41 @@ _xcode_test_execute() {
   return $action_status
 }
 
+# Shared by the action dashboard and the final destination choice for Run.
+_xcode_run_destination_description() {
+  case $1 in
+    ('') reply=(
+      'Choose a destination, then incrementally build and launch'
+      'Choose an exact destination before running. Xcode decides compatibility; the selected app or command-line product launches only after this workspace closes.') ;;
+    (*Simulator) reply=(
+      'Incrementally build and launch in Simulator'
+      'Boots the selected Simulator, installs the built app and opens live app output with Stop and Enter LLDB actions. Escape stops this run.') ;;
+    (macOS|DriverKit) reply=(
+      'Incrementally build and launch on this Mac'
+      'Opens a new instance of the exact built app on this Mac. The app remains running when the command returns; quit it in the app. Command-line products run in the restored terminal.') ;;
+    (*) reply=(
+      'Incrementally build, install and launch on device'
+      'Installs the built app on the exact selected physical device through Apple devicectl, replacing its installed copy, then launches with a foreground console. Ctrl-C is forwarded to the app. Xcode owns device compatibility, pairing, Developer Mode and signing; configure those in Xcode before running.') ;;
+  esac
+}
+
 _xcode_workspace_controller() {
   emulate -L zsh
   local kind=${_XCODE_CONTAINER_KINDS[1]} container=${_XCODE_CONTAINERS[1]}
   local scheme='' platform='' identifier='' destination='' selected=''
   local previous_spec='' spec='' run_description='' run_details=''
-  local -i result=0 index=0 container_index=1 scheme_index=1 destination_index=1
+  local _XCODE_PENDING_ACTION_LABEL='' pending_details=''
+  local -i result=0 index=0 container_index=1 scheme_index=1 destination_index=0
+  local -i _XCODE_DISCOVERY_CANCELLED=0
   local -a _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=()
   local -a _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
+  local -a reply=()
   local -a _XCODE_DESTINATION_CACHE_SCHEMES=()
   local -a _XCODE_DESTINATION_CACHE_IDS=()
   local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
   local -a _XCODE_DESTINATION_CACHE_NAMES=()
   local -a _XCODE_DESTINATION_CACHE_SPECS=()
+  local -A _XCODE_DESTINATION_SELECTIONS=()
   local _XCODE_ACTION_CONTEXT='' action_query='' action_value=''
   local -i action_offset=0 action_focus=0
 
@@ -2442,19 +2680,16 @@ _xcode_workspace_controller() {
   fi
 
   _xcode_schemes_capture "$kind" "$container" || {
+    (( _XCODE_DISCOVERY_CANCELLED )) && return $_XCODE_DISCOVERY_CANCELLED
     _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
     return 4
   }
   scheme=${_XCODE_SCHEMES[1]}
-  _xcode_destinations_capture "$kind" "$container" "$scheme" || {
-    _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
-    return 4
-  }
-  _xcode_destination_cache_store "$scheme" || :
-  platform=${_XCODE_DESTINATION_PLATFORMS[1]}
-  identifier=${_XCODE_DESTINATION_IDS[1]}
-  destination=${_XCODE_DESTINATION_NAMES[1]}
-  spec=${_XCODE_DESTINATION_SPECS[1]}
+  # Scheme browsing needs no device query. A destination becomes selected only
+  # from an existing snapshot or an explicit choice before an action.
+  _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
+  _XCODE_DESTINATION_NAMES=() _XCODE_DESTINATION_SPECS=()
+  destination='Choose when needed'
 
   local -a action_exclusion=()
   while true; do
@@ -2466,17 +2701,8 @@ _xcode_workspace_controller() {
     _XCODE_PICKER_DETAILS=(
       "$scheme"$'\n\nChoose one of Xcode’s shared schemes.'
       "$destination"$'\n'"$spec"$'\n\nChoose an exact destination reported by Xcode, including its architecture and variant.')
-    case $platform in
-      (*Simulator)
-        run_description='Incrementally build and launch in Simulator'
-        run_details='Boots the selected Simulator, installs the built app and opens live app output with Stop and Enter LLDB actions. Escape stops this run.' ;;
-      (macOS|DriverKit)
-        run_description='Incrementally build and launch on this Mac'
-        run_details='Opens a new instance of the exact built app on this Mac. The app remains running when the command returns; quit it in the app. Command-line products run in the restored terminal.' ;;
-      (*)
-        run_description='Incrementally build, install and launch on device'
-        run_details='Installs the built app on the exact selected physical device through Apple devicectl, replacing its installed copy, then launches with a foreground console. Ctrl-C is forwarded to the app. Xcode owns device compatibility, pairing, Developer Mode and signing; configure those in Xcode before running.' ;;
-    esac
+    _xcode_run_destination_description "$platform"
+    run_description=$reply[1] run_details=$reply[2]
     _XCODE_PICKER_VALUES+=(run rebuild-run)
     _XCODE_PICKER_LABELS+=(
       "Build & Run · $run_description"
@@ -2513,6 +2739,9 @@ _xcode_workspace_controller() {
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
+    index=${_XCODE_PICKER_VALUES[(Ie)$selected]}
+    _XCODE_PENDING_ACTION_LABEL=${_XCODE_PICKER_LABELS[index]%% · *}
+    pending_details=${_XCODE_PICKER_DETAILS[index]}
     action_query=${_ZLE_PICKER_BOOKMARK[1]-} action_value=$selected
     action_exclusion=("${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" "${_ZLE_PICKER_BOOKMARK[6]:-0}")
     action_offset=${_ZLE_PICKER_BOOKMARK[3]:-0} action_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
@@ -2529,37 +2758,73 @@ _xcode_workspace_controller() {
         (( result == 1 )) && continue
         (( result == 0 )) || return $result
         scheme_index=$_ZLE_PICKER_SELECTED_VALUE
+        [[ $scheme == ${_XCODE_SCHEMES[scheme_index]} ]] && continue
         scheme=${_XCODE_SCHEMES[scheme_index]}
+        destination_index=0
         if ! _xcode_destination_cache_restore "$scheme"; then
-          _xcode_destinations_capture "$kind" "$container" "$scheme" || {
-            _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
-            return 4
-          }
-          _xcode_destination_cache_store "$scheme" || :
+          _XCODE_DESTINATION_IDS=() _XCODE_DESTINATION_PLATFORMS=()
+          _XCODE_DESTINATION_NAMES=() _XCODE_DESTINATION_SPECS=()
+        else
+          previous_spec=${_XCODE_DESTINATION_SELECTIONS[$scheme]-}
+          [[ -n $previous_spec ]] && destination_index=${_XCODE_DESTINATION_SPECS[(Ie)$previous_spec]}
         fi
-        destination_index=1
-        platform=${_XCODE_DESTINATION_PLATFORMS[1]}
-        identifier=${_XCODE_DESTINATION_IDS[1]}
-        destination=${_XCODE_DESTINATION_NAMES[1]} ;;
-      (destination)
-        _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
-        for (( index = 1; index <= ${#_XCODE_DESTINATION_IDS}; ++index )); do
-          _XCODE_PICKER_VALUES+=("$index")
-          _XCODE_PICKER_LABELS+=("${_XCODE_DESTINATION_NAMES[index]} · ${_XCODE_DESTINATION_PLATFORMS[index]}")
-          _XCODE_PICKER_SEARCH+=("${_XCODE_DESTINATION_NAMES[index]} ${_XCODE_DESTINATION_PLATFORMS[index]}")
-          _XCODE_PICKER_DETAILS+=("${_XCODE_DESTINATION_NAMES[index]}"$'\n'"${_XCODE_DESTINATION_SPECS[index]}"$'\n\nExact destination reported by Xcode.')
-        done
-        _xcode_choose 'Xcode / Destination' "$scheme" 'Filter destinations'
-        result=$?
-        (( result == 1 )) && continue
-        (( result == 0 )) || return $result
-        destination_index=$_ZLE_PICKER_SELECTED_VALUE
-        platform=${_XCODE_DESTINATION_PLATFORMS[destination_index]}
-        identifier=${_XCODE_DESTINATION_IDS[destination_index]}
-        destination=${_XCODE_DESTINATION_NAMES[destination_index]} ;;
+        ;;
+      (destination|build|rebuild|test|rebuild-test|analyze|clean|run|rebuild-run)
+        if [[ $selected == destination || -z $spec ]]; then
+          if ! _xcode_destination_cache_restore "$scheme"; then
+            _xcode_destinations_capture "$kind" "$container" "$scheme" || {
+              (( _XCODE_DISCOVERY_CANCELLED == 1 )) && continue
+              (( _XCODE_DISCOVERY_CANCELLED )) && return $_XCODE_DISCOVERY_CANCELLED
+              _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
+              return 4
+            }
+            _xcode_destination_cache_store "$scheme" || {
+              _XCODE_WORKSPACE_ERROR='cannot retain the destination snapshot'
+              return 4
+            }
+          fi
+          _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
+          for (( index = 1; index <= ${#_XCODE_DESTINATION_IDS}; ++index )); do
+            _XCODE_PICKER_VALUES+=("$index")
+            _XCODE_PICKER_LABELS+=("${_XCODE_DESTINATION_NAMES[index]} · ${_XCODE_DESTINATION_PLATFORMS[index]}")
+            _XCODE_PICKER_SEARCH+=("${_XCODE_DESTINATION_NAMES[index]} ${_XCODE_DESTINATION_PLATFORMS[index]}")
+            _XCODE_PICKER_DETAILS+=("${_XCODE_DESTINATION_NAMES[index]}"$'\n'"${_XCODE_DESTINATION_SPECS[index]}"$'\n\nExact destination reported by Xcode.')
+            if [[ $selected != destination ]]; then
+              _XCODE_PICKER_DETAILS[index]+=$'\n\n'"$pending_details"$'\n\n'"Selecting this destination schedules $_XCODE_PENDING_ACTION_LABEL after the workspace closes."
+              if [[ $selected == (run|rebuild-run) ]]; then
+                _xcode_run_destination_description "${_XCODE_DESTINATION_PLATFORMS[index]}"
+                _XCODE_PICKER_DETAILS[index]+=$'\n\n'"$reply[2]"
+              fi
+            fi
+          done
+          if [[ $selected == destination ]]; then
+            _xcode_choose 'Xcode / Destination' "$scheme" 'Filter destinations'
+          else
+            _xcode_choose 'Xcode / Destination' "$scheme" 'Filter destinations' action-destination
+          fi
+          result=$?
+          (( result == 1 )) && continue
+          (( result == 0 )) || return $result
+          destination_index=$_ZLE_PICKER_SELECTED_VALUE
+          platform=${_XCODE_DESTINATION_PLATFORMS[destination_index]}
+          identifier=${_XCODE_DESTINATION_IDS[destination_index]}
+          destination=${_XCODE_DESTINATION_NAMES[destination_index]}
+          spec=${_XCODE_DESTINATION_SPECS[destination_index]}
+          _XCODE_DESTINATION_SELECTIONS[$scheme]=$spec
+        fi
+        if [[ $selected != destination ]]; then
+          _XCODE_REQUEST=$selected
+          _XCODE_SELECTED_KIND=$kind _XCODE_SELECTED_CONTAINER=$container
+          _XCODE_SELECTED_SCHEME=$scheme _XCODE_SELECTED_PLATFORM=$platform
+          _XCODE_SELECTED_ID=$identifier _XCODE_SELECTED_DESTINATION=$destination
+          _XCODE_SELECTED_SPEC=$spec
+          return 0
+        fi ;;
       (refresh-destinations)
         previous_spec=$spec
         _xcode_destinations_capture "$kind" "$container" "$scheme" || {
+          (( _XCODE_DISCOVERY_CANCELLED == 1 )) && continue
+          (( _XCODE_DISCOVERY_CANCELLED )) && return $_XCODE_DISCOVERY_CANCELLED
           _XCODE_WORKSPACE_ERROR=$_XCODE_CAPTURE_ERROR
           return 4
         }
@@ -2569,19 +2834,18 @@ _xcode_workspace_controller() {
           return 4
         }
         destination_index=${_XCODE_DESTINATION_SPECS[(Ie)$previous_spec]}
-        (( destination_index )) || destination_index=1
-        platform=${_XCODE_DESTINATION_PLATFORMS[destination_index]}
-        identifier=${_XCODE_DESTINATION_IDS[destination_index]}
-        destination=${_XCODE_DESTINATION_NAMES[destination_index]} ;;
-      (build|rebuild|test|rebuild-test|analyze|clean|run|rebuild-run)
-        _XCODE_REQUEST=$selected
-        _XCODE_SELECTED_KIND=$kind _XCODE_SELECTED_CONTAINER=$container
-        _XCODE_SELECTED_SCHEME=$scheme _XCODE_SELECTED_PLATFORM=$platform
-        _XCODE_SELECTED_ID=$identifier _XCODE_SELECTED_DESTINATION=$destination
-        _XCODE_SELECTED_SPEC=$spec
-        return 0 ;;
+        ;;
     esac
-    spec=${_XCODE_DESTINATION_SPECS[destination_index]}
+    if (( destination_index )); then
+      platform=${_XCODE_DESTINATION_PLATFORMS[destination_index]}
+      identifier=${_XCODE_DESTINATION_IDS[destination_index]}
+      destination=${_XCODE_DESTINATION_NAMES[destination_index]}
+      spec=${_XCODE_DESTINATION_SPECS[destination_index]}
+      _XCODE_DESTINATION_SELECTIONS[$scheme]=$spec
+    else
+      platform='' identifier='' spec='' destination='Choose when needed'
+      unset "_XCODE_DESTINATION_SELECTIONS[$scheme]"
+    fi
   done
 }
 
@@ -2608,10 +2872,15 @@ _compozsh_help_xcode() {
     '  read-only discovery and remain inside one responsive full-screen workspace.' \
     '  Every validated scheme in a bounded response is available to filtering and' \
     '  paging. A response above 4096 schemes fails; no partial list is shown.' \
+    '  Actions opens after schemes load. Destinations load only when needed;' \
+    '  browsing uncached schemes performs no destination query. An action without' \
+    '  a selected destination asks you to choose one before it executes.' \
+    '  During discovery, Escape cancels and Ctrl-C aborts; resize remains available.' \
     '  Destination snapshots for up to four schemes stay in memory only while this' \
     '  workspace is open, so returning to a scheme avoids another Xcode query.' \
     '  Refresh destinations replaces the current scheme snapshot after devices or' \
-    '  runtimes change. Closing and reopening xcode performs fresh discovery.' \
+    '  runtimes change. A missing selected destination requires a new choice.' \
+    '  Closing and reopening xcode performs fresh discovery.' \
     '' \
     'Actions:' \
     '  Option names use the picker-header palette; settings and descriptions' \

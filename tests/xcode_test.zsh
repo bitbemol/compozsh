@@ -385,13 +385,13 @@ _test_xcode_workspace_reuses_bounded_destination_snapshots() {
           (( ${_XCODE_PICKER_VALUES[(Ie)rebuild-run]} )) && saw_rebuild_run=1
           (( ++action_step ))
           case $action_step in
-            (1|2|5)
-              (( action_step == 5 )) &&
+            (2|4|7)
+              (( action_step == 7 )) &&
                 [[ ${_XCODE_PICKER_LABELS[2]} == "Destination · A kept refreshed" ]] && preserved=1
               _ZLE_PICKER_SELECTED_VALUE=scheme ;;
-            (3) _ZLE_PICKER_SELECTED_VALUE=destination ;;
-            (4) _ZLE_PICKER_SELECTED_VALUE=refresh-destinations ;;
-            (6) _ZLE_PICKER_SELECTED_VALUE=build ;;
+            (1|3|5) _ZLE_PICKER_SELECTED_VALUE=destination ;;
+            (6) _ZLE_PICKER_SELECTED_VALUE=refresh-destinations ;;
+            (8) _ZLE_PICKER_SELECTED_VALUE=build ;;
           esac ;;
         ("Xcode / Scheme")
           (( ++scheme_step ))
@@ -399,7 +399,9 @@ _test_xcode_workspace_reuses_bounded_destination_snapshots() {
             (1|3) _ZLE_PICKER_SELECTED_VALUE=2 ;;
             (2) _ZLE_PICKER_SELECTED_VALUE=1 ;;
           esac ;;
-        ("Xcode / Destination") _ZLE_PICKER_SELECTED_VALUE=2 ;;
+        ("Xcode / Destination")
+          _ZLE_PICKER_SELECTED_VALUE=1
+          [[ $2 == A ]] && _ZLE_PICKER_SELECTED_VALUE=2 ;;
       esac
       return 0
     }
@@ -411,7 +413,7 @@ _test_xcode_workspace_reuses_bounded_destination_snapshots() {
     print -r -- "rebuild-run:$saw_rebuild_run"
     print -r -- "preserved:$preserved"
     print -r -- "action:$_XCODE_REQUEST|$_XCODE_SELECTED_SCHEME|$_XCODE_SELECTED_ID|$_XCODE_SELECTED_DESTINATION"
-    action_step=5
+    action_step=7
     _xcode_workspace_controller || exit
     print -r -- "reopened:${(j:|:)captures}"
   ' "$TEST_REPO_ROOT") || return
@@ -553,8 +555,14 @@ _test_xcode_action_option_colors() {
       _XCODE_DESTINATION_PLATFORMS=("iOS Simulator")
       _XCODE_DESTINATION_NAMES=("iPad · iOS 27")
     }
+    local -i action_step=0
     _zle_picker_loop() {
       if [[ $_ZLE_PICKER_TITLE == "Xcode / Actions" ]]; then
+        (( ++action_step ))
+        if (( action_step == 1 )); then
+          _ZLE_PICKER_SELECTED_VALUE=destination
+          return 0
+        fi
         local -i index=0
         local prefix="" value=""
         for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
@@ -574,6 +582,9 @@ _test_xcode_action_option_colors() {
         [[ ${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[1]} == "7:18:picker-header" &&
            ${_ZLE_PICKER_DISPLAY[1]} != *$'\''\e'\''* ]] || return 10
         print colored
+      elif [[ $_ZLE_PICKER_TITLE == "Xcode / Destination" ]]; then
+        _ZLE_PICKER_SELECTED_VALUE=1
+        return 0
       else
         (( !${#_ZLE_PICKER_LABEL_HIGHLIGHTS} )) || return 11
         print unstyled
