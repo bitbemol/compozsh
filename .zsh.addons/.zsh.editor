@@ -532,6 +532,9 @@ _directory_picker_prepare() {
   input_path=${(Q)token}
   [[ -n $input_path && $input_path != -* &&
      $input_path != *[[:cntrl:]]* ]] || return 1
+  # Quoting suppresses native tilde expansion. Leave those literal paths to
+  # completion rather than changing their scope when removing shell quoting.
+  [[ $input_path != '~'* || $token == '~'* ]] || return 1
 
   # An exact alias, function, builtin, reserved word, or executable wins over a
   # same-named directory, matching Zsh's normal command resolution.
@@ -1297,8 +1300,10 @@ _directory_context_complete_widget() {
   _directory_completion_prefix "$BUFFER" || { zle expand-or-complete; return; }
   argument_prefix=$REPLY
   [[ -n $argument_prefix ]] && entry=${BUFFER[$(( ${#argument_prefix} + 1 )),-1]}
-  _directory_browser_session "$entry" insert widget browse "$argument_prefix"
-  local result=$?
+  # Cancellation and native-completion fallback are expected outcomes, even
+  # when the caller enables ERR_RETURN for their own shell functions.
+  local result=0
+  _directory_browser_session "$entry" insert widget browse "$argument_prefix" || result=$?
   if (( result == 3 )); then
     zle expand-or-complete
   elif (( result > 1 )); then

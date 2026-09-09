@@ -428,11 +428,11 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/ui/.zsh.ui.zle_picker_footer` | Action and navigation footer | UI component; `_zle_picker_footer` derives folder, reader and View options actions from capabilities |
 | `support/ui/.zsh.ui.zle_picker_guide_render` | Keyboard-guide element | UI component; `_zle_picker_guide_render` includes supported tree, flat-list and reading controls |
 | `support/ui/.zsh.ui.zle_picker_inspect_render` | Inspector and document-reader rows | UI component; `_zle_picker_inspect_render` presents captured-folder summaries and file documents with independent reading positions |
-| `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction | UI component; `_zle_picker_loop` handles branch acceptance, matching-document selection, view requests and independent reading |
+| `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction and paste recovery | UI component; `_zle_picker_loop` handles branch acceptance, matching-document selection, view requests, independent reading and incomplete-paste ownership |
 | `support/ui/.zsh.ui.zle_picker_redraw` | Resize and redraw entry | UI component; entry `_zle_picker_redraw` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_render` | Complete frame assembly | UI component; `_zle_picker_render` preserves explicit structural prefixes, compact status width and caller-derived selection headers |
 | `support/ui/.zsh.ui.zle_picker_run` | Nested ZLE entry | UI component; entry `_zle_picker_run` first, followed by exclusive helpers |
-| `support/ui/.zsh.ui.zle_picker_screen_session` | Terminal ownership and restoration | UI component; entry `_zle_picker_screen_session` first, followed by exclusive helpers |
+| `support/ui/.zsh.ui.zle_picker_screen_session` | Terminal ownership, scoped Ctrl-C abort and restoration | UI component; entry `_zle_picker_screen_session` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_show` | Terminal painting and semantic styles | UI component; entry `_zle_picker_show` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_workspace` | Pane layout | UI component; `_zle_picker_workspace` and its helpers derive folder-summary or file-disclosure navigation from selection |
 | `support/ui/.zsh.ui.zle_ui_read_text` | Captured-text reader | UI component; entry `_zle_ui_read_text` first, followed by exclusive helpers |
@@ -1494,7 +1494,9 @@ Commands, options, ordinary arguments such as `git switch`, file arguments,
 directory-argument prefixes with no matching directories, trailing whitespace,
 and a cursor in the middle of the line delegate to Zsh's original
 `expand-or-complete` widget. So do missing or unreadable parents, shell operators,
-argument expansions or wildcard syntax, and quoted/escaped tildes. An exact
+argument expansions or wildcard syntax, and quoted/escaped tildes in both lone
+paths and arguments. Quoting a tilde keeps its literal directory meaning; it
+does not redirect Browse into the home directory. An exact
 command name still wins over a same-named directory in command position.
 Outside the picker, `Shift-Tab` continues to use native reverse completion.
 
@@ -1893,12 +1895,23 @@ waits half a second for a following letter. Ctrl-G has no decoding delay.
 Option-Up/Down, Option-V, Option-W and Option-Backspace remain optional Meta
 alternatives for paging, page-up, copy and word deletion. Fn-Up/Down also page
 when sent by the terminal.
-There is no need to type Escape followed by a letter for any picker action.
+Ordinary picker actions do not require typing Escape followed by a letter.
+
+If a recognized paste pauses for more than one second or exceeds 1,048,576
+characters, the whole paste is discarded and the previous filter stays unchanged.
+A **Paste discarded** screen holds the remaining input until the terminal sends
+the closing paste marker. Enter, Escape, Ctrl-G and Ctrl-C cannot apply an action
+or return that unfinished paste to the prompt. If the terminal never finishes
+the paste, press **Escape**, then type **`[201~`** to recover. Normal cancellation
+works again after recovery. A delayed recognized paste-opening prefix uses the
+same recovery; a closed input stream exits without repeatedly retrying reads.
 
 These are **modal picker controls**: for example, Ctrl-K shows keys and Ctrl-D
 pages up here. After closing, normal shell editing is unchanged: Ctrl-K deletes
 to the end of the line and Ctrl-D retains Zsh's delete/EOF behavior. Command-key
 shortcuts continue to belong to Terminal.app.
+The screen owns Ctrl-C while open and restores existing shell signal handlers
+after terminal cleanup; incomplete paste temporarily holds Ctrl-C until recovery.
 
 ### Excluding candidates
 
@@ -3115,7 +3128,9 @@ directory from that exact Simulator; launch metadata uses the existing host
 `TMPDIR` capture boundary. Compozsh creates no persistent log file or daemon;
 it does not control the Simulator's own log retention.
 The log observer exists only for this run. Normal and handled-error cleanup
-stops and reaps it, removes the pipes, and attempts to
+gives the observer up to one second to stop while discarding its final pending
+output, then forcibly stops an unresponsive owned observer. Suspended owned
+children are resumed for termination and reaped. Cleanup removes the pipes and attempts to
 stop the still-identical app. Process identity checks and actions cannot be
 atomic against external replacement. If identity cannot be verified, Compozsh
 does not terminate an unverified process; it reports the uncertainty and returns
@@ -3159,7 +3174,12 @@ and its guidance for
 [running and interpreting tests](https://developer.apple.com/documentation/xcode/running-tests-and-interpreting-results).
 
 Opening the workspace performs read-only Xcode discovery. Captured scheme and
-destination output is size-bounded. Discovery and actions disable automatic
+destination output is size-bounded: stdout retains at most
+`ZSH_XCODE_CAPTURE_MAX_BYTES` bytes (262,144 by default, minimum 4,096), and failure
+diagnostics retain at most 8,192 bytes. These bounds apply while capturing,
+including temporary files. Excess output is drained and discarded; oversized
+stdout fails without parsing a partial response. These are output bounds, not a
+command-duration limit. Discovery and actions disable automatic
 package resolution and package updates and require versions from
 `Package.resolved`; Compozsh does not enable provisioning updates or bypass
 package-plugin or macro validation. Xcode can still inspect project and package
@@ -3904,9 +3924,14 @@ screen, clear-screen flash or intermediate empty document. A surviving target
 keeps its pane focus, filtered rank, viewport slot and semantic source anchor.
 Other files are captured when selected. The worker, exact Git provider, and
 their private pipes and bounded in-memory payloads exist only for this review
-screen and are reaped/removed on pause, timeout or exit. The screen session and
-worker enforce the thirty-second deadline even while terminal input remains queued; there is
+screen, with cleanup on pause, timeout or exit. Provider capture and result
+delivery share the thirty-second deadline even while terminal input remains queued; there is
 no daemon, persistent project cache, hook, fetch or network request.
+
+Result delivery uses nonblocking writes, so a full pipe does not prevent
+cancellation or deadline cleanup. Incomplete-paste recovery pauses result and
+live-output consumption until the closing marker arrives; a timed-out Git check
+is reported when normal input processing resumes.
 
 If the selected path/change kind disappears or leaves the filtered results
 while the right pane has focus, Compozsh keeps the old reader and source position
@@ -4691,11 +4716,18 @@ up to 32,768 characters, while the complete status was already printed into
 scrollback. Plain/noninteractive and missing-UI paths retain the `[y/N]` prompt.
 The screen closes before revalidation or any Git write.
 
-It restores both staged and unstaged tracked files to `HEAD`, then deletes
-untracked files and directories throughout the repository. It deliberately
+It deletes untracked files and directories under the reviewed ignore rules,
+then restores staged and unstaged tracked files to `HEAD`. It deliberately
 keeps ignored files, stashes, commits, submodule contents, and nested Git
 repositories. It also refuses to run without an existing commit or while a
 merge, rebase, cherry-pick, revert, or bisect operation is active.
+An empty initial commit supports untracked-only cleanup. An existing Git index
+lock refuses the operation before cleanup and is left untouched.
+
+Restoring `.gitignore` can make preserved files appear as untracked changes.
+Those files stay on disk; the final report lists them and returns status 1.
+If tracked restoration fails after untracked cleanup, the diagnostic reports
+that partial outcome; completed cleanup is not rolled back.
 
 Restoration explicitly disables submodule recursion, including when your Git
 configuration enables it. If a preserved submodule remains dirty, final

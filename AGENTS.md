@@ -1466,6 +1466,15 @@ passive labels never acquire candidate numbers or selection behavior.
   Modal shortcuts must not rebind normal ZLE editing outside the picker.
   Test the requested read allowance deterministically; measure actual Escape
   latency separately from correctness assertions to avoid scheduler-sensitive tests.
+- After recognizing a bracketed-paste opening prefix, retain input ownership
+  until its closing marker. Timeout or overflow discards the whole paste in the
+  existing screen with bounded suffix storage and visible recovery instructions.
+  Cancellation bytes and handled SIGINT are not an exit boundary for incomplete
+  paste; restore ordinary cancellation, filter, focus and viewport after
+  resynchronization. The modal screen owns SIGINT abort through terminal cleanup,
+  then restores caller signal registrations on return. Terminal EOF must exit
+  without a busy loop.
+  Keep the ordinary short Escape recognition window before prefix recognition.
 - Keep task semantics explicit: history, the Tab directory browser and Recents
   insert; `g` switches branch; Files search inserts directories
   and offers explicit file/link actions;
@@ -1767,7 +1776,9 @@ passive labels never acquire candidate numbers or selection behavior.
   no faster than two seconds and at least four times the capture duration
   measured inside the worker, capped at thirty seconds. Give one check a
   screen-session thirty-second deadline that does not depend on ordinary
-  picker-idle callbacks or an empty terminal-input queue. A failed or timed-out
+  picker-idle callbacks or an empty terminal-input queue. Include final result
+  delivery in that deadline: use nonblocking writes, retain partial-write counts,
+  and keep cancellation responsive when the response pipe is full. A failed or timed-out
   automatic check retains the old
   observation, pauses further checks and exposes Ctrl-R as retry.
   Parse and validate a complete worker result before publishing it. Publish a
@@ -1984,7 +1995,9 @@ passive labels never acquire candidate numbers or selection behavior.
   machine-readable JSON where the CLI provides it and parse it with the system
   `plutil`; accept the documented destination listing only after validating a
   fixed platform vocabulary and literal stable identifier. Bound every retained
-  provider capture (currently 256 KiB), diagnostic and item count. Retain every
+  provider capture (currently 256 KiB), diagnostic and item count. Enforce byte
+  bounds during capture, including temporary files; never write unbounded
+  provider output and check its size only after the command finishes. Retain every
   validated scheme within those bounds; an exceeded item bound fails with no
   partial catalog. No repaint, filtering, focus, scrolling or resize may invoke
   an Xcode provider.

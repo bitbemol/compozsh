@@ -95,15 +95,14 @@ _xcode_safe_arguments() {
   )
 }
 
-# Capture first-party command output into a size-bounded invocation directory.
-# No partial output is parsed; diagnostics are retained separately and both
-# files are removed before returning.
+# Capture first-party output through native bounded stream sinks. Excess bytes
+# are drained without retention; no partial stdout is returned for parsing.
 _xcode_capture_command() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
   local temp_root=${TMPDIR:-/tmp} capture_dir='' stdout_file='' stderr_file=''
-  local raw_size='' output='' diagnostic=''
+  local output='' diagnostic='' stdout_status='' stderr_status=''
   local max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}
   local integer_max=9223372036854775807
   local -i command_status=0
@@ -126,18 +125,26 @@ _xcode_capture_command() {
   stdout_file="$capture_dir/stdout"
   stderr_file="$capture_dir/stderr"
   {
-    command "$@" >| "$stdout_file" 2>| "$stderr_file"
-    command_status=$?
-    raw_size=$(command wc -c < "$stdout_file" 2>/dev/null)
-    raw_size=${raw_size//[[:space:]]/}
-    [[ $raw_size == <-> ]] || raw_size=0
-    if (( raw_size > max_bytes )); then
+    # Zsh waits for process substitutions attached to a compound command.
+    # The foreground command retains its stdin, literal argv and exit status;
+    # separate readers keep either output stream from blocking the other.
+    {
+      command "$@"
+      command_status=$?
+    } > >(_xcode_capture_stream "$max_bytes" "$stdout_file") \
+      2> >(_xcode_capture_stream 8192 "$stderr_file")
+    [[ -f $stdout_file.status ]] && stdout_status=$(<"$stdout_file.status")
+    [[ -f $stderr_file.status ]] && stderr_status=$(<"$stderr_file.status")
+    if [[ $stdout_status != (0|1) || $stderr_status != (0|1) ]]; then
+      (( command_status == 0 )) && command_status=1
+      diagnostic='could not complete the bounded command capture'
+    elif [[ $stdout_status == 1 ]]; then
       command_status=1
       diagnostic="output exceeded the ${max_bytes}-byte capture limit"
     elif (( command_status == 0 )); then
       output=$(<"$stdout_file")
     else
-      diagnostic=$(command head -c 8192 -- "$stderr_file" 2>/dev/null)
+      diagnostic=$(<"$stderr_file")
       [[ -n $diagnostic ]] || diagnostic='xcodebuild returned a nonzero status'
     fi
   } always {
@@ -149,6 +156,41 @@ _xcode_capture_command() {
   _XCODE_CAPTURE=$output
   _XCODE_CAPTURE_ERROR=$diagnostic
   return $command_status
+}
+
+# Keep at most the stream budget on disk and one 8-KiB chunk in memory. A tiny
+# completion record appears only after EOF and successful writes, so a failed
+# reader cannot make a partial command result look complete. Continuing to
+# drain overflow preserves the provider's own failure/success behavior.
+_xcode_capture_stream() {
+  emulate -L zsh
+  local -x LC_ALL=C
+  local destination=$2 chunk=''
+  local -i budget=$1 retained=0 remaining=0 overflow=0 read_status=0
+  zmodload zsh/system || return 1
+  {
+    while true; do
+      chunk=''
+      sysread -i 0 -s 8192 chunk 2>/dev/null
+      read_status=$?
+      (( read_status == 5 )) && break
+      (( read_status == 0 )) || return 1
+      remaining=$(( budget - retained ))
+      if (( ${#chunk} > remaining )); then
+        overflow=1
+        if (( remaining > 0 )); then
+          chunk=${chunk[1,remaining]}
+        else
+          chunk=''
+        fi
+      fi
+      if [[ -n $chunk ]]; then
+        print -rn -- "$chunk" || return 1
+        (( retained += ${#chunk} ))
+      fi
+    done
+  } >| "$destination" || return 1
+  print -r -- "$overflow" >| "$destination.status"
 }
 
 
@@ -1208,22 +1250,64 @@ _xcode_run_logs_start() {
 
 _xcode_run_logs_stop() {
   emulate -L zsh
-  local job='' state=''
+  local REPLY='' chunk=''
+  local -i attempt=0 grace=20
   if (( ${_xcode_run_logger:-0} > 1 )); then
-    # Zsh can reap an exited producer before this view closes. Verify it is
-    # still our live job, rather than signalling a numeric PID reused later.
-    for job in "${(@k)jobstates}"; do
-      state=${jobstates[$job]}
-      if [[ $state == *":$_xcode_run_logger=running" ||
-            $state == *":$_xcode_run_logger=suspended" ]]; then
-        kill -TERM $_xcode_run_logger 2>/dev/null
-        [[ $state == *'=suspended' ]] && kill -CONT $_xcode_run_logger 2>/dev/null
-        break
+    zmodload zsh/zselect || grace=0
+    _xcode_run_child_state "$_xcode_run_logger" && kill -TERM $_xcode_run_logger 2>/dev/null
+    if _xcode_run_child_state "$_xcode_run_logger" && [[ $REPLY == suspended ]]; then
+      kill -CONT $_xcode_run_logger 2>/dev/null
+    fi
+    # Give the native observer at most one second to stop. Draining its pipe
+    # lets a termination handler finish even when pending output filled it.
+    for (( attempt=0; attempt<grace; ++attempt )); do
+      _xcode_run_child_state "$_xcode_run_logger" || break
+      if (( ${_xcode_run_unified_fd:--1} >= 0 )); then
+        sysread -i $_xcode_run_unified_fd -s 8192 -t 0 chunk 2>/dev/null
       fi
+      zselect -t 5
     done
-    wait $_xcode_run_logger 2>/dev/null
+    _xcode_run_child_state "$_xcode_run_logger" && kill -KILL $_xcode_run_logger 2>/dev/null
+    _xcode_run_wait_child "$_xcode_run_logger"
     _xcode_run_logger=0
   fi
+}
+
+# Zsh can reap a producer before cleanup. Recheck the exact owned job before
+# every signal, including escalation; never signal an expired numeric PID.
+_xcode_run_child_state() {
+  emulate -L zsh
+  local pid=$1 state=''
+  REPLY=''
+  for state in "${jobstates[@]}"; do
+    if [[ $state == *":$pid=running" ]]; then
+      REPLY=running
+      return 0
+    elif [[ $state == *":$pid=suspended"(|' ('*')') ]]; then
+      REPLY=suspended
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Call only after the owned child ended or received KILL. Zsh can retain a
+# prior stop notification ahead of its final PID status after CONT. A second
+# status of 127 can mean either exit 127 or no cached status; retain the first
+# failure conservatively in that ambiguous case.
+_xcode_run_wait_child() {
+  emulate -L zsh
+  local pid=$1
+  local -i result=0 final=0
+  wait "$pid" 2>/dev/null
+  result=$?
+  if (( result > 128 && result <= 255 )) &&
+     [[ ${signals[result - 127]-} == (STOP|TSTP|TTIN|TTOU) ]]; then
+    wait "$pid" 2>/dev/null
+    final=$?
+    (( final != 127 )) && result=$final
+  fi
+  REPLY=$result
 }
 
 _xcode_run_identity() {
@@ -1812,15 +1896,11 @@ _xcode_run_view() {
 # A closed console does not establish app health.
 _xcode_device_poll() {
   emulate -L zsh
-  local state=''
   REPLY=0
   (( ${_xcode_device_pid:-0} > 1 && !${_xcode_device_done:-0} )) || return 0
-  for state in "${jobstates[@]}"; do
-    [[ $state == *":$_xcode_device_pid=running" ||
-       $state == *":$_xcode_device_pid=suspended" ]] && return 0
-  done
-  wait $_xcode_device_pid 2>/dev/null
-  _xcode_device_status=$? _xcode_device_done=1
+  _xcode_run_child_state "$_xcode_device_pid" && { REPLY=0; return 0; }
+  _xcode_run_wait_child "$_xcode_device_pid"
+  _xcode_device_status=$REPLY _xcode_device_done=1
   REPLY=1
 }
 
@@ -1870,14 +1950,17 @@ _xcode_run_device_live() {
     (( _xcode_run_read_error )) && result=1
     _xcode_device_poll
     if (( _xcode_device_pid > 1 && !_xcode_device_done )); then
-      kill -TERM $_xcode_device_pid 2>/dev/null
+      _xcode_run_child_state "$_xcode_device_pid" && kill -TERM $_xcode_device_pid 2>/dev/null
+      if _xcode_run_child_state "$_xcode_device_pid" && [[ $REPLY == suspended ]]; then
+        kill -CONT $_xcode_device_pid 2>/dev/null
+      fi
       for (( attempt=0; attempt<20 && !_xcode_device_done; ++attempt )); do
         _xcode_run_read_sources
         (( _xcode_device_done )) || zselect -t 5
       done
       if (( !_xcode_device_done )); then
-        kill -KILL $_xcode_device_pid 2>/dev/null
-        wait $_xcode_device_pid 2>/dev/null
+        _xcode_run_child_state "$_xcode_device_pid" && kill -KILL $_xcode_device_pid 2>/dev/null
+        _xcode_run_wait_child "$_xcode_device_pid"
         print -u2 -r -- 'xcode: device console did not stop promptly; check or stop the app on the device'
         result=1
       elif (( _xcode_device_status != 0 && _xcode_device_status != 143 )); then

@@ -14,8 +14,14 @@ _zle_picker_screen_session() {
   local -i saved_suspended=${_ZLE_AUTOSUGGEST_SUSPENDED:-0}
   local -a saved_highlights=()
 
+  # Removing a temporary INT trap inside a manually driven ZLE input loop
+  # restores the process default before ZLE can rearm its own handler. Keep a
+  # default abort handler for the whole screen, through restoration, instead.
+  # The modal screen owns abort behavior; LOCAL_TRAPS restores the caller's
+  # function, static or ignored registration when that ownership finishes.
+  setopt LOCAL_TRAPS
+  TRAPINT() { return 130 }
   if (( ! ${+functions[TRAPWINCH]} )); then
-    setopt LOCAL_TRAPS
     TRAPWINCH() { zle compozsh-picker-redraw }
   fi
   _ZLE_AUTOSUGGEST_SUSPENDED=1

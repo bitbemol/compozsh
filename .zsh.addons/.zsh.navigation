@@ -388,8 +388,13 @@ _compozsh_help_g() {
     '  g --discard-all --help shows this complete guide without reads or writes.' \
     '  Operates from this folder’s repository root, including from a subfolder.' \
     '  Inherited Git directory/index/object selectors cannot redirect this task.' \
-    '  Restores tracked files and the index to HEAD, discarding both staged' \
-    '  and unstaged edits, then deletes untracked files and directories.' \
+    '  Deletes untracked files under the reviewed ignore rules, then restores' \
+    '  tracked files and the index to HEAD, discarding staged and unstaged edits.' \
+    '  An empty committed tree supports untracked-only cleanup.' \
+    '  A locked index refuses the operation before cleanup.' \
+    '  Restored ignore rules can expose preserved files; they remain on disk' \
+    '  and the remaining-changes report returns status 1. A later restore failure' \
+    '  does not roll back completed untracked cleanup.' \
     '  Prints Git status before asking [y/N]; only y or Y confirms.' \
     '  With shared UI in an interactive terminal, confirmation uses a scoped' \
     '  screen and a bounded status inspector. Empty Return or Escape cancels.' \

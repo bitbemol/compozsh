@@ -71,6 +71,62 @@ _test_directory_argument_boundaries() {
 test_case 'directory argument completion preserves quoting, cancellation and native file contexts' \
   _test_directory_argument_boundaries
 
+_test_directory_lone_quoted_tilde_fallback() {
+  test_make_temp_dir || return
+  local shell_option=${1:-}
+  command mkdir -p "$TEST_TMP_DIR/home/target/home-child" \
+    "$TEST_TMP_DIR/home/work/~/target/local-child" || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    for component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) \
+        "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.*(N.); do
+      source "$component"
+    done
+    builtin cd -- "$HOME/work" || exit 1
+    setopt AUTO_CD
+    local BUFFER="" CURSOR=0 draft=""
+    local -i captures=0 fallback=0
+    zle() { [[ $1 == expand-or-complete ]] && (( ++fallback )); return 0; }
+    _zle_picker_screen_session() { (( ++captures )); return 1; }
+    local -a drafts=("\"~/target/\"" "\\~/target/" "\"~\"/target/")
+    [[ -z $2 ]] || setopt "$2"
+    for draft in "${drafts[@]}"; do
+      BUFFER=$draft CURSOR=${#draft} captures=0 fallback=0
+      _directory_context_complete_widget
+      [[ $BUFFER == "$draft" && $CURSOR == ${#draft} &&
+         $captures == 0 && $fallback == 1 ]] || {
+        print -u2 -r -- "quoted tilde changed completion scope: $draft|$captures|$fallback"
+        exit 2
+      }
+    done
+    # A real unquoted home prefix must retain the existing Browse capability.
+    BUFFER="~/target/" CURSOR=${#BUFFER} captures=0 fallback=0
+    _directory_context_complete_widget
+    (( captures == 1 && fallback == 0 )) || exit 3
+    print preserved
+  ' "$TEST_REPO_ROOT" "$shell_option") || return
+  test_assert_equal preserved "$output"
+}
+test_case 'lone quoted tilde paths retain native completion and literal scope' \
+  _test_directory_lone_quoted_tilde_fallback
+
+_test_directory_lone_tilde_err_return() {
+  _test_directory_lone_quoted_tilde_fallback ERR_RETURN
+}
+test_case 'lone quoted tilde fallback and Browse cancellation survive ERR_RETURN' \
+  _test_directory_lone_tilde_err_return
+
+_test_directory_lone_tilde_options() {
+  local shell_option=''
+  for shell_option in KSH_ARRAYS SH_WORD_SPLIT GLOB_SUBST SH_GLOB NO_UNSET; do
+    _test_directory_lone_quoted_tilde_fallback "$shell_option" || return
+    test_cleanup_temp
+  done
+}
+test_case 'lone quoted tilde fallback preserves scope under caller shell options' \
+  _test_directory_lone_tilde_options
+
 _test_directory_argument_native() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/Developer/Example & Co/child" || return

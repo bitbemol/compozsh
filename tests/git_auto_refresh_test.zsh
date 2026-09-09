@@ -361,6 +361,128 @@ _test_git_auto_refresh_cancel_drain() {
 test_case 'Git auto-refresh cancellation drains a partial worker packet before resume' \
   _test_git_auto_refresh_cancel_drain
 
+_test_git_auto_refresh_full_pipe() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    zmodload zsh/system zsh/zselect zsh/datetime
+    unsetopt MONITOR NOTIFY BG_NICE
+    export TMPDIR=$HOME
+    command mkfifo "$HOME/watchdog"
+    exec {watchdog_fd}<> "$HOME/watchdog"
+    local root=$HOME context=3 mode="" chunk="" session="" bulk_status="" name=""
+    local -i _ZLE_PICKER_SELECTED=0 _git_auto_session_fd=-1 _git_auto_session_pid=0
+    local -i _git_auto_generation=0 large=1 worker=0 watchdog=0 attempt=0 result=0
+    local -F _git_auto_started_at=0 _git_auto_deadline_at=0
+    local _git_auto_session_dir="" _git_auto_session_fifo="" _git_auto_session_buffer=""
+    local _git_auto_request_name="" _git_auto_request_kind="" _git_auto_request_context=""
+    local -a _ZLE_PICKER_RESULTS=() bulk_paths=()
+    for (( attempt=1; attempt<=900; ++attempt )); do
+      name="file-$attempt-${(pl:230::x:)}"$'\''\n%F{red}λ\x01'\''
+      bulk_paths+=("$name")
+      bulk_status+="?? $name"$'\''\0'\''
+    done
+    # Only capture is synthetic: exercise the real launch, bounded packet,
+    # FIFO transport, cancellation, deadline and resume parser together.
+    _git_review_prepare() { _GIT_REVIEW_CONFIG=(); return 0; }
+    _git_review_changes_capture() {
+      _GIT_REVIEW_DATA=$'\''?? fresh\0'\''
+      (( large )) && _GIT_REVIEW_DATA=${(pl:262144::x:)}
+      (( large == 2 )) && _GIT_REVIEW_DATA=$bulk_status
+      _GIT_REVIEW_TRUNCATED=0
+      return 0
+    }
+    _stop_with_options() {
+      setopt LOCAL_OPTIONS KSH_ARRAYS SH_WORD_SPLIT NO_UNSET ERR_RETURN
+      _git_review_auto_worker_stop
+    }
+    for mode in "$2"; do
+      large=1
+      _GIT_REVIEW_AUTO_REFRESH_TIMEOUT=30
+      [[ $mode == deadline ]] && _GIT_REVIEW_AUTO_REFRESH_TIMEOUT=0.5
+      _git_review_auto_launch || exit 1
+      worker=$_git_auto_session_pid session=$_git_auto_session_dir
+      # Wait for actual pipe backpressure, never consume the pending result.
+      for (( attempt=0; attempt<200; ++attempt )); do
+        zselect -r $_git_auto_session_fd -t 1 2>/dev/null || continue
+        zselect -w $_git_auto_session_fd -t 0 2>/dev/null || break
+        zselect -t 1 2>/dev/null
+      done
+      (( attempt < 200 )) || { kill -KILL $worker; wait $worker 2>/dev/null; exit 2; }
+      # A failed regression must free the exact fixture writer and fail,
+      # rather than leave the test suite blocked in the same product wait.
+      {
+        if ! IFS= read -r -t 3 -u $watchdog_fd chunk; then
+          print expired > "$HOME/expired"
+          kill -KILL $worker 2>/dev/null
+        fi
+      } &
+      watchdog=$!
+      {
+        if [[ $mode == cancel ]]; then
+          _stop_with_options
+        else
+          result=0
+          wait $worker 2>/dev/null || result=$?
+          _git_auto_session_pid=0
+        fi
+        print -r -u $watchdog_fd complete
+        wait $watchdog 2>/dev/null
+        watchdog=0
+        [[ ! -e $HOME/expired ]] || {
+          print -u2 -r -- "$mode: full response pipe prevented worker termination"
+          exit 3
+        }
+        [[ $mode != deadline || $result == 124 ]] || exit 4
+        _git_review_auto_worker_stop
+        (( !_git_auto_session_pid )) && [[ -z $_git_auto_session_buffer ]] || exit 5
+        zselect -r $_git_auto_session_fd -t 0 2>/dev/null && exit 6
+        kill -0 $worker 2>/dev/null && exit 7
+        # Resume in the same FIFO; stale partial bytes must not corrupt it.
+        large=0
+        _GIT_REVIEW_AUTO_REFRESH_TIMEOUT=30
+        _git_review_auto_launch || exit 8
+        for (( attempt=0; attempt<200; ++attempt )); do
+          result=0
+          _git_review_auto_poll || result=$?
+          (( result == 1 )) || break
+          zselect -r $_git_auto_session_fd -t 1 2>/dev/null
+        done
+        [[ $result == 0 && $_git_auto_candidate_paths[1] == fresh &&
+           $_git_auto_candidate_generation == $_git_auto_generation ]] || exit 9
+        # Successful large delivery must retain every byte across partial
+        # writes too; cancellation must not become the only safe outcome.
+        large=2
+        _git_review_auto_launch || exit 11
+        for (( attempt=0; attempt<200; ++attempt )); do
+          result=0
+          _git_review_auto_poll || result=$?
+          (( result == 1 )) || break
+          zselect -r $_git_auto_session_fd -t 1 2>/dev/null
+        done
+        [[ $result == 0 && ${#_git_auto_candidate_paths} == 900 &&
+           ${(pj:\0:)_git_auto_candidate_paths} == ${(pj:\0:)bulk_paths} ]] || exit 12
+        _git_review_auto_session_stop
+        [[ ! -e $session && $_git_auto_session_fd == -1 ]] || exit 10
+      } always {
+        (( watchdog > 1 )) && { kill -KILL $watchdog 2>/dev/null; wait $watchdog 2>/dev/null; }
+        (( _git_auto_session_pid > 1 )) && { kill -KILL $_git_auto_session_pid 2>/dev/null; wait $_git_auto_session_pid 2>/dev/null; }
+        _git_review_auto_session_stop
+      }
+    done
+    exec {watchdog_fd}>&-
+    print full-pipe-safe
+  ' "$TEST_REPO_ROOT" "$1") || return
+  test_assert_equal full-pipe-safe "$output"
+}
+_test_git_auto_refresh_full_pipe_cancel() { _test_git_auto_refresh_full_pipe cancel; }
+_test_git_auto_refresh_full_pipe_deadline() { _test_git_auto_refresh_full_pipe deadline; }
+test_case 'Git automatic worker cancellation survives a full response pipe and resumes cleanly' \
+  _test_git_auto_refresh_full_pipe_cancel
+test_case 'Git automatic worker deadline survives a full response pipe and resumes cleanly' \
+  _test_git_auto_refresh_full_pipe_deadline
+
 # Release the response writer only after the first incomplete parse. This
 # deterministically places its final bytes between the pipe drain and the
 # process-exit check, without sleeps or relying on scheduler timing.

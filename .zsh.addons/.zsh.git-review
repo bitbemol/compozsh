@@ -1811,7 +1811,28 @@ _git_review_auto_worker() {
     _git_review_packet_add "$capture_duration"
     _git_auto_packet+=$'compozsh-review-end-1\n'
   fi
-  print -rn -- "$_git_auto_packet"
+  zmodload zsh/system || return 2
+  zmodload zsh/zselect || return 2
+  local -i written=0 write_result=0 offset=1 ERRNO=0
+  # The session opens stdout nonblocking. A blocking print/syswrite retries
+  # inside the builtin while the FIFO is full, deferring TERM indefinitely.
+  # Small writes return control to this worker's trap and capture deadline;
+  # publication must not depend on the picker draining its next idle result.
+  while (( offset <= ${#_git_auto_packet} )); do
+    if (( EPOCHREALTIME >= _GIT_REVIEW_WORKER_DEADLINE )); then
+      _git_review_worker_timed_out=1
+      _git_review_auto_worker_terminate
+    fi
+    written=0
+    syswrite -c written "${_git_auto_packet[offset,offset + 8191]}"
+    write_result=$?
+    (( offset += written ))
+    if (( write_result )); then
+      [[ $write_result == 2 && ${errnos[ERRNO]-} == (EAGAIN|EWOULDBLOCK) ]] || return 2
+      zselect -w 1 -t 10 2>/dev/null
+    fi
+  done
+  return 0
 }
 
 _git_review_packet_take() {
@@ -2003,9 +2024,9 @@ _git_review_auto_worker_stop() {
   local -i amount=0
   if (( ${_git_auto_session_pid:-0} > 0 )); then
     kill -TERM -- ${_git_auto_session_pid} 2>/dev/null
-    # TERM is handled by the worker, which kills and reaps its exact in-memory
-    # provider before exiting. Waiting here cannot outlive the worker's own
-    # strict capture deadline and never signals a parent-visible provider PID.
+    # Nonblocking publication lets TERM run even with a full response FIFO.
+    # The worker kills and reaps its exact in-memory provider before exiting;
+    # the parent never signals a provider through a handoff PID.
     wait ${_git_auto_session_pid} 2>/dev/null
   fi
   # The parent holds the FIFO read/write so a killed writer does not produce
@@ -2070,8 +2091,11 @@ _git_review_auto_launch() {
   _git_auto_started_at=$EPOCHREALTIME
   _git_auto_deadline_at=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_TIMEOUT ))
   _ZLE_PICKER_DEADLINE_AT=$_git_auto_deadline_at
-  ( _git_review_auto_worker "$root" $_git_auto_generation "$name" "$kind" "$context" "$_git_auto_session_dir" \
-      < /dev/null > "$_git_auto_session_fifo" 2>/dev/null ) &
+  (
+    zmodload zsh/system || exit 2
+    sysopen -w -o nonblock,cloexec,nofollow -u 1 "$_git_auto_session_fifo" || exit 2
+    _git_review_auto_worker "$root" $_git_auto_generation "$name" "$kind" "$context" "$_git_auto_session_dir"
+  ) < /dev/null 2>/dev/null &
   _git_auto_session_pid=$!
   (( _git_auto_session_pid > 0 ))
 }

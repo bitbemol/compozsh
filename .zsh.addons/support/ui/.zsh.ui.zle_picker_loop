@@ -479,12 +479,25 @@ _zle_picker_loop() {
               ;;
             ('['|'O')
               suffix=''
-              if ! IFS= read -r -t 0.1 -k 1 suffix; then
+              if [[ $sequence == '[' ]]; then
+                local -i paste_status=0
+                _zle_picker_read_bracketed_paste suffix || paste_status=$?
+                if (( paste_status == 3 )); then
+                  # The opener and payload were consumed under one signal
+                  # owner. Route its literal result to the paste handler.
+                  suffix='200~'
+                elif (( paste_status )); then
+                  (( paste_status == 2 )) || cancelled=1
+                  continue
+                else
+                  suffix=$REPLY
+                fi
+              elif ! IFS= read -r -t 0.1 -k 1 suffix; then
                 cancelled=1
                 continue
               fi
               sequence+=$suffix
-              if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != ('[A'|'OA'|'[B'|'OB'|'[5'|'[6'|'[2'|'[1') ]]; then
+              if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != ('[A'|'OA'|'[B'|'OB'|'[5'|'[6'|'[200~'|'[1') ]]; then
                 zle beep
                 continue
               fi
@@ -623,19 +636,13 @@ _zle_picker_loop() {
                     selected=1
                   fi
                   ;;
-                ('[2')
-                  suffix=''
-                  if IFS= read -r -t 0.1 -k 3 suffix && [[ $suffix == '00~' ]] &&
-                     _zle_picker_read_bracketed_paste; then
-                    # Consume the whole paste even in the guide: its payload
-                    # may contain Enter, digits or Escape, never action keys.
-                    if (( !_ZLE_PICKER_GUIDE_ACTIVE )); then
-                      _ZLE_PICKER_INSPECT_FOCUS=0
-                      input+=$REPLY
-                      selected=1
-                    fi
-                  else
-                    cancelled=1
+                ('[200~')
+                  # Transport already consumed the entire paste, including in
+                  # the guide. Only this literal result can edit a field.
+                  if (( !_ZLE_PICKER_GUIDE_ACTIVE )); then
+                    _ZLE_PICKER_INSPECT_FOCUS=0
+                    input+=$REPLY
+                    selected=1
                   fi
                   ;;
                 (*)
@@ -763,23 +770,103 @@ _zle_picker_idle_call() {
 # marker here so pasted filter text cannot leak into the normal command buffer.
 _zle_picker_read_bracketed_paste() {
   emulate -L zsh
+  setopt LOCAL_TRAPS
 
-  local character='' pasted='' marker=$'\e[201~'
-  local -i content_length=0 max_length=1048576
+  local character='' pasted='' marker=$'\e[201~' opening='' mode=${1-}
+  local previous_winch=${functions[TRAPWINCH]-}
+  local -i content_length=0 max_length=1048576 paste_interrupted=0 result=0 paste_result=0
+  # SIGINT cannot release partially received paste bytes to the outer editor.
+  # Byte-form Ctrl-C is literal paste data, as it is for a complete paste.
+  TRAPINT() { paste_interrupted=1; return 0 }
+  # Keep the existing resize behavior and mark interrupted reads separately
+  # from a closed terminal. LOCAL_TRAPS restores both handlers on return.
+  functions[TRAPWINCH]=$'paste_interrupted=1\n'"$previous_winch"
   REPLY=''
 
-  # A malformed or interrupted terminal sequence must not trap the editor in
-  # an unbounded read or grow memory forever.
-  while IFS= read -r -t 1 -k 1 character; do
-    pasted+=$character
-    (( ${#pasted} <= max_length )) || return 1
-    if (( ${#pasted} >= ${#marker} )) && [[ $pasted[-${#marker},-1] == $marker ]]; then
-      content_length=$(( ${#pasted} - ${#marker} ))
-      (( content_length > 0 )) && REPLY=${pasted[1,$content_length]}
-      return 0
+  if [[ $mode == suffix ]]; then
+    # Once ESC [ arrives, even this first CSI byte can belong to a delayed
+    # paste opener. Protect its timed read from signals as well as timeouts.
+    if IFS= read -r -t 0.1 -k 1 character; then
+      if [[ $character == 2 ]]; then
+        mode=opening paste_result=3
+      else
+        REPLY=$character
+        return 0
+      fi
+    else
+      mode=incomplete
     fi
-  done
+  fi
+
+  if [[ $mode == opening ]]; then
+    # ESC [ 2 is already consumed. A delayed paste opener must retain input
+    # ownership too; complete non-paste CSI keys (such as Insert) stay inert.
+    while IFS= read -r -t 0.1 -k 1 character; do
+      opening+=$character
+      [[ $opening == '00~' ]] && break
+      if [[ $character == [a-zA-Z~] ]]; then
+        return 2
+      fi
+      [[ $opening == (0|00) ]] || break
+    done
+    [[ $opening == '00~' ]] || mode=incomplete
+  fi
+
+  # Timeout and overflow reject the whole paste, but do not relinquish input:
+  # its delayed remainder can contain Enter. Keep at most the marker prefix
+  # while resynchronizing, and show how to finish a missing terminator by hand.
+  if [[ $mode != incomplete ]]; then
+    while IFS= read -r -t 1 -k 1 character; do
+      pasted+=$character
+      if (( ${#pasted} >= ${#marker} )) && [[ $pasted[-${#marker},-1] == $marker ]]; then
+        content_length=$(( ${#pasted} - ${#marker} ))
+        (( content_length <= max_length )) || return 2
+        (( content_length > 0 )) && REPLY=${pasted[1,$content_length]}
+        return $paste_result
+      fi
+      # A permitted payload can still be followed by a partial closing marker.
+      (( ${#pasted} <= max_length + ${#marker} - 1 )) || break
+    done
+  fi
+  local prefix=${pasted[-5,-1]}
+  pasted=''
+  _zle_ui_view status _zle_picker_paste_discard "$prefix" || result=$?
+  REPLY=''
+  (( result == 0 )) && return 2
   return 1
+}
+
+# The marker is the only safe boundary between a delayed paste and fresh input.
+# Keep this recovery in the existing screen; even cancellation bytes are data
+# until the terminal (or the user following the instruction) closes the paste.
+_zle_picker_paste_discard() {
+  emulate -L zsh
+  local prefix=$1 character='' marker=$'\e[201~'
+  local -i _ZLE_PICKER_BUSY=1 _ZLE_PICKER_SELECTED=0
+  local -i _ZLE_PICKER_GUIDE_ACTIVE=0 _ZLE_PICKER_INSPECT_FOCUS=0
+  local -i _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0
+  local -i _ZLE_PICKER_VIEW_OFFSET=0 _ZLE_PICKER_VIEW_LIMIT=10 _ZLE_PICKER_HAS_MORE=0
+  local _ZLE_PICKER_TITLE='Paste discarded' _ZLE_PICKER_QUERY=''
+  local _ZLE_PICKER_BUSY_LABEL='Resume: Escape then [201~'
+  local _ZLE_PICKER_BROWSE_LABEL='The previous filter is unchanged'
+  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  local -a _ZLE_PICKER_EMPTY_LINES=(
+    'Resume: Escape then [201~'
+    'The paste paused too long or exceeded 1,048,576 characters.'
+    'Remaining paste text is discarded, including Enter and cancellation keys.'
+    'Finish the paste, or send its closing marker using the keys above.'
+    'After recovery, Escape or Ctrl-C works normally.')
+  _zle_picker_render '' 0
+  _zle_picker_show
+  while true; do
+    paste_interrupted=0
+    if ! IFS= read -r -k 1 character; then
+      (( paste_interrupted )) && continue
+      return 1
+    fi
+    prefix="${prefix[-5,-1]}$character"
+    [[ $prefix == $marker ]] && return 0
+  done
 }
 
 # Run one searchable selector inside the active line editor. Collection is a

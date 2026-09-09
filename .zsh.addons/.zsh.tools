@@ -174,9 +174,9 @@ _tools_git_discard_all() {
   local -x GIT_ALLOW_PROTOCOL=''
   local root='' confirmed_root='' display_root='' git_dir='' confirmed_git_dir=''
   local operation='' head='' confirmed_head=''
-  local changes='' confirmed_changes='' remaining='' answer=''
+  local changes='' confirmed_changes='' remaining='' answer='' change=''
   local -a filter_config=() confirmed_filter_config=()
-  local -i filter_config_changed=0 index=0
+  local -i filter_config_changed=0 index=0 restore_tracked=0
 
   root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
     print -u2 'g --discard-all: not inside a Git working tree'
@@ -277,23 +277,38 @@ _tools_git_discard_all() {
     print -u2 'g --discard-all: repository state changed after the preview; nothing was discarded'
     return 1
   fi
-
-  GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
-    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
-    -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
-    -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
-    restore --source="$confirmed_head" --staged --worktree --no-recurse-submodules -- . || {
-    print -u2 'g --discard-all: failed while restoring tracked files'
+  if [[ -e "$confirmed_git_dir/index.lock" || -L "$confirmed_git_dir/index.lock" ]]; then
+    print -u2 'g --discard-all: the Git index is locked; nothing was discarded'
     return 1
-  }
+  fi
+
+  # Native clean collects its removal set before deleting anything. Run it
+  # while the reviewed ignore rules still exist: restoring .gitignore first
+  # can expose previously ignored, unpreviewed files to permanent deletion.
   GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
     GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
     -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
     clean -fdq -- . || {
-    print -u2 'g --discard-all: tracked files were restored, but cleaning failed'
+    print -u2 'g --discard-all: untracked cleanup failed; tracked files were not restored'
     return 1
   }
+
+  # Porcelain v1 quotes line breaks in names. Only ?? records need no tracked
+  # restore; this also avoids a failing pathspec against an empty HEAD/index.
+  for change in "${(@f)confirmed_changes}"; do
+    [[ ${change[1,2]} == '??' ]] || { restore_tracked=1; break; }
+  done
+  if (( restore_tracked )); then
+    GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+      GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+      -C "$root" -c core.fsmonitor=false -c core.untrackedCache=false \
+      -c core.hooksPath=/dev/null "${confirmed_filter_config[@]}" \
+      restore --source="$confirmed_head" --staged --worktree --no-recurse-submodules -- . || {
+      print -u2 'g --discard-all: untracked cleanup finished, but restoring tracked files failed'
+      return 1
+    }
+  fi
 
   remaining=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
     GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
@@ -304,7 +319,7 @@ _tools_git_discard_all() {
     return 1
   }
   if [[ -n $remaining ]]; then
-    print -u2 'Some changes remain, usually inside a submodule or nested repository:'
+    print -u2 'Some changes remain, including preserved files, submodules or nested repositories:'
     print -ru2 -- "$remaining"
     return 1
   fi

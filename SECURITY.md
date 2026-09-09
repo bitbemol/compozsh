@@ -115,7 +115,7 @@ state:
 | Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention lasts according to the user's terminal settings |
 | Prompt tool descriptions | Current-shell memory | At most 64 loaded same-source command/help pairs; up to 262,144 characters of source/definition identity for invalidation, general summaries and leading option descriptions (240 characters each), captured from at most 4,096 complete characters per help guide plus the existing Touch ID subguide; cleared on shell exit or invalidation, with no disk cache |
 | Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
-| Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | Carries one framed local status/selected-diff candidate at a time, capped at 1 MiB; the worker-owned exact provider and worker are terminated and reaped on pause, timeout, manual refresh, review close or handled error, then the FIFO is removed, with no log, daemon or persistent review cache |
+| Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | Carries one framed local status/selected-diff candidate at a time, capped at 1 MiB; capture and nonblocking delivery share the worker deadline; cleanup terminates/reaps owned processes and removes the FIFO; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax transport FIFOs (not regular source files); validated temporary paths are removed during normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
@@ -563,10 +563,27 @@ command prefix only in invocation-local memory; insertion replaces that
 argument after screen cleanup, without executing the command. Escape and Copy
 preserve the draft. Browsing reads entry names and file-type metadata, never
 file contents; snapshots and the retained prefix are released on return.
+Quoted or escaped leading tildes delegate to native completion, including lone
+command-position paths, so quote removal cannot redirect a literal path to HOME.
 Inspect `.zsh.addons/.zsh.editor` and run `zsh tests/run.zsh 'directory argument'`
 to verify insertion, quoting, cancellation, clipboard dispatch and native file
 completion in isolated fixtures. These checks do not establish availability
 or latency for arbitrary mounted filesystems.
+
+After recognizing a bracketed-paste opening prefix, the shared picker retains
+input ownership through the closing marker. A stalled or oversized paste is
+discarded in the existing screen, keeping only a bounded marker suffix during
+recovery. Enter, cancellation bytes and handled SIGINT cannot release a delayed
+payload into the ordinary command buffer. The modal screen owns SIGINT abort
+through terminal cleanup and restores prior function, static or ignored handlers
+on return. Paste recovery temporarily intercepts SIGINT within that scope;
+resize handling remains active. If the terminal omits the closing marker, the
+recovery screen tells the user to press Escape and type `[201~`; normal
+cancellation resumes afterward.
+A closed input stream exits recovery without a busy retry loop. The ordinary
+short Escape-key recognition window remains in force before a paste prefix is
+recognized. Run `zsh tests/run.zsh 'picker interrupted paste'` for isolated
+payload limits, split markers, EOF, signal, guide and filter-state checks.
 
 These are local process, filesystem, agent-directory, and operating-system
 clipboard interfaces on the machine running Compozsh. A user can independently
@@ -588,6 +605,18 @@ capture behind; its validated `compozsh-*` name makes it identifiable in
 streamed through pipes and is not persisted there. Normal exit removes both;
 after an uncatchable termination, the user may inspect and remove the
 identifiable directory under their own temporary directory.
+
+Xcode provider captures enforce their stdout and diagnostic limits while the
+command runs, including bytes retained in temporary files. Stdout retains at
+most `ZSH_XCODE_CAPTURE_MAX_BYTES` bytes (262,144 by default, minimum 4,096);
+diagnostics retain at most 8,192 bytes. Two completion records, each two bytes
+long, identify successfully finished stream capture. An incomplete capture is
+rejected. Each stream reader holds at most one 8-KiB chunk while draining excess data without
+retaining it. Stdout overflow is rejected without parsing a partial response.
+The capture keeps stdout and stderr separate and preserves the native command
+status for output within the stdout limit. These byte bounds do not impose a
+command-duration limit. Normal and handled-error cleanup removes the private
+capture directory.
 
 The Xcode dashboard's Test and Rebuild & Test actions ask Xcode to create a
 transient result bundle while disabling verbose test-diagnostic collection.
@@ -756,7 +785,16 @@ coloring. `NO_COLOR` and non-color/non-terminal output disable debugger colors;
 optional presentation support never relaxes the init/symbol-script protections.
 Compozsh neither elevates privileges nor changes app signing. The unified-log
 observer lives only within the run and is stopped and reaped before LLDB
-starts, and during other cleanup paths. While LLDB runs, one temporary native
+starts, and during other cleanup paths. Cleanup revalidates the shell-owned
+child before each signal, resumes a suspended child for termination, and gives
+the observer up to one second to exit while draining and discarding bounded
+chunks of its final output. An unresponsive owned observer is killed and reaped;
+its cleanup does not replace the app or debugger's failure status. Device
+console polling also recognizes suspended jobs without blocking on them, and
+cleanup preserves failures after resuming a stopped child. If Zsh cannot
+distinguish an exit status of 127 from a missing cached status after suspension,
+cleanup conservatively retains the earlier nonzero stop status.
+While LLDB runs, one temporary native
 Zsh child drains and discards stdout/stderr to avoid blocking the app. LLDB
 exit, Stop, Escape in Run, and handled-error cleanup stop the
 still-identical app, reap owned children, close descriptors and remove the FIFOs
@@ -992,7 +1030,14 @@ disabled-filter, hook, lazy-fetch, prompt and transport controls as manual
 review refresh. Checks start enabled by default, can be paused with Ctrl-A or by setting
 `ZSH_GIT_REVIEW_AUTO_REFRESH=0` before peers load, adapt from a two-second floor
 to the capture cost measured inside the worker, and time out after thirty
-seconds even while terminal input remains queued. They create
+seconds even while terminal input remains queued. The same worker deadline
+bounds provider capture and result delivery. The worker opens its response FIFO
+without following links and uses nonblocking writes of at most 8 KiB, preserving
+partial-write counts. A full pipe returns control to cancellation and deadline
+handling; cleanup drains any incomplete packet before another generation starts.
+Paste recovery pauses enclosing result consumption and live log draining until
+the closing marker arrives; retained data remains bounded, and a timed-out Git
+check is reported when normal input processing resumes. Automatic checks create
 no daemon, persistent cache, Git hook, fetch or other
 network operation. Filter discovery and its generated inert override argv share
 a 4,096-entry bound in manual and automatic refresh. A filter driver name that
@@ -1020,6 +1065,13 @@ its checkout/removal boundary is detailed in the local-data inventory above.
 to preview, restore, cleanup, and verification, and revalidates repository,
 HEAD, operation, filter-name, and listed-path state after confirmation. The same
 local-only controls cover initial HEAD validation.
+An existing index lock refuses the operation before writes and is never removed.
+Native untracked cleanup runs before tracked restoration, while the reviewed
+ignore rules still apply. Ignored files newly exposed by restoring `.gitignore`
+remain on disk and produce a remaining-changes report with status 1. An empty
+committed tree supports untracked-only cleanup. If tracked restoration fails
+after cleanup, the diagnostic reports that partial outcome; completed deletion
+is not rolled back.
 Operation checks include Git's sequencer directory before and after confirmation.
 Restore explicitly disables submodule recursion even under `submodule.recurse=true`,
 preserving tracked and untracked child contents. A dirty child can still make

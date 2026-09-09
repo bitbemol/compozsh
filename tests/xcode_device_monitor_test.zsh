@@ -81,6 +81,79 @@ while read -r -u $gate line; do :; done' || return
 }
 test_case 'Xcode device monitor stops only its console after screen restoration and removes its pipe' _test_xcode_device_monitor_stop
 
+_test_xcode_device_monitor_suspended_stop() {
+  test_make_temp_dir || return
+  test_write_file "$TEST_TMP_DIR/bin/xcrun" '#!/bin/zsh -df
+trap '\''print stopped > "$HOME/stopped"; exit ${STOP_STATUS:-0}'\'' TERM
+exec {gate}<> "$HOME/gate"
+print ready
+while read -r -u $gate line; do :; done' || return
+  command chmod +x "$TEST_TMP_DIR/bin/xcrun" || return
+  command mkdir -p "$TEST_TMP_DIR/home" || return
+  command mkfifo "$TEST_TMP_DIR/home/gate" "$TEST_TMP_DIR/home/watchdog" || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    path=("$2/bin" $path)
+    export TMPDIR=$HOME
+    zmodload zsh/zselect zsh/parameter
+    unsetopt MONITOR NOTIFY BG_NICE
+    exec {watchdog_gate}<> "$HOME/watchdog"
+    local -i watchdog=0 logger=0 result=0
+    _zle_picker_run() {
+      local -i attempt=0
+      for (( attempt=0; attempt<100; ++attempt )); do
+        _xcode_run_read_sources
+        [[ $_xcode_run_log == *ready* ]] && break
+        zselect -t 1
+      done
+      [[ $_xcode_run_log == *ready* ]] || return 91
+      logger=$_xcode_device_pid
+      kill -STOP $logger
+      for (( attempt=0; attempt<100; ++attempt )); do
+        [[ ${(j: :)jobstates} == *"$logger=suspended"* ]] && break
+        zselect -t 1
+      done
+      {
+        if ! IFS= read -r -t 3 -u $watchdog_gate line; then
+          print expired > "$HOME/expired"
+          kill -KILL $logger 2>/dev/null
+        fi
+      } &
+      watchdog=$!
+      _ZLE_PICKER_SELECTED_VALUE=stop
+    }
+    local expected=''
+    for expected in 0 7 127 145; do
+    export STOP_STATUS=$expected
+    {
+      _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV"
+      result=$?
+      print -r -u $watchdog_gate -- complete
+      wait $watchdog 2>/dev/null
+      watchdog=0
+      [[ ! -f $HOME/expired ]] || { print -u2 "suspended device cleanup waited for watchdog"; exit 1; }
+      [[ -f $HOME/stopped ]] || { print -u2 "suspended device did not terminate gracefully"; exit 2; }
+      if [[ $expected == 127 ]]; then
+        (( result != 0 )) || { print -u2 "ambiguous stopped status became success"; exit 4; }
+      else
+        [[ $result == $expected ]] || { print -u2 "suspended device did not preserve status $expected (actual $result)"; exit 2; }
+      fi
+      command rm "$HOME/stopped"
+      local -a leftovers=("$HOME"/compozsh-xcode-device.*(N))
+      (( !${#leftovers} )) || exit 3
+    } always {
+      (( watchdog > 1 )) && { kill -KILL $watchdog 2>/dev/null; wait $watchdog 2>/dev/null; }
+    }
+    done
+    exec {watchdog_gate}>&-
+    print resumed-and-stopped
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
+  test_assert_equal resumed-and-stopped "$output"
+}
+test_case 'Xcode device monitor resumes and gracefully stops a suspended owned console' \
+  _test_xcode_device_monitor_suspended_stop
+
 _test_xcode_device_monitor_native() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home" || return

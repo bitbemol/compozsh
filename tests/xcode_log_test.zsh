@@ -223,3 +223,73 @@ _test_xcode_log_expired_child_cleanup() {
   test_assert_equal owned "$output"
 }
 test_case 'Xcode Logger cleanup never signals an expired or reused child PID' _test_xcode_log_expired_child_cleanup
+
+_test_xcode_log_unresponsive_child_cleanup() {
+  test_make_temp_dir || return
+  test_write_file "$TEST_TMP_DIR/home/logger.zsh" '#!/bin/zsh -df
+trap "" TERM
+if [[ $1 == draining ]]; then
+  trap '\''print -rn -- "${(l:65536::x:):-}"; print stopped > "$HOME/stopped"; exit 7'\'' TERM
+fi
+exec {gate}<> "$HOME/gate"
+print -r -- ready
+while read -r -u $gate line; do :; done' || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    zmodload zsh/system zsh/parameter zsh/zselect
+    unsetopt MONITOR NOTIFY BG_NICE
+    command mkfifo "$HOME/gate" "$HOME/output" "$HOME/watchdog"
+    exec {watchdog_gate}<> "$HOME/watchdog"
+    local -i _xcode_run_unified_fd=-1 _xcode_run_logger=0 watchdog=0 logger=0
+    local chunk="" mode=""
+    sysopen -r -o nonblock -u _xcode_run_unified_fd "$HOME/output" || exit 1
+    _caller_stop() {
+      setopt localoptions KSH_ARRAYS SH_WORD_SPLIT NO_UNSET
+      _xcode_run_logs_stop
+    }
+    for mode in running suspended draining; do
+      command zsh -df "$HOME/logger.zsh" "$mode" > "$HOME/output" &
+      _xcode_run_logger=$! logger=$!
+      local -i attempt=0 ready=0
+      for (( attempt=0; attempt<100; ++attempt )); do
+        sysread -i $_xcode_run_unified_fd -s 1024 -t 0.05 chunk 2>/dev/null
+        [[ $chunk == ready* ]] && { ready=1; break; }
+        zselect -t 1
+      done
+      (( ready )) || { kill -KILL $logger; wait $logger 2>/dev/null; exit 2; }
+      [[ $mode == suspended ]] && kill -STOP $logger
+      # The deadline is only a fail-safe for the buggy blocking wait. Readiness
+      # and completion use a separate channel, never arbitrary startup sleeps.
+      {
+        if ! IFS= read -r -t 3 -u $watchdog_gate chunk; then
+          print expired > "$HOME/expired"
+          kill -KILL $logger 2>/dev/null
+        fi
+      } &
+      watchdog=$!
+      {
+        _caller_stop
+        print -r -u $watchdog_gate -- complete
+        wait $watchdog 2>/dev/null
+        watchdog=0
+        [[ ! -f $HOME/expired ]] || { print -u2 "Logger cleanup waited for watchdog termination"; exit 3; }
+        (( !_xcode_run_logger )) || exit 4
+        kill -0 $logger 2>/dev/null && { print -u2 "Logger child survived cleanup"; exit 5; }
+        [[ $mode != draining || -f $HOME/stopped ]] || {
+          print -u2 "Logger could not finish writing during cleanup"; exit 6
+        }
+      } always {
+        (( watchdog > 1 )) && { kill -KILL $watchdog 2>/dev/null; wait $watchdog 2>/dev/null; }
+        kill -KILL $logger 2>/dev/null
+        wait $logger 2>/dev/null
+      }
+    done
+    exec {_xcode_run_unified_fd}<&-
+    exec {watchdog_gate}>&-
+    print bounded
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal bounded "$output"
+}
+test_case 'Xcode Logger cleanup bounds TERM-ignoring children and drains graceful termination' \
+  _test_xcode_log_unresponsive_child_cleanup
