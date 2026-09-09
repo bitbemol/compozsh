@@ -1,7 +1,8 @@
 _test_xcode_discovery_native() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home" || return
-  command mkfifo "$TEST_TMP_DIR/home/events" "$TEST_TMP_DIR/home/gate" || return
+  command mkfifo "$TEST_TMP_DIR/home/events" "$TEST_TMP_DIR/home/gate" \
+    "$TEST_TMP_DIR/home/unrelated" "$TEST_TMP_DIR/home/writer-ready" || return
   test_write_file "$TEST_TMP_DIR/home/provider.zsh" '#!/bin/zsh -df
 trap '\''exit 143'\'' TERM
 exec {events}<> "$HOME/events"
@@ -9,7 +10,7 @@ exec {gate}<> "$HOME/gate"
 print -r -u $events -- "PROVIDER:$$"
 print -r -- "literal [*] destination"
 print -u2 -r -- "native diagnostic"
-IFS= read -r -t 3 -u $gate release
+IFS= read -r -u $gate release
 case $1 in
   failure)
     print -u2 -rn -- "${(l:20000::e:):-}"
@@ -23,10 +24,18 @@ case $1 in
       trap "" TERM
       exec {events}<> "$HOME/events"
       exec {gate}<> "$HOME/gate"
+      exec {ready}<> "$HOME/writer-ready"
       print -r -u $events -- "DESCENDANT:$$"
-      IFS= read -r -t 4 -u $gate release
+      print -r -u $ready ready
+      # This writer never closes on its own. Completion must stop the owned
+      # descendant while this gate remains held, independent of elapsed time.
+      IFS= read -r -u $gate release
     '\'' &!
-    [[ $1 == descendant ]] && IFS= read -r -t 3 -u $gate release
+    # The provider cannot publish completion before its inherited writer has
+    # announced ownership; the controller must observe that exact child.
+    exec {ready}<> "$HOME/writer-ready"
+    IFS= read -r -u $ready writer_ready
+    [[ $1 == descendant ]] && IFS= read -r -u $gate release
     ;;
 esac
 exit 0' || return
@@ -62,7 +71,12 @@ exit 0' || return
     _driver() {
       local previous="" before=$(command stty -g) result=0 discovery_mode=$1
       local -i unrelated=0
-      { command /bin/sleep 5 & unrelated=$!; } 2>/dev/null
+      {
+        command /bin/zsh -dfc '\''
+          exec {gate}<> "$HOME/unrelated"
+          IFS= read -r -u $gate release
+        '\'' & unrelated=$!
+      } 2>/dev/null
       ZSH_XCODE_CAPTURE_MAX_BYTES=4096
       [[ $discovery_mode == held-writer ]] && ZSH_XCODE_CAPTURE_MAX_BYTES=262144
       {
@@ -91,11 +105,10 @@ exit 0' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty zsh/zselect zsh/datetime
+    zmodload zsh/zpty zsh/zselect
     exec {events}<> "$HOME/events"
     exec {gate}<> "$HOME/gate"
     local event="" trace="" chunk="" device="" mode="" pfd=0 provider=0 descendant=0
-    local -F released=0
     _until() {
       while zselect -r $events $pfd -t 400; do
         while zpty -r discovery chunk; do trace+=$chunk; done
@@ -156,10 +169,8 @@ exit 0' || return
             kill -0 $descendant 2>/dev/null && { print -u2 "discovery descendant survived cancellation"; exit 13; }
             ;;
           held-writer)
-            released=$EPOCHREALTIME
             print -r -u $gate release
             _until "DONE:0:held-writer" || exit 14
-            (( EPOCHREALTIME - released < 2 )) || { print -u2 "completed discovery waited for an inherited output writer"; exit 15; }
             (( descendant > 1 )) || exit 16
             for repeat in {1..20}; do
               kill -0 $descendant 2>/dev/null || break

@@ -801,15 +801,19 @@ _zle_picker_read_bracketed_paste() {
   if [[ $mode == opening ]]; then
     # ESC [ 2 is already consumed. A delayed paste opener must retain input
     # ownership too; complete non-paste CSI keys (such as Insert) stay inert.
-    while IFS= read -r -t 0.1 -k 1 character; do
+    while (( ${#opening} < 32 )) && IFS= read -r -t 0.1 -k 1 character; do
       opening+=$character
       [[ $opening == '00~' ]] && break
-      if [[ $character == [a-zA-Z~] ]]; then
+      if [[ $character == [@-~] ]]; then
         return 2
       fi
-      [[ $opening == (0|00) ]] || break
     done
-    [[ $opening == '00~' ]] || mode=incomplete
+    if [[ $opening != '00~' ]]; then
+      # Only a still-possible paste opener owns delayed payload. Other CSI
+      # keys consume their bounded suffix through its final byte above.
+      [[ -z $opening || $opening == (0|00) ]] || return 2
+      mode=incomplete
+    fi
   fi
 
   # Timeout and overflow reject the whole paste, but do not relinquish input:

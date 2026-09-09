@@ -414,7 +414,9 @@ test_case 'worktree guide uses shared keys with correct worktree and literal ent
 _test_worktree_native() {
   test_make_temp_dir || return
   local output='' journey=${1:-create}
-  output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
+  # The old abbreviated query also matched arbitrary temporary parent names.
+  # Keep that collision in the fixture and select the explicit branch prefix.
+  output=$(test_run_interactive "${TEST_TMP_DIR:A}/ocpd/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/tests/support.zsh"
     source "$1/tests/git_worktree_test.zsh"
@@ -501,14 +503,14 @@ _test_worktree_native() {
       _worktree_test_expect "FRAME|Worktrees||0|120|30" || exit 4
       captures=$(<"$HOME/captures")
       _worktree_test_key 1 "FRAME|Enter worktree||0|120|30" || exit 30
-      _worktree_test_key ocpd "FRAME|Enter worktree|ocpd|0|120|30" || exit 5
+      _worktree_test_key feature/occupied "FRAME|Enter worktree|feature/occupied|0|120|30" || exit 5
       command stty rows 22 cols 70 < "$device"
-      _worktree_test_expect "FRAME|Enter worktree|ocpd|0|70|22" || exit 6
+      _worktree_test_expect "FRAME|Enter worktree|feature/occupied|0|70|22" || exit 6
       [[ $(<"$HOME/captures") == "$captures" ]] || exit 7
-      _worktree_test_key $'\''\x0b'\'' "FRAME|Enter worktree|ocpd|1|70|22" || exit 8
-      _worktree_test_key $'\''\x07'\'' "FRAME|Enter worktree|ocpd|0|70|22" || exit 9
+      _worktree_test_key $'\''\x0b'\'' "FRAME|Enter worktree|feature/occupied|1|70|22" || exit 8
+      _worktree_test_key $'\''\x07'\'' "FRAME|Enter worktree|feature/occupied|0|70|22" || exit 9
       _worktree_test_key $'\''\x18'\'' "FRAME|Worktree options||0|70|22" || exit 10
-      _worktree_test_key $'\''\x07'\'' "FRAME|Enter worktree|ocpd|0|70|22" || exit 11
+      _worktree_test_key $'\''\x07'\'' "FRAME|Enter worktree|feature/occupied|0|70|22" || exit 11
       if [[ $journey != enter ]]; then
         _worktree_test_key $'\''\x07'\'' "FRAME|Worktrees||0|70|22" || exit 12
       fi

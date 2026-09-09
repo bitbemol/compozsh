@@ -582,7 +582,10 @@ recovery screen tells the user to press Escape and type `[201~`; normal
 cancellation resumes afterward.
 A closed input stream exits recovery without a busy retry loop. The ordinary
 short Escape-key recognition window remains in force before a paste prefix is
-recognized. Run `zsh tests/run.zsh 'picker interrupted paste'` for isolated
+recognized. Complete non-paste CSI keys consume their bounded suffix without
+entering paste recovery; suffix parsing retains at most 32 characters after
+the initial `ESC [ 2`. Run `zsh tests/run.zsh 'picker nonpaste CSI'` and
+`zsh tests/run.zsh 'picker interrupted paste'` for isolated
 payload limits, split markers, EOF, signal, guide and filter-state checks.
 
 These are local process, filesystem, agent-directory, and operating-system
@@ -628,6 +631,10 @@ poll, so a busy provider cannot monopolize keyboard handling. A supervisor
 retains the provider process group's identity until cleanup; Compozsh checks
 its owned child state before signaling that group and then reaps the supervisor.
 Normal completion, Escape and Ctrl-C remove the FIFOs and completion record.
+The loading label is scoped to the discovery view; later task captures retain
+their own status and cancellation guidance. Run
+`zsh tests/run.zsh 'Xcode discovery'` for isolated completion, cancellation,
+stream limits, owned-process cleanup and subsequent Files status checks.
 Discovery reads no terminal stdin. No provider starts during paint or resize,
 and successful parsed destination snapshots and explicit selections remain
 bounded to four schemes in the current workspace. Closing the workspace releases

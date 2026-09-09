@@ -1,3 +1,38 @@
+_test_picker_nonpaste_csi() {
+  test_make_temp_dir || return
+  test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_loop"
+    local stream="" sequence="" result=0 recovery=0 delivered=0
+    read() {
+      [[ -n $stream ]] || return 1
+      (( ++delivered ))
+      character=$stream[1] stream=$stream[2,-1]
+    }
+    _zle_ui_view() { recovery=1; return 1; }
+    # The loop has consumed ESC [. Complete CSI keys must consume their final
+    # byte without claiming paste ownership or consuming the following input.
+    for sequence in "2~" "21~" "23~" "24~" "2;5~" "200;5~"; do
+      stream="${sequence}AFTER" recovery=0
+      _zle_picker_read_bracketed_paste suffix
+      result=$?
+      [[ $result == 2 && $recovery == 0 && $stream == AFTER && -z $REPLY ]] || {
+        print -u2 -r -- "nonpaste $sequence: status=$result recovery=$recovery remainder=$stream"
+        exit 1
+      }
+    done
+    # An impossible paste prefix cannot enter recovery on timeout or force
+    # unbounded suffix reads. Genuine split openers are covered below.
+    for stream in "24" "2${(l:40::0:):-}"; do
+      delivered=0 recovery=0
+      _zle_picker_read_bracketed_paste suffix
+      result=$?
+      [[ $result == 2 && $recovery == 0 && $delivered -le 33 ]] || exit 2
+    done
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'picker nonpaste CSI keys retain ordinary cancellation and consume their complete transport' \
+  _test_picker_nonpaste_csi
+
 # An incomplete paste retains terminal ownership until its closing marker.
 _test_picker_paste_boundary() {
   test_make_temp_dir || return
@@ -195,6 +230,19 @@ _test_picker_paste_transport() {
       zpty -w -n paste $'\''\x07'\''
       _paste_expect "DONE|1|0|select" || exit 7
       [[ $trace != *"bad math"* && $trace != *"read-only variable"* ]] || exit 8
+      } always { zpty -d paste }
+    done
+    scenario=nonpaste
+    local sequence=""
+    for sequence in "21~" "23~" "24~" "2;5~"; do
+      zpty -b paste _paste_driver || exit 12
+      pfd=$REPLY
+      {
+        _paste_expect "FRAME|0||1|0|0" || exit 13
+        zpty -w -n paste $'\''\e['\''"$sequence"
+        _paste_expect "FRAME|0||1|0|0" || exit 14
+        zpty -w -n paste $'\''\x07'\''
+        _paste_expect "DONE|1|0|select" || exit 15
       } always { zpty -d paste }
     done
     exec {efd}>&-

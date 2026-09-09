@@ -144,20 +144,13 @@ separate design. No speedup is claimed for either area.
 
 ## Local measurement artifacts
 
-Temporary artifacts retained from the implementation pass:
+The implementation pass retained a baseline archive, picker scripts and raw
+samples, catalog measurements, manual and editor comparisons, integrated
+first-prompt samples, the full-suite log, and independent history parity checks
+in temporary local storage. Their machine-specific locations are omitted;
+these artifacts are not distributed with the repository and their continued
+availability is not guaranteed.
 
-- Baseline archive: `/tmp/compozsh-critical-baseline.vp8U8Otb`.
-- Picker: `/tmp/compozsh-picker-final.USos6xxC/summary.json`, with scripts,
-  parity results and raw samples in the same directory.
-- Catalog: `/tmp/compozsh-catalog-final.{py,zsh,json,log}`.
-- Manual comparison: `/tmp/compozsh-startup-perf.Ewy2qyE4/`
-  (`first-prompt-compare.py`, `format-compare.zsh`, `format-prototype.zsh`).
-- Final editor comparison: `/tmp/compozsh-editor-corrected-ce9f56zi/`
-  (`aggregate.json`, `native-results.json`, `native.py`, `native.zsh`).
-- Final integrated first prompt: `/tmp/compozsh-first-prompt-final.{py,json,log}`.
-- Full suite: `/tmp/compozsh-critical-verified-suite.log`.
-- Independent history parity: `/tmp/compozsh-history-final-review.4WubqXa9/check.zsh`.
-
-These paths are local investigation artifacts, not runtime storage or a new
-benchmark framework. The repository tests protect semantics; performance
+These were investigation artifacts, not runtime storage or a new benchmark
+framework. The repository tests protect semantics; performance
 comparisons are repeated separately to avoid scheduler-dependent assertions.

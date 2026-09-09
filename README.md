@@ -1905,6 +1905,8 @@ or return that unfinished paste to the prompt. If the terminal never finishes
 the paste, press **Escape**, then type **`[201~`** to recover. Normal cancellation
 works again after recovery. A delayed recognized paste-opening prefix uses the
 same recovery; a closed input stream exits without repeatedly retrying reads.
+F10–F12 and modified Insert key sequences leave the filter unchanged and
+preserve normal cancellation.
 
 These are **modal picker controls**: for example, Ctrl-K shows keys and Ctrl-D
 pages up here. After closing, normal shell editing is unchanged: Ctrl-K deletes

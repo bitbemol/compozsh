@@ -749,7 +749,7 @@ _xcode_discovery_view() {
   _ZLE_PICKER_COLLECTOR=_xcode_discovery_collect
   _ZLE_PICKER_IDLE_CALLBACK=_xcode_discovery_idle
   _ZLE_PICKER_CANCEL_LABEL=cancel
-  _ZLE_PICKER_BUSY_LABEL='Waiting for Xcode · Escape cancels'
+  local _ZLE_PICKER_BUSY_LABEL='Waiting for Xcode · Escape cancels'
   _zle_picker_loop '' 10
 }
 

@@ -666,3 +666,42 @@ _test_xcode_lazy_cancel_refresh_under_shell_options() {
 }
 test_case 'Xcode lazy flow preserves canceled refresh selection under unusual options and releases workspace cache' \
   _test_xcode_lazy_cancel_refresh_under_shell_options
+
+_test_xcode_discovery_status_scope() {
+  test_make_temp_dir || return
+  test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/ui/.zsh.ui.zle_ui_view"
+    source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_capture"
+    source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_render"
+    local result=0 expected="" loop_status=0 label_seen=""
+    _zle_picker_loop() {
+      [[ $_ZLE_PICKER_BUSY_LABEL == "Waiting for Xcode · Escape cancels" ]] || return 99
+      return $loop_status
+    }
+    zle() { return 0; }
+    _zle_picker_render() {
+      _zle_picker_titlebar 120
+      label_seen=$_ZLE_PICKER_TITLEBAR
+    }
+    _zle_picker_show() { return 0; }
+    for loop_status in 0 1 130; do
+      for expected in "" "Caller status"; do
+        unset _ZLE_PICKER_BUSY_LABEL
+        [[ -n $expected ]] && _ZLE_PICKER_BUSY_LABEL=$expected
+        _zle_ui_view status _xcode_discovery_view "Loading schemes"
+        result=$?
+        [[ $result == $loop_status && ${_ZLE_PICKER_BUSY_LABEL-} == "$expected" ]] || {
+          print -u2 -r -- "discovery leaked its busy label after status $loop_status"
+          exit 1
+        }
+        [[ -n $expected || ${+_ZLE_PICKER_BUSY_LABEL} == 0 ]] || exit 2
+        _zle_picker_capture Files "Filesystem · /example" demo true || exit 3
+        [[ $label_seen == *Files* && $label_seen == *"${expected:-Searching…}"* &&
+           $label_seen != *Xcode* && $label_seen != *"Escape cancels"* ]] || exit 4
+      done
+    done
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'Xcode discovery status stays scoped across completion cancellation abort and later Files capture' \
+  _test_xcode_discovery_status_scope
