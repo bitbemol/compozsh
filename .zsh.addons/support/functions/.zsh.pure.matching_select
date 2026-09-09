@@ -27,7 +27,7 @@ _matching_select() {
   if [[ $_ms_policy == fallback ]] && (( ${(P)#_ms_extra} == 0 )); then
     _ms_policy=text
   fi
-  local -i _ms_count=${(P)#_ms_values} _ms_limit=0 _ms_index=0
+  local -i _ms_count=${(P)#_ms_values} _ms_limit=0 _ms_index=0 _ms_next=0
   local -a _ms_patterns=() _ms_selected=()
   local -A _ms_seen=()
   local REPLY=''
@@ -62,7 +62,21 @@ _matching_select() {
           _ms_text=$_ms_suffix
         fi
       fi
-      [[ $_ms_text == ${~_ms_pattern} ]] || continue
+      if [[ $_ms_text != ${~_ms_pattern} ]]; then
+        if [[ $_ms_policy == text ]]; then
+          # Scan a gap in native Zsh rather than interpreting every candidate.
+          # Keep the pattern in a parameter: its literal contents must never
+          # become subscript syntax. Revisit the found row normally so limits,
+          # exclusion and duplicate policy still share the same boundary.
+          _ms_ref="${_ms_texts}[(ib:$(( _ms_index + 1 )):)\${~_ms_pattern}]"
+          _ms_next=${(P)_ms_ref}
+          # A missing match is one past the text array, which may be shorter
+          # than the value array. Never let that sentinel move us backwards.
+          (( _ms_next > _ms_index && _ms_next <= _ms_count )) || break
+          _ms_index=$(( _ms_next - 1 ))
+        fi
+        continue
+      fi
       [[ $_ms_text == ${~_ms_exclusion_pattern} ]] || continue
       if [[ $_ms_mode == ranked && -n $_ms_query ]]; then
         _ms_ref="${_ms_values}[$_ms_index]" _ms_value=${(P)_ms_ref}

@@ -220,3 +220,12 @@ Final verification passed all 801 native tests with zero failures in
 sourcing and whitespace checks. Native PTY coverage includes the expanded alias
 and manual journeys and both Xcode log owners. Physical-device behavior remains
 covered by synthetic command spies rather than a paired-hardware launch.
+
+## Subsequent capture optimization
+
+The [critical-path performance pass](critical-path-performance.md) preserves
+this capture scope and first-TTY lifecycle while normalizing only the formatted
+lines needed for NAME. Paired captures retained all 2,308 names, summaries and
+source attributions exactly and reduced median capture time from 3,415 to
+2,624 ms on the measured host. The linked report separates provider timings
+from first editable prompt measurements and records the regression coverage.

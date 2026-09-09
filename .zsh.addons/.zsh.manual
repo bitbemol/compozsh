@@ -91,7 +91,7 @@ _manual_summary_format() {
   local input=${1[1,65536]} directory=${2:-} output='' line='' body='' pattern=''
   local MATCH='' MBEGIN=0 MEND=0
   local -a match=() mbegin=() mend=() entries=()
-  local -i collecting=0 owns_directory=0
+  local -i collecting=0 owns_directory=0 normalized=0
   REPLY='' reply=()
   [[ $input == *NAME* || $input == *Name* ]] || return 1
   [[ -x /usr/bin/mandoc && -x /usr/bin/head ]] || return 1
@@ -118,10 +118,16 @@ _manual_summary_format() {
         command rmdir -- "$directory" 2>/dev/null
     fi
   }
-  # Terminal mandoc output uses overstruck glyphs for bold/underline.
-  output=${output//?$'\b'/}
-  output=${output//$'\t'/ }
+  # Normalize only lines needed for NAME, rather than the entire formatted
+  # document. A backspace after a newline can join lines: preserve the original
+  # single whole-buffer pass for that unusual case, without normalizing twice.
+  if [[ $output == *$'\n\b'* ]]; then
+    output=${output//?$'\b'/}
+    normalized=1
+  fi
   for line in "${(@f)output}"; do
+    (( normalized )) || line=${line//?$'\b'/}
+    line=${line//$'\t'/ }
     line=${line##[[:blank:]]#}
     line=${line%%[[:blank:]]#}
     if (( !collecting )); then

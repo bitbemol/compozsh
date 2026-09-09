@@ -1335,15 +1335,27 @@ typeset -g _ZLE_AUTOSUGGEST_DISPLAY=''
 _zle_autosuggest_find() {
   emulate -L zsh
 
-  local prefix=$1 entry=''
-  local -i event=${HISTCMD:-0} inspected=0
+  local prefix=$1 entry='' probe=$1
+  local -i event=${HISTCMD:-0} inspected=0 prefix_length=${#prefix} probe_length=${#prefix}
+  # A short probe avoids repeating long literal comparisons for pasted drafts.
+  # Ordinary drafts need only one comparison.
+  if (( prefix_length > 256 )); then
+    probe_length=64
+    probe=${prefix[1,64]}
+  fi
   typeset -g _ZLE_AUTOSUGGEST_CACHE_FULL=''
 
   # Inspect a fixed recent window without materializing or sorting every
   # matching history key. Numeric attempts are bounded even with sparse keys.
   for (( --event; event > 0 && inspected < 512; --event, ++inspected )); do
+    # Slice before copying the entry: unrelated long Unicode history should
+    # not require scanning its entire text or compiling a prefix glob.
+    [[ ${history[$event][1,probe_length]} == "$probe" ]] || continue
     entry=${history[$event]-}
-    [[ $entry == "$prefix"* && $entry != "$prefix" ]] || continue
+    if (( prefix_length > 256 )); then
+      [[ ${entry[1,prefix_length]} == "$prefix" ]] || continue
+    fi
+    [[ $entry != "$prefix" ]] || continue
     # Tabs, newlines, escapes, and other control bytes are valid history, but
     # writing them to POSTDISPLAY could alter the terminal rather than its UI.
     [[ $entry == *[[:cntrl:]]* ]] && continue

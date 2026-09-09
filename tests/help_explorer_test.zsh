@@ -58,6 +58,30 @@ _test_compozsh_discovery_regenerates_from_live_state() {
 test_case 'Compozsh tool discovery is regenerated from live shell state' \
   _test_compozsh_discovery_regenerates_from_live_state
 
+_test_compozsh_discovery_preserves_public_name_grammar() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home"
+  local addon="$home/.zsh.addons/private/.zsh.names" output=''
+
+  test_write_file "$addon" $'A-tool() { :; }\na_tool() { :; }\nz9() { :; }\n_private() { :; }\nTRAP42() { :; }\nfunction "9invalid" { :; }\nfunction "bad.name" { :; }\nfunction "naïve" { :; }\nfunction "éclair" { :; }\n' || return
+
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.help" || exit
+    source "$2" || exit
+    for LC_ALL in C en_US.UTF-8; do
+      setopt KSH_ARRAYS SH_WORD_SPLIT GLOB_SUBST
+      _compozsh_tool_capture || exit
+      unsetopt KSH_ARRAYS SH_WORD_SPLIT GLOB_SUBST
+      print -r -- "${(j:|:)_COMPOZSH_TOOL_NAMES}"
+    done
+  ' "$TEST_REPO_ROOT" "$addon") || return
+
+  test_assert_equal $'A-tool|a_tool|compozsh|z9\na_tool|A-tool|compozsh|z9' "$output" \
+    'catalog name filtering or order changed with locale or caller options'
+}
+test_case 'Compozsh tool discovery preserves public name grammar across locales and options' \
+  _test_compozsh_discovery_preserves_public_name_grammar
+
 _test_compozsh_never_executes_an_undocumented_tool_for_help() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home"

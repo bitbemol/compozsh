@@ -227,3 +227,78 @@ _test_matching_unordered_data_interface() {
 }
 test_case 'matching component searches supplied data with literal keywords in any order' \
   _test_matching_unordered_data_interface
+
+_test_matching_selection_ranks_after_gaps() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    local -a reply=() values=(miss fuzzy duplicate prefix gap duplicate unicode tail)
+    local -a texts=(unrelated "a---b" "in ab" AB nope "other AB" "日本/Äω" "a---b")
+    _matching_select ranked ab 20 values texts || exit 2
+    [[ ${(j:,:)reply} == 4,3,2,8 ]] || exit 3
+    _matching_select source ab 20 values texts || exit 4
+    [[ ${(j:,:)reply} == 2,3,4,6,8 ]] || exit 5
+    _matching_select ranked ab 2 values texts "" text in || exit 6
+    [[ ${(j:,:)reply} == 4,6 ]] || exit 7
+    _matching_select ranked "" 3 values texts "" text unrelated || exit 8
+    [[ ${(j:,:)reply} == 2,3,4 ]] || exit 9
+    _matching_select ranked "" 20 values texts || exit 10
+    [[ ${(j:,:)reply} == 1,2,3,4,5,6,7,8 ]] || exit 11
+    local -a extras=("" "" "" none "" "" "" "")
+    _matching_select ranked ab 20 values texts extras fallback || exit 12
+    [[ ${(j:,:)reply} == 3,2,8 ]] || exit 13
+    values=(one two three four) texts=(zz zz zz AB) extras=(ab "a--b" "" none)
+    _matching_select ranked ab 20 values texts extras fallback || exit 14
+    [[ ${(j:,:)reply} == 1,2 ]] || exit 15
+    _matching_select ranked ab 20 values texts extras append || exit 16
+    [[ ${(j:,:)reply} == 4,1,2 ]] || exit 17
+    print ordered
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal ordered "$output"
+}
+test_case 'matching selection retains ranking source indexes exclusions and text policies after gaps' \
+  _test_matching_selection_ranks_after_gaps
+
+_test_matching_selection_literal_gaps_and_short_arrays() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
+    local -a reply=() values=(first second third fourth fifth) texts=()
+    local query="" mode=""
+    for query in "[]" "]^-" "\\" "(#i)" "\$(touch sentinel)" "\${value}" "Äω" "é" "👨‍👩‍👦"; do
+      texts=(unrelated "before $query after" unrelated "$query")
+      for mode in source ranked; do
+        _matching_select "$mode" "$query" 20 values texts || exit 2
+        if [[ $mode == source ]]; then
+          [[ ${(j:,:)reply} == 2,4 ]] || exit 3
+        else
+          [[ ${(j:,:)reply} == 4,2 ]] || exit 4
+        fi
+      done
+    done
+    [[ ! -e sentinel ]] || exit 5
+    texts=(unrelated unrelated match)
+    _matching_select ranked match 20 values texts || exit 6
+    [[ ${(j:,:)reply} == 3 ]] || exit 7
+    _matching_select ranked missing 20 values texts || exit 8
+    (( ${#reply} == 0 )) || exit 9
+    texts=()
+    _matching_select source match 20 values texts || exit 10
+    (( ${#reply} == 0 )) || exit 11
+    _matching_select source match 20 values absent_texts || exit 12
+    (( ${#reply} == 0 )) || exit 13
+    values=(one two) texts=(unrelated match match)
+    setopt KSH_ARRAYS SH_WORD_SPLIT GLOB_SUBST
+    _matching_select ranked match 20 values texts || exit 14
+    [[ -o KSH_ARRAYS && -o SH_WORD_SPLIT && -o GLOB_SUBST ]] || exit 15
+    unsetopt KSH_ARRAYS SH_WORD_SPLIT GLOB_SUBST
+    [[ ${(j:,:)reply} == 2 && ${#values} == 2 && ${#texts} == 3 ]] || exit 16
+    print literal
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal literal "$output"
+}
+test_case 'matching selection keeps skipped punctuation literal and terminates with incomplete text arrays' \
+  _test_matching_selection_literal_gaps_and_short_arrays

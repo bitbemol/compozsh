@@ -664,7 +664,7 @@ _compozsh_tool_capture() {
   typeset -gA _COMPOZSH_TOOL_HELPERS=()
   typeset -gA _COMPOZSH_TOOL_SOURCES=()
 
-  for name in ${(ok)functions_source}; do
+  for name in ${(ok)functions_source[(I)[A-Za-z]*]}; do
     [[ $name == [A-Za-z][A-Za-z0-9_-]# ]] || continue
     [[ $name != _* && $name != TRAP[A-Z0-9]## ]] || continue
     source=${functions_source[$name]-}
