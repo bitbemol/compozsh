@@ -380,7 +380,11 @@ _zle_picker_render() {
   else
     _zle_picker_footer $(( columns - 1 )) "$query"
     footer=$REPLY
-    _ZLE_PICKER_DISPLAY+=("${(mr:$(( columns - 1 )):: :)footer}")
+    # The footer already fits whole hints. Pad with ASCII spaces directly;
+    # native multibyte truncation can crash on Unicode bytes in the C locale.
+    local -i footer_padding=$(( columns - 1 - ${(m)#footer} ))
+    (( footer_padding < 0 )) && footer_padding=0
+    _ZLE_PICKER_DISPLAY+=("$footer${(l:$footer_padding:: :)}")
     _ZLE_PICKER_DISPLAY_STYLES+=(picker-muted)
     _ZLE_PICKER_DISPLAY_INDEX_ENDS+=(0)
     _ZLE_PICKER_DISPLAY_HIGHLIGHTS+=('')

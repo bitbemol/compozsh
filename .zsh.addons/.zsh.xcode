@@ -3002,7 +3002,7 @@ _compozsh_help_xcode() {
     '  Option-digits choose visible rows; ordinary text filters actions in character order.' \
     '  Ctrl-] switches Filter / Exclude contains in candidate menus; both stay active.' \
     '  Exclusion is one case-insensitive phrase. Ctrl-U clears only the active field.' \
-    '  Option-digits choose rows only with both fields empty; in logs they edit the active field.' \
+    '  Plain digits always edit the active filter, including in logs.' \
     '  Ctrl-K opens the shared guide. In Run, Escape/Ctrl-G or Stop app and close' \
     '  stops this exact Simulator bundle after screen cleanup. Ctrl-C aborts' \
     '  and stops from Run, the reader, or its options.' \

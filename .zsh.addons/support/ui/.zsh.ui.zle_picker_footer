@@ -34,7 +34,11 @@ _zle_picker_footer() {
     # Keep the input-field toggle discoverable when selection adds reader or
     # workspace actions to the bounded hint list.
     (( ${_ZLE_PICKER_EXCLUSION_ENABLED:-0} )) && hints+=('^] filter/exclude')
-    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )) && hints+=('^X views')
+    # Numbered rows need their modifier visible before secondary actions consume
+    # the full-screen hint budget. Spell out Option alongside the native keys.
+    if (( ${+functions[_zle_picker_can_select_digit]} )) && _zle_picker_can_select_digit "$query"; then
+      hints+=("Option-0–9 ${action}")
+    fi
     if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
       (( _ZLE_PICKER_DOCUMENT_FOLLOW )) && hints+=('↑ pause') || hints+=('End follow')
     fi
@@ -43,6 +47,7 @@ _zle_picker_footer() {
     if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
       (( _ZLE_PICKER_AUTO_REFRESH )) && hints+=('^A pause auto') || hints+=('^A resume auto')
     fi
+    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )) && hints+=('^X views')
     # Put the available disclosure steps ahead of convenience shortcuts.
     if (( _ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY )) && [[ -n $value ]]; then
       local footer=$REPLY
@@ -84,9 +89,6 @@ _zle_picker_footer() {
       (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_INSPECT_FOCUS )) && hints+=('^E details')
     elif (( (${#_ZLE_PICKER_INSPECT_TEXTS} || _ZLE_PICKER_VALUE_INSPECT) && !_ZLE_PICKER_INSPECT_FOCUS )); then
       hints+=('Tab details')
-    fi
-    if (( ${+functions[_zle_picker_can_select_digit]} )) && _zle_picker_can_select_digit "$query"; then
-      hints+=("⌥0–9 ${action}")
     fi
     hints+=('Fn/Option ↑/↓ page')
     if (( !_ZLE_PICKER_INSPECT_FOCUS || _ZLE_PICKER_READER_ONLY )); then

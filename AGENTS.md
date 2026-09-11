@@ -1261,7 +1261,7 @@ sources prove a particular column ratio or key assignment is optimal.
 | Navigation strip | Passive disclosure map in the existing separator row; highlight current focus and show a whole next-gesture hint when it fits. Derive stages from current capabilities, never infer available actions from a tool name |
 | Main body | Pickers prioritize results; document workspaces prioritize the selected document beside a stable navigator. Preserve exact values separately from labels |
 | Details / reader | Secondary information or a primary document, respectively; explicit focus and independent scroll, no provider calls during repaint. In a document workspace, distinguish selected content from keyboard focus |
-| Footer | Emphasized real acceptance action, Escape, then at most five complete capability hints on the full screen. Reserve the final `^K all keys` hint before fitting optional controls, prioritizing the available filter/exclusion toggle. The guide retains all applicable keys and ends with `^K close`; narrow fallbacks shorten whole labels before omitting guide access |
+| Footer | Emphasized real acceptance action, Escape, then at most five complete capability hints on the full screen. Reserve the final `^K all keys` hint before fitting optional controls, prioritizing the available filter/exclusion toggle and then an explicit Option-number hint before secondary actions. The guide retains all applicable keys and ends with `^K close`; narrow fallbacks shorten whole labels before omitting guide access |
 
 The visible `[n]` prefix is reserved for actionable candidates: directories,
 files, menu operations, or other exact values that the input loop can select and

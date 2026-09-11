@@ -22,7 +22,7 @@ _test_fullscreen_footer_contract() {
       (( ${(m)#REPLY} <= width )) || exit 3
     done
     _zle_picker_footer 179 ""
-    [[ $REPLY == *"^Y copy"* && $REPLY == *"Tab details"* && $REPLY == *"⌥0–9 switch"* ]] || exit 4
+    [[ $REPLY == *"^Y copy"* && $REPLY == *"Tab details"* && $REPLY == *"Option-0–9 switch"* ]] || exit 4
     _zle_picker_footer 179 query
     [[ $REPLY != *"0–9"* ]] || exit 5
     _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_CANCEL_LABEL=back
@@ -42,6 +42,82 @@ _test_fullscreen_footer_contract() {
   test_assert_equal consistent "$output"
 }
 test_case 'fullscreen contract keeps essential shortcuts visible and capability hints consistent' _test_fullscreen_footer_contract
+
+_test_fullscreen_option_number_hint() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_INDEXES_VISIBLE=1 _ZLE_PICKER_EXCLUSION_ENABLED=1
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_COPY_ENABLED=1
+    _ZLE_PICKER_RESULTS=(main) _ZLE_PICKER_SELECTED=1
+    _ZLE_PICKER_INSPECT_TEXTS=(main details)
+    local action kind width
+    for kind in git generic; do
+      _ZLE_PICKER_OPTIONS_KIND=$kind
+      [[ $kind == git ]] && action=switch || action=choose
+      _ZLE_PICKER_INSPECT_ACTION=$action
+      for width in 79 119 179 299; do
+        _zle_picker_footer $width ""
+        [[ $REPLY == *"Option-0–9 $action"* && $REPLY == *"^] filter/exclude"* &&
+           $REPLY == *"⏎ $action"* && $REPLY == *"Esc cancel"* && $REPLY == *"^K all keys" ]] || {
+          print -u2 -- "Missing available Option-number hint at $width columns: $REPLY"; exit 1
+        }
+        (( ${(m)#REPLY} <= width )) || exit 2
+      done
+    done
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1 _ZLE_PICKER_AUTO_REFRESH=1
+    _ZLE_PICKER_OPTIONS_KIND=file-views
+    _zle_picker_footer 119 ""
+    [[ $REPLY == *"Option-0–9"* && $REPLY == *"^A pause auto"* && $REPLY == *"^R refresh"* ]] || exit 8
+    _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_DOCUMENT_REFRESH=0 _ZLE_PICKER_AUTO_REFRESH=-1
+    _zle_picker_footer 179 1232
+    [[ $REPLY != *Option-0* ]] || exit 3
+    _ZLE_PICKER_EXCLUDE=hidden
+    _zle_picker_footer 179 ""
+    [[ $REPLY != *Option-0* ]] || exit 4
+    _ZLE_PICKER_EXCLUDE="" _ZLE_PICKER_EXCLUDE_FOCUS=1
+    _zle_picker_footer 179 ""
+    [[ $REPLY != *Option-0* ]] || exit 5
+    _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_INSPECT_FOCUS=1
+    _zle_picker_footer 179 ""
+    [[ $REPLY != *Option-0* ]] || exit 6
+    _ZLE_PICKER_INSPECT_FOCUS=0 _ZLE_PICKER_INDEXES_VISIBLE=0
+    _zle_picker_footer 179 ""
+    [[ $REPLY != *Option-0* ]] || exit 7
+    print discoverable
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal discoverable "$output"
+}
+test_case 'fullscreen Option-number hint survives competing branch and menu capabilities' _test_fullscreen_option_number_hint
+
+_test_option_number_footer_c_locale() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=C
+    source "$1/.zsh.addons/.zsh.editor"
+    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    _ZLE_PICKER_INSPECT_ACTION=stop _ZLE_PICKER_CANCEL_LABEL=stop
+    _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_EXCLUSION_ENABLED=1
+    _ZLE_PICKER_RESULTS=(stop read) _ZLE_PICKER_LABELS=(Stop Read)
+    _ZLE_PICKER_RESULT_INDEXES=(1 2) _ZLE_PICKER_INSPECT_TEXTS=(stop details read details)
+    COLUMNS=120 LINES=30
+    local repaint
+    for repaint in {1..10}; do
+      _zle_picker_render "" 1 || exit 1
+      [[ $_ZLE_PICKER_DISPLAY[-1] == *Option-0* && $_ZLE_PICKER_DISPLAY[-1] == *"^K all keys"* ]] || exit 2
+    done
+    print rendered
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal rendered "$output"
+}
+test_case 'Option-number footer renders without a shell crash in the C locale' _test_option_number_footer_c_locale
 
 _test_fullscreen_status_view_omits_input_and_bottom_footer() {
   test_make_temp_dir || return

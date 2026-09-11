@@ -1880,6 +1880,9 @@ guide for the current view; **`^K close`** returns to your previous position.
 Narrow windows use shorter whole labels (`^K keys`, then `^K`). The bar
 prioritizes **Ctrl-] filter/exclude** among optional hints when candidate
 filtering supports exclusion, including when a file or folder is selected. It
+then shows **Option-0–9** whenever numbered selection is available and the hint
+fits, ahead of secondary actions. Typing a filter or focusing details removes
+that hint because the shortcut is inactive there. The bar
 names the actual action (`cd`, `switch`, `insert`, or file actions), and only
 advertises copying or details when supported. It never cuts a shortcut in half.
 

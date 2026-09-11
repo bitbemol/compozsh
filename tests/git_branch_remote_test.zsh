@@ -83,16 +83,21 @@ _test_branch_remote_native() {
     functions[_remote_original_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _remote_original_show
+      if [[ -z $_ZLE_PICKER_QUERY ]] && (( !_ZLE_PICKER_INSPECT_FOCUS && _ZLE_PICKER_INDEXES_VISIBLE )); then
+        [[ $_ZLE_PICKER_DISPLAY[-1] == *"Option-0–9"* ]] || footer_missing=1
+      fi
       print -r -u $event_fd -- "FRAME|$_ZLE_PICKER_TITLE|$_ZLE_PICKER_QUERY|$_ZLE_PICKER_INSPECT_ACTION|${#_ZLE_PICKER_RESULTS}"
     }
     _remote_driver() {
       COLUMNS=100 LINES=24
+      local -i footer_missing=0
       g
       local result=$?
       [[ $(command git symbolic-ref --short HEAD) == bug/1232-something ]] || result=71
       [[ $(command git config branch.bug/1232-something.remote) == upstream ]] || result=72
       (( !${_ZLE_PICKER_SCREEN_ACTIVE:-0} )) || result=73
       (( !${#_GIT_BRANCH_REMOTE_VALUES} && !${#_GIT_BRANCH_REMOTE_NAMES} )) || result=74
+      (( !footer_missing )) || result=75
       print -r -u $event_fd -- "DONE|$result"
     }
     _remote_expect() {
