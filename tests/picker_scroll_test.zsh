@@ -262,8 +262,8 @@ _test_picker_scroll_native() {
             done
             [[ $frame == *"FRAME:25:15:1:"* ]] || exit 6
             zpty -w -n scrolling $'\''\r'\'' ;;
-          (digit) zpty -w -n scrolling 1 ;;
-          (zero) zpty -w -n scrolling 0 ;;
+          (digit) zpty -w -n scrolling $'\''\e1'\'' ;;
+          (zero) zpty -w -n scrolling $'\''\e0'\'' ;;
           (arrows) zpty -w -n scrolling $'\''\r'\'' ;;
           (pane)
             zpty -w -n scrolling $'\''\e[C'\''
@@ -279,7 +279,7 @@ _test_picker_scroll_native() {
             # The persistent scope row reserves one body row: at 12 lines,
             # five results remain visible and the first slot becomes row 7.
             [[ $frame == *"FRAME:11:6:1:2:"* ]] || exit 17
-            zpty -w -n scrolling 1 ;;
+            zpty -w -n scrolling $'\''\e1'\'' ;;
           (pageup)
             zpty -w -n scrolling $'\''\x04'\''
             _scroll_read END-SCROLL-FRAME || exit 10

@@ -96,17 +96,17 @@ _test_git_comparison_native() {
       device=${event#READY:}
       if [[ $scenario == (setup|cancel|branches) ]]; then
         _comparison_test_expect "FRAME|Git review||1|0|120|30|0" || return 5
-        _comparison_test_key 3 "FRAME|Compare branches or commits||2|0|120|30|0" || return 6
+        _comparison_test_key $'\''\e3'\'' "FRAME|Compare branches or commits||2|0|120|30|0" || return 6
         _comparison_test_key $'\''\r'\'' "FRAME|Against · choose branch or commit||1|0|120|30|0" || return 7
         if [[ $scenario == branches ]]; then
           _comparison_test_key main "FRAME|Against · choose branch or commit|main|1|0|120|30|0" || return 34
           _comparison_test_key $'\''\r'\'' "FRAME|Compare branches or commits||4|0|120|30|0" || return 35
-          _comparison_test_key 1 "FRAME|Compare · choose branch or commit||1|0|120|30|0" || return 36
+          _comparison_test_key $'\''\e1'\'' "FRAME|Compare · choose branch or commit||1|0|120|30|0" || return 36
           _comparison_test_key review-target "FRAME|Compare · choose branch or commit|review-target|1|0|120|30|0" || return 37
           _comparison_test_key $'\''\r'\'' "FRAME|Compare branches or commits||4|0|120|30|0" || return 38
           _comparison_test_key $'\''\r'\'' "FRAME|Git comparison||1|0|120|30|0" || return 39
         else
-          _comparison_test_key 2 "FRAME|Against · enter branch or commit||0|0|120|30|0" || return 8
+          _comparison_test_key $'\''\e2'\'' "FRAME|Against · enter branch or commit||0|0|120|30|0" || return 8
           if [[ $scenario == cancel ]]; then
             _comparison_test_key missing "FRAME|Against · enter branch or commit|missing|0|0|120|30|0" || return 29
             _comparison_test_key $'\''\r'\'' "FRAME|Against · enter branch or commit|missing|0|0|120|30|0" || return 30
@@ -117,9 +117,9 @@ _test_git_comparison_native() {
             # Digits are literal inside bracketed paste, not row actions.
             _comparison_test_key $'\''\e[200~'\''"$left"$'\''\e[201~'\'' "FRAME|Against · enter branch or commit|$left|0|0|120|30|0" || return 9
             _comparison_test_key $'\''\r'\'' "FRAME|Compare branches or commits||4|0|120|30|0" || return 10
-            _comparison_test_key 3 "FRAME|Changes to show||1|0|120|30|0" || return 11
-            _comparison_test_key 2 "FRAME|Compare branches or commits||3|0|120|30|0" || return 12
-            _comparison_test_key 4 "FRAME|Git comparison||1|0|120|30|0" || return 13
+            _comparison_test_key $'\''\e3'\'' "FRAME|Changes to show||1|0|120|30|0" || return 11
+            _comparison_test_key $'\''\e2'\'' "FRAME|Compare branches or commits||3|0|120|30|0" || return 12
+            _comparison_test_key $'\''\e4'\'' "FRAME|Git comparison||1|0|120|30|0" || return 13
           fi
         fi
       else

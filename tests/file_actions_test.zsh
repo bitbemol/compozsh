@@ -102,7 +102,7 @@ _test_file_actions_native() {
           [[ $frame == *":row:21:11:1:"* ]] || exit 5
         fi
         if [[ $scenario == directory-digit ]]; then
-          zpty -w -n actions 1
+          zpty -w -n actions $'\''\e1'\''
         else
           zpty -w -n actions $'\''\r'\''
         fi

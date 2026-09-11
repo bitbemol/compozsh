@@ -430,7 +430,7 @@ _compozsh_help_compozsh() {
     'Explore public functions loaded from Compozsh add-on directories.' \
     '' \
     'Modes:' \
-    '  No arguments opens a fuzzy tool picker. Enter or a visible digit with' \
+    '  No arguments opens a fuzzy tool picker. Enter or an Option-digit with' \
     '  an empty query shows documentation; selection never runs the tool.' \
     '  --list  Print the live catalog with source and help availability.' \
     '  help command opens the guide for an exact loaded name, skipping the catalog.' \
@@ -525,7 +525,7 @@ _compozsh_help_compozsh() {
     '  At 90 columns, a compact topic navigator sits beside the primary explanation.' \
     '  Narrower windows use Ctrl-E/B or Tab to switch the same two surfaces.' \
     '  Find a topic matches literal case-insensitive substrings in labels and text.' \
-    '  Arrows choose topics. Enter or a digit with both fields empty opens the selected' \
+    '  Arrows choose topics. Enter or an Option-digit with both fields empty opens the selected' \
     '  topic in a full-width reader; type there to filter literal lines.' \
     '  Enter/Escape returns to the same topic/filter/focus; Escape in topics exits.' \
     '  Ctrl-K shows keys. No selection runs a tool, inserts an example, or copies.' \

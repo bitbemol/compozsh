@@ -153,7 +153,7 @@ _test_git_review_native() {
       captures=$(<"$HOME/captures")
       saved_doc=$doc_event
       _review_test_key $'\''\x18'\'' "FRAME|Git / View options||1|0|120|30" || exit 56
-      _review_test_key 4 "FRAME|Git / Change atlas||1|0|120|30" || exit 56
+      _review_test_key $'\''\e4'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 56
       _review_test_key new-dir "FRAME|Git / Change atlas|new-dir|1|0|120|30" || exit 96
       _review_test_key $'\''\r'\'' "FRAME|Git / Change atlas||1|0|120|30" || exit 97
       _review_test_key $'\''\e'\'' "FRAME|Git / Change atlas|new-dir|1|0|120|30" || exit 98
@@ -203,7 +203,7 @@ _test_git_review_native() {
       [[ $(<"$HOME/captures") == "$captures"$'\''\ncapture\ncapture\ncapture'\'' ]] || exit 84
       _review_test_key $'\''\e'\'' "FRAME|Branches||2|0|70|16" || exit 18
       _review_test_key $'\''\x18'\'' "FRAME|Git review||1|0|70|16" || exit 19
-      _review_test_key 2 "FRAME|Branch commits||1|0|70|16" || exit 20
+      _review_test_key $'\''\e2'\'' "FRAME|Branch commits||1|0|70|16" || exit 20
       _review_test_key $'\''\r'\'' "FRAME|Commit files||1|0|70|16" || exit 21
       _review_test_key $'\''\r'\'' "FRAME|Commit files||1|1|70|16" || exit 22
       _review_test_key $'\''\e'\'' "FRAME|Branch commits||1|0|70|16" || exit 24

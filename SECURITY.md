@@ -115,6 +115,8 @@ state:
 | Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention lasts according to the user's terminal settings |
 | Prompt tool descriptions | Current-shell memory | At most 64 loaded same-source command/help pairs; up to 262,144 characters of source/definition identity for invalidation, general summaries and leading option descriptions (240 characters each), captured from at most 4,096 complete characters per help guide plus the existing Touch ID subguide; cleared on shell exit or invalidation, with no disk cache |
 | Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
+| Git branch picker | Shell memory; the captured catalog is replaced on the next invocation or released on shell exit, and detail text is cleared on view exit | All local branch names, ordered by current branch and up to 200 checkout reflog entries, then remaining refnames. The name catalog has no fixed count cap; optional details retain at most 262,144 characters across 401 local refs and 512 characters per commit subject. No fetch, saved history or background refresh |
+| Known remote branch fallback | Invocation-scoped shell memory, released when `g` returns; native tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB and 128 configured remote names / 32 KiB. No remote URLs are captured. Unmatched local filters reuse this snapshot; confirmation shows the exact source and new local branch, defaults to Back, and applies a non-forcing Git switch after terminal cleanup and tip validation. No fetch, pull or custom disk cache |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | Carries one framed local status/selected-diff candidate at a time, capped at 1 MiB; capture and nonblocking delivery share the worker deadline; cleanup terminates/reaps owned processes and removes the FIFO; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax transport FIFOs (not regular source files); validated temporary paths are removed during normal and handled-error cleanup |
@@ -491,6 +493,36 @@ review transports and the optional resident system-Vim syntax helper use this
 screen-scoped lifetime. Run `zsh tests/run.zsh UI` and
 `zsh tests/run.zsh 'picker screen'` for view isolation, optional-peer behavior
 and native ZLE cleanup contracts.
+
+Plain digits always edit a picker filter, including its first character;
+acceptance requires Enter or an applicable explicit shortcut. Option/Meta-digit
+shortcuts apply only a visible list slot with both filters empty. Verify with
+`zsh tests/run.zsh 'numeric'` and
+`zsh tests/run.zsh 'detail panels preserve native'`; these cover literal issue
+IDs, explicit slot acceptance, branch switching and terminal cleanup in
+disposable fixtures. The local branch catalog includes names absent from the
+bounded checkout reflog; `zsh tests/run.zsh 'absent from the reflog'` verifies
+that coverage without any remote discovery.
+
+The branch fallback reads `git remote` names and `for-each-ref refs/remotes/`
+through the same local-only provider controls. These names are locally known
+remote-tracking refs, not a server result or freshness guarantee. A missing
+branch requires an explicit user-run `g fetch <remote>` before reopening `g`;
+typing, selection, confirmation and creation never initiate a fetch. The final
+`git switch --track=direct --create` revalidates the selected ref's locally
+available commit and refuses a moved/deleted tip or an existing local branch.
+Git transport and lazy fetching are disabled, as is submodule recursion.
+As with ordinary explicit Git switching, configured checkout filters and
+post-checkout hooks remain external programs with their own effects and
+network behavior; this workflow does not sandbox those programs. Git can fail
+after some native checkout work, so inspect its diagnostic and repository
+state before retrying; no automatic rollback or cleanup is attempted.
+`zsh tests/run.zsh 'branch remote'` checks local-first matching, exact upstream
+choice, default-Back confirmation, independent review-peer availability,
+post-cleanup switching, snapshot cleanup, changed/deleted refs and conflicting
+local-file preservation using disposable local repositories. It contacts no
+remote server and does not establish server freshness or atomicity against
+concurrent ref/configuration changes after validation.
 
 ### Job lifecycle
 

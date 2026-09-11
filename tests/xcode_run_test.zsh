@@ -781,7 +781,7 @@ command cat > "$HOME/copied"' || return
       _frame FRAME:70:18:0:0:1:1 || exit 10
       # Filtering stays live after zero matches. Options freeze only displayed
       # copy scope while the same owner keeps draining the app pipe.
-      zpty -w -n run 2
+      zpty -w -n run $'\''\e2'\''
       _frame "VIEW:Xcode / Logs::4:69:1" || exit 42
       zpty -w -n run missing
       _frame "VIEW:Xcode / Logs:missing:0:69:1" || exit 25
@@ -793,12 +793,12 @@ command cat > "$HOME/copied"' || return
       _frame "VIEW:Xcode / Logs:missing:1:69:1" || exit 27
       zpty -w -n run $'\''\r'\''
       _frame "VIEW:Xcode / Logs / Options:missing:1:*:-1" || exit 29
-      zpty -w -n run 1
+      zpty -w -n run $'\''\e1'\''
       _frame "VIEW:Xcode / Run:missing::*" || exit 30
       [[ $(<"$HOME/copied") == "missing now matches" && ! -e $HOME/stopped ]] || exit 31
       # Copy closes only the screen, then Run reopens with the same app owner.
       # Reader reentry retains the filter; clearing it copies all captured lines.
-      zpty -w -n run 2
+      zpty -w -n run $'\''\e2'\''
       _frame "VIEW:Xcode / Logs:missing:1:69:1" || exit 32
       zpty -w -n run $'\''\x15'\''
       _frame "VIEW:Xcode / Logs::5:69:1" || exit 33
@@ -816,7 +816,7 @@ command cat > "$HOME/copied"' || return
       _frame "VIEW:Xcode / Logs::1:69:1" || exit 21
       zpty -w -n run $'\''\e'\''
       _frame FRAME:70:18:0:0:0:0 || exit 22
-      zpty -w -n run 3
+      zpty -w -n run $'\''\e3'\''
       _frame DONE:23 || exit 17
       [[ $(<"$HOME/debugged") == *"--attach-pid|12345" ]] || exit 18
       zpty -w run "_run_entry abort"

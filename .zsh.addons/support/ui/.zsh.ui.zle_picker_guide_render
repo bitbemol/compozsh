@@ -9,7 +9,7 @@ _zle_picker_guide_render() {
   local -i width=$1 height=0 max_offset=0 index=0 source_index=0 notes_first=0 notes_last=0
   local row='' role='' label='' highlights=''
   local -a lines=(
-    'Type                 Filter results; punctuation stays searchable'
+    'Type                 Filter results; digits and punctuation stay searchable'
     '↑ / ↓ or Ctrl-P/N    Move selection; stop at either end'
     'Enter                Apply the action shown in the footer'
     'Escape / Ctrl-G      Cancel; go back from a secondary view'
@@ -37,7 +37,7 @@ _zle_picker_guide_render() {
   fi
   _zle_picker_can_accept "$_ZLE_PICKER_QUERY" || lines[3]=()
   (( _ZLE_PICKER_DIGIT_SELECT && !_ZLE_PICKER_READER_ONLY )) && lines+=(
-    '0–9                  Apply a visible slot only when both filter fields are empty')
+    'Option-0–9           Apply a visible slot only when both filter fields are empty')
   if (( _ZLE_PICKER_COPY_ENABLED )); then
     if (( _ZLE_PICKER_READER_ONLY )); then
       lines+=('Ctrl-Y               Copy the current document and return')

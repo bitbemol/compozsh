@@ -85,13 +85,13 @@ _test_task_native_draft_journey() {
       _task_expect "FRAME|Draft / Read|[literal]|40|0" || exit 9
       zpty -w -n journey $'"'"'\e'"'"'
       _task_expect "FRAME|Draft / Inspect||40|1" || exit 10
-      zpty -w -n journey 4
+      zpty -w -n journey $'"'"'\e4'"'"'
       _task_expect "FRAME|Tool explorer||40|1" || exit 15
-      zpty -w -n journey 1
+      zpty -w -n journey $'"'"'\e1'"'"'
       _task_expect "FRAME|Help / example||40|1" || exit 16
       zpty -w -n journey $'"'"'\e'"'"'
       _task_expect "FRAME|Tool explorer||40|1" || exit 17
-      zpty -w -n journey 1
+      zpty -w -n journey $'"'"'\e1'"'"'
       _task_expect "FRAME|Help / example||40|1" || exit 18
       zpty -w -n journey $'"'"'\e'"'"'
       _task_expect "FRAME|Tool explorer||40|1" || exit 19

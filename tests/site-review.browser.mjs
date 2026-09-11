@@ -76,7 +76,7 @@ test('filtered folder toggles have their own fold state', async () => {
   } finally { await page.close(); }
 });
 
-test('digits do not change files while reading or typing an exclusion', async () => {
+test('plain digits filter from the first character and never accept a review slot', async () => {
   const page = await fixture();
   try {
     await page.locator('#review-lines').focus();
@@ -85,5 +85,11 @@ test('digits do not change files while reading or typing an exclusion', async ()
     await page.locator('#review-exclude').focus();
     await page.keyboard.press('2');
     assert.equal(await page.locator('#review-exclude').inputValue(), '2');
+    await page.locator('#review-exclude').fill('');
+    await page.locator('#review-query').press('2');
+    assert.equal(await page.locator('#review-query').inputValue(), '2');
+    await page.locator('#review-query').fill('');
+    await page.locator('#review-query').press('Alt+2');
+    assert.equal(await page.locator('#review-file-title').innerText(), 'a/first');
   } finally { await page.close(); }
 });

@@ -1,7 +1,7 @@
 # Entry point: _zle_picker_can_select_digit
 # Impure: reads current picker capabilities, focus and exclusion state.
 
-# Share the acceptance rule with the footer so its hint cannot diverge from
+# Share the Option/Meta-digit rule with the footer so its hint cannot diverge from
 # key handling. Slot existence is still checked against the painted viewport.
 _zle_picker_can_select_digit() {
   emulate -L zsh

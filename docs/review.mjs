@@ -210,7 +210,8 @@ export function showReview(host, scene, viewControl) {
     wasFiltered = isFiltered();
   };
   host.onkeydown = event => {
-    if (event.defaultPrevented || event.isComposing || event.metaKey || event.altKey || event.ctrlKey) return;
+    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey ||
+        (event.altKey && !/^[0-9]$/.test(event.key))) return;
     if (event.key === 'ArrowLeft' && event.target === reader) {
       event.preventDefault(); files.querySelector('[aria-selected="true"]')?.focus();
     } else if (event.key === 'Escape' && viewControl.value === 'tree' && navigation().back.length) {
@@ -225,7 +226,7 @@ export function showReview(host, scene, viewControl) {
       event.preventDefault();
       const index = rows.findIndex(row => row.id === selected);
       files.children[Math.max(0, Math.min(index + (event.key === 'ArrowDown' ? 1 : -1), rows.length - 1))].focus();
-    } else if (event.target !== reader && event.target !== exclude && !filter.value && !exclude.value && /^[1-9]$/.test(event.key) && rows[Number(event.key) - 1]) {
+    } else if (event.altKey && event.target !== reader && event.target !== exclude && !filter.value && !exclude.value && /^[1-9]$/.test(event.key) && rows[Number(event.key) - 1]) {
       event.preventDefault(); const row = rows[Number(event.key) - 1]; select(row); activate(row);
     }
   };

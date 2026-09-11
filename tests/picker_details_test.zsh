@@ -147,6 +147,7 @@ _test_details_native_actions() {
   command git -C "$repository" branch -M main || return
   command git -C "$repository" switch -qc topic || return
   command git -C "$repository" switch -q main || return
+  command git -C "$repository" branch bug/1232-something || return
   test_write_file "$repository/note one" 'must not be executed' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
@@ -168,7 +169,7 @@ _test_details_native_actions() {
       _details_original_show
       # Synchronize actions only after capture; waiting-state coverage is separate.
       (( ${_ZLE_PICKER_BUSY:-0} )) && return 0
-      print -r -- "FRAME:$_ZLE_PICKER_INSPECT_TITLE:$_ZLE_PICKER_INSPECT_FOCUS:${_ZLE_PICKER_DISPLAY[-1]}:END-DETAIL-FRAME"
+      print -r -- "FRAME:$_ZLE_PICKER_INSPECT_TITLE:$_ZLE_PICKER_INSPECT_FOCUS:${_ZLE_PICKER_DISPLAY[-1]}:QUERY=$_ZLE_PICKER_QUERY:END-DETAIL-FRAME"
     }
     _details_driver() {
       COLUMNS=120 LINES=30
@@ -180,9 +181,10 @@ _test_details_native_actions() {
         (branch-copy)
           copied=$(<"$HOME/copied")
           [[ $copied == topic && $(command git branch --show-current) == main ]] || passed=2 ;;
-        (branch-switch|branch-enter)
+        (branch-switch|branch-enter|branch-numeric)
           local expected_branch=topic
           [[ $scenario == branch-enter ]] && expected_branch=main
+          [[ $scenario == branch-numeric ]] && expected_branch=bug/1232-something
           [[ $(command git branch --show-current) == "$expected_branch" ]] || passed=3 ;;
         (file-copy)
           copied=$(<"$HOME/copied")
@@ -204,13 +206,17 @@ _test_details_native_actions() {
     local trace="" remaining="" before="" screen=""
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     local -i sessions=0 expected_sessions=0
-    for scenario in branch-copy branch-switch branch-enter file-copy file-insert file-enter file-cancel; do
+    for scenario in branch-copy branch-switch branch-enter branch-numeric file-copy file-insert file-enter file-cancel; do
       trace=""
       zpty details _details_driver || exit 1
       {
         _details_read END-DETAIL-FRAME || exit 2
         [[ $frame == *"^Y copy"* && $frame != *"print help"* ]] || exit 3
-        if [[ $scenario == *-copy || $scenario == *-enter ]]; then
+        if [[ $scenario == branch-numeric ]]; then
+          zpty -w -n details 1232
+          _details_read QUERY=1232:END-DETAIL-FRAME || exit 19
+          zpty -w -n details $'\''\r'\''
+        elif [[ $scenario == *-copy || $scenario == *-enter ]]; then
           if [[ $scenario == branch-copy || $scenario == branch-enter ]]; then
             zpty -w -n details $'\''\e[B'\''
             _details_read END-DETAIL-FRAME || exit 4
@@ -226,8 +232,8 @@ _test_details_native_actions() {
         elif [[ $scenario == file-cancel ]]; then
           zpty -w -n details $'\''\e'\''
         else
-          # Both selectors retain immediate empty-query digit selection.
-          zpty -w -n details 1
+          # Both selectors retain explicit empty-query Option-digit selection.
+          zpty -w -n details $'\''\e1'\''
         fi
         if [[ $scenario == file-insert || $scenario == file-enter ]]; then
           _details_read END-DETAIL-FRAME || exit 12

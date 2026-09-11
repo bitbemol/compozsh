@@ -334,7 +334,7 @@ cat > "$HOME/copied-path"' || return
               else
                 zpty -w -n workspace $'\''\x19'\''
               fi ;;
-            (*) zpty -w -n workspace 1 ;;
+            (*) zpty -w -n workspace $'\''\e1'\'' ;;
           esac
           _workspace_expect RETURNED || exit 24
         else
@@ -350,7 +350,7 @@ cat > "$HOME/copied-path"' || return
             _workspace_key $'\''\x18'\'' "FRAME:Folder actions:" || exit 21
             _workspace_key "Recent directories" "FRAME:Folder actions:Recent directories" || exit 22
             _workspace_key $'\''\r'\'' "FRAME:Recent directories:" || exit 23
-            zpty -w -n workspace 1
+            zpty -w -n workspace $'\''\e1'\''
           else
             _workspace_key "Search filesystem" "FRAME:Folder actions:Search filesystem" || exit 7
             _workspace_key $'\''\r'\'' "FRAME:Search descendants:" || exit 8
@@ -361,7 +361,7 @@ cat > "$HOME/copied-path"' || return
               _workspace_key $'\''\x07'\'' "FRAME:Directory browser:" || exit 11
               zpty -w -n workspace $'\''\x07'\''
             else
-              _workspace_key 1 "FRAME:File actions:" || exit 12
+              _workspace_key $'\''\e1'\'' "FRAME:File actions:" || exit 12
               _workspace_key "Insert" "FRAME:File actions:Insert" || exit 13
               zpty -w -n workspace $'\''\r'\''
             fi

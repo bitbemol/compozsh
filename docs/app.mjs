@@ -59,7 +59,7 @@ function renderResults() {
   document.querySelector('#match-count').textContent = `${filtered.length} ${filtered.length === 1 ? 'match' : 'matches'}${filtered.length > matches.length ? ' · 5 shown' : ''}`;
   const digitHint = document.querySelector('#demo-digit-hint');
   if (digitHint) digitHint.textContent = matches.length
-    ? `${slotBase}${matches.length > 1 ? `–${slotBase + matches.length - 1}` : ''} with both fields empty` : '';
+    ? `Option-${slotBase}${matches.length > 1 ? `–${slotBase + matches.length - 1}` : ''} with both fields empty` : '';
   if (!matches.length) {
     const empty = document.createElement('p');
     empty.className = 'empty-results';
@@ -199,11 +199,11 @@ function showScene() {
       ['Enter', 'Read a file; expand or collapse a folder'],
       ['Right / Left', 'Focus the reader / return to the navigator'],
       ['Review view', 'Choose All files or Tree in the control above'],
-      ['1–9', 'Apply a visible slot when both filter fields are empty'],
+      ['Option-1–9', 'Apply a visible slot when both filter fields are empty'],
     ] : [
-      ['Type', 'Refine the captured sample'], ['↑ / ↓', 'Move selection'],
+      ['Type', 'Refine the captured sample, including numbers'], ['↑ / ↓', 'Move selection'],
       ['Enter', 'Preview the selected action'], ['Escape', 'Return from actions or preview cancellation'],
-      [scene.slotBase === 0 ? '0–4' : '1–5', 'Preview a visible slot when both filter fields are empty'],
+      [scene.slotBase === 0 ? 'Option-0–4' : 'Option-1–5', 'Preview a visible slot when both filter fields are empty'],
     ];
     disposeGuide = attachKeyboardGuide(host, host.querySelector(isReview ? '.review-keys' : '.picker-keys'), rows,
       { filter: host.querySelector(isReview ? '#review-query' : '#demo-query'), exclude: host.querySelector(isReview ? '#review-exclude' : '#demo-exclude') });
@@ -283,7 +283,8 @@ function refine() {
 query.addEventListener('input', refine);
 document.querySelector('#demo-exclude').addEventListener('input', refine);
 document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
-  if (event.isComposing || event.metaKey || event.altKey || event.ctrlKey) return;
+  if (event.isComposing || event.metaKey || event.ctrlKey ||
+      (event.altKey && !/^[0-9]$/.test(event.key))) return;
   if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && matches.length) {
     event.preventDefault();
     highlight(Math.max(0, Math.min(
@@ -312,11 +313,11 @@ document.querySelector('#picker-demo').addEventListener('keydown', (event) => {
     }
     output.textContent = 'Picker cancelled. In Zsh, Escape closes the workspace and restores your draft. Browser preview remains available.';
     query.focus();
-  } else if (!query.value && !document.querySelector('#demo-exclude')?.value &&
+  } else if (event.altKey && !query.value && !document.querySelector('#demo-exclude')?.value &&
       event.target.id !== 'demo-exclude' && /^[0-9]$/.test(event.key) && matches[Number(event.key) - (scene.slotBase ?? 1)]) {
     event.preventDefault();
     preview(Number(event.key) - (scene.slotBase ?? 1));
-  } else if (event.target !== query && event.target.id !== 'demo-exclude' && !event.target.closest('.picker-keys') && (event.key.length === 1 || event.key === 'Backspace')) {
+  } else if (!event.altKey && event.target !== query && event.target.id !== 'demo-exclude' && !event.target.closest('.picker-keys') && (event.key.length === 1 || event.key === 'Backspace')) {
     event.preventDefault();
     query.value = event.key === 'Backspace' ? Array.from(query.value).slice(0, -1).join('') : (query.value + event.key).slice(0, 120);
     query.focus();

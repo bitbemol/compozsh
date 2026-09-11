@@ -91,7 +91,7 @@ _test_picker_screen_lifecycle() {
       {
         _screen_event && [[ $event == FRAME ]] || exit 4
         case $scenario in
-          (accept) zpty -w -n screen 2 ;;
+          (accept) zpty -w -n screen $'\''\e2'\'' ;;
           (abort) zpty -w -n screen $'\''\x03'\'' ;;
           (read-fail) ;;
           (*) zpty -w -n screen $'\''\x07'\'' ;;

@@ -17,7 +17,7 @@ you audit the exact commit yourself.
 | Recall a visited folder | Option-Tab at the prompt | Filter this shell's native directory stack; Enter inserts its path, Ctrl-O browses it |
 | Find a file below a folder | Path + Tab → Ctrl-F | Review the displayed source and scope, enter a discovery query, then press Enter |
 | Act on a found file | Select it and press Enter | Choose Open with default app, Reveal in Finder, Copy path, or Insert path |
-| Switch a local Git branch | `g` | Filter recent local branches; Enter switches, Ctrl-Y copies the name |
+| Switch a Git branch | `g` | Filter local branches first; unmatched filters offer known remote-tracking refs with creation confirmation; Ctrl-Y copies the name |
 | Manage Git worktrees | `g --worktree` | Create, enter, move or remove checkouts through fuzzy choices and explicit reviews |
 | Review Git changes | `g` → Ctrl-X or `g --review` | Read working changes, branch commits or a chosen revision pair in the two-pane reader |
 | Explore changes by folder | Git review → Ctrl-X → Tree | Expand folders, return to All files, jump to an ancestor, or open Change atlas while retaining the current review |
@@ -368,7 +368,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette; shares its exact bare-directory observation with the optional prompt lens |
 | `.zsh.manual` | Installed/custom manual summaries, including selected Apple SDKs and toolchains | Captures bounded NAME descriptions once before interactive editing, with native decompression/formatting fallbacks; supplies memory-only ABOUT rows without invoking the documented command |
-| `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` branch picker with details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases with shared default-expansion descriptions; shared candidate exclusion preserves each view’s matching and action rules |
+| `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` complete local-branch picker, ordered by recency, with locally captured remote-tracking fallback and confirmed tracking-branch creation, details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases with shared default-expansion descriptions; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens with alias previews; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
 | `.zsh.sudo-touch-id` | Opt-in sudo authentication operations | Private operations behind `compozsh --sudo-touch-id` inspect, enable, or safely disable Apple Touch ID through the system-supported `sudo_local` PAM policy; no separate public command |
@@ -393,7 +393,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/functions/.zsh.impure.usb_result_reset` | Common USB operation-result initialization | Impure function; entry `_usb_result_reset` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.zle_picker_body_height` | View-state height budget | Impure function; entry `_zle_picker_body_height` first, followed by exclusive helpers |
 | `support/functions/.zsh.impure.zle_picker_can_accept` | Current-view acceptance capability | Impure function; entry `_zle_picker_can_accept` first, followed by exclusive helpers |
-| `support/functions/.zsh.impure.zle_picker_can_select_digit` | Visible-digit acceptance capability | Impure function; shares the field/focus rule between key handling and footer hints |
+| `support/functions/.zsh.impure.zle_picker_can_select_digit` | Option-digit acceptance capability | Impure function; shares the Option-digit field/focus rule between key handling and footer hints |
 | `support/functions/.zsh.impure.zle_picker_document_bookmark` | Reading-position updates | Impure function; `_zle_picker_document_bookmark` retains independent document and captured-folder summary positions |
 | `support/functions/.zsh.impure.zle_ui_collect` | Captured matching results applied to UI state | Impure function; entry `_zle_ui_collect` first, followed by exclusive helpers |
 | `support/functions/.zsh.pure.compozsh_cell_prefix` | Literal display-cell prefix clipping with attached combining marks | Pure function; entry `_compozsh_cell_prefix` first, followed by exclusive helpers |
@@ -428,7 +428,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `support/ui/.zsh.ui.zle_picker_footer` | Action and navigation footer | UI component; `_zle_picker_footer` derives folder, reader and View options actions from capabilities |
 | `support/ui/.zsh.ui.zle_picker_guide_render` | Keyboard-guide element | UI component; `_zle_picker_guide_render` includes supported tree, flat-list and reading controls |
 | `support/ui/.zsh.ui.zle_picker_inspect_render` | Inspector and document-reader rows | UI component; `_zle_picker_inspect_render` presents captured-folder summaries and file documents with independent reading positions |
-| `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction and paste recovery | UI component; `_zle_picker_loop` handles branch acceptance, matching-document selection, view requests, independent reading and incomplete-paste ownership |
+| `support/ui/.zsh.ui.zle_picker_loop` | Shared input interaction and paste recovery | UI component; `_zle_picker_loop` handles literal numeric filtering, Option-digit acceptance, matching-document selection, view requests, independent reading and incomplete-paste ownership |
 | `support/ui/.zsh.ui.zle_picker_redraw` | Resize and redraw entry | UI component; entry `_zle_picker_redraw` first, followed by exclusive helpers |
 | `support/ui/.zsh.ui.zle_picker_render` | Complete frame assembly | UI component; `_zle_picker_render` preserves explicit structural prefixes, compact status width and caller-derived selection headers |
 | `support/ui/.zsh.ui.zle_picker_run` | Nested ZLE entry | UI component; entry `_zle_picker_run` first, followed by exclusive helpers |
@@ -1439,7 +1439,7 @@ in one searchable menu:
 
 Rows stay together by group, and every row retains its group label when filtered
 or paged. Details show the exact path an action uses. With both filter fields empty,
-digits apply visible action rows directly; no extra group-selection step is needed.
+Option-digits apply visible action rows directly; no extra group-selection step is needed.
 Unavailable capabilities are omitted. Search always uses the current folder.
 Escape closes the menu back to the same filter and selection. Apps launch only
 after you select an action and the picker screen is restored. **Open with
@@ -1448,7 +1448,7 @@ in its associated app. **Reveal in Finder** opens the containing folder and
 selects the exact item; it does not open that item.
 
 The fragment already typed stays as a required fuzzy match, while the picker
-query starts empty. A visible digit therefore inserts its row immediately; you
+query starts empty. Option plus a visible digit inserts its row immediately; you
 can instead type another fuzzy filter or move with `Up`/`Down` and
 `Ctrl-P`/`Ctrl-N`. Press `Tab` or `Right Arrow` to open the selected directory
 inside the same picker. `Shift-Tab` or `Left Arrow` returns to the previous
@@ -1585,7 +1585,7 @@ Results show filenames first and quiet parent paths. `●` marks selection, `·`
 marks a file, `▸` a directory, and `↗` a symbolic link. Full paths remain intact
 for actions even when labels are abbreviated.
 
-- Enter or a visible digit inserts a directory path into the editable line.
+- Enter or Option plus a visible digit inserts a directory path into the editable line.
 - For files and links, **Enter → choose an action** is the primary workflow:
   open the shared **File actions** menu, then choose Open, Reveal, Copy or Insert.
   No additional shortcut is needed for these actions.
@@ -1806,8 +1806,10 @@ including the Help, Branch, and Path detail panels, in wide and narrow layouts.
 Focused readers derive their page distance from the currently visible pane
 height and retain one overlapping line as a reading landmark. Resizing Terminal
 or changing its font therefore changes the next page distance automatically.
-Number shortcuts refer to the rows currently displayed and update as you
-scroll; they never select hidden results. `Ctrl-R` keeps digits as search text.
+Option-digit shortcuts refer to the rows currently displayed and update as you
+scroll; they never select hidden results. Plain digits always enter search text,
+including the first character. Option-digit shortcuts require Option-as-Meta in
+Terminal.app; arrows and Enter work without it.
 
 Matching grows a buffered prefix only when needed. Ordinary navigation and
 resize redraw the visible rows; closing the picker releases its result buffer.
@@ -1942,7 +1944,7 @@ which field receives typing, paste, Backspace, Ctrl-W and **Ctrl-U**. Ctrl-U
 clears only the active field. Editing resets selection to the first remaining
 result; switching fields preserves selection. Back restores both fields,
 selection, viewport and field focus. Secondary views have their own fields.
-Digits apply visible slots only when both fields are empty and the positive
+Option-digits apply visible slots only when both fields are empty and the positive
 field is active. Digits typed in Exclude contains always edit that phrase;
 history retains ordinary numeric input. Enter keeps the action named in the footer.
 
@@ -2441,7 +2443,7 @@ argument/mode/example prefixes, option names and angle-bracket placeholders.
 Surrounding prose stays neutral; wrapping and filtering retain the accents.
 
 Type to find literal case-insensitive substrings in topic labels and text.
-Arrows select; Enter or a digit with both filter fields empty opens the selected topic in a
+Arrows select; Enter or an Option-digit with both filter fields empty opens the selected topic in a
 full-width reader. Type there to filter literal lines. Enter/Escape returns to
 the same topic, filter, viewport and focus; Escape from topics closes help.
 Ctrl-K opens the shared key guide. Ordinary topics only read documentation.
@@ -2559,7 +2561,7 @@ uses the captured data without rerunning providers.
 | Ctrl-V / Ctrl-D | Page down/up without requiring Option-as-Meta |
 | Type or paste | Refine the filter and return to the list |
 | Enter | Read the selected tool's captured help, or inspect its availability notice |
-| Visible digit, with both filter fields empty and list focus | Perform the same action for that tool |
+| Option + visible digit, with both filter fields empty and list focus | Perform the same action for that tool |
 | Escape or Ctrl-G | Cancel; Ctrl-C aborts |
 
 Search and selection survive switching panes and resizing. The focused help
@@ -2999,7 +3001,7 @@ After launch, **Xcode / Logs** opens first. Escape returns to **Xcode / Run**,
 which combines the app's live stdout/stderr and, on Simulator, scoped
 unified logs including `Logger`/`os_log`, alongside
 **Stop app and close**, **Read output · Full view, filter and copy**, and, when available,
-**Enter LLDB**. Choose an action with arrows and Enter, or its visible digit
+**Enter LLDB**. Choose an action with arrows and Enter, or Option plus its visible digit
 with both filter fields empty. Text filters action labels with case-insensitive,
 in-order character matching. The selected scheme and Simulator stay visible.
 On narrow terminals, output appears below the actions; filtering or changing
@@ -3377,7 +3379,7 @@ when opened. Later entries remain searchable and show `Not checked` in details.
 Opening Recents never lists their children, reads project files, runs Git, or builds
 a second directory history. **Ctrl-O** explicitly opens the selected
 location in the same [folder browser](#contextual-directory-completion).
-Browse children with Right/Tab, preview with Ctrl-O, and use Enter/digits to
+Browse children with Right/Tab, preview with Ctrl-O, and use Enter/Option-digit to
 insert a path. Ctrl-X offers explicit directory changes; **current folder** lets you use
 an empty location. In that browser, Escape returns to your unchanged recent-list
 filter and selection; browsing alone never changes the shell's directory.
@@ -3387,13 +3389,13 @@ Directory changes are revalidated by `cd`. With no previous locations, your
 current folder is still useful for details or copying. Private directories and
 bookmarks are not persisted by this UI.
 
-With both filter fields empty, press any visible digit from `0` through `9` to insert its
+With both filter fields empty, press Option plus a visible digit from `0` through `9` to insert its
 quoted path directly. You can also use the arrows or `Ctrl-P`/`Ctrl-N`, type to
 filter, and press `Enter`. Both return to the normal prompt with that path
 visible, replacing any unfinished command. **Press Enter at the prompt to change
 directory**, just as with path + Tab. Escape or copying preserves your draft and
-cursor instead. Once filtering begins,
-digits become normal search text so names containing numbers remain searchable.
+cursor instead. Plain digits always enter search text, so names containing numbers
+remain searchable from the first character.
 On the initial unfiltered screen, slot `0` is the current directory. Slot
 numbers update while scrolling; they are not native directory-stack indexes.
 Run `dirs -v` for a native list with actual stack indexes.
@@ -3406,7 +3408,7 @@ Inside a Git working tree, run `g` without arguments for the branch selector.
 Its compact list view looks like this:
 
 ```text
-Branches · recent checkouts · 3 shown
+Branches · local branches · recent first · 3 shown
 example-app
 Search ‹›
 [ 0] ● feature/prompt-navigation
@@ -3418,8 +3420,8 @@ Search ‹›
 The familiar Git shorthand remains intact: `g status`, `g switch`, and other
 Git arguments delegate directly to `git`. Compozsh reserves `g --help`,
 `g --review` and `g --worktree`; worktree mode accepts no extra arguments. With both filter fields empty,
-press a visible digit to switch immediately; after typing a filter, digits are
-search text.
+Option plus a visible digit switches immediately. Plain digits always enter
+search text; typing `1232` can find `bug/1232-something`.
 
 The interactive branch picker, review and worktree modes use the repository
 selected by the current folder. They locally ignore inherited `GIT_DIR`,
@@ -3436,12 +3438,12 @@ on the full screen expands the reading area beside the retained branch selection
 Smaller windows use a switchable full-width detail view. Right/`Ctrl-E`
 focuses details, Left/`Ctrl-B` returns to the list, and Tab switches panes.
 Up/Down scrolls focused details; typing returns to filtering. Enter still
-switches branches, and copying works from either pane. Immediate digit
+switches branches, and copying works from either pane. Option-digit
 selection requires both filter fields empty and focus on the visible list.
 
 An additional read-only Git batch captures these details before opening the
-picker. It reads at most 262,144 characters across up to 401 recent refs and
-shows at most 512 characters per commit subject. Unavailable or capped records
+picker. It reads at most 262,144 characters across up to 401 local refs in
+refname order and shows at most 512 characters per commit subject. Unavailable or capped records
 show a notice while their branches remain selectable. No fetch is performed;
 upstream names describe local configuration, not server freshness. Rerun `g`
 to refresh the snapshot.
@@ -3456,11 +3458,38 @@ automatically to the client Mac.
 The branch list starts with the current local branch, then uses up to 200
 matching checkout entries in Git's HEAD reflog. It includes switches recorded
 there through `git switch`, an IDE, or another terminal without maintaining a
-second history file. Deleted branches, detached commit IDs, remote-only refs,
-and local branches absent from that recent history are omitted. Use `g branch`
-to list every local branch, or `g branch -a` to include remote refs. Selection
+second history file. All remaining local branches follow in refname order,
+including branches never checked out or absent from that bounded history.
+Deleted local branches and detached commit IDs are omitted. Local selection
 uses `git switch --no-guess`, so Git will still refuse unsafe switches when
 local changes conflict or a branch is already checked out in another worktree.
+
+If the combined filters leave no matching local branch, `g` searches its captured
+**remote-tracking refs** using the same matching rules. These are Git's locally
+stored records, such as `origin/bug/1232-something`. Every result names its
+remote; multiple remotes remain separate choices. Refs whose proposed local
+branch already exists, symbolic aliases such as `origin/HEAD`, and refs without
+a configured remote are excluded.
+
+Enter on a remote result opens **Create local branch and switch**. The
+confirmation shows the new local name, exact remote-tracking ref and captured
+commit, and defaults to **Back to branches**. Back or Escape restores the
+query, exclusion, selection and viewport. Confirming rechecks the ref and uses
+`git switch --no-guess --track=direct --create` after restoring the terminal.
+An existing local branch is never reset; changed/deleted tips and conflicting
+local edits are refused. There is no pull, merge, forced discard or automatic
+stash. Git's normal configured checkout filters and hooks remain part of the
+explicit switch; Git transport, lazy fetch and submodule recursion are disabled
+for this creation step. Ctrl-Y copies `remote/branch` without creating it.
+Ctrl-X review remains available on local branch choices.
+
+The remote snapshot is captured when `g` opens, with at most 1,000 refs / 256 KiB
+and 128 configured remote names / 32 KiB. A failed, unavailable or exceeded
+capture is reported while local branches remain usable. No remote URL is
+captured or displayed, and typing or moving never contacts a server. A branch
+created on the server since your last fetch will not appear yet: run
+`g fetch <remote>` explicitly, then reopen `g`. This updates Git's locally known
+refs; it does not pull changes into the current branch.
 
 Both navigation selectors use captured in-memory labels while typing and
 resizing. Directory collection launches no process; branch discovery runs Git
@@ -3479,7 +3508,7 @@ ZSH_NAVIGATION_PICKER_MAX_RESULTS=12
 Run **`g --worktree`** inside any checkout with a commit. It
 opens a fuzzy workspace, scoped to that repository's registered
 worktrees. `g worktree list` and other ordinary Git arguments retain native Git
-behavior. Disabling `.zsh.git-worktree` leaves the recent-branch picker intact
+behavior. Disabling `.zsh.git-worktree` leaves the local-branch picker intact
 and makes `g --worktree` report the missing capability.
 
 The main menu centers on five operations:
@@ -3503,7 +3532,7 @@ Creation follows these steps:
 1. Choose **New branch** or **Existing local branch**. New branch asks for a
    literal name and starts from the captured current HEAD commit. Existing
    branch offers all captured local branches not assigned to another worktree,
-   including branches absent from `g`'s recent history. Remote-only refs are
+   including branches never checked out. Remote-only refs are
    excluded; missing registered worktrees still reserve branches and paths.
 2. Review the editable branch, starting point, parent folder, new folder name
    and action. The suggested destination is beside the main checkout:
@@ -3524,7 +3553,7 @@ overwritten. A custom folder name is preserved when changing the branch.
 Every list uses the same case-insensitive, character-ordered fuzzy matching as
 `g`, with literal prefix and substring matches ranked first. Ten rows at most
 are visible; arrows and paging reach later captured matches. Empty-filter
-digits accept visible rows only with list focus. Branch/folder-name entry uses
+Option-digits accept visible rows only with list focus. Branch/folder-name entry uses
 digits as text, with no shell expansion. Ctrl-K opens the shared guide;
 Escape/Ctrl-G returns, and Ctrl-C aborts. Tab or Ctrl-E/B focuses details/list
 outside the parent chooser. Back preserves the calling filter, selection,
@@ -3727,7 +3756,7 @@ One space per directory level keeps the tree compact; a space after each
 folder arrow separates it from the name, and files align with their parent name.
 
 **Ctrl-X opens View options**. Choose **All files** or **Tree** with Enter,
-or use the menu's visible digits (`Ctrl-X`, then `1` for All files or `2` for Tree).
+or use the menu's Option-digit shortcuts (`Ctrl-X`, then `Option-1` for All files or `Option-2` for Tree).
 All files gives
 each change a clean filename and a separate status label. Duplicate filenames
 from different folders include their parent path. The menu's details show the
@@ -3748,7 +3777,7 @@ comparison summaries also total their captured line additions, deletions and
 binary entries. Filtered and partial snapshots are labeled.
 Right/Tab focuses the summary; Left returns to the tree. Enter expands or
 collapses the selected folder from the tree and is inactive while reading its
-summary. Folder digits perform the same action as Enter on that row. Returning
+summary. Folder Option-digits perform the same action as Enter on that row. Returning
 to a file restores its reading position. Folder summary positions survive
 refresh while the folder remains captured, and filters that temporarily hide it.
 Filtering searches all
@@ -3858,7 +3887,7 @@ alternatives. The page stride follows the current reader height and retains one
 overlapping source line, so resizing or changing font size updates it
 automatically. Reading stops at the end of that file; returning
 to a file restores its reading position. Typing filters captured file paths
-and change status. Empty-filter digits select visible slots and focus reading.
+and change status. Empty-filter Option-digits select visible slots and focus reading.
 Below **90 columns**, the focused pane occupies the full width.
 
 **Right** progressively discloses **files → focused diff → full-file context**.

@@ -30,6 +30,9 @@ typeset -ga _NAVIGATION_PICKER_VALUES=()
 typeset -ga _NAVIGATION_PICKER_LABELS=()
 typeset -ga _NAVIGATION_PICKER_INDEXES=()
 typeset -ga _NAVIGATION_PICKER_SEARCH_LABELS=()
+typeset -ga _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
+typeset -gA _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
+typeset -g _GIT_BRANCH_REMOTE_NOTICE=''
 
 # Display calculations are optional runtime support capabilities.
 # Rank literal prefix and substring matches before character-ordered fuzzy ones.
@@ -201,7 +204,7 @@ _directory_recents_choose() {
   done
 }
 
-# Build a most-recently-used list from Git's own checkout reflog. Keeping this
+# Order all local branches using Git's own checkout reflog. Keeping this
 # derived avoids a second history file and also sees switches made by IDEs or
 # other shells. Deleted branches and detached commit IDs are filtered out.
 # Branch snapshots inspect local objects only. Keep these controls scoped to
@@ -263,9 +266,118 @@ _git_recent_branches() {
   done < <(_git_branch_read "$root" reflog show --format='%gs' \
     --grep-reflog='^checkout: moving from ' --max-count=200 HEAD 2>/dev/null)
 
-  # Local branches absent from the bounded checkout reflog are simply not
-  # recent; a partial recency list is still a successful inspection.
+  # Recency orders the catalog; it must never limit which local refs can match.
+  for candidate in "${local_branches[@]}"; do
+    [[ -n ${recent_branch_set[$candidate]-} ]] && continue
+    _GIT_RECENT_BRANCHES+=("$candidate")
+  done
   return 0
+}
+
+# Git's remote-tracking refs are already on this machine. Capture them once;
+# filtering never calls Git or contacts a server. Incomplete catalogs stay out.
+_git_branch_remote_capture() {
+  emulate -L zsh
+  local root=$1 data='' ref='' symbolic='' oid='' remote='' owner='' name='' key=''
+  local -a reply=() remotes=()
+  local -i count=0
+  typeset -ga _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
+  typeset -gA _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
+  typeset -g _GIT_BRANCH_REMOTE_NOTICE='Remote-tracking capture unavailable (missing support, Git error or read limit).'
+  (( ${+functions[_compozsh_capture_bounded]} )) || return 1
+  _compozsh_capture_bounded 32768 _git_branch_read "$root" remote || return 1
+  [[ $reply[2] == complete && $reply[3] == 0 ]] || return 1
+  remotes=("${(@f)${reply[1]%$'\n'}}")
+  (( ${#remotes} <= 128 )) || return 1
+  _compozsh_capture_bounded 262144 _git_branch_read "$root" for-each-ref --count=1001 --sort=refname \
+    '--format=%(refname)%00%(symref)%00%(objectname)%00' refs/remotes/ || return 1
+  [[ $reply[2] == complete && $reply[3] == 0 ]] || return 1
+  data=$reply[1]
+  while IFS= read -r -d '' ref && IFS= read -r -d '' symbolic && IFS= read -r -d '' oid; do
+    (( ++count <= 1000 )) || {
+      _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
+      _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
+      _GIT_BRANCH_REMOTE_NOTICE='More than 1,000 remote-tracking refs; use explicit Git commands.'
+      return 1
+    }
+    ref=${ref#$'\n'}
+    [[ $ref == refs/remotes/* && -z $symbolic ]] || continue
+    [[ $oid != *[^[:xdigit:]]* && (${#oid} == 40 || ${#oid} == 64) ]] || continue
+    owner=''
+    for remote in "${remotes[@]}"; do
+      [[ -n $remote && $ref == refs/remotes/"$remote"/* ]] || continue
+      (( ${#remote} > ${#owner} )) && owner=$remote
+    done
+    [[ -n $owner ]] || continue
+    name=${ref#refs/remotes/"$owner"/}
+    [[ -n $name ]] && (( !${_GIT_RECENT_BRANCHES[(Ie)$name]} )) || continue
+    key="remote:$ref"
+    _GIT_BRANCH_REMOTE_VALUES+=("$key")
+    _GIT_BRANCH_REMOTE_LABELS+=("${ref#refs/remotes/} · remote-tracking")
+    _GIT_BRANCH_REMOTE_NAMES[$key]=$name _GIT_BRANCH_REMOTE_OIDS[$key]=$oid
+  done <<< "$data"
+  _GIT_BRANCH_REMOTE_NOTICE='No matching known remote branches. Run g fetch <remote> explicitly, then reopen g.'
+  return 0
+}
+
+# Prefer local matches. A remote candidate is a distinct, visibly labelled
+# request to review creation, never an implicit switch or network lookup.
+_git_branch_collect() {
+  emulate -L zsh
+  _navigation_picker_collect "$@"
+  _ZLE_PICKER_INSPECT_ACTION=switch
+  _ZLE_PICKER_BROWSE_LABEL='local branches · recent first'
+  _ZLE_PICKER_EMPTY_LABEL='no matching branches'
+  _ZLE_PICKER_WORKSPACE_ACTIONS=$(( ${+functions[_git_review_branch_choose]} ))
+  if (( !${#_ZLE_PICKER_RESULTS} )); then
+    local -a _NAVIGATION_PICKER_VALUES=("${_GIT_BRANCH_REMOTE_VALUES[@]}")
+    local -a _NAVIGATION_PICKER_LABELS=("${_GIT_BRANCH_REMOTE_LABELS[@]}")
+    local -a _NAVIGATION_PICKER_SEARCH_LABELS=() _NAVIGATION_PICKER_INDEXES=()
+    local -i index=0
+    for (( index=1; index<=${#_NAVIGATION_PICKER_VALUES}; ++index )); do
+      _NAVIGATION_PICKER_INDEXES+=($index)
+    done
+    _navigation_picker_collect "$@"
+    _ZLE_PICKER_INSPECT_ACTION='review creation'
+    _ZLE_PICKER_BROWSE_LABEL='known remote-tracking refs · captured locally'
+    _ZLE_PICKER_EMPTY_LABEL=${_GIT_BRANCH_REMOTE_NOTICE:-no matching branches}
+    (( ${#_ZLE_PICKER_RESULTS} )) && _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  fi
+}
+
+_git_branch_remote_confirm_view() {
+  emulate -L zsh
+  local key=$1 name=${_GIT_BRANCH_REMOTE_NAMES[$1]} ref=${1#remote:}
+  local -a _NAVIGATION_PICKER_VALUES=(back create)
+  local -a _NAVIGATION_PICKER_LABELS=('Back to branches' 'Create local branch and switch')
+  local -a _NAVIGATION_PICKER_INDEXES=(1 2) _NAVIGATION_PICKER_SEARCH_LABELS=()
+  _ZLE_PICKER_TITLE='Create local branch'
+  _ZLE_PICKER_SUBTITLE=${root:t}
+  _ZLE_PICKER_QUERY_LABEL='Filter actions'
+  _ZLE_PICKER_BROWSE_LABEL='confirmation · existing local Git data'
+  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_INSPECT_ACTION=choose
+  _ZLE_PICKER_ACTION_CONTEXT="LOCAL BRANCH"$'\n'"$name"$'\n\nFROM REMOTE-TRACKING REF\n'"${ref#refs/remotes/}"$'\n\nCOMMIT\n'"${_GIT_BRANCH_REMOTE_OIDS[$key]}"$'\n\nCreates a tracking branch and switches this working tree.\nNo fetch, pull, merge, force or automatic stash.\nGit refuses conflicting changes or an existing local branch.'
+  _ZLE_PICKER_ACCEPT_LABELS=(back back create 'create and switch')
+  _zle_picker_loop '' 10
+}
+
+# Final creation is outside the screen owner. Recheck the captured target;
+# --create preserves an existing branch, and --track names its exact source.
+_git_branch_remote_switch() {
+  emulate -L zsh
+  local root=$1 key=$2 ref=${2#remote:} name=${_GIT_BRANCH_REMOTE_NAMES[$2]-}
+  local oid=${_GIT_BRANCH_REMOTE_OIDS[$2]-} current=''
+  [[ -n $name && -n $oid && $key == remote:refs/remotes/* ]] || return 1
+  _git_branch_read "$root" check-ref-format --branch "$name" >/dev/null 2>&1 || return 1
+  if _git_branch_read "$root" symbolic-ref --quiet "$ref" >/dev/null 2>&1; then
+    print -u2 'g: the selected remote-tracking ref changed; reopen g'
+    return 1
+  fi
+  current=$(_git_branch_read "$root" rev-parse --verify --end-of-options "$ref^{commit}" 2>/dev/null) || current=''
+  [[ $current == "$oid" ]] || { print -u2 'g: the selected remote-tracking tip changed or is unavailable; reopen g'; return 1; }
+  local -x GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=''
+  command git -C "$root" -c submodule.recurse=false switch --no-guess --track=direct --create "$name" -- "$ref"
 }
 
 # Optional details use one bounded bulk read, never a Git call per selection.
@@ -274,26 +386,24 @@ _git_recent_branches() {
 _git_branch_inspector_capture() {
   emulate -L zsh
   local root=$1 branch='' state='' data='' ref='' upstream='' oid='' subject='' text=''
-  local -a refs=()
   typeset -gA _ZLE_PICKER_INSPECT_TEXTS=()
   for branch in "${_GIT_RECENT_BRANCHES[@]}"; do
-    state='Recent local branch'
+    state='Local branch'
     [[ $branch == "$_GIT_RECENT_CURRENT" ]] && state='Current branch'
     _ZLE_PICKER_INSPECT_TEXTS[$branch]="${(V)branch}"$'\n'"$state"$'\n\nCommit details unavailable (read limit or Git error).'
-    refs+=("refs/heads/$branch")
   done
-  (( ${#refs} )) || return 0
-  # 200 checkout transitions yield at most 401 distinct recent branches.
-  # The byte/character cap also bounds unusually large commit messages.
+  (( ${#_GIT_RECENT_BRANCHES} )) || return 0
+  # Details remain bounded independently from the complete local name catalog.
+  # Query the namespace once instead of passing every branch as an argument.
   IFS= read -r -u 0 -k 262144 data < <(_git_branch_read "$root" for-each-ref \
     --count=401 --format='%(refname)%00%(upstream:short)%00%(objectname:short)%00%(subject)%00' \
-    "${refs[@]}" 2>/dev/null) || :
+    refs/heads/ 2>/dev/null) || :
   while IFS= read -r -d '' ref && IFS= read -r -d '' upstream &&
         IFS= read -r -d '' oid && IFS= read -r -d '' subject; do
     ref=${ref#$'\n'}
     branch=${ref#refs/heads/}
     (( ${+_ZLE_PICKER_INSPECT_TEXTS[$branch]} )) || continue
-    state='Recent local branch'
+    state='Local branch'
     [[ $branch == "$_GIT_RECENT_CURRENT" ]] && state='Current branch'
     (( ${#subject} > 512 )) && subject="${subject[1,512]}… [truncated]"
     text="${(V)branch}"$'\n'"$state"
@@ -318,9 +428,8 @@ _git_branch_stack_load() {
     print -u2 'g: could not inspect local branches'
     return 1
   }
-  (( ${#_GIT_RECENT_BRANCHES} ||
-     (${+functions[_git_review_branch_choose]} && ${+functions[_zle_picker_loop]}) )) || {
-    print -u2 'g: this repository has no local branch history yet'
+  (( ${#_GIT_RECENT_BRANCHES} || ${+functions[_zle_picker_loop]} )) || {
+    print -u2 'g: this repository has no local branches yet'
     return 1
   }
   REPLY=$root
@@ -349,7 +458,7 @@ _navigation_copy() {
 _git_branch_stack_print() {
   emulate -L zsh
 
-  local branch='' marker='recent' heading_style='' reset=''
+  local branch='' marker='local' heading_style='' reset=''
   local -i index=0
 
   _navigation_color_style heading
@@ -357,7 +466,7 @@ _git_branch_stack_print() {
   [[ -n $heading_style ]] && reset=$'\e[0m'
   print -r -- "${heading_style}Branch stack${reset}"
   for branch in "${_GIT_RECENT_BRANCHES[@]}"; do
-    marker='recent'
+    marker='local'
     [[ $branch == $_GIT_RECENT_CURRENT ]] && marker='current'
     _stack_print_entry $index "$marker" "$branch"
     (( ++index ))
@@ -365,7 +474,7 @@ _git_branch_stack_print() {
 }
 
 # Keep ordinary Git arguments transparent; --review, --worktree, --discard-all and --help
-# invocations are Compozsh modes. Bare g opens the recent-branch picker.
+# invocations are Compozsh modes. Bare g opens the local-branch picker.
 _compozsh_template_g() { REPLY=git-review; }
 
 _compozsh_help_g() {
@@ -431,7 +540,7 @@ _compozsh_help_g() {
     '  Create worktree chooses New branch or Existing local branch.' \
     '  New defaults to the captured current HEAD commit; local edits stay put.' \
     '  Existing offers all captured local branches unused by a worktree,' \
-    '  including branches absent from the recent picker. Remote-only refs' \
+    '  including branches never checked out. Remote-only refs' \
     '  are excluded; missing worktrees still reserve their branches/paths.' \
     '  The summary edits branch, starting point, parent, folder name and' \
     '  Create and enter / Create and stay. Default is Create and enter.' \
@@ -471,7 +580,7 @@ _compozsh_help_g() {
     '  as g, with prefix/substring priority. Worktrees match branch and path.' \
     '  Refresh worktrees replaces the catalog; reopen creation for new branches.' \
     '  Typing and resize use captured facts. Actions revalidate after cleanup.' \
-    '  Digits apply visible rows only with both fields empty and list focus.' \
+    '  Option-digits apply visible rows only with both fields empty and list focus.' \
     '  Branch/folder-name entry treats digits as text; no shell expansion.' \
     '  Parent browsing: Right/Tab enters, Left/Shift-Tab goes up; Ctrl-T toggles' \
     '  hidden folders. Choose Use this folder; child symlinks are excluded.' \
@@ -490,16 +599,33 @@ _compozsh_help_g() {
     '  Requires Git and a working tree. Starts with the current local branch,' \
     '  then recent local checkouts from up to 200 matching HEAD reflog entries.' \
     '  IDE and terminal switches recorded there count too. Deleted branches,' \
-    '  detached commit IDs, and remote-only branches are excluded.' \
+    '  detached commit IDs and deleted local branches are excluded.' \
     '  The current folder scopes branch capture, review and switching.' \
     '  Workspace modes ignore inherited Git repository/index/object selectors;' \
     '  caller settings are restored afterward. Ordinary g arguments preserve' \
     '  Git environment selection and native behavior.' \
-    '  A local branch absent from that recent history may not appear. Use' \
-    '  g branch to list all local branches; g branch -a also lists remote refs.' \
+    '  All remaining local branches follow in refname order, even if never visited.' \
+    '  g branch -a also lists remote refs.' \
     '  Detached HEAD has no current-branch row. With the review peer enabled,' \
     '  an empty branch list still offers working changes through Ctrl-X.' \
     '  The picker does not fetch branches or create a history file.' \
+    '  With no matching local branch, the same filter searches known remote-' \
+    '  tracking refs stored locally. Each row names its remote explicitly.' \
+    '  Enter on a remote row reviews Create local branch and switch; the' \
+    '  confirmation defaults to Back. Escape/Back restores the search.' \
+    '  Confirmed creation uses git switch --track=direct --create with the' \
+    '  exact selected ref, after screen cleanup and a tip recheck.' \
+    '  It never resets an existing local branch, merges, or automatically stashes.' \
+    '  Git preserves its normal checkout-filter and hook behavior on switching.' \
+    '  Git transport and lazy fetch are disabled for this creation step.' \
+    '  Remote refs are the last locally known snapshot, not a live server check.' \
+    '  If missing, run g fetch <remote> explicitly, then reopen g.' \
+    '  Remote capture retains at most 1,000 refs / 256 KiB and 128 configured' \
+    '  remote names / 32 KiB. Exceeded, failed or unavailable captures are' \
+    '  reported; local switching remains available. Remote HEAD aliases and' \
+    '  refs without a configured remote are excluded. Remote URLs are not captured.' \
+    '  Ctrl-Y copies a remote row as remote/branch. Ctrl-X review applies to' \
+    '  local branch choices; remote choices first require explicit creation.' \
     '' \
     'Picker:' \
     '  Ctrl-] switches Filter / Exclude contains; exclusion is one literal phrase.' \
@@ -512,12 +638,13 @@ _compozsh_help_g() {
     '  the bottom action bar. Short and inline views keep search above results.' \
     '  Choices stay compact; descriptions appear when all visible slots fit.' \
     '  Missing descriptions leave no blank row. Visible matches' \
-    '  are emphasized as you filter; row limits and number keys stay the same.' \
+    '  are emphasized as you filter; plain digits always enter search text.' \
     '  Type to filter case-insensitively, in character order; literal prefix' \
     '  and substring matches rank before abbreviated ones.' \
-    '  Arrows / Ctrl-P / Ctrl-N move; Enter switches. With both fields empty,' \
-    '  a visible digit 0-9 switches immediately; otherwise digits filter.' \
-    '  Numbers label visible slots and update as the list scrolls.' \
+    '  Arrows / Ctrl-P / Ctrl-N move; Enter applies the named action.' \
+    '  With both fields empty, Option plus a visible digit applies that action' \
+    '  (Option-as-Meta). Remote rows open confirmation before any switch.' \
+    '  Plain digits filter from the first character: 1232 finds bug/1232-something.' \
     '  Arrows scroll through all captured matches and stop at either end.' \
     '  Fn-Up/Down or Option-Up/Down page the focused pane with one-line overlap.' \
     '  Ctrl-V pages down; Ctrl-D pages up without Option-as-Meta.' \
@@ -529,7 +656,7 @@ _compozsh_help_g() {
     '  Git can refuse conflicting edits or a branch used by another worktree.' \
     '  Up to 10 rows appear by default, limited by terminal height. Set' \
     '  ZSH_NAVIGATION_PICKER_MAX_RESULTS in your initializer to adjust it.' \
-    '  Filtering uses the captured recent list; rerun g to refresh it.' \
+    '  Filtering uses the captured local list; rerun g to refresh it.' \
     '' \
     'Branch details:' \
     '  At 100 columns or wider, the selected branch has a side panel showing' \
@@ -543,8 +670,8 @@ _compozsh_help_g() {
     '  Right / Ctrl-E focuses details; Left / Ctrl-B returns to the list.' \
     '  Tab switches panes; Up/Down scrolls the focused details. In narrower' \
     '  windows, details use a full-width view. Typing returns to filtering.' \
-    '  Enter still switches; Ctrl-Y / Option-W still copies when available.' \
-    '  Digits select only with both fields empty and focus on the visible list.' \
+    '  Enter applies the named action; Ctrl-Y / Option-W copies when available.' \
+    '  Option-digits select with both fields empty and focus on the visible list.' \
     '  One extra read-only Git batch captures details when opening, capped at' \
     '  262,144 characters and 401 refs. Subjects are limited to 512 characters.' \
     '  Missing or capped metadata leaves the branch selectable with a notice.' \
@@ -713,7 +840,7 @@ _compozsh_help_g() {
     '  Disabling only .zsh.git-review leaves switching/copying intact.' \
     '' \
     'Examples:' \
-    '  g                       Open recent branches; type to filter.' \
+    '  g                       Open all local branches, recent first; type to filter.' \
     '  g --worktree            Create, enter, move or remove a worktree.' \
     '  g --review              Choose working changes, commits or comparisons.' \
     '  g --review main feature/search  Compare two committed versions.' \
@@ -722,12 +849,44 @@ _compozsh_help_g() {
     '  g worktree list         Ask Git for its native worktree list.' \
     '  g status                Inspect working-tree changes.' \
     '  g branch                List every local branch.' \
-    '  g switch feature/search Switch a known branch outside the recent list.' \
+    '  g switch feature/search Switch a known branch directly.' \
     '  g switch --help         Read Git documentation for switch.'
 }
 
 _git_branch_choose() {
   _zle_ui_view choice _git_branch_view "$@"
+}
+
+_git_branch_session() {
+  emulate -L zsh
+  local -a bookmark=('' 1 0)
+  local chosen=''
+  local -i result=0 focus=0
+  while true; do
+    _ZLE_PICKER_COLLECTOR=_git_branch_collect
+    _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_COPY_ENABLED=$(( ${#clipboard_binary} > 0 ))
+    if (( ${+functions[_git_review_branch_choose]} )); then
+      _git_review_branch_choose "${bookmark[1]}" "${bookmark[2]}" "${bookmark[3]}" \
+        "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}" "$focus"
+    else
+      _zle_picker_start_focus=$focus
+      _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" \
+        "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    fi
+    result=$?
+    (( result == 0 )) || return $result
+    chosen=$_ZLE_PICKER_SELECTED_VALUE
+    [[ $_ZLE_PICKER_ACTION != copy && -n ${_GIT_BRANCH_REMOTE_NAMES[$chosen]-} ]] || return 0
+    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
+    _zle_ui_view action _git_branch_remote_confirm_view "$chosen"
+    result=$?
+    (( result > 1 )) && return $result
+    if (( result == 0 )) && [[ $_ZLE_PICKER_SELECTED_VALUE == create ]]; then
+      _ZLE_PICKER_SELECTED_VALUE=$chosen _ZLE_PICKER_ACTION=track
+      return 0
+    fi
+  done
 }
 
 _git_branch_view() {
@@ -748,17 +907,17 @@ _git_branch_view() {
   _ZLE_PICKER_TITLE=Branches
   _ZLE_PICKER_SUBTITLE=$repo
   [[ -z $_GIT_RECENT_CURRENT ]] && _ZLE_PICKER_SUBTITLE+=' · no current local branch'
-  _ZLE_PICKER_BROWSE_LABEL='recent checkouts'
+  _ZLE_PICKER_BROWSE_LABEL='local branches · recent first'
   _ZLE_PICKER_EMPTY_LABEL='no matching branches'
   [[ -n $clipboard_binary ]] && _ZLE_PICKER_COPY_ENABLED=1
-  _ZLE_PICKER_COLLECTOR='_navigation_picker_collect'
+  _ZLE_PICKER_COLLECTOR=_git_branch_collect
   {
     (( ${+functions[_zle_picker_inspect_render]} )) && _git_branch_inspector_capture "$root"
-    if (( ${+functions[_git_review_branch_choose]} )); then
-      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" '' 1 0 _git_review_branch_choose
-    else
-      _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
-    fi
+    local key=''
+    for key in "${_GIT_BRANCH_REMOTE_VALUES[@]}"; do
+      _ZLE_PICKER_INSPECT_TEXTS[$key]="${(V)${key#remote:refs/remotes/}}"$'\nRemote-tracking ref stored locally\n\nLocal branch to create:\n  '"${(V)_GIT_BRANCH_REMOTE_NAMES[$key]}"$'\n\nCaptured commit:\n  '"${_GIT_BRANCH_REMOTE_OIDS[$key]}"$'\n\nEnter reviews creation; confirmation defaults to Back.\nNo server check or fetch. Run g fetch <remote> explicitly to refresh.'
+    done
+    _zle_picker_run "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" '' 1 0 _git_branch_session
   } always {
     _ZLE_PICKER_INSPECT_TEXTS=()
   }
@@ -840,6 +999,9 @@ g() {
   unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
 
   local root='' branch='' clipboard_binary=${commands[pbcopy]:-}
+  local -a _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
+  local -A _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
+  local _GIT_BRANCH_REMOTE_NOTICE=''
   (( ${+functions[_compozsh_effect_copy]} )) || clipboard_binary=''
   local -i picker_status=0
   _git_branch_stack_load || return
@@ -850,6 +1012,7 @@ g() {
     return 0
   fi
 
+  _git_branch_remote_capture "$root" || :
   _git_branch_choose "$root" "$clipboard_binary"
   picker_status=$?
   (( picker_status == 1 )) && return 0
@@ -857,7 +1020,12 @@ g() {
 
   branch=$_ZLE_PICKER_SELECTED_VALUE
   if [[ $_ZLE_PICKER_ACTION == copy ]]; then
+    [[ -n ${_GIT_BRANCH_REMOTE_NAMES[$branch]-} ]] && branch=${branch#remote:refs/remotes/}
     _navigation_copy "$branch" "$clipboard_binary" branch g
+    return $?
+  fi
+  if [[ $_ZLE_PICKER_ACTION == track ]]; then
+    _git_branch_remote_switch "$root" "$branch"
     return $?
   fi
   [[ $branch == "$_GIT_RECENT_CURRENT" ]] && return 0

@@ -221,7 +221,7 @@ _test_directory_argument_native() {
               _argument_expect "FRAME|Example|120" || exit 9
               keys=$'\''\e'\'' ;;
             (insert) keys=$'\''\r'\''; expected="vim ~/Developer/Example\\ \\&\\ Co/" ;;
-            (digit) keys=1; expected="vim ~/Developer/Example\\ \\&\\ Co/" ;;
+            (digit) keys=$'\''\e1'\''; expected="vim ~/Developer/Example\\ \\&\\ Co/" ;;
             (copy) keys=$'\''\x19'\'' ;;
           esac
           zpty -w -n argument "$keys"

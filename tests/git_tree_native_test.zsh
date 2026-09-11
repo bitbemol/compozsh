@@ -86,9 +86,9 @@ _test_git_tree_native() {
       device=${event#READY:}
       _tree_native_expect "FRAME|Working changes|flat||1||1|0||120" || exit 2
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 45
-      _tree_native_key 1 "FRAME|Working changes|flat||1||1|0||120" || exit 46
+      _tree_native_key $'\''\e1'\'' "FRAME|Working changes|flat||1||1|0||120" || exit 46
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 47
-      _tree_native_key 2 "FRAME|Working changes|tree||1||1|0||120" || exit 48
+      _tree_native_key $'\''\e2'\'' "FRAME|Working changes|tree||1||1|0||120" || exit 48
       _tree_native_key $'\''\x1d'\'' "FRAME|Working changes|tree||1||1|0||120" || exit 41
       _tree_native_key README "FRAME|Working changes|tree||2||2|0||120" || exit 42
       _tree_native_key $'\''\x15'\'' "FRAME|Working changes|tree||1||1|0||120" || exit 43
@@ -102,18 +102,18 @@ _test_git_tree_native() {
       _tree_native_key $'\''\e[D'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 36
       [[ $(<"$HOME/captures") == "$summary_captures" ]] || exit 37
       _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/|expand|1|0||120" || exit 4
-      _tree_native_key 2 "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 5
+      _tree_native_key $'\''\e2'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 5
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 6
-      _tree_native_key 1 "FRAME|Working changes|flat||1||1|0||120" || exit 7
+      _tree_native_key $'\''\e1'\'' "FRAME|Working changes|flat||1||1|0||120" || exit 7
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 26
-      _tree_native_key 2 "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 27
+      _tree_native_key $'\''\e2'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 27
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 28
-      _tree_native_key 2 "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 29
+      _tree_native_key $'\''\e2'\'' "FRAME|Working changes|tree||d:src/|collapse|1|0||120" || exit 29
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 30
-      _tree_native_key 1 "FRAME|Working changes|flat||1||1|0||120" || exit 31
+      _tree_native_key $'\''\e1'\'' "FRAME|Working changes|flat||1||1|0||120" || exit 31
       _tree_native_key $'\''\e[B'\'' "FRAME|Working changes|flat||2||2|0||120" || exit 8
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 9
-      _tree_native_key 2 "FRAME|Working changes|tree||2||2|0||120" || exit 10
+      _tree_native_key $'\''\e2'\'' "FRAME|Working changes|tree||2||2|0||120" || exit 10
       _tree_native_key $'\''\e[B\e[B\e[B'\'' "FRAME|Working changes|tree||d:src/deep/more/|collapse|2|0||120" || exit 11
       _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/deep/more/|expand|2|0||120" || exit 38
       _tree_native_key $'\''\r'\'' "FRAME|Working changes|tree||d:src/deep/more/|collapse|2|0||120" || exit 39
@@ -125,8 +125,8 @@ _test_git_tree_native() {
       _tree_native_key $'\''\x12'\'' "FRAME|Working changes|tree||d:src/deep/more/next/|open folder|2|0||120" || exit 14
       _tree_native_key $'\''\x18'\'' "FRAME|Git / View options|*" || exit 15
       captures=$(<"$HOME/captures")
-      _tree_native_key 3 "FRAME|Git / Jump to ancestor|*" || exit 16
-      _tree_native_key 1 "FRAME|Working changes|tree||2||2|0||120" || exit 17
+      _tree_native_key $'\''\e3'\'' "FRAME|Git / Jump to ancestor|*" || exit 16
+      _tree_native_key $'\''\e1'\'' "FRAME|Working changes|tree||2||2|0||120" || exit 17
       [[ $(<"$HOME/captures") == "$captures" ]] || exit 25
       _tree_native_key next/d "FRAME|Working changes|tree||5||5|0|next/d|120" || exit 18
       _tree_native_key $'\''\t'\'' "FRAME|Working changes|tree||5||5|1|next/d|120" || exit 19

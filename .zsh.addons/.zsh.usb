@@ -20,7 +20,7 @@ _compozsh_help_external-device() {
     '  No arguments opens the task chooser without reading disks or images.' \
     '  --flash [media]  Create bootable media from an image or macOS installer.' \
     '  --format  Choose a drive, filesystem, and volume name.' \
-    '  Enter opens the displayed task, never an erase; digits require both fields empty.' \
+    '  Enter opens the displayed task, never an erase; Option-digits require both fields empty.' \
     '  Filter tasks by name; arrows move, Ctrl-E/B focuses plan/list, Escape exits.' \
     '  Ctrl-] switches Filter / Exclude contains in candidate menus; both stay active.' \
     '  Exclusion is one case-insensitive phrase. Ctrl-U clears only the active field.' \

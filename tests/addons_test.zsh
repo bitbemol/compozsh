@@ -490,8 +490,8 @@ _test_git_branch_recency_tolerates_unvisited_branches() {
     result_status=$?
     print -r -- "$result_status|${(j:|:)_GIT_RECENT_BRANCHES}"
   ' "$TEST_REPO_ROOT" "$repository") || return
-  test_assert_equal '0|recently-used|main' "$output" \
-    'an unvisited local branch made successful recency inspection fail'
+  test_assert_equal '0|recently-used|main|never-checked-out' "$output" \
+    'an unvisited local branch was missing from the branch picker'
 }
 test_case 'Git branch stack tolerates local branches absent from the reflog' \
   _test_git_branch_recency_tolerates_unvisited_branches

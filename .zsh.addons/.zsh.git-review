@@ -3502,18 +3502,19 @@ _git_review_menu() {
 _git_review_branch_choose() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=1 focus=0 result=0
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=1 focus=${7:-0} result=0
   local _ZLE_PICKER_OPTIONS_KIND=git selected=''
-  local -a bookmark=('' 1 0) _GIT_REVIEW_CONFIG=()
+  local -a bookmark=("${1:-}" "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}") _GIT_REVIEW_CONFIG=()
+  local collector=${_ZLE_PICKER_COLLECTOR:-_navigation_picker_collect}
   local -a _ZLE_PICKER_EMPTY_LINES=()
   local _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
   local -i _GIT_REVIEW_TRUNCATED=0 _zle_picker_start_focus=0
   if (( !${#_NAVIGATION_PICKER_VALUES} )); then
-    _ZLE_PICKER_EMPTY_LINES=('No recent local branches'
+    _ZLE_PICKER_EMPTY_LINES=('No local branches'
       'Ctrl-X reviews the current working tree, including before its first commit.')
   fi
   while true; do
-    _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+    _ZLE_PICKER_COLLECTOR=$collector
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_COPY_ENABLED=$(( ${#clipboard_binary} > 0 ))
     _zle_picker_start_focus=$focus

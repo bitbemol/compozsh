@@ -151,11 +151,11 @@ pfd=$REPLY
   _compose_native_expect 'FRAME|Draft / Inspect||120' || exit 25
   zpty -w -n compose-native $'Compose\r'
   _compose_native_expect 'FRAME|Compose / g --review||120' || exit 26
-  zpty -w -n compose-native 2
+  zpty -w -n compose-native $'\e2'
   _compose_native_expect 'FRAME|Against · choose branch or commit||120' || exit 27
   zpty -w -n compose-native $'main\r'
   _compose_native_expect 'FRAME|Compose / g --review||120' || exit 28
-  zpty -w -n compose-native 3
+  zpty -w -n compose-native $'\e3'
   _compose_native_expect 'FRAME|Compare · choose branch or commit||120' || exit 29
   zpty -w -n compose-native $'topic\r'
   _compose_native_expect 'FRAME|Compose / g --review||120' || exit 30

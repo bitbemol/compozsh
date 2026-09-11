@@ -416,7 +416,7 @@ bindkey '^[^M' compozsh-inspect
 # Match immediate child directories through the shared picker without scanning
 # recursively or invoking external commands. The path fragment already present
 # in the command buffer remains a required filter; the picker's own query can
-# refine that set further while its empty state keeps direct digits available.
+# refine that set further while its empty state keeps Option-digit shortcuts available.
 _directory_picker_append_matches() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -460,7 +460,7 @@ _directory_picker_collect() {
   (( limit < 1 )) && limit=1
 
   # With no interactive query, rank the path fragment already typed by the
-  # user. This keeps the picker query row empty, so visible digits stay direct.
+  # user. This keeps the picker query row empty, so Option-digit shortcuts remain available.
   if [[ -z $query && -n $required_query ]]; then
     query=$required_query
     required_query=''

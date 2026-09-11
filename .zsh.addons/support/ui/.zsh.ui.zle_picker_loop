@@ -459,6 +459,20 @@ _zle_picker_loop() {
             continue
           fi
           case $sequence in
+            ([0-9])
+              # Only Option/Meta digits accept visible slots. Bare digits always
+              # reach literal filtering, including the first query character.
+              direct_position=0
+              if (( ${+functions[_zle_picker_can_select_digit]} )) && _zle_picker_can_select_digit "$query"; then
+                direct_position=${_ZLE_PICKER_VISIBLE_KEYS[(Ie)$sequence]}
+              fi
+              if (( direct_position && direct_position <= _ZLE_PICKER_VISIBLE_COUNT )); then
+                selected=$(( _ZLE_PICKER_VIEW_OFFSET + direct_position ))
+                accepted=1
+              else
+                zle beep
+              fi
+              ;;
             ('v')
               _zle_picker_page -1 $selected $count
               selected=$REPLY
@@ -654,26 +668,6 @@ _zle_picker_loop() {
               cancelled=1
               ;;
           esac
-          ;;
-        ([0-9])
-          # Shortcuts identify currently visible slots, never hidden results.
-          # Exact result values are indexed only after applying the viewport.
-          direct_position=0
-          if (( ${+functions[_zle_picker_can_select_digit]} )) && _zle_picker_can_select_digit "$query"; then
-            direct_position=${_ZLE_PICKER_VISIBLE_KEYS[(Ie)$key]}
-          fi
-          if (( direct_position )); then
-            if (( direct_position > _ZLE_PICKER_VISIBLE_COUNT )); then
-              zle beep
-              continue
-            fi
-            selected=$(( _ZLE_PICKER_VIEW_OFFSET + direct_position ))
-            accepted=1
-          else
-            _ZLE_PICKER_INSPECT_FOCUS=0
-            input+=$key
-            selected=1
-          fi
           ;;
         (*)
           if [[ $key == [[:print:]] ]]; then

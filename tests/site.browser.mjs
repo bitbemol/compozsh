@@ -159,6 +159,9 @@ try {
   assert.equal(await page.locator('#demo-command').innerText(), 'Option-Tab');
   assert.equal(await page.locator('.result-number').first().innerText(), '[0]');
   await page.locator('#demo-query').press('0');
+  assert.equal(await page.locator('#demo-query').inputValue(), '0', 'An initial digit filters instead of accepting a row');
+  await page.locator('#demo-query').fill('');
+  await page.locator('#demo-query').press('Alt+0');
   assert.match(await page.locator('#demo-output').innerText(), /Editable path: ~\/Projects\/example-app/);
   await page.locator('#demo-query').press('Control+]');
   await page.locator('#demo-exclude').pressSequentially('projects');
@@ -263,6 +266,9 @@ try {
   await page.getByLabel('Example', { exact: true }).selectOption('tools');
   await page.locator('#demo-query').focus();
   await page.keyboard.press('2');
+  assert.equal(await page.locator('#demo-query').inputValue(), '2');
+  await page.locator('#demo-query').fill('');
+  await page.keyboard.press('Alt+2');
   assert.match(await page.locator('#demo-output').innerText(), /usage: cpdir/);
   await page.getByRole('tab', { name: 'Tools', exact: true }).focus();
   await page.keyboard.press('ArrowRight');

@@ -326,7 +326,7 @@ _test_xcode_product_choice_native() {
           command stty rows 12 cols 40 < "$device"
           _until "PAINT:40" || exit 11
           _until "FRAME:Xcode / Run product:40:*" || exit 6
-          zpty -w -n product 2
+          zpty -w -n product $'\''\e2'\''
           _until "DONE:0:$HOME/Second.app:com.example.second" || exit 7
         elif [[ $scenario == cancel ]]; then
           zpty -w -n product $'\''\e'\''
@@ -334,7 +334,7 @@ _test_xcode_product_choice_native() {
         else
           command rmdir "$HOME/Second.app"
           command ln -s "$HOME/First.app" "$HOME/Second.app"
-          zpty -w -n product 2
+          zpty -w -n product $'\''\e2'\''
           _until "DONE:1::" || exit 9
         fi
       } always {

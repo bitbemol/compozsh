@@ -501,7 +501,7 @@ requirements or silently rewriting their evidence.
     limits, and snapshots from live discovery. State the actual matching rules;
     do not imply every fuzzy selector supports unordered fragments.
   - Document applicable prerequisites, missing-tool and noninteractive
-    fallbacks, modified keys, empty-query digit behavior, quoting, and output
+    fallbacks, modified keys, literal numeric input and Option-digit behavior, quoting, and output
     formats. For commands that write, copy, switch, or discard, state exact
     targets, confirmation policy, preservation boundaries, and failure/recovery
     limitations. Include practical synthetic examples and relevant public
@@ -846,7 +846,7 @@ Loaded tool catalog → selected tool → its safe documentation
 ```
 
 These are optional routes, not required wizard steps. Retain direct selection,
-number keys, and shortcuts; an inspector must not become a mandatory stop.
+Option-digit keys, and shortcuts; an inspector must not become a mandatory stop.
 For nested disclosure, use coherent forward/reverse steps, retain the target
 and semantic reading position, and skip levels that reveal no additional
 information. Keep direct pane-focus shortcuts independent of disclosure.
@@ -1266,7 +1266,7 @@ sources prove a particular column ratio or key assignment is optimal.
 The visible `[n]` prefix is reserved for actionable candidates: directories,
 files, menu operations, or other exact values that the input loop can select and
 accept. Showing `[n] some text` promises that the row participates in selection
-and that its visible digit can choose it whenever digit selection is active.
+and that Option plus its visible digit can choose it whenever digit selection is active.
 Information-only text must use passive rows, status/context regions, or
 details/reader content. It must not enter the result/candidate array, receive a
 selection cursor or selected-row highlight, become an arrow-navigation stop, or
@@ -1310,9 +1310,11 @@ input. Keep the exclusion row visible once revealed, including narrow/inline
 fallbacks. Ctrl-U, Ctrl-W, Backspace and paste edit only the focused field.
 Changing either value resets the result position; switching fields alone does
 not. Back restores both values, field focus/visibility and the existing bookmark.
-Secondary views start with independent fields. History keeps numeric typing;
-other candidate lists require both fields empty and the positive field active
-for digit acceptance. Digits typed in Exclude contains always edit literal text.
+Secondary views start with independent fields. Plain digits always edit literal
+text in every filter, including its first character. Option/Meta-digit acceptance
+requires both fields empty, the positive field active and visible list focus;
+history retains numeric typing without slot shortcuts. Terminal.app shortcuts
+require Option-as-Meta; arrows and Enter remain available without it.
 
 Exclusion uses each view’s complete searchable text and preserves the positive
 matching policy, duplicate policy and ordering, including history’s conditional
@@ -1481,7 +1483,7 @@ passive labels never acquire candidate numbers or selection behavior.
   `compozsh` opens captured help with a printable fallback; Git review acceptance
   drills into files/diffs or focuses reading. Help's explicit Compose action
   follows the separate draft-insertion contract. Shared interaction must never
-  turn insertion or a preview into execution. Digits apply visible slots only with both filter fields empty
+  turn insertion or a preview into execution. Option-digits apply visible slots only with both filter fields empty
   and list focus; the history picker retains ordinary numeric input.
 - The directory browser is the deliberate hierarchy exception: Right/Tab
   enters and Left/Shift-Tab goes Back; Ctrl-E/B focuses preview/list. Its guide
@@ -1866,7 +1868,7 @@ passive labels never acquire candidate numbers or selection behavior.
   line totals use existing numstat facts only. Label filtered/partial coverage.
   Build summaries only for the retained result prefix, never on paint. Right
   and Tab focus the summary, Left returns to the tree; focused-summary Enter
-  is inert. Folder rows retain ordinary digit acceptance. A folder never
+  is inert. Folder rows retain ordinary Option-digit acceptance. A folder never
   becomes a diff or syntax-provider target. Filter the whole captured
   list, reveal ancestors temporarily, and restore unfiltered folds on clear.
   Ancestor choices retain at most 200 rows/262,144 prefix characters, with a
@@ -1919,12 +1921,12 @@ passive labels never acquire candidate numbers or selection behavior.
   Ctrl-E/B owns detail/list focus throughout the shared modal UI. Keep normal
   prompt editing and autosuggestion bindings unchanged. Test actual key bytes,
   cancellation, scope and capture counts alongside shared hint/guide contracts.
-- Option-Tab at the ordinary prompt opens Recents. Enter and visible digits use
+- Option-Tab at the ordinary prompt opens Recents. Enter and Option plus visible digits use
   the same insertion dispatcher as path + Tab: replace the draft with the exact
   quoted path, place the cursor at its end, and repaint it visibly after screen
   cleanup. Selection must not change PWD or the stack. Submission at the normal
   prompt performs AUTO_CD. Cancellation and copy preserve the existing draft,
-  cursor and directory. Test empty/nonempty drafts, Enter/digits, quoting and
+  cursor and directory. Test empty/nonempty drafts, Enter/Option-digits, literal numeric queries, quoting and
   actual post-cleanup terminal painting, not just BUFFER values.
   Bind native Meta-Tab (`ESC TAB`) with ZLE; require Terminal's
   Option-as-Meta setting and document it. Leave Ctrl-Tab with Terminal's tab
@@ -2007,7 +2009,7 @@ passive labels never acquire candidate numbers or selection behavior.
   choices returning to the action dashboard. Do not add a renderer, key parser,
   persistent background watcher, workflow framework, persistent project state or new
   shortcut. Keep each digit-select Xcode page at ten rows so every visible index
-  is reachable with one of 0–9; ordinary paging retains later candidates.
+  is reachable with Option plus one of 0–9; ordinary paging retains later candidates.
   Dispatch every action only after the screen is restored, and revalidate that
   the exact captured container leaf still exists, matches its project/workspace
   kind and is not a symlink immediately before execution. Test may
@@ -2242,9 +2244,9 @@ passive labels never acquire candidate numbers or selection behavior.
   to accept, Escape/`Ctrl-G` to cancel, `Ctrl-C` to abort, `Ctrl-U` to clear,
   and macOS-style Option-Backspace/`Ctrl-W` word deletion. History selection
   must return the command to the editable line without executing it.
-- Pickers with visible single-digit indexes may accept an indexed digit
+- Pickers with visible single-digit indexes may accept an indexed Option-digit
   immediately while the query is empty. Only activate an index that is visibly
-  rendered, and preserve digits as ordinary search text after filtering begins.
+  rendered, and preserve plain digits as ordinary search text from the first character.
 - Keep the picker viewport separate from the ranked result prefix. Arrows and
   page keys may extend that prefix from already captured in-memory candidates,
   with no provider calls or filesystem traversal. Render only visible rows,

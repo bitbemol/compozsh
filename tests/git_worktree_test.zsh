@@ -502,7 +502,7 @@ _test_worktree_native() {
       device=${event#READY:}
       _worktree_test_expect "FRAME|Worktrees||0|120|30" || exit 4
       captures=$(<"$HOME/captures")
-      _worktree_test_key 1 "FRAME|Enter worktree||0|120|30" || exit 30
+      _worktree_test_key $'\''\e1'\'' "FRAME|Enter worktree||0|120|30" || exit 30
       _worktree_test_key feature/occupied "FRAME|Enter worktree|feature/occupied|0|120|30" || exit 5
       command stty rows 22 cols 70 < "$device"
       _worktree_test_expect "FRAME|Enter worktree|feature/occupied|0|70|22" || exit 6
@@ -528,24 +528,24 @@ _test_worktree_native() {
         [[ -d "$HOME/occupied" ]] || exit 28
         # Confirmation starts in details; focus the list before choosing Remove.
         _worktree_test_key $'\''\x02'\'' "FRAME|Remove worktree||0|70|22" || exit 29
-        zpty -w -n worktree 1
+        zpty -w -n worktree $'\''\e1'\''
       elif [[ $journey == move ]]; then
-        _worktree_test_key 2 "FRAME|Choose worktree to move||0|70|22" || exit 31
+        _worktree_test_key $'\''\e2'\'' "FRAME|Choose worktree to move||0|70|22" || exit 31
         _worktree_test_key ocpd "FRAME|Choose worktree to move|ocpd|0|70|22" || exit 32
         _worktree_test_key $'\''\r'\'' "FRAME|Move / rename worktree||0|70|22" || exit 33
-        _worktree_test_key 1 "FRAME|Worktree folder name|occupied|0|70|22" || exit 34
+        _worktree_test_key $'\''\e1'\'' "FRAME|Worktree folder name|occupied|0|70|22" || exit 34
         _worktree_test_key $'\''\x15'\'' "FRAME|Worktree folder name||0|70|22" || exit 35
         _worktree_test_key "renamed checkout" "FRAME|Worktree folder name|renamed checkout|0|70|22" || exit 36
         _worktree_test_key $'\''\r'\'' "FRAME|Move / rename worktree||0|70|22" || exit 37
         [[ -d "$HOME/occupied" && ! -e "$HOME/renamed checkout" ]] || exit 38
-        zpty -w -n worktree 3
+        zpty -w -n worktree $'\''\e3'\''
       else
-        _worktree_test_key 0 "FRAME|Create worktree||0|70|22" || exit 13
-        _worktree_test_key 0 "FRAME|New worktree branch||0|70|22" || exit 14
+        _worktree_test_key $'\''\e0'\'' "FRAME|Create worktree||0|70|22" || exit 13
+        _worktree_test_key $'\''\e0'\'' "FRAME|New worktree branch||0|70|22" || exit 14
         _worktree_test_key feature/native "FRAME|New worktree branch|feature/native|0|70|22" || exit 15
         _worktree_test_key $'\''\r'\'' "FRAME|Create worktree||0|70|22" || exit 16
         # After is the fifth visible action; selecting it returns to the summary.
-        _worktree_test_key 4 "FRAME|Create worktree||0|70|22" || exit 17
+        _worktree_test_key $'\''\e4'\'' "FRAME|Create worktree||0|70|22" || exit 17
         _worktree_test_key "create and stay" "FRAME|Create worktree|create and stay|0|70|22" || exit 18
         zpty -w -n worktree $'\''\r'\''
       fi

@@ -428,9 +428,9 @@ export const scenes = {
   },
   'navigate-git': {
     mode: 'git', label: 'Switch branches', command: 'g', title: 'Branches', query: '',
-    scope: 'example-app · recent local checkouts', input: 'Filter branches',
+    scope: 'example-app · local branches · recent first', input: 'Filter branches',
     benefit: 'Pick up on another branch.',
-    description: 'Inspect recent local branches, tip commits and upstreams in a responsive workspace. Enter switches; Ctrl-Y copies the branch name.',
+    description: 'Search all local branches, ordered by recent use, and inspect captured tip commits and upstreams. Plain digits filter; Enter switches; Ctrl-Y copies the branch name. In the native tool, a search without local matches offers known remote-tracking branches, then confirms creating a local tracking branch. This simulation shows local branches.',
     hint: 'Try “docs” to find the documentation branch.',
     docs: `${readme}navigation-stacks`,
     items: ['main', 'feature/docs', 'feature/search', 'fix/prompt'].map((label) => ({
@@ -489,7 +489,7 @@ export const scenes = {
     items: [
       ['compozsh', 'Explore your loaded tools', 'usage: compozsh [--list | --refresh | --sudo-touch-id [status|enable|disable] | help command]', 'Explore public functions loaded from Compozsh add-on directories.'],
       ['cpdir', 'Copy your current directory', 'usage: cpdir', 'Copy the exact current directory to the local macOS clipboard.'],
-      ['g', 'Branches and worktrees', 'usage: g [git-arguments ...]', 'Open recent branches, manage worktrees with --worktree, or run Git.'],
+      ['g', 'Branches and worktrees', 'usage: g [git-arguments ...]', 'Open local branches, recent first, manage worktrees with --worktree, or run Git.'],
     ].map(([name, description, usage, help]) => ({ label: `${name} — ${description}`, preview: `${usage}\n${help}` })),
   },
   'help-topics': {

@@ -86,7 +86,7 @@ _zle_picker_footer() {
       hints+=('Tab details')
     fi
     if (( ${+functions[_zle_picker_can_select_digit]} )) && _zle_picker_can_select_digit "$query"; then
-      hints+=("0–9 ${action}")
+      hints+=("⌥0–9 ${action}")
     fi
     hints+=('Fn/Option ↑/↓ page')
     if (( !_ZLE_PICKER_INSPECT_FOCUS || _ZLE_PICKER_READER_ONLY )); then

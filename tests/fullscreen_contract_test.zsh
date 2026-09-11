@@ -22,7 +22,7 @@ _test_fullscreen_footer_contract() {
       (( ${(m)#REPLY} <= width )) || exit 3
     done
     _zle_picker_footer 179 ""
-    [[ $REPLY == *"^Y copy"* && $REPLY == *"Tab details"* && $REPLY == *"0–9 switch"* ]] || exit 4
+    [[ $REPLY == *"^Y copy"* && $REPLY == *"Tab details"* && $REPLY == *"⌥0–9 switch"* ]] || exit 4
     _zle_picker_footer 179 query
     [[ $REPLY != *"0–9"* ]] || exit 5
     _ZLE_PICKER_COPY_ENABLED=0 _ZLE_PICKER_CANCEL_LABEL=back
@@ -384,7 +384,7 @@ _test_directory_workspace_native() {
           _contract_expect "FRAME|0|personal|$HOME/personal/api|70|12" || exit 11
           zpty -w -n contract $'\''\x19'\''
         else
-          zpty -w -n contract 1
+          zpty -w -n contract $'\''\e1'\''
         fi
         _contract_expect DONE || exit 12
         [[ $trace != *"read-only variable"* && $trace != *"bad math"* && $trace != *$'\''\e[3J'\''* ]] || exit 13
