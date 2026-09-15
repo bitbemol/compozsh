@@ -100,7 +100,7 @@ The architecture section gives the peer-loading contract an algebraic model:
 commutativity, associativity, and idempotence. Define `⊕` as combining peer
 configuration and `≈` as equivalent configured behavior after loading the same
 enabled peers under the same prerequisites and ownership rules. The
-[peer configuration algebra](../AGENTS.md#peer-configuration-algebra) is the
+[peer configuration algebra](../engineering/architecture.md#peer-configuration-algebra) is the
 canonical engineering contract; the [README](../README.md#configuration-architecture)
 explains its public meaning. Composition combines smaller pieces; runtime
 composition can depend on operation order. Keep the initializer outside the

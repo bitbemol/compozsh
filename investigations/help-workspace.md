@@ -9,7 +9,7 @@ reading-only implementation. The later [composer and atlas work](composer-and-at
 adds a separate authored Compose example action for `g` and `mkcd`, with explicit
 post-cleanup draft insertion. Ordinary topic acceptance still only reads.
 Current help also accents literal arguments in both panes using the shared
-palette. Follow [AGENTS.md](../AGENTS.md#adopted-interaction-design) for the adopted
+palette. Follow [interaction design](../engineering/interaction-design.md#adopted-interaction-design) for the adopted
 contract; the original measurements and test counts below are historical.
 
 ## Design and boundaries

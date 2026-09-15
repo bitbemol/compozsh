@@ -8,7 +8,7 @@ The approved appearance, key map, task scopes and action policies are the
 behavioral baseline. In the repository glossary, the terminal “windows” are
 views within a screen session; reusable components compose those views.
 
-Use the [peer configuration algebra](../AGENTS.md#peer-configuration-algebra)
+Use the [peer configuration algebra](../engineering/architecture.md#peer-configuration-algebra)
 for the durable setup contract. The later
 [shared matching review](shared-matching-review.md) records extraction of the
 generic algorithms; feature collectors continue owning task-specific matching

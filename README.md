@@ -34,7 +34,7 @@ at the normal prompt. File actions are explicit and use the exact selected item.
 The [Command composer](#command-composer) currently covers Git review and
 directory creation. Other commands retain their normal editing and help paths.
 Contributors and coding agents should start with the
-[adopted interaction design](AGENTS.md#adopted-interaction-design) for the shared
+[adopted interaction design](engineering/interaction-design.md#adopted-interaction-design) for the shared
 flow decisions, effect boundaries and experience-completion checklist.
 
 Ctrl-F defaults to scoped Git discovery within repositories, Spotlight at home
@@ -216,7 +216,7 @@ applying updates.
 
 These are regression-tested engineering contracts; a finite test matrix or the
 website's illustration is not a formal proof for arbitrary shell code. The
-[contributor contract](AGENTS.md#peer-configuration-algebra) defines their scope
+[contributor contract](engineering/architecture.md#peer-configuration-algebra) defines their scope
 and verification requirements. Runtime operations retain their dependencies:
 capture candidates, filter them, display results, then validate a requested
 action. Shared UI retains temporary view state and terminal effects, and public
@@ -347,7 +347,8 @@ compozsh/
 ├── SECURITY.md            security, privacy, privilege, and self-audit contract
 ├── LICENSE                GNU GPL version 3 or any later version
 ├── README.md              user-facing behavior and installation
-└── AGENTS.md              contributor and coding-agent contract
+├── engineering/           focused contributor and product contracts
+└── AGENTS.md              essential rules and contract reading map
 ```
 
 ### Shipped configuration units
@@ -2364,7 +2365,7 @@ guarded runtime calls. Their underscore-prefixed interfaces remain private
 implementation details; personal add-ons use documented public extension APIs.
 Check independent sourcing, different peer orders, repeated sourcing, early
 overrides and missing capabilities as described in the
-[engineering contract](AGENTS.md#peer-configuration-algebra).
+[engineering contract](engineering/architecture.md#peer-configuration-algebra).
 
 ### Public and internal functions
 

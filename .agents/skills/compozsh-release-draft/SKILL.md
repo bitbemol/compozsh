@@ -45,9 +45,11 @@ replacement repository from local configuration.
 
 ## Audit what actually changed
 
-Read the repository `AGENTS.md` release, security, documentation, testing, and
-public-interface contracts. Then inspect the complete `baseline..candidate`
-range:
+Read [AGENTS.md](../../../AGENTS.md), the [security](../../../engineering/security.md),
+[verification](../../../engineering/verification.md), and
+[public-interface](../../../engineering/zsh.md) contracts, and the affected
+domain contracts routed from AGENTS.md. Then inspect the complete
+`baseline..candidate` range:
 
 - chronological commit log and commit bodies;
 - diff statistics and name/status inventory;

@@ -93,7 +93,7 @@ highlighted branch. Preserve both distinctions.
 Evidence: [public workflow](../README.md#read-only-git-review),
 [review providers/controllers](../.zsh.addons/.zsh.git-review),
 [wrapper and help](../.zsh.addons/.zsh.navigation), and
-[review contracts](../AGENTS.md#git-review-workspace-boundary).
+[review contracts](../engineering/workspaces/git.md#git-review-workspace-boundary).
 Any different installed or historical workflow needs its own evidence before
 claiming compatibility with it.
 

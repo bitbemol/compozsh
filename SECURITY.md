@@ -464,7 +464,7 @@ the folder adds no loader privilege, load phase, data storage or enforced
 read-only permissions. Personal customization uses documented public settings
 in the machine-local initializer, preserving the managed implementations.
 
-The [peer configuration laws](AGENTS.md#peer-configuration-algebra) concern
+The [peer configuration laws](engineering/architecture.md#peer-configuration-algebra) concern
 equivalent configured behavior after loading the same peers under the same
 prerequisites. They confer no sandbox or permission to replay effects. Sourcing
 configuration changes shell memory, and sourcing `.zshrc` again can rerun the

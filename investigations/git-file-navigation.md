@@ -65,7 +65,7 @@ without changing the review position; inside the guide the final hint is
 The selected path or folder-summary title keeps its heading style with either
 pane focused; the caret, divider and selection surface convey keyboard focus.
 
-The canonical behavior is in [AGENTS.md](../AGENTS.md#git-review-workspace-boundary).
+The canonical behavior is in [Git review contract](../engineering/workspaces/git.md#git-review-workspace-boundary).
 The earlier direct Ctrl-X-to-atlas route in
 [composer-and-atlas.md](composer-and-atlas.md) is historical; the map remains
 available through View options with its original read/Back boundaries.

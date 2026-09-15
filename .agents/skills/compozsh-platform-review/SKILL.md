@@ -11,8 +11,10 @@ that no change is worthwhile.
 
 ## Establish the comparison
 
-1. Read the repository `AGENTS.md` product contract, modern-first policy,
-   performance rules, TDD rules, privacy boundary, and the relevant code/docs.
+1. Read the repository [AGENTS.md](../../../AGENTS.md) product contract and
+   modern-first policy, [performance](../../../engineering/performance.md),
+   [verification](../../../engineering/verification.md), and
+   [security](../../../engineering/security.md) contracts, plus relevant code/docs.
 2. Record the requested previous and current macOS versions when supplied. Do
    not stop when a previous version or pre-upgrade snapshot is unavailable;
    state that exact local binary comparison is unavailable and continue with

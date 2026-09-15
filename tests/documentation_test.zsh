@@ -80,7 +80,7 @@ _test_security_contract_is_public_and_auditable() {
   local readme="$(<"$TEST_REPO_ROOT/README.md")"
   local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
   local site="$(<"$TEST_REPO_ROOT/docs/index.html")"
-  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"$'\n'"$(<"$TEST_REPO_ROOT/engineering/security.md")"
 
   test_assert_contains "$readme" '[Security and privacy](SECURITY.md)' \
     'README does not link the security contract' || return
@@ -148,7 +148,7 @@ _test_living_prompt_contract_is_synchronized() {
   local readme="$(<"$TEST_REPO_ROOT/README.md")"
   local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
   local site="$(<"$TEST_REPO_ROOT/docs/index.html")"
-  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  local agents="$(<"$TEST_REPO_ROOT/engineering/prompt.md")"
 
   test_assert_contains "$readme" '## Living prompt' \
     'README omits the living prompt behavior' || return
@@ -179,7 +179,7 @@ test_case 'living prompt documentation stays synchronized across public surfaces
   _test_living_prompt_contract_is_synchronized
 
 _test_picker_index_affordance_is_documented() {
-  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  local agents="$(<"$TEST_REPO_ROOT/engineering/full-screen.md")"
 
   test_assert_contains "$agents" \
     'visible `[n]` prefix is reserved for actionable candidates' \
@@ -193,3 +193,36 @@ _test_picker_index_affordance_is_documented() {
 }
 test_case 'agent UI contract reserves picker indexes for actionable rows' \
   _test_picker_index_affordance_is_documented
+
+_test_root_guidance_is_bounded() {
+  local LC_ALL=C
+  local instructions="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  (( ${#instructions} <= 16384 )) ||
+    test_fail 'root guidance exceeds its 16 KiB budget; move detail to routed contracts'
+}
+test_case 'root agent guidance stays within its context budget' \
+  _test_root_guidance_is_bounded
+
+_test_engineering_contracts_are_discoverable() {
+  local remaining="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  local MATCH='' file='' relative=''
+  local -a match=() mbegin=() mend=() routed=()
+  while [[ $remaining =~ '\]\((engineering/[^)#]+\.md)(#[^)]*)?\)' ]]; do
+    routed+=("$match[1]")
+    [[ -f "$TEST_REPO_ROOT/$match[1]" ]] || {
+      test_fail "agent guidance links a missing contract: $match[1]"
+      return 1
+    }
+    remaining=${remaining#*"$MATCH"}
+  done
+  (( ${#routed} )) || { test_fail 'agent guidance has no engineering routes'; return 1; }
+  for file in "$TEST_REPO_ROOT"/engineering/**/*.md(N.); do
+    relative=${file#"$TEST_REPO_ROOT/"}
+    (( ${routed[(Ie)$relative]} )) || {
+      test_fail "engineering contract has no root guidance route: $relative"
+      return 1
+    }
+  done
+}
+test_case 'engineering contracts remain discoverable from root agent guidance' \
+  _test_engineering_contracts_are_discoverable
