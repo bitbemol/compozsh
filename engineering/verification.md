@@ -71,6 +71,7 @@ zsh tests/run.zsh
 syntax_status=0
 for syntax_file in .zshrc install.zsh templates/init.zsh tests/*.zsh \
                    .zsh.addons/**/.zsh.?*(N.); do
+  [[ $syntax_file == .zsh.addons/support/cache/* ]] && continue
   zsh -n "$syntax_file" || syntax_status=1
 done
 (( syntax_status == 0 ))
@@ -124,6 +125,11 @@ Then select relevant checks from this list:
 - Confirm wrappers preserve plain output through a pipe or redirect and retain
   the underlying command's options and status.
 - Time several isolated startups before and after latency-sensitive changes.
+- For manual async capture, run `zsh tests/run.zsh 'manual async'`, compare
+  serial/async catalogs with `investigations/benchmarks/manual-async-parity.zsh`
+  under an isolated environment, and measure editable prompt and parent catalog
+  arrival with `investigations/benchmarks/async-first-prompt.zsh`. Keep benchmark
+  runs separate from the suite and report Terminal.app acceptance independently.
 - Source twice to prove hooks, functions, and bindings remain stable.
 
 Do not declare work complete merely because the file parses. Interactive shell

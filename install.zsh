@@ -33,6 +33,8 @@ _installer_help() {
     '  Destination is ${ZDOTDIR:-$HOME}; keep it separate from the repository.' \
     '  You do not need to create, empty, or delete an existing .zshrc.' \
     '  Normal installation preserves private add-ons and local/init.zsh.' \
+    '  Generated source caches are excluded; normal updates preserve the' \
+    '  destination support/cache directory. --clean archives it with add-ons.' \
     '  It copies an inert starter to .zsh.addons/local/init.zsh only if absent.' \
     '  A replaced .zshrc or managed copy is archived under .zsh-backups with' \
     '  a timestamp. --clean archives the entire add-on tree, including init.' \
@@ -101,6 +103,28 @@ _installer_remove_tree() {
   command rm -rf -- "$target"
 }
 
+# Ship reviewed code/assets, never generated machine-local module data.
+_installer_stage_addons() {
+  emulate -L zsh
+  local source_dir=$1 destination=$2 item=''
+  local -a items=() support_items=()
+  for item in "$source_dir"/*(ND); do
+    if [[ $item != "$source_dir/support" || ! -d $item || -L $item ]]; then
+      items+=("$item")
+    fi
+  done
+  command mkdir -p -- "$destination" || return 1
+  (( ! $#items )) || command cp -R "${items[@]}" "$destination/" || return 1
+  if [[ -d $source_dir/support && ! -L $source_dir/support ]]; then
+    for item in "$source_dir/support"/*(ND); do
+      [[ ${item:t} == cache ]] || support_items+=("$item")
+    done
+    command mkdir -p -- "$destination/support" || return 1
+    (( ! $#support_items )) || command cp -R "${support_items[@]}" "$destination/support/" || return 1
+  fi
+  return 0
+}
+
 _installer_main() {
   emulate -L zsh
   setopt PIPE_FAIL
@@ -156,7 +180,10 @@ _installer_main() {
   local source_addons="$repository/.zsh.addons"
   local source_initializer="$repository/templates/init.zsh"
   local source_file=''
-  local -a source_peers=("$source_addons"/**/.zsh.?*(N.))
+  local -a source_peers=()
+  for source_file in "$source_addons"/**/.zsh.?*(N.); do
+    [[ $source_file == "$source_addons/support/cache/"* ]] || source_peers+=("$source_file")
+  done
   [[ -s $source_zshrc && -d $source_addons && -s $source_initializer ]] || {
     print -u2 -r -- 'installer: repository components are incomplete'
     return 1
@@ -293,8 +320,7 @@ _installer_main() {
       return 1
     }
     staged_addons="$stage_dir/compozsh"
-    command mkdir -p -- "$staged_addons" &&
-      command cp -R "$source_addons"/. "$staged_addons"/ &&
+    _installer_stage_addons "$source_addons" "$staged_addons" &&
       print -r -- 'version=1' >| \
         "$staged_addons/.managed-by-compozsh" || {
         print -u2 -r -- 'installer: could not stage shared add-ons'

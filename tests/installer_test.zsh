@@ -90,6 +90,25 @@ _test_installer_fresh_symlink() {
 test_case 'installer creates a fresh recommended symlink installation' \
   _test_installer_fresh_symlink
 
+_test_installer_excludes_generated_caches() {
+  test_make_temp_dir || return
+  local repository="$TEST_TMP_DIR/repository" home="$TEST_TMP_DIR/home" output=''
+  command mkdir -p "$repository" || return
+  command cp "$TEST_REPO_ROOT/.zshrc" "$TEST_REPO_ROOT/install.zsh" "$repository" || return
+  command cp -R "$TEST_REPO_ROOT/templates" "$TEST_REPO_ROOT/.zsh.addons" "$repository" || return
+  test_write_file "$repository/.zsh.addons/support/cache/.zsh.manual.cache" $'COMPOZSH\n)' || return
+  test_write_file "$home/.zsh.addons/support/cache/.zsh.manual.cache" 'LOCAL-CACHE-PRESERVED' || return
+  _test_run_installer_at "$repository/install.zsh" "$home" "$home" --copy --yes > "$TEST_TMP_DIR/install.out" 2> "$TEST_TMP_DIR/install.err" || {
+    print -u2 -r -- "$(<"$TEST_TMP_DIR/install.err")"; return 1
+  }
+  [[ ! -e "$home/.zsh.addons/compozsh/support/cache" ]] || test_fail 'copy install distributed generated cache data' || return
+  test_assert_equal LOCAL-CACHE-PRESERVED "$(<"$home/.zsh.addons/support/cache/.zsh.manual.cache")" || return
+  output=$(test_run_interactive "$home" 'source "$HOME/.zshrc"; print -r -- ${+functions[mkcd]}') || return
+  test_assert_equal 1 "$output" 'cache exclusion lost shipped peers'
+}
+test_case 'installer excludes generated module caches from syntax validation and copied distribution' \
+  _test_installer_excludes_generated_caches
+
 _test_installer_resolves_repository_independent_of_pwd() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" elsewhere="$TEST_TMP_DIR/elsewhere"
@@ -140,6 +159,7 @@ _test_installer_clean_is_recoverable() {
   test_write_file "$home/.zshrc" 'old active configuration' || return
   test_write_file "$home/.zsh.addons/local/init.zsh" 'PRIVATE_INIT=archived' || return
   test_write_file "$home/.zsh.addons/work/.zsh.private" 'PRIVATE_PEER=archived' || return
+  test_write_file "$home/.zsh.addons/support/cache/.zsh.manual.cache" 'PUBLIC_CACHE=archived' || return
 
   _test_run_installer "$home" "$home" --symlink --clean --yes >/dev/null || return
   backups=("$home/.zsh-backups"/compozsh-*(N/))
@@ -151,6 +171,8 @@ _test_installer_clean_is_recoverable() {
     test_fail 'clean backup omitted the private initializer' || return
   [[ -f "$backup/.zsh.addons/work/.zsh.private" ]] ||
     test_fail 'clean backup omitted a private peer' || return
+  test_assert_equal PUBLIC_CACHE=archived "$(<"$backup/.zsh.addons/support/cache/.zsh.manual.cache")" || return
+  [[ ! -e "$home/.zsh.addons/support/cache" ]] || test_fail 'clean install kept the old cache active' || return
   [[ ! -e "$home/.zsh.addons/work/.zsh.private" ]] ||
     test_fail 'clean install kept private state active' || return
   test_assert_equal "$(<"$TEST_REPO_ROOT/templates/init.zsh")" \

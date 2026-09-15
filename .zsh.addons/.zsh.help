@@ -451,7 +451,8 @@ _compozsh_help_compozsh() {
     '  local manual summaries, help descriptions and grep color-capability detection, then runs' \
     '  rehash. Requires .zsh.tools.' \
     '  Relevant caches rebuild on next use. No tools are installed or upgraded;' \
-    '  only the current shell changes. No output is printed on success.' \
+    '  public OS manual summaries also rebuild their optional disk cache at' \
+    '  the next prompt for future shells. No output is printed on success.' \
     '  Use after installing/upgrading a tool or changing PATH in this shell.' \
     '  This does not reload add-ons or your initializer; use exec zsh for that.' \
     '  --refresh --help shows this guide without clearing caches.' \

@@ -1278,17 +1278,18 @@ _prompt_interaction_model() {
   # Manual metadata is ABOUT the tool, never a prediction of draft effects.
   # Keep owned/specific ACTION cues; replace only the generic filler. This
   # optional lookup does no capture, path resolution or filesystem access.
+  reply=()
   if [[ -z ${alias_kind:-} ]] &&
      (( !autocd && ${+functions[_manual_summary_lookup]} )) &&
      _manual_summary_lookup "$command_name"; then
-    local manual_summary=$REPLY
+    local manual_summary=$REPLY manual_source=${reply[2]:-${_MANUAL_SOURCES[$command_name]}}
     local -i action_index=${_PROMPT_INTERACTION_LABELS[(i)ACTION]}
     if [[ ${_PROMPT_INTERACTION_VALUES[action_index]-} == 'likely run a shell command' ]]; then
       _PROMPT_INTERACTION_LABELS[action_index]=ABOUT
       _PROMPT_INTERACTION_VALUES[action_index]=$manual_summary
       _PROMPT_INTERACTION_ROLES[action_index]=info
       _PROMPT_INTERACTION_LABELS=("${(@)_PROMPT_INTERACTION_LABELS[1,action_index]}" SOURCE "${(@)_PROMPT_INTERACTION_LABELS[action_index+1,-1]}")
-      _PROMPT_INTERACTION_VALUES=("${(@)_PROMPT_INTERACTION_VALUES[1,action_index]}" "Local manual · ${_MANUAL_SOURCES[$command_name]}" "${(@)_PROMPT_INTERACTION_VALUES[action_index+1,-1]}")
+      _PROMPT_INTERACTION_VALUES=("${(@)_PROMPT_INTERACTION_VALUES[1,action_index]}" "Local manual · $manual_source" "${(@)_PROMPT_INTERACTION_VALUES[action_index+1,-1]}")
       _PROMPT_INTERACTION_ROLES=("${(@)_PROMPT_INTERACTION_ROLES[1,action_index]}" frame "${(@)_PROMPT_INTERACTION_ROLES[action_index+1,-1]}")
     elif [[ $_PROMPT_INTERACTION_KIND != (caution|pipeline|chain|redirect) ]]; then
       _prompt_interaction_add ABOUT "$manual_summary" info
@@ -2747,10 +2748,10 @@ _prompt_update() {
   fi
   _PROMPT_COMMAND_STARTED=0
 
-  # One bounded manual snapshot before ordinary interactive editing. Repaint
-  # never calls this provider, and redirected/noninteractive shells skip it.
-  if [[ -t 0 && -t 1 ]] && (( ${+functions[_manual_prompt_capture]} )); then
-    _manual_prompt_capture
+  # Optional manual capture starts outside editing and returns immediately;
+  # its owner validates and delivers a complete snapshot independently.
+  if [[ -t 0 && -t 1 ]] && (( ${+functions[_manual_prompt_request]} )); then
+    _manual_prompt_request
   fi
   if [[ -t 0 && -t 1 ]] && (( ${+functions[_compozsh_prompt_capture]} )); then
     _compozsh_prompt_capture

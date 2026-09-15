@@ -92,7 +92,11 @@ These are maintained product contracts; investigations retain historical evidenc
   precedence and actual shell execution unchanged; do not infer navigation
   merely from a slash or tilde prefix, or expand a draft to classify it.
 - `ABOUT` is a captured manual NAME or same-source tool-help description, not
-  an ACTION prediction. Tool help is the canonical source for its summaries and
+  an ACTION prediction. Manual capture is asynchronous under the
+  [manual lifecycle contract](manual-cache.md#asynchronous-prompt-capture): retain
+  the normal fallback until a complete current snapshot arrives, and repaint
+  only the ordinary editor without changing its draft or display ownership.
+  Tool help is the canonical source for its summaries and
   option descriptions; do not duplicate that prose in the prompt. Stock aliases
   share their default expansion and description in the owning navigation peer.
   Show EXPANSION for current ordinary, global and suffix alias definitions,
@@ -135,8 +139,9 @@ These are maintained product contracts; investigations retain historical evidenc
   canonical `g` help, while the optional tools peer owns the private operation.
 - Keep the remaining owned task entries similarly cohesive: `external-device`
   owns flash/format, `xcode --export-skills` owns Apple skill export, and
-  `compozsh --refresh` dispatches the optional tools peer's current-shell cache
-  invalidation. Remove superseded public names/help companions instead of
+  `compozsh --refresh` dispatches the optional tools peer's cache invalidation,
+  including next-prompt public manual cache replacement for future shells under
+  [the cache contract](caching.md). Remove superseded public names/help companions instead of
   retaining aliases. Bare external-device selection reads no provider; task
   dispatch occurs after screen restoration. Help remains same-source and inert.
   The Interaction lens distinguishes task entry, export/refresh, help and

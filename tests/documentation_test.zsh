@@ -3,6 +3,7 @@ _test_readme_inventory_matches_shipped_units() {
   local -a actual=() documented=()
 
   for file in "$TEST_REPO_ROOT"/.zsh.addons/**/.zsh.?*(N.); do
+    [[ $file == "$TEST_REPO_ROOT/.zsh.addons/support/cache/"* ]] && continue
     actual+=("${file#$TEST_REPO_ROOT/.zsh.addons/}")
   done
   while IFS= read -r line; do

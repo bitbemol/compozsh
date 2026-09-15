@@ -26,8 +26,9 @@ core promises are:
 - Target stock macOS Terminal.app and Apple's supported Zsh for new terminal
   UI. Do not require another emulator, enhanced terminal protocol, downloaded
   UI library, or replacement shell. Existing fallbacks remain intact.
-- Fast startup and prompt redraws with no project-specific persistent cache or
-  background state.
+- Fast startup and prompt redraws. Optional, disposable public-system caches
+  follow [the caching contract](engineering/caching.md); never persist user or
+  project data for performance or make a feature depend on a cache.
 - A minimal stable `.zshrc` bootstrap, one optional first-loaded machine
   initializer, and focused order-independent peer add-ons.
 - Safe behavior in arbitrary directories, including untrusted repositories.
@@ -150,6 +151,7 @@ both copy-paste sprawl and speculative abstraction.
 | Browse, search, recents or filesystem actions | [Filesystem workspace](engineering/workspaces/filesystem.md) |
 | Xcode discovery, build/test/run, logs or devices | [Xcode workspace](engineering/workspaces/xcode.md) |
 | Startup, capture, prompt or editing latency | [Performance](engineering/performance.md) |
+| Persistent performance caches, freshness or removal | [Caching](engineering/caching.md) and [system manual cache](engineering/manual-cache.md) |
 | Data, credentials, privilege, storage, execution or release | [Security engineering](engineering/security.md) and [public guarantees](SECURITY.md) |
 | Tests, completion checks or documentation synchronization | [Verification](engineering/verification.md) |
 | Website implementation, demos or publication | [Website boundary](engineering/website.md) and [website guide](docs/README.md) |

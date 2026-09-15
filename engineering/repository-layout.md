@@ -31,6 +31,12 @@ configuration base.
   Its `.zsh.<name>` files remain ordinary peers under recursive discovery, with
   no required ordering, special loader treatment or filesystem immutability.
   Preserve standalone fallbacks when support capabilities are unavailable.
+- The configuration base's `.zsh.addons/support/cache/` is reserved inert data,
+  excluded from recursive sourcing even though filenames identify their owning
+  peers. It is not a peer tier. Follow [caching](caching.md) for naming, privacy
+  and disposal. Both installation layouts use this location; installation never
+  copies generated source caches, preserves destination caches on normal
+  updates and archives them with the add-on tree during `--clean`.
 - `README.md` is user-facing documentation. Keep it synchronized with visible
   behavior, keys, installation steps, extension points, and safety guarantees.
 - `SECURITY.md` is the public trust and self-audit contract. Keep its claims,

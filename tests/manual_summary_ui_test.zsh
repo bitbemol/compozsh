@@ -9,10 +9,27 @@ _test_manual_summary_native() {
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.manual"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    _manual_summary_capture "$2" || exit 1
+    if [[ $3 == cache ]]; then
+      local MANPATH=$2
+      _manual_cache_page_id() {
+        REPLY=""
+        [[ $2 == "$MANPATH" && $1 == "$MANPATH/"* ]] || return 1
+        REPLY=${1#"$MANPATH/"}
+      }
+      _manual_cache_public_file() { [[ $1 == "${MANPATH:A}/"* ]]; }
+      _manual_prompt_capture || exit 1
+      _manual_summary_reset
+      _MANUAL_CACHE_REFRESH=0
+      _manual_page_read() { print -u2 unexpected-manual-page-read; return 99; }
+      _manual_prompt_capture || exit 1
+    else
+      _manual_summary_capture "$2" || exit 1
+    fi
     # Everything after this point is real ZLE editing over captured facts.
     _manual_summary_capture() { print -u2 unexpected-manual-read; return 99; }
     _manual_developer_roots() { print -u2 unexpected-manual-selection; return 99; }
+    _manual_cache_load() { print -u2 unexpected-manual-cache-read; return 99; }
+    _manual_cache_store() { print -u2 unexpected-manual-cache-write; return 99; }
     zmodload zsh/zpty
     zmodload zsh/zselect
     command mkfifo "$HOME/events" || exit 2
@@ -75,6 +92,10 @@ _test_manual_summary_native() {
     } always {
       zpty -d manual
     }
-  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/manual"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/manual" "${1:-uncached}"
 }
 test_case 'manual summaries native ZLE preserves editing and resize without new capture' _test_manual_summary_native
+
+_test_manual_cache_native() { _test_manual_summary_native cache; }
+test_case 'manual cache native ZLE preserves descriptions editing resize and unknown fallback without I/O' \
+  _test_manual_cache_native

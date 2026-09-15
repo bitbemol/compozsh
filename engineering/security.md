@@ -15,8 +15,11 @@ These are maintained product contracts; investigations retain historical evidenc
   documentation slogan. Minimize every read and capture to the facts, scope,
   and lifetime required by the user's visible task. Prefer transient in-memory
   state. Do not introduce telemetry, behavioral profiling, identifiers, a
-  project-owned persistent cache, or speculative collection “for later.” A
+  user/project-data performance cache, or speculative collection “for later.” A
   useful feature is not justification for collecting unrelated information.
+  Reproducible public system data may use an optional persistent cache under
+  the [caching contract](caching.md), with explicit provenance and no private
+  inputs or fingerprints of them.
 - Handle private or sensitive information only through a deliberately defined
   effect boundary. Keep values literal, bounded, and out of shell evaluation,
   command construction, diagnostics, terminal titles, screenshots, fixtures,

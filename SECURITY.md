@@ -104,7 +104,9 @@ state:
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh --sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, the living prompt's Context trigger/disclosure flags, positive/exclusion fields and their return bookmarks, and temporary view snapshots; discarded with the shell or view |
-| Local manual summaries | Shell memory until `compozsh --refresh` or shell exit | A first-interactive-prompt snapshot of bounded NAME descriptions and page-name/section attribution from MANPATH, absolute PATH-associated roots, literal manual configuration, conventional installations and Apple-selected SDK/toolchain roots; lookup describes literal names, not executable identity |
+| Local manual summaries | Shell memory until refresh, discovery-selector invalidation or shell exit | An asynchronous first-interactive-prompt snapshot of bounded NAME descriptions and page-name/section attribution from MANPATH, absolute PATH-associated roots, literal manual configuration, conventional installations and Apple-selected SDK/toolchain roots; lookup describes literal names, not executable identity |
+| Manual background transport | Shell memory, native PTYs and an unlinked kernel FIFO during one request | One capture process and two native ownership supervisors; at most 16 MiB / 8,192 records, read in 8-KiB chunks. Setup creates a mode-0600 FIFO in a mode-0700 `${TMPDIR:-/tmp}/compozsh-manual-async.*` directory and removes both names immediately after opening descriptors. No regular file contains private descriptions or selectors |
+| Public OS manual cache | `${ZDOTDIR:-$HOME}/.zsh.addons/support/cache/.zsh.manual.cache`, until refresh/replacement/removal | Only protected OS manual NAME descriptions, aliases, relative page IDs and a public freshness key; optional owner-only inert data, with `.zsh.manual.lock` and bounded `.zsh.manual.cache.*` publication residue; no private selectors or custom manuals |
 | Manual formatter directory | Private mode-0700 temporary directory during capture | Empty working directory for native mandoc; page text travels through bounded shell memory and kernel pipes, never a page file. Normal and handled-error cleanup removes the directory; an uncatchable termination can leave an empty directory |
 | Interaction lens state | Shell memory for the active ordinary prompt | The current interaction kind, bounded literal excerpts/structural summaries, up to eight alias-definition previews of at most 240 characters each, captured context anchors, latest command outcome, and an optional bounded prefix of matching editor-owned autosuggestion state; sanitized for display, replaced as the buffer or command outcome changes and discarded with the shell. Leading assignment values are not copied into this presentation state; the actual ZLE buffer remains native shell state |
 | Draft inspector | Invocation-scoped shell memory, only after Option-Return | At most 32,768 literal draft characters plus a truncation notice, cursor/length/current-folder facts, reading filters and frames; released on return. The exact full draft is preserved by the native editing/screen-restoration state. Explicit Read can display assignment values and other sensitive text; no redaction or execution occurs |
@@ -285,9 +287,10 @@ before integer conversion. Missing count support retains neutral results;
 the existing traversal and retained-failure limits remain intact. Display-span
 offsets likewise accept bounded decimal inputs before arithmetic and use local
 whitespace splitting, without reading or modifying caller variables.
-`compozsh --refresh` clears only the current shell's existing in-memory runtime,
+`compozsh --refresh` clears the current shell's existing in-memory runtime,
 manual-summary, help-description, Git-directory and grep-capability caches and
-runs `rehash`. It neither reloads
+runs `rehash`. At the next TTY prompt it also requests replacement of eligible
+public OS manual cache data for future shells. It neither reloads
 private configuration nor updates installed tools or other shell sessions.
 
 `xcode --export-skills` detects the same local agent installations and selected
@@ -363,8 +366,9 @@ without another filesystem read. It is cleared on the next highlighting pass,
 including skipped passes; a changed draft or folder cannot reuse it. It is not
 a command resolver or guarantee that the directory remains available at Return.
 
-The optional `.zsh.manual` peer adds one first-TTY-`precmd` capture of local
-manual NAME descriptions. Roots come from literal MANPATH (including relative
+The optional `.zsh.manual` peer requests one background capture of local manual
+NAME descriptions at the first TTY `precmd`; the editor does not wait for it.
+Roots come from literal MANPATH (including relative
 paths resolved at capture), conventions associated with the first 128 absolute
 PATH entries, documented installation fallbacks, and literal MANPATH/MANCONFIG
 directives in `/etc/man.conf` and at most 16 selected configuration files.
@@ -402,12 +406,134 @@ Readable pages without usable NAME text retain an explicit manual-available
 notice. No man, manpath, whatis, index generator or documented command is invoked.
 No manual text becomes shell code; no network operation is involved.
 
-The snapshot and page-name/section attribution live only in shell memory until
-refresh or shell exit. Source time performs no capture. Rendered ABOUT text is inert and
+The active catalog and page-name/section attribution live in shell memory until
+refresh, discovery-selector invalidation or shell exit. Custom, third-party and developer manuals never persist.
+The public OS description cache below avoids repeating eligible parsing.
+Source time performs no capture. Rendered ABOUT text is inert and
 describes a literal name, not resolved executable identity or argument effects;
 arbitrary aliases/functions do not inherit it. Typing and resizing only consult
-this snapshot and loaded shell metadata. The normal prompt escaping applies to
+this snapshot and loaded shell metadata. Bounded descriptor callbacks can merge
+a completed candidate while editing; they perform no discovery or cache I/O.
+The normal prompt escaping applies to
 manual text as to other captured facts.
+
+Background capture inherits the current shell's discovery environment in memory.
+Its bounded, length-prefixed request identity includes PATH, MANPATH, MANSECT,
+locale, developer selectors, configuration base, source generation and PWD only
+for relative manual roots; neither selectors nor their fingerprints are saved.
+Generation and identity must still match when a complete candidate is accepted.
+Validate framing, schema, count, every record and END, require successful worker
+completion, and reject remaining trailing bytes before replacing the visible map.
+Failed or obsolete candidates never partially replace it. Each callback reads at
+most 8 KiB; retained transport is capped at 16 MiB and 8,192 records.
+Publication promotes the validated catalog in place; lookup reads its matching
+description and source together. No bulk catalog copy occurs in the editor.
+
+Two native Zsh ownership supervisors isolate one ordered capture process and its
+formatter/discovery descendants from the user's job table, coprocess and event
+handlers. Only fixed function names are passed as `zpty` commands; document and
+environment data never become command source. Refresh, re-source, selector
+change, pre-execution cancellation and shell exit release the owned handles.
+A 30-second deadline stops collection; cancellation gives up to 100 ms for
+cleanup, then terminates the owned capture group. Native handles are deleted
+before their owner exits. After a deadline an idle outer owner retains its
+identity until the parent processes failure, including while its editor is
+suspended; it performs no further collection or polling. It is not a daemon.
+These native ownership rules do not protect against another same-account process
+deliberately killing or altering supervisors. Uncatchable interruption during
+setup can leave an empty directory/FIFO; forced capture interruption can leave
+the already disclosed empty formatter directory or public cache staging file.
+No transport document body is a regular file. Missing async capabilities fall
+back to synchronous capture; capture failure uses the ordinary description
+fallback without an automatic retry loop. Explicit refresh permits retry.
+
+Run `zsh tests/run.zsh 'manual async'` for fragmented/malformed transport,
+literal Unicode, stale selectors, live descendant cancellation, deadline owner
+retention, shell exit, failure/fallback, real ZLE typing, resize and nested
+display ownership. These isolated tests do not establish Terminal.app behavior
+on every Mac, arbitrary mounted-filesystem latency or an OS-level sandbox.
+
+### Public system performance cache
+
+All Compozsh performance caches use the configuration base's
+`.zsh.addons/support/cache/`. The sole current producer, `.zsh.manual`, writes
+`.zsh.manual.cache`, an empty `.zsh.manual.lock` and temporary
+`.zsh.manual.cache.*` files. Paths follow `${ZDOTDIR:-$HOME}`, never the project
+or the source peer's symlink target. No private/user/project facts or their
+fingerprints belong in this directory. Existing history, completion and recovery
+storage retain their separate purposes.
+
+Eligibility is limited to discovered `/usr/share/man` pages whose entire resolved
+symlink/whole-page forwarding chain stays in that OS tree, with root-owned
+regular descriptors and no group/world write permission. This relies on Apple's
+protected system tree; ownership or a conventional path outside it is insufficient.
+Persistent capture also requires macOS and readable fixed OS-version metadata;
+other platforms retain uncached behavior rather than assuming the same provenance.
+Persist only relative system page IDs, NAME aliases and descriptions, never page
+bodies, custom documentation, discovery paths or selectors. The format/version
+key hashes only loaded owning implementation code, Zsh version, an accepted
+installed system locale and fixed OS-version-file metadata. `/usr/bin/shasum`
+receives that bounded public input through stdin in an empty environment with a
+fixed PATH. Its digest detects identity changes; it does not authenticate data.
+
+Capture still discovers roots, sections and pages. Removed pages stop appearing,
+new eligible pages extend the cache, and all other documents use the full
+memory-only path. No negative lookup persists and unknown commands cause no
+edit-time reads. OS/locale/implementation identity changes invalidate the data;
+in-place OS manual edits without an OS-version-file change require
+`compozsh --refresh`. That command requests fresh capture at the next TTY prompt
+and replaces eligible results for future shells. Other open shells retain their
+snapshots until refreshed.
+
+The inert version/key/count/record/END format is bounded to 4,096 records and
+32 MiB, with page IDs at most 512 characters, 16 simple aliases at most 255
+characters each and descriptions at most 240. Reject controls, NUL, truncation,
+duplicates and malformed fields before committing loaded maps. Never source or
+evaluate cache data; bootstrap discovery explicitly excludes the cache directory.
+Owner-controlled valid prose is still untrusted advisory text, not executable
+identity, authorization or an action target.
+
+Storage validates ownership and POSIX mode bits excluding group/world write from the
+resolved configuration base through add-ons/support/cache. Cache directories
+have owner-only POSIX modes; files must be regular, have owner-only POSIX modes, be singly linked and
+not symlinks. Non-following/nonblocking opens and descriptor checks complement
+path checks. Extended ACL grants are not inspected or removed; these mode checks
+do not authenticate the cache or establish exclusive access under a custom ACL.
+They do not sandbox another process controlling the account, or
+ancestor replacement above the configuration base. Unsafe existing state is
+refused rather than repaired. Missing, stale, corrupt or unwritable storage
+retains full uncached features.
+
+Same-directory atomic rename publishes complete snapshots. Kernel advisory
+locks coordinate first builders and writes, with a ten-second acquisition bound;
+warm readers need no lock unless publishing additions. Lock failure falls back
+to uncached capture. Process exit releases the lock; the empty lock file can
+remain. Handled failures remove owned staging files, but an uncatchable kill can
+leave owner-only staging residue. The public snapshot remains until explicit
+removal, refresh or replacement; removed public records may remain within its
+bound until replacement. Delete the cache directory to remove every module's
+cache and residue; later eligible capture recreates it.
+
+Git ignores generated caches. Installers exclude source caches, preserve existing
+destination caches on normal updates, and archive them with the old add-on tree
+on `--clean`. Removing that tree on uninstall removes active caches; recovery
+archives have their existing separate retention. User-selected synchronized or
+network-mounted configuration storage remains an external transfer boundary;
+Compozsh adds no transmission or cache service.
+
+Audit without reading private configuration or real cache contents:
+
+```sh
+zsh tests/run.zsh 'manual cache'
+zsh tests/run.zsh 'cache data'
+zsh tests/run.zsh 'installer excludes generated'
+```
+
+Expected: all selected tests pass. Independently read `.zsh.manual`'s eligibility,
+key, load/store and capture helpers, `.zshrc`'s cache exclusion and `install.zsh`'s
+staging exclusion. Fixtures exercise inert data, private-input exclusion,
+freshness, failures and concurrency; they do not prove an OS protection boundary
+or defend a compromised account. See [the producer contract](engineering/manual-cache.md).
 
 Rows whose labels end in `TEXT`, including `ENDPOINT TEXT`, are sanitized,
 width-bounded excerpts from the literal editable buffer; they do not prove that
@@ -1292,7 +1418,8 @@ git grep -nE '(^|[[:space:]])(source|eval)[[:space:]]' \
 ```
 
 The tracked bootstrap sources the optional machine-local initializer and every
-matching peer beneath the repository and user add-on directories. The tracked
+matching peer beneath the repository and user add-on directories, excluding the
+reserved `support/cache` data directory. The tracked
 starter is inert, but an existing private initializer or peer is user-owned code
 and must be audited separately.
 

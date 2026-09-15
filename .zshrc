@@ -26,7 +26,8 @@ fi
 # Only regular .zsh.<name> files are sourced, and recursive globbing does not
 # follow nested symlink directories. A symlink install loads repository peers
 # plus private peers from ~/.zsh.addons; a copied install naturally scans its
-# single combined directory only once.
+# single combined directory only once. The fixed support/cache directory holds
+# inert module data, including .zsh.<owner>.cache files, and is never sourced.
 typeset -aU _zsh_addon_dirs=(
   "${_zsh_shared_addons_dir:A}"
   "${_zsh_user_addons_dir:A}"
@@ -34,6 +35,7 @@ typeset -aU _zsh_addon_dirs=(
 for _zsh_addons_dir in "${_zsh_addon_dirs[@]}"; do
   [[ -d $_zsh_addons_dir ]] || continue
   for _zsh_addon_file in "$_zsh_addons_dir"/**/.zsh.?*(N.); do
+    [[ $_zsh_addon_file == "$_zsh_addons_dir/support/cache/"* ]] && continue
     if ! source "$_zsh_addon_file"; then
       print -u2 -r -- "zsh: add-on failed to load: $_zsh_addon_file"
     fi

@@ -1,14 +1,611 @@
-# Local NAME summaries for the living prompt. Capture once before editing;
-# lookup and paint use shell memory only. Documented commands are never invoked.
+# Local NAME summaries for the living prompt. Reuse public OS descriptions
+# across shells; lookup and paint use memory only. Never invoke documented commands.
 zmodload -F zsh/parameter p:functions_source
-zmodload -F zsh/system b:sysopen b:sysread
+zmodload -F zsh/system b:sysopen b:sysread b:syswrite b:zsystem p:sysparams
 zmodload -F zsh/stat b:zstat
+# A reload cancels the old implementation before replacing its callbacks.
+if (( ${+functions[_manual_async_cancel]} )); then
+  _manual_async_cancel
+fi
 typeset -gA _MANUAL_SUMMARIES _MANUAL_SOURCES
+typeset -gA _MANUAL_CACHE_SUMMARIES _MANUAL_CACHE_ALIASES
 typeset -gi _MANUAL_SUMMARIES_READY
+typeset -gi _MANUAL_CACHE_REFRESH _MANUAL_CACHE_DIRTY _MANUAL_PAGE_SYSTEM
+typeset -gi _MANUAL_ASYNC_GENERATION _MANUAL_SOURCE_GENERATION
+typeset -g _MANUAL_ASYNC_STATE=${_MANUAL_ASYNC_STATE:-idle} _MANUAL_ASYNC_IDENTITY
+typeset -g _MANUAL_ASYNC_BUFFER _MANUAL_ASYNC_CONTROL_BUFFER
+typeset -gi _MANUAL_ASYNC_BYTES _MANUAL_ASYNC_COUNT _MANUAL_ASYNC_DONE
+typeset -gi _MANUAL_ASYNC_INVALID _MANUAL_ASYNC_CONTROL_DONE _MANUAL_ASYNC_PUBLISHED
+typeset -gi _MANUAL_ASYNC_EXPECTED=-1 _MANUAL_ASYNC_CANDIDATE_GENERATION
+typeset -gA _MANUAL_ASYNC_SUMMARIES _MANUAL_ASYNC_SOURCES
+typeset -g _MANUAL_ASYNC_NAME
+typeset -gi10 _MANUAL_ASYNC_FD=${_MANUAL_ASYNC_FD:--1}
+typeset -gi10 _MANUAL_ASYNC_CONTROL_FD=${_MANUAL_ASYNC_CONTROL_FD:--1}
+typeset -gF _MANUAL_ASYNC_DEADLINE
+(( ++_MANUAL_SOURCE_GENERATION ))
+
+# Capture selectors are private shell memory, never part of a disk cache key.
+# Length prefixes distinguish arbitrary literal separators and empty values.
+_manual_async_identity() {
+  emulate -L zsh
+  local value='' entry='' folder=''
+  local -a values=("$PATH" "${MANPATH:-}" "${MANSECT:-}" "${DEVELOPER_DIR:-}"
+    "${SDKROOT:-}" "${TOOLCHAINS:-}" "${LC_ALL:-}" "${LC_CTYPE:-}"
+    "${LANG:-}" "${ZDOTDIR:-$HOME}" "$HOME" "$_MANUAL_SOURCE_GENERATION")
+  REPLY=''
+  (( ${#${(j::)values}} <= 262144 )) || return 1
+  for entry in "${(@s.:.)MANPATH}"; do
+    [[ -z $entry || $entry == /* ]] || { folder=$PWD; break; }
+  done
+  values+=("$folder")
+  for value in "${values[@]}"; do
+    REPLY+="${#value}:$value"
+  done
+}
+
+_manual_async_candidate_clear() {
+  _MANUAL_ASYNC_BUFFER='' _MANUAL_ASYNC_BYTES=0 _MANUAL_ASYNC_COUNT=0
+  _MANUAL_ASYNC_EXPECTED=-1 _MANUAL_ASYNC_DONE=0 _MANUAL_ASYNC_CANDIDATE_GENERATION=0
+  _MANUAL_ASYNC_INVALID=0
+  _MANUAL_ASYNC_CONTROL_BUFFER=''
+  _MANUAL_ASYNC_CONTROL_DONE=0
+  _MANUAL_ASYNC_PUBLISHED=0
+  _MANUAL_ASYNC_SUMMARIES=() _MANUAL_ASYNC_SOURCES=()
+}
+
+_manual_async_record_valid() {
+  emulate -L zsh
+  setopt MULTIBYTE
+  [[ -n $1 && ${#1} -le 255 && $1 != *[[:cntrl:]]* &&
+     -n $2 && ${#2} -le 512 && $2 != *[[:cntrl:]]* &&
+     -n $3 && ${#3} -le 240 && $3 != *[[:cntrl:]]* ]]
+}
+
+# Consume at most one bounded transport chunk. Publication is separate and
+# atomic; invalid bytes discard the candidate without touching visible facts.
+_manual_async_consume() {
+  (( !_MANUAL_ASYNC_INVALID )) || return 1
+  _manual_async_parse_chunk "$1" && return 0
+  _MANUAL_ASYNC_INVALID=1
+  return 1
+}
+
+_manual_async_parse_chunk() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  unsetopt MULTIBYTE
+  local chunk=$1 line='' name=''
+  local -i line_index=0
+  local -a fields=() lines=()
+  (( _MANUAL_ASYNC_DONE == 0 && ${#chunk} <= 8192 )) || return 1
+  (( _MANUAL_ASYNC_BYTES += ${#chunk} ))
+  (( _MANUAL_ASYNC_BYTES <= 16777216 )) && [[ $chunk != *$'\0'* ]] || return 1
+  _MANUAL_ASYNC_BUFFER+=$chunk
+  # Native literal splitting avoids repeated wildcard scans over the remaining
+  # chunk, especially costly for Zsh's internally encoded multibyte strings.
+  lines=("${(@ps:\n:)_MANUAL_ASYNC_BUFFER}")
+  _MANUAL_ASYNC_BUFFER=$lines[-1]
+  lines[-1]=()
+  for line in "${lines[@]}"; do
+    (( ++line_index ))
+    (( ${#line} <= 4096 )) || return 1
+    fields=("${(@ps:\t:)line}")
+    if (( _MANUAL_ASYNC_EXPECTED < 0 )); then
+      [[ $#fields == 3 && $fields[1] == .COMPOZSH-MANUAL-RESULT-1 &&
+         ${#fields[2]} -le 10 && $fields[2] == <1-2147483647> &&
+         ${#fields[3]} -le 4 && $fields[3] == <0-8192> ]] || return 1
+      _MANUAL_ASYNC_CANDIDATE_GENERATION=$fields[2]
+      (( _MANUAL_ASYNC_CANDIDATE_GENERATION == _MANUAL_ASYNC_GENERATION )) || return 1
+      _MANUAL_ASYNC_EXPECTED=$fields[3]
+    elif (( _MANUAL_ASYNC_COUNT < _MANUAL_ASYNC_EXPECTED )); then
+      (( $#fields == 3 )) || return 1
+      _manual_async_record_valid "${fields[@]}" || return 1
+      name=$fields[1]
+      (( ! ${+_MANUAL_ASYNC_SUMMARIES[$name]} )) || return 1
+      _MANUAL_ASYNC_SUMMARIES[$name]=$fields[3]
+      _MANUAL_ASYNC_SOURCES[$name]=$fields[2]
+      (( ++_MANUAL_ASYNC_COUNT ))
+    else
+      [[ $#fields == 2 && $fields[1] == END &&
+         $fields[2] == "$_MANUAL_ASYNC_GENERATION" && -z $_MANUAL_ASYNC_BUFFER ]] || return 1
+      (( line_index == ${#lines} )) || return 1
+      _MANUAL_ASYNC_DONE=1
+    fi
+  done
+  (( ${#_MANUAL_ASYNC_BUFFER} <= 4096 ))
+}
+
+_manual_async_publish() {
+  emulate -L zsh
+  local REPLY=''
+  [[ $_MANUAL_ASYNC_STATE == running ]] && (( !_MANUAL_ASYNC_INVALID && _MANUAL_ASYNC_DONE &&
+    _MANUAL_ASYNC_CANDIDATE_GENERATION == _MANUAL_ASYNC_GENERATION )) || return 1
+  _manual_async_identity && [[ $REPLY == "$_MANUAL_ASYNC_IDENTITY" ]] || return 1
+  # Promote the validated map in place. Copying a maximum-size catalog here
+  # would move an otherwise bounded delivery's cost into one editor pause.
+  _MANUAL_ASYNC_PUBLISHED=1
+  _MANUAL_SUMMARIES_READY=1 _MANUAL_CACHE_REFRESH=0
+  _MANUAL_ASYNC_STATE=ready
+}
+
+_manual_async_close() {
+  emulate -L zsh
+  if (( _MANUAL_ASYNC_FD >= 0 )); then
+    zle -F $_MANUAL_ASYNC_FD 2>/dev/null || :
+    exec {_MANUAL_ASYNC_FD}>&-
+    _MANUAL_ASYNC_FD=-1
+  fi
+  if (( _MANUAL_ASYNC_CONTROL_FD >= 0 )); then
+    zle -F $_MANUAL_ASYNC_CONTROL_FD 2>/dev/null || :
+    _MANUAL_ASYNC_CONTROL_FD=-1
+  fi
+  if [[ -n $_MANUAL_ASYNC_NAME ]]; then
+    zpty -d "$_MANUAL_ASYNC_NAME" 2>/dev/null || :
+    _MANUAL_ASYNC_NAME=''
+  fi
+  (( _MANUAL_ASYNC_PUBLISHED )) || _manual_async_candidate_clear
+}
+
+_manual_async_cancel() {
+  emulate -L zsh
+  _manual_async_close
+  (( _MANUAL_ASYNC_GENERATION < 2147483647 )) && (( ++_MANUAL_ASYNC_GENERATION ))
+  _MANUAL_ASYNC_STATE=idle
+}
+
+_manual_async_preexec() {
+  [[ $_MANUAL_ASYNC_STATE != running ]] || _manual_async_cancel
+  return 0
+}
+
+# Publication changes facts only. Resolve the editor's existing presentation
+# adapter at delivery; zle -R alone does not run line-pre-redraw hooks.
+_manual_async_paint() {
+  emulate -L zsh
+  [[ ${CONTEXT:-} == start ]] && (( ${ZLE_RECURSIVE:-0} == 0 &&
+    !${_ZLE_PICKER_ACTIVE:-0} && !${_ZLE_PICKER_SCREEN_ACTIVE:-0} )) || return 0
+  zle || return 0
+  if (( ${+functions[_zle_prompt_pre_redraw]} )); then
+    _zle_prompt_pre_redraw
+  elif (( ${+functions[_prompt_interaction_update]} )); then
+    _prompt_interaction_update "$BUFFER" && zle reset-prompt
+  fi
+  zle -R
+  return 0
+}
+
+_manual_async_read() {
+  emulate -L zsh
+  local chunk='' REPLY=''
+  local -i result=0
+  [[ $_MANUAL_ASYNC_STATE == running && $1 == "$_MANUAL_ASYNC_FD" ]] || return 0
+  if ! _manual_async_identity || [[ $REPLY != "$_MANUAL_ASYNC_IDENTITY" ]]; then
+    _manual_async_cancel
+    _MANUAL_SUMMARIES=() _MANUAL_SOURCES=() _MANUAL_SUMMARIES_READY=0
+    return 0
+  fi
+  if (( EPOCHREALTIME > _MANUAL_ASYNC_DEADLINE )); then
+    _manual_async_close
+    _MANUAL_ASYNC_STATE=failed
+    return 0
+  fi
+  sysread -i $_MANUAL_ASYNC_FD -s 8192 -t 0 chunk 2>/dev/null
+  result=$?
+  if (( result == 4 )); then
+    _manual_async_finish
+    return 0
+  fi
+  if (( result )) || ! _manual_async_consume "$chunk"; then
+    _manual_async_close
+    _MANUAL_ASYNC_STATE=failed
+  else
+    _manual_async_finish
+  fi
+  return 0
+}
+
+# END alone is insufficient: successful worker completion also guarantees no
+# future writes. If bytes remain queued, another bounded callback consumes
+# them (and rejects trailing data) before the complete candidate is published.
+_manual_async_finish() {
+  emulate -L zsh
+  (( _MANUAL_ASYNC_CONTROL_DONE )) || return 0
+  zselect -r $_MANUAL_ASYNC_FD -t 0 2>/dev/null && return 0
+  _manual_async_publish || _MANUAL_ASYNC_STATE=failed
+  _manual_async_close
+  [[ $_MANUAL_ASYNC_STATE != ready ]] || _manual_async_paint
+  return 0
+}
+
+_manual_async_control() {
+  emulate -L zsh
+  local message=''
+  local -i result=0
+  [[ $_MANUAL_ASYNC_STATE == running && $1 == "$_MANUAL_ASYNC_CONTROL_FD" ]] || return 0
+  zpty -r "$_MANUAL_ASYNC_NAME" message 2>/dev/null
+  result=$?
+  _MANUAL_ASYNC_CONTROL_BUFFER+=$message
+  if [[ -n ${2:-} ]] || (( result == 2 || ${#_MANUAL_ASYNC_CONTROL_BUFFER} > 16 )); then
+    _manual_async_close
+    _MANUAL_ASYNC_STATE=failed
+    return 0
+  fi
+  [[ $_MANUAL_ASYNC_CONTROL_BUFFER == *$'\n'* ]] || return 0
+  if [[ $_MANUAL_ASYNC_CONTROL_BUFFER != $'DONE\r\n' &&
+        $_MANUAL_ASYNC_CONTROL_BUFFER != $'DONE\n' ]]; then
+    _manual_async_close
+    _MANUAL_ASYNC_STATE=failed
+    return 0
+  fi
+  _MANUAL_ASYNC_CONTROL_BUFFER=''
+  _MANUAL_ASYNC_CONTROL_DONE=1
+  # DONE can arrive while the last data bytes are still queued. The data
+  # descriptor remains registered and publication still requires its END frame.
+  _manual_async_read $_MANUAL_ASYNC_FD
+}
+
+_manual_async_write() {
+  emulate -L zsh
+  unsetopt MULTIBYTE
+  local remaining=$1
+  local -i10 amount=0 result=0
+  while [[ -n $remaining ]]; do
+    (( ! _MANUAL_WORKER_CANCELLED && EPOCHREALTIME <= _MANUAL_ASYNC_DEADLINE )) || return 1
+    amount=0
+    syswrite -o $_MANUAL_ASYNC_FD -c amount "$remaining" 2>/dev/null
+    result=$?
+    (( amount > 0 )) && remaining=${remaining[$((amount+1)),-1]}
+    (( result )) && zselect -w $_MANUAL_ASYNC_FD -t 10 2>/dev/null
+  done
+  return 0
+}
+
+_manual_async_capture_worker() {
+  emulate -L zsh
+  setopt LOCAL_TRAPS
+  local -i _MANUAL_WORKER_CANCELLED=0 result=0 total=0
+  local name='' record=''
+  trap '_MANUAL_WORKER_CANCELLED=1; return 129' HUP TERM
+  _MANUAL_SUMMARIES_READY=0
+  _manual_prompt_capture || result=$?
+  (( !result && !_MANUAL_WORKER_CANCELLED && ${#_MANUAL_SUMMARIES} <= 8192 )) || return 1
+  # Enforce the transport budget in actual bytes. Record validation applies
+  # its character limits in its own multibyte scope.
+  unsetopt MULTIBYTE
+  _manual_async_write $'.COMPOZSH-MANUAL-RESULT-1\t'"$_MANUAL_ASYNC_GENERATION"$'\t'"${#_MANUAL_SUMMARIES}"$'\n' || return 1
+  for name in "${(@ok)_MANUAL_SUMMARIES}"; do
+    _manual_async_record_valid "$name" "${_MANUAL_SOURCES[$name]}" "${_MANUAL_SUMMARIES[$name]}" || return 1
+    record="$name"$'\t'"${_MANUAL_SOURCES[$name]}"$'\t'"${_MANUAL_SUMMARIES[$name]}"$'\n'
+    (( total += ${#record} ))
+    (( total <= 16777100 )) || return 1
+    _manual_async_write "$record" || return 1
+  done
+  _manual_async_write $'END\t'"$_MANUAL_ASYNC_GENERATION"$'\n'
+}
+
+# zpty owns a separate session/process group without adding a user-visible job
+# or replacing the parent's coprocess. Only fixed source code is passed to zpty.
+# The supervisor waits on native terminal input; capture and all of its native
+# descendants stay in this group with job control disabled.
+_manual_async_supervisor() {
+  emulate -L zsh
+  unsetopt MONITOR NOTIFY BG_NICE
+  setopt LOCAL_TRAPS
+  local -i10 group=$sysparams[pid] child_pid=0 alive_fd=-1 control_out=-1
+  local control='' discarded=''
+  zshexit_functions=() preexec_functions=() precmd_functions=()
+  _MANUAL_ASYNC_NAME=''
+  _manual_async_supervisor_stop() {
+    trap '' HUP TERM
+    kill -TERM -- -$group 2>/dev/null
+    # A liveness pipe bounds graceful cleanup. Forced termination releases
+    # native locks and every remaining member, including a stuck provider.
+    if (( alive_fd >= 0 )); then
+      sysread -i $alive_fd -s 1 -t 0.1 discarded 2>/dev/null
+      if (( $? == 5 )); then
+        wait $child_pid 2>/dev/null
+      fi
+    fi
+    kill -KILL -- -$group 2>/dev/null
+  }
+  trap '_manual_async_supervisor_stop' HUP TERM INT
+  control_out=$_MANUAL_ASYNC_NOTIFY_FD
+  coproc {
+    local -i10 liveness_fd=-1
+    local outcome=DONE
+    exec {liveness_fd}>&1
+    _manual_async_capture_worker >/dev/null 2>/dev/null || outcome=FAILED
+    print -r -u $control_out -- "$outcome"
+  }
+  child_pid=$!
+  exec {alive_fd}<&p
+  IFS= read -r control
+  _manual_async_supervisor_stop
+}
+
+# Keep the outer zpty identity alive after a deadline. Deleting the inner
+# native handle precedes its group's termination, so no completed process ID
+# is retained for a later signal. The outer handle is likewise deleted by the
+# parent before its owner exits. No raw PID is stored in the editor process.
+_manual_async_owner() {
+  emulate -L zsh
+  unsetopt MONITOR NOTIFY BG_NICE
+  setopt LOCAL_TRAPS
+  local -i10 _MANUAL_ASYNC_NOTIFY_FD=-1 active=0
+  local -F remaining=$(( _MANUAL_ASYNC_DEADLINE - EPOCHREALTIME ))
+  local control=''
+  zshexit_functions=() preexec_functions=() precmd_functions=()
+  _MANUAL_ASYNC_NAME=''
+  exec {_MANUAL_ASYNC_NOTIFY_FD}>&1
+  trap 'return 129' HUP TERM INT
+  {
+    if (( remaining > 0 )) && zpty -b compozsh-manual-capture _manual_async_supervisor; then
+      active=1
+      IFS= read -r -t $remaining control
+      zpty -d compozsh-manual-capture 2>/dev/null
+      active=0
+    fi
+    print -r -- FAILED
+    # Normally the parent's delivery handler immediately closes this owner.
+    # If its editor is suspended, retain identity without polling or capture.
+    IFS= read -r control
+  } always {
+    (( !active )) || zpty -d compozsh-manual-capture 2>/dev/null
+  }
+}
+
+_manual_async_start() {
+  emulate -L zsh
+  local directory=''
+  zmodload zsh/zpty 2>/dev/null && zmodload zsh/zselect 2>/dev/null &&
+    zmodload zsh/datetime 2>/dev/null || return 1
+  directory=$(command /usr/bin/mktemp -d "${TMPDIR:-/tmp}/compozsh-manual-async.XXXXXXXX" 2>/dev/null) || return 1
+  [[ -d $directory && ! -L $directory && ${directory:t} == compozsh-manual-async.* ]] || return 1
+  {
+    command /usr/bin/mkfifo -m 600 "$directory/data" 2>/dev/null || return 1
+    sysopen -rw -o nonblock,cloexec,nofollow -u _MANUAL_ASYNC_FD "$directory/data" 2>/dev/null || return 1
+    _MANUAL_ASYNC_NAME="compozsh-manual-$sysparams[pid]-$_MANUAL_ASYNC_GENERATION"
+    _MANUAL_ASYNC_DEADLINE=$(( EPOCHREALTIME + 30 ))
+    _MANUAL_ASYNC_STATE=running
+    zpty -b "$_MANUAL_ASYNC_NAME" _manual_async_owner 2>/dev/null || return 1
+    _MANUAL_ASYNC_CONTROL_FD=$REPLY
+    zle -N compozsh-manual-delivery _manual_async_read
+    zle -N compozsh-manual-control _manual_async_control
+    zle -F -w $_MANUAL_ASYNC_FD compozsh-manual-delivery || return 1
+    zle -F -w $_MANUAL_ASYNC_CONTROL_FD compozsh-manual-control || return 1
+  } always {
+    # All endpoints are inherited open descriptors now. No private document
+    # data ever becomes a regular file, and callbacks need no filesystem I/O.
+    command /bin/rm -f -- "$directory/data" 2>/dev/null
+    command /bin/rmdir -- "$directory" 2>/dev/null
+  }
+  return 0
+}
+
+_manual_prompt_request() {
+  emulate -L zsh
+  local REPLY='' identity=''
+  if ! _manual_async_identity || (( _MANUAL_ASYNC_GENERATION >= 2147483647 )); then
+    _manual_prompt_capture
+    return
+  fi
+  identity=$REPLY
+  if [[ -n $_MANUAL_ASYNC_IDENTITY && $identity != "$_MANUAL_ASYNC_IDENTITY" ]]; then
+    _manual_async_cancel
+    _manual_async_candidate_clear
+    _MANUAL_SUMMARIES=() _MANUAL_SOURCES=() _MANUAL_SUMMARIES_READY=0
+  fi
+  _MANUAL_ASYNC_IDENTITY=$identity
+  (( _MANUAL_SUMMARIES_READY )) && return 0
+  [[ $_MANUAL_ASYNC_STATE == (running|failed) ]] && return 0
+  (( ++_MANUAL_ASYNC_GENERATION ))
+  _manual_async_candidate_clear
+  if ! _manual_async_start; then
+    _manual_async_cancel
+    _manual_prompt_capture
+  fi
+  return 0
+}
 
 _manual_summary_reset() {
+  _manual_async_cancel
+  _manual_async_candidate_clear
   _MANUAL_SUMMARIES=() _MANUAL_SOURCES=()
   _MANUAL_SUMMARIES_READY=0
+  _MANUAL_CACHE_SUMMARIES=() _MANUAL_CACHE_ALIASES=()
+  _MANUAL_CACHE_DIRTY=0
+  _MANUAL_CACHE_REFRESH=1
+}
+
+# Only public system facts and our own implementation identify this cache.
+# Never fingerprint PATH, MANPATH, developer selection, PWD or private inputs.
+_manual_cache_key() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB PIPE_FAIL
+  local locale=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}} digest=''
+  local -A metadata=()
+  local -a inputs=("$ZSH_VERSION" "$_MANUAL_CACHE_IMPLEMENTATION")
+  REPLY=''
+  # /usr/share/man is not a protected public-data boundary on every platform.
+  [[ $OSTYPE == darwin* ]] || return 1
+  # Accept a literal installed system locale, not an arbitrary environment value.
+  [[ ${#locale} -le 64 && $locale == [a-zA-Z0-9_.@-]## &&
+     ( $locale == (C|POSIX) || -d /usr/share/locale/$locale ) ]] || return 1
+  inputs+=("$locale")
+  zstat -H metadata -- /System/Library/CoreServices/SystemVersion.plist 2>/dev/null || return 1
+  inputs+=("${metadata[mtime]}" "${metadata[size]}")
+  (( ${#${(j::)inputs}} <= 262144 )) || return 1
+  [[ -x /usr/bin/shasum ]] || return 1
+  digest=$(print -rN -- "${inputs[@]}" |
+    command /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/shasum -a 256 2>/dev/null) || return 1
+  digest=${digest%% *}
+  [[ ${#digest} == 64 && $digest == [0-9a-f]## ]] || return 1
+  REPLY=$digest
+}
+
+# The initial public-data provider is Apple's protected OS manual tree only.
+# Conventional/Homebrew/Xcode/custom paths are not proof of public provenance.
+_manual_cache_page_id() {
+  emulate -L zsh
+  REPLY=''
+  [[ $2 == /usr/share/man && $1 == /usr/share/man/* ]] || return 1
+  REPLY=${1#/usr/share/man/}
+}
+
+_manual_cache_public_file() {
+  emulate -L zsh
+  [[ $1 == /usr/share/man/* ]] && (( $2 == 0 && !($3 & 8#022) ))
+}
+
+# Resolve under the configuration base, never beside a symlink-installed peer.
+# Existing parent directories may be searchable by others but not writable;
+# the cache itself must have owner-only access. Never repair unsafe user state.
+_manual_cache_directory() {
+  emulate -L zsh
+  local directory=${${ZDOTDIR:-$HOME}:A} component='' mode=${1:-read}
+  local -A metadata=()
+  REPLY=''
+  [[ -n $directory && $directory != / && -d $directory ]] || return 1
+  zstat -H metadata -- "$directory" 2>/dev/null || return 1
+  (( metadata[uid] == EUID && !(metadata[mode] & 8#022) )) || return 1
+  for component in .zsh.addons support cache; do
+    directory+=/$component
+    if [[ ! -e $directory && ! -L $directory && $mode == create ]]; then
+      command /bin/mkdir -m 700 -- "$directory" 2>/dev/null ||
+        [[ -d $directory && ! -L $directory ]] || return 1
+    fi
+    [[ -d $directory && ! -L $directory ]] || return 1
+    zstat -H metadata -- "$directory" 2>/dev/null || return 1
+    (( metadata[uid] == EUID && !(metadata[mode] & 8#022) )) || return 1
+    [[ $component != cache ]] || (( !(metadata[mode] & 8#077) )) || return 1
+  done
+  REPLY=$directory
+}
+
+_manual_cache_file_valid() {
+  emulate -L zsh
+  local -A metadata=()
+  [[ -f $1 && ! -L $1 ]] || return 1
+  zstat -H metadata -- "$1" 2>/dev/null || return 1
+  (( metadata[uid] == EUID && metadata[nlink] == 1 &&
+     !(metadata[mode] & 8#177) && metadata[size] <= 33554432 ))
+}
+
+_manual_cache_record_valid() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB MULTIBYTE
+  local name=$1 aliases_text=$2 summary=$3 alias_name=''
+  local -a fields=()
+  [[ ${#name} -le 512 && $name == man[1-9nl][[:alnum:]]#/?* &&
+     ${name#*/} != */* && $name != *[[:cntrl:]]* &&
+     -n $summary && ${#summary} -le 240 && $summary != *[[:cntrl:]]* &&
+     ${#aliases_text} -le 4096 ]] || return 1
+  [[ -z $aliases_text ]] || fields=("${(@s.:.)aliases_text}")
+  (( $#fields <= 16 )) || return 1
+  for alias_name in "${fields[@]}"; do
+    [[ ${#alias_name} -le 255 && $alias_name == [a-zA-Z0-9][a-zA-Z0-9_.+-]# ]] || return 1
+  done
+  return 0
+}
+
+# Version/key/count, system-relative page IDs, NAME aliases and descriptions.
+# Never store discovery selectors, custom attribution names or document bodies.
+_manual_cache_load() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local file=$1 key=$2 text='' name='' summary='' aliases_text=''
+  local -a lines=() fields=()
+  local -A metadata=() summaries=() aliases_map=()
+  local -i10 cache_fd=-1 index=0 count=0
+  _manual_cache_file_valid "$file" || return 1
+  sysopen -r -o cloexec,nofollow,nonblock -u cache_fd "$file" 2>/dev/null || return 1
+  {
+    zstat -H metadata -f $cache_fd 2>/dev/null || return 1
+    (( (metadata[mode] & 8#170000) == 8#100000 && metadata[uid] == EUID &&
+       metadata[nlink] == 1 && !(metadata[mode] & 8#177) &&
+       metadata[size] > 0 && metadata[size] <= 33554432 )) || return 1
+    unsetopt MULTIBYTE
+    sysread -i $cache_fd -s $(( metadata[size] + 1 )) text 2>/dev/null || return 1
+    (( ${#text} == metadata[size] )) && [[ $text != *$'\0'* ]] || return 1
+  } always {
+    exec {cache_fd}<&-
+  }
+  setopt MULTIBYTE
+  [[ $text == *$'\nEND\n' ]] || return 1
+  lines=("${(@f)${text%$'\n'}}")
+  [[ $lines[1] == COMPOZSH-MANUAL-1 && $lines[2] == "$key" &&
+     ${#lines[3]} -le 4 && $lines[3] == <0-4096> ]] || return 1
+  count=$lines[3]
+  (( $#lines == count + 4 )) || return 1
+  for (( index = 4; index < $#lines; ++index )); do
+    fields=("${(@ps:\t:)lines[index]}")
+    (( $#fields == 3 )) || return 1
+    name=$fields[1] aliases_text=$fields[2] summary=$fields[3]
+    _manual_cache_record_valid "$name" "$aliases_text" "$summary" || return 1
+    (( ! ${+summaries[$name]} )) || return 1
+    summaries[$name]=$summary aliases_map[$name]=$aliases_text
+  done
+  _MANUAL_CACHE_SUMMARIES=("${(@kv)summaries}")
+  _MANUAL_CACHE_ALIASES=("${(@kv)aliases_map}")
+  _MANUAL_CACHE_DIRTY=0
+}
+
+# A kernel-owned advisory lock cannot be stranded by an interrupted builder.
+# Never write to the lock after flock: closing another descriptor for the same
+# inode would release the process's fcntl lock. Unchanged warm readers do not lock.
+_manual_cache_lock() {
+  emulate -L zsh
+  local file=$1/.zsh.manual.lock
+  local -i10 create_fd=-1 lock_fd=-1
+  REPLY=''
+  if [[ ! -e $file && ! -L $file ]]; then
+    if sysopen -w -m 600 -o create,excl,cloexec,nofollow,nonblock -u create_fd "$file" 2>/dev/null; then
+      exec {create_fd}>&-
+    fi
+  fi
+  _manual_cache_file_valid "$file" || return 1
+  zsystem flock -t 10 -i 0.05 -f lock_fd "$file" 2>/dev/null || return 1
+  REPLY=$lock_fd
+}
+
+_manual_cache_store() {
+  emulate -L zsh
+  local directory=$1 key=$2 file=$1/.zsh.manual.cache staged='' name='' text=''
+  local -a records=(COMPOZSH-MANUAL-1 "$key" "${#_MANUAL_CACHE_SUMMARIES}")
+  local -i10 cache_fd=-1
+  (( ${#_MANUAL_CACHE_SUMMARIES} <= 4096 )) || return 1
+  if [[ -e $file || -L $file ]]; then
+    _manual_cache_file_valid "$file" || return 1
+  fi
+  for name in "${(@ok)_MANUAL_CACHE_SUMMARIES}"; do
+    _manual_cache_record_valid "$name" "${_MANUAL_CACHE_ALIASES[$name]}" \
+      "${_MANUAL_CACHE_SUMMARIES[$name]}" || return 1
+    records+=("$name"$'\t'"${_MANUAL_CACHE_ALIASES[$name]}"$'\t'"${_MANUAL_CACHE_SUMMARIES[$name]}")
+  done
+  records+=(END)
+  text="${(F)records}"$'\n'
+  unsetopt MULTIBYTE
+  (( ${#text} <= 33554432 )) || return 1
+  staged=$(command /usr/bin/mktemp "$directory/.zsh.manual.cache.XXXXXXXX" 2>/dev/null) || return 1
+  [[ ${staged:h} == "$directory" && ${staged:t} == .zsh.manual.cache.* ]] || return 1
+  {
+    _manual_cache_file_valid "$staged" || return 1
+    sysopen -w -o cloexec,nofollow,nonblock -u cache_fd "$staged" 2>/dev/null || return 1
+    print -rn -u $cache_fd -- "$text" || return 1
+    exec {cache_fd}>&-
+    cache_fd=-1
+    # Refuse a changed directory or unsafe target rather than following it.
+    _manual_cache_directory || return 1
+    [[ $REPLY == "$directory" ]] || return 1
+    if [[ -e $file || -L $file ]]; then
+      _manual_cache_file_valid "$file" || return 1
+    fi
+    (( ! ${_MANUAL_WORKER_CANCELLED:-0} )) || return 129
+    command /bin/mv -f -- "$staged" "$file" 2>/dev/null
+  } always {
+    (( cache_fd < 0 )) || exec {cache_fd}>&-
+    [[ ! -e $staged && ! -L $staged ]] || command /bin/rm -f -- "$staged" 2>/dev/null
+  }
 }
 
 # REPLY is plain description; reply contains only simple documented NAME aliases.
@@ -158,6 +755,7 @@ _manual_page_read() {
   local -A metadata=()
   local -i manual_fd=-1 hop=0
   REPLY=''
+  _MANUAL_PAGE_SYSTEM=1
   for (( hop = 0; hop < 8; hop++ )); do
     page=''
     for target in "${targets[@]}"; do
@@ -174,6 +772,8 @@ _manual_page_read() {
       {
         zstat -H metadata -f $manual_fd 2>/dev/null &&
           (( (metadata[mode] & 8#170000) == 8#100000 )) || return 1
+        _manual_cache_public_file "$resolved" "${metadata[uid]}" "${metadata[mode]}" ||
+          _MANUAL_PAGE_SYSTEM=0
         if [[ $resolved == *.(gz|bz|bz2|xz|lz|lzma|Z) ]]; then
           [[ -x /usr/bin/gzip && -x /usr/bin/head ]] || return 1
           text=$( (
@@ -220,12 +820,13 @@ _manual_page_read() {
 _manual_summary_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
+  (( !_MANUAL_ASYNC_PUBLISHED )) || _manual_async_candidate_clear
   local root='' directory='' page='' name='' section='' text='' summary=''
-  local stem='' page_section='' origin_name='' format_directory=''
+  local stem='' page_section='' origin_name='' format_directory='' cache_id=''
   local -a pages=() reply=()
   local -aU sections=()
   local -i remaining=4096 formatter_ready=0
-  _manual_summary_reset
+  _MANUAL_SUMMARIES=() _MANUAL_SOURCES=()
   _MANUAL_SUMMARIES_READY=1
   if [[ -n ${MANSECT:-} ]]; then
     for section in "${(@s.:.)MANSECT}"; do
@@ -244,6 +845,7 @@ _manual_summary_capture() {
         [[ -d $directory ]] || continue
         pages=("$directory"/*.$section*(N[1,$remaining]))
         for page in "${pages[@]}"; do
+          (( ! ${_MANUAL_WORKER_CANCELLED:-0} )) || return 129
           (( remaining > 0 )) || return 0
           (( --remaining ))
           stem=${page:t}
@@ -253,21 +855,36 @@ _manual_summary_capture() {
           name=${stem:r}
           [[ -n $name && ${#name} -le 255 && $name != *[[:cntrl:]]* ]] || continue
           if (( ! ${+_MANUAL_SUMMARIES[$name]} )); then
-            _manual_page_read "$page" "$root" || continue
-            text=$REPLY
-            if _manual_summary_parse "$text"; then
-              summary=$REPLY
+            cache_id=''
+            _manual_cache_page_id "$page" "$root" && cache_id=$REPLY
+            if [[ -n $cache_id && -n ${_MANUAL_CACHE_SUMMARIES[$cache_id]-} ]]; then
+              summary=${_MANUAL_CACHE_SUMMARIES[$cache_id]}
+              reply=()
+              [[ -z ${_MANUAL_CACHE_ALIASES[$cache_id]} ]] ||
+                reply=("${(@s.:.)_MANUAL_CACHE_ALIASES[$cache_id]}")
             else
-              summary='Manual page available; NAME summary unavailable'
-              if (( formatter_ready == 0 )); then
-                formatter_ready=-1
-                if [[ -x /usr/bin/mandoc && -x /usr/bin/head ]] &&
-                   format_directory=$(command /usr/bin/mktemp -d "${TMPDIR:-/tmp}/compozsh-manual.XXXXXXXX" 2>/dev/null); then
-                  formatter_ready=1
+              _manual_page_read "$page" "$root" || continue
+              text=$REPLY
+              if _manual_summary_parse "$text"; then
+                summary=$REPLY
+              else
+                summary='Manual page available; NAME summary unavailable'
+                if (( formatter_ready == 0 )); then
+                  formatter_ready=-1
+                  if [[ -x /usr/bin/mandoc && -x /usr/bin/head ]] &&
+                     format_directory=$(command /usr/bin/mktemp -d "${TMPDIR:-/tmp}/compozsh-manual.XXXXXXXX" 2>/dev/null); then
+                    formatter_ready=1
+                  fi
+                fi
+                if (( formatter_ready == 1 )) && _manual_summary_format "$text" "$format_directory"; then
+                  summary=$REPLY
                 fi
               fi
-              if (( formatter_ready == 1 )) && _manual_summary_format "$text" "$format_directory"; then
-                summary=$REPLY
+              if [[ -n $cache_id ]] && (( _MANUAL_PAGE_SYSTEM && ${#_MANUAL_CACHE_SUMMARIES} < 4096 )) &&
+                 _manual_cache_record_valid "$cache_id" "${(j.:.)reply}" "$summary"; then
+                _MANUAL_CACHE_SUMMARIES[$cache_id]=$summary
+                _MANUAL_CACHE_ALIASES[$cache_id]="${(j.:.)reply}"
+                _MANUAL_CACHE_DIRTY=1
               fi
             fi
             _MANUAL_SUMMARIES[$name]=$summary
@@ -362,9 +979,8 @@ _manual_configuration_roots() {
   reply=("${roots[@]}")
 }
 
-_manual_prompt_capture() {
+_manual_prompt_collect() {
   emulate -L zsh
-  (( _MANUAL_SUMMARIES_READY )) && return 0
   local entry='' root=''
   local -aU roots=() defaults=()
   local -a requested=() reply=()
@@ -414,6 +1030,64 @@ _manual_prompt_capture() {
   _manual_summary_capture "${roots[@]}"
 }
 
+_manual_prompt_capture() {
+  emulate -L zsh
+  (( _MANUAL_SUMMARIES_READY )) && return 0
+  _MANUAL_CACHE_SUMMARIES=() _MANUAL_CACHE_ALIASES=()
+  _MANUAL_CACHE_DIRTY=0
+  local key='' directory='' name=''
+  local -A additions=() aliases_map=()
+  local -i10 lock_fd=-1 hit=0
+  if _manual_cache_key; then
+    key=$REPLY
+    if _manual_cache_directory; then
+      directory=$REPLY
+      if (( !_MANUAL_CACHE_REFRESH )) && _manual_cache_load "$directory/.zsh.manual.cache" "$key"; then
+        hit=1
+      fi
+    fi
+    if (( !hit )) && _manual_cache_directory create; then
+      directory=$REPLY
+      _manual_cache_lock "$directory" && lock_fd=$REPLY
+    fi
+  fi
+  {
+    # Recheck after waiting so simultaneous first windows reuse the winner.
+    # Collection still applies live root/section precedence and reads private
+    # manuals in memory; only known public page parsing can be skipped.
+    if (( lock_fd >= 0 && !_MANUAL_CACHE_REFRESH )); then
+      _manual_cache_load "$directory/.zsh.manual.cache" "$key" || :
+    fi
+    _manual_prompt_collect || return
+    (( ! ${_MANUAL_WORKER_CANCELLED:-0} )) || return 129
+    if (( hit && _MANUAL_CACHE_DIRTY )) && _manual_cache_directory create; then
+      directory=$REPLY
+      if _manual_cache_lock "$directory"; then
+        lock_fd=$REPLY
+        additions=("${(@kv)_MANUAL_CACHE_SUMMARIES}")
+        aliases_map=("${(@kv)_MANUAL_CACHE_ALIASES}")
+        # Preserve another publisher's results; only add IDs still absent.
+        _manual_cache_load "$directory/.zsh.manual.cache" "$key" || :
+        for name in "${(@ok)additions}"; do
+          (( ${#_MANUAL_CACHE_SUMMARIES} < 4096 )) || break
+          if (( ! ${+_MANUAL_CACHE_SUMMARIES[$name]} )); then
+            _MANUAL_CACHE_SUMMARIES[$name]=${additions[$name]}
+            _MANUAL_CACHE_ALIASES[$name]=${aliases_map[$name]}
+          fi
+        done
+        _MANUAL_CACHE_DIRTY=1
+      fi
+    fi
+    if (( lock_fd >= 0 && (_MANUAL_CACHE_DIRTY || _MANUAL_CACHE_REFRESH) )); then
+      _manual_cache_store "$directory" "$key" || :
+    fi
+    _MANUAL_CACHE_REFRESH=0
+  } always {
+    (( lock_fd < 0 )) || zsystem flock -u $lock_fd
+  }
+  return 0
+}
+
 # This is a manual for a literal name, not executable resolution. In particular
 # do not claim it describes user aliases/functions. The shipped transparent
 # output wrappers keep their underlying manuals; owned help always takes priority.
@@ -421,14 +1095,41 @@ _manual_summary_lookup() {
   emulate -L zsh
   local name=$1 source=${functions_source[$1]-}
   REPLY=''
+  reply=()
   (( ${+aliases[$name]} || ${+galiases[$name]} )) && return 1
   if (( ${+functions[$name]} )); then
     [[ -n $source && ${functions_source[_compozsh_help_$name]-} == "$source" ]] && return 1
     [[ $name == (git|grep|man) && -n $source &&
        $source == ${functions_source[_output_git_color_arguments]-} ]] || return 1
   fi
-  REPLY=${_MANUAL_SUMMARIES[$name]-}
-  [[ -n $REPLY ]]
+  if (( _MANUAL_ASYNC_PUBLISHED )); then
+    REPLY=${_MANUAL_ASYNC_SUMMARIES[$name]-}
+    source=${_MANUAL_ASYNC_SOURCES[$name]-}
+  else
+    REPLY=${_MANUAL_SUMMARIES[$name]-}
+    source=${_MANUAL_SOURCES[$name]-}
+  fi
+  [[ -n $REPLY ]] || return 1
+  reply=("$REPLY" "$source")
 }
+
+# Keep our own loaded implementation identity in memory; no source file or
+# private configuration is read to calculate the cache key.
+typeset -g _MANUAL_CACHE_IMPLEMENTATION="${functions[_manual_summary_parse]}
+${functions[_manual_summary_format]}
+${functions[_manual_page_read]}
+${functions[_manual_summary_capture]}
+${functions[_manual_developer_roots]}
+${functions[_manual_configuration_roots]}
+${functions[_manual_prompt_collect]}
+${functions[_manual_cache_page_id]}
+${functions[_manual_cache_public_file]}
+${functions[_manual_cache_record_valid]}"
+
+typeset -ga preexec_functions zshexit_functions
+# Cancellation precedes command preparation regardless of peer source order;
+# preserve the relative order of every caller-owned hook.
+preexec_functions=(_manual_async_preexec "${(@)preexec_functions:#_manual_async_preexec}")
+zshexit_functions=("${(@)zshexit_functions:#_manual_async_cancel}" _manual_async_cancel)
 
 :

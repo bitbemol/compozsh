@@ -58,15 +58,20 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
   display without reopening the lens.
 - Prompt code should minimize external commands and never add a per-prompt
   subprocess when native Zsh state or an existing command result is enough.
-- Runtime/tool versions may be cached only in memory for the current shell.
+- Existing generic runtime/tool version probes retain memory-only caching.
   Cache keys must include every environment selector that can change the
   answer, and `compozsh --refresh` must invalidate the relevant caches.
-- Do not add a project-specific disk cache, cache daemon, background worker,
-  timer loop, or eager startup scan without an explicit architectural decision
-  from the user. Zsh's native completion dump is not feature-state storage.
-- The approved local manual-summary exception is one bounded capture by the
-  optional `.zsh.manual` peer at the first TTY `precmd`, never source time or
-  editing. Resolve at most 64 roots from literal MANPATH, the first 128 absolute
+- Reproducible public system data may use disposable persistent caches under
+  the [caching contract](caching.md). Never persist user/project facts or make
+  a feature depend on cache availability. Do not add a cache daemon, background
+  worker, timer loop or eager startup scan without an explicit architectural
+  decision. Zsh's native completion dump is not feature-state storage.
+- The approved local manual-summary exception requests one bounded background
+  capture from the optional `.zsh.manual` peer at the first TTY `precmd`.
+  The prompt returns before discovery/cache I/O. Only complete current-generation
+  results reach the editor through bounded native descriptor callbacks; see the
+  [lifecycle contract](manual-cache.md#asynchronous-prompt-capture). Source time
+  and editor callbacks never discover providers. Resolve at most 64 roots from literal MANPATH, the first 128 absolute
   PATH entries, conventional installations, inert MANPATH/MANCONFIG directives
   (17 configuration files, 8 KiB each), and one native
   `/usr/bin/xcode-select --show-manpaths` query (16 validated paths). Honor empty
@@ -82,10 +87,14 @@ prompt or ZLE redraw. Treat those paths as latency-sensitive.
   cleanup; never write page text to disk or interpret manual configuration as
   shell code. Never invoke man, manpath, whatis, indexes or documented commands.
   Missing/unreadable pages are quiet misses; readable pages without a usable
-  NAME description retain an explicit manual-available notice. Keep summaries
-  in shell memory and clear them with `compozsh --refresh`.
-  Measure first-prompt capture separately from source time and warmed
-  redraw; see `investigations/manual-summaries.md` for the accepted tradeoff.
+  NAME description retain an explicit manual-available notice. Reuse eligible
+  public OS page descriptions under the [manual cache contract](manual-cache.md).
+  Discover roots/sections/pages at capture so additions and removals remain
+  visible; custom/developer manuals and final attribution stay in shell memory.
+  `compozsh --refresh` clears memory and rebuilds eligible persistent results at
+  the next TTY prompt. Typing and resize never perform discovery or cache I/O.
+  Measure first editable prompt and complete-description arrival separately from source time and warmed
+  redraw; see `investigations/terminal-startup-latency.md` for current evidence.
 - Working-changes auto-refresh in the Git review screen is the narrowly approved
   screen-session worker exception. Its ownership, bounds, lifecycle and local-only
   behavior are defined by the [Git review workspace boundary](workspaces/git.md#git-review-workspace-boundary).

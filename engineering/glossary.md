@@ -96,7 +96,8 @@ These describe relationships, not mandatory records, new types or serialization
 formats. Reuse existing scoped variables and helpers; omit irrelevant fields.
 “Stateless discovery” means deriving a catalog when requested without maintaining
 a second persistent registry. It does not prohibit temporary view state or the
-specifically allowed in-memory caches. “Pure” applies to deterministic calculation
+specifically allowed caches of derived results under [caching](caching.md).
+A disposable cache is not an authoritative registry. “Pure” applies to deterministic calculation
 from inputs without external reads or observable effects, not to an entire shell
 or filesystem workflow.
 

@@ -368,7 +368,7 @@ still be sourced independently, including the maintained peers in `support/`:
 | `.zsh.git-syntax` | Optional captured-code syntax | Apple's system Vim supplies passive lexical tokens for the visible region of supported Git review files; one screen-session worker, latest-viewport publication, stable loading state, plain fallback and no new shortcut or configuration requirement |
 | `.zsh.help` | Live tool discovery, topic help, captured prompt descriptions and maintenance entry | `compozsh` explores loaded functions; same-source help supplies prompt summaries and recognized option descriptions; terminal help opens Overview, arguments and sections beside their explanations, with full-width reading and preserved return position; supported guides offer an explicit Compose example handoff; pipes retain complete text; `--refresh` and `--sudo-touch-id` dispatch to their optional operation peers, with same-source help available independently; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.highlighting` | Live command-line semantics | Distinct styles for commands, aliases, functions, arguments, operators, paths, strings, variables, and comments using the shared palette; shares its exact bare-directory observation with the optional prompt lens |
-| `.zsh.manual` | Installed/custom manual summaries, including selected Apple SDKs and toolchains | Captures bounded NAME descriptions once before interactive editing, with native decompression/formatting fallbacks; supplies memory-only ABOUT rows without invoking the documented command |
+| `.zsh.manual` | Installed/custom manual summaries, including selected Apple SDKs and toolchains | Reuses disposable public OS descriptions across shells; captures asynchronously with cancellation and stale-result rejection; supplies memory-only ABOUT rows without invoking the documented command |
 | `.zsh.navigation` | Native Recents and unified Git entry | Private native-stack provider and Recents view with editable path insertion for Files; `g` complete local-branch picker, ordered by recency, with locally captured remote-tracking fallback and confirmed tracking-branch creation, details, review/worktree/discard dispatch and canonical help, copying and small navigation aliases with shared default-expansion descriptions; shared candidate exclusion preserves each view’s matching and action rules |
 | `.zsh.output` | Semantic command-output colors | Terminal-aware colors for Git, `grep`, `man`, optional help, and Xcode's LLDB presentation, driven by the customizable `ZSH_OUTPUT_COLORS` palette |
 | `.zsh.prompt` | Prompt fact capture, reactive presentation, layout, and rendering | Automatic and Option-I-pinned Context lens; real-time Interaction lens with alias previews; command and outcome receipts; Git, jobs, virtual environments, and project/toolchain context |
@@ -4227,9 +4227,13 @@ manual; the shipped transparent `git`, `grep` and `man` wrappers may do so.
 Missing manuals quietly retain the existing presentation. A readable page without
 a usable NAME description instead shows that its manual is available.
 
-The optional `.zsh.manual` peer captures once at the first interactive prompt,
-then typing and resizing use shell memory only. `compozsh --refresh` clears this
-snapshot for capture at the next prompt. No pager, `man`, `manpath`, `whatis`,
+The optional `.zsh.manual` peer starts one background capture at the first
+interactive prompt. You can type immediately using the ordinary description
+fallback; complete descriptions appear when ready without changing the draft
+or cursor. Typing and resizing do no discovery or cache I/O. A nested editor or
+fullscreen view keeps display ownership until you return to the prompt.
+`compozsh --refresh` clears this snapshot for capture at the next prompt.
+No pager, `man`, `manpath`, `whatis`,
 index generator, or documented command runs. Manual text never becomes shell
 code. Custom installations are discovered through `MANPATH`, conventional
 manual folders associated with absolute `PATH` entries, and literal `MANPATH`
@@ -4256,15 +4260,56 @@ eight file reads. The fast NAME parser handles Swift's escaped double dash;
 formatting-heavy pages can use native `mandoc` on captured text in a private
 empty directory. Its output and child CPU time are bounded, command/file-writing
 roff requests are ignored, and document includes cannot read the caller's folder.
-No page text is written to disk. This is a description preview, not a full manual
+No document body is written to disk; eligible public NAME summaries use the cache
+below. This is a description preview, not a full manual
 reader or a guarantee that every installed page falls within its capture limits.
 
 Capture considers at most 64 roots and 4,096 entries, reads at most 64 KiB per
-page, and retains at most 8,192 descriptions of 240 characters. Initial capture
-adds a one-time first-prompt cost; it creates no persistent cache or background
-monitor. After changing PATH, MANPATH, MANSECT, manuals or developer selection,
-use `compozsh --refresh`. See [measurement evidence](investigations/manual-summaries.md)
-and the [manual trust boundary](SECURITY.md).
+page, and retains at most 8,192 descriptions of 240 characters. New shells still
+discover available manuals; newly installed tools are not hidden by an old cache.
+In an already-open shell, changed PATH, MANPATH, MANSECT, locale or developer
+environment selectors invalidate the snapshot at the next prompt. Use
+`compozsh --refresh` after installing tools, changing manual files or changing
+system developer selection outside the shell. Unknown names during typing
+return immediately without scanning or writing a cache.
+
+Refresh, re-sourcing, changed selectors and command execution cancel pending
+capture. An interrupted capture can restart at the next prompt. A failed or
+overdue capture keeps the normal fallback until refresh or a selector change;
+there is no automatic retry loop. Capture has a 30-second deadline and remains
+local to the shell, with no daemon. Missing native asynchronous capabilities
+retain synchronous capture. The cache remains optional in either path.
+
+### Disposable system caches
+
+Performance caches have one visible home:
+`${ZDOTDIR:-$HOME}/.zsh.addons/support/cache`. Each filename identifies its owner:
+`.zsh.manual` uses `.zsh.manual.cache`, plus `.zsh.manual.lock` and temporary
+`.zsh.manual.cache.*` files during publication. The bootstrap never sources them.
+
+On macOS, the manual cache stores only public NAME descriptions, aliases and
+relative page IDs from Apple's protected `/usr/share/man` tree, plus a
+format/freshness key. Other platforms keep uncached behavior. Custom, third-party, Xcode and SDK manuals remain memory-only; no user or
+project information, private paths or fingerprints of them are persisted.
+System/locale/implementation changes invalidate the cache. Live discovery
+preserves manual precedence, observes removed pages and adds newly found eligible
+pages at the next capture. No unknown-command result is persisted.
+
+A cold or invalid cache requires the original capture work. Warm shells skip
+cached OS parsing and formatting while retaining full descriptions. Missing,
+corrupt or unwritable storage falls back to complete uncached behavior. Typing
+and resize perform no cache I/O; there is no background monitor. See
+[measured startup results](investigations/terminal-startup-latency.md) and
+[asynchronous delivery evidence](investigations/manual-concurrency.md).
+
+`compozsh --refresh` requests fresh capture at the next prompt and replaces the
+eligible system cache for future windows. Other open shells keep their own
+snapshots until refreshed. You can remove this cache directory at any time; it
+is recreated when needed. Normal installation updates preserve it, source
+caches are excluded from distribution, and `--clean` archives it with the old
+add-on tree. Removing the add-on tree during uninstall removes its cache too.
+The [cache contract](engineering/caching.md) defines future producers; the
+[security policy](SECURITY.md) documents access controls and failure limits.
 
 Owned task modes receive their own advisory cues: bare `xcode` describes opening
 its action workspace, `xcode --export-skills` describes skill export, and
@@ -4560,8 +4605,10 @@ dependency files or executing repository code:
 These labels describe files present in the project. They do not claim that the
 corresponding package-manager or build command is installed.
 
-Installed runtime versions, local manual summaries and same-source help
-descriptions are cached in this shell for prompt speed. Help snapshots also
+Installed runtime versions, the active manual catalog and same-source help
+descriptions are cached in this shell for prompt speed. Public OS manual
+summaries also use the [disposable system cache](#disposable-system-caches).
+Help snapshots also
 invalidate when their owning definitions change. After installing or upgrading
 a tool without opening a new shell, refresh them with:
 

@@ -77,6 +77,32 @@ _test_discovery_filename_contract() {
 test_case 'only regular files with a non-empty .zsh.NAME basename autoload' \
   _test_discovery_filename_contract
 
+_test_cache_data_never_autoloads() {
+  test_make_temp_dir || return
+  local layout='' output='' base=''
+  for layout in symlink copy; do
+    base="$TEST_TMP_DIR/$layout"
+    test_write_file "$base/.zsh.addons/support/cache/.zsh.manual.cache" 'CACHE_EXECUTED=yes; :' || return
+    test_write_file "$base/.zsh.addons/support/cache/nested/.zsh.xcode.cache" 'CACHE_EXECUTED=yes; :' || return
+    test_write_file "$base/.zsh.addons/support/.zsh.neighbor" 'CACHE_NEIGHBOR=loaded; :' || return
+    if [[ $layout == symlink ]]; then
+      command ln -s "$TEST_REPO_ROOT/.zshrc" "$base/.zshrc" || return
+    else
+      command cp "$TEST_REPO_ROOT/.zshrc" "$base/.zshrc" || return
+      command cp -R "$TEST_REPO_ROOT/.zsh.addons" "$base/.zsh.addons/compozsh" || return
+    fi
+    output=$(test_run_interactive "$base" '
+      source "$HOME/.zshrc" || exit 1
+      source "$HOME/.zshrc" || exit 2
+      print -r -- "${CACHE_EXECUTED:-never}|$CACHE_NEIGHBOR|${+functions[mkcd]}"
+    ' 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail 'cache produced loader diagnostics' || return
+    test_assert_equal 'never|loaded|1' "$output" 'bootstrap executed module cache data' || return
+  done
+}
+test_case 'bootstrap excludes module cache data while preserving neighboring peers in both layouts' \
+  _test_cache_data_never_autoloads
+
 _test_copy_layout_deduplicates_addons() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" output=''
