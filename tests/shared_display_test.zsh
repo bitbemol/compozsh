@@ -40,7 +40,7 @@ _test_support_pure_picker_fit_width() {
       [[ -z $REPLY ]] || exit 6
     done
     COLUMNS=12
-    for width in "" - COLUMNS "sentinel=99" "1+1"; do
+    for width in "" - COLUMNS "sentinel=99" "1+1" 1234567890123456789 -1234567890123456789; do
       REPLY=stale
       _zle_picker_fit abc "$width"
       [[ $? == 2 && -z $REPLY ]] || { print -r -- "accepted width ${(qqq)width}: ${(qqq)REPLY}"; exit 7; }
