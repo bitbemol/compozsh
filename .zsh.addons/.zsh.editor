@@ -746,6 +746,7 @@ _directory_picker_quote() {
 
 # Expand only our literal home spelling, never shell source or named dirs.
 _directory_browser_absolute() {
+  emulate -L zsh
   local value=${1:-.}
   [[ $value == '~/'* ]] && value="$HOME/${value[3,-1]}"
   [[ $value == '~' ]] && value=$HOME
@@ -1321,7 +1322,9 @@ _directory_context_complete_widget() {
   local REPLY='' entry=$BUFFER argument_prefix=''
   _directory_completion_prefix "$BUFFER" || { zle expand-or-complete; return; }
   argument_prefix=$REPLY
-  [[ -n $argument_prefix ]] && entry=${BUFFER[$(( ${#argument_prefix} + 1 )),-1]}
+  # Caller options are live here: the offset form slices from zero whatever
+  # KSH_ARRAYS says, and quoting keeps GLOB_SUBST from expanding the slice.
+  [[ -n $argument_prefix ]] && entry="${BUFFER:${#argument_prefix}}"
   # Cancellation and native-completion fallback are expected outcomes, even
   # when the caller enables ERR_RETURN for their own shell functions.
   local result=0

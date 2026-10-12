@@ -71,6 +71,50 @@ _test_directory_argument_boundaries() {
 test_case 'directory argument completion preserves quoting, cancellation and native file contexts' \
   _test_directory_argument_boundaries
 
+# The widget keeps caller options for native completion, so a caller's
+# KSH_ARRAYS must not shift the argument slice or the literal home expansion.
+# The body avoids array subscripts once the option is on.
+_test_directory_argument_ksh_arrays() {
+  test_make_temp_dir || return
+  command mkdir -p "$TEST_TMP_DIR/home/Developer/Example & Co" \
+    "$TEST_TMP_DIR/home/Developer/notes-archive" || return
+  test_write_file "$TEST_TMP_DIR/home/Developer/notes" 'contents stay unread' || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    builtin cd -- "$HOME" || exit
+    unsetopt AUTO_CD
+    local BUFFER="" CURSOR=0 REPLY=""
+    local -i captures=0 fallback=0
+    zle() { [[ $1 == expand-or-complete ]] && (( ++fallback )); return 0; }
+    # Called under the session emulation, so this subscript stays 1-based.
+    _zle_picker_screen_session() {
+      (( ++captures ))
+      _ZLE_PICKER_ACTION=select
+      _ZLE_PICKER_SELECTED_VALUE=${_DIRECTORY_PICKER_VALUES[1]}
+    }
+    setopt KSH_ARRAYS
+    BUFFER="vim ~/Developer/" CURSOR=${#BUFFER}
+    _directory_context_complete_widget
+    print -r -- "folder|$BUFFER|$captures|$fallback"
+    # An existing file keeps native completion even beside a matching folder.
+    BUFFER="vim ~/Developer/notes" CURSOR=${#BUFFER} captures=0 fallback=0
+    _directory_context_complete_widget
+    print -r -- "file|$BUFFER|$captures|$fallback"
+    _directory_browser_absolute "~/Developer"
+    [[ $REPLY == "$HOME/Developer" ]] && print -r -- absolute || print -r -- "absolute|$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal "folder|vim ~/Developer/Example\\ \\&\\ Co/|1|0"$'\n'"file|vim ~/Developer/notes|0|1"$'\n'absolute \
+    "$output"
+}
+test_case 'directory argument Tab keeps the exact argument scope under caller KSH_ARRAYS' \
+  _test_directory_argument_ksh_arrays
+
 _test_directory_lone_quoted_tilde_fallback() {
   test_make_temp_dir || return
   local shell_option=${1:-}
