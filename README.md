@@ -420,8 +420,11 @@ ZSH_OUTPUT_COLORS[match]=199
 
 Roles are `heading`, `accent`, `success`, `warning`, `error`, `info`, `muted`,
 `match` and `text` (values 0–255). Existing `GREP_COLOR`, `GREP_COLORS`,
-`LESS_TERMCAP_*` and `LS_COLORS` values keep precedence; unset `CLICOLOR` to
-disable listing colors. `NO_COLOR` or fewer than 256 colors keeps Compozsh's
+`LESS_TERMCAP_*` and `LS_COLORS` values keep precedence. BSD `ls` colors
+listings whenever `CLICOLOR` exists, even as `0` or empty: a nonempty
+`NO_COLOR` at startup, inherited or set in `~/.zsh.addons/local/init.zsh`,
+keeps Compozsh from setting it, and `unset CLICOLOR` turns listing colors off
+in a running shell. `NO_COLOR` or fewer than 256 colors keeps Compozsh's
 completion colors plain.
 
 ## History autosuggestions

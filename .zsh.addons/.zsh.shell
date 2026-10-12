@@ -25,6 +25,8 @@ setopt HIST_REDUCE_BLANKS
 setopt HIST_SAVE_NO_DUPS
 
 # Let BSD/macOS tools color semantic output only when stdout is a terminal.
-typeset -gx CLICOLOR=${CLICOLOR:-1}
+# BSD ls colors whenever CLICOLOR exists, even as 0 or empty, so a nonempty
+# NO_COLOR at startup (environment or initializer) leaves it unset.
+[[ -n ${NO_COLOR-} ]] || typeset -gx CLICOLOR=${CLICOLOR:-1}
 
 :

@@ -92,6 +92,30 @@ _test_initializer_precedes_peers_and_preserves_defaults() {
 test_case 'local initializer runs once before peers and its inputs survive' \
   _test_initializer_precedes_peers_and_preserves_defaults
 
+# BSD ls colors whenever CLICOLOR exists, even as 0 or empty, so the only
+# persistent opt-out is leaving it unset. The shell peer runs after the
+# initializer and must not undo a NO_COLOR choice, also when re-sourced.
+_test_listing_colors_honor_no_color() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  output=$(test_run_interactive "$home" \
+    'ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "${CLICOLOR-}|${(t)CLICOLOR}"' \
+    "$TEST_REPO_ROOT") || return
+  test_assert_equal '1|scalar-export' "$output" \
+    'listing colors are no longer enabled by default' || return
+
+  test_write_file "$home/.zsh.addons/local/init.zsh" 'export NO_COLOR=1' ||
+    return
+  output=$(test_run_interactive "$home" \
+    'source "$1/.zshrc"; print -r -- "${+CLICOLOR}"; source "$1/.zsh.addons/.zsh.shell"; print -r -- "${+CLICOLOR}"' \
+    "$TEST_REPO_ROOT") || return
+  test_assert_equal $'0\n0' "$output" \
+    'a NO_COLOR initializer still enabled BSD listing colors'
+}
+test_case 'listing colors honor a NO_COLOR initializer opt-out' \
+  _test_listing_colors_honor_no_color
+
 # Stock macOS /etc/zshrc sets HISTSIZE=2000 and SAVEHIST=1000 before ~/.zshrc;
 # -f skips it, so the script emulates those values. The shell peer keeps limits
 # no initializer chose and supplies only the history file /etc/zshrc would set.
