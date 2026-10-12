@@ -387,7 +387,7 @@ _zle_picker_syntax_prepare() {
   local -a fields=()
   local -i start=0 end=0
   reply=()
-  for span in ${=2}; do
+  for span in ${(s: :)2}; do
     fields=("${(@s.:.)span}")
     start=$fields[1] end=$fields[2] role=$fields[3]
     prefix=''

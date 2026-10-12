@@ -301,3 +301,154 @@ _test_picker_resize_during_capture() { _test_picker_resize_mid_frame capture; }
 test_case 'picker resize during capture status paint leaves only current geometry painted' _test_picker_resize_during_capture
 _test_picker_resize_during_paste_recovery() { _test_picker_resize_mid_frame paste; }
 test_case 'picker resize during paste recovery paint leaves only current geometry painted' _test_picker_resize_during_paste_recovery
+
+# The input loop waits in `IFS= read`, and a real resize repaints from inside
+# that read, so the frame painted there sees an empty IFS. Span lists split on
+# their own separator: that paint matches the ordinary one, and a document
+# rewrapped there caches every syntax token for later paints at that width.
+_test_picker_repaint_empty_ifs_spans() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    local -a painted=() ordinary=()
+    zle() { painted=("${region_highlight[@]}"); }
+    BUFFER="" PREDISPLAY="" POSTDISPLAY="" region_highlight=()
+    ZSH_HIGHLIGHT_STYLES=(
+      picker-row "fg=250"
+      picker-size "fg=141" picker-error "fg=142"
+      review-keyword "fg=143" review-string "fg=144"
+    )
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_KEY=doc
+    _ZLE_PICKER_DOCUMENT_LINES=(abcdefghij) _ZLE_PICKER_DOCUMENT_ROLES=(text)
+    _ZLE_PICKER_DOCUMENT_SYNTAX=(1 "0:3:keyword 5:9:string")
+    _ZLE_PICKER_INSPECT_TEXTS=(doc ready)
+    IFS= _zle_picker_inspect_prepare doc 40
+    [[ $_ZLE_PICKER_INSPECT_SYNTAX[1] == "0:3:keyword 5:9:string " ]] || {
+      print -u2 -r -- "empty-IFS rewrap cached ${(q+)_ZLE_PICKER_INSPECT_SYNTAX[1]}"; exit 1
+    }
+    _ZLE_PICKER_DISPLAY=(abcdefghij) _ZLE_PICKER_DISPLAY_STYLES=(picker-row)
+    _ZLE_PICKER_DISPLAY_LEFT_ENDS=(0) _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=("0:3:keyword 5:9:string ")
+    _zle_picker_show || exit 2
+    ordinary=("${painted[@]}")
+    [[ -n ${(M)ordinary:#*fg=143*} && -n ${(M)ordinary:#*fg=144*} ]] || {
+      print -u2 -r -- "ordinary syntax paint: ${(j:|:)ordinary}"; exit 3
+    }
+    IFS= _zle_picker_show || exit 4
+    [[ ${(j:|:)painted} == "${(j:|:)ordinary}" ]] || {
+      print -u2 -r -- "empty-IFS syntax paint: ${(j:|:)painted}"; exit 5
+    }
+    _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_DISPLAY=("alpha 12 KB 3 MB")
+    _ZLE_PICKER_DISPLAY_LEFT_ENDS=() _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=()
+    _ZLE_PICKER_DISPLAY_HIGHLIGHTS=("6:11:picker-size 12:16:picker-error")
+    _zle_picker_show || exit 6
+    ordinary=("${painted[@]}")
+    [[ -n ${(M)ordinary:#*fg=141*} && -n ${(M)ordinary:#*fg=142*} ]] || {
+      print -u2 -r -- "ordinary label paint: ${(j:|:)ordinary}"; exit 7
+    }
+    IFS= _zle_picker_show || exit 8
+    [[ ${(j:|:)painted} == "${(j:|:)ordinary}" ]] || {
+      print -u2 -r -- "empty-IFS label paint: ${(j:|:)painted}"; exit 9
+    }
+    print spans-kept
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal spans-kept "$output"
+}
+test_case 'picker repaint during the input reader empty IFS keeps label and syntax spans' \
+  _test_picker_repaint_empty_ifs_spans
+
+# The same journey through a real kernel resize: the reader waits for a key,
+# the resize rewraps and repaints a highlighted document for the new width,
+# and the next key paints from that cached wrap. Every frame must pair each
+# keyword with its string and cache both tokens of the first source row.
+_test_picker_resize_reader_keeps_syntax_spans() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    zmodload zsh/zpty
+    zmodload zsh/zselect
+    command mkfifo "$HOME/events" || exit 1
+    exec {efd}<> "$HOME/events" || exit 2
+    typeset -gA ZSH_HIGHLIGHT_STYLES=(review-keyword fg=143 review-string fg=144)
+    local event="" trace="" terminal="" pfd=0
+    # Stand in for a published Git syntax result on every captured row.
+    functions[_syntax_original_collect]=$functions[_zle_ui_text_collect]
+    _zle_ui_text_collect() {
+      _syntax_original_collect "$@" || return
+      local -i row=0
+      for (( row = 1; row <= ${#_ZLE_PICKER_DOCUMENT_LINES}; ++row )); do
+        _ZLE_PICKER_DOCUMENT_SYNTAX[$row]="0:3:keyword 5:9:string"
+      done
+    }
+    # The painter clears its highlights after the refresh; observe them there.
+    zle() {
+      if [[ $# == 1 && $1 == -R ]] && (( _ZLE_PICKER_READER_ONLY && !_ZLE_PICKER_STATUS_VIEW )); then
+        print -r -u $efd -- "FRAME|$COLUMNS|${#${(M)region_highlight:#*fg=143*}}|${#${(M)region_highlight:#*fg=144*}}|${_ZLE_PICKER_INSPECT_SYNTAX[1]-}"
+      fi
+      builtin zle "$@"
+    }
+    _syntax_reader() {
+      local -a rows=()
+      repeat 60 rows+=(abcdefghij)
+      _zle_ui_read_text Code Literal "${(F)rows}"
+    }
+    _syntax_driver() {
+      command stty rows 30 cols 100
+      command tty > "$HOME/terminal"
+      _zle_picker_run 10 "" 1 0 _syntax_reader
+      print -r -u $efd -- "DONE|$?"
+    }
+    _syntax_expect() {
+      local target=$1 chunk=""
+      local -a fields=()
+      while zselect -r $efd $pfd -t 500; do
+        while zpty -r reader chunk; do trace+=$chunk; done
+        while IFS= read -r -t 0 -u $efd event; do
+          fields=("${(@s:|:)event}")
+          if [[ $fields[1] == FRAME ]]; then
+            [[ $fields[3] == <1-> && $fields[3] == "$fields[4]" &&
+               $fields[5] == "0:3:keyword 5:9:string " ]] || {
+              print -u2 -r -- "frame lost syntax spans: $event"
+              return 1
+            }
+            [[ $fields[2] == "$target" ]] && return 0
+          elif [[ $fields[1] == "$target" ]]; then
+            return 0
+          fi
+        done
+      done
+      print -u2 -r -- "timed out waiting for $target; last=$event"
+      return 1
+    }
+    zpty -b reader _syntax_driver || exit 3
+    pfd=$REPLY
+    {
+      _syntax_expect 100 || exit 4
+      terminal=$(<"$HOME/terminal")
+      [[ $terminal == /dev/ttys<-> || $terminal == /dev/pts/<-> ]] || exit 5
+      command stty cols 90 < "$terminal" || exit 6
+      _syntax_expect 90 || exit 7
+      zpty -w -n reader $'\''\e[B'\''
+      _syntax_expect 90 || exit 8
+      zpty -w -n reader $'\''\x07'\''
+      _syntax_expect DONE || exit 9
+      [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 10
+    } always {
+      zpty -d reader
+      exec {efd}>&-
+    }
+    print syntax-kept
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal syntax-kept "$output"
+}
+test_case 'picker resize inside the input reader keeps cached document syntax spans' \
+  _test_picker_resize_reader_keeps_syntax_spans

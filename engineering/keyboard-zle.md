@@ -88,7 +88,10 @@ Ctrl-X Ctrl-E to command editing.
   painted, so a frame is laid out again before painting whenever the size
   changed during its layout, and the input loop, capture status and paste
   recovery lay out and paint again before waiting for input or starting their
-  work whenever it changed during the paint.
+  work whenever it changed during the paint. It also runs while the input
+  loop waits in `IFS= read`, so layout, wrapping and painting split label,
+  match and syntax span lists on explicit separators, never the ambient
+  `IFS`; a wrap cached there must equal an ordinary one.
 - Hide the original prompt and multiline draft during the modal session and
   restore their exact editing state on exit. Preserve the living prompt's
   pinned/consumed disclosure state and derive the right compact or lens

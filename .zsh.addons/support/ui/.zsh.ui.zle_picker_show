@@ -134,7 +134,7 @@ _zle_picker_show() {
       fi
       region_highlight+=("P${right_start} ${row_end} ${color} memo=my-zsh-picker")
       if (( _ZLE_PICKER_DOCUMENT || _ZLE_PICKER_REFERENCE_VIEW )); then
-        for span in ${=_ZLE_PICKER_DISPLAY_RIGHT_SYNTAX[index]}; do
+        for span in ${(s: :)_ZLE_PICKER_DISPLAY_RIGHT_SYNTAX[index]}; do
           bounds=("${(@s.:.)span}")
           # Compose each surface/token pair once per paint; a length prefix
           # separates arbitrary style text from the semantic token role.
@@ -167,7 +167,7 @@ _zle_picker_show() {
       (picker-selected) selected_row=1 ;;
       (picker-selected-inactive) selected_row=2 ;;
     esac
-    for span in ${=_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]}; do
+    for span in ${(s: :)_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]}; do
       fields=( "${(@s.:.)span}" )
       (( ${#fields} == 3 )) || continue
       [[ ${fields[1]} == <-> && ${fields[2]} == <-> ]] || continue
