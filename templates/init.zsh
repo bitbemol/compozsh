@@ -32,12 +32,14 @@
 # typeset -gU path PATH fpath FPATH
 # path=(/opt/homebrew/bin /opt/homebrew/sbin $path)
 # fpath=(/opt/homebrew/share/zsh/site-functions $fpath)
-# [[ -d /opt/homebrew/opt/ruby/bin ]] &&
+# if [[ -d /opt/homebrew/opt/ruby/bin ]]; then
 #   path=(/opt/homebrew/opt/ruby/bin $path)
+# fi
 
 # A trusted machine-installed hook that genuinely must run before peers.
-# [[ -r "$HOME/.config/example-tool/zsh/init.zsh" ]] &&
+# if [[ -r "$HOME/.config/example-tool/zsh/init.zsh" ]]; then
 #   source "$HOME/.config/example-tool/zsh/init.zsh"
+# fi
 
 # Public defaults that their owning peers will preserve when they load.
 # export EDITOR='vim'

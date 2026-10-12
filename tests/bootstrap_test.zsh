@@ -15,6 +15,42 @@ _test_template_is_inert() {
 test_case 'initializer starter is valid and completely inert' \
   _test_template_is_inert
 
+# Uncommenting a guarded starter example must not make the bootstrap report a
+# load failure merely because the guarded tool is absent. The disposable home
+# never contains the example hook, so its guard is false on every machine.
+_test_template_guarded_example_succeeds_when_absent() {
+  emulate -L zsh
+  test_make_temp_dir || return
+
+  local home="$TEST_TMP_DIR/home" output='' line=''
+  local -a template_lines example_lines
+  local -i index=0 found=0
+
+  template_lines=("${(@f)$(<"$TEST_REPO_ROOT/templates/init.zsh")}")
+  for (( index = 1; index <= $#template_lines; index++ )); do
+    line=${template_lines[index]}
+    if (( found )); then
+      [[ -n $line ]] || break
+      [[ $line == '# '* ]] ||
+        test_fail "starter example line is not commented: $line" || return
+      example_lines+=("${line#\# }")
+    elif [[ $line == *'A trusted machine-installed hook'* ]]; then
+      found=1
+    fi
+  done
+  (( found && $#example_lines )) ||
+    test_fail 'templates/init.zsh lacks the trusted hook example' || return
+
+  test_write_file "$home/.zsh.addons/local/init.zsh" "${(F)example_lines}" ||
+    return
+  output=$(test_run_interactive "$home" \
+    'source "$1/.zshrc"; print -r -- done' "$TEST_REPO_ROOT" 2>&1)
+  test_assert_equal done "$output" \
+    'uncommented starter example reported a failure'
+}
+test_case 'initializer starter examples succeed when their guards are false' \
+  _test_template_guarded_example_succeeds_when_absent
+
 _test_noninteractive_bootstrap_guard() {
   test_make_temp_dir || return
   local output=''
