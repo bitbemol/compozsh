@@ -1433,7 +1433,11 @@ _zle_autosuggest_update() {
   )
 }
 
-_zle_autosuggest_reset() {
+# Remove only this feature's suggestion display. Zsh paints a finished line
+# into scrollback after the line-finish hooks, so this also runs at every
+# finish: top-level, continuation, nested and prompt-less editors alike.
+# Suspension and the cache stay with line-init and the picker session.
+_zle_autosuggest_clear_display() {
   emulate -L zsh
 
   region_highlight=("${(@)region_highlight:#*memo=my-zsh-autosuggestion}")
@@ -1441,12 +1445,19 @@ _zle_autosuggest_reset() {
         $POSTDISPLAY == "$_ZLE_AUTOSUGGEST_DISPLAY" ]]; then
     POSTDISPLAY=''
   fi
+  _ZLE_AUTOSUGGEST_SUFFIX='' _ZLE_AUTOSUGGEST_DISPLAY=''
+  # A no-op must not stop another independently registered finish hook.
+  return 0
+}
+
+_zle_autosuggest_reset() {
+  emulate -L zsh
+
+  _zle_autosuggest_clear_display
   _ZLE_AUTOSUGGEST_SUSPENDED=0
   _ZLE_AUTOSUGGEST_CACHE_BUFFER=''
   _ZLE_AUTOSUGGEST_CACHE_HISTORY=''
   _ZLE_AUTOSUGGEST_CACHE_FULL=''
-  _ZLE_AUTOSUGGEST_SUFFIX=''
-  _ZLE_AUTOSUGGEST_DISPLAY=''
 }
 
 _zle_autosuggest_is_active() {
@@ -1583,7 +1594,9 @@ add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update 2>/dev/null
 add-zle-hook-widget line-pre-redraw _zle_autosuggest_update
 add-zle-hook-widget line-pre-redraw _zle_prompt_pre_redraw
 
+add-zle-hook-widget -d line-finish _zle_autosuggest_clear_display 2>/dev/null
 add-zle-hook-widget -d line-finish _zle_prompt_line_finish 2>/dev/null
+add-zle-hook-widget line-finish _zle_autosuggest_clear_display
 add-zle-hook-widget line-finish _zle_prompt_line_finish
 
 :

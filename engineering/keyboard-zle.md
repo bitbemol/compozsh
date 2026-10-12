@@ -104,6 +104,9 @@ Ctrl-X Ctrl-E to command editing.
 
 - Preserve other widgets' `region_highlight`, `PREDISPLAY` and `POSTDISPLAY`.
   Use Zsh 5.9 memo tags to remove only highlights owned here.
+- Zsh paints a finished line into scrollback after the line-finish hooks, so
+  the editor removes only its own unaccepted suggestion display at every line
+  finish: top-level, continuation, nested or without the prompt peer.
 - Living-prompt repaint additionally preserves `BUFFER`, `CURSOR`, undo and
   history behavior and the prompt disclosure state.
 - Peers that register hooks re-register them in one canonical order so load

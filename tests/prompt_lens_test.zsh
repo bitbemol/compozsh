@@ -1239,7 +1239,10 @@ _test_living_prompt_peer_hooks_converge_and_missing_capabilities_noop() {
       # redraw, rather than showing an autosuggestion one keypress late.
       [[ ${(j:,:)pre_redraw_hooks} ==
          _zle_syntax_highlight,_zle_autosuggest_update,_zle_prompt_pre_redraw ]] || exit 1
-      [[ ${(j:,:)finish_hooks} == _zle_prompt_line_finish ]] || exit 2
+      # The editor removes its own suggestion display at every line finish,
+      # before the optional top-level transcript adapter.
+      [[ ${(j:,:)finish_hooks} ==
+         _zle_autosuggest_clear_display,_zle_prompt_line_finish ]] || exit 2
       [[ ${widgets[compozsh-context-lens]} == user:_zle_prompt_toggle_widget ]] || exit 3
       [[ $(bindkey $'"'"'\ei'"'"') == *compozsh-context-lens ]] || exit 4
 

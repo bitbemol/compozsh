@@ -442,7 +442,10 @@ entry appears in dim gray. It is display-only: Enter runs only what you typed.
 
 `Ctrl-_` undoes an acceptance. Matching uses a case-sensitive prefix over the
 512 most recent history events, with no subprocess or index. Suggestions stay
-hidden for leading-space commands, multiline input and entries with control bytes.
+hidden for leading-space commands, multiline buffers and entries with control
+bytes. Pressing Enter clears an unaccepted suggestion before the line reaches
+scrollback, on continuation prompts too; a line interrupted with Ctrl-C stays
+as painted.
 
 ```zsh
 ZSH_AUTOSUGGEST_ENABLED=0

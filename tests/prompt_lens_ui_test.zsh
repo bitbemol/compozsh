@@ -505,3 +505,120 @@ _prompt_test_emit "SOURCE|$(command tty)"
 }
 test_case 'living prompt native resize reflows the interaction lens from cached facts without provider discovery' \
   _test_living_prompt_native_resize_reflows_cached_facts
+
+_test_editor_autosuggestion_line_finish_everywhere() {
+  test_make_temp_dir || return
+  local observer='
+zmodload zsh/parameter || return 1
+typeset -gi _PROMPT_TEST_EVENT_FD=0
+exec {_PROMPT_TEST_EVENT_FD}<> "$HOME/events" || return 1
+
+# Hooks added here run after the editor peer hooks, so each event reports
+# the state that Zsh paints after the editor has finished with the line.
+_prompt_test_ghost_event() {
+  local event_buffer=${(V)BUFFER} event_postdisplay=${(V)POSTDISPLAY}
+  local event_highlight=${(V)${(j:;:)region_highlight}}
+  print -r -u $_PROMPT_TEST_EVENT_FD -- "$1|${CONTEXT:-none}|${event_buffer:-<empty>}|${event_postdisplay:-<empty>}|${event_highlight:-<empty>}"
+}
+_prompt_test_ghost_init() { _prompt_test_ghost_event INIT; }
+_prompt_test_ghost_redraw() { _prompt_test_ghost_event REDRAW; }
+_prompt_test_ghost_finish() { _prompt_test_ghost_event FINISH; }
+_prompt_test_command() { print -r -u $_PROMPT_TEST_EVENT_FD -- EXECUTED; }
+
+autoload -Uz add-zle-hook-widget
+add-zle-hook-widget line-init _prompt_test_ghost_init
+add-zle-hook-widget line-pre-redraw _prompt_test_ghost_redraw
+add-zle-hook-widget line-finish _prompt_test_ghost_finish
+print -s -- "_prompt_test_command-GHOST"
+print -r -u $_PROMPT_TEST_EVENT_FD -- SOURCE
+:'
+  # Type a history prefix, press Return and require the finish-time editor
+  # state, which Zsh paints into scrollback, to hold no unaccepted tail.
+  local journey='
+    zmodload zsh/zpty || exit 1
+    zmodload zsh/zselect || exit 1
+    exec {event_fd}<> "$HOME/events" || exit 2
+    local event="" chunk="" trace="" context=start enter=$'"'"'\r'"'"'
+    local -i pty_fd=0
+
+    _ghost_finish_driver() {
+      builtin cd -- "$HOME" || return 1
+      exec env -i PATH="$PATH" HOME="$HOME" ZDOTDIR="$HOME" \
+        TERM=xterm-256color TMPDIR="${TMPDIR:-/tmp}" LC_ALL=en_US.UTF-8 \
+        "$1" -di
+    }
+    _ghost_finish_expect() {
+      local wanted=$1
+      while zselect -r $event_fd $pty_fd -t 500; do
+        while zpty -r ghost-finish chunk; do trace+=$chunk; done
+        if IFS= read -r -t 0 -u $event_fd event; then
+          [[ $event == "$wanted"* ]] && return 0
+        fi
+      done
+      while zpty -r ghost-finish chunk; do trace+=$chunk; done
+      print -u2 -r -- "$2: expected event prefix ${(qqq)wanted}; last=${(qqq)event}"
+      print -u2 -r -- "PTY trace: ${(V)trace[-1200,-1]}"
+      return 1
+    }
+
+    zpty -b ghost-finish _ghost_finish_driver "$1" || exit 3
+    pty_fd=$REPLY
+    {
+      _ghost_finish_expect SOURCE "$2" || exit 4
+      _ghost_finish_expect "INIT|start|<empty>|" "$2" || exit 5
+      if [[ $2 == continuation ]]; then
+        context=cont
+        zpty -w -n ghost-finish "if true; then$enter"
+        _ghost_finish_expect "FINISH|start|if true; then|" "$2" || exit 6
+        _ghost_finish_expect "INIT|cont|<empty>|" "$2" || exit 7
+      fi
+      zpty -w -n ghost-finish _prompt_test_command
+      _ghost_finish_expect "REDRAW|$context|_prompt_test_command|-GHOST|" "$2" || exit 8
+      [[ $event == *memo=my-zsh-autosuggestion* ]] || {
+        print -u2 -r -- "$2: suggestion was not highlighted: $event"
+        exit 9
+      }
+      zpty -w -n ghost-finish "$enter"
+      _ghost_finish_expect "FINISH|$context|_prompt_test_command|" "$2" || exit 10
+      local -a fields=("${(@s:|:)event}")
+      [[ $fields[4] == "<empty>" && $fields[5] != *memo=my-zsh-autosuggestion* ]] || {
+        print -u2 -r -- "$2: line finish kept the unaccepted suggestion: $event"
+        exit 11
+      }
+      [[ $context == start ]] || zpty -w -n ghost-finish "fi$enter"
+      _ghost_finish_expect EXECUTED "$2" || exit 12
+    } always {
+      zpty -d ghost-finish 2>/dev/null
+      exec {event_fd}>&-
+    }
+    print -r -- "ghost-free $2"
+  '
+  local alone="$TEST_TMP_DIR/alone" full="$TEST_TMP_DIR/full"
+  local alone_output='' full_output=''
+
+  # A prompt-less install: only the editor peer and the observer.
+  command mkdir -p -- "$alone" || return
+  command mkfifo "$alone/events" || return
+  test_write_file "$alone/observer.zsh" "$observer" || return
+  test_write_file "$alone/.zshrc" "
+source ${(q)TEST_REPO_ROOT}/.zsh.addons/.zsh.editor
+source ${(q)alone}/observer.zsh
+" || return
+
+  # The full shipped configuration on a continuation (PS2) line.
+  command mkdir -p -- "$full/.zsh.addons/private" || return
+  command ln -s "$TEST_REPO_ROOT/.zshrc" "$full/.zshrc" || return
+  command mkfifo "$full/events" || return
+  test_write_file "$full/.zsh.addons/local/init.zsh" 'HISTFILE=/dev/null' || return
+  test_write_file "$full/.zsh.addons/private/.zsh.ghost-finish-observer" "$observer" || return
+
+  # Run both journeys before asserting so a failure reports each install.
+  alone_output=$(test_run_interactive "$alone" "$journey" "$TEST_ZSH_BIN" prompt-less) ||
+    alone_output+=" (exit $?)"
+  full_output=$(test_run_interactive "$full" "$journey" "$TEST_ZSH_BIN" continuation) ||
+    full_output+=" (exit $?)"
+  test_assert_equal 'ghost-free prompt-less' "$alone_output" || return
+  test_assert_equal 'ghost-free continuation' "$full_output"
+}
+test_case 'editor removes its unaccepted autosuggestion at every line finish, including continuation lines and prompt-less installs' \
+  _test_editor_autosuggestion_line_finish_everywhere

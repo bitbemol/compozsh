@@ -1070,7 +1070,12 @@ program itself. `HIST_IGNORE_SPACE` is enabled, but a leading space is only a
 convenience and not a secret-storage mechanism. Prefer the macOS Keychain or a
 dedicated secret store, and rotate any credential that was exposed. Ctrl-X
 Ctrl-E hands the whole draft to your editor through a temporary file (see the
-[inventory](#complete-local-data-inventory)). Only the Interaction lens and
+[inventory](#complete-local-data-inventory)). History autosuggestions show the
+unaccepted rest of a matching recent history entry beside the draft; accepting
+a line removes it before Zsh repaints that line into scrollback, on
+continuation and nested lines and without the prompt peer too, but a line
+interrupted with Ctrl-C stays on screen as painted.
+Only the Interaction lens and
 the terminal title, both secondary presentations, omit assignment values; the
 living prompt transcript deliberately retains the exact submitted command text.
 Both behaviors are presentation choices, not a
