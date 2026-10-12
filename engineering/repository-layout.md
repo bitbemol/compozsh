@@ -127,10 +127,12 @@ compozsh/
 
 The local initializer is optional and read only when it exists. It is the sole
 ordering exception and loads before peer discovery. Its default path is
-`~/.zsh.addons/local/init.zsh` (override: `ZSH_LOCAL_INIT`), and its basename
-must not match `.zsh.<name>` so discovery cannot load it twice. It may set
-`PATH`, Homebrew or language-manager environments, selected runtimes, trusted
-vendor hooks that need early loading, and documented public defaults. It must
+`~/.zsh.addons/local/init.zsh` (override: an absolute `ZSH_LOCAL_INIT`; a
+relative path is refused with a diagnostic, never resolved against the start
+directory), and its basename must not match `.zsh.<name>` so discovery cannot
+load it twice. It may set `PATH`, Homebrew or language-manager environments,
+selected runtimes, trusted vendor hooks that need early loading, and
+documented public defaults. It must
 not call peer functions during setup. Aliases, ordinary functions and
 app-specific behavior that don't need first-load semantics belong in focused
 private peers. Add no further phases

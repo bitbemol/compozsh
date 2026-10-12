@@ -108,7 +108,7 @@ recoverable installer need local state.
 | --- | --- | --- |
 | Command history | `${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}` by default | Zsh's normal local, shared history and the in-memory history picker |
 | Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`, written by Zsh's stock `compinit` (called bare by `.zsh.editor`) when a fresh shell finds it missing or its `fpath` file count or Zsh version changed; persists until deleted, including after `--clean` and uninstall | [Zsh-generated shell code](#native-completion-dump) that `compinit` sources: the count, Zsh version and the verbatim first-line words of `fpath` completion files (normally function, command, service, pattern and key names), private entries included, plus completion widget bindings. No `fpath` directory paths, file bodies, history, environment values or project data. Mode follows the umask at write time (0644 under the default 022); an interrupted write can leave `.zcompdump.<host>.<pid>` |
-| Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
+| Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons`; an initializer moved by `ZSH_LOCAL_INIT` stays at that absolute path (a relative value is ignored) | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory; discarded with the shell or view | Color-scheme classification, runtime versions, Git state, paths, Context trigger/disclosure flags, positive/exclusion fields and their bookmarks, temporary view snapshots |
@@ -1495,10 +1495,13 @@ git grep -nE '(^|[[:space:]])(source|eval)[[:space:]]' \
 
 The tracked bootstrap sources the optional machine-local initializer and every
 matching peer beneath the repository and user add-on directories, excluding the
-reserved `support/cache` data directory. The tracked starter is inert, but an
-existing private initializer or peer is user-owned code and must be audited
-separately. Within that boundary, peers autoload stock Zsh functions from
-`fpath` (such as `compinit` and `add-zle-hook-widget`), and `.zsh.editor`'s
+reserved `support/cache` data directory. An explicit `ZSH_LOCAL_INIT` must be
+an absolute path: the bootstrap ignores a relative initializer path with a
+diagnostic and never resolves it against the current directory
+(`zsh tests/run.zsh 'relative ZSH_LOCAL_INIT'`). The tracked starter is inert,
+but an existing private initializer or peer is user-owned code and must be
+audited separately. Within that boundary, peers autoload stock Zsh functions
+from `fpath` (such as `compinit` and `add-zle-hook-widget`), and `.zsh.editor`'s
 `compinit` also sources Zsh's own [completion dump](#native-completion-dump)
 from the configuration base and autoloads completion functions. Compozsh adds
 no `fpath` entry, and neither path comes from the current directory while

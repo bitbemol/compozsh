@@ -288,6 +288,35 @@ _test_completion_dump_records_names_without_paths() {
 test_case 'security: native completion dump records fpath names without paths at the configuration base' \
   _test_completion_dump_records_names_without_paths
 
+# A relative initializer path would resolve against whichever directory a new
+# shell or a re-source starts in, so project files there must never run. The
+# absolute control proves the same loop still loads an explicit initializer.
+_test_relative_local_initializer_is_refused() {
+  test_make_temp_dir || return
+  local root=$TEST_TMP_DIR output='' marker='typeset -g PROJECT_INIT_RAN=1'
+  local notice='zsh: ignoring relative local initializer path (use an absolute ZSH_LOCAL_INIT): '
+  test_write_file "$root/project/machine-init.zsh" "$marker" || return
+  test_write_file "$root/project/.config/zsh/machine-init.zsh" "$marker" || return
+  test_write_file "$root/project/~/machine-init.zsh" "$marker" || return
+
+  # .zsh.shell sets NO_CLOBBER, so later loads replace stderr with 2>|.
+  output=$(test_run_interactive "$root/home" '
+    cd -- "$2" || exit 1
+    typeset -a seen=()
+    for ZSH_LOCAL_INIT in machine-init.zsh .config/zsh/machine-init.zsh "~/machine-init.zsh" "$2/machine-init.zsh"; do
+      unset PROJECT_INIT_RAN
+      source "$1/.zshrc" 2>|"$3" || exit 2
+      seen+=("${PROJECT_INIT_RAN:-0}:$(<"$3")")
+    done
+    print -r -- "${(j:|:)seen}"' \
+    "$TEST_REPO_ROOT" "$root/project" "$root/stderr") || return
+  test_assert_equal \
+    "0:${notice}machine-init.zsh|0:${notice}.config/zsh/machine-init.zsh|0:${notice}~/machine-init.zsh|1:" \
+    "$output" 'a relative ZSH_LOCAL_INIT was resolved against the start directory'
+}
+test_case 'security: a relative ZSH_LOCAL_INIT never sources a file from the start directory' \
+  _test_relative_local_initializer_is_refused
+
 # Every external-media mktemp call must use a literal name that the public
 # disclosure section lists, so a new temporary file cannot ship unlisted.
 _test_external_media_temporary_names_are_disclosed() {

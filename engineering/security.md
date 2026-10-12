@@ -101,10 +101,11 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
 
 ## Execution, installers and destructive actions
 
-- Startup sourcing is restricted to the fixed or explicit local initializer,
-  shared peers adjacent to the resolved bootstrap, and private peers in the
-  fixed user add-on directory. Add-on names and paths never come from the
-  current directory or project metadata. Two native mechanisms sit outside
+- Startup sourcing is restricted to the fixed or explicit absolute local
+  initializer, shared peers adjacent to the resolved bootstrap, and private
+  peers in the fixed user add-on directory. Add-on names and paths never come
+  from the current directory or project metadata, so a relative initializer
+  path is refused with a diagnostic. Two native mechanisms sit outside
   that list: Zsh's stock functions autoloaded from `fpath` (such as `compinit`
   and `add-zle-hook-widget`), and stock `compinit`'s sourcing of its
   configuration-base dump. Keep the `compinit` call bare and add no `fpath`

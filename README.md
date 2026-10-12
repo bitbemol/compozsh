@@ -1553,6 +1553,10 @@ Zsh starts, for example from `.zshenv`:
 export ZSH_LOCAL_INIT="$HOME/.config/zsh/machine-init.zsh"
 ```
 
+The value must be an absolute path. A relative value, including a quoted `~`
+that Zsh leaves unexpanded, is ignored with a diagnostic instead of being
+resolved against the directory a shell starts in.
+
 Keep passwords and API tokens out of these files. An older `~/.zshrc.local`
 can be moved to `local/init.zsh` (merge by hand if both exist).
 

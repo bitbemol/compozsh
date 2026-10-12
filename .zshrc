@@ -13,9 +13,14 @@ typeset _zsh_user_addons_dir=${ZDOTDIR:-$HOME}/.zsh.addons
 # This is the only ordered boundary. It may initialize Homebrew, PATH, Ruby,
 # editor/agent hooks, environment variables, and public defaults that
 # shared add-ons consume. Its basename deliberately does not match .zsh.<name>,
-# so recursive peer discovery cannot source it a second time.
+# so recursive peer discovery cannot source it a second time. A relative path
+# would resolve against the start directory, which may be a project, so it is
+# refused rather than sourced.
 typeset _zsh_local_init=${ZSH_LOCAL_INIT:-$_zsh_user_addons_dir/local/init.zsh}
-if [[ -f $_zsh_local_init && -r $_zsh_local_init ]]; then
+if [[ $_zsh_local_init != /* ]]; then
+  print -u2 -r -- 'zsh: ignoring relative local initializer path' \
+    "(use an absolute ZSH_LOCAL_INIT): $_zsh_local_init"
+elif [[ -f $_zsh_local_init && -r $_zsh_local_init ]]; then
   if ! source "$_zsh_local_init"; then
     print -u2 -r -- "zsh: local initializer failed to load: $_zsh_local_init"
   fi
