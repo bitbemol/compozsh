@@ -310,7 +310,9 @@ _compozsh_help_view() {
       "Compose example: $_help_compose_seed"$'\n\nOpen an authored template with editable fields.\nNothing executes. Replace draft explicitly returns the generated command to your prompt.\nEscape keeps your original draft.' "${_HELP_TOPIC_TEXTS[-1]}")
     _ZLE_PICKER_ACCEPT_LABELS[$_HELP_COMPOSE_INDEX]=compose
   fi
-  _ZLE_PICKER_TITLE="Help / ${${_HELP_USAGE#usage: }%% *}"
+  # Title with the trusted command identity, never notice prose; only subcommand
+  # help passes none and keeps the word after its usage prefix.
+  _ZLE_PICKER_TITLE="Help / ${2:-${${_HELP_USAGE#usage: }%% *}}"
   _ZLE_PICKER_SUBTITLE=$_HELP_DESCRIPTION
   _ZLE_PICKER_QUERY_LABEL='Find a topic'
   _ZLE_PICKER_BROWSE_LABEL='Captured guide · read only'

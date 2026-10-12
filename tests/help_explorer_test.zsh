@@ -238,3 +238,42 @@ _test_compozsh_picker_fuzzily_filters_the_live_catalog() {
 }
 test_case 'Compozsh tool picker fuzzily filters the live catalog' \
   _test_compozsh_picker_fuzzily_filters_the_live_catalog
+
+_test_compozsh_explorer_titles_notices_with_the_selected_tool() {
+  test_make_temp_dir || return
+  local output=''
+
+  # Each loop visit consumes one step: a tool or topic to open, or back.
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/.zsh.help" || exit
+    _COMPOZSH_TOOL_NAMES=(demo-tool limited documented)
+    typeset -ga titles=() steps=(demo-tool 1 back limited back documented back back)
+    _compozsh_tool_inspector_capture() {
+      _ZLE_PICKER_INSPECT_TEXTS=(
+        demo-tool "No Compozsh help is available for demo-tool.
+Defined in: .zsh.fixture"
+        limited "Preview limit reached. Pipe compozsh help limited for the full guide."
+        documented "usage: documented [name]
+Explain a documented tool.")
+    }
+    _zle_picker_run() { "${@[-1]}" }
+    _zle_ui_read_text() { titles+=("$1"); return 1 }
+    _zle_picker_loop() {
+      local step=${steps[1]-back}
+      (( ${#steps} )) && steps[1]=()
+      [[ $_ZLE_PICKER_TITLE == "Tool explorer" ]] || titles+=("$_ZLE_PICKER_TITLE")
+      [[ $step == back ]] && return 1
+      _ZLE_PICKER_SELECTED_VALUE=$step _ZLE_PICKER_BOOKMARK=("" 1 0)
+      return 0
+    }
+    _compozsh_choose
+    print -r -- "${(j:|:)titles}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal \
+    'Help / demo-tool|Help / demo-tool / Overview|Help / demo-tool|Help / limited|Help / documented' \
+    "$output" 'help workspace title did not name the selected tool'
+}
+test_case 'tool explorer titles missing-help and preview-limit notices with the selected tool' \
+  _test_compozsh_explorer_titles_notices_with_the_selected_tool

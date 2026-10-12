@@ -281,6 +281,9 @@ presentation while keeping their own capture, action and confirmation rules.
 Direct owned help and tool-catalog Enter share a topic workspace over one
 bounded static help capture.
 
+- The title names the catalog tool or owned command (subcommand help keeps
+  its usage line's command word), never missing-help or preview-limit notice
+  prose; the topic reader extends that title.
 - The description stays in the context row; Overview keeps the complete
   captured usage and description. Derive at most 128 topics from headings and
   documented argument/mode prefixes, plus a Complete guide entry for
