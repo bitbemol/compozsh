@@ -1257,9 +1257,11 @@ Names containing `x86_64`/`amd64` or `arm64`/`aarch64` show **x86-64** or
 **ARM64**; the image must suit the hardware that will boot it.
 
 - Regular `.img` and non-Windows `.iso` files use the raw writer.
-- A complete `Install macOS <name>.app` uses Apple's `createinstallmedia` after
-  its code signature is checked; open a downloaded `.dmg` or `.pkg` first so it
-  installs the full app ([Apple's guide](https://support.apple.com/101578)).
+- A complete `Install macOS <name>.app` uses Apple's `createinstallmedia` only
+  after `codesign` confirms Apple's signature on the app and on that tool; a
+  copy whose signature no longer validates, such as an older installer with an
+  expired certificate, is refused. Open a downloaded `.dmg` or `.pkg` first so
+  it installs the full app ([Apple's guide](https://support.apple.com/101578)).
 - **Windows Setup media is refused** before any drive is chosen: portable setup
   media needs FAT32, current images can contain an `install.wim` too large for
   it, and stock macOS has no supported way to split it

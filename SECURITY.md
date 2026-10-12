@@ -1054,6 +1054,36 @@ state-changing mode.
    Apple-signature-validated `createinstallmedia` from the explicitly selected
    macOS installer application.
 
+Apple signature validation never consults the requirement a signer declares
+for its own code. `_usb_codesign_is_apple` and
+`_usb_codesign_is_apple_application` in `.zsh.addons/.zsh.usb` pass fixed
+requirements to `/usr/bin/codesign --verify --strict -R`: the
+`Contents/Resources/createinstallmedia` that runs as root must satisfy
+`anchor apple` (Apple's own code), and the enclosing `Install macOS <name>.app`
+must satisfy
+`anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */)`,
+which also admits Apple's Mac App Store signature. Both checks run when the
+installer is selected, again after administrator authorization, and again
+after the drive is prepared and immediately before `createinstallmedia` starts;
+the last two also compare the installer's and tool's captured device, inode
+and times and the tool's size. An installer whose signature no longer
+validates, including a genuine older copy whose Apple certificate has expired
+or whose chain is not trusted, is refused, because `codesign` then cannot
+establish that Apple signed it; download a current copy from Apple instead.
+Check an installer yourself with
+`codesign --verify --strict -R '=anchor apple' "/Applications/Install macOS <name>.app/Contents/Resources/createinstallmedia"`
+and, for the application, the second requirement in the same form (expected: no
+output, status 0; a refused object prints
+`code failed to satisfy specified code requirement(s)` with status 3, or
+another `codesign` error). `zsh tests/run.zsh 'USB Apple signature boundary'`
+ad-hoc signs copies of `/usr/bin/true` in a temporary directory, without the
+keychain or network, that declare `anchor apple`, a Developer ID-shaped or a
+Mac App Store-shaped requirement or sit under a folder named `anchor apple`,
+plus an ad-hoc signed `Install macOS Example.app`, and checks that each is
+refused while Apple's `/usr/bin/hdiutil` passes both requirements. No hermetic
+fixture carries a genuine installer signature, so the tests do not show that a
+real installer is accepted.
+
 The raw-image routine passes image paths, captured source fingerprints, device
 names, sizes, and verification flags as literal arguments. Its privileged
 routine opens the source once with no-follow semantics, verifies the held file
@@ -1637,6 +1667,7 @@ server.
 | Task routing and external-device modes | `task families`, `USB verification progress` |
 | USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds`, `backup GPT entry` |
 | External media writes, read-back and temporary files | `USB raw`, `USB verification`, `USB temporary`, `ISO inspection`, `external-media temporary` |
+| Apple signature before `createinstallmedia` runs as root | `USB Apple signature boundary`, `USB macOS` |
 | Touch ID policy in unprivileged fixtures | `sudo Touch ID` |
 
 These checks do not establish: an operating-system sandbox or OS protection

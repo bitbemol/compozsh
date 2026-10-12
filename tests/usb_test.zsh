@@ -340,6 +340,82 @@ _test_usb_apple_signature_boundary_rejects_unsigned_tools() {
 test_case 'USB macOS handler accepts Apple code and rejects unsigned tools' \
   _test_usb_apple_signature_boundary_rejects_unsigned_tools
 
+# Ad-hoc signatures may declare any designated requirement and live under any
+# path; only a requirement the caller supplies to codesign establishes Apple.
+_test_usb_apple_signature_boundary_rejects_declared_requirements() {
+  test_make_temp_dir || return
+  local installer="$TEST_TMP_DIR/Install macOS Example.app" output='' name=''
+  local -A requirements=(
+    self 'designated => anchor apple'
+    generic 'designated => anchor apple generic and certificate leaf[subject.OU] = "ABCDE12345"'
+    store 'designated => anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */'
+  )
+  for name in self 'anchor apple' generic store; do
+    command mkdir -p "$TEST_TMP_DIR/$name" || return
+    command cp /usr/bin/true "$TEST_TMP_DIR/$name/createinstallmedia" || return
+    if [[ -n ${requirements[$name]} ]]; then
+      command /usr/bin/codesign -f -s - -r="${requirements[$name]}" \
+        "$TEST_TMP_DIR/$name/createinstallmedia" >/dev/null 2>&1 || return
+    else
+      command /usr/bin/codesign -f -s - \
+        "$TEST_TMP_DIR/$name/createinstallmedia" >/dev/null 2>&1 || return
+    fi
+  done
+  command mkdir -p "$installer/Contents/MacOS" "$installer/Contents/Resources" || return
+  test_write_file "$installer/Contents/Info.plist" '<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>main</string>
+<key>CFBundleIdentifier</key><string>com.example.install-macos</string>
+</dict></plist>' || return
+  command cp /usr/bin/true "$installer/Contents/MacOS/main" || return
+  command cp /usr/bin/true "$installer/Contents/Resources/createinstallmedia" || return
+  command /usr/bin/codesign -f -s - -r="${requirements[self]}" \
+    "$installer/Contents/Resources/createinstallmedia" >/dev/null 2>&1 || return
+  command /usr/bin/codesign -f -s - -r="${requirements[self]}" \
+    "$installer" >/dev/null 2>&1 || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    _usb_codesign_is_apple /usr/bin/hdiutil
+    print -r -- "hdiutil:$?"
+    _usb_codesign_is_apple "$2/self/createinstallmedia"
+    print -r -- "self:$?"
+    _usb_codesign_is_apple "$2/anchor apple/createinstallmedia"
+    print -r -- "path:$?"
+    _usb_codesign_is_apple "$2/generic/createinstallmedia"
+    print -r -- "generic:$?"
+    _usb_macos_codesign_verify "$3"
+    print -r -- "bundle:$?"
+    _usb_codesign_is_apple_application /usr/bin/hdiutil
+    print -r -- "application-apple:$?"
+    _usb_codesign_is_apple_application "$2/store/createinstallmedia"
+    print -r -- "application-store:$?"
+    _usb_codesign_is_apple_application "$2/generic/createinstallmedia"
+    print -r -- "application-generic:$?"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" "$installer" 2>&1) || return
+
+  test_assert_contains "$output" 'hdiutil:0' \
+    'the Apple signature boundary rejected a native Apple code object' || return
+  test_assert_contains "$output" 'self:1' \
+    'a self-declared anchor apple requirement passed as Apple-signed' || return
+  test_assert_contains "$output" 'path:1' \
+    'an anchor apple path component passed as Apple-signed' || return
+  test_assert_contains "$output" 'generic:1' \
+    'a Developer ID-shaped requirement passed as Apple-signed' || return
+  test_assert_contains "$output" 'bundle:1' \
+    'a self-signed installer bundle passed as Apple-signed' || return
+  test_assert_contains "$output" 'application-apple:0' \
+    'the installer application boundary rejected native Apple code' || return
+  test_assert_contains "$output" 'application-store:1' \
+    'a self-declared Mac App Store requirement passed the installer application boundary' || return
+  test_assert_contains "$output" 'application-generic:1' \
+    'a Developer ID-shaped requirement passed the installer application boundary'
+}
+test_case 'USB Apple signature boundary rejects self-declared, path-borne and Developer ID requirements' \
+  _test_usb_apple_signature_boundary_rejects_declared_requirements
+
 _test_usb_media_dispatcher_rejects_windows_execution() {
   test_make_temp_dir || return
   local output=''

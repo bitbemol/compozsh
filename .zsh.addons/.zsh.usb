@@ -203,27 +203,22 @@ _usb_macos_installer_fingerprint() {
   REPLY="$root_stat|$tool_stat"
 }
 
+# Apple identity comes only from requirements this file passes to codesign; a
+# signer chooses its own designated requirement, so it is never consulted. A
+# signature that no longer validates (an untrusted or expired chain) fails.
 _usb_codesign_is_apple() {
   emulate -L zsh
-  local path=$1 requirement='' normalized='' verification='' line=''
-  local -i verify_status=0
-  verification=$(command /usr/bin/codesign --verify --strict "$path" 2>&1)
-  verify_status=$?
-  (( ${#verification} <= 8192 )) || return 1
-  if (( verify_status != 0 )); then
-    [[ $verification == *CSSMERR_TP_NOT_TRUSTED* ]] || return 1
-    for line in "${(f)verification}"; do
-      case $line in
-        (*': CSSMERR_TP_NOT_TRUSTED'|'In architecture: '*) ;;
-        (*) return 1 ;;
-      esac
-    done
-  fi
-  requirement=$(command /usr/bin/codesign -d -r- "$path" 2>&1) || return 1
-  (( ${#requirement} <= 8192 )) || return 1
-  normalized=${requirement//$'\n'/}
-  [[ $normalized != *[[:cntrl:]]* ]] || return 1
-  [[ $requirement == *'anchor apple'* ]]
+  command /usr/bin/codesign --verify --strict -R '=anchor apple' -- "$1" \
+    >/dev/null 2>&1 || return 1
+}
+
+# The installer application may also carry Apple's Mac App Store signature;
+# the createinstallmedia tool that runs as root must be Apple's own code.
+_usb_codesign_is_apple_application() {
+  emulate -L zsh
+  command /usr/bin/codesign --verify --strict \
+    -R '=anchor apple or (anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */)' \
+    -- "$1" >/dev/null 2>&1 || return 1
 }
 
 _usb_macos_codesign_verify() {
@@ -231,7 +226,7 @@ _usb_macos_codesign_verify() {
   local installer=$1 tool=''
   _usb_macos_installer_tool "$installer" || return 1
   tool=$REPLY
-  _usb_codesign_is_apple "$installer" || return 1
+  _usb_codesign_is_apple_application "$installer" || return 1
   _usb_codesign_is_apple "$tool"
 }
 
