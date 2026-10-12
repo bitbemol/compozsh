@@ -24,7 +24,7 @@ when work spans sessions (record progress and remaining steps there).
 | [manual-concurrency](manual-concurrency.md) | Async manual capture lifecycle and the unshipped worker-pool experiment | [manual cache](../engineering/manual-cache.md#asynchronous-prompt-capture) |
 | [palette-perception](palette-perception.md) | Palette research, contrast targets and diff colors | [architecture](../engineering/architecture.md#shared-behavior-ownership) |
 | [shared-architecture-sign-off](shared-architecture-sign-off.md) | Decision record for the shared support/UI extraction | [architecture](../engineering/architecture.md) |
-| [terminal-startup-latency](terminal-startup-latency.md) | First-editable-prompt diagnosis, cache design and measurements | [caching](../engineering/caching.md), [manual cache](../engineering/manual-cache.md) |
+| [terminal-startup-latency](terminal-startup-latency.md) | First-editable-prompt diagnosis, cache design and measurements; help-capture cost | [caching](../engineering/caching.md), [manual cache](../engineering/manual-cache.md) |
 | [tool-entry-points](tool-entry-points.md) | Task-family command consolidation and retired commands | [interaction design](../engineering/interaction-design.md#entry-points) |
 | [usb-progress-integer-bounds](usb-progress-integer-bounds.md) | USB progress, phase, disk-size and GPT numbers bounded before arithmetic; native capped read | [security](../engineering/security.md), [SECURITY.md](../SECURITY.md#external-devices-and-task-routing) |
 | [xcode-destination-run](xcode-destination-run.md) | Native argument evidence for Run on every concrete destination | [Xcode workspace](../engineering/workspaces/xcode.md#run-targets) |
@@ -44,6 +44,9 @@ the first editable prompt in a PTY, fresh and warm) and
 `workspace-first-frame.zsh` the first painted full-screen frame of Browse,
 Search, Ctrl-R history and Git review in a PTY, both alternating two trees
 ([excellence run](excellence-2026-10-12.md#method));
+`help-first-prompt.zsh` measures the first prompt's help-description capture
+in one tree against diagnostic variants
+([excellence run](excellence-2026-10-12.md#owner-decisions));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 

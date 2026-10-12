@@ -225,3 +225,15 @@ was added. Baseline before changes: 866 passed, zero failed, 199516.1 ms.
 No work-Mac timing or manual Terminal.app visual acceptance is claimed. These
 cache-only results precede the [implemented asynchronous delivery and its separate
 verification](manual-concurrency.md#implemented-lifecycle-increment).
+
+## Help-description capture at the first prompt (2026-10-12)
+
+Separate from the manual capture above: the help peer's capture still runs
+synchronously at the first TTY `precmd`, one fork per guide. At `cd61e3c` it
+cost about 13 ms of the warm first editable prompt (seven reads with the
+shipped peers), plus about 1.9 ms for each further private command with a
+companion. The owner kept per-guide forks over a single-fork batch that would
+save about 4 ms but read complete guides in one shared child. Method,
+numbers and the revisit trigger are in the
+[excellence run](excellence-2026-10-12.md#owner-decisions); reproduce with
+[help-first-prompt.zsh](benchmarks/help-first-prompt.zsh).

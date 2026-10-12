@@ -204,7 +204,88 @@ frame's stripped text; a "missing marker" failure writes the frame it saw to
 
 ## Owner decisions
 
-*Pending.*
+### OD2: first-prompt help capture keeps one fork per guide (HELP-02)
+
+**Decision (owner, 2026-10-12): option (b).** Keep one process substitution
+per help guide and its 4,097-character pipe bound, and record the cost here,
+rather than batch every changed companion into one child process (a) or move
+the capture off the first prompt (c, new background work outside the
+[approved exceptions](../engineering/performance.md#approved-background-work)).
+
+**Cost.** Help snapshots live in shell memory, so the first TTY `precmd` of
+every new interactive shell captures every same-source companion before the
+first editable prompt
+([prompt](../engineering/prompt.md#about-and-alias-expansion)). With the
+shipped peers that is six companions plus the Touch ID subguide: seven reads,
+each one fork. Later prompts fork nothing until a definition changes or
+`compozsh --refresh` clears the snapshot.
+
+Measured with
+[`benchmarks/help-first-prompt.zsh`](benchmarks/help-first-prompt.zsh) at
+`cd61e3c` on the machine above (load 2.1–4.1): one tree, a warm ZDOTDIR per
+variant, a 140×40 PTY, `en_US.UTF-8`, 15 runs per variant with the variant
+order rotated each run, in two invocations. *Capture* is the in-shell time of
+the first `_compozsh_prompt_capture`. *Editable* is spawn to first line-init.
+The *bypassed* variant replaces the capture with a no-op and is a diagnostic
+only. *Extra* adds 16 fixture commands whose companions print about 6,200
+characters (12 options, then examples). Values are medians (min–max) in ms;
+differences are medians of per-run paired differences.
+
+| Metric | Invocation 1 | Invocation 2 |
+| --- | ---: | ---: |
+| Capture, shipped (7 reads, 6 summaries) | 12.91 (12.56–15.74) | 13.00 (12.59–13.86) |
+| Editable, shipped | 96.69 (92.01–110.68) | 97.41 (96.04–102.60) |
+| Editable, capture bypassed | 85.62 (79.57–92.45) | 85.28 (84.00–90.27) |
+| Editable, shipped − bypassed | 12.53 (6.64–23.10) | 12.43 (9.54–17.92) |
+| Capture per extra companion | 1.87 (1.82–2.32) | 1.90 (1.86–2.37) |
+| Capture, single-fork prototype | 8.59 (8.40–9.08) | 8.77 (8.58–9.35) |
+| Capture, shipped − prototype | 4.19 (3.89–6.92) | 4.20 (3.33–4.91) |
+| Editable, shipped − prototype | 4.94 (−0.27–11.63) | 4.22 (−1.77–9.18) |
+
+Help capture therefore costs about 13 ms, roughly an eighth of the warm first
+editable prompt, on every new TTY shell. Each further private command with a
+companion adds about 1.9 ms, so the 64-companion bound would put the capture
+near 120 ms. A preliminary invocation (15 runs) whose fixture guides were 80
+option-shaped lines measured 2.71 ms per companion: parsing, and the
+invalidation loop over all captured options, grow with option count. Raw
+outputs are kept with the run's local artifacts (not distributed).
+
+**The rejected single fork.** Option (a) runs every changed companion in one
+process substitution behind NUL-delimited headers, reads complete guides
+under one aggregate bound, then splits and bounds each guide in memory. The
+audit's prototype of it (unshipped and not distributed; it captured the same
+six summaries and 16 options) saves about 4.2 ms of capture here; the audit's
+own PTY comparison found 4.9 ms (14.19 to 9.28 ms, 7 runs). The first
+estimate of about 10 ms left out signature and parse work and frame handling;
+the batch also still forks once.
+
+**Why per-guide forks stay.**
+
+- *Data read.* Each guide's pipe is read to at most 4,097 characters, so the
+  shipped capture reads 22,758 characters from seven pipes. A batch must read
+  complete output: 74,442 characters with the shipped peers (3.3 times as
+  much) and up to its aggregate bound in general. That loosens the per-guide
+  bound that [SECURITY.md](../SECURITY.md#help-workspace-and-tool-descriptions)
+  discloses.
+- *Per-companion isolation.* Each companion, machine-local private ones
+  included, runs in its own child. In one shared child, a companion that
+  exits, fails or changes shell state would affect the companions after it,
+  and one malformed frame would cost the descriptions behind it. Companions
+  are trusted documentation, not a sandbox; this is about predictable
+  failure, which [performance](../engineering/performance.md#choosing-between-designs)
+  ranks above measured speed.
+- *Size of the gain.* About 4 ms once per shell, about 4–5% of the warm
+  editable prompt, does not outweigh either.
+
+**Revisit** when private companions become common (about seven would double
+today's cost) or when a design keeps the per-guide bound and per-companion
+isolation with fewer forks. Re-measure with the same script: its `extra`
+variant models private companions, and its optional override file measures
+a candidate `_compozsh_prompt_capture`.
+
+```zsh
+TMPDIR=<disposable> /bin/zsh -df investigations/benchmarks/help-first-prompt.zsh <root> 15 16 en_US.UTF-8 [override-file]
+```
 
 ## Unresolved findings
 
