@@ -132,7 +132,7 @@ recoverable installer need local state.
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, progress, read-back, GPT headers and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
-| Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (the here-string that fills it also creates a file there, unlinked at once); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
+| Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (Zsh writes the draft directly into that file); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh; may outlive the view or run under operating-system/user control | Only explicit Copy writes: a path, branch, current directory, visible website command, bounded Xcode test report, or matching Simulator/device log lines that can hold local paths, diagnostics and sensitive app values. Never read back |
 
@@ -964,13 +964,13 @@ verification-phase totals, installer percentages, diskutil `TotalSize` and
 validated as decimal text of at most 18 digits before arithmetic, and progress
 stage names are compared literally, so this text never reaches arithmetic as an
 expression or an out-of-range number. The GPT backup entry location is
-range-checked against the image's last sector before its byte offset is
-computed. Each verification progress poll reads its phase record with one
+range-checked by subtraction against the image's last sector, and against the
+target's last sector during verification, before its byte offset is computed. Each verification progress poll reads its phase record with one
 no-follow, nonblocking native read of at most 1,025 bytes and ignores a record
 longer than 1 KiB; the raw-read progress capture it also polls is read only when
-it is at most 1 MiB, measured by `/usr/bin/stat`. A phase record
-needs exactly its three tab-separated fields; anything else keeps the preparing
-message, and the metadata never reads or modifies caller variables or runs
+it is at most 1 MiB, measured by `/usr/bin/stat`. Only the first
+line is parsed; it needs exactly three tab-separated fields, and anything else
+keeps the preparing message, and the metadata never reads or modifies caller variables or runs
 commands. Installer candidate labels
 reuse captured metadata, but action-time identity checks acquire fresh
 observations. USB and Xcode scalar
@@ -1000,7 +1000,8 @@ identifiable directory. Other feature-specific residue (manual transport and
 formatter directories, cache and completion-dump staging files, Xcode test
 bundles, device and Simulator run directories, interrupted worktree creation,
 external media captures and image mount points, and Touch ID policy
-temporaries) is disclosed in its own section.
+temporaries) is disclosed in its own section; the Ctrl-X Ctrl-E draft file,
+which does not use a `compozsh-` name, has its own inventory row.
 
 ### External synchronization
 
@@ -1449,7 +1450,9 @@ separately. Within that boundary, peers autoload stock Zsh functions from
 `fpath` (such as `compinit` and `add-zle-hook-widget`), and `.zsh.editor`'s
 `compinit` also sources Zsh's own [completion dump](#native-completion-dump)
 from the configuration base and autoloads completion functions. Compozsh adds
-no `fpath` entry, and neither path comes from the current directory.
+no `fpath` entry, and neither path comes from the current directory while
+`fpath` holds only absolute directories; an inherited relative `FPATH` entry
+would make `autoload` search the current directory.
 
 Search the executable shell surface for common network clients:
 
@@ -1612,7 +1615,7 @@ server.
 | Native completion dump call, path, contents, mode and `--clean` survival | `native completion dump`, `clean installer touches only` |
 | Matching and exclusion | `exclusion`, `matching component` |
 | Captured-data parsing without temporary files | `here-string`, `filter override builder`, `worktree removal` |
-| Captured, setting and inherited text kept out of arithmetic | `never splices text into arithmetic`, `stay text`, `overflowing`, `hostile`, `inherited`, `numeric metadata`, `stat numbers`, `dd parser` |
+| Captured, setting and inherited text kept out of arithmetic | `never splices text into arithmetic`, `stay text`, `overflowing`, `hostile`, `inherited`, `numeric metadata`, `stat numbers`, `dd parser`, `validates width text` |
 | Shared effects and data | `shared effects`, `shared data` |
 | Picker digits and slot acceptance | `numeric`, `detail panels preserve native` |
 | Path + Tab directory arguments | `directory argument` |
@@ -1627,7 +1630,7 @@ server.
 | Xcode discovery | `Xcode discovery` |
 | Xcode Run, device console and logs | `Xcode run`, `Xcode monitor`, `Xcode device monitor`, `log reader`, `log copy`, `editor reader` |
 | Task routing and external-device modes | `task families`, `USB verification progress` |
-| USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds` |
+| USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds`, `backup GPT entry` |
 | External media writes, read-back and temporary files | `USB raw`, `USB verification`, `USB temporary`, `ISO inspection`, `external-media temporary` |
 | Touch ID policy in unprivileged fixtures | `sudo Touch ID` |
 
