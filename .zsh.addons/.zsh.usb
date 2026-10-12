@@ -656,7 +656,9 @@ _usb_image_add() {
   path=${path:A}
   [[ ${#path} -le 4096 && $path != *[[:cntrl:]]* ]] || return 1
   _usb_image_extension_supported "$path" || return 1
-  (( _USB_IMAGE_PATHS[(Ie)$path] )) && return 0
+  # Expand lookups first: a subscript in arithmetic text is reparsed, so `]`
+  # or $(...) in a file name would run as code.
+  (( ${_USB_IMAGE_PATHS[(Ie)$path]} )) && return 0
   _usb_image_stat_capture "$path" || return 1
   fingerprint=$_USB_STAT_FINGERPRINT
   raw_size=$_USB_STAT_SIZE
@@ -705,7 +707,7 @@ _usb_macos_installer_add() {
   local created_label='' modified_label=''
   local -a fields=()
   [[ ${#path} -le 4096 && $path != *[[:cntrl:]]* ]] || return 1
-  (( _USB_IMAGE_PATHS[(Ie)$path] )) && return 0
+  (( ${_USB_IMAGE_PATHS[(Ie)$path]} )) && return 0
   _usb_macos_installer_fingerprint "$path" || return 1
   fingerprint=$REPLY
   # Reuse the root observation already retained in this exact fingerprint.
@@ -1200,6 +1202,13 @@ _usb_diskutil_run() {
   command /usr/sbin/diskutil "$@"
 }
 
+# diskutil reports APFS's size limit as 9223372034707292160, so accept every
+# signed 64-bit decimal. Compare 19-digit text as text: arithmetic would
+# truncate or wrap a longer value before any range check.
+_usb_decimal_is_int64() {
+  [[ $1 == <-> ]] && { (( ${#1} < 19 )) || [[ ${#1} == 19 && $1 < 9223372036854775808 ]]; }
+}
+
 _usb_diskutil_plist_capture() {
   emulate -L zsh
   local temp_root=${TMPDIR:-/tmp} capture_file='' raw_size=''
@@ -1253,7 +1262,7 @@ _usb_disk_ids_capture() {
   _usb_disk_list_read || return
   (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$_USB_PLIST" AllDisks || return 1
   count=$REPLY
-  [[ $count == <-> ]] || return 1
+  [[ $count == <-> && ${#count} -le 18 ]] || return 1
   (( count <= 4096 )) || {
     _USB_CAPTURE_ERROR='diskutil reported too many device entries to inspect safely'
     return 1
@@ -1289,7 +1298,7 @@ _usb_disk_info_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local requested=$1 plist='' internal='' physical='' whole='' writable=''
-  local device_tree=''
+  local device_tree='' size='' block_size=''
   _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL=''
   _USB_INFO_FINGERPRINT=''
   _USB_INFO_SIZE=0 _USB_INFO_BLOCK_SIZE=512
@@ -1302,9 +1311,9 @@ _usb_disk_info_capture() {
   _usb_plist_optional "$plist" DeviceIdentifier
   _USB_INFO_ID=$REPLY
   _usb_plist_optional "$plist" TotalSize 0
-  _USB_INFO_SIZE=$REPLY
+  size=$REPLY
   _usb_plist_optional "$plist" DeviceBlockSize 512
-  _USB_INFO_BLOCK_SIZE=$REPLY
+  block_size=$REPLY
   _usb_plist_optional "$plist" MediaName
   _USB_INFO_NAME=$REPLY
   [[ -n $_USB_INFO_NAME ]] || {
@@ -1332,8 +1341,10 @@ _usb_disk_info_capture() {
   _usb_plist_optional "$plist" DeviceTreePath
   device_tree=$REPLY
 
-  [[ $_USB_INFO_ID == "$requested" && $_USB_INFO_SIZE == <-> &&
-     $_USB_INFO_BLOCK_SIZE == <-> ]] || return 1
+  # Validate text before the integer assignment evaluates it.
+  [[ $_USB_INFO_ID == "$requested" && $size == <-> && ${#size} -le 18 &&
+     $block_size == <-> && ${#block_size} -le 18 ]] || return 1
+  _USB_INFO_SIZE=$size _USB_INFO_BLOCK_SIZE=$block_size
   (( _USB_INFO_BLOCK_SIZE >= 512 && _USB_INFO_BLOCK_SIZE % 512 == 0 )) || return 1
   [[ -n $_USB_INFO_NAME && ${#_USB_INFO_NAME} -le 256 &&
      $_USB_INFO_NAME != *[[:cntrl:]]* ]] || return 1
@@ -1589,8 +1600,8 @@ _usb_formats_capture() {
     maximum=$REPLY
     if [[ -n $personality && ${#personality} -le 128 &&
           $personality != *[[:cntrl:]]* && -n $visible_name &&
-          ${#visible_name} -le 128 && $visible_name != *[[:cntrl:]]* &&
-          $minimum == <-> && $maximum == <-> ]]; then
+          ${#visible_name} -le 128 && $visible_name != *[[:cntrl:]]* ]] &&
+        _usb_decimal_is_int64 "$minimum" && _usb_decimal_is_int64 "$maximum"; then
       if (( minimum > 0 )); then
         REPLY='size unavailable'
         (( ${+functions[_usb_human_size]} )) && _usb_human_size "$minimum"
@@ -1945,7 +1956,7 @@ _usb_workspace_controller() {
       result=$?
       (( result == 1 )) && continue
       (( result == 0 )) || return $result
-      if (( !_USB_IMAGE_PATHS[(Ie)$REPLY] )); then
+      if (( !${_USB_IMAGE_PATHS[(Ie)$REPLY]} )); then
         _usb_image_from_query "$REPLY" || continue
       fi
       _usb_images_sort_newest
@@ -2312,7 +2323,7 @@ _usb_dd_progress_read() {
   (( ${+functions[_usb_dd_progress_bytes]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt EXTENDED_GLOB
   local progress_file=$1 total=$2 started=$3 raw='' chunk='' line='' byte_text=''
-  local complete='' parse_stage=$_USB_WRITE_PROGRESS_STAGE
+  local complete='' parse_stage=$_USB_WRITE_PROGRESS_STAGE size_text=''
   local -i progress_fd=-1 chunk_size=0 new_size=0 raw_size=0
   local -i bytes=0 write_bytes=0 verify_bytes=0
   local -i elapsed=$(( SECONDS - started )) bar_width=32
@@ -2325,7 +2336,9 @@ _usb_dd_progress_read() {
   _USB_PROGRESS_BAR=$REPLY
   REPLY='Preparing the first write block…'
   [[ -f $progress_file && $total == <-> ]] || return 0
-  raw_size=$(command /usr/bin/stat -f '%z' "$progress_file" 2>/dev/null) || return 0
+  size_text=$(command /usr/bin/stat -f '%z' "$progress_file" 2>/dev/null) || return 0
+  [[ $size_text == <-> && ${#size_text} -le 18 ]] || return 0
+  raw_size=$size_text
   (( raw_size >= _USB_WRITE_PROGRESS_OFFSET )) || {
     _USB_WRITE_ERROR='the bounded progress stream changed unexpectedly'
     return 0
@@ -2385,7 +2398,8 @@ _usb_dd_progress_read() {
         continue ;;
       (compozsh-write-verify-bytes:<->)
         byte_text=${line#compozsh-write-verify-bytes:}
-        (( byte_text <= total && byte_text > verify_bytes )) &&
+        (( ${#byte_text} <= 18 )) &&
+          (( byte_text <= total && byte_text > verify_bytes )) &&
           verify_bytes=$byte_text
         continue ;;
       (compozsh-write-verified)
@@ -2641,8 +2655,9 @@ _usb_write_image() {
     if (( command_status == 0 && _USB_WRITE_BYTES_OBSERVED != image_size )); then
       command_status=3
     fi
-    if (( verify && _USB_WRITE_STAGE == verify &&
-          _USB_WRITE_VERIFY_BYTES_OBSERVED != image_size )); then
+    # The stage is a word from the writer, never an arithmetic operand.
+    if (( verify && _USB_WRITE_VERIFY_BYTES_OBSERVED != image_size )) &&
+        [[ $_USB_WRITE_STAGE == verify ]]; then
       command_status=6
     elif (( command_status == 0 && verify && tail_count > 0 &&
             !_USB_WRITE_TAIL_VERIFIED )); then
@@ -2675,10 +2690,12 @@ _usb_dd_bytes_observed() {
   emulate -L zsh
   (( ${+functions[_usb_dd_progress_bytes]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt EXTENDED_GLOB
-  local path=$1 raw='' line=''
+  local path=$1 raw='' line='' size_text=''
   local -i raw_size=0 bytes=-1
   [[ -f $path ]] || return 1
-  raw_size=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 1
+  size_text=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 1
+  [[ $size_text == <-> && ${#size_text} -le 18 ]] || return 1
+  raw_size=$size_text
   (( raw_size > 0 && raw_size <= 1048576 )) || return 1
   raw=$(<"$path")
   raw=${raw//$'\r'/$'\n'}
@@ -2827,7 +2844,8 @@ _usb_od_uint() {
   output=$(command /usr/bin/od -An -j "$offset" -N "$width" -t "u${width}" "$path" \
     2>/dev/null) || return 1
   output=${output//[[:space:]]/}
-  [[ $output == <-> ]] || return 1
+  # Callers assign integers: validate text so 19 or more digits never wrap.
+  [[ $output == <-> && ${#output} -le 18 ]] || return 1
   REPLY=$output
 }
 
@@ -3529,7 +3547,8 @@ _usb_windows_target_validate() {
   _usb_plist_optional "$plist" FreeSpace 0
   free=$REPLY
   [[ $parent == "$identifier" && $actual_partition == "$partition" &&
-     $content == DOS_FAT_32 && $filesystem == msdos && $free == <-> ]] || return 1
+     $content == DOS_FAT_32 && $filesystem == msdos && $free == <-> &&
+     ${#free} -le 18 ]] || return 1
   case $mode in
     (writable)
       [[ $writable == true ]] || return 1
@@ -3802,6 +3821,7 @@ _usb_createinstallmedia_progress_read() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local path=$1 raw='' line='' prefix='' latest='Preparing Apple createinstallmedia…'
+  local size_text=''
   local -i raw_size=0 percent=0 bar_width=32
   bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
   (( bar_width < 24 )) && bar_width=24
@@ -3811,7 +3831,9 @@ _usb_createinstallmedia_progress_read() {
   _USB_PROGRESS_BAR=$REPLY
   REPLY=$latest
   [[ -f $path ]] || return 0
-  raw_size=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 0
+  size_text=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 0
+  [[ $size_text == <-> && ${#size_text} -le 18 ]] || return 0
+  raw_size=$size_text
   (( raw_size > 0 && raw_size <= 1048576 )) || return 0
   raw=$(<"$path")
   raw=${raw//$'\r'/$'\n'}
@@ -3823,7 +3845,7 @@ _usb_createinstallmedia_progress_read() {
     if [[ $line == *%* ]]; then
       prefix=${line%%\%*}
       prefix=${prefix##*[^0-9]}
-      [[ $prefix == <-> ]] && percent=$prefix
+      [[ $prefix == <-> && ${#prefix} -le 18 ]] && percent=$prefix
     fi
   done
   (( percent > 100 )) && percent=100

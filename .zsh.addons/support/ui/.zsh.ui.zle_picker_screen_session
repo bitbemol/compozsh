@@ -11,7 +11,11 @@ _zle_picker_screen_session() {
   local saved_prompt=$PROMPT saved_rprompt=$RPROMPT
   local PROMPT=$PROMPT RPROMPT=$RPROMPT screen_exit=''
   local -i saved_cursor=$CURSOR saved_mark=$MARK
-  local -i saved_suspended=${_ZLE_AUTOSUGGEST_SUSPENDED:-0}
+  # The optional editor owns this flag; validate its text before restoring it,
+  # because an inherited value would otherwise be evaluated as arithmetic.
+  local -i saved_suspended=0
+  [[ ${_ZLE_AUTOSUGGEST_SUSPENDED-} == <-> && ${#_ZLE_AUTOSUGGEST_SUSPENDED} -le 18 ]] &&
+    saved_suspended=$_ZLE_AUTOSUGGEST_SUSPENDED
   local -a saved_highlights=()
 
   # Removing a temporary INT trap inside a manually driven ZLE input loop

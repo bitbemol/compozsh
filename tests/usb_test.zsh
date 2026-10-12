@@ -1560,6 +1560,163 @@ _test_usb_plist_capture_uses_whole_disk_facts() {
 test_case 'USB providers parse native plists into exact whole-disk facts' \
   _test_usb_plist_capture_uses_whole_disk_facts
 
+# Integer assignment evaluates arithmetic, including $(...) in a subscript, and
+# 19 or more digits truncate or wrap; validate plist text before either.
+_test_usb_plist_capture_rejects_hostile_numbers() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    head="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict>"
+    _usb_disk_list_read() { _USB_PLIST="${head}<key>AllDisks</key><string>99999999999999999999</string></dict></plist>"; }
+    _usb_disk_ids_capture
+    print -r -- "ids:$?|${#_USB_DISK_IDS}"
+    probe() {
+      local fixture_size=$1 fixture_block=$2
+      _usb_disk_info_read() {
+        _USB_PLIST="${head}<key>DeviceIdentifier</key><string>disk7</string><key>TotalSize</key><string>$fixture_size</string><key>DeviceBlockSize</key><string>$fixture_block</string><key>MediaName</key><string>External SSD</string><key>BusProtocol</key><string>USB</string><key>Internal</key><false/><key>VirtualOrPhysical</key><string>Physical</string><key>WholeDisk</key><true/><key>WritableMedia</key><true/><key>DeviceTreePath</key><string>IOService:/fixture</string></dict></plist>"
+      }
+      _usb_disk_info_capture disk7
+      print -r -- "info:$?|$_USB_INFO_SIZE|$_USB_INFO_BLOCK_SIZE"
+    }
+    probe '"'"'path[$(: >| $HOME/size-marker)1]'"'"' 512
+    probe 64000000000 '"'"'path[$(: >| $HOME/block-marker)1]'"'"'
+    probe 99999999999999999999 512
+    probe 64000000000 99999999999999999999
+    probe 64000000000 4096
+    [[ ! -e $HOME/size-marker && ! -e $HOME/block-marker ]] ||
+      print -r -- "diskutil text ran a command substitution"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+ids:1|0
+info:1|0|512
+info:1|0|512
+info:1|0|512
+info:1|0|512
+info:0|64000000000|4096' "status:$exit_status"$'\n'"$output" \
+    'diskutil numbers were evaluated or accepted after overflowing'
+}
+test_case 'USB providers reject hostile and overflowing diskutil numbers before arithmetic' \
+  _test_usb_plist_capture_rejects_hostile_numbers
+
+# Media names come from Downloads, Spotlight, folders and pasted paths. A
+# lookup spliced into arithmetic text would reparse the name as an expression.
+_test_usb_media_lookups_keep_hostile_names_literal() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    typeset -ga _USB_IMAGE_PATHS=()
+    _usb_image_add "$HOME/a\$(: >| \$HOME/image-marker).iso"
+    _usb_image_add "$HOME/y]+path[\$(: >| \$HOME/breakout-marker)1]+x[z.iso"
+    _usb_macos_installer_add "$HOME/Install macOS \$(: >| \$HOME/installer-marker).app"
+    local -i chooses=0
+    _usb_choose() {
+      (( ++chooses == 1 )) || return 1
+      _ZLE_PICKER_SELECTED_VALUE=custom-path _ZLE_PICKER_ACTION=""
+    }
+    _usb_browse_image_path() { REPLY="$HOME/b\$(: >| \$HOME/browse-marker).iso"; }
+    _usb_image_from_query() { print -r -- "lookup:$1"; return 1; }
+    _usb_workspace_controller
+    print -r -- "controller:$?|$chooses"
+    local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal "status:0
+lookup:$TEST_TMP_DIR/home/b\$(: >| \$HOME/browse-marker).iso
+controller:1|2
+markers:0" "status:$exit_status"$'\n'"$output" \
+    'a media file name ran as arithmetic or a command substitution'
+}
+test_case 'USB media lookups keep hostile file names literal' \
+  _test_usb_media_lookups_keep_hostile_names_literal
+
+# Image bytes, native tool output and writer status lines are text. Each is
+# validated before arithmetic, which would run $(...) in a subscript and
+# truncate or wrap 19 or more digits; the writer stage is a word, not math.
+_test_usb_native_numbers_stay_text_until_validated() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    cd "$HOME" || exit
+    TMPDIR=$HOME
+    print -rn -- $'"'"'\xff\xff\xff\xff\xff\xff\xff\xff'"'"' >| gpt-field
+    _usb_od_uint gpt-field 0 8
+    print -r -- "od:$?"
+
+    print -r -- "123 bytes transferred in 1 secs" >| dd.log
+    print -r -- "Copying 50%" >| installer.log
+    local stat_text=""
+    command() {
+      if [[ $1 == /usr/bin/stat ]]; then print -r -- "$stat_text"; else builtin command "$@"; fi
+    }
+    for stat_text in '"'"'path[$(: >| $HOME/stat-marker)1]'"'"' 99999999999999999999; do
+      _usb_dd_bytes_observed dd.log
+      print -r -- "observed:$?"
+      _usb_dd_progress_read dd.log 1024 $SECONDS
+      print -r -- "progress:$?|$REPLY"
+      _usb_createinstallmedia_progress_read installer.log
+      print -r -- "installer:$?|$REPLY"
+    done
+    unfunction command
+    print -r -- "Copying 99999999999999999999% of the installer" >| installer.log
+    _usb_createinstallmedia_progress_read installer.log
+    print -r -- "percent:$?"
+
+    _usb_progress_stage() { :; }
+    _usb_raw_write_session_run() {
+      print -u2 -r -- compozsh-write-stage:image
+      print -u2 -r -- compozsh-write-verify-bytes:99999999999999999999
+      return 1
+    }
+    _usb_write_image /images/linux.iso disk7 8388608 8388608 1
+    print -r -- "write:$?|$_USB_WRITE_VERIFY_BYTES_OBSERVED"
+    _usb_raw_write_session_run() {
+      print -u2 -r -- '"'"'compozsh-write-stage:path[$(: >| $HOME/stage-marker)1]'"'"'
+      return 1
+    }
+    _usb_write_image /images/linux.iso disk7 8388608 8388608 1
+    print -r -- "stage:$?"
+
+    head="<?xml version=\"1.0\"?><plist version=\"1.0\">"
+    _usb_diskutil_plist_capture() {
+      _USB_PLIST="${head}<array><dict><key>Personality</key><string>ExFAT</string><key>MinimumSize</key><string>99999999999999999999</string></dict><dict><key>Personality</key><string>APFS</string><key>MaximumSize</key><string>9223372036854775808</string></dict><dict><key>Personality</key><string>JHFS+</string></dict></array></plist>"
+    }
+    _usb_formats_capture
+    print -r -- "formats:$?|${(j:,:)_USB_FORMAT_PERSONALITIES}"
+    command mkdir -p mnt || exit
+    _usb_diskutil_plist_capture() {
+      _USB_PLIST="${head}<dict><key>ParentWholeDisk</key><string>disk7</string><key>DeviceIdentifier</key><string>disk7s1</string><key>Content</key><string>DOS_FAT_32</string><key>FilesystemType</key><string>msdos</string><key>WritableVolume</key><true/><key>FreeSpace</key><string>99999999999999999999</string></dict></plist>"
+    }
+    _usb_windows_target_validate disk7 disk7s1 "$HOME/mnt" writable
+    print -r -- "free:$?"
+    local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+od:1
+observed:1
+progress:0|Preparing the first write block…
+installer:0|Preparing Apple createinstallmedia…
+observed:1
+progress:0|Preparing the first write block…
+installer:0|Preparing Apple createinstallmedia…
+percent:0
+write:1|0
+stage:1
+formats:0|JHFS+
+free:1
+markers:0' "status:$exit_status"$'\n'"$output" \
+    'USB native numbers were evaluated, wrapped or treated as arithmetic words'
+}
+test_case 'USB native tool numbers stay text until validated' \
+  _test_usb_native_numbers_stay_text_until_validated
+
 _test_usb_plist_capture_ignores_custom_path() {
   test_make_temp_dir || return
   local capture_root="$TEST_TMP_DIR/capture" output=''

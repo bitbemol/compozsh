@@ -96,6 +96,35 @@ _test_git_folder_summary_literal_labels() {
 }
 test_case 'Git folder summary keeps literal path controls separate from summary structure' _test_git_folder_summary_literal_labels
 
+# Repository paths are data. A name spliced into arithmetic text would be
+# parsed as an expression whose subscripts run command substitutions.
+_test_git_folder_summary_counts_hostile_areas_literally() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zshrc"
+    cd "$HOME" || exit
+    local plain=$'"'"'x$(cd; : >| plain-marker)'"'"'
+    local breakout=$'"'"'y]+path[$(cd; : >| breakout-marker)1]+areas[z'"'"'
+    local -a _GIT_REVIEW_PATHS=("top/$plain/a" "top/$plain/b" "top/$breakout/c" top/d)
+    local -a _GIT_REVIEW_KINDS=(unstaged unstaged staged untracked)
+    _git_review_folder_summary top/ 1 2 3 4
+    [[ ! -e plain-marker && ! -e breakout-marker ]] || print -r -- "folder name ran a command substitution"
+    # Area rows are "<bar>  <count>  <label>"; drop the locale-dependent bar.
+    local -a rows=("${(@M)${(@f)REPLY}:#*  [0-9]  *}")
+    print -rl -- "${(@)rows#*  }"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+2  x$(cd; : >| plain-marker)/
+1  y]+path[$(cd; : >| breakout-marker)1]+areas[z/
+1  Direct entries' \
+    "status:$exit_status"$'\n'"$output" \
+    'folder summary evaluated or miscounted repository path areas'
+}
+test_case 'Git folder summary counts hostile path areas literally' \
+  _test_git_folder_summary_counts_hostile_areas_literally
+
 _test_git_folder_summary_filter_repaint() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '

@@ -45,6 +45,11 @@ is the public statement of these guarantees and the self-audit guide.
   controls on user-owned history, configuration or recovery data.
 - Never interpolate unsanitized branch names, paths, history or tool output
   into prompt syntax, glob patterns, terminal control sequences or shell code.
+  Zsh arithmetic is shell code: it expands subscripts, including `$(...)`.
+  Captured numbers, settings and inherited environment values are validated
+  as text before any arithmetic use, and names never enter arithmetic text
+  ([idioms](zsh.md#idioms)); SECURITY.md names the format-bounded
+  exceptions.
 - Parse captured data in shell memory. Zsh 5.9 implements here-strings,
   here-documents and `=(...)` with temporary files under
   `${TMPPREFIX:-/tmp/zsh}`, which put the data on disk and fail when that

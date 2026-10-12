@@ -142,3 +142,77 @@ list=(one two)' || return
 }
 test_case 'security: shipped Zsh parses captured data without here-string or here-document temporary files' \
   _test_runtime_parses_captures_without_temporary_files
+
+# Arithmetic text reparses its subscripts: (( h[$key] )) or
+# (( a[(Ie)$text] )) turns `]` or $(...) in the key into expression or
+# command. Expansions such as ${h[$key]}, ${a[(Ie)$text]} and $+h[$key] are
+# resolved before parsing, so they are removed before matching. The lexer
+# strips comments and keeps each (( ... )) command, including multi-line ones,
+# as one token; $(( ... )) bodies are found inside any token after removing
+# single-quoted literals.
+_security_spliced_arithmetic_subscripts() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local file='' token='' contents='' rest='' body='' char=''
+  local -i depth=0 index=0
+  local -a bodies=()
+  for file in "$@"; do
+    contents=$(<"$file")
+    for token in ${(Z+C+)contents}; do
+      token=${token//\'[^\']#\'/}
+      bodies=()
+      [[ $token == '(('* ]] && bodies+=("${token[3,-3]}")
+      rest=$token
+      while [[ $rest == *'$(('* ]]; do
+        rest=${rest#*'$(('}
+        depth=2 body=''
+        for (( index = 1; index <= ${#rest} && depth > 0; ++index )); do
+          char=$rest[index]
+          [[ $char == '(' ]] && (( ++depth ))
+          [[ $char == ')' ]] && (( --depth ))
+          (( depth > 0 )) && body+=$char
+        done
+        bodies+=("$body")
+      done
+      for body in "${bodies[@]}"; do
+        while [[ $body == *'${'*'}'* ]]; do
+          body=${body//\$\{[^\{\}]#\}/0}
+        done
+        body=${body//\$(\+|\#|)[A-Za-z_][A-Za-z0-9_]#\[[^\]]#\]/0}
+        [[ $body == *[A-Za-z_][A-Za-z0-9_]#\[[^\]]#[\$\`]* ]] &&
+          print -r -- "${file#$TEST_REPO_ROOT/}: $token"
+      done
+    done
+  done
+}
+
+_test_runtime_never_splices_text_into_arithmetic_subscripts() {
+  emulate -L zsh
+  test_make_temp_dir || return
+  local fixture="$TEST_TMP_DIR/.zsh.fixture" found='' expected=''
+  local -a zsh_files=()
+  test_write_file "$fixture" '(( ++areas[d:$area] )) # (( note[$x] ))
+filled=$(( (16 * areas[$area] + count - 1) / count ))
+(( !paths[(Ie)$REPLY] )) && print "$(( totals[`id`] ))"
+if (( verify &&
+      seen[$key] )); then :; fi
+(( ${+h[$k]} && $+commands[$x] && ${a[(Ie)$text]} && ranks[index] == rank ))
+h[$k]=$(( ${h[$k]:-0} + 1 ))
+print '"'"'$(( quoted[$x] ))'"'"'' || return
+  found=$(_security_spliced_arithmetic_subscripts "$fixture")
+  found=${(F)${(f)found}#"${fixture#$TEST_REPO_ROOT/}: "}
+  for expected in '(( ++areas[d:$area] ))' 'filled=$(( (16 * areas[$area] + count - 1) / count ))' \
+      '(( !paths[(Ie)$REPLY] ))' '"$(( totals[`id`] ))"' $'(( verify &&\n      seen[$key] ))'; do
+    [[ $'\n'$found$'\n' == *$'\n'"$expected"$'\n'* ]] ||
+      { test_fail "arithmetic subscript scan missed: $expected"$'\n'"$found"; return 1; }
+  done
+  [[ $found != *(note|'${+h'|h\[\$k\]=|quoted)* ]] ||
+    { test_fail "arithmetic subscript scan flagged an expansion, comment or quoted text:"$'\n'"$found"; return 1; }
+  _security_runtime_files
+  zsh_files=(${(M)_SECURITY_RUNTIME_FILES:#*/(.zshrc|*.zsh|.zsh.*)})
+  (( ${#zsh_files} > 20 )) || { test_fail 'runtime Zsh file inventory is unexpectedly small'; return 1; }
+  found=$(_security_spliced_arithmetic_subscripts "${zsh_files[@]}")
+  [[ -z $found ]] || test_fail "shipped Zsh splices an expansion into an arithmetic subscript; expand it first (engineering/zsh.md#idioms):"$'\n'"$found"
+}
+test_case 'security: shipped Zsh never splices text into arithmetic subscripts' \
+  _test_runtime_never_splices_text_into_arithmetic_subscripts

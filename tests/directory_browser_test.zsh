@@ -107,6 +107,35 @@ _test_browser_contents_context() {
 }
 test_case 'directory browser explains file-only, empty and filtered folders without selectable files' _test_browser_contents_context
 
+# The result limit is settings text; nineteen or more digits would print a
+# truncation warning inside the Tab widget and wrap before clamping.
+_test_browser_limit_rejects_overflowing_setting() {
+  test_make_temp_dir || return
+  command mkdir -p "$TEST_TMP_DIR/home/files/sub" || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    _zle_picker_run() { print -r -- "limit:$1"; return 1; }
+    local setting=""
+    for setting in 99999999999999999999 7; do
+      ZSH_DIRECTORY_PICKER_MAX_RESULTS=$setting
+      _directory_browser_session "~/files/" insert command
+    done
+    :
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+limit:10
+limit:7' "status:$exit_status"$'\n'"$output" \
+    'an overflowing directory picker limit was evaluated before validation'
+}
+test_case 'directory browser treats an overflowing result limit setting as its default' \
+  _test_browser_limit_rejects_overflowing_setting
+
 _test_browser_columns() {
   test_make_temp_dir || return
   local output

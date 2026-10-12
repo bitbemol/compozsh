@@ -256,11 +256,13 @@ _xcode_test_node_sources_capture() {
     file=$REPLY
     if [[ -n $file && ${#file} -le 4096 && $file != *[[:cntrl:]]* ]]; then
       if (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key.sourceLocation.lineNumber" &&
-          [[ $REPLY == <-> ]]; then
+          [[ $REPLY == <-> && ${#REPLY} -le 18 ]]; then
         line=$REPLY
       fi
       (( line > 0 )) && file+=":$line"
-      (( _XCODE_TEST_DETAIL_FILES[(Ie)$file] )) ||
+      # Expand the lookup first: a subscript in arithmetic text is reparsed,
+      # so `]` or $(...) in a project path would run as code.
+      (( ${_XCODE_TEST_DETAIL_FILES[(Ie)$file]} )) ||
         _XCODE_TEST_DETAIL_FILES+=("$file")
     fi
   fi
@@ -288,7 +290,7 @@ _xcode_test_failure_files_capture() {
   json=$_XCODE_CAPTURE
   (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" testRuns || return 1
   count=$REPLY
-  [[ $count == <-> ]] || return 1
+  [[ $count == <-> && ${#count} -le 18 ]] || return 1
   (( count > 64 )) && count=64
   for (( index = 0; index < count; ++index )); do
     _xcode_test_node_sources_capture "$json" "testRuns.$index" 0
@@ -316,7 +318,7 @@ _xcode_test_build_issues_capture() {
   json=$_XCODE_CAPTURE
   (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" errors || return 0
   count=$REPLY
-  [[ $count == <-> ]] || return 1
+  [[ $count == <-> && ${#count} -le 18 ]] || return 1
   _XCODE_TEST_BUILD_ERROR_TOTAL=$count
   (( count > 20 )) && count=20
   for (( index = 0; index < count; ++index )); do
@@ -358,11 +360,11 @@ _xcode_test_result_capture() {
       (Passed|Failed|'Expected Failure'|Skipped|unknown) ;;
       (*) _XCODE_TEST_RESULT='' ;;
     esac
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" totalTestCount && [[ $REPLY == <-> ]] && _XCODE_TEST_TOTAL=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" passedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_PASSED=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" failedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_FAILED=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" skippedTests && [[ $REPLY == <-> ]] && _XCODE_TEST_SKIPPED=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" expectedFailures && [[ $REPLY == <-> ]] && _XCODE_TEST_EXPECTED_FAILURES=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" totalTestCount && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_TOTAL=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" passedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_PASSED=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" failedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_FAILED=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" skippedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_SKIPPED=$REPLY
+    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" expectedFailures && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_EXPECTED_FAILURES=$REPLY
     if (( ${+functions[_compozsh_plutil_raw]} && ${+functions[_matching_decimal_limit]} )) &&
         _compozsh_plutil_raw "$json" testFailures && _matching_decimal_limit "$REPLY" 20; then
       failure_count=$REPLY
@@ -774,7 +776,7 @@ _xcode_schemes_capture() {
     return 1
   }
   count=$REPLY
-  [[ $count == <-> ]] || {
+  [[ $count == <-> && ${#count} -le 18 ]] || {
     _XCODE_CAPTURE_ERROR='Xcode returned an invalid scheme count'
     return 1
   }
@@ -2259,6 +2261,9 @@ _xcode_run_live() {
   local -i _xcode_run_fd=-1 writer=-1 _xcode_run_pid=0 drainer=0
   local -i _xcode_run_trimmed=0 _xcode_run_eof=0 _xcode_run_publish=1
   local -i _xcode_run_read_error=0
+  # Shared readers also serve the device console; scope its flags here so they
+  # never fall back to inherited values or write globals.
+  local -i _xcode_run_device=0 _xcode_device_done=0 _xcode_device_pid=0 _xcode_device_status=0
   local -i result=0 screen_result=0
   # simctl interprets output paths inside this Simulator's data filesystem.
   # Resolve only the selected device; host TMPDIR is not its guest /tmp.

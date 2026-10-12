@@ -47,12 +47,18 @@ necessary lifetime. Temporary view state stays in memory when practical; every
 intentional persistent location and lifetime is enumerated below.
 
 Sensitive values are handled as literal, bounded data and are never evaluated
-as shell code. Compozsh does not collect information merely because it is
-available in the environment, filesystem, Git metadata, command output, or
-terminal session. It does not accept plaintext authentication secrets; an
-operating-system or explicitly chosen external tool owns its authentication
-input. Operations use the least privilege and narrowest exact target their
-implementation permits.
+as shell code. That includes Zsh arithmetic, which expands `$(...)` inside a
+subscript: numbers from files, Git, tools, settings, the terminal and the
+inherited environment are validated as decimal text before any arithmetic use,
+with a digit bound unless the fixed output format of `/usr/bin/stat` or
+`/usr/bin/cksum` already bounds the field; names such as paths and branches
+never enter arithmetic text; and private state names inherited from the
+environment are discarded or read only as text. Compozsh does not collect
+information merely because it is available in the environment, filesystem, Git
+metadata, command output, or terminal session. It does not accept plaintext
+authentication secrets; an operating-system or explicitly chosen external tool
+owns its authentication input. Operations use the least privilege and
+narrowest exact target their implementation permits.
 
 New collection, persistence, or privilege is not an ordinary implementation
 detail. It requires an explicit product decision, disclosure of the exact data,
@@ -1436,6 +1442,7 @@ server.
 | Public manual cache and installer exclusion | `manual cache`, `cache data`, `installer excludes generated` |
 | Matching and exclusion | `exclusion`, `matching component` |
 | Captured-data parsing without temporary files | `here-string`, `filter override builder`, `worktree removal` |
+| Captured, setting and inherited text kept out of arithmetic | `never splices text into arithmetic`, `stay text`, `overflowing`, `hostile`, `inherited`, `numeric metadata`, `stat numbers`, `dd parser` |
 | Shared effects and data | `shared effects`, `shared data` |
 | Picker digits and slot acceptance | `numeric`, `detail panels preserve native` |
 | Path + Tab directory arguments | `directory argument` |
@@ -1458,7 +1465,9 @@ external writers, ref or configuration changes, or filesystem mutation; Git
 server freshness; visual behavior in Terminal.app on every Mac, arbitrary
 terminal profiles' contrast, or how a custom terminal stores scrollback;
 mounted-filesystem availability or latency; exhaustive shell grammar, manual
-formats or `CAUTION` coverage; version-manager shim behavior; macOS
+formats or `CAUTION` coverage; arithmetic in code held in single-quoted
+strings, such as the fixed `sudo` routines, which the arithmetic scan does not
+lex; version-manager shim behavior; macOS
 application behavior or prevention of clipboard synchronization; or, for
 Xcode, Simulator FIFO support, native log privacy behavior, complete log
 delivery, signing permission or LLDB attachment on the host.

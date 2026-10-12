@@ -10,7 +10,8 @@ _usb_dd_progress_bytes() {
   line=${line##[[:space:]]#}
   [[ $line == <->' bytes '*transferred* ]] || return 1
   REPLY=${line%% *}
-  [[ $REPLY == <-> ]]
+  # Callers assign the count to integers; 19 or more digits would wrap.
+  [[ $REPLY == <-> && ${#REPLY} -le 18 ]]
 }
 
 :

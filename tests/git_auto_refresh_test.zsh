@@ -1056,6 +1056,43 @@ _test_git_auto_refresh_maximum_config_packet() {
 test_case 'Git auto-refresh parses the maximum filter packet linearly' \
   _test_git_auto_refresh_maximum_config_packet
 
+# The worker's duration is assigned to a float; integer text of 19 or more
+# digits would truncate or wrap there before the range check could run.
+_test_git_auto_refresh_rejects_overflowing_duration() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    zmodload zsh/datetime
+    local _git_auto_packet='' _git_auto_session_buffer='' duration=''
+    local -a _git_auto_candidate_config=() _git_auto_candidate_paths=()
+    local -a _git_auto_candidate_labels=() _git_auto_candidate_kinds=()
+    local -a _git_auto_candidate_contexts=() _git_auto_candidate_details=() _git_auto_candidate_parents=()
+    local -i _git_auto_candidate_ready=0
+    local -F _git_auto_candidate_capture_duration=0
+    local -a results=()
+    for duration in 99999999999999999999 18446744073709551617 999999999999999999 0.01; do
+      _git_auto_packet=$'"'"'compozsh-review-1\n'"'"'
+      _git_review_packet_add 2
+      _git_review_packet_add 1
+      _git_review_packet_add 0
+      _git_review_packet_add 0
+      _git_review_packet_add ""
+      _git_review_packet_add "$duration"
+      _git_auto_packet+=$'"'"'compozsh-review-end-1\n'"'"'
+      _git_auto_session_buffer=$_git_auto_packet
+      _git_review_auto_parse
+      results+=($?)
+    done
+    print -r -- "${(j:|:)results}"
+  ' "$TEST_REPO_ROOT" 2>&1) || return
+  test_assert_equal '1|1|1|0' "$output" \
+    'an overflowing worker duration was evaluated before validation'
+}
+test_case 'Git auto-refresh rejects an overflowing worker duration as text' \
+  _test_git_auto_refresh_rejects_overflowing_duration
+
 _test_git_auto_refresh_hostile_paths() {
   test_make_temp_dir || return
   local repo="$TEST_TMP_DIR/repo" colon='colon:name' newline=$'line\nname' control=$'control\x01name'

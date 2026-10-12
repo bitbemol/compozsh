@@ -49,6 +49,42 @@ _test_git_review_capture() {
 }
 test_case 'Git review separates staged and unstaged snapshots and preserves literal targets without writes' _test_git_review_capture
 
+# Only the automatic worker scopes its flags. Inherited copies must neither be
+# evaluated as arithmetic nor turn a foreground capture into the worker's path
+# (whose exec would replace the interactive shell with Git).
+_test_git_review_foreground_capture_ignores_inherited_worker_state() {
+  test_make_temp_dir || return
+  command git init -q "$TEST_TMP_DIR/repo" || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    local substitution='"'"'path[$(: >| $HOME/worker-marker)1]'"'"' root=$1 repository=$2
+    probe() {
+      (
+        export "$@"
+        source "$root/.zsh.addons/.zsh.git-review"
+        for git_support_component in "$root/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$root/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+        typeset -a _GIT_REVIEW_CONFIG=()
+        _git_review_capture "$repository" rev-parse --is-inside-work-tree
+        print -r -- "capture:$?|${_GIT_REVIEW_DATA//$'"'"'\n'"'"'/}"
+      )
+    }
+    probe _GIT_REVIEW_WORKER_EXEC=$substitution
+    probe _GIT_REVIEW_WORKER_EXEC=1
+    probe _GIT_REVIEW_WORKER_DIR=$HOME _git_review_worker_cancelled=$substitution \
+      _GIT_REVIEW_WORKER_DEADLINE=$substitution
+    local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/repo" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+capture:0|true
+capture:0|true
+capture:0|true
+markers:0' "status:$exit_status"$'\n'"$output" \
+    'a foreground Git capture evaluated or obeyed inherited worker state'
+}
+test_case 'Git review foreground captures ignore inherited worker state' \
+  _test_git_review_foreground_capture_ignores_inherited_worker_state
+
 _test_git_review_history() {
   test_make_temp_dir || return
   local output

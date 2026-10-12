@@ -639,6 +639,9 @@ ZSH_FILE_SEARCH_MAX_VISITED=20000
 ZSH_FILE_SEARCH_MAX_CANDIDATES=2000
 ```
 
+The walk and match budgets accept whole numbers from 1 to 999,999,999; any
+other value uses the default.
+
 ### Migration from d and f
 
 Version 2.0.0 removed `d` and `f`. Use **Option-Tab** instead of `d`,

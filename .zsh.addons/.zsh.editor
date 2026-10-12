@@ -1032,7 +1032,9 @@ _directory_browser_session() {
   (( ${+functions[_compozsh_effect_copy]} )) || _directory_browser_clipboard=''
   local -i result_limit=10
 
-  [[ ${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10} == <-> ]] &&
+  # Settings text: 19 or more digits would truncate or wrap on assignment.
+  [[ ${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10} == <-> &&
+     ${#${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10}} -le 18 ]] &&
     result_limit=${ZSH_DIRECTORY_PICKER_MAX_RESULTS:-10}
   (( result_limit < 1 )) && result_limit=1
   (( result_limit > 10 )) && result_limit=10
@@ -1489,9 +1491,10 @@ _zle_autosuggest_accept_all() {
 # nested/full-screen task workspaces retain exact ownership of their display.
 _zle_prompt_is_shell_editor() {
   [[ ${CONTEXT:-} == start ]] || return 1
-  (( ${ZLE_RECURSIVE:-0} == 0 &&
-     !${_ZLE_PICKER_ACTIVE:-0} &&
-     !${_ZLE_PICKER_SCREEN_ACTIVE:-0} ))
+  # The shared UI owns the picker flags and may be absent; compare their text
+  # so a same-named inherited variable is never evaluated as arithmetic.
+  (( ${ZLE_RECURSIVE:-0} == 0 )) &&
+    [[ ${_ZLE_PICKER_ACTIVE-} != 1 && ${_ZLE_PICKER_SCREEN_ACTIVE-} != 1 ]]
 }
 
 typeset -gi _ZLE_PROMPT_RESETTING=0

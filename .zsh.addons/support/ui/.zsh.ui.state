@@ -4,6 +4,17 @@
 # Keep keyed fallback lookups safe when the optional highlighting peer is absent.
 typeset -gA ZSH_HIGHLIGHT_STYLES ZSH_OUTPUT_COLORS _COMPOZSH_COLOR_FALLBACKS
 
+# Views and sessions scope these flags and the idle callback; outside them they
+# are unset, which readers treat as their defaults. Drop copies inherited from
+# the environment: arithmetic would evaluate their text, and a callback name
+# would choose which function runs.
+unset -- _ZLE_PICKER_SESSION _ZLE_PICKER_SCREEN_ACTIVE _ZLE_PICKER_BUSY \
+  _ZLE_PICKER_EXCLUSION_ENABLED _ZLE_PICKER_QUERY_SUBMIT \
+  _ZLE_PICKER_QUERY_EMPTY_CANCEL _ZLE_PICKER_INSPECT_STACKED \
+  _ZLE_PICKER_INSPECT_CLIP_LINES _ZLE_PICKER_IDLE_PREPAINT \
+  _ZLE_PICKER_WORKSPACE_ACTIONS _zle_picker_start_focus \
+  _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS _ZLE_PICKER_IDLE_CALLBACK
+
 # Shared state for the native history and navigation pickers. Collection stays
 # feature-specific; rendering, input, resize, and cleanup use this one contract.
 typeset -ga _ZLE_PICKER_RESULTS=()

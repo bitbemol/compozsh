@@ -881,7 +881,8 @@ _git_worktree_options() {
 _git_worktree_controller() {
   emulate -L zsh
   local chosen='' selected=''
-  local -i result=0 _GWT_OPTIONS=0 _GWT_FOCUS=0
+  # Scope every view flag here so no reader falls back to an inherited value.
+  local -i result=0 _GWT_OPTIONS=0 _GWT_FOCUS=0 _GWT_HIERARCHY=0
   local -a bookmark=('' 1 0)
   local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
   local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()

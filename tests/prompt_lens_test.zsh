@@ -346,6 +346,55 @@ _test_living_prompt_outcome_receipt_policy() {
 test_case 'living prompt outcome receipt appears only for slow success or any failure' \
   _test_living_prompt_outcome_receipt_policy
 
+# Float conversion of inherited text evaluates arithmetic, including $(...) in
+# a subscript; only the prompt's own running-command timestamp survives.
+_test_living_prompt_discards_inherited_command_start() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export _PROMPT_COMMAND_STARTED='"'"'path[$(: >| $HOME/substituted)1]'"'"'
+    source "$1/.zsh.addons/.zsh.prompt" || print -r -- "load failed"
+    [[ ! -e $HOME/substituted ]] || print -r -- "inherited start ran a command substitution"
+    print -r -- "${(t)_PROMPT_COMMAND_STARTED} $(( _PROMPT_COMMAND_STARTED ))"
+    unset _PROMPT_COMMAND_STARTED
+    export _PROMPT_COMMAND_STARTED=1234.5
+    source "$1/.zsh.addons/.zsh.prompt"
+    print -r -- "${(t)_PROMPT_COMMAND_STARTED} $(( _PROMPT_COMMAND_STARTED ))"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+float 0.
+float 0.' "status:$exit_status"$'\n'"$output" \
+    'living prompt evaluated or kept an inherited command start'
+}
+test_case 'living prompt discards an inherited command start without evaluating it' \
+  _test_living_prompt_discards_inherited_command_start
+
+# An inherited EPOCHREALTIME stops zsh/datetime from loading and stays plain
+# text; command timing must then be skipped rather than evaluate that text.
+_test_living_prompt_never_times_with_inherited_epoch() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export EPOCHREALTIME='"'"'path[$(: >| $HOME/epoch-marker)1]'"'"'
+    source "$1/.zsh.addons/.zsh.prompt" 2>/dev/null
+    _prompt_command_started fixture-command
+    print -r -- "started:$(( _PROMPT_COMMAND_STARTED ))"
+    false
+    _prompt_update
+    print -r -- "outcome:${_PROMPT_LAST_OUTCOME_TEXT:-none}"
+    local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+started:0.
+outcome:none
+markers:0' "status:$exit_status"$'\n'"$output" \
+    'the living prompt evaluated an inherited EPOCHREALTIME'
+}
+test_case 'living prompt never times commands with an inherited EPOCHREALTIME' \
+  _test_living_prompt_never_times_with_inherited_epoch
+
 _test_living_prompt_interaction_lens_ready_morphs_and_returns_to_base() {
   test_make_temp_dir || return
   local project="$TEST_TMP_DIR/home/project" output=''

@@ -9,6 +9,23 @@ if (( ${+functions[_manual_async_cancel]} )); then
 fi
 typeset -gA _MANUAL_SUMMARIES _MANUAL_SOURCES
 typeset -gA _MANUAL_CACHE_SUMMARIES _MANUAL_CACHE_ALIASES
+# A reload keeps this peer's own numeric state. Discard anything else of the
+# same name, such as inherited environment text, unread: integer conversion
+# evaluates arithmetic, including $(...) in a subscript.
+() {
+  emulate -L zsh
+  local name=''
+  for name in _MANUAL_SUMMARIES_READY _MANUAL_CACHE_REFRESH _MANUAL_CACHE_DIRTY \
+      _MANUAL_PAGE_SYSTEM _MANUAL_ASYNC_GENERATION _MANUAL_SOURCE_GENERATION \
+      _MANUAL_ASYNC_BYTES _MANUAL_ASYNC_COUNT _MANUAL_ASYNC_DONE \
+      _MANUAL_ASYNC_INVALID _MANUAL_ASYNC_CONTROL_DONE _MANUAL_ASYNC_PUBLISHED \
+      _MANUAL_ASYNC_CANDIDATE_GENERATION _MANUAL_ASYNC_FD \
+      _MANUAL_ASYNC_CONTROL_FD _MANUAL_ASYNC_DEADLINE; do
+    [[ ${(tP)name} == (integer|float)* ]] || unset -- $name
+  done
+}
+# Only the asynchronous worker scopes its cancellation flag.
+unset -- _MANUAL_WORKER_CANCELLED
 typeset -gi _MANUAL_SUMMARIES_READY
 typeset -gi _MANUAL_CACHE_REFRESH _MANUAL_CACHE_DIRTY _MANUAL_PAGE_SYSTEM
 typeset -gi _MANUAL_ASYNC_GENERATION _MANUAL_SOURCE_GENERATION
@@ -162,8 +179,11 @@ _manual_async_preexec() {
 # adapter at delivery; zle -R alone does not run line-pre-redraw hooks.
 _manual_async_paint() {
   emulate -L zsh
-  [[ ${CONTEXT:-} == start ]] && (( ${ZLE_RECURSIVE:-0} == 0 &&
-    !${_ZLE_PICKER_ACTIVE:-0} && !${_ZLE_PICKER_SCREEN_ACTIVE:-0} )) || return 0
+  # Compare the shared UI's picker flags as text: that UI may be absent, and
+  # arithmetic would evaluate a same-named inherited variable.
+  [[ ${CONTEXT:-} == start && ${_ZLE_PICKER_ACTIVE-} != 1 &&
+     ${_ZLE_PICKER_SCREEN_ACTIVE-} != 1 ]] && (( ${ZLE_RECURSIVE:-0} == 0 )) ||
+    return 0
   zle || return 0
   if (( ${+functions[_zle_prompt_pre_redraw]} )); then
     _zle_prompt_pre_redraw

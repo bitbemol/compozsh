@@ -532,6 +532,49 @@ _test_sudo_touch_id_metadata_contract_is_exact() {
 test_case 'sudo Touch ID managed metadata contract is exact' \
   _test_sudo_touch_id_metadata_contract_is_exact
 
+# stat output is text: arithmetic truncates or wraps 19 or more digits, which
+# turned an oversized policy into a readable one or an unsafe mode into a safe
+# one, and a non-octal mode into a math diagnostic.
+_test_sudo_touch_id_stat_numbers_stay_text() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.sudo-touch-id"
+    local metadata=""
+    for metadata in 0:0:1000000000000000000000:1 0:0:9:1 0:0:755:1; do
+      _sudo_touch_id_metadata_safe "$metadata"
+      print -r -- "$metadata:$?"
+    done
+    print -r -- policy >| "$HOME/policy"
+    local stat_text=""
+    command() {
+      if [[ $1 == /usr/bin/stat ]]; then print -r -- "$stat_text"; else builtin command "$@"; fi
+    }
+    for stat_text in 99999999999999999999 7; do
+      _sudo_touch_id_read_bounded "$HOME/policy"
+      print -r -- "read:$stat_text:$?|$REPLY"
+    done
+    _sudo_touch_id_base_preflight() { return 0; }
+    _sudo_touch_id_state() { REPLY=managed; }
+    _sudo_touch_id_root_owned() { return 0; }
+    for stat_text in 99999999999999999999 1; do
+      _sudo_touch_id_run status "$HOME"
+    done
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+0:0:1000000000000000000000:1:1
+0:0:9:1:1
+0:0:755:1:0
+read:99999999999999999999:1|
+read:7:0|policy
+The Compozsh-managed sudo_local policy has additional hard links; disable removes only sudo_local, then inspect remaining links.
+The Compozsh-managed sudo_local policy is installed.' "status:$exit_status"$'\n'"$output" \
+    'sudo Touch ID evaluated stat numbers before validating them as text'
+}
+test_case 'sudo Touch ID validates stat numbers as text before arithmetic' \
+  _test_sudo_touch_id_stat_numbers_stay_text
+
 _test_sudo_touch_id_rechecks_platform_policy_after_authorization() {
   test_make_temp_dir || return
   local pam_dir="$TEST_TMP_DIR/pam.d" output=''

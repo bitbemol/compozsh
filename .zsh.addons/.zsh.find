@@ -87,9 +87,11 @@ _file_search_reset() {
   _FILE_SEARCH_VISITED=0
 }
 
+# Validate settings as text: at most nine digits never wraps in arithmetic and
+# keeps the walk's `Y` glob count below 2^31.
 _file_search_limit() {
   local raw_value=$1 fallback=$2
-  if [[ $raw_value == <-> ]] && (( raw_value > 0 )); then
+  if [[ $raw_value == <-> && ${#raw_value} -le 9 ]] && (( raw_value > 0 )); then
     REPLY=$raw_value
   else
     REPLY=$fallback

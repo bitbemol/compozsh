@@ -501,6 +501,51 @@ exit 23' || return
 }
 test_case 'Xcode run stops exact target and hands off LLDB after screen cleanup' _test_xcode_run_lifecycle
 
+# Device flags belong to the device console. A Simulator run scopes them too,
+# so its shared readers never evaluate a same-named inherited variable.
+_test_xcode_simulator_run_ignores_inherited_device_state() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output='' exit_status=0
+  command mkdir -p "$TEST_TMP_DIR/home/simulator data/tmp" || return
+  test_write_file "$fake_bin/xcrun" '#!/bin/zsh -df
+if [[ $2 == getenv ]]; then print -r -- "$HOME/simulator data"; exit; fi
+if [[ $2 == launch ]]; then
+  for argument in "$@"; do
+    [[ $argument == --stdout=* ]] && pipe=${argument#--stdout=}
+  done
+  print -r -- "hello from app" > "$HOME/simulator data$pipe"
+  print -r -- "com.example.app: 12345"
+fi' || return
+  test_write_file "$fake_bin/ps" '#!/bin/zsh -df
+print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
+  command chmod +x "$fake_bin/"* || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    local substitution='"'"'path[$(: >| $HOME/device-marker)1]'"'"'
+    export _xcode_run_device=$substitution _xcode_device_done=$substitution
+    export _xcode_device_pid=$substitution _xcode_device_status=$substitution
+    path=("$2" $path); rehash
+    export TMPDIR=$HOME
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    _zle_picker_run() {
+      _xcode_logs_status
+      print -r -- "device:$_xcode_run_device|$_xcode_device_done|$_xcode_device_pid|$_xcode_device_status"
+      _ZLE_PICKER_SELECTED_VALUE=stop
+    }
+    _xcode_run_live SIM-456 com.example.app "App · Simulator"
+    print -r -- "run:$?"
+    local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" "$fake_bin" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+device:0|0|0|0
+run:0
+markers:0' "status:$exit_status"$'\n'"$output" \
+    'a Simulator run read inherited device-console state'
+}
+test_case 'Xcode Simulator run ignores inherited device console state' \
+  _test_xcode_simulator_run_ignores_inherited_device_state
+
 _test_xcode_lldb_terminal_presentation() {
   test_make_temp_dir || return
   local output=''

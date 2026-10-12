@@ -60,9 +60,11 @@ _prompt_base() {
   fi
 }
 
-if (( ${+_PROMPT_COMMAND_STARTED} )); then
-  typeset -gF _PROMPT_COMMAND_STARTED
-else
+# A reload keeps a running command's start time. Discard anything else of the
+# same name, such as inherited environment text, unread: float conversion
+# evaluates arithmetic, including $(...) in a subscript.
+if [[ ${(t)_PROMPT_COMMAND_STARTED} != float* ]]; then
+  unset -- _PROMPT_COMMAND_STARTED
   typeset -gF _PROMPT_COMMAND_STARTED=0
 fi
 # Legacy segment names remain private compatibility surfaces for focused tests
@@ -224,6 +226,7 @@ _prompt_git() {
   local -i staged=0 modified=0 untracked=0 conflicted=0 ahead=0 behind=0 stash=0
   local -i detached=0
   local -a fields indicators filter_config
+  local ahead_text='' behind_text='' stash_text=''
 
   REPLY=''
   _PROMPT_GIT_TEXT=''
@@ -259,12 +262,18 @@ _prompt_git() {
         upstream=${line#\# branch.upstream }
         ;;
       '# branch.ab '*)
+        # Validate Git's counts as text: integer assignment evaluates
+        # arithmetic, including $(...) in a subscript.
         fields=(${=line})
-        ahead=${fields[3]#+}
-        behind=${fields[4]#-}
+        ahead_text=${fields[3]-} behind_text=${fields[4]-}
+        if [[ $ahead_text == +<-> && ${#ahead_text} -le 19 &&
+              $behind_text == -<-> && ${#behind_text} -le 19 ]]; then
+          ahead=${ahead_text#+} behind=${behind_text#-}
+        fi
         ;;
       '# stash '*)
-        stash=${line#\# stash }
+        stash_text=${line#\# stash }
+        [[ $stash_text == <-> && ${#stash_text} -le 18 ]] && stash=$stash_text
         ;;
       '1 '*|'2 '*)
         [[ ${line[3]} != '.' ]] && (( staged++ ))
@@ -2819,7 +2828,10 @@ _prompt_update() {
 _prompt_command_started() {
   emulate -L zsh
 
-  _PROMPT_COMMAND_STARTED=$EPOCHREALTIME
+  # zsh/datetime cannot load over an inherited EPOCHREALTIME, which then stays
+  # plain text. Time commands only with the module's float, never that text.
+  [[ ${(t)EPOCHREALTIME} == float*special ]] &&
+    _PROMPT_COMMAND_STARTED=$EPOCHREALTIME
 
   if [[ $TERM != dumb && -t 1 ]]; then
     local command_name=${1%% *} title_identity=''
@@ -2860,7 +2872,10 @@ if (( _prompt_install_TRAPWINCH )); then
     zle || return $previous_status
     emulate -L zsh
 
-    if (( (${_ZLE_PICKER_ACTIVE:-0} || ${_ZLE_PICKER_SCREEN_ACTIVE:-0}) && ${+functions[_zle_picker_redraw]} )); then
+    # Picker flags belong to the shared UI; compare text so a same-named
+    # inherited variable is never evaluated as arithmetic.
+    if [[ ${_ZLE_PICKER_ACTIVE-} == 1 || ${_ZLE_PICKER_SCREEN_ACTIVE-} == 1 ]] &&
+        (( ${+functions[_zle_picker_redraw]} )); then
       # ZLE parameters are read-only in traps; the editor owns the writable
       # widget context as well as the cached picker layout and painting.
       zle compozsh-picker-redraw

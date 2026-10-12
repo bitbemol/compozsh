@@ -29,7 +29,8 @@ _zle_picker_loop() {
   local document_target=''
   local -a reply=()
 
-  [[ $raw_limit == <-> ]] && configured_limit=$raw_limit
+  # Settings text: 19 or more digits would truncate or wrap on assignment.
+  [[ $raw_limit == <-> && ${#raw_limit} -le 18 ]] && configured_limit=$raw_limit
   (( configured_limit < 1 )) && configured_limit=1
   (( configured_limit > 20 )) && configured_limit=20
   (( ${+functions[$collector]} )) || return 2

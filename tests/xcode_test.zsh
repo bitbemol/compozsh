@@ -270,6 +270,29 @@ _test_xcode_workspace_rejects_pathological_scheme_count_without_partial_list() {
 test_case 'Xcode workspace fails closed instead of truncating a pathological scheme list' \
   _test_xcode_workspace_rejects_pathological_scheme_count_without_partial_list
 
+# Twenty digits would wrap negative and pass the 4096-scheme bound.
+_test_xcode_workspace_rejects_overflowing_scheme_count() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin"
+  test_write_file "$fake_bin/xcodebuild" $'#!/bin/zsh -df\nprint -r -- \'{"workspace":{"schemes":"99999999999999999999"}}\'' || return
+  command chmod +x "$fake_bin/xcodebuild" || return
+
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    _xcode_schemes_capture workspace /example/App.xcworkspace
+    print -r -- "$?|${#_XCODE_SCHEMES}|$_XCODE_CAPTURE_ERROR"
+  ' "$TEST_REPO_ROOT" "$fake_bin" 2>&1) || return
+
+  test_assert_equal '1|0|Xcode returned an invalid scheme count' "$output" \
+    'overflowing Xcode scheme count was evaluated instead of rejected'
+}
+test_case 'Xcode workspace rejects an overflowing scheme count before arithmetic' \
+  _test_xcode_workspace_rejects_overflowing_scheme_count
+
 _test_xcode_destination_parser_keeps_exact_usable_ids() {
   test_make_temp_dir || return
   local output=''
@@ -795,6 +818,62 @@ _test_xcode_test_result_capture_retains_failures_and_files() {
 }
 test_case 'Xcode test results retain failure reasons and involved files' \
   _test_xcode_test_result_capture_retains_failures_and_files
+
+# Result bundles carry project-chosen paths and tool-reported numbers. Neither
+# may reach arithmetic as text: subscripts there run command substitutions,
+# and 19 or more digits truncate or wrap.
+_test_xcode_test_result_capture_keeps_hostile_values_inert() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" bundle="$TEST_TMP_DIR/Test.xcresult"
+  local summary="$TEST_TMP_DIR/summary.json" details="$TEST_TMP_DIR/details.json"
+  local runs="$TEST_TMP_DIR/runs.json" build="$TEST_TMP_DIR/build.json"
+  command mkdir -p -- "$bundle" || return
+  test_write_file "$summary" '{
+    "result":"Failed","totalTestCount":"99999999999999999999",
+    "passedTests":9223372036854775808,"failedTests":2,
+    "skippedTests":"18446744073709551617","expectedFailures":0,
+    "testFailures":[
+      {"testName":"A.paths()","testIdentifierString":"A/paths()"},
+      {"testName":"B.runs()","testIdentifierString":"B/runs()"}
+    ]
+  }' || return
+  test_write_file "$details" '{
+    "testRuns":[{"children":[
+      {"sourceLocation":{"filePath":"/project/a$(: >| $HOME/plain-marker)b.swift","lineNumber":"99999999999999999999"}},
+      {"sourceLocation":{"filePath":"/project/y]+path[$(: >| $HOME/breakout-marker)1]+x[z.swift","lineNumber":7}}
+    ]}]
+  }' || return
+  test_write_file "$runs" '{"testRuns":"99999999999999999999"}' || return
+  test_write_file "$build" '{"errors":"99999999999999999999"}' || return
+  test_write_file "$fake_bin/xcrun" $'#!/bin/zsh -df\ncase "${(j: :)@}" in\n  (*"test-results summary"*) command cat -- "$XCODE_SUMMARY" ;;\n  (*"test-details"*"B/runs()"*) command cat -- "$XCODE_RUNS" ;;\n  (*"test-results test-details"*) command cat -- "$XCODE_DETAILS" ;;\n  (*"build-results"*) command cat -- "$XCODE_BUILD" ;;\n  (*) exit 2 ;;\nesac' || return
+  command chmod +x "$fake_bin/xcrun" || return
+
+  local output='' exit_status=0
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    export XCODE_SUMMARY=$4 XCODE_DETAILS=$5 XCODE_RUNS=$6 XCODE_BUILD=$7
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.matching_decimal_limit"
+    _xcode_test_result_capture "$3" 65
+    [[ ! -e $HOME/plain-marker && ! -e $HOME/breakout-marker ]] ||
+      print -r -- "source path ran a command substitution"
+    print -r -- "counts:$_XCODE_TEST_TOTAL|$_XCODE_TEST_PASSED|$_XCODE_TEST_FAILED|$_XCODE_TEST_SKIPPED|$_XCODE_TEST_BUILD_ERROR_TOTAL|${#_XCODE_TEST_BUILD_NAMES}"
+    print -r -- "files:${_XCODE_TEST_FAILURE_FILES[1]}"
+    print -r -- "runs:${_XCODE_TEST_FAILURE_FILES[2]}"
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$bundle" "$summary" "$details" "$runs" "$build" 2>&1) ||
+    exit_status=$?
+
+  test_assert_equal 'status:0
+counts:0|0|2|0|0|0
+files:/project/a$(: >| $HOME/plain-marker)b.swift
+/project/y]+path[$(: >| $HOME/breakout-marker)1]+x[z.swift:7
+runs:' "status:$exit_status"$'\n'"$output" \
+    'Xcode result capture evaluated source paths or kept overflowing counts'
+}
+test_case 'Xcode test results keep hostile paths and overflowing counts inert' \
+  _test_xcode_test_result_capture_keeps_hostile_values_inert
 
 _test_xcode_test_result_screen_uses_shared_semantic_roles() {
   test_make_temp_dir || return

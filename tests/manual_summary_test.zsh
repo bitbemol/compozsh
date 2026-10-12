@@ -170,3 +170,40 @@ _test_manual_summary_lifecycle() {
   ' "$TEST_REPO_ROOT"
 }
 test_case 'manual summaries capture once preserve re-source state and render hostile text literally' _test_manual_summary_lifecycle
+
+# Only this peer's own typed state survives a reload. Integer conversion of
+# inherited text evaluates arithmetic, including $(...) in a subscript.
+_test_manual_summary_discards_inherited_state() {
+  test_make_temp_dir || return
+  test_write_file "$TEST_TMP_DIR/manual/man1/ls.1" $'.Sh NAME\n.Nm ls\n.Nd list directory contents\n.Sh SYNOPSIS' || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    local name="" substitution='"'"'path[$(: >| $HOME/substituted)1]'"'"'
+    for name in _MANUAL_SUMMARIES_READY _MANUAL_CACHE_REFRESH _MANUAL_CACHE_DIRTY \
+        _MANUAL_PAGE_SYSTEM _MANUAL_ASYNC_GENERATION _MANUAL_ASYNC_BYTES \
+        _MANUAL_ASYNC_COUNT _MANUAL_ASYNC_DONE _MANUAL_ASYNC_INVALID \
+        _MANUAL_ASYNC_CONTROL_DONE _MANUAL_ASYNC_PUBLISHED \
+        _MANUAL_ASYNC_CANDIDATE_GENERATION _MANUAL_ASYNC_DEADLINE; do
+      export "$name=$substitution"
+    done
+    export _MANUAL_SOURCE_GENERATION=99999999999999999999 _MANUAL_ASYNC_FD=0
+    export _MANUAL_ASYNC_CONTROL_FD=$substitution _MANUAL_WORKER_CANCELLED=$substitution
+    source "$1/.zsh.addons/.zsh.manual" || print -r -- "load failed"
+    print -r -- "$_MANUAL_SUMMARIES_READY $_MANUAL_CACHE_DIRTY $_MANUAL_ASYNC_CANDIDATE_GENERATION $_MANUAL_SOURCE_GENERATION $_MANUAL_ASYNC_FD $_MANUAL_ASYNC_CONTROL_FD $(( _MANUAL_ASYNC_DEADLINE ))"
+    # Only the asynchronous worker scopes a cancellation flag.
+    _manual_summary_capture "$2"
+    print -r -- "capture:$?|${_MANUAL_SUMMARIES[ls]-}"
+    [[ ! -e $HOME/substituted ]] || print -r -- "inherited state ran a command substitution"
+    _MANUAL_SUMMARIES_READY=1 _MANUAL_CACHE_DIRTY=1
+    source "$1/.zsh.addons/.zsh.manual"
+    print -r -- "$_MANUAL_SUMMARIES_READY $_MANUAL_CACHE_DIRTY $_MANUAL_SOURCE_GENERATION"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/manual" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+0 0 0 1 -1 -1 0.
+capture:0|list directory contents
+1 1 2' "status:$exit_status"$'\n'"$output" \
+    'manual summaries evaluated or kept inherited text, overflowing or descriptor state'
+}
+test_case 'manual summaries discard inherited state without evaluating it' \
+  _test_manual_summary_discards_inherited_state

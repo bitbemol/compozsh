@@ -110,6 +110,32 @@ _test_git_document_cache() {
 }
 test_case 'Git document caches only four snapshots and keys them by file and context' _test_git_document_cache
 
+# Hunk numbers are Git output; 19 or more digits would truncate or wrap.
+_test_git_document_rejects_overflowing_hunk_numbers() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    local header=''
+    for header in '\''@@ -99999999999999999999,1 +1 @@'\'' '\''@@ -1 +99999999999999999999 @@'\''; do
+      _GIT_REVIEW_DATA=$header$'\''\n-old\n+new'\''
+      # After a valid hunk, the malformed header ends numbering too.
+      [[ $header == *-1\ * ]] && _GIT_REVIEW_DATA=$'\''@@ -5 +5 @@\n ctx\n'\''$_GIT_REVIEW_DATA
+      _GIT_REVIEW_TRUNCATED=0
+      _git_review_document_parse
+      print -r -- "${(j:|:)_ZLE_PICKER_DOCUMENT_LINES}"
+      print -r -- "${(j:,:)_GIT_REVIEW_DOCUMENT_OLD}|${(j:,:)_GIT_REVIEW_DOCUMENT_NEW}|$_GIT_REVIEW_DOCUMENT_SUMMARY"
+    done
+  ' "$TEST_REPO_ROOT" 2>&1) || return
+  test_assert_equal '@@ -99999999999999999999,1 +1 @@|-old|+new
+0,0,0|0,0,0|change metadata · read-only
+@@ -5 +5 @@|     5      5  ctx|@@ -1 +99999999999999999999 @@|-old|+new
+0,5,0,0,0|0,5,0,0,0|+0 -0 · read-only' "$output" \
+    'an overflowing hunk header was evaluated into wrapped line numbers'
+}
+test_case 'Git document leaves overflowing hunk numbers as unnumbered text' \
+  _test_git_document_rejects_overflowing_hunk_numbers
+
 _test_git_document_context() {
   test_make_temp_dir || return
   local output

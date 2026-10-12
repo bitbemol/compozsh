@@ -49,7 +49,24 @@ Idioms, naming and the public command/help interface.
   extra override fails safe.
 - Validate numeric text (`<->` and a digit bound) before assigning it to an
   integer: integer assignment evaluates arithmetic, including `$(...)` in a
-  subscript.
+  subscript. The same holds for float assignment, `read` into either, `(( ))`,
+  `$(( ))`, `[[ -lt ]]`, ordinary-array subscripts, `${s:i:n}`, padding
+  widths, `printf %d` and `return`, and 19 or more digits truncate or wrap.
+  Use `[[ $n == <-> && ${#n} -le 18 ]]` or a small range pattern such as
+  `<0-65536>`; when a producer legitimately reports 19 digits, compare that
+  text with `9223372036854775807` as text. `<->` alone suffices only for a
+  field whose fixed tool format bounds it (`/usr/bin/stat`, `/usr/bin/cksum`).
+- Never splice text into arithmetic text. `(( h[$key] ))` and
+  `(( a[(Ie)$text] ))` reparse the subscript, so `]` or `$(...)` in the text
+  becomes expression or command. Expand first (`${h[$key]}`,
+  `${a[(Ie)$text]}`) or assign (`h[$key]=$(( ${h[$key]:-0} + 1 ))`); a
+  `security:` test scans shipped code.
+- A name that a view, session or worker scopes has no global value: its owner
+  declares it for every reader or drops inherited copies at load (`unset`),
+  and readers that can run without the owner loaded compare text
+  (`[[ ${flag-} == 1 ]]`). A load-time `typeset -gi name` without a value
+  converts, and so evaluates, a value inherited from the environment; discard
+  numeric state that is not already your own type.
 - Don't use `eval`, for parsing, dispatch or anything else.
 
 ## Naming and visibility

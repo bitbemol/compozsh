@@ -11,6 +11,12 @@ typeset -ga _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=(
 typeset -g ZSH_GIT_REVIEW_AUTO_REFRESH=${ZSH_GIT_REVIEW_AUTO_REFRESH-1}
 typeset -gF _GIT_REVIEW_AUTO_REFRESH_INTERVAL=2.0
 typeset -gF _GIT_REVIEW_AUTO_REFRESH_TIMEOUT=30.0
+# Only the automatic worker scopes these; outside it they are unset. Drop
+# copies inherited from the environment, which would be evaluated as
+# arithmetic or would route a foreground capture through the worker.
+unset -- _GIT_REVIEW_WORKER_DIR _GIT_REVIEW_WORKER_EXEC _GIT_REVIEW_WORKER_DEADLINE \
+  _git_review_worker_active_pid _git_review_worker_cancelled \
+  _git_review_worker_timed_out _git_review_worker_forking
 
 _git_review_git() {
   emulate -L zsh
@@ -561,16 +567,20 @@ _git_review_document_parse() {
   emulate -L zsh
   local line='' role='' old_label='' new_label=''
   local -a match=() mbegin=() mend=()
-  local -i old=0 new=0 added=0 removed=0 in_hunk=0 partial=0
+  local -i old=0 new=0 added=0 removed=0 in_hunk=0 numbering=0 partial=0
   _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
   _GIT_REVIEW_DOCUMENT_OLD=() _GIT_REVIEW_DOCUMENT_NEW=()
   for line in "${(@f)_GIT_REVIEW_DATA}"; do
     [[ -z $line ]] && (( in_hunk )) && continue
     role=text old_label='' new_label=''
-    if [[ $line == '@@ '* && $line =~ '^@@ -([0-9]+)(,[0-9]+)? \+([0-9]+)' ]]; then
+    # At most 18 digits: integer arithmetic truncates or wraps longer text.
+    if [[ $line == '@@ '* && $line =~ '^@@ -([0-9]{1,18})(,[0-9]+)? \+([0-9]{1,18})[, ]' ]]; then
       old=$(( 10#$match[1] )) new=$(( 10#$match[3] ))
-      in_hunk=1 role=info
-    elif (( in_hunk )); then
+      in_hunk=1 numbering=1 role=info
+    elif [[ $line == '@@ '* ]]; then
+      # A header that cannot be numbered ends the previous hunk's numbering.
+      numbering=0
+    elif (( numbering )); then
       case $line in
         (+*) new_label=$new; (( ++new, ++added )); role=success ;;
         (-*) old_label=$old; (( ++old, ++removed )); role=error ;;
@@ -1197,7 +1207,7 @@ _git_review_folder_summary() {
     [[ $name == "$directory"* ]] || continue
     (( ++count ))
     state=${_GIT_REVIEW_KINDS[index]:-unknown}
-    (( ++states[$state] ))
+    states[$state]=$(( ${states[$state]:-0} + 1 ))
     if [[ $state == (commit|comparison) ]]; then
       item=${_GIT_REVIEW_CONTEXTS[index]}
       if [[ $item == Binary ]]; then
@@ -1223,7 +1233,9 @@ _git_review_folder_summary() {
     fi
     paths[$name]=1
     # Prefix the literal area so an empty direct group has an ordinary key.
-    (( ++areas[d:$area] ))
+    # Keep the path out of arithmetic text: a subscript there is reparsed,
+    # so `]` or $(...) in a name would become expression or command.
+    areas[d:$area]=$(( ${areas[d:$area]:-0} + 1 ))
   done
   lines=("Captured path" "${(V)directory}" ''
     "$count change entries · ${#paths} distinct paths"
@@ -1232,7 +1244,7 @@ _git_review_folder_summary() {
   (( missing_totals )) && lines+=("Incomplete line totals · Entries without totals: $missing_totals" '')
   for state label in staged Staged unstaged Unstaged untracked New conflict Conflicts commit Committed comparison Compared unknown Other; do
     if (( ${states[$state]:-0} )); then
-      filled=$(( (16 * states[$state] + count - 1) / count ))
+      filled=$(( (16 * ${states[$state]} + count - 1) / count ))
       bar=${(l:$filled::━:)}
       lines+=("$label: ${states[$state]}  $bar")
     fi
@@ -1247,7 +1259,7 @@ _git_review_folder_summary() {
     area=${item#* } label=${area#d:}
     [[ -n $label ]] || label='Direct entries'
     label=${(V)label}
-    filled=$(( (16 * areas[$area] + count - 1) / count ))
+    filled=$(( (16 * ${areas[$area]} + count - 1) / count ))
     bar=${(l:$filled::━:)}
     lines+=("$bar  ${areas[$area]}  $label")
   done
@@ -1941,7 +1953,8 @@ _git_review_auto_parse() {
   (( ${#config} == count )) || return 1
   _git_review_config_packet_valid || return 1
   _git_review_packet_take; take_result=$?; (( take_result )) && return $take_result
-  [[ $REPLY == <-> || $REPLY == <->.<-> ]] || return 1
+  # Integer text of 19 or more digits would truncate or wrap on assignment.
+  [[ ( $REPLY == <-> && ${#REPLY} -le 18 ) || $REPLY == <->.<-> ]] || return 1
   (( ${#REPLY} <= 20 )) || return 1
   capture_duration=$REPLY
   (( capture_duration >= 0.0 && capture_duration <= _GIT_REVIEW_AUTO_REFRESH_TIMEOUT )) || return 1

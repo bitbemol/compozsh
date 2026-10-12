@@ -196,6 +196,35 @@ _test_worktree_fallback() {
 }
 test_case 'worktree noninteractive fallback only lists and malformed owned invocations use status two' _test_worktree_fallback
 
+# The controller scopes every option flag its views read; a same-named variable
+# inherited from the environment must never be evaluated as arithmetic.
+_test_worktree_controller_ignores_inherited_view_flags() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
+    local substitution='"'"'path[$(: >| $HOME/hierarchy-marker)1]'"'"'
+    export _GWT_HIERARCHY=$substitution _GWT_OPTIONS=$substitution _GWT_FOCUS=$substitution
+    source "$1/tests/support.zsh"
+    source "$1/tests/git_worktree_test.zsh"
+    _test_worktree_fixture "$1" || exit 1
+    _zle_picker_loop() {
+      print -r -- "view:$_ZLE_PICKER_HIERARCHY_ENABLED|$_ZLE_PICKER_WORKSPACE_ACTIONS|$_ZLE_PICKER_INSPECT_FOCUS"
+      return 1
+    }
+    _git_worktree_controller
+    print -r -- "controller:$?"
+    local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+view:0|0|0
+controller:1
+markers:0' "status:$exit_status"$'\n'"$output" \
+    'the worktree controller evaluated an inherited view flag'
+}
+test_case 'worktree controller ignores inherited view flags' \
+  _test_worktree_controller_ignores_inherited_view_flags
+
 _test_worktree_controller_contract() {
   test_make_temp_dir || return
   local output=''

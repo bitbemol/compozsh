@@ -100,6 +100,10 @@ _test_usb_shared_dd_line_parser() {
     for line in "12 records in" "error: 123 bytes transferred" "123 bytes copied"; do
       _usb_dd_progress_bytes "$line" && exit 4
     done
+    # Callers assign the count to integers; 19 or more digits would wrap.
+    _usb_dd_progress_bytes "999999999999999999 bytes transferred" &&
+      [[ $REPLY == 999999999999999999 ]] || exit 5
+    _usb_dd_progress_bytes "99999999999999999999 bytes transferred" && exit 6
     print native
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal native "$output"

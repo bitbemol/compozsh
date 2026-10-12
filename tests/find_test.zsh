@@ -128,6 +128,35 @@ _test_file_search_local_boundaries() {
 test_case 'local file finder is hidden-aware, bounded, and never follows links' \
   _test_file_search_local_boundaries
 
+# Limits are settings text. Nineteen or more digits would truncate or wrap in
+# arithmetic, and a count of 2^31 or more breaks the bounded `Y` glob.
+_test_file_search_limits_reject_overflowing_settings() {
+  test_make_temp_dir || return
+  local root="$TEST_TMP_DIR/root" output='' exit_status=0
+  command mkdir -p -- "$root/alpha" || return
+  test_write_file "$root/alpha/result.txt" 'result' || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/.zsh.find"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    local limit=\'\'
+    for limit in 99999999999999999999 2147483647 999999999; do
+      ZSH_FILE_SEARCH_MAX_VISITED=$limit ZSH_FILE_SEARCH_MAX_CANDIDATES=$limit
+      _file_search_capture_local "$2" result
+      print -r -- "$limit:$?|${(j:|:)_FILE_SEARCH_LABELS}|$_FILE_SEARCH_VISITED"
+    done
+  ' "$TEST_REPO_ROOT" "$root" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+99999999999999999999:0|· alpha/result.txt|2
+2147483647:0|· alpha/result.txt|2
+999999999:0|· alpha/result.txt|2' "status:$exit_status"$'\n'"$output" \
+    'overflowing file search limits were evaluated or broke the bounded walk'
+}
+test_case 'local file finder treats overflowing limit settings as their defaults' \
+  _test_file_search_limits_reject_overflowing_settings
+
 _test_file_search_spotlight_boundary() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin"

@@ -147,7 +147,8 @@ _zle_syntax_highlight() {
   region_highlight=("${(@)region_highlight:#*memo=compozsh}")
   (( ${+functions[_compozsh_is_assignment]} &&
      ${+functions[_compozsh_is_redirection]} )) || return 0
-  (( ${_ZLE_PICKER_ACTIVE:-0} )) && return 0
+  # The shared UI owns this flag and may be absent: compare text, never evaluate.
+  [[ ${_ZLE_PICKER_ACTIVE-} == 1 ]] && return 0
   (( ${REGION_ACTIVE:-0} )) && return 0
   [[ -n $BUFFER ]] || return 0
   # Redraw latency matters more than decoration for unusually large pasted or

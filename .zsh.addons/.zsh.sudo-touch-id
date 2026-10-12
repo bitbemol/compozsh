@@ -14,7 +14,8 @@ _sudo_touch_id_read_bounded() {
   local size=''
   REPLY=''
   size=$(command /usr/bin/stat -f '%z' "$1" 2>/dev/null) || return 1
-  [[ $size == <-> ]] && (( size <= 65536 )) || return 1
+  # A range pattern compares the text itself, so no length can wrap.
+  [[ $size == <0-65536> ]] || return 1
   REPLY=$(<"$1") 2>/dev/null
 }
 
@@ -90,7 +91,10 @@ _sudo_touch_id_metadata_safe() {
   metadata=${metadata#*:}
   mode=${metadata%%:*}
   links=${metadata#*:}
-  [[ $owner == 0 && $group == 0 && $mode == <-> ]] || return 1
+  # stat %Lp prints at most four octal digits; anything else would make the
+  # base-8 arithmetic below fail noisily or truncate into a "safe" mode.
+  [[ $owner == 0 && $group == 0 && -n $mode && $mode != *[^0-7]* &&
+     ${#mode} -le 4 ]] || return 1
   [[ -z $expected_mode || $mode == $expected_mode ]] || return 1
   [[ -z $expected_links || $links == $expected_links ]] || return 1
   (( (8#$mode & 8#022) == 0 ))
@@ -448,7 +452,7 @@ _sudo_touch_id_run() {
         (absent) print -r -- 'No sudo_local policy is installed.' ;;
         (managed)
           links=$(command /usr/bin/stat -f '%l' "$pam_dir/sudo_local" 2>/dev/null) || return 1
-          if [[ $links == <-> ]] && (( links > 1 )); then
+          if [[ $links == <2-> ]]; then
             print -r -- 'The Compozsh-managed sudo_local policy has additional hard links; disable removes only sudo_local, then inspect remaining links.'
           else
             print -r -- 'The Compozsh-managed sudo_local policy is installed.'

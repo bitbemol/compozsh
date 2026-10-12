@@ -576,6 +576,85 @@ _test_prompt_disables_repository_git_filters() {
 test_case 'prompt Git status never executes repository filters' \
   _test_prompt_disables_repository_git_filters
 
+# Status header counts are Git output: validate them as text, because integer
+# assignment evaluates arithmetic ($(...) in a subscript runs) and 19 or more
+# digits truncate or wrap.
+_test_prompt_git_counts_stay_text_until_validated() {
+  test_make_temp_dir || return
+  local repository="$TEST_TMP_DIR/repository" fake_bin="$TEST_TMP_DIR/bin"
+  local output='' exit_status=0
+  command git init -q "$repository" || return
+  test_write_file "$fake_bin/git" $'#!/bin/zsh -df\ncase " $* " in\n  (*" status "*) print -r -- "$FAKE_GIT_STATUS" ;;\n  (*) exec "$REAL_GIT" "$@" ;;\nesac' || return
+  command chmod +x "$fake_bin/git" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    export REAL_GIT=${commands[git]}
+    path=("$2" $path)
+    rehash
+    source "$1/.zsh.addons/.zsh.prompt"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    builtin cd -- "$3" || exit
+    local header=$\'# branch.oid 0123456789abcdef\\n# branch.head main\\n# branch.upstream origin/main\'
+    local counts=""
+    for counts in \\
+        \'# branch.ab +path[$(:>|$HOME/ahead-marker)1] -0\' \\
+        \'# branch.ab +0 -path[$(:>|$HOME/behind-marker)1]\' \\
+        \'# branch.ab +99999999999999999999 -0\' \\
+        \'# stash path[$(: >| $HOME/stash marker)1]\' \\
+        \'# stash 99999999999999999999\' \\
+        $\'# branch.ab +2 -1\\n# stash 3\'; do
+      export FAKE_GIT_STATUS=$header$\'\\n\'$counts
+      _prompt_git
+      print -r -- "$_PROMPT_GIT_TEXT"
+    done
+    local -a markers=($HOME/*marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$repository" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+main ✓
+main ✓
+main ✓
+main ✓
+main ✓
+main ≡3 ⇡2 ⇣1
+markers:0' "status:$exit_status"$'\n'"$output" \
+    'prompt Git counts were evaluated or accepted after overflowing'
+}
+test_case 'prompt Git counts stay text until validated' \
+  _test_prompt_git_counts_stay_text_until_validated
+
+# Prompt-time hooks read the shared UI's picker flags even when that UI is not
+# installed. They compare the text, so a same-named variable inherited from the
+# environment is never evaluated (arithmetic would run $(...) in a subscript).
+_test_peers_read_inherited_picker_flags_as_text() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    local substitution='"'"'path[$(: >| $HOME/flag-marker)1]'"'"'
+    export _ZLE_PICKER_ACTIVE=$substitution _ZLE_PICKER_SCREEN_ACTIVE=$substitution
+    local peer=""
+    for peer in editor highlighting prompt manual; do source "$1/.zsh.addons/.zsh.$peer"; done
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$support_component"; done
+    local CONTEXT=start ZLE_RECURSIVE=0 BUFFER="print ok" CURSOR=8
+    _zle_prompt_is_shell_editor; print -r -- "editor:$?"
+    _manual_async_paint; print -r -- "manual:$?"
+    _zle_syntax_highlight; print -r -- "highlight:$?"
+    zle() { return 0; }
+    TRAPWINCH; print -r -- "resize:$?"
+    local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+editor:0
+manual:0
+highlight:0
+resize:0
+markers:0' "status:$exit_status"$'\n'"$output" \
+    'a peer evaluated an inherited picker flag as arithmetic'
+}
+test_case 'peers read inherited picker flags as text without the shared UI' \
+  _test_peers_read_inherited_picker_flags_as_text
+
 _test_prompt_rejects_runtime_from_enclosing_repository() {
   test_make_temp_dir || return
   local repository="$TEST_TMP_DIR/repository"
