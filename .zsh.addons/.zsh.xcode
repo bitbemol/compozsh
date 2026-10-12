@@ -3541,7 +3541,7 @@ _xcode_export_skills() {
 
   print -r -- "Detected: ${(j:, :)detected_vendors}"
 
-  stage_dir=$(command mktemp -d "${temp_root%/}/xcode-skills.XXXXXX") || {
+  stage_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-skills.XXXXXX") || {
     print -u2 -r -- 'xcode --export-skills: cannot create a temporary directory'
     return 1
   }
@@ -3574,7 +3574,8 @@ _xcode_export_skills() {
     fi
   } always {
     if [[ -n $stage_dir && -d $stage_dir &&
-          ${stage_dir:t} == xcode-skills.* ]]; then
+          ${stage_dir:t} == compozsh-xcode-skills.* &&
+          ${stage_dir:h:A} == ${temp_root:A} && ! -L $stage_dir ]]; then
       command rm -rf -- "$stage_dir"
     fi
   }

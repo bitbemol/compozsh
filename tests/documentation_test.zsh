@@ -146,6 +146,25 @@ _test_security_contract_is_public_and_auditable() {
 test_case 'docs: security and privacy contract stays public and auditable' \
   _test_security_contract_is_public_and_auditable
 
+_test_xcode_skill_export_residue_is_disclosed() {
+  local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
+
+  test_assert_contains "$security" 'Xcode skill-export staging (`compozsh-xcode-skills.*`' \
+    'security inventory omits the Xcode skill-export staging directory' || return
+  test_assert_contains "$security" '`${TMPDIR:-/tmp}/compozsh-xcode-skills.*` staging directory' \
+    'Apple skill export omits its temporary staging name' || return
+  test_assert_contains "$security" 'built in a sibling `.xcode-skill-stage.*` directory' \
+    'Apple skill export omits its agent-folder staging directories' || return
+  test_assert_contains "$security" 'deliberately keeps `.xcode-skill-backup.*/previous`' \
+    'Apple skill export omits its retained recovery backup' || return
+  test_assert_contains "$security" 'installation can leave a `.xcode-skill-stage.*` or `.xcode-skill-backup.*`' \
+    'Apple skill export omits agent-folder residue after interruption' || return
+  test_assert_contains "$security" 'Xcode skill staging and its agent skill-folder siblings' \
+    'temporary residue list omits Xcode skill staging'
+}
+test_case 'docs: Xcode skill export staging and residue stay disclosed' \
+  _test_xcode_skill_export_residue_is_disclosed
+
 _test_living_prompt_contract_is_synchronized() {
   local readme="$(<"$TEST_REPO_ROOT/README.md")"
   local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"

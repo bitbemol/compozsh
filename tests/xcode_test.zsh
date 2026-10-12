@@ -130,6 +130,64 @@ _test_xcode_install_preserves_unmarked_conflict() {
 test_case 'Xcode skill installation preserves unmarked personal conflicts' \
   _test_xcode_install_preserves_unmarked_conflict
 
+# The export staging directory is a disclosed temporary capture: it must carry
+# a compozsh-* name directly below TMPDIR and disappear after a normal export.
+_test_xcode_export_stages_under_compozsh_name() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" tmp="$TEST_TMP_DIR/tmp"
+  local fake_bin="$TEST_TMP_DIR/bin" spy="$TEST_TMP_DIR/output-dir"
+  local output='' stage_dir=''
+  local -i command_status=0
+  local -a leftovers=()
+
+  command mkdir -p -- "$tmp" || return
+  test_write_file "$fake_bin/xcrun" $'#!/usr/bin/env zsh
+if [[ $1 == --find && $2 == agent ]]; then
+  print -r -- /Applications/Xcode.app/usr/bin/agent
+elif [[ $1 == agent && $2 == skills && $3 == export && $4 == --output-dir ]]; then
+  print -r -- "$5" >| "$XCRUN_SPY" &&
+    command mkdir -p -- "$5/swift" &&
+    print -r -- \'Apple instructions\' >| "$5/swift/SKILL.md"
+else
+  exit 64
+fi' || return
+  test_write_file "$fake_bin/xcodebuild" $'#!/usr/bin/env zsh
+print -r -- \'Xcode 27.0\'
+print -r -- \'Build version 27A100\'' || return
+  test_write_file "$fake_bin/claude" $'#!/usr/bin/env zsh\nexit 0' || return
+  command chmod +x "$fake_bin/xcrun" "$fake_bin/xcodebuild" "$fake_bin/claude" ||
+    return
+
+  output=$(test_run_noninteractive "$home" \
+    'path=("$2" $path)
+     export TMPDIR=$3 XCRUN_SPY=$4
+     rehash
+     source "$1/.zsh.addons/.zsh.xcode"
+     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+     _xcode_export_skills' \
+    "$TEST_REPO_ROOT" "$fake_bin" "$tmp" "$spy" 2>&1) || command_status=$?
+
+  (( command_status == 0 )) ||
+    test_fail "Xcode skill export failed with status $command_status: $output" ||
+    return
+  [[ -f $spy ]] || test_fail 'Xcode skill export never ran the exporter' || return
+  stage_dir=$(<"$spy")
+  [[ ${stage_dir:t} == compozsh-xcode-skills.* ]] ||
+    test_fail "Xcode skill export staged under an unidentifiable name: ${stage_dir:t}" ||
+    return
+  test_assert_equal "${tmp:A}" "${stage_dir:h:A}" \
+    'Xcode skill export did not stage directly below TMPDIR' || return
+  [[ ! -e $stage_dir ]] ||
+    test_fail 'Xcode skill export left its staging directory behind' || return
+  leftovers=("$tmp"/*(DN))
+  (( ${#leftovers} == 0 )) ||
+    test_fail "Xcode skill export left temporary residue: ${leftovers[*]}" || return
+  test_assert_equal 'Apple instructions' "$(<"$home/.claude/skills/swift/SKILL.md")" \
+    'Xcode skill export did not install the staged skill'
+}
+test_case 'Xcode skill export stages under an identifiable compozsh temporary name' \
+  _test_xcode_export_stages_under_compozsh_name
+
 _test_xcode_workspace_discovers_only_nearest_containers() {
   test_make_temp_dir || return
   local root="$TEST_TMP_DIR/project" nested="$TEST_TMP_DIR/project/Sources/Feature"

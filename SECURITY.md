@@ -130,11 +130,11 @@ recoverable installer need local state.
 | Known remote branch fallback | Invocation memory until `g` returns; tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB, and 128 remote names / 32 KiB; no remote URLs. No fetch, pull or disk cache |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
-| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, progress, read-back, GPT headers and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, progress, read-back, GPT headers and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
 | Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (Zsh writes the draft directly into that file); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
-| Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
+| Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh; per-skill staging and backup siblings and their cleanup limits are listed under [Apple skill export](#xcode-capture-run-and-logs) |
 | Clipboard values | The clipboard of the machine running Zsh; may outlive the view or run under operating-system/user control | Only explicit Copy writes: a path, branch, current directory, visible website command, bounded Xcode test report, or matching Simulator/device log lines that can hold local paths, diagnostics and sensitive app values. Never read back |
 
 Where a row names shell, view or invocation memory, Compozsh keeps that data in
@@ -962,8 +962,22 @@ Export skills closes the screen before exporting and installing each skill.
 Noninteractive, dumb and missing-UI calls run immediately. The plan is not a
 dry run or transaction: personal conflicts stay preserved, and a later failure
 can leave earlier skills updated. Rendering performs no provider read, project
-discovery or private skill-directory scan; mode help is inert. Inspect
-`.zsh.addons/.zsh.xcode`.
+discovery or private skill-directory scan; mode help is inert. The exporter
+writes Apple-authored skill text into one mode-0700
+`${TMPDIR:-/tmp}/compozsh-xcode-skills.*` staging directory. Each skill is then
+built in a sibling `.xcode-skill-stage.*` directory inside the agent skill
+folder, and a refresh moves the previous managed copy into a sibling
+`.xcode-skill-backup.*` directory until the new copy is active. Normal and
+handled-error cleanup removes all three, except that a failed rollback
+deliberately keeps `.xcode-skill-backup.*/previous` and prints its path.
+Ctrl-C still removes the `${TMPDIR:-/tmp}` staging directory, but interrupting
+installation can leave a `.xcode-skill-stage.*` or `.xcode-skill-backup.*`
+directory in an agent skill folder, and an uncatchable termination can leave
+any of the three. A backup can hold the previous managed skill (an interrupted
+refresh can leave it there instead of in place), so inspect it before removing
+it. Inspect `.zsh.addons/.zsh.xcode`;
+`zsh tests/run.zsh 'Xcode skill'` checks the staging name and cleanup, and
+`zsh tests/run.zsh 'Xcode rollback'` the retained recovery backup.
 
 ### External devices and task routing
 
@@ -1014,7 +1028,8 @@ streamed through pipes and is not persisted there. Normal exit removes both;
 after an uncatchable termination, the user may inspect and remove the
 identifiable directory. Other feature-specific residue (manual transport and
 formatter directories, cache and completion-dump staging files, Xcode test
-bundles, device and Simulator run directories, interrupted worktree creation,
+bundles, Xcode skill staging and its agent skill-folder siblings, device and
+Simulator run directories, interrupted worktree creation,
 external media captures and image mount points, and Touch ID policy
 temporaries) is disclosed in its own section; the Ctrl-X Ctrl-E draft file,
 which does not use a `compozsh-` name, has its own inventory row.
