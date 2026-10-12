@@ -16,8 +16,7 @@ _test_picker_resize_automatic_paint() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 22
     local prompt_mode=$2
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
@@ -62,22 +61,14 @@ _test_picker_resize_automatic_paint() {
       print -r -u $event_fd -- DONE
     }
     _resize_event() {
-      local chunk=""
-      while zselect -r $event_fd $pty_fd -t 500; do
-        while zpty -r repaint chunk; do
-          trace+=$chunk
-        done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          return 0
-        fi
-      done
-      print -u2 -r -- "timed out waiting for resize event; last=$event"
-      return 1
+      {
+        test_pty_expect -p repaint $event_fd "" || return
+        event=$REPLY
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
-    local event="" trace="" device="" size="" pty_fd=0
+    local event="" trace="" device="" size=""
     local -a dimensions
-    zpty -b repaint _resize_driver || exit 3
-    pty_fd=$REPLY
+    test_pty_start repaint _resize_driver || exit 3
     {
       _resize_event || exit 4
       [[ $event == TTY:* ]] || exit 5
@@ -374,12 +365,11 @@ _test_picker_resize_reader_keeps_syntax_spans() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 11
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events" || exit 2
     typeset -gA ZSH_HIGHLIGHT_STYLES=(review-keyword fg=143 review-string fg=144)
-    local event="" trace="" terminal="" pfd=0
+    local event="" trace="" terminal=""
     # Stand in for a published Git syntax result on every captured row.
     functions[_syntax_original_collect]=$functions[_zle_ui_text_collect]
     _zle_ui_text_collect() {
@@ -408,29 +398,23 @@ _test_picker_resize_reader_keeps_syntax_spans() {
       print -r -u $efd -- "DONE|$?"
     }
     _syntax_expect() {
-      local target=$1 chunk=""
+      local wanted="$1|"
       local -a fields=()
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r reader chunk; do trace+=$chunk; done
-        while IFS= read -r -t 0 -u $efd event; do
-          fields=("${(@s:|:)event}")
-          if [[ $fields[1] == FRAME ]]; then
-            [[ $fields[3] == <1-> && $fields[3] == "$fields[4]" &&
-               $fields[5] == "0:3:keyword 5:9:string " ]] || {
-              print -u2 -r -- "frame lost syntax spans: $event"
-              return 1
-            }
-            [[ $fields[2] == "$target" ]] && return 0
-          elif [[ $fields[1] == "$target" ]]; then
-            return 0
-          fi
-        done
+      [[ $1 == <-> ]] && wanted="FRAME|$1|"
+      { test_pty_expect -p reader $efd "$wanted" } always { trace+=$TEST_PTY_OUTPUT }
+      local -i found=$?
+      # Every frame this wait read, through the wanted one, keeps its spans.
+      for event in "${TEST_PTY_EVENTS[@]}"; do
+        fields=("${(@s:|:)event}")
+        [[ $fields[1] != FRAME || ( $fields[3] == <1-> && $fields[3] == "$fields[4]" &&
+           $fields[5] == "0:3:keyword 5:9:string " ) ]] || {
+          print -u2 -r -- "frame lost syntax spans: $event"
+          return 1
+        }
       done
-      print -u2 -r -- "timed out waiting for $target; last=$event"
-      return 1
+      return found
     }
-    zpty -b reader _syntax_driver || exit 3
-    pfd=$REPLY
+    test_pty_start reader _syntax_driver || exit 3
     {
       _syntax_expect 100 || exit 4
       terminal=$(<"$HOME/terminal")

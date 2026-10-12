@@ -31,9 +31,7 @@ _test_git_auto_refresh_native() {
     for line in {1..30}; do print -r -- "context $line" >> file; done
     print -r -- other-change >> other
 
-    zmodload zsh/zpty
-    zmodload zsh/zselect
-    zmodload zsh/datetime
+    source "$1/tests/pty_support.zsh" || exit 20
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
     local -i exit_race_released=0 exit_gate_fd=-1
@@ -98,41 +96,23 @@ _test_git_auto_refresh_native() {
       print -r -u $efd -- "DONE:$outcome"
     }
     _auto_test_session() { _git_review_view "$HOME/repo" working; }
+    # An event starting with the optional forbidden prefix fails the wait.
     _auto_test_expect() {
-      local wanted=$1 forbidden=${2:-} event="" chunk=""
-      local -i select_result=0
-      local -F deadline=$(( EPOCHREALTIME + 6.0 ))
-      while (( EPOCHREALTIME < deadline )); do
-        zselect -r $efd $pfd -t 30 2>/dev/null
-        select_result=$?
-        if (( select_result == 0 )); then
-          while zpty -r auto-review chunk; do trace+=$chunk; done
-          if IFS= read -r -t 0 -u $efd event; then
-            events+=("$event")
-            if [[ -n $forbidden && $event == "$forbidden"* ]]; then
-              print -u2 -r -- "forbidden intermediate frame $event while waiting for $wanted"
-              return 1
-            fi
-            [[ $event == "$wanted" ]] && return 0
-          fi
-        else
-          while zpty -r auto-review chunk; do trace+=$chunk; done
-          zpty -t auto-review 2>/dev/null || break
-        fi
-      done
-      while zpty -r auto-review chunk; do trace+=$chunk; done
-      print -u2 -r -- "expected $wanted; got ${(j:,:)events}; trace=${(V)trace}"
-      return 1
+      local -a stop=()
+      [[ -n ${2:-} ]] && stop=(-s "${(b)2}*")
+      { test_pty_expect $stop auto-review $efd "$1" 6 } always {
+        trace+=$TEST_PTY_OUTPUT
+        events+=("${TEST_PTY_EVENTS[@]}")
+      }
     }
     _auto_test_key() {
       zpty -w -n auto-review "$1"
       _auto_test_expect "$2"
     }
 
-    local trace="" chunk="" event="" pfd=0
+    local trace="" event=""
     local -a events=()
-    zpty -b auto-review _auto_test_driver || exit 2
-    pfd=$REPLY
+    test_pty_start auto-review _auto_test_driver || exit 2
     {
       _auto_test_expect READY || exit 3
       _auto_test_expect "FRAME|0|one|1|0|0|0|1|0|2|_|0" || exit 4

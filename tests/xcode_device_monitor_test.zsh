@@ -216,22 +216,16 @@ while read -r -u $gate line; do :; done' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 10
     exec {events}<> "$HOME/events"
-    local event="" trace="" chunk="" device="" pfd=0
+    local event="" trace="" device=""
     _until() {
-      while zselect -r $events $pfd -t 300; do
-        while zpty -r device chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $events event; then
-          [[ $event == ${~1} ]] && return 0
-          [[ $event == (BAD-*|DONE:*) ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $1 got $event; ${(V)trace[-1200,-1]}"
-      return 1
+      { test_pty_expect -g -s "DONE:*" device $events "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b device "$2" -dfi
-    pfd=$REPLY
+    test_pty_start device "$2" -dfi
     {
       zpty -w device "source ${(q)HOME}/session.zsh ${(q)1}"
       _until "READY:*" || exit 1

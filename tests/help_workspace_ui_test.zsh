@@ -17,11 +17,10 @@ _test_help_workspace_native() {
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.help"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 18
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local event="" trace="" pfd=0 device="" captures=0 panel_color=0 reader_color=0
+    local event="" trace="" device="" captures=0 panel_color=0 reader_color=0
     zle() {
       local IFS=$'"'"' \t\n'"'"'
       if [[ $1 == -R ]] && (( _ZLE_PICKER_REFERENCE_VIEW )); then
@@ -74,22 +73,16 @@ _test_help_workspace_native() {
       print -r -u $efd DONE
     }
     _help_native_expect() {
-      local wanted=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r help-native chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == CAPTURE ]] && (( ++captures ))
-          [[ $event == "ACCENT|0" ]] && panel_color=1
-          [[ $event == "ACCENT|1" ]] && reader_color=1
-          [[ $event == "$wanted"* ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $wanted; received $event; trace ${(V)trace[-1200,-1]}"
-      return 1
+      { test_pty_expect -p help-native $efd "$1" } always {
+        local -a captured=("${(@M)TEST_PTY_EVENTS:#CAPTURE}")
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+        (( captures += ${#captured} ))
+        (( ${TEST_PTY_EVENTS[(Ie)ACCENT|0]} )) && panel_color=1
+        (( ${TEST_PTY_EVENTS[(Ie)ACCENT|1]} )) && reader_color=1
+      }
     }
-    zpty -b help-native _help_native_driver || exit 2
-    pfd=$REPLY
+    test_pty_start help-native _help_native_driver || exit 2
     {
       _help_native_expect SOURCE || exit 3
       device=${event#SOURCE|}

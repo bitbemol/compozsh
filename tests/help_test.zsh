@@ -357,7 +357,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.output"
     path=()
-    zmodload zsh/zpty || exit 10
+    source "$1/tests/pty_support.zsh" || exit 10
     _help_test_driver() {
       local tool
       for tool in mkcd cpdir g external-device xcode compozsh; do
@@ -368,14 +368,11 @@ _test_help_terminal_colors_and_plain_fallbacks() {
       print -r -- END-HELP-COLOR-TEST
     }
     _help_test_capture() {
-      local capture="" line=""
-      zpty help-color _help_test_driver || return
+      local capture=""
+      test_pty_start help-color _help_test_driver || return
       {
-        # Read bounded lines rather than repeatedly matching a growing guide.
-        while zpty -r help-color line; do
-          capture+=$line
-          [[ $line == *END-HELP-COLOR-TEST* ]] && break
-        done
+        test_pty_expect help-color "" END-HELP-COLOR-TEST
+        capture=$TEST_PTY_OUTPUT
         [[ $capture == *END-HELP-COLOR-TEST* ]] || return 1
         REPLY=${capture//$'\''\r'\''/}
         REPLY=${REPLY%$'\''\n'\''}
@@ -442,10 +439,11 @@ _test_help_color_treats_text_and_overrides_as_data() {
       print -r -- END-LITERAL-HELP
     }
     plain=$(_help_test_literal)
-    zmodload zsh/zpty || exit 10
-    zpty literal-help _help_test_literal || exit 11
+    source "$1/tests/pty_support.zsh" || exit 10
+    test_pty_start literal-help _help_test_literal || exit 11
     {
-      zpty -r literal-help colored "*END-LITERAL-HELP*" || exit 12
+      test_pty_expect literal-help "" END-LITERAL-HELP || exit 12
+      colored=$TEST_PTY_OUTPUT
     } always {
       zpty -d literal-help
     }

@@ -204,8 +204,7 @@ _test_appearance_source_preserves_queued_terminal_input() {
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    zmodload zsh/zpty || exit 2
-    zmodload zsh/zselect || exit 2
+    source "$1/tests/pty_support.zsh" || exit 2
     _appearance_test_driver() {
       unset COLORFGBG
       ZSH_COLOR_SCHEME=auto
@@ -218,16 +217,12 @@ _test_appearance_source_preserves_queued_terminal_input() {
       IFS= read -r -k 8 queued || exit 7
       print -r -- "RESULT:$_COMPOZSH_COLOR_SCHEME:$queued"
     }
-    local chunk="" trace="" pty_fd=0
-    local -i attempts=0
-    zpty -b appearance _appearance_test_driver "$1" || exit 3
-    pty_fd=$REPLY
+    local trace=""
+    test_pty_start appearance _appearance_test_driver "$1" || exit 3
     zpty -w -n appearance xsentinel
-    for (( attempts = 0; attempts < 50; ++attempts )); do
-      zselect -r $pty_fd -t 1 || continue
-      while zpty -r appearance chunk; do trace+=$chunk; done
-      [[ $trace == *RESULT:* ]] && break
-    done
+    # The driver exits after its result, so its whole output is compared.
+    test_pty_expect appearance "" ""
+    trace=$TEST_PTY_OUTPUT
     zpty -d appearance
     trace=${trace//$'\''\r'\''/}
     trace=${trace%$'\''\n'\''}

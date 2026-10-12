@@ -134,12 +134,11 @@ _test_search_capture_native() {
     path=("$2" "${path[@]}")
     source "$1/.zshrc"
     [[ $commands[mdfind] == "$2/mdfind" && $commands[git] == "$2/git" ]] || exit 1
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 24
     command mkfifo "$HOME/events" "$HOME/gate" || exit 2
     exec {efd}<> "$HOME/events"
     exec {gate_fd}<> "$HOME/gate"
-    local event="" trace="" chunk="" device="" pfd=0 captures=0
+    local event="" trace="" device="" captures=0
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_capture_native_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
@@ -181,19 +180,18 @@ _test_search_capture_native() {
       print -r -u $efd DONE
     }
     _capture_native_expect() {
-      local expected=$1
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r capture chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" || $expected == '"'"'TTY:*'"'"' && $event == TTY:* ]] && return 0
-          [[ $event == BAD-* || $event == STARTED ]] && break
+      {
+        if [[ $1 == "TTY:*" ]]; then
+          test_pty_expect -p -s STARTED capture $efd TTY:
+        else
+          test_pty_expect -s STARTED capture $efd "$1"
         fi
-      done
-      print -u2 -r -- "expected $expected; got $event"
-      return 1
+      } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b capture _capture_native_driver || exit 3
-    pfd=$REPLY
+    test_pty_start capture _capture_native_driver || exit 3
     {
       _capture_native_expect "TTY:*" || exit 4
       device=${event#TTY:}

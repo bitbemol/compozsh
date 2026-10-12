@@ -101,3 +101,262 @@ _test_search_session_fails_closed_on_effects() {
 }
 test_case 'shared search session never resolves system open or clipboard executables' \
   _test_search_session_fails_closed_on_effects
+
+# PTY expectations (tests/pty_support.zsh). Each probe runs in an isolated
+# shell under a watchdog, so a wait that regresses into a hang fails its case
+# instead of hanging the suite. Probes print status:, elapsed: and detail:
+# lines; elapsed time is measured around one expectation.
+_test_pty_probe() {
+  test_make_temp_dir || return
+  local -i probe_status=0
+  REPLY=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/tests/pty_support.zsh" || exit 91
+    command mkfifo "$HOME/events" || exit 92
+    exec {event_fd}<> "$HOME/events"
+    { zselect -t 1200; kill -KILL $$; } > /dev/null 2>&1 &
+    local -i watchdog=$!
+    trap '\''kill $watchdog 2> /dev/null'\'' EXIT
+    local -F started=0
+    '"$1"'
+  ' "$TEST_REPO_ROOT" 2>&1) || probe_status=$?
+  (( probe_status == 0 )) || test_fail "PTY probe exited $probe_status: $REPLY"
+}
+
+_test_pty_field() {
+  REPLY=${${(M)${(f)1}:#$2:*}#$2:}
+}
+
+_test_pty_assert_elapsed() {
+  local output=$1 minimum=$2 maximum=$3 label=$4
+  _test_pty_field "$output" elapsed
+  [[ $REPLY == <->(|.<->) ]] && (( REPLY >= minimum && REPLY < maximum )) && return 0
+  test_fail "$label: waited ${REPLY:-?} s, expected at least $minimum and under $maximum; output: $output"
+}
+
+_test_pty_expect_fails_at_deadline_without_marker() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() { print -r -- OTHER-MARKER; read -k; }
+    test_pty_start probe _probe_child || exit 93
+    started=$EPOCHREALTIME
+    test_pty_expect probe "" WANTED-MARKER 2 2> "$HOME/stderr"
+    print -r -- "status:$?"
+    print -r -- "elapsed:$(( EPOCHREALTIME - started ))"
+    zpty -d probe
+    print -r -- "detail:$(<"$HOME/stderr")"
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 1 "$REPLY" "a missing marker did not fail: $output" || return
+  _test_pty_assert_elapsed "$output" 2 3 'a missing marker did not fail at its deadline' || return
+  test_assert_contains "$output" WANTED-MARKER 'the failure did not name the missing marker'
+}
+test_case 'PTY expectation fails at its deadline when its marker never arrives' \
+  _test_pty_expect_fails_at_deadline_without_marker
+
+_test_pty_expect_fails_at_deadline_during_output() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() { while :; do print -r -- REPAINT; zselect -t 10; done; }
+    test_pty_start probe _probe_child || exit 93
+    started=$EPOCHREALTIME
+    test_pty_expect probe $event_fd WANTED 2 2> /dev/null
+    print -r -- "status:$?"
+    print -r -- "elapsed:$(( EPOCHREALTIME - started ))"
+    zpty -d probe
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 1 "$REPLY" "a missing event did not fail while output continued: $output" || return
+  _test_pty_assert_elapsed "$output" 2 3 'continuous output postponed the deadline'
+}
+test_case 'PTY expectation fails at its deadline while output never stops' \
+  _test_pty_expect_fails_at_deadline_during_output
+
+_test_pty_expect_waits_through_silence() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() {
+      print -r -u $event_fd "STATE|ready"
+      print -r -- painted
+      zselect -t 80
+      print -r -u $event_fd WANTED
+      read -k
+    }
+    test_pty_start probe _probe_child || exit 93
+    started=$EPOCHREALTIME
+    test_pty_expect -p probe $event_fd "STATE|" 3 || exit 94
+    print -r -- "prefix:$REPLY"
+    test_pty_expect probe $event_fd WANTED 3
+    print -r -- "status:$?"
+    print -r -- "elapsed:$(( EPOCHREALTIME - started ))"
+    print -r -- "detail:$REPLY"
+    zpty -d probe
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 0 "$REPLY" "an event after a silent pause was missed: $output" || return
+  _test_pty_assert_elapsed "$output" 0 3 'the event did not end the wait' || return
+  _test_pty_field "$output" detail
+  test_assert_equal WANTED "$REPLY" 'the matching event was not returned' || return
+  _test_pty_field "$output" prefix
+  test_assert_equal 'STATE|ready' "$REPLY" 'a prefix expectation did not return its whole event'
+}
+test_case 'PTY expectation keeps waiting through silence until its deadline' \
+  _test_pty_expect_waits_through_silence
+
+_test_pty_expect_fails_promptly_after_exit() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() { print -r -- goodbye; print -r -u $event_fd OTHER; }
+    test_pty_start probe _probe_child || exit 93
+    started=$EPOCHREALTIME
+    test_pty_expect probe $event_fd WANTED 3 2> "$HOME/stderr"
+    print -r -- "status:$?"
+    print -r -- "elapsed:$(( EPOCHREALTIME - started ))"
+    zpty -d probe
+    print -r -- "detail:$(<"$HOME/stderr")"
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 1 "$REPLY" "a finished command did not fail the wait: $output" || return
+  _test_pty_assert_elapsed "$output" 0 1.5 'a finished command left the wait running' || return
+  test_assert_contains "$output" WANTED 'the failure did not name the missing event' || return
+  [[ $output != *"bad file descriptor"* ]] ||
+    test_fail "the wait selected on a closed terminal: $output"
+}
+test_case 'PTY expectation fails promptly when its child exits without the marker' \
+  _test_pty_expect_fails_promptly_after_exit
+
+_test_pty_expect_matches_split_marker() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() {
+      print -rn -- FRAME-1:EN
+      zselect -t 30
+      print -r -- "D-MARK tail"
+      read -k
+    }
+    test_pty_start probe _probe_child || exit 93
+    test_pty_expect probe "" END-MARK 3
+    print -r -- "status:$?"
+    print -r -- "detail:${(V)REPLY}"
+    print -r -- "read:${(V)TEST_PTY_OUTPUT}"
+    zpty -d probe
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 0 "$REPLY" "a marker split across reads was missed: $output" || return
+  _test_pty_field "$output" detail
+  test_assert_equal 'FRAME-1:END-MARK tail^M\n' "$REPLY" \
+    'the expectation did not return the whole line holding its marker' || return
+  _test_pty_field "$output" read
+  test_assert_equal 'FRAME-1:END-MARK tail^M\n' "$REPLY" 'the call lost terminal output it read'
+}
+test_case 'PTY expectation matches a marker split across non-blocking reads' \
+  _test_pty_expect_matches_split_marker
+
+_test_pty_expect_waits_for_finish() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() { print -r -- FIRST; zselect -t 30; print -rn -- LAST; }
+    test_pty_start probe _probe_child || exit 93
+    test_pty_expect probe "" FIRST 3 || exit 94
+    print -r -- "first:${(V)TEST_PTY_OUTPUT}"
+    test_pty_expect probe "" "" 3
+    print -r -- "status:$?"
+    print -r -- "read:${(V)TEST_PTY_OUTPUT}"
+    zpty -d probe
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 0 "$REPLY" "a finished command did not end an empty expectation: $output" || return
+  _test_pty_field "$output" first
+  test_assert_equal 'FIRST^M\n' "$REPLY" 'the first call did not report its own output' || return
+  _test_pty_field "$output" read
+  test_assert_equal 'LAST' "$REPLY" 'the final call did not report only the rest of the output'
+}
+test_case 'PTY expectation reports the output of each call and an empty marker waits for the command to finish' \
+  _test_pty_expect_waits_for_finish
+
+_test_pty_expect_refuses_blocking_sessions() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() { read -k; }
+    zpty probe _probe_child || exit 93
+    started=$EPOCHREALTIME
+    test_pty_expect probe "" WANTED 2 2> "$HOME/stderr"
+    print -r -- "status:$?"
+    print -r -- "elapsed:$(( EPOCHREALTIME - started ))"
+    zpty -d probe
+    print -r -- "detail:$(<"$HOME/stderr")"
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 2 "$REPLY" "a blocking session was read: $output" || return
+  _test_pty_assert_elapsed "$output" 0 1 'a blocking session was not refused at once' || return
+  test_assert_contains "$output" 'usage: test_pty_expect' 'the refusal did not explain its usage'
+}
+test_case 'PTY expectation refuses a session not started nonblocking by its helper' \
+  _test_pty_expect_refuses_blocking_sessions
+
+_test_pty_expect_stops_at_caller_events() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() {
+      print -r -u $event_fd FIRST
+      print -r -u $event_fd "RESULT|1"
+      zselect -t 30
+      print -r -u $event_fd WANTED
+      read -k
+    }
+    test_pty_start probe _probe_child || exit 93
+    test_pty_expect -p probe $event_fd "" 3 || exit 94
+    print -r -- "next:$REPLY"
+    print -r -- "first-events:${(j:,:)TEST_PTY_EVENTS}"
+    started=$EPOCHREALTIME
+    test_pty_expect -s "(RESULT|DONE)*" probe $event_fd WANTED 3 2> "$HOME/stderr"
+    print -r -- "status:$?"
+    print -r -- "elapsed:$(( EPOCHREALTIME - started ))"
+    print -r -- "events:${(j:,:)TEST_PTY_EVENTS}"
+    test_pty_expect -g probe $event_fd "W?NT*" 3 || exit 95
+    print -r -- "glob:$REPLY"
+    zpty -d probe
+    print -r -- "detail:$(<"$HOME/stderr")"
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" glob
+  test_assert_equal WANTED "$REPLY" 'a glob expectation did not return the matching event' || return
+  _test_pty_field "$output" first-events
+  test_assert_equal FIRST "$REPLY" 'the first call did not report the event it read' || return
+  _test_pty_field "$output" events
+  test_assert_equal 'RESULT|1' "$REPLY" 'the stopped call did not report only its own events' || return
+  _test_pty_field "$output" next
+  test_assert_equal FIRST "$REPLY" 'an empty prefix did not take the next event' || return
+  _test_pty_field "$output" status
+  test_assert_equal 1 "$REPLY" "a caller stop event did not fail the wait: $output" || return
+  _test_pty_assert_elapsed "$output" 0 1 'a caller stop event did not end the wait at once' || return
+  test_assert_contains "$output" 'RESULT|1' 'the failure did not name the stop event'
+}
+test_case 'PTY expectation reports the events of each call, takes the next one, matches globs and fails at once on a caller stop event' \
+  _test_pty_expect_stops_at_caller_events
+
+_test_pty_expect_continues_a_caller_line() {
+  local output=''
+  _test_pty_probe '
+    _probe_child() { print -rn -- xA; zselect -t 30; print -r -- By; read -k; }
+    test_pty_start probe _probe_child || exit 93
+    test_pty_expect probe "" xA 3 || exit 94
+    test_pty_expect -c "$REPLY" probe "" AB 3
+    print -r -- "status:$?"
+    print -r -- "detail:${(V)REPLY}"
+    zpty -d probe
+  ' || return
+  output=$REPLY
+  _test_pty_field "$output" status
+  test_assert_equal 0 "$REPLY" "a marker continuing the caller line was missed: $output" || return
+  _test_pty_field "$output" detail
+  test_assert_equal 'xABy^M\n' "$REPLY" 'the continued line was not returned whole'
+}
+test_case 'PTY expectation continues a line the caller already read' \
+  _test_pty_expect_continues_a_caller_line

@@ -13,11 +13,9 @@ _test_git_tree_native() {
     git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm initial
     for file in README src/a src/deep/b src/deep/more/c src/deep/more/next/d; do print changed >> "$file"; done
     local before=$(git hash-object --no-filters .git/index)
-    zmodload zsh/zpty
-    zmodload zsh/zselect
-    zmodload zsh/datetime
+    source "$1/tests/pty_support.zsh" || exit 49
     command mkfifo "$HOME/events"
-    local efd pfd event="" trace="" device="" chunk="" summary_event=""
+    local efd event="" trace="" device="" chunk="" summary_event=""
     exec {efd}<> "$HOME/events"
     functions -c _zle_picker_show _tree_native_show
     functions -c _git_review_diff_capture _tree_native_capture
@@ -63,30 +61,21 @@ _test_git_tree_native() {
       vared -i _tree_native_widget draft
       print -r -u $efd DONE
     }
+    # A trailing * waits for an event prefix.
     _tree_native_expect() {
-      local wanted=$1
-      local -i pty_status=0
-      local -F deadline=$(( EPOCHREALTIME + 5 ))
-      # Silence is not failure: only the deadline, a BAD event or the driver
-      # exiting (zpty status 2, after its queued events) ends the wait. A
-      # zselect timeout only paces the loop; both reads are nonblocking.
-      while (( EPOCHREALTIME < deadline )); do
-        zselect -r $efd $pfd -t 50 || :
-        until zpty -r tree chunk; (( pty_status = $? )); do trace+=$chunk; done
-        while IFS= read -r -t 0 -u $efd event; do
-          if [[ $event == SUMMARY\|* ]]; then summary_event=$event; continue; fi
-          [[ $event == "$wanted" || ( $wanted == *\* && $event == "${wanted%\*}"* ) ]] && return 0
-          [[ $event == BAD-* ]] && break 2
+      local -a prefix=()
+      local seen=""
+      [[ $1 == *\* ]] && prefix=(-p)
+      { test_pty_expect $prefix tree $efd "${1%\*}" 5 } always {
+        trace+=$TEST_PTY_OUTPUT
+        for seen in "${TEST_PTY_EVENTS[@]}"; do
+          [[ $seen == SUMMARY\|* ]] && summary_event=$seen
         done
-        (( pty_status != 2 )) || break
-      done
-      print -u2 -r -- "expected $wanted; got $event"
-      print -u2 -r -- "terminal tail: ${trace[-1000,-1]}"
-      return 1
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
     _tree_native_key() { zpty -w -n tree "$1"; _tree_native_expect "$2"; }
-    zpty -b tree _tree_native_driver
-    pfd=$REPLY
+    test_pty_start tree _tree_native_driver
     {
       zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 1
       device=${event#READY:}

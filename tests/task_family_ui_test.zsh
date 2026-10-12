@@ -27,11 +27,10 @@ print -r -- "Build version Example"' || return
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _detect_xcode_skill_vendor() { REPLY=synthetic; [[ $1 == codex ]]; }
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 17
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local event="" trace="" pfd=0 device=""
+    local event="" trace="" device=""
     functions[_family_show]=$functions[_zle_picker_show]
     functions[_family_run]=$functions[_zle_picker_run]
     _zle_picker_show() {
@@ -73,19 +72,12 @@ print -r -- "Build version Example"' || return
       print -r -u $efd DONE
     }
     _family_expect() {
-      local wanted=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r family chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$wanted"* ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $wanted; received $event; trace ${(V)trace[-1200,-1]}"
-      return 1
+      { test_pty_expect -p family $efd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b family _family_driver || exit 2
-    pfd=$REPLY
+    test_pty_start family _family_driver || exit 2
     {
       _family_expect SOURCE || exit 3
       device=${event#SOURCE|}

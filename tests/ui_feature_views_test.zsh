@@ -314,7 +314,7 @@ _test_ui_usb_output_without_optional_palette() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.usb"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    zmodload zsh/zpty || exit 1
+    source "$1/tests/pty_support.zsh" || exit 1
     _usb_style_fixture() {
       _usb_format_color_style heading 1
       print -rn -- "$REPLY"
@@ -323,13 +323,11 @@ _test_ui_usb_output_without_optional_palette() {
       print END-STYLE
     }
     _usb_style_capture() {
-      local chunk="" captured=""
-      zpty usb-style _usb_style_fixture || return 1
+      local captured=""
+      test_pty_start usb-style _usb_style_fixture || return 1
       {
-        while zpty -r usb-style chunk; do
-          captured+=$chunk
-          [[ $chunk == *END-STYLE* ]] && break
-        done
+        test_pty_expect usb-style "" END-STYLE
+        captured=$TEST_PTY_OUTPUT
         [[ $captured == *END-STYLE* ]] || return 1
         REPLY=$captured
       } always {

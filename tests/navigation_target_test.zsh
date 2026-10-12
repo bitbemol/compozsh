@@ -30,10 +30,11 @@ _test_navigation_literal_option_branch() {
       g
       print -r -- "RESULT:$?:LITERAL-BRANCH-DONE"
     }
-    zmodload zsh/zpty
-    zpty literal-branch _literal_branch_driver || exit 7
+    source "$1/tests/pty_support.zsh" || exit 11
+    test_pty_start literal-branch _literal_branch_driver || exit 7
     {
-      zpty -r literal-branch frame "*LITERAL-BRANCH-DONE*" || exit 8
+      test_pty_expect literal-branch "" LITERAL-BRANCH-DONE || exit 8
+      frame=$TEST_PTY_OUTPUT
       [[ $frame == *"RESULT:0:LITERAL-BRANCH-DONE"* ]] || exit 9
     } always { zpty -d literal-branch; }
     [[ $(command git symbolic-ref --quiet HEAD) == refs/heads/--detach &&

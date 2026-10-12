@@ -481,9 +481,7 @@ _test_worktree_native() {
     source "$1/tests/git_worktree_test.zsh"
     _test_worktree_fixture "$1" || exit 1
     local journey=$2
-    zmodload zsh/zpty
-    zmodload zsh/zselect
-    zmodload zsh/datetime
+    source "$1/tests/pty_support.zsh" || exit 39
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
@@ -536,32 +534,18 @@ _test_worktree_native() {
       print -r -u $efd DONE
     }
     _worktree_test_expect() {
-      local wanted=$1 chunk=""
-      local -i pty_status=0
-      local -F deadline=$(( EPOCHREALTIME + 8.0 ))
-      # Silence is not failure: only the deadline, a BAD event or the driver
-      # exiting (zpty status 2, after its queued events) ends the wait. A
-      # zselect timeout only paces the loop; both reads are nonblocking.
-      while (( EPOCHREALTIME < deadline )); do
-        zselect -r $efd $pfd -t 50 || :
-        until zpty -r worktree chunk; (( pty_status = $? )); do trace+=$chunk; done
-        while IFS= read -r -t 0 -u $efd event; do
-          [[ $event == "$wanted" ]] && return 0
-          [[ $event == BAD-* ]] && break 2
-        done
-        (( pty_status != 2 )) || break
-      done
-      print -u2 -r -- "expected $wanted; got $event"
-      return 1
+      { test_pty_expect worktree $efd "$1" 8 } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
     _worktree_test_key() {
       zpty -w -n worktree "$1"
       _worktree_test_expect "$2" || return
       [[ $trace == *"$enter"* && ${trace#*"$enter"} != *"$enter"* && $trace != *"$leave"* ]]
     }
-    local trace="" event="" device="" captures="" pfd=0 chunk=""
-    zpty -b worktree _worktree_test_driver || exit 2
-    pfd=$REPLY
+    local trace="" event="" device="" captures="" chunk=""
+    test_pty_start worktree _worktree_test_driver || exit 2
     {
       zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 3
       device=${event#READY:}

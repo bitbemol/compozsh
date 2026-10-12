@@ -273,22 +273,17 @@ _test_picker_workspace_native_editor() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
     _workspace_event() {
-      local chunk=""
-      while zselect -r $event_fd $pty_fd -t 500; do
-        while zpty -r workspace chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $event_fd event && return 0
-      done
-      print -u2 -- "workspace event timed out after $event"
-      return 1
+      {
+        test_pty_expect -p workspace $event_fd "" || return
+        event=$REPLY
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
-    local event="" trace="" device="" pty_fd=0
-    zpty -b workspace "$2" -dfi || exit 3
-    pty_fd=$REPLY
+    local event="" trace="" device=""
+    test_pty_start workspace "$2" -dfi || exit 3
     {
       zpty -w workspace "source ${(q)HOME}/session.zsh ${(q)1}"
       _workspace_event && [[ $event == READY:* ]] || exit 4

@@ -179,8 +179,7 @@ _test_directory_navigator_native() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     setopt AUTO_CD
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 26
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
     functions[_nav_original_show]=$functions[_zle_picker_show]
@@ -216,22 +215,11 @@ _test_directory_navigator_native() {
       vared draft
     }
     _nav_expect() {
-      local expected=$1 chunk=""
-      while zselect -r $event_fd $pty_fd -t 500; do
-        while zpty -r nav chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* ]] && break
-          # Multi-character typing emits one frame per inserted character.
-          [[ $event == FRAME* || $event == READY:* ]] || break
-        fi
-      done
-      print -u2 -r -- "expected $expected; last event: $event"
-      return 1
+      # Multi-character typing emits one frame per inserted character.
+      { test_pty_expect -s "^(FRAME*|READY:*)" nav $event_fd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
-    local event="" trace="" pty_fd=0 device=""
-    zpty -b nav _nav_driver || exit 3
-    pty_fd=$REPLY
+    local event="" trace="" device=""
+    test_pty_start nav _nav_driver || exit 3
     {
       # The readiness event contains the real PTY device used for resize.
       zselect -r $event_fd -t 500 && IFS= read -r -u $event_fd event || exit 4

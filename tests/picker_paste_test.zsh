@@ -116,12 +116,11 @@ _test_picker_paste_transport() {
     for f in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$f"; done
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 16
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
     zmodload zsh/system
-    local event="" trace="" chunk="" scenario="" pfd=0 timed_out=0 signalled=0
+    local event="" trace="" scenario="" timed_out=0 signalled=0
     functions[_paste_transport]=$functions[_zle_picker_read_bracketed_paste]
     _zle_picker_read_bracketed_paste() {
       local transport_result=0
@@ -184,20 +183,10 @@ _test_picker_paste_transport() {
       print -r -u $efd -- "DONE|$result|$_ZLE_PICKER_ACCEPTED|$_ZLE_PICKER_ACTION"
     }
     _paste_expect() {
-      local expected=$1
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r paste chunk; do trace+=$chunk; done
-        if IFS= builtin read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == (DONE*|BAD-*) ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $expected; got $event"
-      return 1
+      { test_pty_expect -s "DONE*" paste $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
     for scenario in timeout real-timeout signal handoff-signal partial-csi partial-csi-signal partial-opening guide exclusion narrow; do
-      zpty -b paste _paste_driver || exit 2
-      pfd=$REPLY
+      test_pty_start paste _paste_driver || exit 2
       {
       _paste_expect "FRAME|0||1|0|0" || exit 3
       if [[ $scenario == guide ]]; then
@@ -236,8 +225,7 @@ _test_picker_paste_transport() {
     scenario=nonpaste
     local sequence=""
     for sequence in "21~" "23~" "24~" "2;5~"; do
-      zpty -b paste _paste_driver || exit 12
-      pfd=$REPLY
+      test_pty_start paste _paste_driver || exit 12
       {
         _paste_expect "FRAME|0||1|0|0" || exit 13
         zpty -w -n paste $'\''\e['\''"$sequence"
@@ -300,11 +288,10 @@ _test_picker_paste_outer_editor() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 10
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local root=$1 event="" trace="" chunk="" pfd=0
+    local root=$1 event="" trace=""
     # A fresh interactive shell is essential: Ctrl-C can normally terminate
     # a zpty-created subshell running vared, even without any product code.
     print -r -- "_outer_root=${(q)root}" > "$HOME/outer.zsh"
@@ -331,19 +318,10 @@ _test_picker_paste_outer_editor() {
       bindkey "^X^P" outer-picker
     '\'' >> "$HOME/outer.zsh"
     _outer_expect() {
-      local expected=$1
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r outer chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-        fi
-      done
-      print -u2 -r -- "expected $expected; got $event"
-      return 1
+      { test_pty_expect outer $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
     local -x PS1="> " PS2="> "
-    zpty -b outer "$2" -dfi || exit 2
-    pfd=$REPLY
+    test_pty_start outer "$2" -dfi || exit 2
     {
       zpty -w outer "source ${(q)HOME}/outer.zsh"
       _outer_expect READY || exit 3

@@ -33,6 +33,7 @@ compozsh/
 ├── templates/init.zsh     inert starter for the private initializer
 ├── tests/
 │   ├── run.zsh, support.zsh, verify.zsh   runner, harness, handoff baseline
+│   ├── *_support.zsh      focused helpers: PTY expectations, palette contrast
 │   ├── *_test.zsh         behavioral specifications
 │   ├── fixtures/          sourced by PTY tests
 │   └── site*.mjs          optional Node and browser checks for docs/

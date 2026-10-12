@@ -241,11 +241,10 @@ _test_xcode_product_choice_native() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
-    zmodload zsh/zpty zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events"
     exec {events}<> "$HOME/events"
-    local event="" trace="" chunk="" scenario="" device=""
-    local -i pfd=0
+    local event="" trace="" scenario="" device=""
     _xcode_capture_command() {
       _XCODE_CAPTURE="[{\"buildSettings\":{\"WRAPPER_EXTENSION\":\"app\",\"TARGET_BUILD_DIR\":\"$HOME\",\"FULL_PRODUCT_NAME\":\"First.app\",\"PRODUCT_BUNDLE_IDENTIFIER\":\"com.example.first\"}},{\"buildSettings\":{\"WRAPPER_EXTENSION\":\"app\",\"TARGET_BUILD_DIR\":\"$HOME\",\"FULL_PRODUCT_NAME\":\"Second.app\",\"PRODUCT_BUNDLE_IDENTIFIER\":\"com.example.second\"}}]"
     }
@@ -288,21 +287,14 @@ _test_xcode_product_choice_native() {
          $RPROMPT == "$saved_rprompt" && -z $_ZLE_PICKER_POSTDISPLAY ]] || result=97
       print -r -u $events -- "DONE:$result:$_XCODE_APP_PATH:$_XCODE_BUNDLE_ID"
     }
-    _event() {
-      while zselect -r $events $pfd -t 300; do
-        while zpty -r product chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $events event && return 0
-      done
-      print -u2 -- "product view timed out: $event; ${(V)trace[-800,-1]}"
-      return 1
-    }
+    # A trailing * waits for an event prefix.
     _until() {
-      while _event; do
-        [[ $event == ${~1} ]] && return 0
-        [[ $event == (DONE:*|BAD-*) ]] && break
-      done
-      print -u2 -- "expected $1; got $event; ${(V)trace[-1200,-1]}"
-      return 1
+      local -a prefix=()
+      [[ $1 == *\* ]] && prefix=(-p)
+      { test_pty_expect $prefix -s "DONE:*" product $events "${1%\*}" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
     {
       print -r -- "exec {events}<> ${(q)HOME}/events"
@@ -313,8 +305,7 @@ _test_xcode_product_choice_native() {
       print -r -- _driver
     } > "$HOME/session.zsh"
     for scenario in choose cancel replaced; do
-      zpty -b product "$2" -dfi || exit 1
-      pfd=$REPLY
+      test_pty_start product "$2" -dfi || exit 1
       zpty -w product "source ${(q)HOME}/session.zsh"
       {
         _until "READY:*" || exit 2

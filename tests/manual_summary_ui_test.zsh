@@ -30,11 +30,10 @@ _test_manual_summary_native() {
     _manual_developer_roots() { print -u2 unexpected-manual-selection; return 99; }
     _manual_cache_load() { print -u2 unexpected-manual-cache-read; return 99; }
     _manual_cache_store() { print -u2 unexpected-manual-cache-write; return 99; }
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 17
     command mkfifo "$HOME/events" || exit 2
     exec {efd}<> "$HOME/events"
-    local event="" trace="" chunk="" pfd=0 device=""
+    local event="" trace="" device=""
     _manual_probe() {
       _PROMPT_INTERACTION_ACTIVE=1
       _prompt_interaction_update "$BUFFER" || :
@@ -56,17 +55,12 @@ _test_manual_summary_native() {
       print -r -u $efd -- "DONE|$draft"
     }
     _manual_expect() {
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r manual chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$1"* ]] && return 0
-        fi
-      done
-      print -u2 -r -- "Missing $1; ${event}; ${(V)trace[-600,-1]}"
-      return 1
+      { test_pty_expect -p manual $efd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b manual _manual_driver || exit 3
-    pfd=$REPLY
+    test_pty_start manual _manual_driver || exit 3
     {
       _manual_expect SOURCE || exit 4
       device=${event#SOURCE|}

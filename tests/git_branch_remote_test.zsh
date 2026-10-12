@@ -76,8 +76,7 @@ _test_branch_remote_native() {
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     builtin cd "$2"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 10
     command mkfifo "$HOME/events"
     exec {event_fd}<> "$HOME/events"
     functions[_remote_original_show]=$functions[_zle_picker_show]
@@ -101,21 +100,11 @@ _test_branch_remote_native() {
       print -r -u $event_fd -- "DONE|$result"
     }
     _remote_expect() {
-      local event="" trace="" chunk=""
-      local -i attempt=0
-      for (( attempt=0; attempt<200; ++attempt )); do
-        while zpty -r remote-ui chunk; do :; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          trace+="$event"$'\''\n'\''
-          [[ $event == "$1" ]] && return 0
-        else
-          zselect -t 1
-        fi
-      done
-      print -u2 -r -- "Expected $1; received $trace"
+      test_pty_expect remote-ui $event_fd "$1" && return
+      print -u2 -r -- "Expected $1; received ${(F)TEST_PTY_EVENTS}"
       return 1
     }
-    zpty -b remote-ui _remote_driver || exit 1
+    test_pty_start remote-ui _remote_driver || exit 1
     {
       _remote_expect "FRAME|Branches||switch|1" || exit 2
       zpty -w -n remote-ui 1232

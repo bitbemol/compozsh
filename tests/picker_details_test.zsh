@@ -164,7 +164,7 @@ _test_details_native_actions() {
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd "$2"
-    zmodload zsh/zpty
+    source "$1/tests/pty_support.zsh" || exit 20
     functions[_details_original_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _details_original_show
@@ -198,18 +198,15 @@ _test_details_native_actions() {
       print -r -- "DONE:$passed:END-DETAIL-DONE"
     }
     _details_read() {
-      while zpty -r details frame; do
-        trace+=$frame
-        [[ $frame == *"$1"* ]] && return 0
-      done
-      return 1
+      { test_pty_expect details "" "$1" } always { trace+=$TEST_PTY_OUTPUT } || return
+      frame=$REPLY
     }
     local trace="" remaining="" before="" screen=""
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     local -i sessions=0 expected_sessions=0
     for scenario in branch-copy branch-switch branch-enter branch-numeric file-copy file-insert file-enter file-cancel; do
       trace=""
-      zpty details _details_driver || exit 1
+      test_pty_start details _details_driver || exit 1
       {
         _details_read END-DETAIL-FRAME || exit 2
         [[ $frame == *"^Y copy"* && $frame != *"print help"* ]] || exit 3

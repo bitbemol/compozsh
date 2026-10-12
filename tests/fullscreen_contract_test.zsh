@@ -379,8 +379,7 @@ _test_directory_workspace_native() {
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$HOME/work/api"
     dirstack=("$HOME/personal/api")
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 19
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
     functions[_contract_show]=$functions[_zle_picker_show]
@@ -413,21 +412,11 @@ _test_directory_workspace_native() {
       print -r -u $efd DONE
     }
     _contract_expect() {
-      local expected=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r contract chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $expected; last event $event"
-      return 1
+      { test_pty_expect contract $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
-    local scenario="" event="" trace="" device="" pfd=0
+    local scenario="" event="" trace="" device=""
     for scenario in copy cd; do
-      zpty -b contract _contract_driver || exit 2
-      pfd=$REPLY
+      test_pty_start contract _contract_driver || exit 2
       {
         zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 3
         device=${event#READY:}

@@ -146,11 +146,10 @@ _test_directory_argument_native() {
     source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd -- "$HOME" || exit
     unsetopt AUTO_CD
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 18
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local scenario="" event="" trace="" chunk="" device="" pfd=0
+    local scenario="" event="" trace="" device=""
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_argument_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
@@ -182,19 +181,9 @@ _test_directory_argument_native() {
       print -r -u $efd DONE
     }
     _argument_expect() {
-      local expected=$1
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r argument chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* || $event == RETURNED* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $expected; got $event"
-      return 1
+      { test_pty_expect -s "RETURNED*" argument $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
-    zpty -b argument _argument_driver || exit 2
-    pfd=$REPLY
+    test_pty_start argument _argument_driver || exit 2
     {
       zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 3
       device=${event#TTY|}

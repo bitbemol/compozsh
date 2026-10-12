@@ -203,11 +203,10 @@ _test_exclusion_native() {
     for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/.zsh.navigation"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 16
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
-    local event="" trace="" device="" pfd=0
+    local event="" trace="" device=""
     local bindings=$(bindkey -L)
     functions -c _zle_picker_show _exclusion_real_show
     _zle_picker_show() {
@@ -250,19 +249,15 @@ _test_exclusion_native() {
       print -r -u $efd DONE
     }
     _exclusion_expect() {
-      local expected=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r exclusion chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" || ( $expected == DEVICE* && $event == DEVICE* ) ]] && return 0
-          [[ $event == BAD-* ]] && break
+      {
+        if [[ $1 == DEVICE* ]]; then
+          test_pty_expect -p exclusion $efd DEVICE
+        else
+          test_pty_expect exclusion $efd "$1"
         fi
-      done
-      print -u2 -r -- "expected $expected; got $event"
-      return 1
+      } always { trace+=$TEST_PTY_OUTPUT event=$REPLY }
     }
-    zpty -b exclusion _exclusion_driver || exit 1
-    pfd=$REPLY
+    test_pty_start exclusion _exclusion_driver || exit 1
     {
       _exclusion_expect "DEVICE|*" || exit 2
       device=${event#DEVICE|}

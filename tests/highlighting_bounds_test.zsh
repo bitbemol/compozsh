@@ -39,8 +39,7 @@ _test_highlighting_stack_bounds_native() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.highlighting"
     for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 7
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
     local pasted="print ~999999999999999999999999999999999999999999"
@@ -63,20 +62,12 @@ _test_highlighting_stack_bounds_native() {
       }
       print -r -u $event_fd -- DONE
     }
-    local event="" chunk="" trace="" pty_fd=0
     _bounds_event() {
-      while zselect -r $event_fd $pty_fd -t 300; do
-        while zpty -r bounds chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$1" ]] && return 0
-          [[ $event == BAD-* ]] && return 1
-        fi
-      done
-      print -u2 -- "native highlighting expected $1; last event $event; diagnostics $(<"$HOME/diagnostics")"
+      test_pty_expect bounds $event_fd "$1" && return
+      print -u2 -- "native highlighting expected $1; diagnostics $(<"$HOME/diagnostics")"
       return 1
     }
-    zpty -b bounds _bounds_editor || exit 3
-    pty_fd=$REPLY
+    test_pty_start bounds _bounds_editor || exit 3
     {
       _bounds_event PAINTED || exit 5
       zpty -w -n bounds $'\''\r'\''

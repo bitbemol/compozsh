@@ -127,7 +127,7 @@ _test_panel_layout_native_resize() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.prompt"
-    zmodload zsh/zpty
+    source "$1/tests/pty_support.zsh" || exit 21
     functions[_panel_original_show]=$functions[_zle_picker_show]
     # Inspect the payload when ZLE is asked to paint it, rather than requiring
     # the width-dependent frame to remain installed while read waits.
@@ -184,16 +184,14 @@ _test_panel_layout_native_resize() {
       print -r -- END-PANEL-DONE
     }
     _panel_read() {
-      while zpty -r panel frame; do
-        if [[ $frame == *"read-only variable"* || $frame == *PANEL-ERROR:* ]]; then
-          print -u2 -r -- "unexpected picker diagnostics: ${(V)frame}"
-          return 1
-        fi
-        [[ $frame == *"$1"* ]] && return 0
-      done
-      return 1
+      test_pty_expect panel "" "$1" || return
+      frame=$REPLY
+      if [[ $TEST_PTY_OUTPUT == *"read-only variable"* || $TEST_PTY_OUTPUT == *PANEL-ERROR:* ]]; then
+        print -u2 -r -- "unexpected picker diagnostics: ${(V)TEST_PTY_OUTPUT}"
+        return 1
+      fi
     }
-    zpty panel _panel_driver || exit 1
+    test_pty_start panel _panel_driver || exit 1
     {
       _panel_read END-PANEL-FRAME || exit 2
       [[ $frame == *"FRAME:120:30:0:1:78:26:1:"* ]] || exit 3

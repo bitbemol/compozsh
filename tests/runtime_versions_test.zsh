@@ -231,8 +231,7 @@ _test_runtime_versions_native_prompt() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{runtime,prompt}_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/.zsh.appearance"
     ZSH_PROMPT_COLORS[warning]=123 ZSH_PROMPT_COLORS[danger]=124
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 5
     _prompt_runtime_version() { REPLY=$fixture_version; }
     _runtime_native_driver() {
       command stty rows 30 cols 120
@@ -250,22 +249,21 @@ _test_runtime_versions_native_prompt() {
       done
       print -r -- VERIFIED
     }
-    zpty -b runtime-native _runtime_native_driver "$1" "$2" || exit 1
-    local pty_fd=$REPLY chunk="" trace="" round="newer"
+    _runtime_native_expect() {
+      { test_pty_expect runtime-native "" "$1" } always { trace+=$TEST_PTY_OUTPUT }
+    }
+    test_pty_start runtime-native _runtime_native_driver "$1" "$2" || exit 1
+    local trace=""
     {
-      while zselect -r $pty_fd -t 300; do
-        while zpty -r runtime-native chunk 2>/dev/null; do trace+=$chunk; done
-        if [[ $round == newer && $trace == *"— newer"* ]]; then
-          [[ $trace == *"swift wants 6.3.2"* && $trace == *"using 6.4"* && $trace == *"38;5;123m"* ]] || exit 2
-          zpty -w runtime-native draft
-          round=older
-        elif [[ $round == older && $trace == *"— older"* ]]; then
+      if _runtime_native_expect "— newer"; then
+        [[ $trace == *"swift wants 6.3.2"* && $trace == *"using 6.4"* && $trace == *"38;5;123m"* ]] || exit 2
+        zpty -w runtime-native draft
+        if _runtime_native_expect "— older"; then
           [[ $trace == *"using 6.1"* && $trace == *"38;5;124m"* ]] || exit 3
           zpty -w runtime-native draft
-          round=done
+          _runtime_native_expect VERIFIED
         fi
-        [[ $trace == *VERIFIED* ]] && break
-      done
+      fi
       [[ $trace == *VERIFIED* && $trace != *"command not found"* && $trace != *"bad pattern"* ]] || { print -u2 -- "$trace"; exit 4; }
     } always {
       zpty -d runtime-native 2>/dev/null

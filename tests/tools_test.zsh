@@ -69,12 +69,13 @@ _test_cpdir_path_color() {
       cpdir
       print -r -- "STATUS:$?:END-CPDIR"
     }
-    zmodload zsh/zpty || exit 2
+    source "$1/tests/pty_support.zsh" || exit 2
     _cpdir_color_capture() {
       local frame=""
-      zpty cpdir-color _cpdir_color_driver || return
+      test_pty_start cpdir-color _cpdir_color_driver || return
       {
-        zpty -r cpdir-color frame "*END-CPDIR*" || return
+        test_pty_expect cpdir-color "" END-CPDIR || return
+        frame=$TEST_PTY_OUTPUT
         REPLY=${frame//$'\''\r'\''/}
         REPLY=${REPLY%$'\''\n'\''}
       } always { zpty -d cpdir-color; }

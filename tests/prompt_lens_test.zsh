@@ -404,11 +404,12 @@ _test_living_prompt_title_omits_assignment_values() {
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_is_assignment"
     source "$1/.zsh.addons/.zsh.prompt"
-    zmodload zsh/zpty || exit 90
+    source "$1/tests/pty_support.zsh" || exit 90
     _test_title() {
       local out="" title=""
-      zpty prompt-title "_prompt_command_started ${(q)1}; print -rn -- END; sleep 1" || return
-      zpty -r prompt-title out "*END" || :
+      test_pty_start prompt-title "_prompt_command_started ${(q)1}; print -rn -- END; sleep 1" || return
+      test_pty_expect prompt-title "" END || :
+      out=$TEST_PTY_OUTPUT
       zpty -d prompt-title
       title=${${out#*$'"'"'\e]0;'"'"'}%%$'"'"'\a'"'"'*}
       [[ $out == *$'"'"'\e]0;'"'"'* ]] || title="no title"

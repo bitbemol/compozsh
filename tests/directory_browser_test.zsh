@@ -275,8 +275,7 @@ _test_browser_native() {
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$HOME/Projects"
     setopt AUTO_CD AUTO_PUSHD
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 36
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
     functions[_browser_test_show]=$functions[_zle_picker_show]
@@ -332,21 +331,11 @@ _test_browser_native() {
       fi
     }
     _browser_expect() {
-      local expected=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r browser chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $expected; last event $event"
-      return 1
+      { test_pty_expect browser $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
-    local scenario="" event="" device="" trace="" pfd=0
+    local scenario="" event="" device="" trace=""
     for scenario in command widget fileonly; do
-      zpty -b browser _browser_driver || exit 2
-      pfd=$REPLY
+      test_pty_start browser _browser_driver || exit 2
       {
         zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 3
         device=${event#READY:}

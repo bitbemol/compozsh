@@ -14,8 +14,7 @@ _test_directory_transition_screen() {
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.prompt"
     setopt AUTO_CD
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 16
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
@@ -91,16 +90,7 @@ _test_directory_transition_screen() {
       fi
     }
     _transition_expect() {
-      local wanted=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r transition chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$wanted" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $wanted; got $event"
-      return 1
+      { test_pty_expect transition $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
     _transition_stays_open() {
       local tail=${trace#*"$enter"}
@@ -109,11 +99,10 @@ _test_directory_transition_screen() {
         return 1
       }
     }
-    local scenario="" trace="" event="" device="" pfd=0 key=""
+    local scenario="" trace="" event="" device="" key=""
     for scenario in widget command accept read-fail capture-fail abort; do
       trace=""
-      zpty -b transition _transition_driver || exit 2
-      pfd=$REPLY
+      test_pty_start transition _transition_driver || exit 2
       {
         zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 3
         device=${event#READY:}

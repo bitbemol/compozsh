@@ -103,10 +103,10 @@ _test_search_actions_native() {
     path=("$2" "${path[@]}")
     source "$1/.zshrc"
     [[ ${commands[open]} == "$2/open" ]] || exit 1
-    zmodload zsh/zpty zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 21
     command mkfifo "$HOME/events" || exit 2
     exec {efd}<> "$HOME/events"
-    local event="" trace="" chunk="" scenario="" action="" pfd=0
+    local event="" trace="" scenario="" action=""
     local root="${HOME:A}/Root" initial=$PWD
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_action_show]=$functions[_zle_picker_show]
@@ -152,22 +152,17 @@ _test_search_actions_native() {
       print -r -u $efd DONE
     }
     _action_expect() {
-      local expected=$1
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r actions chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "$scenario/$action: expected $expected; got $event"
-      return 1
+      {
+        test_pty_expect actions $efd "$1" || {
+          print -u2 -r -- "$scenario/$action: expected $1"
+          return 1
+        }
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
     for scenario in file folder; do
       for action in open reveal; do
         trace=""
-        zpty -b actions _action_driver || exit 3
-        pfd=$REPLY
+        test_pty_start actions _action_driver || exit 3
         {
           _action_expect READY || exit 4
           zpty -w -n actions $'\''\t'\''

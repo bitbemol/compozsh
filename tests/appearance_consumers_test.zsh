@@ -56,7 +56,7 @@ _test_appearance_navigation_native_colors_and_plain_fallbacks() {
     ZSH_COLOR_SCHEME=$2
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.navigation"
-    zmodload zsh/zpty || exit 1
+    source "$1/tests/pty_support.zsh" || exit 1
     _navigation_fixture() {
       _GIT_RECENT_BRANCHES=(main feature/example)
       _GIT_RECENT_CURRENT=main
@@ -64,13 +64,11 @@ _test_appearance_navigation_native_colors_and_plain_fallbacks() {
       print END-NAVIGATION
     }
     _navigation_capture() {
-      local chunk="" captured=""
-      zpty appearance-navigation _navigation_fixture || return 1
+      local captured=""
+      test_pty_start appearance-navigation _navigation_fixture || return 1
       {
-        while zpty -r appearance-navigation chunk; do
-          captured+=$chunk
-          [[ $chunk == *END-NAVIGATION* ]] && break
-        done
+        test_pty_expect appearance-navigation "" END-NAVIGATION
+        captured=$TEST_PTY_OUTPUT
         [[ $captured == *END-NAVIGATION* ]] || return 1
         REPLY=${captured//$'\''\r'\''/}
         REPLY=${REPLY%$'\''\n'\''}
@@ -132,7 +130,7 @@ _test_appearance_completion_chrome_uses_runtime_palette() {
         for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
         source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
         [[ $3 == last ]] && source "$1/.zsh.addons/support/.zsh.appearance"
-        zmodload zsh/zpty || exit 1
+        source "$1/tests/pty_support.zsh" || exit 1
         _completion_fixture() {
           local description="" warning=""
           zstyle -s ":completion:*:descriptions" format description || return 1
@@ -144,13 +142,11 @@ _test_appearance_completion_chrome_uses_runtime_palette() {
           print END-COMPLETION
         }
         _completion_capture() {
-          local chunk="" captured=""
-          zpty appearance-completion _completion_fixture || return 1
+          local captured=""
+          test_pty_start appearance-completion _completion_fixture || return 1
           {
-            while zpty -r appearance-completion chunk; do
-              captured+=$chunk
-              [[ $chunk == *END-COMPLETION* ]] && break
-            done
+            test_pty_expect appearance-completion "" END-COMPLETION
+            captured=$TEST_PTY_OUTPUT
             [[ $captured == *END-COMPLETION* ]] || return 1
             REPLY=${captured//$'\''\r'\''/}
             REPLY=${REPLY%$'\''\n'\''}
@@ -204,7 +200,7 @@ _test_appearance_completion_candidates_respect_color_capability() {
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty || exit 1
+    source "$1/tests/pty_support.zsh" || exit 1
     command mkdir "$HOME/alpha" "$HOME/beta" || exit 2
     builtin cd "$HOME" || exit 3
     _completion_native_init() {
@@ -220,7 +216,7 @@ _test_appearance_completion_candidates_respect_color_capability() {
       vared -i appearance-completion-init draft
       print END-COMPLETION
     }
-    local mode="" chunk="" trace=""
+    local mode="" trace=""
     local color_pattern=$'\''\e'\''"\\[([0-9]+;)*(3[0-7]|4[0-7]|9[0-7]|10[0-7]|38;5;[0-9]+|48;5;[0-9]+)m"
     for mode in default no-color limited unsupported custom-ls-colors custom-style; do
       TERM=xterm-256color
@@ -232,13 +228,10 @@ _test_appearance_completion_candidates_respect_color_capability() {
         custom-ls-colors) LS_COLORS="di=38;5;123" ;;
         custom-style) zstyle ":completion:*" list-colors "di=38;5;124" ;;
       esac
-      trace=""
-      zpty completion-candidates _completion_native_fixture || exit 4
+      test_pty_start completion-candidates _completion_native_fixture || exit 4
       {
-        while zpty -r completion-candidates chunk; do
-          trace+=$chunk
-          [[ $chunk == *END-COMPLETION* ]] && break
-        done
+        test_pty_expect completion-candidates "" END-COMPLETION
+        trace=$TEST_PTY_OUTPUT
       } always {
         zpty -d completion-candidates
       }
@@ -272,17 +265,18 @@ _test_appearance_completion_unset_output_palette() {
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/support/.zsh.appearance"
     unset ZSH_OUTPUT_COLORS
-    local heading="chapter title" chunk="" trace=""
-    zmodload zsh/zpty || exit 1
+    local heading="chapter title" trace=""
+    source "$1/tests/pty_support.zsh" || exit 1
     _completion_reset_fixture() {
       local -a reply=()
       _zle_completion_format heading || return 1
       [[ $reply[1] == "%F{75}-- %d --%f" && ! ${+ZSH_OUTPUT_COLORS} == 1 ]] || return 2
       print RESET-COMPLETION
     }
-    zpty completion-reset _completion_reset_fixture || exit 2
+    test_pty_start completion-reset _completion_reset_fixture || exit 2
     {
-      while zpty -r completion-reset chunk; do trace+=$chunk; done
+      test_pty_expect completion-reset "" ""
+      trace=$TEST_PTY_OUTPUT
     } always {
       zpty -d completion-reset
     }

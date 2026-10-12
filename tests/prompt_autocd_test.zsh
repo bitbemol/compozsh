@@ -26,10 +26,9 @@ print -r -u $event_fd -- "SOURCE|$(command tty)"
 '
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$2/tests/pty_support.zsh" || exit 16
     exec {event_fd}<> "$HOME/events"
-    local event="" trace="" chunk="" device="" pfd=0
+    local event="" trace="" device=""
     _autocd_driver() {
       cd "$HOME"
       command stty rows 30 cols 120
@@ -37,17 +36,12 @@ print -r -u $event_fd -- "SOURCE|$(command tty)"
       exec "$1" -di
     }
     _autocd_expect() {
-      while zselect -r $event_fd $pfd -t 300; do
-        while zpty -r autocd chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$1"* ]] && return 0
-        fi
-      done
-      print -u2 -r -- "expected $1; got $event; ${(V)trace[-500,-1]}"
-      return 1
+      { test_pty_expect -p autocd $event_fd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b autocd _autocd_driver "$1" "$2"
-    pfd=$REPLY
+    test_pty_start autocd _autocd_driver "$1" "$2"
     {
       _autocd_expect "SOURCE|" || exit 1
       device=${event#SOURCE|}

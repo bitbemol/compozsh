@@ -19,11 +19,10 @@ _test_task_native_draft_journey() {
     _compozsh_tool_inspector_capture() {
       _ZLE_PICKER_INSPECT_TEXTS=(example $'"'"'usage: example\nRead a synthetic guide.'"'"')
     }
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 21
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local event="" trace="" pfd=0 device=""
+    local event="" trace="" device=""
     functions[_task_native_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _task_native_show
@@ -57,19 +56,12 @@ _test_task_native_draft_journey() {
       print -r -u $efd DONE
     }
     _task_expect() {
-      local wanted=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r journey chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$wanted"* ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $wanted; received $event; trace ${(V)trace[-1000,-1]}"
-      return 1
+      { test_pty_expect -p journey $efd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b journey _task_driver || exit 2
-    pfd=$REPLY
+    test_pty_start journey _task_driver || exit 2
     {
       _task_expect SOURCE || exit 3
       device=${event#SOURCE|}
@@ -131,11 +123,10 @@ _test_task_native_discard_journey() {
     command git -C "$HOME/repo" add tracked
     command git -C "$HOME/repo" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm baseline
     print -r -- disposable > "$HOME/repo/untracked"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 5
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
-    local event="" chunk="" pfd=0 scenario="" trace=""
+    local event="" scenario="" trace=""
     functions[_discard_native_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _discard_native_show
@@ -155,20 +146,15 @@ _test_task_native_discard_journey() {
       print -r -u $efd DONE
     }
     _discard_expect() {
-      local wanted=$1
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r discard chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$wanted" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "$scenario expected $wanted, received $event; ${(V)trace[-1300,-1]}"
-      return 1
+      {
+        test_pty_expect discard $efd "$1" || {
+          print -u2 -r -- "$scenario expected $1"
+          return 1
+        }
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
     for scenario in cancel apply; do
-      zpty -b discard _discard_driver || exit 1
-      pfd=$REPLY
+      test_pty_start discard _discard_driver || exit 1
       {
         _discard_expect "FRAME|Git / Discard confirmation" || exit 2
         [[ $scenario == apply ]] && zpty -w -n discard y

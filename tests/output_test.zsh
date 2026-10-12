@@ -73,7 +73,7 @@ _test_git_wrapper_defers_color_enablement_to_git() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
-    zmodload zsh/zpty || exit 1
+    source "$1/tests/pty_support.zsh" || exit 1
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$HOME/user.gitconfig"
     local esc="" cr="" nl=""
     printf -v esc "\033"; printf -v cr "\r"; printf -v nl "\n"
@@ -92,13 +92,11 @@ _test_git_wrapper_defers_color_enablement_to_git() {
       print -r -- END-GIT-COLOR
     }
     _git_color_capture() {
-      local chunk="" captured=""
-      zpty git-color _git_color_fixture || return 1
+      local captured=""
+      test_pty_start git-color _git_color_fixture || return 1
       {
-        while zpty -r git-color chunk; do
-          captured+=$chunk
-          [[ $captured == *END-GIT-COLOR* ]] && break
-        done
+        test_pty_expect git-color "" END-GIT-COLOR
+        captured=$TEST_PTY_OUTPUT
         [[ $captured == *END-GIT-COLOR* ]] || return 1
         captured=${captured//$cr/}
         reply=(

@@ -26,7 +26,7 @@ _test_file_actions_native() {
     source "$1/.zsh.addons/.zsh.find"
     source "$1/tests/support.zsh"
     builtin cd "${2:A}"
-    zmodload zsh/zpty
+    source "$1/tests/pty_support.zsh" || exit 13
     functions[_actions_capture_original]=$functions[_file_search_capture_local]
     _file_search_capture_local() { (( ++captures )); _actions_capture_original "$@"; }
     functions[_actions_show_original]=$functions[_zle_picker_show]
@@ -80,17 +80,14 @@ _test_file_actions_native() {
       print -r -- END-ACTION-DONE
     }
     _actions_read() {
-      local recent=''
-      while zpty -r actions frame; do
-        recent+=$frame
-        recent=${recent[-4000,-1]}
-        [[ $frame == *"$1"* ]] && return 0
-      done
-      print -u2 -r -- "file actions ($scenario): missing $1; recent output: ${(V)recent}"
-      return 1
+      test_pty_expect actions "" "$1" || {
+        print -u2 -r -- "file actions ($scenario): missing $1"
+        return 1
+      }
+      frame=$REPLY
     }
     for scenario in directory directory-digit linked-directory resume link empty-menu insert copy open reveal; do
-      zpty actions _actions_driver || exit 1
+      test_pty_start actions _actions_driver || exit 1
       {
         _actions_read END-ACTION-FRAME || exit 2
         if [[ $scenario == resume ]]; then

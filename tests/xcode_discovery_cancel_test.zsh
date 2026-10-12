@@ -106,27 +106,27 @@ exit 0' || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 18
     exec {events}<> "$HOME/events"
     exec {gate}<> "$HOME/gate"
-    local event="" trace="" chunk="" device="" mode="" pfd=0 provider=0 descendant=0
+    local event="" trace="" device="" mode="" provider=0 descendant=0
+    # A trailing * waits for an event prefix.
     _until() {
-      while zselect -r $events $pfd -t 400; do
-        while zpty -r discovery chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $events event; then
-          [[ $event == PROVIDER:* ]] && provider=${event#PROVIDER:}
-          [[ $event == DESCENDANT:* ]] && descendant=${event#DESCENDANT:}
-          [[ $event == ${~1} ]] && return 0
-          [[ $event == DONE:* ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $1 got $event; ${(V)trace[-600,-1]}"
-      return 1
+      local -a prefix=()
+      local seen=""
+      [[ $1 == *\* ]] && prefix=(-p)
+      { test_pty_expect $prefix -s "DONE:*" discovery $events "${1%\*}" } always {
+        trace+=$TEST_PTY_OUTPUT
+        for seen in "${TEST_PTY_EVENTS[@]}"; do
+          [[ $seen == PROVIDER:* ]] && provider=${seen#PROVIDER:}
+          [[ $seen == DESCENDANT:* ]] && descendant=${seen#DESCENDANT:}
+        done
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
     for mode in ${=3}; do
       provider=0 descendant=0
-      zpty -b discovery "$2" -dfi
-      pfd=$REPLY
+      test_pty_start discovery "$2" -dfi
       {
         zpty -w discovery "source ${(q)HOME}/session.zsh ${(q)1}"
         _until "READY:*" || exit 1

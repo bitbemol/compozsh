@@ -186,7 +186,7 @@ _test_picker_scroll_native() {
     source "$1/.zsh.addons/support/.zsh.appearance"
     builtin cd "$2"
     source "$1/.zsh.addons/.zsh.prompt"
-    zmodload zsh/zpty
+    source "$1/tests/pty_support.zsh" || exit 20
     functions[_scroll_capture_original]=$functions[_file_search_capture_local]
     _file_search_capture_local() { (( ++captures )); _scroll_capture_original "$@"; }
     functions[_scroll_collect_original]=$functions[_file_search_picker_collect]
@@ -228,21 +228,18 @@ _test_picker_scroll_native() {
       print -r -- END-SCROLL-DONE
     }
     _scroll_read() {
-      local last_frame=""
-      while zpty -r scrolling frame; do
-        last_frame=$frame
-        if [[ $frame == *"read-only variable"* ]]; then
-          print -u2 -r -- "unexpected picker diagnostics: ${(V)frame}"
-          return 1
-        fi
-        [[ $frame == *"$1"* ]] && return 0
-      done
-      zpty -t scrolling
-      print -u2 -r -- "scroll test ($scenario): child status $?; missing $1; last frame: ${(V)last_frame}"
-      return 1
+      test_pty_expect scrolling "" "$1" || {
+        print -u2 -r -- "scroll test ($scenario): missing $1"
+        return 1
+      }
+      frame=$REPLY
+      if [[ $TEST_PTY_OUTPUT == *"read-only variable"* ]]; then
+        print -u2 -r -- "unexpected picker diagnostics: ${(V)TEST_PTY_OUTPUT}"
+        return 1
+      fi
     }
     for scenario in end digit zero filter copy arrows pageup pane resize; do
-      zpty scrolling _scroll_driver || exit 1
+      test_pty_start scrolling _scroll_driver || exit 1
       {
         _scroll_read END-SCROLL-FRAME || exit 2
         if [[ $scenario == arrows ]]; then

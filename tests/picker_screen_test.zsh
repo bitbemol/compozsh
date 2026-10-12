@@ -9,8 +9,7 @@ _test_picker_screen_lifecycle() {
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
@@ -75,19 +74,18 @@ _test_picker_screen_lifecycle() {
       print -r -u $event_fd -- DONE
     }
     _screen_event() {
-      local chunk=""
-      while zselect -r $event_fd $pty_fd -t 500; do
-        while zpty -r screen chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $event_fd event && return 0
-      done
-      print -u2 -r -- "$scenario: missing event after $event"
-      return 1
+      {
+        test_pty_expect -p screen $event_fd "" || {
+          print -u2 -r -- "$scenario: missing event after $event"
+          return 1
+        }
+        event=$REPLY
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
-    local scenario="" trace="" event="" pty_fd=0 before="" after="" screen=""
+    local scenario="" trace="" event="" before="" after="" screen=""
     for scenario in accept cancel abort read-fail no-screen redirected; do
       trace="" event=""
-      zpty -b screen _screen_driver || exit 3
-      pty_fd=$REPLY
+      test_pty_start screen _screen_driver || exit 3
       {
         _screen_event && [[ $event == FRAME ]] || exit 4
         case $scenario in

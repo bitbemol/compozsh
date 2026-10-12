@@ -562,20 +562,18 @@ exit 23' || return
     source "$1/.zsh.addons/.zsh.output"
     source "$1/.zsh.addons/.zsh.output"
     (( ${+functions[_xcode_run_debugger]} )) || { print -u2 missing-debugger-presentation; exit 1; }
-    zmodload zsh/zpty || exit 2
+    source "$1/tests/pty_support.zsh" || exit 2
     _debugger_test_driver() {
       _xcode_run_debugger "$HOME/lldb spy" 12345
       print -r -- "status:$?"
       print -r -- END-DEBUGGER-COLOR
     }
     _debugger_test_capture() {
-      local line="" capture=""
-      zpty debugger-color _debugger_test_driver || return
+      local capture=""
+      test_pty_start debugger-color _debugger_test_driver || return
       {
-        while zpty -r debugger-color line; do
-          capture+=$line
-          [[ $line == *END-DEBUGGER-COLOR* ]] && break
-        done
+        test_pty_expect debugger-color "" END-DEBUGGER-COLOR
+        capture=$TEST_PTY_OUTPUT
         [[ $capture == *END-DEBUGGER-COLOR* ]] || return 1
         REPLY=$capture
       } always {
@@ -768,28 +766,23 @@ command cat > "$HOME/copied"' || return
   ' || return
   output=$(test_run_interactive "$home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 48
     command mkfifo "$HOME/events"
     exec {events}<> "$HOME/events"
-    local trace="" event="" device="" pipe="" chunk="" pfd=0
+    local trace="" event="" device="" pipe=""
     _event() {
-      while zselect -r $events $pfd -t 300; do
-        while zpty -r run chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $events event && return 0
-      done
-      print -u2 -r -- "run event timed out: $event; trace ${(V)trace[-1600,-1]}"
-      return 1
+      { test_pty_expect -p run $events "" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
     _frame() {
-      while _event; do
-        [[ $event == ${~1} ]] && return 0
-        [[ $event == (DONE:*|BAD-*) ]] && break
-      done
-      print -u2 -- "expected $1, got $event"
-      return 1
+      { test_pty_expect -g -s "DONE:*" run $events "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b run "$2" -dfi
-    pfd=$REPLY
+    test_pty_start run "$2" -dfi
     {
       zpty -w run "source ${(q)HOME}/session.zsh ${(q)1}"
       _event && [[ $event == READY:* ]] || exit 1

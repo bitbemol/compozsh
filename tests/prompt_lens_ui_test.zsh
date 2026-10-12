@@ -104,10 +104,9 @@ _prompt_test_emit "SOURCE|$(command tty)"
       }
     done
 
-    zmodload zsh/zpty || exit 1
-    zmodload zsh/zselect || exit 1
+    source "$1/tests/pty_support.zsh" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
-    local event="" chunk="" trace="" all_events="" pty_fd=0 device=""
+    local event="" chunk="" trace="" all_events="" device=""
 
     _living_prompt_driver() {
       builtin cd -- "$2" || return 1
@@ -116,27 +115,20 @@ _prompt_test_emit "SOURCE|$(command tty)"
         "$1" -di
     }
     _living_prompt_expect() {
-      local wanted=$1
-      while zselect -r $event_fd $pty_fd -t 500; do
-        while zpty -r living-prompt chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          all_events+="$event"$'"'"'\n'"'"'
-          [[ $event == "$wanted"* ]] && return 0
-          [[ $event == BAD-* ]] && break
+      { test_pty_expect -p living-prompt $event_fd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        if (( ${#TEST_PTY_EVENTS} )); then
+          event=${TEST_PTY_EVENTS[-1]}
+          all_events+=${(F)TEST_PTY_EVENTS}$'"'"'\n'"'"'
         fi
-      done
-      while zpty -r living-prompt chunk; do trace+=$chunk; done
-      print -u2 -r -- "expected event prefix ${(qqq)wanted}; last=${(qqq)event}"
-      print -u2 -r -- "PTY trace: ${(V)trace[-1200,-1]}"
-      return 1
+      }
     }
     _living_prompt_probe() {
       zpty -w -n living-prompt $'"'"'\x18\x1a'"'"'
       _living_prompt_expect "PROBE|$1|" || return
     }
 
-    zpty -b living-prompt _living_prompt_driver "$2" "$3" || exit 3
-    pty_fd=$REPLY
+    test_pty_start living-prompt _living_prompt_driver "$2" "$3" || exit 3
     {
       _living_prompt_expect "SOURCE|" || exit 4
       device=${event#SOURCE|}
@@ -401,10 +393,9 @@ _prompt_test_emit "SOURCE|$(command tty)"
       }
     done
 
-    zmodload zsh/zpty || exit 1
-    zmodload zsh/zselect || exit 1
+    source "$1/tests/pty_support.zsh" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
-    local event="" chunk="" trace="" all_events="" pty_fd=0 device=""
+    local event="" chunk="" trace="" all_events="" device=""
 
     _living_prompt_resize_driver() {
       builtin cd -- "$2" || return 1
@@ -414,30 +405,21 @@ _prompt_test_emit "SOURCE|$(command tty)"
         "$1" -di
     }
     _living_prompt_resize_expect() {
-      local wanted=$1
-      while zselect -r $event_fd $pty_fd -t 500; do
-        while zpty -r living-prompt-resize chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          all_events+="$event"$'"'"'\n'"'"'
-          if [[ $event == BAD-* ]]; then
-            print -u2 -r -- "resize reread a locked provider: $event"
-            return 2
-          fi
-          [[ $event == "$wanted"* ]] && return 0
+      { test_pty_expect -p living-prompt-resize $event_fd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        if (( ${#TEST_PTY_EVENTS} )); then
+          event=${TEST_PTY_EVENTS[-1]}
+          all_events+=${(F)TEST_PTY_EVENTS}$'"'"'\n'"'"'
+          [[ $event != BAD-* ]] || print -u2 -r -- "resize reread a locked provider: $event"
         fi
-      done
-      while zpty -r living-prompt-resize chunk; do trace+=$chunk; done
-      print -u2 -r -- "expected resize event ${(qqq)wanted}; last=${(qqq)event}"
-      print -u2 -r -- "resize PTY trace: ${(V)trace[-1200,-1]}"
-      return 1
+      }
     }
     _living_prompt_resize_probe() {
       zpty -w -n living-prompt-resize $'"'"'\x18\x1a'"'"'
       _living_prompt_resize_expect "PROBE|$1" || return
     }
 
-    zpty -b living-prompt-resize _living_prompt_resize_driver "$2" "$3" || exit 3
-    pty_fd=$REPLY
+    test_pty_start living-prompt-resize _living_prompt_resize_driver "$2" "$3" || exit 3
     {
       _living_prompt_resize_expect "SOURCE|" || exit 4
       device=${event#SOURCE|}
@@ -535,11 +517,9 @@ print -r -u $_PROMPT_TEST_EVENT_FD -- SOURCE
   # Type a history prefix, press Return and require the finish-time editor
   # state, which Zsh paints into scrollback, to hold no unaccepted tail.
   local journey='
-    zmodload zsh/zpty || exit 1
-    zmodload zsh/zselect || exit 1
+    source "$3/tests/pty_support.zsh" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
-    local event="" chunk="" trace="" context=start enter=$'"'"'\r'"'"'
-    local -i pty_fd=0
+    local event="" trace="" context=start enter=$'"'"'\r'"'"'
 
     _ghost_finish_driver() {
       builtin cd -- "$HOME" || return 1
@@ -548,21 +528,18 @@ print -r -u $_PROMPT_TEST_EVENT_FD -- SOURCE
         "$1" -di
     }
     _ghost_finish_expect() {
-      local wanted=$1
-      while zselect -r $event_fd $pty_fd -t 500; do
-        while zpty -r ghost-finish chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$wanted"* ]] && return 0
-        fi
-      done
-      while zpty -r ghost-finish chunk; do trace+=$chunk; done
-      print -u2 -r -- "$2: expected event prefix ${(qqq)wanted}; last=${(qqq)event}"
-      print -u2 -r -- "PTY trace: ${(V)trace[-1200,-1]}"
-      return 1
+      {
+        test_pty_expect -p ghost-finish $event_fd "$1" || {
+          print -u2 -r -- "$2: expected event prefix ${(qqq)1}"
+          return 1
+        }
+      } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
 
-    zpty -b ghost-finish _ghost_finish_driver "$1" || exit 3
-    pty_fd=$REPLY
+    test_pty_start ghost-finish _ghost_finish_driver "$1" || exit 3
     {
       _ghost_finish_expect SOURCE "$2" || exit 4
       _ghost_finish_expect "INIT|start|<empty>|" "$2" || exit 5
@@ -613,9 +590,9 @@ source ${(q)alone}/observer.zsh
   test_write_file "$full/.zsh.addons/private/.zsh.ghost-finish-observer" "$observer" || return
 
   # Run both journeys before asserting so a failure reports each install.
-  alone_output=$(test_run_interactive "$alone" "$journey" "$TEST_ZSH_BIN" prompt-less) ||
+  alone_output=$(test_run_interactive "$alone" "$journey" "$TEST_ZSH_BIN" prompt-less "$TEST_REPO_ROOT") ||
     alone_output+=" (exit $?)"
-  full_output=$(test_run_interactive "$full" "$journey" "$TEST_ZSH_BIN" continuation) ||
+  full_output=$(test_run_interactive "$full" "$journey" "$TEST_ZSH_BIN" continuation "$TEST_REPO_ROOT") ||
     full_output+=" (exit $?)"
   test_assert_equal 'ghost-free prompt-less' "$alone_output" || return
   test_assert_equal 'ghost-free continuation' "$full_output"

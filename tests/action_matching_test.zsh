@@ -72,14 +72,12 @@ _test_action_matching_missing_capability_fallbacks() {
       print -r -- "format-status:$?"
       print END-FALLBACK
     }
-    zmodload zsh/zpty || exit 1
-    local chunk="" captured=""
-    zpty action-fallback _action_fallback_fixture || exit 2
+    source "$1/tests/pty_support.zsh" || exit 1
+    local captured=""
+    test_pty_start action-fallback _action_fallback_fixture || exit 2
     {
-      while zpty -r action-fallback chunk; do
-        captured+=$chunk
-        [[ $chunk == *END-FALLBACK* ]] && break
-      done
+      test_pty_expect action-fallback "" END-FALLBACK
+      captured=$TEST_PTY_OUTPUT
       [[ $captured == *END-FALLBACK* && $captured != *forbidden-* ]] || {
         print -u2 -r -- "$captured"; exit 3
       }

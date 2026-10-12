@@ -61,7 +61,13 @@ assertion rule.
   and locale, `-d -f` to skip startup files, and `-i` only when the behavior
   needs an interactive shell.
 - Interactive regressions drive an isolated terminal with Zsh's bundled
-  `zsh/zpty` module, sending keys and real resize signals.
+  `zsh/zpty` module, sending keys and real resize signals. The shell that owns
+  the terminal sources `tests/pty_support.zsh`: `test_pty_start` opens a
+  nonblocking session, and `test_pty_expect` waits for terminal text or a FIFO
+  event under one absolute deadline, reporting what it read. A missing marker
+  or an endless repaint fails instead of hanging the suite, silence alone never
+  fails, and a finished command fails at once. Don't hand-roll blocking reads
+  or per-wake timeouts.
 
 Adding a test — arrange, act, assert, guarding each step with `|| return` so a
 later success cannot hide an earlier failure:

@@ -246,10 +246,9 @@ add-zle-hook-widget line-init _description_observe
 ' || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 24
     exec {event_fd}<> "$HOME/events"
-    local event="" chunk="" trace="" device="" pfd=0
+    local event="" chunk="" trace="" device=""
     _description_driver() {
       export DESCRIPTION_ROOT=$1
       cd "$HOME"
@@ -258,26 +257,19 @@ add-zle-hook-widget line-init _description_observe
       exec "$2" -di
     }
     _description_expect() {
-      while zselect -r $event_fd $pfd -t 500; do
-        while zpty -r descriptions chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$1"* ]] && return 0
-        fi
-      done
-      print -u2 -r -- "expected $1; got $event; ${(V)trace[-1200,-1]}"
-      return 1
+      { test_pty_expect -p descriptions $event_fd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
+    # Painted text may already be in the trace or continue its last line.
     _description_painted() {
-      while true; do
-        while zpty -r descriptions chunk; do trace+=$chunk; done
-        [[ $trace == *"$1"* ]] && return 0
-        zselect -r $pfd -t 500 || break
-      done
-      print -u2 -r -- "expected painted $1; ${(V)trace[-1200,-1]}"
-      return 1
+      [[ $trace == *"$1"* ]] && return 0
+      { test_pty_expect -c "${trace##*$'"'"'\n'"'"'}" descriptions "" "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+      }
     }
-    zpty -b descriptions _description_driver "$1" "$2" || exit 1
-    pfd=$REPLY
+    test_pty_start descriptions _description_driver "$1" "$2" || exit 1
     {
       _description_expect "TTY:" || exit 15
       device=${event#TTY:}

@@ -136,8 +136,7 @@ _test_git_notice_native() {
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 8
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
     functions -c _zle_picker_show _git_notice_show
@@ -164,21 +163,9 @@ _test_git_notice_native() {
       [[ ! -s "$HOME/session-error" ]] || print -r -u $event_fd -- BAD-DIAGNOSTICS
       print -r -u $event_fd -- DONE
     }
-    local event="" chunk="" trace="" pty_fd=0
-    _git_notice_expect() {
-      while zselect -r $event_fd $pty_fd -t 300; do
-        while zpty -r notice chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$1" ]] && return 0
-          print -u2 -- "expected $1; got $event"
-          return 1
-        fi
-      done
-      print -u2 -- "native Git notice timed out: $1"
-      return 1
-    }
-    zpty -b notice _git_notice_driver || exit 3
-    pty_fd=$REPLY
+    # The next event must be the expected one.
+    _git_notice_expect() { test_pty_expect -s "*" notice $event_fd "$1"; }
+    test_pty_start notice _git_notice_driver || exit 3
     {
       _git_notice_expect "FRAME|0" || exit 4
       zpty -w -n notice $'\''\x0b'\''

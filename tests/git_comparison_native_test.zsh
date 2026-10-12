@@ -34,9 +34,7 @@ _test_git_comparison_native() {
     # The current branch identity must stay exact when a same-named tag exists.
     git tag topic "$left"
     index_before=$(git hash-object .git/index)
-    zmodload zsh/zpty
-    zmodload zsh/zselect
-    zmodload zsh/datetime
+    source "$1/tests/pty_support.zsh" || exit 40
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
     functions -c _zle_picker_show _comparison_test_show
@@ -70,23 +68,7 @@ _test_git_comparison_native() {
       print -u $efd DONE
     }
     _comparison_test_expect() {
-      local wanted=$1 chunk="" event=""
-      local -i pty_status=0
-      local -F deadline=$(( EPOCHREALTIME + 5 ))
-      # Silence is not failure: only the deadline, a BAD event or the driver
-      # exiting (zpty status 2, after its queued events) ends the wait. A
-      # zselect timeout only paces the loop; both reads are nonblocking.
-      while (( EPOCHREALTIME < deadline )); do
-        zselect -r $efd $pfd -t 50 || :
-        until zpty -r compare chunk; (( pty_status = $? )); do trace+=$chunk; done
-        while IFS= read -r -t 0 -u $efd event; do
-          [[ $event == "$wanted" ]] && return 0
-          [[ $event == BAD-* ]] && break 2
-        done
-        (( pty_status != 2 )) || break
-      done
-      print -u2 -r -- "expected $wanted; got $event"
-      return 1
+      { test_pty_expect compare $efd "$1" 5 } always { trace+=$TEST_PTY_OUTPUT }
     }
     _comparison_test_key() {
       zpty -w -n compare "$1"
@@ -150,13 +132,12 @@ _test_git_comparison_native() {
          ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || return 26
       [[ $(git symbolic-ref HEAD) == refs/heads/topic && $(git hash-object .git/index) == "$index_before" ]] || return 27
     }
-    local scenario trace event device pfd enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local scenario trace event device enter=$terminfo[smcup] leave=$terminfo[rmcup]
     local -i result=0
     for scenario in setup branches direct cancel; do
       git branch -f main "$left"
       trace="" event=""
-      zpty -b compare _comparison_test_driver || exit 28
-      pfd=$REPLY
+      test_pty_start compare _comparison_test_driver || exit 28
       { _comparison_test_journey; result=$? } always { zpty -d compare }
       (( !result )) || { print -u2 -- "comparison native assertion $result"; exit $result; }
     done

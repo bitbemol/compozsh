@@ -134,11 +134,10 @@ _test_search_shortcut_native() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zshrc"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 26
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local event="" trace="" chunk="" pfd=0 captures=0
+    local event="" trace="" captures=0
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_search_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
@@ -171,19 +170,9 @@ _test_search_shortcut_native() {
       print -r -u $efd DONE
     }
     _search_expect() {
-      local expected=$1
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r search chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* || $event == CAPTURE ]] && break
-        fi
-      done
-      print -u2 -r -- "expected $expected; got $event"
-      return 1
+      { test_pty_expect -s CAPTURE search $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
-    zpty -b search _search_driver || exit 2
-    pfd=$REPLY
+    test_pty_start search _search_driver || exit 2
     {
       _search_expect READY || exit 3
       zpty -w -n search $'\''\t'\''

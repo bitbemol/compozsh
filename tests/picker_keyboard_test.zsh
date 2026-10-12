@@ -10,11 +10,10 @@ _test_picker_keyboard_escape() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 18
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local bindings=$(bindkey -L) scenario="" event="" trace="" pfd=0
+    local bindings=$(bindkey -L) scenario="" event="" trace=""
     local -i escape_reads=0
     read() {
       if [[ $# == 6 && $1 == -r && $2 == -t && $6 == sequence ]]; then
@@ -56,20 +55,15 @@ _test_picker_keyboard_escape() {
       print -r -u $efd DONE
     }
     _keys_expect() {
-      local expected=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r keys chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "$scenario: expected $expected; got $event"
-      return 1
+      {
+        test_pty_expect keys $efd "$1" || {
+          print -u2 -r -- "$scenario: expected $1"
+          return 1
+        }
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
     for scenario in escape old-preview old-guide old-actions old-browse old-hidden transport meta-copy disabled; do
-      zpty -b keys _keys_driver || exit 2
-      pfd=$REPLY
+      test_pty_start keys _keys_driver || exit 2
       {
         _keys_expect "FRAME|0||1" || exit 3
         case $scenario in

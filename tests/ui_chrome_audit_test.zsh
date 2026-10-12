@@ -71,8 +71,7 @@ _test_ui_chrome_native_acceptance() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 14
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
     functions[_chrome_show]=$functions[_zle_picker_show]
@@ -107,17 +106,12 @@ _test_ui_chrome_native_acceptance() {
       command stty rows 24 cols 120
       _zle_picker_run 10 "" 1 0 _chrome_controller
     }
-    local event="" chunk="" trace="" pty_fd=0
+    local event=""
     _chrome_event() {
-      while zselect -r $event_fd $pty_fd -t 300; do
-        while zpty -r chrome chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $event_fd event && return 0
-      done
-      print -u2 -- "native chrome timed out: $event"
-      return 1
+      test_pty_expect -p chrome $event_fd "" || return
+      event=$REPLY
     }
-    zpty -b chrome _chrome_driver || exit 3
-    pty_fd=$REPLY
+    test_pty_start chrome _chrome_driver || exit 3
     {
       _chrome_event && [[ $event == FRAME ]] || exit 4
       zpty -w -n chrome $'\''\r'\''

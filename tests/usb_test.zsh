@@ -3648,14 +3648,12 @@ _test_usb_format_catalog_failure_is_not_a_cancel() {
       print -r -- "format-status:$?"
       print -r -- END-FORMAT-CATALOG
     }
-    zmodload zsh/zpty || exit 2
-    local chunk="" captured="" error=""
-    zpty format-catalog _format_catalog_fixture || exit 3
+    source "$1/tests/pty_support.zsh" || exit 2
+    local captured="" error=""
+    test_pty_start format-catalog _format_catalog_fixture || exit 3
     {
-      while zpty -r format-catalog chunk; do
-        captured+=$chunk
-        [[ $chunk == *END-FORMAT-CATALOG* ]] && break
-      done
+      test_pty_expect format-catalog "" END-FORMAT-CATALOG
+      captured=$TEST_PTY_OUTPUT
     } always {
       zpty -d format-catalog
     }
@@ -3772,7 +3770,7 @@ _test_usb_format_report_uses_semantic_colors_with_plain_fallbacks() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -gA ZSH_OUTPUT_COLORS=(heading 123 info 124 accent 125 success 126)
     TERM=xterm-256color
-    zmodload zsh/zpty || exit 2
+    source "$1/tests/pty_support.zsh" || exit 2
     _format_report_driver() {
       print -rl -- \
         "Started erase on disk28" \
@@ -3785,17 +3783,15 @@ _test_usb_format_report_uses_semantic_colors_with_plain_fallbacks() {
       print -r -- END-FORMAT-REPORT
     }
     _format_report_capture() {
-      local mode=$1 capture="" line=""
+      local mode=$1 capture=""
       if [[ $mode == plain ]]; then
-        NO_COLOR=1 zpty format-report _format_report_driver || return
+        NO_COLOR=1 test_pty_start format-report _format_report_driver || return
       else
-        zpty format-report _format_report_driver || return
+        test_pty_start format-report _format_report_driver || return
       fi
       {
-        while zpty -r format-report line; do
-          capture+=$line
-          [[ $line == *END-FORMAT-REPORT* ]] && break
-        done
+        test_pty_expect format-report "" END-FORMAT-REPORT
+        capture=$TEST_PTY_OUTPUT
         [[ $capture == *END-FORMAT-REPORT* ]] || return 1
         REPLY=${capture//$'\''\r'\''/}
         REPLY=${REPLY%$'\''\n'\''}
@@ -3947,16 +3943,17 @@ _test_usb_confirmation_colors_only_exact_phrase() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_confirmation_prompt "ERASE disk28"
     [[ $REPLY == "Type exactly ERASE disk28 to continue: " ]] || exit 2
-    zmodload zsh/zpty || exit 3
+    source "$1/tests/pty_support.zsh" || exit 3
     _colored_confirmation() {
       TERM=xterm-256color
       unset NO_COLOR
       _usb_confirm /images/linux.iso disk28 target flash-verify
     }
     local frame=""
-    zpty usb-colored _colored_confirmation || exit 4
+    test_pty_start usb-colored _colored_confirmation || exit 4
     {
-      zpty -r usb-colored frame "*to continue: *" || exit 5
+      test_pty_expect usb-colored "" "to continue: " || exit 5
+      frame=$TEST_PTY_OUTPUT
       [[ $frame == *$'\''\e[1;38;5;221mERASE disk28\e[0m'\''* ]] || exit 6
       zpty -w usb-colored "ERASE disk28"
     } always { zpty -d usb-colored 2>/dev/null; }
@@ -3965,9 +3962,10 @@ _test_usb_confirmation_colors_only_exact_phrase() {
       _usb_confirm /images/linux.iso disk28 target flash-verify
     }
     frame=""
-    zpty usb-plain _plain_confirmation || exit 7
+    test_pty_start usb-plain _plain_confirmation || exit 7
     {
-      zpty -r usb-plain frame "*to continue: *" || exit 8
+      test_pty_expect usb-plain "" "to continue: " || exit 8
+      frame=$TEST_PTY_OUTPUT
       [[ $frame == *"Type exactly ERASE disk28 to continue: "* && $frame != *$'\''\e'\''* ]] || exit 9
       zpty -w usb-plain "ERASE disk28"
     } always { zpty -d usb-plain 2>/dev/null; }

@@ -135,8 +135,7 @@ _test_inspector_native_controls() {
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.tools"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 20
     command mkfifo "$HOME/events" || exit 17
     exec {event_fd}<> "$HOME/events" || exit 18
     functions[_inspector_original_show]=$functions[_zle_picker_show]
@@ -150,17 +149,14 @@ _test_inspector_native_controls() {
       compozsh
       print -r -u $event_fd -- "DONE:${#_ZLE_PICKER_INSPECT_TEXTS}:$_ZLE_PICKER_INSPECT_FOCUS:END-DONE"
     }
-    local frame="" trace="" chunk="" pty_fd=0
+    local frame="" trace=""
     _inspector_event() {
-      while zselect -r $event_fd $pty_fd -t 300; do
-        while zpty -r inspector chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $event_fd frame && return 0
-      done
-      print -u2 -- "missing inspector event after $frame"
-      return 1
+      {
+        test_pty_expect -p inspector $event_fd "" || return
+        frame=$REPLY
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
-    zpty -b inspector _inspector_driver || exit 1
-    pty_fd=$REPLY
+    test_pty_start inspector _inspector_driver || exit 1
     {
       _inspector_event || exit 2
       [[ $frame == FRAME:* ]] || exit 3

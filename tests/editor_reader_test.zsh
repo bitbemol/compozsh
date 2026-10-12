@@ -239,13 +239,12 @@ _test_editor_reader_keys() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 52
     command mkfifo "$HOME/events" || exit 1
     command mkfifo "$HOME/updates" || exit 1
     exec {efd}<> "$HOME/events"
     exec {updates}<> "$HOME/updates"
-    local scenario="" event="" trace="" pfd=0
+    local scenario="" event="" trace=""
     local bindings=$(bindkey -L)
     _reader_collect() {
       local query=$1 row=""
@@ -343,21 +342,16 @@ _test_editor_reader_keys() {
       print -r -u $efd DONE
     }
     _reader_expect() {
-      local expected=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r reader chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$expected" ]] && return 0
-          [[ $event == BAD-* || $event == RESULT* || $event == DONE ]] && break
-        fi
-      done
-      print -u2 -r -- "$scenario: expected $expected; got $event"
-      return 1
+      {
+        test_pty_expect -s "(RESULT*|DONE)" reader $efd "$1" || {
+          print -u2 -r -- "$scenario: expected $1"
+          return 1
+        }
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
     for scenario in prepaint-default prepaint-off palette palette-custom escape options-empty refresh-empty copy meta-copy guide resize follow; do
       trace=""
-      zpty -b reader _reader_driver || exit 2
-      pfd=$REPLY
+      test_pty_start reader _reader_driver || exit 2
       {
         if [[ $scenario == follow ]]; then
           _reader_expect "LIVE|1|1|0|60" || exit 28

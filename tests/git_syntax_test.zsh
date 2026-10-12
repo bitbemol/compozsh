@@ -1002,8 +1002,7 @@ _test_git_syntax_dead_reader_request_is_nonblocking() {
     export LC_ALL=en_US.UTF-8 TMPDIR="$HOME/tmp"
     command mkdir -p "$TMPDIR"
     source "$1/.zsh.addons/.zsh.git-syntax"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 3
 
     _dead_reader_driver() {
       emulate -L zsh
@@ -1035,16 +1034,13 @@ _test_git_syntax_dead_reader_request_is_nonblocking() {
       (( result != 0 ))
     }
 
-    local trace="" chunk="" pfd=0
-    zpty -b dead-reader _dead_reader_driver || exit 1
-    pfd=$REPLY
+    local trace="" chunk=""
+    test_pty_start dead-reader _dead_reader_driver || exit 1
     {
-      # A blocking FIFO open never produces RESULT. Bound the probe externally
-      # so a regression fails instead of hanging the entire native suite.
-      while zselect -r $pfd -t 100; do
-        while zpty -r dead-reader chunk; do trace+=$chunk; done
-        [[ $trace == *RESULT:* ]] && break
-      done
+      # A blocking FIFO open never produces RESULT. Bound the probe to one
+      # second so a regression fails instead of hanging the native suite.
+      test_pty_expect dead-reader "" RESULT: 1
+      trace=$TEST_PTY_OUTPUT
       while zpty -r dead-reader chunk; do trace+=$chunk; done
       [[ $trace == *RESULT:<1-9>* ]] || {
         print -u2 -- "dead-reader request blocked or succeeded unexpectedly: ${(qqq)trace}"
@@ -1122,8 +1118,7 @@ _test_git_syntax_job_scope() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 4
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
     _git_review_load() {
@@ -1149,17 +1144,11 @@ _test_git_syntax_job_scope() {
         print -r -u $efd BAD-RESTORE
       print -r -u $efd DONE
     }
-    local trace="" chunk="" event="" pfd=0
-    zpty -b job-scope _job_scope_driver
-    pfd=$REPLY
+    local trace="" chunk="" event=""
+    test_pty_start job-scope _job_scope_driver
     {
-      while zselect -r $efd $pfd -t 300; do
-        while zpty -r job-scope chunk; do trace+=$chunk; done
-        if IFS= read -r -u $efd event; then
-          [[ $event == DONE ]] && break
-          [[ $event == BAD-* ]] && { print -u2 -- "$event"; exit 1; }
-        fi
-      done
+      test_pty_expect job-scope $efd DONE || exit 1
+      event=$REPLY trace=$TEST_PTY_OUTPUT
       while zpty -r job-scope chunk; do trace+=$chunk; done
       [[ $event == DONE ]] || { print -u2 -- "missing completion: $event"; exit 2; }
       [[ $trace != *" + done"* && $trace != *"] "<->* ]] || {
@@ -1268,8 +1257,7 @@ _test_git_syntax_zle() {
       fi
       return 2
     }
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 9
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
@@ -1292,21 +1280,11 @@ _test_git_syntax_zle() {
       [[ $? == 1 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} == 0 && $_ZLE_PICKER_ACTIVE == 0 ]] || print -u $efd BAD-CLEANUP
       print -u $efd DONE
     }
-    local trace="" chunk="" event="" pfd=0
+    local trace="" chunk=""
     _syntax_expect() {
-      local wanted=$1
-      while zselect -r $efd $pfd -t 300; do
-        while zpty -r syntax chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$wanted" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -- "expected $wanted, got $event"
-      return 1
+      { test_pty_expect syntax $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
-    zpty -b syntax _syntax_driver
-    pfd=$REPLY
+    test_pty_start syntax _syntax_driver
     {
       _syntax_expect FRAME:0 || exit 2
       zpty -w -n syntax $'\''\t'\''

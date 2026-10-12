@@ -185,20 +185,18 @@ _test_manual_async_editor_delivery() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 15
     command mkfifo "$HOME/events" "$HOME/release"
-    local -i10 event_fd=-1 release_fd=-1 pfd=-1
+    local -i10 event_fd=-1 release_fd=-1
     exec {event_fd}<> "$HOME/events"
     exec {release_fd}<> "$HOME/release"
-    local event="" chunk="" trace="" device=""
+    local event="" trace="" device=""
     _expect() {
-      while zselect -r $event_fd $pfd -t 1000; do
-        while zpty -r editor chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$1"* ]] && return 0
-        fi
-      done
+      # The helper diagnostic is unsanitized; report a sanitized one instead.
+      { test_pty_expect -p editor $event_fd "$1" 30 2> /dev/null } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      } && return
       local diagnostic="$event ${(V)trace[-1500,-1]}"
       diagnostic=${diagnostic//${HOME}/\$\{TEST_HOME\}}
       diagnostic=${diagnostic//${COMPOZSH_TEST_REPO}/\$\{REPO_ROOT\}}
@@ -209,8 +207,7 @@ _test_manual_async_editor_delivery() {
       return 1
     }
     export COMPOZSH_TEST_REPO=$1
-    zpty -b editor /bin/zsh -dfi || exit 1
-    pfd=$REPLY
+    test_pty_start editor /bin/zsh -dfi || exit 1
     {
       zpty -w editor "source ${(q)1}/tests/fixtures/manual-async-editor.zsh ${(q)1}"
       _expect READY || exit 2

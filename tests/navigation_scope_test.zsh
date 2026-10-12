@@ -46,11 +46,12 @@ _test_navigation_explicit_folder_scope() {
       [[ "${GIT_DIR}|${GIT_WORK_TREE}|${GIT_COMMON_DIR}|${GIT_INDEX_FILE}|${GIT_OBJECT_DIRECTORY}|${GIT_ALTERNATE_OBJECT_DIRECTORIES}|${GIT_NAMESPACE}" == "$before" ]] || result=33
       print -r -- "SCOPE-RESULT:$result:SCOPE-DONE"
     }
-    zmodload zsh/zpty
+    source "$1/tests/pty_support.zsh" || exit 12
     local frame=""
-    zpty scope _scope_driver || exit 8
+    test_pty_start scope _scope_driver || exit 8
     {
-      zpty -r scope frame "*SCOPE-DONE*" || exit 9
+      test_pty_expect scope "" SCOPE-DONE || exit 9
+      frame=$TEST_PTY_OUTPUT
       [[ $frame == *"SCOPE-RESULT:0:SCOPE-DONE"* ]] || {
         print -u2 -r -- "$frame"
         exit 10

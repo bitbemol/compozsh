@@ -35,8 +35,7 @@ _test_syntax_job_cleanup() {
     source "$1/.zsh.addons/.zsh.git-syntax"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     zmodload zsh/parameter
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 3
     exec {gate_fd}<> "$2/home-gate"
     _cleanup_driver() {
       unsetopt MONITOR NOTIFY BG_NICE
@@ -87,14 +86,11 @@ _test_syntax_job_cleanup() {
       }
       print VERIFIED
     }
-    local chunk="" trace=""
-    zpty -b cleanup _cleanup_driver || exit 1
-    local pfd=$REPLY
+    local trace=""
+    test_pty_start cleanup _cleanup_driver || exit 1
     {
-      while zselect -r $pfd -t 300; do
-        while zpty -r cleanup chunk; do trace+=$chunk; done
-        [[ $trace == *VERIFIED* || $trace == *BAD-* ]] && break
-      done
+      test_pty_expect cleanup "" VERIFIED 30
+      trace=$TEST_PTY_OUTPUT
       [[ $trace == *VERIFIED* && $trace != *BAD-* ]] || { print -u2 -r -- "$trace"; exit 2; }
     } always {
       zpty -d cleanup
@@ -110,8 +106,7 @@ _test_syntax_finished_job_cleanup() {
     source "$1/.zsh.addons/.zsh.git-syntax"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     zmodload zsh/parameter
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 3
     _finished_driver() {
       unsetopt MONITOR NOTIFY BG_NICE
       local owned=0 state="" found=0
@@ -140,14 +135,11 @@ _test_syntax_finished_job_cleanup() {
       }
       print VERIFIED
     }
-    local chunk="" trace=""
-    zpty -b finished _finished_driver || exit 1
-    local pfd=$REPLY
+    local trace=""
+    test_pty_start finished _finished_driver || exit 1
     {
-      while zselect -r $pfd -t 300; do
-        while zpty -r finished chunk; do trace+=$chunk; done
-        [[ $trace == *VERIFIED* || $trace == *BAD-* ]] && break
-      done
+      test_pty_expect finished "" VERIFIED 30
+      trace=$TEST_PTY_OUTPUT
       [[ $trace == *VERIFIED* && $trace != *BAD-* ]] || { print -u2 -r -- "$trace"; exit 2; }
     } always {
       zpty -d finished
@@ -161,7 +153,8 @@ _test_git_review_auto_job_cleanup() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,job_reap}(N.); do source "$git_support_component"; done
-    zmodload zsh/parameter zsh/zpty zsh/zselect zsh/datetime zsh/system || exit 1
+    zmodload zsh/parameter zsh/system || exit 1
+    source "$1/tests/pty_support.zsh" || exit 3
     export TMPDIR=$HOME
     command mkdir -p "$HOME/repo" && builtin cd "$HOME/repo" || exit 1
     git init -qb main && git config user.name Fixture &&
@@ -239,14 +232,11 @@ _test_git_review_auto_job_cleanup() {
       }
       print VERIFIED
     }
-    local chunk="" trace=""
-    zpty -b auto _auto_driver || exit 1
-    local pfd=$REPLY
+    local trace=""
+    test_pty_start auto _auto_driver || exit 1
     {
-      while zselect -r $pfd -t 1000; do
-        while zpty -r auto chunk; do trace+=$chunk; done
-        [[ $trace == *VERIFIED* || $trace == *BAD-* ]] && break
-      done
+      test_pty_expect auto "" VERIFIED 30
+      trace=$TEST_PTY_OUTPUT
       [[ $trace == *VERIFIED* && $trace != *BAD-* ]] || { print -u2 -r -- "$trace"; exit 2; }
     } always {
       zpty -d auto
@@ -265,7 +255,8 @@ _test_xcode_job_reaping() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
-    zmodload zsh/parameter zsh/zpty zsh/zselect || exit 1
+    zmodload zsh/parameter || exit 1
+    source "$1/tests/pty_support.zsh" || exit 3
     _reap_settle() {
       local pid=$1 wanted=$2 state=""
       local -i attempt=0
@@ -326,16 +317,13 @@ _test_xcode_job_reaping() {
         (( owned > 0 )) && kill -KILL $owned 2>/dev/null
       }
     }
-    local mode="" chunk="" trace="" pfd=0
+    local mode="" trace=""
     for mode in discovery reaped stopped; do
       trace=""
-      zpty -b reap _reap_driver $mode || exit 1
-      pfd=$REPLY
+      test_pty_start reap _reap_driver $mode || exit 1
       {
-        while zselect -r $pfd -t 300; do
-          while zpty -r reap chunk; do trace+=$chunk; done
-          [[ $trace == *VERIFIED-* || $trace == *BAD-* ]] && break
-        done
+        test_pty_expect reap "" VERIFIED- 30
+        trace=$TEST_PTY_OUTPUT
         [[ $trace == *VERIFIED-$mode* && $trace != *BAD-* &&
            $trace != *(done|killed|terminated|suspended)* ]] || {
           print -u2 -r -- "$mode: ${(V)trace}"; exit 2

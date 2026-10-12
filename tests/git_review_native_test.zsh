@@ -31,9 +31,7 @@ _test_git_review_native() {
     mkdir new-dir
     print -r -- review-new-content > new-dir/new.txt
     local index_before=$(git hash-object --no-filters .git/index)
-    zmodload zsh/zpty
-    zmodload zsh/zselect
-    zmodload zsh/datetime
+    source "$1/tests/pty_support.zsh" || exit 113
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
@@ -94,24 +92,14 @@ _test_git_review_native() {
       print -r -u $efd DONE
     }
     _review_test_expect() {
-      local wanted=$1 chunk=""
-      local -i pty_status=0
-      local -F deadline=$(( EPOCHREALTIME + 5.0 ))
-      # Silence is not failure: only the deadline, a BAD event or the driver
-      # exiting (zpty status 2, after its queued events) ends the wait. A
-      # zselect timeout only paces the loop; both reads are nonblocking.
-      while (( EPOCHREALTIME < deadline )); do
-        zselect -r $efd $pfd -t 50 || :
-        until zpty -r review chunk; (( pty_status = $? )); do trace+=$chunk; done
-        while IFS= read -r -t 0 -u $efd event; do
-          [[ $event == DOC\|* ]] && { doc_event=$event; continue; }
-          [[ $event == "$wanted" ]] && return 0
-          [[ $event == BAD-* ]] && break 2
+      local seen=""
+      { test_pty_expect review $efd "$1" 5 } always {
+        trace+=$TEST_PTY_OUTPUT
+        for seen in "${TEST_PTY_EVENTS[@]}"; do
+          [[ $seen == DOC\|* ]] && doc_event=$seen
         done
-        (( pty_status != 2 )) || break
-      done
-      print -u2 -r -- "expected $wanted; got $event"
-      return 1
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
     _review_test_key() {
       zpty -w -n review "$1"
@@ -121,9 +109,8 @@ _test_git_review_native() {
         return 1
       }
     }
-    local trace="" event="" device="" pfd=0 captures="" scenario=journey doc_event="" saved_doc=""
-    zpty -b review _review_test_driver || exit 3
-    pfd=$REPLY
+    local trace="" event="" device="" captures="" scenario=journey doc_event="" saved_doc=""
+    test_pty_start review _review_test_driver || exit 3
     {
       zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 4
       device=${event#READY:}
@@ -235,8 +222,7 @@ _test_git_review_native() {
       fi
       [[ $scenario == fallback ]] && unfunction _git_review_branch_choose
       trace="" event=""
-      zpty -b review _review_test_driver || exit 29
-      pfd=$REPLY
+      test_pty_start review _review_test_driver || exit 29
       {
         zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 30
         if [[ $scenario == unborn ]]; then
@@ -326,8 +312,7 @@ _test_git_review_native_burst_settle() {
       print -r -- "let changed = $index" >> "file-${(l:2::0:)index}.swift"
     done
 
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 21
     command mkfifo "$HOME/events" || exit 2
     exec {efd}<> "$HOME/events" || exit 3
     functions -c _git_review_document_load _burst_original_document_load
@@ -351,13 +336,10 @@ _test_git_review_native_burst_settle() {
       print -r -u $efd -- "DONE|$result"
     }
     _burst_event() {
-      local chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r burst chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $efd event && return 0
-      done
-      print -u2 -r -- "burst event timed out after ${(qqq)event}"
-      return 1
+      {
+        test_pty_expect -p burst $efd "" || return
+        event=$REPLY
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
     _burst_until() {
       local wanted=$1
@@ -372,14 +354,13 @@ _test_git_review_native_burst_settle() {
       return 1
     }
 
-    local trace="" event="" burst_bytes="" key_down="" key_left="" key_right="" key_abort="" pfd=0
+    local trace="" event="" burst_bytes="" key_down="" key_left="" key_right="" key_abort=""
     local -a loads=()
     printf -v key_down "\\033[B"
     printf -v key_left "\\033[D"
     printf -v key_right "\\033[C"
     printf -v key_abort "\\007"
-    zpty -b burst _burst_driver || exit 4
-    pfd=$REPLY
+    test_pty_start burst _burst_driver || exit 4
     {
       _burst_until READY || exit 5
       _burst_until "LOAD|1|1" || exit 6
@@ -457,8 +438,7 @@ _test_git_review_native_queued_input_precedes_idle() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 11
     command mkfifo "$HOME/events" "$HOME/gate" || exit 1
     exec {efd}<> "$HOME/events" || exit 2
     exec {gfd}<> "$HOME/gate" || exit 3
@@ -490,13 +470,10 @@ _test_git_review_native_queued_input_precedes_idle() {
       print -r -u $efd -- "DONE|$?|$idle_calls"
     }
     _queued_event() {
-      local chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r queued chunk; do trace+=$chunk; done
-        IFS= read -r -t 0 -u $efd event && return 0
-      done
-      print -u2 -r -- "queued-input event timed out after ${(qqq)event}"
-      return 1
+      {
+        test_pty_expect -p queued $efd "" || return
+        event=$REPLY
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
     _queued_expect() {
       local wanted=$1
@@ -508,12 +485,11 @@ _test_git_review_native_queued_input_precedes_idle() {
       }
     }
 
-    local trace="" event="" pfd=0 key_down="" key_abort=""
+    local trace="" event="" key_down="" key_abort=""
     local -a events=()
     printf -v key_down "\\033[B"
     printf -v key_abort "\\007"
-    zpty -b queued _queued_driver || exit 4
-    pfd=$REPLY
+    test_pty_start queued _queued_driver || exit 4
     {
       _queued_expect READY || exit 5
       # The child cannot touch the picker until both sequences are buffered.

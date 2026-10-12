@@ -124,31 +124,23 @@ print -r -u $event_fd -- "SOURCE|$(command tty)"
 ' || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8 RUNTIME_TEST_ROOT=$2
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$2/tests/pty_support.zsh" || exit 9
     exec {event_fd}<> "$HOME/events"
-    local event="" trace="" chunk="" device="" pfd=0
+    local event="" trace="" device=""
     _runtime_driver() {
       builtin cd "$HOME/project"
       command stty rows 30 cols 199
       exec "$1" -di
     }
     _runtime_expect() {
-      while zselect -r $event_fd $pfd -t 300; do
-        while zpty -r runtime-clear chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd event; then
-          [[ $event == "$1" ]] && return 0
-        fi
-      done
-      print -u2 -r -- "expected $1; got $event; ${(V)trace[-500,-1]}"
-      return 1
+      { test_pty_expect ${2:+-p} runtime-clear $event_fd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
     }
-    zpty -b runtime-clear _runtime_driver "$1"
-    pfd=$REPLY
+    test_pty_start runtime-clear _runtime_driver "$1"
     {
-      while IFS= read -r -t 3 -u $event_fd event; do
-        [[ $event == SOURCE\|* ]] && break
-      done
+      _runtime_expect "SOURCE|" prefix
       device=${event#SOURCE|}
       [[ $device == /dev/ttys<-> || $device == /dev/pts/<-> ]] || exit 1
       _runtime_expect "FRAME||lens|ready|1|199" || exit 2

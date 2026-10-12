@@ -242,21 +242,17 @@ _test_appearance_native_selection_and_status() {
     for peer in standalone output; do
       output=$(test_run_interactive "$TEST_TMP_DIR/$scheme-$peer" '
         export LC_ALL=en_US.UTF-8
-        zmodload zsh/zpty
-        zmodload zsh/zselect
+        source "$1/tests/pty_support.zsh" || exit 13
         command mkfifo "$HOME/events" || exit 1
         exec {event_fd}<> "$HOME/events" || exit 2
-        local event="" trace="" chunk="" pty_fd=0
+        local event="" trace="" chunk=""
         _appearance_event() {
-          while zselect -r $event_fd $pty_fd -t 500; do
-            while zpty -r appearance chunk; do trace+=$chunk; done
-            IFS= read -r -t 0 -u $event_fd event && return 0
-          done
-          print -u2 -- "appearance event timeout: $event"
-          return 1
+          {
+            test_pty_expect -p appearance $event_fd "" || return
+            event=$REPLY
+          } always { trace+=$TEST_PTY_OUTPUT }
         }
-        zpty -b appearance "$2" -dfi || exit 3
-        pty_fd=$REPLY
+        test_pty_start appearance "$2" -dfi || exit 3
         {
           zpty -w appearance "source ${(q)3} ${(q)1} ${(q)4} ${(q)5}"
           _appearance_event && [[ $event == READY ]] || exit 4

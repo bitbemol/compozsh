@@ -260,8 +260,7 @@ cat > "$HOME/copied-path"' || return
     export LC_ALL=en_US.UTF-8
     source "$1/.zshrc"
     commands[pbcopy]="$HOME/copy-path"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 27
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
     local enter=$terminfo[smcup] leave=$terminfo[rmcup]
@@ -340,23 +339,19 @@ cat > "$HOME/copied-path"' || return
       print -r -u $efd DONE
     }
     _workspace_expect() {
-      local wanted=$1 chunk=""
-      while zselect -r $efd $pfd -t 500; do
-        while zpty -r workspace chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
-          [[ $event == "$wanted" ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
-      done
-      print -u2 -r -- "$scenario: expected $wanted; got $event"
-      return 1
+      {
+        test_pty_expect workspace $efd "$1" || {
+          print -u2 -r -- "$scenario: expected $1"
+          return 1
+        }
+      } always { trace+=$TEST_PTY_OUTPUT }
     }
     _workspace_key() {
       zpty -w -n workspace "$1"
       _workspace_expect "$2" || return 1
       [[ $trace == *"$enter"* && ${trace#*"$enter"} != *"$enter"* && $trace != *"$leave"* ]] || return 2
     }
-    local scenario="" trace="" event="" pfd=0 expected_draft="" expected_cursor=0
+    local scenario="" trace="" event="" expected_draft="" expected_cursor=0
     for scenario in search cancel recents recents-empty recents-enter recents-copy recents-escape recents-abort menu-recents; do
       trace=""
       expected_draft=sentinel expected_cursor=5
@@ -364,8 +359,7 @@ cat > "$HOME/copied-path"' || return
         _directory_picker_quote "$HOME/Previous & notes"
         expected_draft=$REPLY expected_cursor=${#REPLY}
       fi
-      zpty -b workspace _workspace_driver || exit 2
-      pfd=$REPLY
+      test_pty_start workspace _workspace_driver || exit 2
       {
         _workspace_expect READY || exit 3
         if [[ $scenario == recents* ]]; then
