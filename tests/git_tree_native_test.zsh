@@ -65,14 +65,20 @@ _test_git_tree_native() {
     }
     _tree_native_expect() {
       local wanted=$1
+      local -i pty_status=0
       local -F deadline=$(( EPOCHREALTIME + 5 ))
-      while (( EPOCHREALTIME < deadline )) && zselect -r $efd $pfd -t 50; do
-        while zpty -r tree chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $efd event; then
+      # Silence is not failure: only the deadline, a BAD event or the driver
+      # exiting (zpty status 2, after its queued events) ends the wait. A
+      # zselect timeout only paces the loop; both reads are nonblocking.
+      while (( EPOCHREALTIME < deadline )); do
+        zselect -r $efd $pfd -t 50 || :
+        until zpty -r tree chunk; (( pty_status = $? )); do trace+=$chunk; done
+        while IFS= read -r -t 0 -u $efd event; do
           if [[ $event == SUMMARY\|* ]]; then summary_event=$event; continue; fi
           [[ $event == "$wanted" || ( $wanted == *\* && $event == "${wanted%\*}"* ) ]] && return 0
-          [[ $event == BAD-* ]] && break
-        fi
+          [[ $event == BAD-* ]] && break 2
+        done
+        (( pty_status != 2 )) || break
       done
       print -u2 -r -- "expected $wanted; got $event"
       print -u2 -r -- "terminal tail: ${trace[-1000,-1]}"
