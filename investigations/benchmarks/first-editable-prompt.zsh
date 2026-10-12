@@ -1,4 +1,5 @@
 #!/bin/zsh -df
+# Historical: written against the pre-async serial capture; the skip-manual and background overrides no longer model the shipped async worker. Use async-first-prompt.zsh for current measurements.
 # Exploration only: baseline/cold/warm measure shipped capture. skip-manual
 # removes the feature for diagnosis. background forks real capture but delivers
 # only a completion marker, not descriptions, to the parent. It is not a

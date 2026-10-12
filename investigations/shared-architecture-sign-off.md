@@ -1,5 +1,7 @@
 # Shared architecture review and sign-off
 
+> **Status note (2026-10-11).** This is the decision record for the shared-architecture work. The intermediate design and audit passes it summarizes (UI components, extraction, consumers, matching, data and effects, three duplication audits, palette ownership) are in [archive/](archive/); current rules are in [architecture](../engineering/architecture.md).
+
 Recorded 2026-09-06. Baseline: commit `749400f`, before the shared-data
 extraction and support organization changes. The final tree includes the three
 duplication follow-ups and the small simplifications recorded here.
@@ -75,18 +77,18 @@ observation, not a compatibility threshold or a startup speedup.
 Earlier bounded measurements and differential checks are retained with their
 specific baselines rather than combined into a misleading overall percentage:
 
-- [Data/effects extraction](shared-data-and-effects.md): lazy matching avoids
+- [Data/effects extraction](archive/shared-data-and-effects.md): lazy matching avoids
   eager catalog copying; several full-scan workloads improved. The eager
   prototype was rejected on measured latency grounds.
-- [First cleanup](production-duplication-audit.md#verification-and-measurements):
+- [First cleanup](archive/production-duplication-audit.md#verification-and-measurements):
   prompt middle abbreviation improved, while shared projection adds roughly
   0.05–0.06 ms for short queries. Shared Git safety is principally a correctness
   gain. Differential coverage compared 144 collector and 7,344 display cases.
-- [Second cleanup](production-duplication-audit-second-pass.md#integration-and-performance-evidence):
+- [Second cleanup](archive/production-duplication-audit-second-pass.md#integration-and-performance-evidence):
   metadata reuse eliminates one repeated stat subprocess per installer
   candidate. Regex-state isolation adds approximately 2–3 µs per assignment
   check; no general speedup is claimed.
-- [Third cleanup](production-duplication-audit-third-pass.md#performance-observations):
+- [Third cleanup](archive/production-duplication-audit-third-pass.md#performance-observations):
   prompt prefix clipping improves about 60–67% in the measured cases, while
   truncated picker fitting adds 10–19 µs. Correct Unicode reader preparation
   adds about 9.29 ms per 100 long Unicode lines; ASCII preparation remains

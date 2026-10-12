@@ -20,41 +20,42 @@ _test_readme_inventory_matches_shipped_units() {
     "${(j:|:)documented}" \
     'README shipped-unit inventory is stale'
 }
-test_case 'README inventory exactly matches the shipped peer files' \
+test_case 'docs: README inventory exactly matches the shipped peer files' \
   _test_readme_inventory_matches_shipped_units
 
 _test_repository_skill_inventory_is_documented() {
-  local directory='' line='' name=''
+  local directory='' MATCH=''
   local readme="$(<"$TEST_REPO_ROOT/README.md")"
-  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"
-  local -a actual=() documented=()
+  local agents="$(<"$TEST_REPO_ROOT/CLAUDE.md")"
+  local remaining=$readme
+  local -a actual=() documented=() match=() mbegin=() mend=()
 
-  for directory in "$TEST_REPO_ROOT"/.agents/skills/*(N/); do
+  for directory in "$TEST_REPO_ROOT"/.claude/skills/*(N/); do
     [[ -f $directory/SKILL.md ]] || continue
     actual+=("${directory:t}")
-    test_assert_contains "$agents" ".agents/skills/${directory:t}/" \
+    test_assert_contains "$agents" ".claude/skills/${directory:t}/" \
       "agent contract omits the ${directory:t} repository skill" || return
   done
-  while IFS= read -r line; do
-    [[ $line == *'compozsh-'*'/' ]] || continue
-    name=${line##* }
-    documented+=("${name%/}")
-  done <<< "$readme"
+  (( ${#actual} )) || { test_fail 'no repository skills found in .claude/skills'; return 1; }
+  while [[ $remaining =~ '\.claude/skills/(compozsh-[a-z0-9-]+)/' ]]; do
+    documented+=("$match[1]")
+    remaining=${remaining#*"$MATCH"}
+  done
 
-  actual=(${(on)actual})
-  documented=(${(on)documented})
+  actual=(${(ou)actual})
+  documented=(${(ou)documented})
   test_assert_equal "${(j:|:)actual}" \
     "${(j:|:)documented}" \
     'README repository-skill inventory is stale'
 }
-test_case 'README and agent contract inventory exactly match repository skills' \
+test_case 'docs: README and agent contract inventory exactly match repository skills' \
   _test_repository_skill_inventory_is_documented
 
 _test_private_initializer_is_not_in_repository_tree() {
   [[ ! -e "$TEST_REPO_ROOT/.zsh.addons/local/init.zsh" ]] ||
     test_fail 'private initializer exists inside the repository add-on tree'
 }
-test_case 'repository never contains the private active initializer' \
+test_case 'docs: repository never contains the private active initializer' \
   _test_private_initializer_is_not_in_repository_tree
 
 _test_public_branding_is_consistent() {
@@ -74,14 +75,14 @@ _test_public_branding_is_consistent() {
   [[ $contents != *my-zsh-configuration* ]] ||
     test_fail 'public files retain the previous project name'
 }
-test_case 'public project branding is consistent' \
+test_case 'docs: public project branding is consistent' \
   _test_public_branding_is_consistent
 
 _test_security_contract_is_public_and_auditable() {
   local readme="$(<"$TEST_REPO_ROOT/README.md")"
   local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
   local site="$(<"$TEST_REPO_ROOT/docs/index.html")"
-  local agents="$(<"$TEST_REPO_ROOT/AGENTS.md")"$'\n'"$(<"$TEST_REPO_ROOT/engineering/security.md")"
+  local agents="$(<"$TEST_REPO_ROOT/CLAUDE.md")"$'\n'"$(<"$TEST_REPO_ROOT/engineering/security.md")"
 
   test_assert_contains "$readme" '[Security and privacy](SECURITY.md)' \
     'README does not link the security contract' || return
@@ -142,7 +143,7 @@ _test_security_contract_is_public_and_auditable() {
   test_assert_contains "$agents" 'No Compozsh-owned operation may transmit' \
     'agent contract permits undisclosed data transmission'
 }
-test_case 'security and privacy contract stays public and auditable' \
+test_case 'docs: security and privacy contract stays public and auditable' \
   _test_security_contract_is_public_and_auditable
 
 _test_living_prompt_contract_is_synchronized() {
@@ -176,8 +177,61 @@ _test_living_prompt_contract_is_synchronized() {
   test_assert_contains "$site" 'data-prompt-state="transcript"' \
     'website omits the fixed transcript example'
 }
-test_case 'living prompt documentation stays synchronized across public surfaces' \
+test_case 'docs: living prompt documentation stays synchronized across public surfaces' \
   _test_living_prompt_contract_is_synchronized
+
+_test_public_guidance_keeps_help_derived_intent_wording() {
+  local file='' text=''
+
+  for file in README.md SECURITY.md docs/README.md docs/index.html; do
+    text="$(<"$TEST_REPO_ROOT/$file")"
+    [[ $text != *'An `ACTION` row is always a qualified'* &&
+       $text != *'ACTION</code> always says'* &&
+       ! $text =~ '`ACTION` is a lexical advisory[[:space:]]+expressed as' ]] || {
+      test_fail "$file restores the superseded universal ACTION rule"
+      return 1
+    }
+    [[ ${text:l} =~ 'help-derived|help description|documented intent' ]] || {
+      test_fail "$file omits help-derived intent wording"
+      return 1
+    }
+  done
+  for file in README.md SECURITY.md .zsh.addons/.zsh.help; do
+    text="$(<"$TEST_REPO_ROOT/$file")"
+    [[ ${text:l} =~ 'help[[:space:]-]+description' ]] || {
+      test_fail "$file omits the help-description snapshot invalidation"
+      return 1
+    }
+  done
+}
+test_case 'docs: public guidance keeps help-derived intent and refresh wording' \
+  _test_public_guidance_keeps_help_derived_intent_wording
+
+_test_claude_rule_paths_match_repository_files() {
+  setopt EXTENDED_GLOB GLOB_DOTS
+  local rule='' line='' pattern=''
+  local -i in_paths=0 count=0
+  local -a matches=()
+
+  for rule in "$TEST_REPO_ROOT"/.claude/rules/*.md(N.); do
+    in_paths=0
+    while IFS= read -r line; do
+      [[ $line == 'paths:' ]] && { in_paths=1; continue; }
+      (( in_paths )) || continue
+      [[ $line == '  - "'*'"' ]] || break
+      pattern=${${line#'  - "'}%'"'}
+      matches=("$TEST_REPO_ROOT"/${~pattern}(N))
+      (( ${#matches} )) || {
+        test_fail "${rule:t} path matches no repository file: $pattern"
+        return 1
+      }
+      (( ++count ))
+    done < "$rule"
+  done
+  (( count )) || { test_fail 'no path-scoped rules found in .claude/rules'; return 1; }
+}
+test_case 'docs: path-scoped Claude rules match repository files' \
+  _test_claude_rule_paths_match_repository_files
 
 _test_picker_index_affordance_is_documented() {
   local agents="$(<"$TEST_REPO_ROOT/engineering/full-screen.md")"
@@ -192,20 +246,23 @@ _test_picker_index_affordance_is_documented() {
     'must not enter the result/candidate array' \
     'agent contract does not separate passive text from selectable values'
 }
-test_case 'agent UI contract reserves picker indexes for actionable rows' \
+test_case 'docs: agent UI contract reserves picker indexes for actionable rows' \
   _test_picker_index_affordance_is_documented
 
 _test_root_guidance_is_bounded() {
   local LC_ALL=C
-  local instructions="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  local instructions="$(<"$TEST_REPO_ROOT/CLAUDE.md")"
+  local -a lines=("${(@f)instructions}")
   (( ${#instructions} <= 16384 )) ||
-    test_fail 'root guidance exceeds its 16 KiB budget; move detail to routed contracts'
+    test_fail 'root guidance exceeds its 16 KiB budget; move detail to routed contracts' || return
+  (( ${#lines} <= 200 )) ||
+    test_fail "root guidance has ${#lines} lines; keep CLAUDE.md under 200 lines"
 }
-test_case 'root agent guidance stays within its context budget' \
+test_case 'docs: root agent guidance stays within its context budget' \
   _test_root_guidance_is_bounded
 
 _test_engineering_contracts_are_discoverable() {
-  local remaining="$(<"$TEST_REPO_ROOT/AGENTS.md")"
+  local remaining="$(<"$TEST_REPO_ROOT/CLAUDE.md")"
   local MATCH='' file='' relative=''
   local -a match=() mbegin=() mend=() routed=()
   while [[ $remaining =~ '\]\((engineering/[^)#]+\.md)(#[^)]*)?\)' ]]; do
@@ -225,5 +282,5 @@ _test_engineering_contracts_are_discoverable() {
     }
   done
 }
-test_case 'engineering contracts remain discoverable from root agent guidance' \
+test_case 'docs: engineering contracts remain discoverable from root agent guidance' \
   _test_engineering_contracts_are_discoverable

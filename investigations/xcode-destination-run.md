@@ -1,5 +1,7 @@
 # Xcode Run across concrete destinations
 
+> **Status note (2026-10-11).** Physical-device output no longer stays in the foreground console during interactive Run: it flows through a private FIFO into the shared log reader ([log monitor](xcode-log-monitor.md), [Xcode workspace](../engineering/workspaces/xcode.md#run-targets)). The native argument evidence below remains valid.
+
 The earlier Run coordinator supported only Simulator. Build and Test already
 delegated to `xcodebuild`, but the destination parser deduplicated by device ID
 and discarded architecture and variant. The user requested Build/Run/Test on

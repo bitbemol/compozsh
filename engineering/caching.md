@@ -1,9 +1,25 @@
 # Optional performance caches
 
 Persistent caching is allowed for measured repeated work on reproducible public
-system data. It is an optimization, never a source of truth or a feature
-dependency. This replaces the blanket prohibition on feature caches; privacy,
-local-only operation and peer order independence remain product boundaries.
+system data.
+
+## Essentials
+
+- **An optimization, never a source of truth.** Every feature works fully with
+  the cache missing, stale, corrupt or unwritable.
+- **Public data only.** Never persist user or project information or
+  fingerprints of it; each producer documents the public provenance of every
+  field.
+- **No new machinery.** No cache manager, daemon, polling, registry, load
+  phase or per-project cache; no cache I/O at source time or while typing or
+  resizing. The manual producer's bounded asynchronous capture is the only
+  background work a cache producer may do (other approved background work is
+  listed in [performance](performance.md#approved-background-work)).
+- **Workspace snapshots are not caches.** Listings, search results and other
+  user or project facts are never written to disk; any shell-memory retention
+  is limited to what SECURITY.md's data inventory discloses.
+- **Disclosed.** Contents, location, retention and removal are documented in
+  README and SECURITY.
 
 ## Eligibility and ownership
 

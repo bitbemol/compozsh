@@ -1,233 +1,154 @@
 # Architecture
 
-Read this contract when the task matches its route in [AGENTS.md](../AGENTS.md).
-Paths in code spans are repository-relative unless explicitly qualified.
-These are maintained product contracts; investigations retain historical evidence.
+How peers, shared support and runtime capabilities fit together.
 
-## Contents
+## Essentials
 
-- [Architecture and abstraction](#architecture-and-abstraction)
-- [Peer configuration algebra](#peer-configuration-algebra)
+- **Focused peers, no core tier.** Each task-specific behavior has one owning
+  peer; reusable operations live in shared support entries. A feature may use
+  many entries — it need not fit in one growing file.
+- **Order-independent setup.** Peers load in any order, regroup freely and
+  re-source safely (the [peer configuration algebra](#peer-configuration-algebra)).
+  Optional capabilities are detected at invocation, with useful standalone
+  fallbacks.
+- **Separate the five jobs.** Collect facts, sanitize, calculate layout,
+  render, act — each helper does one. Resize and repaint reuse captured facts;
+  final actions run after screen cleanup.
+- **Plain mechanisms.** No plugin manager, registry, dependency resolution,
+  lifecycle hooks, state-machine framework or event bus. Extract a helper when
+  it centralizes a repeated rule, security boundary or non-trivial algorithm,
+  not for two lines that merely look alike today.
 
-## Architecture and abstraction
+## Boundaries and coupling
 
-Apply DRY and SOLID as practical design heuristics:
-
-- Give each task-specific behavior a focused owning peer and compose reusable
-  operations through shared support entries. A feature may use several entries;
-  it does not need to fit in one growing file.
-  Keep only initializer and peer discovery in `.zshrc`;
-  keep only genuine pre-peer machine prerequisites in
-  `~/.zsh.addons/local/init.zsh`, and put other private behavior in focused
-  `.zsh.<name>` peers.
 - Choose boundaries by cohesive behavior and entry-point ownership. Keep an
   entry's exclusive helpers with it; extract independently reusable operations
-  instead of collecting unrelated entry points in a broad utility file.
-  A unit owns its defaults, registrations, cleanup and fallbacks.
-  Avoid both unguarded cross-unit calls
-  and duplicated frameworks; when optional interaction is valuable, detect the
-  peer capability at runtime and preserve useful standalone behavior.
-- `support/.zsh.appearance` alone authors and installs terminal color defaults.
-  Consumers resolve public overrides and selected defaults at invocation; they neither
-  copy palettes nor write fallback keys. Public maps stay writable, and missing
-  appearance uses native text and attributes. Completion owns its deferred
-  style callback; appearance does not install another peer's registrations.
+  rather than collecting unrelated entries in a utility file. A unit owns its
+  defaults, registrations, cleanup and fallbacks.
+- Avoid both unguarded cross-unit calls and duplicated frameworks. When
+  optional interaction is valuable, detect the peer capability at runtime.
+- Keep coupling explicit: pass a project root or Git directory into helpers
+  instead of having each rediscover ambient state.
+- Prefer data tables for stable mappings (palettes, runtime labels, markers)
+  and functions where behavior, validation or failure handling is involved.
+- Extend project support through marker data, focused detector branches and
+  the documented `PROMPT_PROJECT_*` extension points. The loader is not a
+  plugin manager: no dependency resolution, remote installation, manifests or
+  lifecycle-hook framework (peers may register ordinary Zsh hooks), and no code
+  discovery inside projects.
+- Remove temporary setup helpers after use unless they are public interface.
+
 ### Shared support organization
 
-Paths below are relative to `.zsh.addons/`. Strip only the entry function's
-leading underscore when forming its filename; retain the function name itself.
+Paths are relative to `.zsh.addons/`. A filename is the entry function's name
+without its leading underscore.
 
-| Responsibility | Filename | Existing example |
+| Responsibility | Filename | Example |
 | --- | --- | --- |
 | Calculation from supplied data | `support/functions/.zsh.pure.<entry>` | `.zsh.pure.matching_select` defines `_matching_select` |
 | External reads, shared-state access or effects | `support/functions/.zsh.impure.<entry>` | `.zsh.impure.compozsh_effect_copy` defines `_compozsh_effect_copy` |
 | UI element or interaction | `support/ui/.zsh.ui.<entry>` | `.zsh.ui.zle_picker_footer` defines `_zle_picker_footer` |
 
-- Every callable support file declares exactly one `# Entry point: name` before
-  its first function. That function is the component-facing entry. Put its
-  private helpers afterward; they may call each other within the owning file.
-  No other production file may call or depend on those private helpers.
-- When a second entry needs a private helper, promote it to a separately owned,
-  classified shared entry and update its callers. Do not duplicate it, retain
-  a forwarding alias at the old location, or add multiple shared entries to one
-  file. Search existing entries before creating another implementation.
-- Pure entries calculate from explicit inputs. Caller-local `REPLY`/`reply`
-  implements native Zsh returns; explicitly supplied read-only arrays may be
-  passed by validated name. Audit the complete call chain: pure calculations
-  must not invoke impure operations or UI callbacks, discover providers, or
-  read implicit mutable feature state. Text calculations use the supported
-  Zsh and locale environment.
-- Localize regex match parameters inside pure predicates so only the declared
-  result escapes. Initialize an input local before deriving another local from
-  it: Zsh expands every right-hand side in one `local` command before installing
-  those bindings, which can otherwise read a caller's same-named variable.
-- Validate raw numeric text before assigning an integer parameter, because the
-  assignment itself evaluates arithmetic. Pure text operations define their
-  splitting delimiters locally instead of depending on the caller's `IFS`.
-- External reads, filesystem/process operations and implicit mutable-state
-  dependencies are impure, including read-only operations. Reclassify and
-  rename an entry when its contract changes; update callers, tests and the
-  README inventory together. Purity labels aid review and do not enforce
-  effects or prove safety for arbitrary input.
-- Component-facing entries remain internal library interfaces, with no new
-  terminal command, help topic or user extension point implied by extraction.
-- Configuration peers are explicit exceptions: `support/.zsh.appearance` owns
-  palette setup, and `support/ui/.zsh.ui.state` owns transient declarations.
-  Do not invent callable wrappers for data initialization to satisfy naming,
-  or use these exceptions to house unrelated callable utilities.
-- Keep every peer independently sourceable and re-source safe. Directories and
-  filename prefixes organize code without load phases, registries, aggregator
-  loaders or runtime sourcing. Shared support remains installed as a unit;
-  sourceability does not promise that an entry can run with its callees absent.
-  Preserve capability checks and existing feature fallbacks at runtime.
-- Keep one terminal owner in `support/ui/.zsh.ui.zle_picker_screen_session`.
-  UI entries assemble captured data and return operation requests; final
-  actions retain their established validation and post-cleanup boundaries.
+- Each callable support file declares exactly one `# Entry point: name` before
+  its first function; that function is the component-facing entry, and its
+  private helpers follow it. No other production file calls those helpers.
+- When a second entry needs a private helper, promote it to its own classified
+  entry and update callers — no duplicate, no forwarding alias at the old
+  location, no second entry in one file. Search existing entries before
+  writing another implementation; even a small shared entry gets its own file.
+- **Pure** entries calculate from explicit inputs, returning through
+  caller-local `REPLY`/`reply`; read-only arrays may be passed by validated
+  name. Audit the whole call chain: no impure calls, UI callbacks, provider
+  discovery or implicit mutable feature state. Localize regex match parameters
+  so only the declared result escapes. Initialize an input local before
+  deriving another from it — Zsh expands every right-hand side of one `local`
+  command before binding, which can read a caller's same-named variable.
+  Validate numeric text before integer assignment (assignment evaluates
+  arithmetic), and define splitting delimiters locally instead of trusting the
+  caller's `IFS`.
+- **Impure** covers external reads, filesystem/process operations and implicit
+  mutable state — including read-only operations. Reclassify and rename an
+  entry when its contract changes, updating callers, tests and the README
+  inventory together. Labels aid review; they don't prove safety.
+- Entries are internal library interfaces: extraction implies no new command,
+  help topic or extension point.
+- Two configuration peers are explicit exceptions: `support/.zsh.appearance`
+  (palette setup) and `support/ui/.zsh.ui.state` (transient declarations).
+  Don't wrap data initialization in callable entries to satisfy naming, and
+  don't put unrelated utilities in these exceptions.
+- Directories and prefixes organize code; they create no load phase, registry,
+  aggregator or runtime sourcing. Support stays installed as a unit —
+  sourceability doesn't promise an entry runs with its callees absent — so
+  runtime capability checks and feature fallbacks remain. Support placement or
+  read-only behavior alone doesn't prove peer-order independence; the
+  algebra's order and re-source checks do.
 
 ### Shared behavior ownership
 
-- The peers in `support/ui/` own shared terminal components, view defaults, layout, input,
-  painting and screen restoration. Feature peers supply captured content,
-  labels and capabilities; they own task-specific collection, ranking,
-  transitions and final actions.
-  Scope common defaults around view execution and save caller bookmarks before
-  returning. Keep explicit provider hooks outside frame construction and resize.
-  This composition introduces no privileged peer tier, registry or load phase.
-- The pure `matching_*` entries under `support/functions/` own query compilation
-  and filtering over supplied captured text. Keep outputs caller-local and
-  calculations free of provider reads, UI state and actions. Feature collectors retain task-specific
-  ranking, duplicate policy and capture bounds. Shared selection implements
-  the caller-selected source-order or prefix/substring/fuzzy policy and returns
-  indexes into explicitly supplied arrays, without implicit feature-state inputs.
-  Display match spans remain a presentation concern. Missing matching support
-  selects existing runtime fallbacks without an ordered load phase or a
-  duplicate matcher.
-- The `compozsh_effect_*` entries under `support/functions/` own explicit
-  clipboard writes and file Open/Reveal execution. Callers pass exact values and captured executable paths after
-  screen cleanup; the helper revalidates mutable operands and reports status.
-  Source time defines functions only. Missing effect capabilities are omitted
-  from workspaces and direct calls fail safely, without a duplicate execution
-  path or runtime sourcing. Privileged/device/Git operations retain their
-  owning peers and domain-specific validation and confirmation rules.
-- Keep common presentation calculations data-in/results-out: shared functions own
-  path-action metadata and row adapters, and domain peers own their result
-  models. Pure helpers receive captured values and return caller-local outputs;
-  UI adapters apply those results to view state. Do not move provider reads,
-  commands or screen ownership into these calculations. Share repeated
-  mechanisms, while preserving distinct scopes, selection intents, limits and
-  return-navigation semantics instead of building a universal controller.
-- Shared palette resolution owns role validation and fallback selection;
-  consumers retain ANSI, prompt and ZLE encoding. Shared display sanitization
-  changes labels only, never exact targets. Progress models receive captured
-  bytes, totals and elapsed time; their callers own clocks, provider reads and
-  painting. Reuse these entries before adding a feature-specific copy.
-- Shared bounded capture returns payload, completion and command status;
-  callers retain their partial-result, timeout and action policies. Git filter
-  overrides have one validated builder with explicit clean/restore policy.
-  Keep asynchronous worker lifecycle and privileged actions with their owners.
-- The runtime functions in `support/functions/` own installed-version
-  probes/cache, the version-source inventory, bounded read-only requirement
-  capture and pure numeric comparison.
-  Source time defines data/functions only; no project reads or executable probes.
-  Prompt capture resolves this optional capability at invocation and retains
-  project identity/tool markers without it. Do not duplicate probes or readers
-  in prompt/UI peers. Reading external state is an observation boundary even
-  when it does not intentionally mutate the project; comparison consumes only
-  supplied values. Neither support placement nor read-only behavior alone proves
-  peer-order independence. Preserve neutral-directory probes, trust checks,
-  in-memory cache invalidation and normal/reverse/rotated/re-source tests.
-  Numeric pins distinguish older (danger) from newer (warning), include both
-  requested and observed versions, and preserve partial-version matching.
-  Minimums and supported ranges use their source-specific semantics. Unsupported
-  selectors, formats or compiler-family relationships remain unverified, never
-  compatibility claims. Keep exact supported sources and limitations in README;
-  new parsers need fail-closed literal-data, precedence and malformed-input tests.
-  Bound parsing work independently of file bytes before expensive text patterns;
-  never infer a requirement from a truncated first line. Tests must distinguish
-  skipped ineligible files from captured but unverified requirements and cover
-  permitted worst-case line shapes, not only small ordinary manifests.
-- Give each helper one clear responsibility: collect facts, sanitize data,
-  calculate layout, render UI, or perform an action. Do not mix all five.
-- Keep detection separate from presentation. Terminal resize handlers may
-  recompute layout from captured facts but must not rediscover Git or runtimes.
-- `.zsh.prompt` owns ordinary-prompt fact capture, its trigger fingerprint,
-  the private compact/lens/transcript modes, Context and Interaction lens
-  derivation/rendering, and outcome receipts.
-  `.zsh.editor` owns the optional ZLE adapters, hook registrations and
-  `compozsh-context-lens` binding that invoke those prompt capabilities. Both
-  peers must preserve existing widget state without depending on add-on order.
-  Shared full-screen components remain owned by `support/ui/`.
-- Extend project support through marker data, focused detector branches, and
-  the documented `PROMPT_PROJECT_*` extension points. The add-on loader is not
-  a plugin manager: do not add dependency resolution, remote installation,
-  manifests, lifecycle hooks, or code discovery inside projects.
-- Extract a helper when it centralizes a repeated rule, security boundary, or
-  non-trivial algorithm. Do not create a generic abstraction for two obvious
-  lines that are merely similar today. This governs new abstractions; an
-  existing shared entry still gets its own file even when its body is small.
-- Prefer data tables for stable mappings such as palettes, runtime labels, and
-  markers. Prefer functions when behavior, validation, or failure handling is
-  involved.
-- Keep coupling explicit. Pass a project root or Git directory into helpers
-  instead of having every helper rediscover ambient state.
-- Remove temporary setup helpers after use when they are not part of the public
-  interface.
+| Area | Owner and rule |
+| --- | --- |
+| Terminal components | `support/ui/` owns components, view defaults, layout, input, painting and screen restoration, with one terminal owner in `.zsh.ui.zle_picker_screen_session`. Feature peers supply captured content, labels and capabilities, and own collection, ranking, transitions and final actions. Scope defaults around view execution, save caller bookmarks before returning, and keep provider hooks out of frame construction and resize. |
+| Matching | Pure `matching_*` entries compile queries and filter supplied text, returning indexes into explicitly supplied arrays under the caller's source-order or prefix/substring/fuzzy policy. Collectors keep task ranking, duplicate policy and capture bounds; match spans are presentation. Missing matching support selects existing fallbacks, never a duplicate matcher. |
+| Effects | `compozsh_effect_*` entries own clipboard writes and file Open/Reveal. Callers pass exact values and captured executable paths after cleanup; the entry revalidates mutable operands and reports status. Missing effects are omitted from workspaces and fail safely when called. Privileged, device and Git operations keep their own validation and confirmation. |
+| Presentation calculations | Shared path-action metadata and row adapters; domain peers own result models. Pure helpers take captured values and return caller-local results; UI adapters apply them. Share mechanisms while keeping distinct scopes, intents, limits and return navigation — no universal controller. |
+| Palette | `support/.zsh.appearance` alone authors and installs color defaults; consumers resolve public overrides and selected defaults at invocation and never copy palettes or write fallback keys. Public maps stay writable: removing an override restores the selected default at render time, re-sourcing appearance refills the key, re-sourcing a consumer writes nothing, and a missing or non-associative map means "use defaults" without recreating it. The resolver honors explicit overrides even when appearance is absent; without the resolver, presentation uses native text attributes. Appearance installs no other peer's registrations; completion owns its deferred style callback, reads the current `LS_COLORS` at invocation, and re-sourcing appearance never replaces a custom completion `zstyle`. Shared resolution validates roles and selects fallbacks; consumers keep ANSI, prompt and ZLE encoding. Both schemes keep primary reading neutral, navigation and focus cool, secondary text gray and warnings/errors warm; diff `+`/`−` prefixes and selection markers keep meaning without color. |
+| Display and progress | Sanitization changes labels only, never exact targets. Progress models take captured bytes, totals and elapsed time; callers own clocks, provider reads and painting. |
+| Bounded capture and Git filters | Shared bounded capture returns payload, completion and command status; callers keep partial-result, timeout and action policies. Git filter overrides have one validated builder with explicit clean/restore policy. Async worker lifecycles and privileged actions stay with their owners. |
+| Runtime versions | `support/functions/` runtime entries own installed-version probes and memory cache, the version-source inventory, bounded requirement capture and pure comparison. Source time defines functions only. The prompt resolves this capability at invocation; semantics are in [prompt](prompt.md#project-and-runtime-context). |
+| Living prompt | `.zsh.prompt` owns fact capture, its trigger fingerprint, the compact/lens/transcript modes, lens derivation and rendering, and outcome receipts. `.zsh.editor` owns the optional ZLE adapters, hooks and the `compozsh-context-lens` binding that invoke them. Both preserve existing widget state without depending on load order. |
 
 ## Peer configuration algebra
 
-Use this model when designing, reviewing and documenting peer setup. A letter
-denotes a peer or a group of peers; `⊕` combines their configuration, and `≈`
-means equivalent configured behavior. This notation does not introduce a shell
-operator, component registry, dependency graph or loading phase.
+A letter denotes a peer or group of peers, `⊕` combines their configuration
+and `≈` means equivalent configured behavior. The notation adds no shell
+operator, registry, dependency graph or loading phase.
 
-| Law | Contract | Engineering consequence |
+| Law | Contract | Consequence |
 | --- | --- | --- |
-| Commutativity | `A ⊕ B ≈ B ⊕ A` | Reordering the same enabled peers must preserve configured behavior. Resolve optional peer capabilities when invoked, rather than capturing their source-time presence or values. |
-| Associativity | `(A ⊕ B) ⊕ C ≈ A ⊕ (B ⊕ C)` | Grouping the same peers must preserve configured behavior. Concern directories organize files and confer no initialization priority or group-level setup. |
-| Idempotence | `A ⊕ A ≈ A` | Re-sourcing unchanged peers must preserve configured behavior without accumulating hooks, registrations or default entries, or replacing documented user overrides. |
+| Commutativity | `A ⊕ B ≈ B ⊕ A` | Reordering enabled peers preserves behavior. Resolve optional peer capabilities when invoked, not by capturing their source-time presence or values. |
+| Associativity | `(A ⊕ B) ⊕ C ≈ A ⊕ (B ⊕ C)` | Grouping preserves behavior. Concern directories confer no priority or group-level setup. |
+| Idempotence | `A ⊕ A ≈ A` | Re-sourcing unchanged peers accumulates no hooks, registrations or defaults and replaces no documented user override. |
 
-Compare after the same enabled peer definitions have finished loading, with
-the same initializer inputs, supported shell/environment and available native
-capabilities. Peer-owned definitions must have distinct ownership; competing
-definitions or private overrides of internal functions violate the contract.
-Grouping preserves the discovered peers and required relative asset paths.
-The optional initializer remains the sole first-load exception and sits outside
-these laws; re-sourcing `.zshrc` can run that initializer again.
+Compare after the same enabled peer definitions finish loading, with the same
+initializer inputs, shell, environment and native capabilities. Peer-owned
+definitions need distinct ownership; competing definitions or private
+overrides of internal functions violate the contract. Grouping preserves
+discovered peers and required relative asset paths. The initializer is the
+sole first-load exception and sits outside the laws (re-sourcing `.zshrc` can
+run it again).
 
-`≈` covers supported commands and their behavior, options, aliases, key bindings,
-hook behavior and multiplicity, prompts, effective styles and documented
-fallbacks. A difference affecting those observations is a defect, even when a
-sorted catalog or a function-name list looks equal. Incidental source locations
-or internal scratch layout need not be byte-identical. Compare runtime behavior
-using the same inputs and captured facts; loading a different peer set or
-changing prerequisites is a different comparison.
+`≈` covers supported commands and their behavior, options, aliases, key
+bindings, hook behavior and multiplicity, prompts, effective styles and
+documented fallbacks. A difference in any of those is a defect even when a
+sorted catalog looks equal; incidental source locations or scratch layout may
+differ. Loading a different peer set or changing prerequisites is a different
+comparison.
 
-Composition itself does not imply commutativity. Runtime workflows compose
-providers, matching, UI and actions in meaningful sequences, such as capture →
-filter → display → validated action. The laws describe peer setup and safe
-re-sourcing between interactions, not replaying actions or resetting an active
-screen session. Continue recommending a fresh `exec zsh` to apply updates.
-Palette installation changes shell memory; public color maps remain writable.
-Shared UI owns temporary interaction state, painting and cleanup. Read-only
-consumer conventions and centralized ownership help preserve the laws but do
-not establish purity or order independence on their own.
-
-Treat the equations as engineering contracts supported by regression evidence.
-Finite source-order checks and the website's fixed-data model do not constitute
-a formal proof for every permutation, environment or arbitrary shell function.
-Do not add abstractions merely to make the implementation resemble the notation.
+The laws describe setup and safe re-sourcing between interactions. Runtime
+workflows still compose in meaningful sequences — capture → filter → display →
+validated action — and need not commute. Palette installation changes shell
+memory; shared UI owns temporary interaction state and cleanup. Recommend
+`exec zsh` to apply updates. The equations are engineering contracts backed by
+regression evidence, not a formal proof for every permutation or arbitrary
+shell function; don't add abstractions just to resemble the notation.
 
 For changes to peer boundaries, defaults, registrations or shared capabilities:
 
-- Exercise normal, reverse and rotated orders in isolated shells; place the
-  peer owning a shared capability before and after consumers. Compare configured
-  observations and representative runtime results after loading finishes.
-- Re-source the affected peer and complete peer set, including a repeated peer
-  separated by other peers. Verify stable hooks/bindings, preserved public
-  overrides and unchanged behavior; do not hide duplicate hooks by sorting them
-  into a set.
-- When placement or discovery changes, cover grouping/renaming inside the
-  supported discovery roots and both installation layouts, preserving assets.
-- Check standalone/missing-peer behavior and capability availability at a later
-  invocation. Include both schemes and documented early overrides when colors
-  are affected. Use existing focused tests and the minimal shared harness.
+- Exercise normal, reverse and rotated orders in isolated shells, with the
+  owner of a shared capability both before and after its consumers; compare
+  configured observations and representative runtime results.
+- Re-source the affected peer and the complete set, including a repeated peer
+  separated by others. Verify stable hooks and bindings and preserved
+  overrides; don't hide duplicate hooks by sorting them into a set.
+- When placement or discovery changes, cover grouping and renaming inside the
+  discovery roots and both installation layouts, preserving assets.
+- Check standalone/missing-peer behavior and later-invocation capability
+  detection. When colors are affected, include both schemes and documented
+  early overrides.
+
+## Retired decisions
+
+- Forwarding aliases or wrapper functions left at an old helper location after
+  promotion.
+- The grouped support peers `support/.zsh.ui`, `support/.zsh.matching` and
+  `support/.zsh.runtimes`, replaced by one file per entry.

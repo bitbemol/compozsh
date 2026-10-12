@@ -1,133 +1,174 @@
 # Repository layout
 
-Read this contract when the task matches its route in [AGENTS.md](../AGENTS.md).
-Paths in code spans are repository-relative unless explicitly qualified.
-These are maintained product contracts; investigations retain historical evidence.
+What lives where, how the bootstrap loads it, and what each file owns.
+"Configuration base" means `${ZDOTDIR:-$HOME}`; `~/` paths describe the default
+layout when `ZDOTDIR` is unset.
 
-## Contents
+## Essentials
 
-- [Repository boundaries](#repository-boundaries)
+- **`.zshrc` is only the bootstrap**: interactive guard, optional initializer,
+  recursive peer discovery and diagnostics. Features go in peers.
+- **One ordered boundary.** The optional `local/init.zsh` loads first; every
+  `.zsh.<name>` peer after it loads in any order with the same result.
+- **Enabled by filename.** A peer is on when its basename starts with
+  `.zsh.` and off when renamed or removed. There is no registry, allowlist,
+  dependency graph, core module list or lifecycle manager.
+- **Private state is off-limits.** The real `~/.zsh.addons/local/init.zsh`,
+  private peers, history and machine state are outside the repository; never
+  read, copy, overwrite or commit them during repository work.
 
-## Repository boundaries
+## Repository tree
 
-“Configuration base” means `${ZDOTDIR:-$HOME}` throughout this document. Paths
-written with `~/` describe the default layout when `ZDOTDIR` is unset; all
-active bootstrap, initializer, and private-peer rules apply under the selected
-configuration base.
+```text
+compozsh/
+├── .zshrc                 bootstrap: guard, initializer, peer discovery
+├── .zsh.addons/           repository-managed peers and shared support
+│   ├── .zsh.<name>        feature peers (inventory: README "Shipped configuration units")
+│   └── support/
+│       ├── .zsh.appearance  palette defaults and light/dark selection
+│       ├── functions/     .zsh.pure.<entry> and .zsh.impure.<entry> shared entries
+│       ├── ui/            .zsh.ui.<entry> shared UI entries and .zsh.ui.state
+│       └── git-syntax.vim adapter asset for .zsh.git-syntax (not a peer)
+├── install.zsh            symlink/copy installer with preview, backups and rollback
+├── templates/init.zsh     inert starter for the private initializer
+├── tests/
+│   ├── run.zsh, support.zsh, verify.zsh   runner, harness, handoff baseline
+│   ├── *_test.zsh         behavioral specifications
+│   ├── fixtures/          sourced by PTY tests
+│   └── site*.mjs          optional Node and browser checks for docs/
+├── docs/                  published static website (index.html, styles.css,
+│                          *.mjs modules, images, README.md maintenance guide)
+├── engineering/           contributor contracts (routed from CLAUDE.md)
+├── investigations/        decision records, measurements, benchmarks/, archive/
+├── .claude/               Claude Code: settings.json, hooks/, skills/, agents/, rules/
+├── CLAUDE.md              always-loaded agent guide
+├── README.md              public usage and shipped-unit inventory
+├── SECURITY.md            public trust contract and self-audit
+└── LICENSE                GNU GPL version 3
+```
 
-- `.zshrc` is only the bootstrap. Keep its early non-interactive guard, optional
-  first local-initializer load, native recursive peer discovery, and
-  diagnostics; do not move product features into it.
-- `.zsh.addons/` contains all shared behavior as focused peer units named
-  `.zsh.<name>`. There is no privileged core tier. Keep every unit independently
-  sourceable, re-source safe, narrow in purpose, and successful after setup.
-- `.zsh.addons/support/functions/` contains classified shared function entries;
-  `.zsh.addons/support/ui/` contains shared UI entries and their state peer.
-  The support root retains palette setup and adapter assets. Follow the
-  [shared support organization](architecture.md#shared-support-organization) contract for
-  filenames, purity, entry points and private-helper ownership.
-  Keep these implementations installed and intact during normal customization;
-  public settings belong in the machine-local initializer.
-  Its `.zsh.<name>` files remain ordinary peers under recursive discovery, with
-  no required ordering, special loader treatment or filesystem immutability.
+## File ownership
+
+- `.zsh.addons/` holds all shared behavior as focused peers named
+  `.zsh.<name>`, with no privileged core tier. Each unit is independently
+  sourceable, re-source safe, narrow in purpose and successful after setup.
+- `.zsh.addons/support/functions/` holds classified shared function entries and
+  `support/ui/` shared UI entries plus their state peer; the support root keeps
+  palette setup and adapter assets. Naming, purity and ownership follow the
+  [shared support organization](architecture.md#shared-support-organization).
+  Support `.zsh.<name>` files are ordinary peers under discovery — no
+  ordering, special loader treatment or filesystem immutability. Keep them
+  installed during customization; public settings belong in the initializer.
   Preserve standalone fallbacks when support capabilities are unavailable.
-- The configuration base's `.zsh.addons/support/cache/` is reserved inert data,
-  excluded from recursive sourcing even though filenames identify their owning
-  peers. It is not a peer tier. Follow [caching](caching.md) for naming, privacy
-  and disposal. Both installation layouts use this location; installation never
-  copies generated source caches, preserves destination caches on normal
-  updates and archives them with the add-on tree during `--clean`.
-- `README.md` is user-facing documentation. Keep it synchronized with visible
-  behavior, keys, installation steps, extension points, and safety guarantees.
+- `${ZDOTDIR:-$HOME}/.zsh.addons/support/cache/` is reserved inert data,
+  excluded from sourcing even though filenames name their owning peers; it is
+  not a peer tier. It follows [caching](caching.md). Both installation layouts
+  use it; installs never copy generated source caches, normal updates preserve
+  destination caches, and `--clean` archives them with the add-on tree.
+- `README.md` is user-facing documentation synchronized with visible behavior,
+  keys, installation, extension points and safety guarantees. Its **Shipped
+  configuration units** table is the public peer inventory: any change that
+  adds, deletes, renames, splits, merges or materially changes a shipped
+  `.zsh.<name>` file updates that table in the same change (a test enforces
+  the file set).
 - `SECURITY.md` is the public trust and self-audit contract. Keep its claims,
-  limitations, local-data inventory, privilege boundaries, reporting guidance,
-  and independently reproducible checks synchronized with the shipped code,
-  installer, tests, website, and repository-scoped agent workflows. A change is
-  incomplete when it makes any security or privacy statement stale.
-- The README's **Shipped configuration units** table is the public inventory of
-  repository peers. In the same change that adds, deletes, renames, splits,
-  merges, or materially changes the responsibility or public surface of a
-  shipped `.zsh.<name>` file, update that table and the repository layout. A
-  unit change is incomplete while either inventory is stale.
-- `templates/init.zsh` is the valid, fully commented, inert starter for the
-  optional per-machine initializer. Installers may copy it only when the private
-  destination is absent; never symlink it, overwrite an existing initializer,
-  or add active machine policy to the tracked starter.
-- `install.zsh` is the native installation boundary. Keep its dry-run plan,
-  symlink and namespaced-copy modes, `ZDOTDIR` support, confirmation, timestamped
-  recovery backups, transactional rollback, and refusal to overwrite unmarked
-  managed namespaces. `--clean` means archive and start fresh, never delete.
-- `tests/` is the native-Zsh regression suite. Keep test files focused by
-  behavior, use `tests/support.zsh` for the minimal shared harness, and keep the
-  runner free of third-party dependencies.
-- `investigations/` preserves bounded engineering evidence behind performance
-  and architecture decisions. Keep durable product rules in the focused engineering contracts
-  and link to the relevant investigation. Treat measured timings as observations
-  from their recorded environment, never universal compatibility thresholds.
-- `AGENTS.md` defines essential contributor rules and routes to `engineering/`
-  contracts. Update the relevant canonical contract when an intentional
-  architectural rule changes, not for ordinary implementation details.
-- `.agents/skills/compozsh-platform-review/` is the repository-scoped,
-  read-only platform audit. Keep its trigger description narrow, its inventory
-  deterministic and free of personal data, and its recommendations separated
-  from implementation authority. Update it when the native-platform contract,
-  audit evidence lanes, compatibility gates, or report workflow changes. Do
-  not commit generated platform snapshots automatically.
-- `.agents/skills/compozsh-release-draft/` is the repository-scoped,
-  read-only GitHub release evidence workflow. It must resolve the actual latest
-  published release and exact tag commit instead of trusting local tags, then
-  compare the baseline and final implementation, public help, tests and
-  documentation before drafting a claim. Treat conflicts as release blockers;
-  never infer coverage from an underlying tool or an intermediate commit. The
-  skill does not authorize tagging, committing, pushing, publishing or
-  clipboard access.
-- `LICENSE` is the canonical, unmodified GNU GPL version 3 text. The repository
-  is distributed under `GPL-3.0-or-later`; keep the README declaration and SPDX
-  identifier synchronized with it. Do not add contradictory licensing terms or
-  imply that the GPL prohibits commercial use.
-- The real `~/.zsh.addons/local/init.zsh`, private peer add-ons, history, and
-  machine state are outside this repository. Do not read, copy, overwrite, or
-  commit them during normal work.
+  limitations, local-data inventory, privilege boundaries, reporting guidance
+  and reproducible checks synchronized with code, installer, tests, website and
+  repository skills. A change that makes a security or privacy statement stale
+  is incomplete.
+- `templates/init.zsh` is a valid, fully commented, inert starter. Installers
+  copy it only when the private destination is absent; never symlink it,
+  overwrite an existing initializer, or add active machine policy to it.
+- `install.zsh` is the installation boundary: dry-run plan, symlink and
+  namespaced-copy modes, `ZDOTDIR` support, confirmation, timestamped recovery
+  backups, transactional rollback, and refusal to overwrite unmarked managed
+  namespaces. `--clean` means archive and start fresh, never delete.
+- `tests/` is the native-Zsh regression suite: files focused by behavior,
+  `tests/support.zsh` as the minimal harness, no third-party dependencies.
+- `investigations/` preserves bounded evidence behind decisions. Durable rules
+  belong in the engineering contracts, which link to the evidence. Timings are
+  observations from their recorded environment, not universal thresholds.
+  `investigations/archive/` holds superseded records kept for history only.
+- `CLAUDE.md` holds essential contributor rules and routes to `engineering/`.
+  Every engineering contract must be linked from it (a test enforces this).
+  Update a contract when an intentional architectural rule changes, not for
+  ordinary implementation details.
+- `.claude/agents/` holds read-only subagents: the `security-reviewer` and
+  `contract-reviewer` used before handoff, and the `read-only-auditor` the
+  skills run in (no editing tools). `.claude/rules/` holds short
+  path-scoped pointers that load the right contract reference when matching
+  files are opened. Keep rules as pointers — the contracts stay canonical —
+  and update their `paths` when files move. `.claude/settings.json` (shared)
+  pre-approves only the native test runner, `tests/verify.zsh` and
+  `zsh -fn -- <file>` (any zsh grant must end options with `--`), denies
+  Claude Code access to the operator's Zsh startup files, history, sessions
+  and `~/.zsh.addons/`, and runs `.claude/hooks/zsh-syntax.zsh` after each
+  edit; `zsh tests/run.zsh 'tooling:'` pins those grants. Personal overrides
+  belong in the git-ignored `.claude/settings.local.json`.
+- `.claude/skills/compozsh-platform-review/` is the read-only platform audit.
+  Keep its trigger description narrow, its inventory script deterministic and
+  free of personal data, and its recommendations separate from implementation
+  authority. Update it when the native-platform contract, evidence lanes,
+  compatibility gates or report workflow change. Don't commit generated
+  snapshots automatically.
+- `.claude/skills/compozsh-release-draft/` is the read-only release-evidence
+  workflow. It resolves the actual latest published release and exact tag
+  commit instead of trusting local tags, compares baseline and final
+  implementation, help, tests and docs before drafting a claim, and treats
+  conflicts as release blockers. It never infers coverage from an underlying
+  tool or intermediate commit, and grants no tagging, commit, push, publish or
+  clipboard authority.
+- `LICENSE` is the canonical, unmodified GNU GPL v3 text; the project is
+  `GPL-3.0-or-later`. Keep the README declaration and SPDX identifier
+  synchronized, add no contradictory terms, and don't imply the GPL prohibits
+  commercial use.
 
-The local initializer must remain optional and readable only when it exists. It
-is the sole documented ordering exception and loads before peer discovery. Its
-fixed default path is `~/.zsh.addons/local/init.zsh`, and its basename must not
-match `.zsh.<name>` so it cannot be loaded twice. It may establish `PATH`,
-Homebrew or language-manager environments, selected runtimes, trusted vendor
-hooks that require early loading, and documented public defaults, but it must
-not call peer functions during source-time setup. Aliases, ordinary functions,
-and app-specific behavior that do not require first-load semantics belong in
-focused private peers. Do not add more phases or ordered directories.
+## Bootstrap and loading
 
-After the initializer, source shared peers adjacent to the resolved bootstrap
-and private peers under `~/.zsh.addons`. Canonicalize and deduplicate those
-directories so a copied installation scans its combined directory once. A user
-may disable a peer by renaming or removing its file rather than maintaining a
-registration list.
+The local initializer is optional and read only when it exists. It is the sole
+ordering exception and loads before peer discovery. Its default path is
+`~/.zsh.addons/local/init.zsh` (override: `ZSH_LOCAL_INIT`), and its basename
+must not match `.zsh.<name>` so discovery cannot load it twice. It may set
+`PATH`, Homebrew or language-manager environments, selected runtimes, trusted
+vendor hooks that need early loading, and documented public defaults. It must
+not call peer functions during setup. Aliases, ordinary functions and
+app-specific behavior that don't need first-load semantics belong in focused
+private peers. Add no further phases
+or ordered directories.
 
-Public values documented as initializer-customizable must preserve an early
-value. Scalars and convenience aliases use defaults only when absent;
-associative palettes fill missing roles without replacing existing keys; public
-extension arrays are declared without clearing them. Full shared functions and
-prompt definitions remain peer-owned—avoid collisions or disable the owning
-peer instead of depending on accidental overwrite order.
+After the initializer, the bootstrap sources shared peers beside the resolved
+`.zshrc` and private peers under `~/.zsh.addons`, canonicalizing and
+deduplicating those directories so a copied install scans its combined
+directory once. Lexical traversal only makes diagnostics reproducible:
 
-Add-on order is not an architecture mechanism. The loader uses lexical order
-only to make diagnostics reproducible; loading the same enabled units in any
-order must produce the same final behavior. An add-on must not call another
-add-on during source-time setup, rely on a filename sorting before another, or
-require an ordered registration list. Cross-feature behavior must be deferred
-until runtime and guarded by capability checks so a missing peer degrades
-cleanly. Renaming an enabled `.zsh.<name>` file must not change semantics.
+- loading the same enabled units in any order produces the same behavior;
+- a peer never calls another peer at source time, relies on sorting before
+  another, or needs a registration list;
+- cross-feature behavior is deferred to runtime behind capability checks, so a
+  missing peer degrades cleanly;
+- renaming an enabled `.zsh.<name>` file never changes semantics.
 
-There is deliberately no add-on registry, allowlist, dependency graph, core
-module list, or lifecycle manager. A unit is enabled by its `.zsh.<name>`
-filename and disabled by breaking that prefix or removing the file. Do not add
-`.zshrc.core`, `.zsh.core/`, numeric filename prefixes, dependency metadata, or
-additional initialization phases to recreate a core/add-on distinction
-indirectly.
+Public values documented as initializer-customizable preserve an early value:
+scalars and convenience aliases default only when absent; associative palettes
+fill missing roles without replacing existing keys; public extension arrays are
+declared without clearing them. Shared functions and prompt definitions remain
+peer-owned — avoid collisions or disable the owning peer rather than relying on
+overwrite order.
 
-Keep installation documentation correct for both supported layouts. A symlinked
-`.zshrc` resolves add-ons beside the repository file; a copied `.zshrc` requires
-an adjacent copied `~/.zsh.addons`. Whenever repository structure changes,
-audit installation, updating, and uninstall instructions together.
+## Installation layouts
+
+Keep documentation correct for both layouts. A symlinked `~/.zshrc` resolves
+peers beside the repository file, plus private peers in `~/.zsh.addons`. A
+copied `.zshrc` uses a copied `~/.zsh.addons` with the managed copy in its
+marked `compozsh/` namespace. Whenever repository structure changes, audit
+installation, updating and uninstall instructions together, and update the
+repository tree above in the same change.
+
+## Retired decisions
+
+- `.zshrc.core`, `.zsh.core/`, numeric filename prefixes, dependency metadata
+  and extra initialization phases — each would recreate a core/add-on
+  distinction.
+- `.agents/skills/` with Codex `agents/openai.yaml` metadata and the root
+  `AGENTS.md`, replaced by `.claude/` and `CLAUDE.md` (2026-10); the project
+  targets Claude Code only.

@@ -5,10 +5,13 @@ uses semantic HTML, layered CSS with shared design tokens, and small native
 JavaScript modules. No build step, package manifest, external font, analytics,
 or third-party asset request is required. No shell files are loaded by it.
 
-The repository README remains the complete product reference. Keep commands,
+The repository README remains the authoritative product reference, with each
+tool's `--help` and Ctrl-K guide covering every key. Keep commands,
 requirements, help samples, installation safety, and architecture synchronized
-when those change. The terminal examples use synthetic data and illustrate the
-real features; they are not a shell emulator or an exact copy of Zsh's ranker.
+when those change. The website's engineering rules are in
+[engineering/website.md](../engineering/website.md). The terminal examples use
+synthetic data and illustrate the real features; they are not a shell emulator
+or an exact copy of Zsh's ranker.
 
 ## Showcase structure and voice
 

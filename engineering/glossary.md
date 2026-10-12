@@ -1,19 +1,12 @@
 # Glossary
 
-Read this contract when the task matches its route in [AGENTS.md](../AGENTS.md).
-Paths in code spans are repository-relative unless explicitly qualified.
-These are maintained product contracts; investigations retain historical evidence.
-
-## Contents
-
-- [Domain glossary](#domain-glossary)
-
 ## Domain glossary
 
-Use these canonical terms in designs, comments, tests, reviews and documentation.
-Definitions establish meaning; the later contracts specify behavior and limits.
-Qualify overloaded words such as source, state and session when ambiguity is
-possible. User-facing labels may use simpler language while preserving meaning.
+Canonical terms for designs, comments, tests, reviews and documentation.
+Definitions establish meaning; the other contracts specify behavior and
+limits, and link here instead of redefining terms. Qualify overloaded words
+such as source, state and session when ambiguity is possible. User-facing
+labels may use simpler language while preserving meaning.
 
 ### Configuration boundaries
 
@@ -25,11 +18,12 @@ possible. User-facing labels may use simpler language while preserving meaning.
 | Repository-managed configuration | Shared product files updated as a unit; personal edits belong in the machine-local space. “Immutable” describes this ownership convention, not enforced filesystem permissions. |
 | Machine-local configuration | The user's private initializer and peers beneath the configuration base. Updates preserve this customization space. |
 | Composition | Combining focused peers or runtime capabilities into a larger system. The [peer configuration algebra](architecture.md#peer-configuration-algebra) governs setup; runtime composition preserves the input and effect dependencies of each operation. |
+| Support entry | One shared function or UI component under `.zsh.addons/support/` (`functions/.zsh.{pure,impure}.<entry>` or `ui/.zsh.ui.<entry>`): exactly one component-facing function plus its private helpers, classified pure, impure or UI. "Support components" means these entries collectively. |
 | Order independence | Loading the same enabled peers in any order converges on the same configured behavior under the same prerequisites. Runtime interaction steps can still have dependencies. |
 
-“Configuration base” retains its exact path definition in
-[Repository boundaries](repository-layout.md#repository-boundaries). Use **peer** for the unit; qualify its ownership as shared or
-private. Avoid inventing a privileged core tier through new terminology.
+“Configuration base” means `${ZDOTDIR:-$HOME}` ([repository layout](repository-layout.md)).
+Use **peer** for the unit; qualify its ownership as shared or private. Avoid
+inventing a privileged core tier through new terminology.
 
 ### Task and interaction boundaries
 

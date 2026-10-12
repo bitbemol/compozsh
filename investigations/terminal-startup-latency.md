@@ -182,7 +182,7 @@ page-name/section attribution against the immutable baseline in both states;
 counts alone were not used to claim parity. No raw catalog was logged.
 
 Reproduce with [first-editable-prompt.zsh](benchmarks/first-editable-prompt.zsh)
-and [manual-cache-parity.zsh](benchmarks/manual-cache-parity.zsh). The former
+and [manual-cache-parity.zsh](archive/benchmarks/manual-cache-parity.zsh). The former
 creates/removes its own disposable home; pass a reviewed baseline clone or the
 candidate clone and `baseline`, `cold` or `warm`. The parity script requires an
 explicit disposable HOME/ZDOTDIR/TMPDIR and system-only PATH, as in the capture

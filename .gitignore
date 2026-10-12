@@ -1,3 +1,6 @@
 .DS_Store
 .zsh.addons/local/init.zsh
 .zsh.addons/support/cache/
+.claude/settings.local.json
+CLAUDE.local.md
+.claude/worktrees/

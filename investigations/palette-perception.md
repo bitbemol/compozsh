@@ -1,6 +1,8 @@
 # Palette design informed by visual perception
 
-Date: 2026-09-03. This follows the [initial appearance audit](appearance-review.md).
+> **Status note (2026-10-11).** The selection rows in the palette table are superseded: active selection is now foreground 255 on gray 238 (dark) and 235 on 189 (light). The research, contrast targets and diff colors remain current; `support/.zsh.appearance` is authoritative.
+
+Date: 2026-09-03. This follows the [initial appearance audit](archive/appearance-review.md).
 The scope is every shipped palette family and its known rendering consumers,
 including prompt runtimes, completion chrome, printable navigation and manual
 pages. Existing unrelated Xcode work was preserved.

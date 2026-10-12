@@ -1,5 +1,7 @@
 # General Git comparison in the review workspace
 
+> **Status note (2026-10-11).** Current behavior lives in [Git workspaces](../engineering/workspaces/git.md#scopes-and-comparisons). Everything from **Recommendation** onward is the original design record: its labels (for example "Exact versions" and "Compare revisions…") were replaced by **All differences**, **Changes since common ancestor** and **Compare branches or commits**.
+
 Status: implemented; the user confirmed the revised interaction feels easy to follow.
 Recorded: 2026-09-02. Source baseline: `0bc9098`.
 

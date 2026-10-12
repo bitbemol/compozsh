@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(zsh tests/run.zsh *)",
+      "Bash(zsh tests/verify.zsh)",
+      "Bash(zsh -fn -- *)"
+    ],
+    "deny": [
+      "Read(~/.zshrc)",
+      "Read(~/.zshenv)",
+      "Read(~/.zprofile)",
+      "Read(~/.zlogin)",
+      "Read(~/.zsh_history)",
+      "Read(~/.zsh_sessions/**)",
+      "Read(~/.zsh.addons/**)",
+      "Edit(~/.zshrc)",
+      "Edit(~/.zshenv)",
+      "Edit(~/.zprofile)",
+      "Edit(~/.zlogin)",
+      "Edit(~/.zsh_history)",
+      "Edit(~/.zsh_sessions/**)",
+      "Edit(~/.zsh.addons/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/zsh -f \"$CLAUDE_PROJECT_DIR/.claude/hooks/zsh-syntax.zsh\"",
+            "timeout": 10,
+            "statusMessage": "Checking Zsh syntax"
+          }
+        ]
+      }
+    ]
+  }
+}

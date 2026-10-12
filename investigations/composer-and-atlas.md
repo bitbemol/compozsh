@@ -1,7 +1,7 @@
 # Composing drafts and exploring captured changes
 
 Historical entry-route note: file review now starts in All files, and Ctrl-X opens
-View options containing Change atlas. See [Git file navigation](git-file-navigation.md).
+View options containing Change atlas. See [Git file navigation](archive/git-file-navigation.md).
 The atlas's capture, reading and Back boundaries below remain applicable.
 
 2026-09-04. Three connected native-terminal interactions, implemented on the

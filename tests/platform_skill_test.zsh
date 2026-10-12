@@ -1,6 +1,6 @@
 _test_platform_snapshot_long_help() {
   test_make_temp_dir || return
-  local script="$TEST_REPO_ROOT/.agents/skills/compozsh-platform-review/scripts/snapshot-platform.zsh"
+  local script="$TEST_REPO_ROOT/.claude/skills/compozsh-platform-review/scripts/snapshot-platform.zsh"
   local output='' result=0
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     path=()
@@ -23,11 +23,11 @@ test_case 'platform snapshot accepts long help and rejects short help without ca
 
 _test_platform_review_skill_snapshot() {
   test_make_temp_dir || return
-  local skill="$TEST_REPO_ROOT/.agents/skills/compozsh-platform-review"
+  local skill="$TEST_REPO_ROOT/.claude/skills/compozsh-platform-review"
   local script="$skill/scripts/snapshot-platform.zsh"
   local output baseline="$TEST_TMP_DIR/baseline.tsv" saved="$TEST_TMP_DIR/saved.tsv"
   local hostile="$TEST_TMP_DIR/hostile.tsv"
-  [[ -f $skill/SKILL.md && -f $skill/agents/openai.yaml && -f $script ]] ||
+  [[ -f $skill/SKILL.md && -f $script ]] ||
     return 1
 
   output=$(/bin/zsh "$script") || return

@@ -1,19 +1,19 @@
 # Security and privacy
 
 Compozsh is shell code: installing it gives the tracked bootstrap and enabled
-peer add-ons access to the interactive shell environment. That trust should be
-based on inspectable behavior, not on a promise from the maintainer. This
+peer add-ons access to the interactive shell environment. That trust should
+rest on inspectable behavior, not on a promise from the maintainer. This
 document defines the shipped security boundary, identifies every intentional
 sensitive-data and administrator boundary, and provides repeatable checks for
 the exact commit you intend to run.
 
-The guarantees below apply to all behavior implemented by repository-managed
-files at the commit being audited. Private add-ons, the machine-local
-initializer, installed programs, inspected repositories, the operating system,
-GitHub, and software opened or built at the user's request are independently
-controlled code or services. The sections below disclose every class of local
-handoff from Compozsh to one of those boundaries. Those disclosures do not
-create an exception that permits Compozsh itself to transmit data.
+The guarantees apply to all behavior implemented by repository-managed files at
+the commit being audited. Private add-ons, the machine-local initializer,
+installed programs, inspected repositories, the operating system, GitHub, and
+software opened or built at the user's request are independently controlled
+code or services. This document discloses every class of local handoff from
+Compozsh to one of those boundaries. No disclosure creates an exception that
+permits Compozsh itself to transmit data.
 
 ## Non-transmission invariant
 
@@ -26,21 +26,28 @@ outside the product contract and must not be added.
 
 This invariant governs Compozsh code; it does not pretend that the operating
 system or a program explicitly invoked by the user is offline. If the user asks
-Git to push, fetch, pull, or clone, Git communicates with the destination the
-user selected. The transparent Compozsh Git wrapper does not add data, an
-endpoint, or a separate request. Applications, build tools, and private add-ons
-likewise retain their own independently auditable trust boundaries.
+Git to clone, fetch, pull, or push, Git communicates with the destination the
+user selected; the transparent Compozsh `git` wrapper adds no data, endpoint,
+or separate request. An application opened by an explicit file action, an Xcode
+build phase, an installed runtime queried for its version, build tools, and
+private add-ons retain their own independently auditable security and privacy
+behavior. [Compozsh network prohibition and external
+boundaries](#compozsh-network-prohibition-and-external-boundaries) lists the
+network-capable handoffs; the feature sections below disclose the remaining
+local handoffs (for example Git hooks and filters during explicit switches,
+`chpwd` hooks and [external synchronization](#external-synchronization)). The
+sections apply this invariant without restating it.
 
 ## Privacy model
 
 Privacy, credential protection, data minimization, and user control are
-top-level product goals. Compozsh's model is to acquire only the facts required
-for the visible task, within its displayed scope, and retain them only for the
-necessary lifetime. Temporary view state stays in memory when practical;
-every intentional persistent location and lifetime is enumerated below.
+top-level product goals. Compozsh acquires only the facts required for the
+visible task, within its displayed scope, and retains them only for the
+necessary lifetime. Temporary view state stays in memory when practical; every
+intentional persistent location and lifetime is enumerated below.
 
-Sensitive values are handled as literal, bounded data and are not evaluated as
-shell code. Compozsh does not collect information merely because it is
+Sensitive values are handled as literal, bounded data and are never evaluated
+as shell code. Compozsh does not collect information merely because it is
 available in the environment, filesystem, Git metadata, command output, or
 terminal session. It does not accept plaintext authentication secrets; an
 operating-system or explicitly chosen external tool owns its authentication
@@ -50,18 +57,18 @@ implementation permits.
 New collection, persistence, or privilege is not an ordinary implementation
 detail. It requires an explicit product decision, disclosure of the exact data,
 purpose, path, trigger, lifetime, access and cleanup behavior, independent audit
-evidence, and focused regression coverage. Transmission is prohibited rather
-than configurable. If scope, ownership, permissions, or cleanup cannot be
-established safely, the operation must fail without broadening access or
-retaining another copy. External tools, user-owned configuration, and hosting
-remain separate trust boundaries and are disclosed rather than presented as
-guarantees made by Compozsh.
+evidence, and focused regression coverage.
+Transmission is prohibited rather than configurable. If scope, ownership,
+permissions, or cleanup cannot be established safely, the operation must fail
+without broadening access or retaining another copy. External tools,
+user-owned configuration, and hosting remain separate trust boundaries and are
+disclosed rather than presented as guarantees made by Compozsh.
 
 ## What the shipped project does not do
 
 - It has no telemetry, analytics, crash-reporting service, account, project
-  server, background daemon, automatic Compozsh software update check, or runtime package
-  download.
+  server, background daemon, automatic Compozsh software update check, or
+  runtime package download.
 - The tracked shell and installer define no project endpoint and initiate no
   network request. Updates happen only when the user runs Git themselves.
 - It does not collect, read, log, store, or transmit a `sudo` password. The two
@@ -73,981 +80,838 @@ guarantees made by Compozsh.
   keychain, or the macOS `security` credential command.
 - It never reads the clipboard. Explicit Copy actions write only the visibly
   selected path or branch, current directory, a bounded Xcode test report,
-  or complete matching lines from the retained Simulator log snapshot through
-  `pbcopy`. The optional website writes a visible installation command only
-  after its Copy button is clicked.
+  or complete matching lines from the retained Simulator or device log snapshot
+  through `pbcopy`. The optional website writes a visible installation command
+  only after its Copy button is clicked.
 - The shell configuration, installer, and static site upload nothing. This
   includes shell history, paths, Git data, project metadata, file previews,
   diffs, runtime versions, disk metadata, and installer output.
 - It does not automatically download and execute shell code. Installation uses
   only files already present in the reviewed clone.
 
-These constraints admit no Compozsh exception. They do not claim that the
-operating system and independently controlled programs are offline. Compozsh's
-transparent `git` wrapper, for example, passes an explicit user request for
-`git clone`, `fetch`, `pull`, or `push` to Git without adding data or another
-destination. An application opened by an explicit file action, an Xcode build
-phase, or an installed runtime queried for its version retains its own security
-and privacy behavior.
+These constraints admit no Compozsh exception.
 
 ## Complete local data inventory
 
-Compozsh creates no off-machine storage or transmission destination. Every
-intentional Compozsh data location is listed below with its lifetime. Some
-entries are persistent because a shell and a recoverable installer need local
-state:
+Compozsh creates no off-machine storage or transmission destination. This table
+is the authoritative list of every intentional Compozsh data location, its
+lifetime and its limits. Some entries are persistent because a shell and a
+recoverable installer need local state.
 
-| Data | Location and lifetime | Why it exists |
+| Data | Location and lifetime | Contents and bounds |
 | --- | --- | --- |
 | Command history | `${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}` by default | Zsh's normal local, shared history and the in-memory history picker |
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
-| Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | The installer preserves configuration it replaces instead of deleting it |
-| Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed text lines enabling Apple's `pam_tid`; created only by `compozsh --sudo-touch-id enable`, ACL-free, owned by `root:wheel`, and mode `0444` before publication |
-| Prompt, appearance, and picker facts | Shell memory | Configured or passively hinted color-scheme classification, runtime versions, Git state, paths, the living prompt's Context trigger/disclosure flags, positive/exclusion fields and their return bookmarks, and temporary view snapshots; discarded with the shell or view |
-| Local manual summaries | Shell memory until refresh, discovery-selector invalidation or shell exit | An asynchronous first-interactive-prompt snapshot of bounded NAME descriptions and page-name/section attribution from MANPATH, absolute PATH-associated roots, literal manual configuration, conventional installations and Apple-selected SDK/toolchain roots; lookup describes literal names, not executable identity |
-| Manual background transport | Shell memory, native PTYs and an unlinked kernel FIFO during one request | One capture process and two native ownership supervisors; at most 16 MiB / 8,192 records, read in 8-KiB chunks. Setup creates a mode-0600 FIFO in a mode-0700 `${TMPDIR:-/tmp}/compozsh-manual-async.*` directory and removes both names immediately after opening descriptors. No regular file contains private descriptions or selectors |
-| Public OS manual cache | `${ZDOTDIR:-$HOME}/.zsh.addons/support/cache/.zsh.manual.cache`, until refresh/replacement/removal | Only protected OS manual NAME descriptions, aliases, relative page IDs and a public freshness key; optional owner-only inert data, with `.zsh.manual.lock` and bounded `.zsh.manual.cache.*` publication residue; no private selectors or custom manuals |
-| Manual formatter directory | Private mode-0700 temporary directory during capture | Empty working directory for native mandoc; page text travels through bounded shell memory and kernel pipes, never a page file. Normal and handled-error cleanup removes the directory; an uncatchable termination can leave an empty directory |
-| Interaction lens state | Shell memory for the active ordinary prompt | The current interaction kind, bounded literal excerpts/structural summaries, up to eight alias-definition previews of at most 240 characters each, captured context anchors, latest command outcome, and an optional bounded prefix of matching editor-owned autosuggestion state; sanitized for display, replaced as the buffer or command outcome changes and discarded with the shell. Leading assignment values are not copied into this presentation state; the actual ZLE buffer remains native shell state |
-| Draft inspector | Invocation-scoped shell memory, only after Option-Return | At most 32,768 literal draft characters plus a truncation notice, cursor/length/current-folder facts, reading filters and frames; released on return. The exact full draft is preserved by the native editing/screen-restoration state. Explicit Read can display assignment values and other sensitive text; no redaction or execution occurs |
-| Captured help and command readers | View-scoped shell memory | Tool help reuses at most 64 same-source companions of 32,768 characters each; direct help captures only its selected companion. Topic navigation, argument excerpts and full-width reading derive from that capture. History's inspector reads at most 32,768 characters from the selected captured command and retains no second history catalog. History acceptance inserts the original full command; ordinary help topics only read, while the separately labeled Compose example action opens an authored template |
-| Command composer | Invocation-scoped shell memory; an explicitly accepted draft moves to ZLE or the native prompt buffer stack until edited/submitted/discarded | Supported literal prefill up to 4,096 characters, bounded fields of at most 4,096 characters each, current folder and generated quoted draft; optional explicit Git revision selection uses the existing local ref capture. No file, clipboard or custom history write. Normal shell command acceptance retains normal history behavior |
-| Git Change atlas | View-scoped shell memory | Exact path-prefix groups, entry-count bars and navigation bookmarks derived from the existing bounded file list. Staged/unstaged entries remain distinct. No directory discovery or bulk content read; selected files use the existing bounded diff providers. The map is released on return, with no saved atlas or new worker |
-| Git Tree / All files navigation | Current review's shell memory | Captured directory prefixes, folder summaries, expansion flags, temporary filter navigation, scope/selection bookmarks and file labels derived from the existing 1,000-entry/256-KiB list. Summaries cover change states, child areas and existing commit/comparison numstat facts; only retained result rows receive summaries. Tree opens three directory levels with their files and shows collapsed fourth-level folders; ancestor choices retain at most 200 rows/262,144 prefix characters, with a partial notice. No directory discovery, persistent preference or new worker; state is released on review exit |
-| Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention lasts according to the user's terminal settings |
-| Prompt tool descriptions | Current-shell memory | At most 64 loaded same-source command/help pairs; up to 262,144 characters of source/definition identity for invalidation, general summaries and leading option descriptions (240 characters each), captured from at most 4,096 complete characters per help guide plus the existing Touch ID subguide; cleared on shell exit or invalidation, with no disk cache |
-| Git comparison choices and snapshots | View-scoped shell memory; native Zsh here-string parsing can use short-lived local temporary files | At most 1,000 discovered refs/256 KiB of names, kinds and object IDs; resolved comparison endpoints, paths and bounded diff snapshots; released on view exit, with no saved comparison catalog |
-| Git branch picker | Shell memory; the captured catalog is replaced on the next invocation or released on shell exit, and detail text is cleared on view exit | All local branch names, ordered by current branch and up to 200 checkout reflog entries, then remaining refnames. The name catalog has no fixed count cap; optional details retain at most 262,144 characters across 401 local refs and 512 characters per commit subject. No fetch, saved history or background refresh |
-| Known remote branch fallback | Invocation-scoped shell memory, released when `g` returns; native tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB and 128 configured remote names / 32 KiB. No remote URLs are captured. Unmatched local filters reuse this snapshot; confirmation shows the exact source and new local branch, defaults to Back, and applies a non-forcing Git switch after terminal cleanup and tip validation. No fetch, pull or custom disk cache |
-| Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | Carries one framed local status/selected-diff candidate at a time, capped at 1 MiB; capture and nonblocking delivery share the worker deadline; cleanup terminates/reaps owned processes and removes the FIFO; no log, daemon or persistent review cache |
-| Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only by `g --worktree` acceptance; persists until explicit Git/workspace removal, with branches preserved by workspace removal and all worktrees preserved on Compozsh uninstall |
-| Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, and Git syntax transport FIFOs (not regular source files); validated temporary paths are removed during normal and handled-error cleanup |
-| Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp | Combined stdout/stderr and unified logs for the exact installed executable, plus frozen preview/reader snapshots, each bounded to 32 KiB/200 source lines; up to 8 KiB of an unfinished line per source; reader filter and position, matching raw text and bounded wrapped display; launch PID, observed user/start time/executable identity, installed executable path and selected Simulator data-directory path; released at run exit, except explicitly copied clipboard text; no persistent Compozsh log file; native log privacy behavior can expose sensitive app values |
-| Explicit physical-device app installation and console | The exact user-selected device, under Apple's native device tools and device storage policy; a local run-scoped temporary FIFO and shell memory | Build & Run / Rebuild & Run delegate installation of the selected built app to `devicectl`, replacing its installed copy; it remains installed after the console exits or launch fails. Interactive monitoring retains at most 32 KiB/200 source lines plus bounded reading snapshots in memory through a mode-0600 FIFO under a mode-0700 temporary directory, removed on normal/handled-error cleanup. No persistent Compozsh log file; explicit clipboard copies outlive the run. Plain fallback uses terminal-owned scrollback |
+| Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted |
+| Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
+| Prompt, appearance, and picker facts | Shell memory; discarded with the shell or view | Color-scheme classification, runtime versions, Git state, paths, Context trigger/disclosure flags, positive/exclusion fields and their bookmarks, temporary view snapshots |
+| Local manual summaries | Shell memory until refresh, discovery-selector invalidation or shell exit | Bounded NAME descriptions and page-name/section attribution from the [manual roots](#local-manual-summaries); describes literal names, not executable identity |
+| Manual background transport | Shell memory, native PTYs and an unlinked kernel FIFO during one request | At most 16 MiB / 8,192 records in 8-KiB reads from one capture process under two supervisors; mode-0600 FIFO in a mode-0700 `${TMPDIR:-/tmp}/compozsh-manual-async.*` directory, both unlinked once opened; no regular file of descriptions or selectors |
+| Public OS manual cache | `${ZDOTDIR:-$HOME}/.zsh.addons/support/cache/.zsh.manual.cache`, until refresh/replacement/removal | Protected OS manual NAME descriptions, aliases, relative page IDs and a public freshness key, owner-only and inert; `.zsh.manual.lock` and bounded `.zsh.manual.cache.*` staging residue. No private selectors or custom manuals |
+| Manual formatter directory | Private mode-0700 temporary directory during capture | Empty mandoc working directory; page text stays in bounded memory and pipes, never a file. Removed on cleanup; an uncatchable termination can leave it empty |
+| Interaction lens state | Shell memory for the active prompt; replaced as buffer or outcome changes, discarded with the shell | Interaction kind, sanitized bounded excerpts and structural summaries, up to eight 240-character alias previews, context anchors, latest outcome, a bounded autosuggestion prefix; never leading assignment values |
+| Draft inspector | Invocation memory, only after Option-Return; released on return | At most 32,768 literal draft characters plus a truncation notice, cursor/length/current-folder facts, reading filters and frames; can display sensitive text, unredacted and unexecuted |
+| Captured help and command readers | View-scoped shell memory | Tool help: at most 64 same-source companions of 32,768 characters each (direct help: only its companion). History inspector: at most 32,768 characters of the selected command, no second history catalog |
+| Command composer | Invocation memory; an accepted draft moves to ZLE or the native buffer stack until edited, submitted or discarded | Literal prefill and fields of at most 4,096 characters each, current folder, generated quoted draft; optional local ref capture for Git revisions. No file, clipboard or custom history write |
+| Git Change atlas | View-scoped shell memory; released on return | Path-prefix groups, entry-count bars and bookmarks from the captured file list, staged/unstaged distinct. No discovery, bulk content read, saved atlas or new worker |
+| Git Tree / All files navigation | Current review's shell memory; released on review exit | Directory prefixes, folder summaries (change states, child areas, captured numstat) and expansion/filter/scope/selection state from the 1,000-entry/256-KiB list; ancestor choices at most 200 rows/262,144 prefix characters, with a partial notice. No discovery, saved preference or new worker |
+| Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention follows the user's terminal settings |
+| Prompt tool descriptions | Current-shell memory; cleared on shell exit or invalidation | At most 64 same-source command/help pairs; up to 262,144 characters of source/definition identity; 240-character summaries and option descriptions from at most 4,096 characters per guide plus the Touch ID subguide. No disk cache |
+| Git comparison choices and snapshots | View memory, released on view exit; native Zsh here-strings can use short-lived local temporary files | At most 1,000 refs/256 KiB of names, kinds and object IDs; resolved endpoints, paths and bounded diff snapshots. No saved comparison catalog |
+| Git branch picker | Shell memory; catalog replaced on the next invocation or shell exit, details cleared on view exit | All local branch names (no count cap), ordered by current branch and up to 200 checkout reflog entries, then other refnames; details at most 262,144 characters across 401 refs, 512 per subject. No fetch, saved history or background refresh |
+| Known remote branch fallback | Invocation memory until `g` returns; tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB, and 128 remote names / 32 KiB; no remote URLs. No fetch, pull or disk cache |
+| Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
+| Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
+| Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
+| Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
-| Clipboard values | The clipboard of the machine running Zsh; may outlive the originating view or run under operating-system/user control | Written only by an explicit Copy action; values can contain a path, branch, current directory, visible website command, bounded Xcode test report, or retained matching Simulator/device log lines with local paths, diagnostics and sensitive app values; never read back by Compozsh |
+| Clipboard values | The clipboard of the machine running Zsh; may outlive the view or run under operating-system/user control | Only explicit Copy writes: a path, branch, current directory, visible website command, bounded Xcode test report, or matching Simulator/device log lines that can hold local paths, diagnostics and sensitive app values. Never read back |
 
-Appearance selection reads only `ZSH_COLOR_SCHEME` and the optional passive
-`COLORFGBG` environment hint, then retains a `light` or `dark` classification.
-It writes no terminal query, reads no terminal input, sends no data, and starts
-no process. An absent or invalid automatic hint retains the dark palette.
-
-Appearance alone installs the selected palette defaults in shell memory. Public
-overrides remain writable; consumers resolve current roles without maintaining
-separate default palettes. Missing or non-associative public maps are treated
-as unavailable instead of interpreting role names as arithmetic. Rendering
-does not recreate them. Palette tuning derives styles from those choices.
-Completion and printable-stack color decisions inspect terminal capabilities and
-`NO_COLOR`; manual-page selection contrast uses fixed indexed-color arithmetic.
-These presentation steps perform no additional project or private-file reads,
-create no retained data, and launch no color-detection process. Inspect
-`.zsh.addons/support/.zsh.appearance`, the peers in `.zsh.addons/support/ui/`,
-`.zsh.addons/.zsh.output`, `.zsh.addons/.zsh.editor`,
-`.zsh.addons/.zsh.navigation` and `.zsh.addons/.zsh.prompt`, and run
-`zsh tests/run.zsh appearance` for isolated contrast, customization,
-terminal/plain-output, and native ZLE checks. Their reference RGB
-colors do not establish contrast for arbitrary user terminal profiles.
-
-The shared full-screen input dock temporarily splits its already captured frame
-between ZLE's PREDISPLAY and POSTDISPLAY to position the real caret. It does not
-place query text in the caller's command buffer, execute it, or acquire new
-facts. Paint restores both display parameters; screen cleanup restores the
-caller's editing state. Row spacing, focus expansion and action emphasis derive
-only from the current view and terminal dimensions.
-
-Owned `--help` modes and exact `compozsh help command` requests can open a
-documentation workspace with terminal input/output and alternate-screen
-support. The former calls its fixed same-source companion; the latter resolves
-the existing loaded-function metadata catalog. One native Zsh pipe captures at
-most 32,768 characters plus lookahead before interactive input, with truncation
-disclosed. It reads no project, skill directory, operational tool or private
-configuration. The companion remains trusted shell code under the static-help
-contract; these output bounds are not a sandbox or a time limit for a private
-provider. No external pager is launched.
-
-At most 128 derived topics plus Complete guide retain usage, description,
-sections and literal argument explanations in invocation memory. Complete guide
-preserves unclassified text within the same capture limit. Topic selection,
-filtering, scrolling, reader return and resize do not call providers. Topic IDs
-never become executable arguments; no prose example is executed, inserted or copied.
-An additional **Compose example** action appears only with explicit command
-identity and a `_compozsh_template_<command>` capability defined in the same
-source as that command and its help companion. Currently `g` and `mkcd` opt in.
-Capability providers are trusted source-owned shell code returning fixed recipe
-IDs; they are not discovered by scanning files or interpreting help prose.
-Selecting the action opens the composer below. Ordinary help navigation and
-all plain-output help paths remain inert.
-Help accents derive at most 128 semantic spans per sanitized source line, using
-only literal documentation structure and option/placeholder spelling. They
-reuse the shared palette and wrapping; ordinary draft/log readers do not opt in.
-The shared screen owner restores the caller's terminal and editing state.
-Pipes, redirects, NO_COLOR, absent UI/help peers and unsupported terminals retain
-complete printable help. Inspect `.zsh.addons/.zsh.help` and the public help
-branches, and run `zsh tests/run.zsh 'help workspace'` for literal parsing,
-capture-once native journeys, scoped state, fallback and cleanup checks.
-
-Option-Return opens a separate, explicit Draft inspector. Unlike passive prompt
-disclosure, its Read action can show the literal draft, including leading
-assignment values. No draft token is evaluated, expanded, resolved or executed.
-The bounded reading copy, selection/filter outputs and display frames are scoped
-to the invocation. Help discovery and read-only Git capture happen only after
-their named choices; Git uses the displayed current folder and ignores draft
-flags/paths. Files and History receive ownership after the inspector closes;
-only explicitly accepted insertion replaces the draft. Cancellation and
-read-only return preserve the original command and cursor. Run
-`zsh tests/run.zsh 'task experience'` for literal handling, view isolation,
-default-no confirmation and native read/filter/resize/Back journeys.
-
-The **Command composer** is another explicit inspector/help handoff. Its
-bounded simple prefill never expands or evaluates shell text; unsupported or
-complex drafts retain the ordinary inspector. Editable fields are literal and
-bounded to 4,096 characters each. A pure builder uses native Zsh quoting for
-arguments and fixed command/option tokens; preview and filtering perform no
-external reads. Field text can contain sensitive values and is displayed
-literally, so this is not a secret-entry or redaction mechanism.
-
-Opening a Git endpoint field may explicitly acquire the current folder's
-repository and safe local refs through the existing review providers. The
-chooser retains the 1,000-ref/256-KiB bounds, validates only the submitted
-endpoint, and returns a pinned local commit ID. No network, checkout, whole
-draft validation or command execution occurs. When ref browsing is unavailable,
-literal entry remains possible and does not promise a valid revision.
-
-Only **Replace draft** exports the generated command. It verifies the current
-folder still matches the displayed scope, unwinds the screen, and inserts via
-ZLE BUFFER or `print -zr` into the ordinary prompt's native buffer stack. The
-user must still submit it. It adds no clipboard, file or history write; ordinary
-shell acceptance can record the subsequently submitted command as usual.
-The editor's leading-space prefix is carried into the composed draft so
-composition does not silently remove a `HIST_IGNORE_SPACE` preference.
-Escape exports no draft and restores the original cursor/bookmarks. Inspect
-`.zsh.addons/.zsh.compose`, the same-source template companions in navigation
-and tools, and the editor/help handoffs. Run `zsh tests/run.zsh 'command composer'`
-for quoting, explicit authority, real local refs, no-execution, fallback,
-native live preview, resize, Back and post-cleanup insertion checks.
-
-Git file review starts in **All files**, with **Tree** and **Jump to ancestor**
-in Ctrl-X View options. Both file views derive exclusively from the captured
-Git list, including deleted path prefixes and distinct staged/unstaged entries.
-Folding, changing scope, ancestor selection and switching projections perform
-no provider reads. Selecting a file retains the existing bounded diff-provider
-boundary; selecting a folder displays a summary derived from captured paths,
-change kinds and existing commit/comparison numstat facts. Counts and proportional
-bars describe captured entries, with filtered/partial coverage labeled. The
-retained file bookmark remains the target of the existing refresh policy;
-folder summaries request no diff or syntax data. Filtering searches
-captured paths, including hidden descendants, without directory enumeration.
-The view menu and ancestor details can display captured paths in wrapped text;
-this is presentation, with no redaction guarantee or clipboard action.
-Refresh reconciles navigation against the newly captured list and invalidates
-saved projection bookmarks whose numeric identities belonged to the old list. Expansion,
-filter scopes and view choice live only for the review and are released on exit.
-Run `zsh tests/run.zsh 'Git tree'` for extreme-depth compression, literal paths,
-duplicate identities, exclusion, disappearing scopes, narrow geometry and a
-native Tree/All files/ancestor/refresh/resize/cleanup journey. These checks do
-not establish atomic filesystem observations or visual approval in Terminal.app.
-
-The **Change atlas**, also in Ctrl-X View options, derives path-prefix groups and entry-count bars from the
-current captured Git file list. It performs no filesystem discovery and reads
-no unselected file contents. It retains the original numeric file/change-kind
-identities and commit/comparison IDs. Pending Working changes refresh work is
-stopped while the map is open; returning restores its existing refresh policy.
-Opening one entry uses the existing bounded diff reader and safety checks,
-including the failed-preparation block on uncached reads. Working files may
-have changed since list capture; the map promises no atomic snapshot. Scope,
-partial capture, and refresh limitations remain visible. Nested folder/reader
-Back returns to the previous filter/selection and the original review source
-position. Run `zsh tests/run.zsh 'Git atlas'` and
-`zsh tests/run.zsh 'Git review native g'` for literal grouping, safety blocks,
-capture-free browsing, full-context reading and native return-position checks.
-
-Action cards, their captured target/plan columns and Xcode configuration-return
-bookmarks add no provider or execution boundary. USB review still leads to its
-separate exact-device confirmation. `g --discard-all` still prints complete
-captured status before confirmation, and optionally presents a scoped native
-confirmation screen with at most 32,768 status characters in its inspector.
-Only literal `y` or `Y` confirms; empty Return and cancellation refuse. Screen
-restoration precedes the existing complete repository revalidation and writes.
-Plain and missing-UI confirmation remains available. No new privilege, network
-path, persistence, automatic action or rollback claim is introduced.
-
-Bare `external-device` presents two fixed task choices without reading disks or
-images. Choosing a task closes that screen before its normal scoped capture;
-the flash and format modes retain their separate exact-device confirmations.
-Shared pure USB readers validate supplied SHA/CRC text and native progress
-records without consulting caller-local variables or performing device reads.
-Raw and Windows execution use the same digest validation; media-specific
-preflight, checksum requirements and final verification remain with their
-existing effect owners. Installer candidate labels reuse already captured
-metadata, while action-time identity checks still acquire fresh observations.
-USB and Xcode scalar extraction shares one fixed `/usr/bin/plutil` invocation
-over supplied document text; it adds no provider discovery or persistent state.
-Xcode child/failure counts are validated as literal decimal text and bounded
-before integer conversion. Missing count support retains neutral results;
-the existing traversal and retained-failure limits remain intact. Display-span
-offsets likewise accept bounded decimal inputs before arithmetic and use local
-whitespace splitting, without reading or modifying caller variables.
-`compozsh --refresh` clears the current shell's existing in-memory runtime,
+`compozsh --refresh` clears the current shell's in-memory runtime,
 manual-summary, help-description, Git-directory and grep-capability caches and
 runs `rehash`. At the next TTY prompt it also requests replacement of eligible
-public OS manual cache data for future shells. It neither reloads
-private configuration nor updates installed tools or other shell sessions.
+public OS manual cache data for future shells. It neither reloads private
+configuration nor updates installed tools or other shell sessions.
 
-`xcode --export-skills` detects the same local agent installations and selected
-Xcode exporter as before. When interactive UI/matching capabilities are present,
-it presents those destination paths and the captured exporter path in a scoped
-action plan before creating a staging directory or exporting. Its shared
-inspector bounds the displayed context to 32,768 characters with truncation
-disclosed. Escape writes nothing; explicit Export skills closes the screen
-before the existing export and per-skill installation. Noninteractive, dumb,
-and missing-UI calls retain immediate execution. The plan is not a dry run or
-an atomic transaction; existing personal conflicts remain preserved, and a
-later installation failure can leave earlier skills updated. Plan rendering
-performs no provider read, project discovery or private skill-directory scan.
-Mode help is inert. Inspect `.zsh.addons/.zsh.usb`, `.zsh.addons/.zsh.help`,
-`.zsh.addons/.zsh.tools` and `.zsh.addons/.zsh.xcode`, then run
-`zsh tests/run.zsh 'task families'` for mode routing, retired-name removal,
-literal targets, default cancellation, native resizing and post-screen dispatch.
+The subsections below give, per feature, what is read beyond the table, its
+limitations, and where to inspect it. Interaction details that carry no data,
+lifetime or privilege consequence live in the linked engineering contracts.
+Regression filters are collected in
+[Focused regression checks](#focused-regression-checks).
 
-The Context lens, Interaction lens, Option-I pin toggle, resize, and line-finish
-transcript repaint derive from the current in-memory prompt snapshot and ZLE
-buffer. Interaction updates use bounded Zsh lexical structure without command
-evaluation, expansion, target resolution, or execution. These repaint paths
-launch no process, perform no provider/project/runtime/Git/filesystem read, write
-no file, and make no network request. Ordinary `precmd` prompt capture remains
-the boundary that reads the bounded local facts described below. This statement
-is scoped to Context/Interaction prompt derivation and repaint, not the complete
-ZLE pre-redraw hook chain. The independent syntax highlighter retains bounded
-filesystem checks for literal path tokens and does not evaluate substitutions or
-globs from the buffer.
+### Appearance and shared screens
 
-READY retains available captured toolchain facts after command acceptance and
-screen clearing, subject to the existing display-width/height bounds. This
-extends their visibility, not their capture scope or lifetime. The native
-`zsh tests/run.zsh 'runtime prompt'` journey checks command/clear/resize behavior;
-captured-only redraw tests guard against additional requirement reads or probes.
+**Appearance** reads only `ZSH_COLOR_SCHEME` and the passive `COLORFGBG` hint
+and keeps a `light` or `dark` classification (dark when an automatic hint is
+absent or invalid). It sends no terminal query, reads no terminal input,
+starts no process, and reads no project or private file. Palette defaults and
+public overrides live in shell memory; consumers resolve current roles without
+separate default palettes, rendering never recreates them, and missing or
+non-associative public maps count as unavailable rather than being read as
+arithmetic. Completion and printable-stack colors follow terminal capabilities
+and `NO_COLOR`; manual-page selection contrast uses fixed indexed-color
+arithmetic. Reference RGB colors do not establish contrast
+for arbitrary terminal profiles. Inspect `.zsh.addons/support/.zsh.appearance`,
+`.zsh.addons/support/ui/`, and the `.zsh.output`, `.zsh.editor`,
+`.zsh.navigation` and `.zsh.prompt` peers.
 
-The help peer captures prompt descriptions only at a TTY `precmd` boundary.
-It uses already-loaded function/source metadata, not filesystem discovery, and
-calls only matching same-source `_compozsh_help_<command>` companions. It never
-invokes a public command with `--help`. Those companions are trusted static
-documentation providers under the existing add-on contract; output bounds do
-not sandbox a misbehaving machine-local companion or impose a wall-clock limit.
-Changed/removed definitions and `compozsh --refresh` invalidate snapshots.
-Each definition is capped at 65,536 characters; the combined identity snapshot
-is capped at 262,144. The pipe reads one lookahead character beyond its 4,096
-character guide bound and discards an incomplete final line. Control-bearing
-or overlong descriptions are omitted. Source and function definitions used for
-invalidation stay in shell memory and are never written or transmitted.
+**Shared screens.** The `support/ui/` peers own views, input, painting and
+screen restoration. Layout, resize, disclosure navigation, rewrapping (with a
+bounded source-row map), row spacing, focus expansion and per-paint styles
+derive only from captured facts, the current palette and terminal dimensions:
+they discover, capture and execute nothing and keep no copy of the user's draft
+beyond screen-restoration state. The input dock places the caret through ZLE's
+PREDISPLAY/POSTDISPLAY, restored by paint, without putting query text in the
+caller's buffer. View state is scoped to the feature callback; secondary menus
+and notices scope their own labels and capabilities and return exact action
+values; callback names come from trusted feature code, never labels or project
+data. Explicit capture and input-idle hooks keep their own limits, final actions
+stay feature-owned, and cleanup restores the caller's terminal and editing
+state. There is no registry, persistent storage or shared background process; a
+feature may use one documented, bounded input-idle child per screen session, as
+the Git review transports and the optional resident system-Vim syntax helper do.
+See the [full-screen standard](engineering/full-screen.md).
 
-Edit-time descriptions read those snapshots, current loaded-definition identity
-and bounded alias definitions only. They name documented tool/option intent, not successful target
-resolution or argument validation. Compound/danger cues take priority. Stock
-alias descriptions require the exact current definition. Ordinary, global and
-suffix aliases display previews at literal command positions, including
-pipelines/chains and leading assignments. Global aliases also match literal
-arguments/redirection targets; trailing-space aliases enable the next word's
-preview. Within 512 draft characters and 64 lexical tokens, at most eight
-definitions are retained, each capped at 240 characters with an omission marker.
-Quoted/escaped words and native alias suppression are respected; here-document
-operators stop inspection, and nested substitutions are not inspected.
-Each preview is sanitized, prompt-escaped and fitted
-to the terminal width. It may expose sensitive text already present in an alias
-to someone viewing the terminal; it is not a credential-redaction feature.
-Definitions are read from shell memory, never evaluated, recursively expanded,
-written to a separate cache or transmitted. Run `zsh tests/run.zsh 'tool descriptions'` for
-capture reuse, invalidation, override handling and native ZLE checks that type
-Touch ID modes without submitting them or requesting administrator access.
+**`support/` and peer laws.** `support/` holds maintained implementations
+shipped in both installation modes, loaded by ordinary recursive peer
+discovery with no added loader privilege, load phase, storage or enforced
+read-only permission; personal customization uses documented settings in the
+machine-local initializer. Shared callable files declare one first entry point
+with exclusive helpers below it and are classified `pure` (calculation
+from supplied inputs with caller-local results), `impure` (external reads,
+mutable shared state, writes, process execution) or UI; these names aid review
+but sandbox nothing and do not prove arbitrary input safe. The [peer
+configuration laws](engineering/architecture.md#peer-configuration-algebra)
+describe equivalent configured behavior after loading the same peers under the
+same prerequisites; they confer no sandbox or permission to replay effects.
+Sourcing changes shell memory, and sourcing `.zshrc` again can rerun the
+private initializer. Tests exercise order convergence and re-sourcing; the
+website's algebraic model is an illustration, not evidence that arbitrary
+add-ons are safe or effect-free.
 
-For a lone directory with AUTO_CD enabled, the highlighter shares only the
-exact bounded draft and current-folder key of its existing observation. The
-optional prompt uses this shell-memory fact for an advisory NAVIGATE cue,
-without another filesystem read. It is cleared on the next highlighting pass,
-including skipped passes; a changed draft or folder cannot reuse it. It is not
-a command resolver or guarantee that the directory remains available at Return.
+### Living prompt and Interaction lens
 
-The optional `.zsh.manual` peer requests one background capture of local manual
-NAME descriptions at the first TTY `precmd`; the editor does not wait for it.
-Roots come from literal MANPATH (including relative
-paths resolved at capture), conventions associated with the first 128 absolute
-PATH entries, documented installation fallbacks, and literal MANPATH/MANCONFIG
-directives in `/etc/man.conf` and at most 16 selected configuration files.
-Configuration reads are capped at 8 KiB each and never evaluated as shell code;
-formatter settings and other directives are ignored. An explicit MANPATH
-without empty fields skips default/configuration discovery; empty fields insert
-defaults. This can read manuals in user-selected project folders, but does not
-read private shell peers, the initializer or history.
+Context and Interaction lens rendering, the Option-I pin toggle, resize and
+line-finish transcript repaint derive from the in-memory prompt snapshot and
+ZLE buffer using bounded Zsh lexical structure, without evaluation, expansion,
+target resolution or execution. They launch no process, read no
+provider/project/runtime/Git/filesystem data and write no file; ordinary
+`precmd` capture is the boundary that reads the local facts in this inventory.
+This covers lens derivation and repaint, not the complete ZLE pre-redraw hook
+chain: the independent syntax highlighter keeps bounded filesystem checks for
+literal path tokens without evaluating substitutions or globs. READY keeps
+captured toolchain facts visible after acceptance and screen clearing, within
+display bounds; this extends visibility, not capture scope or lifetime. Row
+vocabulary is specified in [the prompt contract](engineering/prompt.md).
 
-One fixed `/usr/bin/xcode-select --show-manpaths` query contributes at most 16
-absolute, control-free selected SDK/platform/developer/toolchain roots, honoring
-DEVELOPER_DIR. Selection output is validated against a 64 KiB bound; accepted
-paths are at most 4,096 characters. Deduplication and a 64-root cap apply to the
-combined scope. Sections precede roots; MANSECT environment entries are validated
-and capped at 16. Missing native selection retains conventional roots.
+- Rows labeled `… TEXT`, including `ENDPOINT TEXT`, are sanitized,
+  width-bounded buffer excerpts that do not prove a path, endpoint, query or
+  operation exists. Context rows reuse the prior `precmd` capture. `PIPELINE`
+  (`FLOW`/`STAGES`) and `CHAIN` (`FLOW`/`STEPS`/`CONTROL`) summarize literal
+  `&&`, `||`, `;` or `&` structure; `COMMENT` uses `COMMENT TEXT` and the
+  advisory `likely remain an interactive shell comment`; `REDIRECT` selects
+  `OUTPUT TEXT`, `INPUT TEXT`, `DESCRIPTOR TEXT` or `RESOURCE TEXT` from the
+  literal operator without opening or validating a target.
+- Inferred `ACTION` text uses `likely`, `appears`, or `may`. Help-derived
+  `ACTION` text instead names documented intent from the bounded same-source
+  help capture. Neither is a prediction, authorization, validation, or
+  completed effect.
+- `CAUTION` recognizes only selected high-confidence forms: it is
+  intentionally incomplete, does not block Return, and its absence is not
+  evidence that a command is safe.
+- The shipped `g` helper is classified as Git (bare `g`: local branch
+  workspace; `g --review`, `g --worktree` and help forms: review, worktree or
+  help cues) from literal structure and captured Git context, without calling
+  `g` or Git.
+- With AUTO_CD and a lone directory, the highlighter shares only the exact
+  bounded draft and current-folder key of its existing observation for an
+  advisory NAVIGATE cue; it is cleared on the next highlighting pass
+  (including skipped passes), is never reused for a changed draft or folder,
+  resolves no command, and does not guarantee that the directory remains
+  available at Return.
+- Leading assignment values are never copied into lens state, although their
+  names may help describe the command, avoiding a second display of a
+  potentially sensitive value; the value stays in the real buffer and can enter
+  the transcript, process arguments and history if accepted. A `SUGGESTION` row
+  reuses only a bounded visible prefix of editor-owned autosuggestion state
+  matching the exact buffer, with no history search or unseen tail.
 
-Capture considers at most 4,096 entries, reads at most 64 KiB per page, and
-retains at most 8,192 name/summary pairs of 240 characters. Symlinks and literal
-whole-page `.so` aliases can reach installed manual files outside a starting
-root, with at most eight file reads per forwarding chain. Resolved paths use
-non-following/nonblocking opens and regular-descriptor checks. This is not an
-ancestor-race filesystem sandbox. Compressed files pass at most 64 KiB input
-through fixed native gzip with at most 64 KiB decoded output and a one-second
-child CPU limit. Corrupt, unreadable or unresolved pages fail quietly.
+Dynamic prompt text has controls sanitized and prompt syntax escaped: `%`
+always; backslash, `$` and backticks under `PROMPT_SUBST`; `!` preserved under
+`PROMPT_BANG`. This prevents prompt evaluation or rewriting without changing
+the real buffer. The public project-segment extension accepts only a `0`–`255`
+color index or a fixed basic Zsh color name; an invalid color falls back
+through the validated `tool` role or native text before reaching prompt syntax.
 
-The fast parser extracts inert NAME text. Formatting-heavy NAME sections can
-use fixed native mandoc on captured stdin, with at most 64 KiB output and a
-one-second child CPU limit (not a wall-clock deadline). Native mandoc ignores
-command/file-writing roff requests and refuses absolute/parent includes; a
-private empty working directory prevents relative includes from reading the
-caller's folder. This is native document formatting, not a general OS sandbox.
-The owned mode-0700 directory contains no page data and is removed during normal
-and handled-error cleanup. An uncatchable termination may leave it empty.
-Readable pages without usable NAME text retain an explicit manual-available
-notice. No man, manpath, whatis, index generator or documented command is invoked.
-No manual text becomes shell code; no network operation is involved.
+A transcript repaint changes only decoration; ZLE keeps the exact submitted
+command, and Compozsh keeps no separate command store. Empty and
+whitespace-only submissions receive the same receipt without changing their
+literal buffer, executing an extra command or adding history. The `LAST` row is
+replaceable shell-memory status for the latest command, including fast
+success. Command receipts, plus outcome receipts for failures and slow
+successes, become terminal display and terminal-owned scrollback; compaction
+neither conceals nor removes submitted command text from the terminal or Zsh
+history (see [Secrets on the command line](#secrets-on-the-command-line)).
 
-The active catalog and page-name/section attribution live in shell memory until
-refresh, discovery-selector invalidation or shell exit. Custom, third-party and developer manuals never persist.
-The public OS description cache below avoids repeating eligible parsing.
-Source time performs no capture. Rendered ABOUT text is inert and
-describes a literal name, not resolved executable identity or argument effects;
-arbitrary aliases/functions do not inherit it. Typing and resizing only consult
-this snapshot and loaded shell metadata. Bounded descriptor callbacks can merge
-a completed candidate while editing; they perform no discovery or cache I/O.
-The normal prompt escaping applies to
-manual text as to other captured facts.
+### Help workspace and tool descriptions
 
-Background capture inherits the current shell's discovery environment in memory.
-Its bounded, length-prefixed request identity includes PATH, MANPATH, MANSECT,
-locale, developer selectors, configuration base, source generation and PWD only
-for relative manual roots; neither selectors nor their fingerprints are saved.
-Generation and identity must still match when a complete candidate is accepted.
-Validate framing, schema, count, every record and END, require successful worker
-completion, and reject remaining trailing bytes before replacing the visible map.
-Failed or obsolete candidates never partially replace it. Each callback reads at
-most 8 KiB; retained transport is capped at 16 MiB and 8,192 records.
-Publication promotes the validated catalog in place; lookup reads its matching
-description and source together. No bulk catalog copy occurs in the editor.
+**Help workspace.** Owned `--help` modes (calling their fixed same-source
+companion) and exact `compozsh help command` requests (resolving the
+loaded-function metadata catalog) open a workspace when terminal I/O and the
+alternate screen are available. One native pipe captures at most 32,768
+characters plus lookahead before interactive input, disclosing truncation; it
+reads no project, skill directory, operational tool or private configuration
+and launches no pager. At most 128 derived topics plus Complete guide (which
+keeps unclassified text within the same limit) hold usage, description, sections
+and literal argument explanations in invocation memory.
+Navigation, filtering, scrolling and resize call no provider; topic IDs never
+become arguments, and prose examples are never executed, inserted or copied.
+Pipes, redirects, `NO_COLOR`, absent UI/help peers and unsupported terminals
+get complete printable help. Accents derive at most 128 spans per sanitized
+line from literal documentation structure; draft and log readers do not opt
+in. The separate **Compose example** action appears
+only with explicit command identity and a `_compozsh_template_<command>`
+capability from the same source as the command and its help companion
+(currently `g` and `mkcd`); providers are trusted source-owned code returning
+fixed recipe IDs, never discovered from files or help prose, and the action
+opens the [command composer](#draft-inspector-and-command-composer). Other help
+paths stay inert. Inspect `.zsh.addons/.zsh.help` and the public help
+branches.
 
-Two native Zsh ownership supervisors isolate one ordered capture process and its
-formatter/discovery descendants from the user's job table, coprocess and event
-handlers. Only fixed function names are passed as `zpty` commands; document and
-environment data never become command source. Refresh, re-source, selector
-change, pre-execution cancellation and shell exit release the owned handles.
-A 30-second deadline stops collection; cancellation gives up to 100 ms for
-cleanup, then terminates the owned capture group. Native handles are deleted
-before their owner exits. After a deadline an idle outer owner retains its
-identity until the parent processes failure, including while its editor is
-suspended; it performs no further collection or polling. It is not a daemon.
-These native ownership rules do not protect against another same-account process
-deliberately killing or altering supervisors. Uncatchable interruption during
-setup can leave an empty directory/FIFO; forced capture interruption can leave
-the already disclosed empty formatter directory or public cache staging file.
-No transport document body is a regular file. Missing async capabilities fall
-back to synchronous capture; capture failure uses the ordinary description
-fallback without an automatic retry loop. Explicit refresh permits retry.
+**Prompt tool descriptions** are captured only at a TTY `precmd` from loaded
+function/source metadata, without filesystem discovery, by calling matching
+same-source `_compozsh_help_<command>` companions; a public command is never
+invoked with `--help`. Each definition is capped at 65,536 characters. The pipe
+reads one character past its 4,096-character guide bound and discards an
+incomplete final line; control-bearing or overlong descriptions are omitted.
+Changed or removed definitions and `compozsh --refresh` invalidate the
+help-description snapshots; identity data stays in shell memory and is never
+written. In both help paths, companions are trusted static documentation
+providers under the add-on contract: output bounds neither sandbox a
+misbehaving machine-local companion nor impose a wall-clock limit.
 
-Run `zsh tests/run.zsh 'manual async'` for fragmented/malformed transport,
-literal Unicode, stale selectors, live descendant cancellation, deadline owner
-retention, shell exit, failure/fallback, real ZLE typing, resize and nested
-display ownership. These isolated tests do not establish Terminal.app behavior
-on every Mac, arbitrary mounted-filesystem latency or an OS-level sandbox.
+**Edit-time descriptions and alias previews** read only those snapshots, current
+definition identity and bounded alias definitions. They name documented
+tool/option intent, not target resolution or argument validation; compound and
+danger cues take priority, and stock alias descriptions require the exact
+current definition. Ordinary, global and suffix aliases preview at literal
+command positions, including pipelines, chains and after leading assignments;
+global aliases also match literal arguments and redirection targets, and a
+trailing-space alias enables the next word's preview. Within 512 draft
+characters and 64 lexical tokens, at most eight definitions are retained, each
+capped at 240 characters with an omission marker. Quoting, escaping and native
+alias suppression are respected; here-document operators stop inspection, and
+nested substitutions are not inspected. Definitions are never evaluated,
+recursively expanded or cached separately. Previews are sanitized,
+prompt-escaped and width-fitted; they can show sensitive text already in an
+alias to someone viewing the terminal and are not credential redaction.
+
+### Draft inspector and command composer
+
+**Draft inspector.** Option-Return opens it explicitly. Unlike passive prompt
+disclosure, its Read action can show the literal draft, including leading
+assignment values; no token is evaluated, expanded, resolved or executed, and
+the full draft stays in native editing/screen-restoration state. Help discovery
+and read-only Git capture happen only after their named choices; Git uses the
+displayed current folder and ignores draft flags and paths. Files and History
+receive ownership only after the inspector closes. Only explicitly accepted
+insertion replaces the draft (History inserts the original full command);
+cancellation and read-only return preserve the original command and cursor.
+
+**Command composer.** Simple prefill is never expanded or evaluated;
+unsupported or complex drafts keep the ordinary inspector. A pure builder
+applies native Zsh quoting to literal fields around fixed command/option
+tokens; preview and filtering perform no external reads. Fields are displayed
+literally and can contain sensitive values, so this is not a secret-entry or
+redaction mechanism. A Git endpoint field may explicitly acquire the current
+folder's repository and safe local refs through the review providers, within
+the same 1,000-ref/256-KiB bounds; only the submitted endpoint is validated,
+and a pinned local commit ID is returned. No
+network, checkout, whole-draft validation or command execution occurs; without
+ref browsing, literal entry remains possible without promising a valid
+revision. Only **Replace draft** exports: it verifies that the current folder
+still matches the displayed scope, unwinds the screen, and inserts via ZLE
+`BUFFER` or `print -zr` into the native buffer stack for the user to submit. It
+adds no clipboard, file or history write; normal acceptance can record the
+submitted command as usual. The editor's leading-space prefix is carried over,
+so composition does not silently remove a `HIST_IGNORE_SPACE` preference.
+Escape exports nothing and restores the original cursor and bookmarks.
+Inspect `.zsh.addons/.zsh.compose`, the same-source
+template companions in navigation and tools, and the editor/help handoffs.
+
+### Runtime and project context
+
+The runtime functions in `.zsh.addons/support/functions/` run only at the
+prompt's existing fact-capture boundary. Loading them defines functions and
+shell-memory data only: it inspects no project, probes no executable, installs
+no toolchain and registers no background task. Numeric comparison consumes
+supplied strings, separately from metadata observation. README's **Project and
+runtime context** section documents the sources and precedence. Besides simple
+version files and `.tool-versions`, readers recognize literal Rust toolchain
+TOML, Go `go.work`/`go.mod` minima, Swift's first-line tools minimum, Cargo's
+package Rust minimum and Python's project version range. No manifest is sourced,
+evaluated, passed to a package manager or used to install or activate software.
+
+Metadata paths must resolve inside the detected project, be regular files, not
+be leaf symlinks, and pass a 1 MiB eligibility size check. Non-following/
+nonblocking opens, descriptor type validation and mode-specific byte budgets
+also reject leaf replacement with symlinks/FIFOs and bound reads of a growing
+file. Simple selection files and Swift's tools declaration need a complete first
+line (newline or observed EOF) within a 4 KiB read budget. TOML and multi-entry
+sources use a 64 KiB read/parse budget (at most one extra byte to detect
+growth), 256 lines and 4 KiB per line, rejecting excess work before interpreting
+declarations. An incomplete first line, a source over a parsing budget, a
+selector over the 240-character display cap (displayed requirements are
+prompt-sanitized and escaped), an ambiguous value or unsupported syntax is
+unverified, not inferred compatible. A file rejected by the initial path/type/1
+MiB check is skipped and a later eligible source may supply a requirement; this
+neither validates the skipped source nor establishes compatibility with all
+project requirements. These checks are not an atomic snapshot of a concurrently
+changing tree. Captured text stays in invocation memory; the installed-version
+cache is shell memory, refreshable with `compozsh --refresh`, and disappears
+with the shell. Missing runtime support leaves project identity/tool markers.
+Probing installed runtimes is an [external
+boundary](#independently-controlled-network-capable-software). Inspect without
+executing: `git grep -n . HEAD -- .zsh.addons/support/functions/`.
+
+### Local manual summaries
+
+The optional `.zsh.manual` peer captures local manual NAME descriptions once,
+in the background, at the first TTY `precmd`; source time captures nothing and
+the editor does not wait. [The producer contract](engineering/manual-cache.md)
+specifies the mechanics.
+
+- **Sources.** Literal MANPATH, relative entries resolved at capture (without
+  empty fields it skips default and configuration discovery; empty fields insert
+  defaults); conventions for the first 128 absolute PATH entries and documented
+  fallbacks; literal MANPATH/MANCONFIG directives in `/etc/man.conf` and at most
+  16 selected configuration files, 8 KiB each, never evaluated, formatter
+  settings and other directives ignored; and at most 16 absolute, control-free
+  SDK/platform/developer/toolchain roots of at most 4,096 characters from one
+  fixed `/usr/bin/xcode-select --show-manpaths` query, which honors
+  `DEVELOPER_DIR` and is validated against 64 KiB (conventional roots remain
+  without it). At most 64 deduplicated roots and 16 validated `MANSECT` entries
+  apply. Capture can read manuals in user-selected project folders, but not
+  private shell peers, the initializer or history.
+- **Bounds.** At most 4,096 entries, 64 KiB per page, and 8,192 retained
+  name/summary pairs of 240 characters. Symlinks and whole-page `.so` aliases
+  can reach installed manuals outside a root, with at most eight reads per
+  chain, through non-following/nonblocking opens and regular-descriptor checks
+  (not an ancestor-race sandbox). Fixed native gzip and, for formatting-heavy
+  NAME sections, fixed native mandoc on captured stdin each process at most
+  64 KiB in and out under a one-second child CPU limit, not a wall-clock
+  deadline. mandoc ignores command/file-writing requests and refuses
+  absolute/parent includes, and its private empty working directory blocks
+  relative includes of the caller's folder; this is native formatting, not an
+  OS sandbox. Corrupt, unreadable or unresolved pages fail
+  quietly; pages without usable NAME text keep a
+  manual-available notice. No `man`, `manpath`, `whatis`, index generator or
+  documented command runs, and no manual text becomes shell code.
+- **Use.** ABOUT text is inert, prompt-escaped and describes a literal name,
+  not executable identity or argument effects; aliases and functions do not
+  inherit it. Typing and resizing consult only the snapshot
+  and loaded metadata; bounded descriptor callbacks may merge a completed
+  candidate without discovery or cache I/O. Custom, third-party and developer
+  manuals never persist; only eligible OS descriptions use the [public
+  cache](#public-system-performance-cache).
+- **Transport.** The bounded request identity (PATH, MANPATH, MANSECT, locale,
+  developer selectors, configuration base, source generation, and PWD only for
+  relative roots) stays in memory; neither selectors nor fingerprints are
+  saved. A candidate replaces the visible map only if generation and identity
+  still match, framing, schema, count, every record and END validate, the
+  worker succeeded and no bytes trail; failed or obsolete candidates never
+  partially apply. Each callback reads at most 8 KiB.
+- **Ownership.** Two native Zsh supervisors isolate the ordered capture process
+  and its descendants from the user's job table, coprocess and event handlers;
+  only fixed function names become `zpty` commands. Refresh, re-source,
+  selector change, pre-execution cancellation and shell exit release them. A
+  30-second deadline stops collection; cancellation allows 100 ms of cleanup,
+  then terminates the owned group. After a deadline an idle outer owner keeps
+  its identity, without collecting or polling, until the parent handles the
+  failure; it is not a daemon. Another same-account process can still kill or
+  alter supervisors. Without async support capture is synchronous; failures
+  use the ordinary fallback with no retry loop until explicit refresh.
+- **Residue.** Uncatchable interruption can leave an empty setup
+  directory/FIFO, the empty formatter directory or a public cache staging file;
+  no transport document body is ever a regular file.
 
 ### Public system performance cache
 
 All Compozsh performance caches use the configuration base's
-`.zsh.addons/support/cache/`. The sole current producer, `.zsh.manual`, writes
+`.zsh.addons/support/cache/` (following `${ZDOTDIR:-$HOME}`, never the project
+or the source peer's symlink target). The sole producer, `.zsh.manual`, writes
 `.zsh.manual.cache`, an empty `.zsh.manual.lock` and temporary
-`.zsh.manual.cache.*` files. Paths follow `${ZDOTDIR:-$HOME}`, never the project
-or the source peer's symlink target. No private/user/project facts or their
-fingerprints belong in this directory. Existing history, completion and recovery
-storage retain their separate purposes.
+`.zsh.manual.cache.*` files. No private, user or project facts or their
+fingerprints belong there; history, completion and recovery storage stay
+separate. Format, locking and digest mechanics are in [the
+producer contract](engineering/manual-cache.md).
 
-Eligibility is limited to discovered `/usr/share/man` pages whose entire resolved
-symlink/whole-page forwarding chain stays in that OS tree, with root-owned
-regular descriptors and no group/world write permission. This relies on Apple's
-protected system tree; ownership or a conventional path outside it is insufficient.
-Persistent capture also requires macOS and readable fixed OS-version metadata;
-other platforms retain uncached behavior rather than assuming the same provenance.
-Persist only relative system page IDs, NAME aliases and descriptions, never page
-bodies, custom documentation, discovery paths or selectors. The format/version
-key hashes only loaded owning implementation code, Zsh version, an accepted
-installed system locale and fixed OS-version-file metadata. `/usr/bin/shasum`
-receives that bounded public input through stdin in an empty environment with a
-fixed PATH. Its digest detects identity changes; it does not authenticate data.
+- **Eligibility.** Only discovered `/usr/share/man` pages whose whole resolved
+  symlink/`.so` forwarding chain stays in that OS tree, on root-owned regular
+  descriptors without group/world write. This relies on Apple's protected
+  system tree; ownership or a conventional path elsewhere is insufficient.
+  Persistence also requires macOS and readable fixed OS-version metadata;
+  other platforms stay uncached.
+- **Contents.** Only relative system page IDs, NAME aliases, descriptions and
+  a format/version key; never page bodies, custom documentation, discovery
+  paths, selectors or negative lookups. The inert format is bounded (4,096
+  records, 32 MiB; page IDs up to 512 characters, descriptions up to 240, at
+  most 16 aliases of 255 characters) and rejected before loading on controls,
+  NUL, truncation,
+  duplicates or malformed fields. It is never sourced or evaluated, bootstrap
+  discovery excludes the directory, and valid owner-controlled prose is still
+  untrusted advisory text, not executable identity, authorization or a target.
+- **Freshness.** The key is a `/usr/bin/shasum` digest, run in an empty
+  environment with a fixed PATH, of the owning implementation code, Zsh
+  version, an accepted installed locale and fixed OS-version-file metadata; it
+  detects identity changes but does not authenticate data. Capture still
+  discovers pages: removed pages disappear, new eligible pages extend the
+  cache, other documents stay memory-only, and unknown commands cause no
+  edit-time reads. In-place OS manual edits without an OS-version-file change
+  need `compozsh --refresh`, which requests fresh capture at the next TTY
+  prompt and replaces eligible results for future shells; refresh also
+  invalidates the help-description snapshot with the other in-memory caches.
+  Other open shells keep their snapshots until refreshed.
+- **Storage safety.** Ownership and POSIX modes without group/world write are
+  validated from the resolved configuration base through add-ons/support/cache;
+  directories are owner-only, and files must be regular, owner-only, singly
+  linked and not symlinks, checked with non-following/nonblocking opens and
+  descriptor checks. Extended ACLs are not inspected or removed, so these
+  checks neither authenticate the cache nor establish exclusive access under a
+  custom ACL, and they do not sandbox another process controlling the account
+  or ancestor replacement above the configuration base. Unsafe state
+  is refused, not repaired; missing, stale, corrupt or unwritable storage keeps
+  full uncached features.
+- **Publication and residue.** Same-directory atomic rename publishes complete
+  snapshots under a time-bounded kernel advisory lock; lock failure falls back
+  to uncached capture. The empty lock file can remain, and an uncatchable kill
+  can leave owner-only staging residue (handled failures remove it). The
+  snapshot persists until removal, refresh or replacement, and removed public
+  records may remain within its bound until replacement.
+- **Removal.** Deleting the cache directory removes every module's cache and
+  residue; later eligible capture recreates it. Git ignores generated caches.
+  Installers exclude source caches, preserve destination caches on normal
+  updates and archive them with the old add-on tree on `--clean`; uninstalling
+  that tree removes active caches, while recovery archives keep their own
+  retention. User-selected synchronized or network-mounted configuration
+  storage is an [external boundary](#external-synchronization); Compozsh adds
+  no cache service.
 
-Capture still discovers roots, sections and pages. Removed pages stop appearing,
-new eligible pages extend the cache, and all other documents use the full
-memory-only path. No negative lookup persists and unknown commands cause no
-edit-time reads. OS/locale/implementation identity changes invalidate the data;
-in-place OS manual edits without an OS-version-file change require
-`compozsh --refresh`. That command requests fresh capture at the next TTY prompt
-and replaces eligible results for future shells. Other open shells retain their
-snapshots until refreshed.
+Independently read `.zsh.manual`'s eligibility, key, load/store and capture
+helpers, `.zshrc`'s cache exclusion and `install.zsh`'s staging exclusion. Its
+fixtures exercise inert data, private-input exclusion, freshness, failures and
+concurrency.
 
-The inert version/key/count/record/END format is bounded to 4,096 records and
-32 MiB, with page IDs at most 512 characters, 16 simple aliases at most 255
-characters each and descriptions at most 240. Reject controls, NUL, truncation,
-duplicates and malformed fields before committing loaded maps. Never source or
-evaluate cache data; bootstrap discovery explicitly excludes the cache directory.
-Owner-controlled valid prose is still untrusted advisory text, not executable
-identity, authorization or an action target.
+### Pickers, matching and effects
 
-Storage validates ownership and POSIX mode bits excluding group/world write from the
-resolved configuration base through add-ons/support/cache. Cache directories
-have owner-only POSIX modes; files must be regular, have owner-only POSIX modes, be singly linked and
-not symlinks. Non-following/nonblocking opens and descriptor checks complement
-path checks. Extended ACL grants are not inspected or removed; these mode checks
-do not authenticate the cache or establish exclusive access under a custom ACL.
-They do not sandbox another process controlling the account, or
-ancestor replacement above the configuration base. Unsafe existing state is
-refused rather than repaired. Missing, stale, corrupt or unwritable storage
-retains full uncached features.
+**Matching.** The pure `matching_*` entries under `support/functions/` compile
+literal queries (keyword fragments in any order) and filter caller-supplied
+captured text into caller-local results. They read no provider, UI state,
+filesystem, command metadata or history and create no persistent cache or saved
+filter; feature collectors keep their ranking, duplicate policy and capture
+limits. Exclusion rejects candidates matching one case-insensitive literal
+phrase before result limits, without reading file contents. Query punctuation is
+literal, operators are never evaluated, and decimal result limits are checked
+before arithmetic. Both fields and their bookmarks are view-local. Refinement
+performs no discovery; exclusion-only filesystem/Git capture requires explicit
+submission and keeps the source bounds. Spotlight requires positive filename
+text and never falls back to a walk. Missing matching support selects
+native/plain fallbacks. In pickers, plain digits always edit a filter, including
+its first character; acceptance requires Enter or an explicit shortcut, and
+Option/Meta-digit shortcuts apply only a visible slot with both filters empty.
 
-Same-directory atomic rename publishes complete snapshots. Kernel advisory
-locks coordinate first builders and writes, with a ten-second acquisition bound;
-warm readers need no lock unless publishing additions. Lock failure falls back
-to uncached capture. Process exit releases the lock; the empty lock file can
-remain. Handled failures remove owned staging files, but an uncatchable kill can
-leave owner-only staging residue. The public snapshot remains until explicit
-removal, refresh or replacement; removed public records may remain within its
-bound until replacement. Delete the cache directory to remove every module's
-cache and residue; later eligible capture recreates it.
+**Effects.** The `compozsh_effect_*` entries own explicit clipboard writes and
+file Open/Reveal. Each receives the exact caller-selected value and captured
+executable path, checks executable availability, and rechecks an absolute file
+target before opening it. Clipboard payloads go to standard input literally,
+without an added newline; the helper reads no clipboard and keeps no payload
+after return. UI and result-model code never calls effects; callers dispatch
+only after screen cleanup, or directly for explicit commands such as `cpdir`.
+Without an effect entry, its workspace capability is omitted and direct
+requests fail safely. Loading and re-sourcing invoke no command and need no
+peer order.
 
-Git ignores generated caches. Installers exclude source caches, preserve existing
-destination caches on normal updates, and archive them with the old add-on tree
-on `--clean`. Removing that tree on uninstall removes active caches; recovery
-archives have their existing separate retention. User-selected synchronized or
-network-mounted configuration storage remains an external transfer boundary;
-Compozsh adds no transmission or cache service.
+**Path + Tab** captures immediate directory entries for a lone path or an
+explicit directory argument such as `vim ~/Developer`. The command prefix stays
+in invocation memory; insertion replaces that argument after screen cleanup
+without executing the command, and Escape and Copy preserve the draft. Browsing
+reads entry names and file-type metadata, never contents, and releases snapshots
+and prefix on return. Quoted or escaped leading tildes, including lone
+command-position paths, delegate to native completion, so quote removal cannot
+redirect a literal path to HOME. Inspect `.zsh.addons/.zsh.editor`.
 
-Audit without reading private configuration or real cache contents:
+### Bracketed paste
 
-```sh
-zsh tests/run.zsh 'manual cache'
-zsh tests/run.zsh 'cache data'
-zsh tests/run.zsh 'installer excludes generated'
-```
-
-Expected: all selected tests pass. Independently read `.zsh.manual`'s eligibility,
-key, load/store and capture helpers, `.zshrc`'s cache exclusion and `install.zsh`'s
-staging exclusion. Fixtures exercise inert data, private-input exclusion,
-freshness, failures and concurrency; they do not prove an OS protection boundary
-or defend a compromised account. See [the producer contract](engineering/manual-cache.md).
-
-Rows whose labels end in `TEXT`, including `ENDPOINT TEXT`, are sanitized,
-width-bounded excerpts from the literal editable buffer; they do not prove that
-a displayed path, endpoint, query, or operation resolves or exists. Context rows
-reuse the prior `precmd` capture. `PIPELINE` uses `FLOW`/`STAGES`, while `CHAIN`
-uses `FLOW`/`STEPS`/`CONTROL` as applicable to summarize literal `&&`, `||`, `;`,
-or `&` structure. `COMMENT` uses `COMMENT TEXT` and the advisory `likely remain
-an interactive shell comment`. `REDIRECT` selects `OUTPUT TEXT`, `INPUT TEXT`,
-`DESCRIPTOR TEXT`, or `RESOURCE TEXT` from the literal operator; no target is
-opened or validated during classification. Inferred `ACTION` text uses
-`likely`, `appears`, or `may`. Help-derived `ACTION` text instead names
-documented intent from the bounded same-source help capture described above.
-Neither is a prediction, authorization, validation, or completed effect.
-`CAUTION` recognizes only selected
-high-confidence forms: it is intentionally incomplete, does not block Return,
-and its absence is not evidence that a command is safe.
-
-The shipped `g` helper is interpreted as Git: bare `g` receives a local branch
-workspace cue, while `g --review`, `g --worktree`, and applicable help forms
-receive review, worktree, or help cues. This classification uses literal buffer
-structure and captured Git context; it does not call either `g` or Git.
-
-Before dynamic text enters a prompt-expanded string, control characters are
-sanitized and prompt-active syntax is escaped. Literal `%` is protected from
-prompt escape expansion; backslash, `$`, and backticks are additionally
-protected when `PROMPT_SUBST` is enabled, and literal `!` is preserved when
-`PROMPT_BANG` is enabled. This prevents prompt evaluation or rewriting without
-changing the real editor buffer. The public project-segment extension accepts
-only a `0`–`255` color index or a fixed basic Zsh color name; an invalid color
-falls back through the validated `tool` role or native text before it can enter
-prompt syntax.
-
-Leading assignment values are not copied into Interaction-lens presentation
-state, although their names may be used to find or describe the command. This
-avoids a second display of a potentially sensitive value; the value remains in
-the real editable buffer and can enter the transcript, process arguments and
-normal history if accepted. A `SUGGESTION` row reuses only a bounded visible
-prefix of editor-owned autosuggestion state matching the exact buffer. It does
-not initiate a history search or retain the unseen tail.
-
-A transcript repaint changes prompt decoration while ZLE retains the exact
-submitted command; it creates no separate Compozsh command store. The same
-receipt represents empty and whitespace-only submissions without changing
-their literal buffer, executing an extra command, or adding a history record.
-The active `LAST` row is replaceable shell-memory status for the latest command, including
-fast success. Command receipts, plus outcome receipts for failures and slow
-successes, become ordinary terminal display and terminal-owned scrollback.
-Compacting the decoration neither conceals nor removes submitted command text
-from the terminal or normal Zsh history.
-
-The `support/` folder groups maintained implementations shipped in both
-installation modes. Its shell files follow ordinary recursive peer discovery;
-the folder adds no loader privilege, load phase, data storage or enforced
-read-only permissions. Personal customization uses documented public settings
-in the machine-local initializer, preserving the managed implementations.
-
-The [peer configuration laws](engineering/architecture.md#peer-configuration-algebra) concern
-equivalent configured behavior after loading the same peers under the same
-prerequisites. They confer no sandbox or permission to replay effects. Sourcing
-configuration changes shell memory, and sourcing `.zshrc` again can rerun the
-optional private initializer. Runtime capture, painting and actions retain the
-effect boundaries and data lifetimes documented here. Native regression tests
-exercise order convergence and re-sourcing; the website's algebraic model is an
-illustration, not evidence that arbitrary add-ons are safe or effect-free.
-
-The `support/ui/` peers own reusable terminal views, input, painting and
-screen restoration. Frames derive from captured facts; layout and resize perform no
-provider discovery. View configuration is scoped around the feature callback,
-with caller-owned snapshots and operation/bookmark outputs. Disclosure navigation
-uses only those captured capabilities. Focus-responsive panes rewrap existing
-text and retain a bounded source-row map for reading
-continuity; they perform no additional capture, execute no action and retain no
-copy of the user's shell draft beyond the existing screen-restoration state.
-Explicit capture and input-idle hooks remain effectful and retain their existing limits; final
-actions remain feature-owned. Callback names come from trusted feature code,
-never labels or project data. Repeated semantic styles are calculated once per
-surface and role during each paint, then discarded; the next paint reads current
-palette overrides. Secondary menus and notices scope their own labels and
-capabilities while returning exact action values to the caller. This adds no
-registry, persistent storage or shared background process. A feature may use an
-explicitly documented, bounded input-idle child for one screen session; the Git
-review transports and the optional resident system-Vim syntax helper use this
-screen-scoped lifetime. Run `zsh tests/run.zsh UI` and
-`zsh tests/run.zsh 'picker screen'` for view isolation, optional-peer behavior
-and native ZLE cleanup contracts.
-
-Plain digits always edit a picker filter, including its first character;
-acceptance requires Enter or an applicable explicit shortcut. Option/Meta-digit
-shortcuts apply only a visible list slot with both filters empty. Verify with
-`zsh tests/run.zsh 'numeric'` and
-`zsh tests/run.zsh 'detail panels preserve native'`; these cover literal issue
-IDs, explicit slot acceptance, branch switching and terminal cleanup in
-disposable fixtures. The local branch catalog includes names absent from the
-bounded checkout reflog; `zsh tests/run.zsh 'absent from the reflog'` verifies
-that coverage without any remote discovery.
-
-The branch fallback reads `git remote` names and `for-each-ref refs/remotes/`
-through the same local-only provider controls. These names are locally known
-remote-tracking refs, not a server result or freshness guarantee. A missing
-branch requires an explicit user-run `g fetch <remote>` before reopening `g`;
-typing, selection, confirmation and creation never initiate a fetch. The final
-`git switch --track=direct --create` revalidates the selected ref's locally
-available commit and refuses a moved/deleted tip or an existing local branch.
-Git transport and lazy fetching are disabled, as is submodule recursion.
-As with ordinary explicit Git switching, configured checkout filters and
-post-checkout hooks remain external programs with their own effects and
-network behavior; this workflow does not sandbox those programs. Git can fail
-after some native checkout work, so inspect its diagnostic and repository
-state before retrying; no automatic rollback or cleanup is attempted.
-`zsh tests/run.zsh 'branch remote'` checks local-first matching, exact upstream
-choice, default-Back confirmation, independent review-peer availability,
-post-cleanup switching, snapshot cleanup, changed/deleted refs and conflicting
-local-file preservation using disposable local repositories. It contacts no
-remote server and does not establish server freshness or atomicity against
-concurrent ref/configuration changes after validation.
+Once a bracketed-paste opening prefix is recognized, the shared picker keeps
+input ownership through the closing marker. A stalled or oversized paste is
+discarded in the existing screen, keeping only a bounded marker suffix during
+recovery; Enter, cancellation bytes and handled SIGINT cannot release a delayed
+payload into the command buffer. The modal screen owns SIGINT abort through
+terminal cleanup and restores prior function, static or ignored handlers on
+return; recovery temporarily intercepts SIGINT in that scope while resize
+handling stays active. If the terminal omits the closing marker, the recovery
+screen tells the user to press Escape and type `[201~`, after which normal
+cancellation resumes; a closed input stream exits recovery without a busy retry
+loop. The ordinary short Escape-key window applies before a paste prefix is
+recognized, and complete non-paste CSI keys consume a bounded suffix (at most 32
+characters after `ESC [ 2`) without entering recovery. Recovery also pauses
+enclosing Git result consumption and live log draining; retained data stays
+bounded, and a timed-out Git check is reported when normal input resumes. See
+[Keyboard and ZLE](engineering/keyboard-zle.md).
 
 ### Job lifecycle
 
 The optional syntax helper uses a private system-Vim child and mode-600 FIFOs
 inside a mode-700 temporary directory. Captured source travels through those
 pipes, not regular temporary source files. On timeout or screen exit, cleanup
-closes descriptors, kills/reaps the owned child when still live, retires its
+closes descriptors, kills and reaps the owned child when still live, retires its
 completed shell-job record, and removes the transport paths. It does not signal
 unrelated running or suspended jobs or detach a live helper.
 
 Zsh 5.9's `wait` and `jobs` builtins scan prior completed records when `NOTIFY`
 is off, even with an exact operand. Cleanup therefore uses a narrowly scoped
 `MONITOR`-off, `NOTIFY`-on section and restores caller options afterward. This
-avoids that broad scan and retains already-pending unrelated completion
-records. An unrelated job that newly finishes during this short section can
-still have its completion notification retired by native Zsh handling; this
-is not a guarantee of preserving every concurrent notification. See the
-[native implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/jobs.c)
-and run `zsh tests/run.zsh 'job lifecycle'` for the isolated regressions.
+avoids that broad scan and keeps already-pending unrelated completion records.
+**Limitation:** an unrelated job that newly finishes during this short section
+can still have its completion notification retired by native Zsh handling;
+preserving every concurrent notification is not guaranteed. See the [native
+implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/jobs.c).
 
 Prompt capture only reads native job states: running and suspended jobs count;
 completed records do not. It never lists, waits for, or acknowledges jobs to
 update the indicator. `jobs -l` can report a previously killed process and
 acknowledge that completed record; listing it does not kill the process.
 
-The pure `matching_*` entries under `support/functions/` compile literal queries
-and filter caller-supplied captured text. Generic keyword search accepts
-fragments in any order and returns indexes into the supplied candidates.
-Caller-local outputs are the only results: matching reads no provider, UI state,
-filesystem, command metadata or history, and creates no persistent cache.
-Feature collectors retain their documented
-ranking, duplicate policy and capture limits. Exclusion compiles one
-case-insensitive literal phrase and rejects matching candidates before result
-limits. It reads no file contents, creates no saved filter, and never evaluates
-query operators. Both input fields and their navigation bookmarks remain local
-to the view. Refinement performs no discovery; exclusion-only filesystem/Git
-capture requires explicit submission and retains the existing source bounds.
-Spotlight requires positive filename text and never falls back to a walk.
-Query punctuation is literal;
-decimal result limits are checked before arithmetic. Run
-`zsh tests/run.zsh exclusion` and `zsh tests/run.zsh 'matching component'`
-for two-field input, native restoration, query, Unicode, limit and isolation
-contracts. Missing matching support selects existing native/plain fallbacks.
+Xcode device console polling recognizes suspended jobs without blocking on
+them, and cleanup preserves failures after resuming a stopped child. If Zsh
+cannot distinguish an exit status of 127 from a missing cached status after
+suspension, cleanup conservatively keeps the earlier nonzero stop status. Other
+owned children (Git review worker, manual capture supervisors, Xcode discovery
+supervisor and Run observer) are stopped and reaped as their sections describe.
 
-The `compozsh_effect_*` entries under `support/functions/` own explicit clipboard
-writes and file Open/Reveal actions. Each receives the exact caller-selected value
-and captured executable path, checks executable availability, and rechecks the
-absolute file target before opening it. Clipboard payloads are supplied as
-literal standard input without an added newline; the helper reads no clipboard
-contents and retains no payload after return. UI and result-model calculations
-never call these effects. Feature callers dispatch only after screen cleanup
-(or directly for explicit commands such as `cpdir`). Without the corresponding
-effect entry, its workspace capability is omitted and direct requests fail safely. Source-time
-loading and re-sourcing invoke no commands and require no peer load order.
-Run `zsh tests/run.zsh 'shared effects'` for synthetic executable/target checks
-and `zsh tests/run.zsh 'shared data'` for literal, provider-free selection and
-presentation checks. These tests use disposable files and stand-ins; they do
-not establish macOS application behavior or prevent OS clipboard synchronization.
+### Git review and branches
 
-Shared callable files declare one first entry point and keep exclusive helpers
-below it. `pure` denotes calculation from supplied inputs with caller-local
-return values; `impure` includes external reads and mutable shared-state access,
-as well as writes and process execution. UI components have their own prefix.
-These filenames aid review; they do not sandbox a function or prove that
-arbitrary input is safe. Palette setup and UI state are configuration peers.
+**File review.** All files, Tree, Jump to ancestor and the Change atlas derive
+every view, folder summary, count and filter result from the captured Git list
+and existing commit/comparison numstat facts (summaries for retained result rows
+only), including deleted prefixes and distinct staged/unstaged entries.
+Navigation, folding, scope changes and filtering (including hidden descendants)
+perform no provider read or directory enumeration, and folders request no diff
+or syntax data. Opening a file uses the bounded diff providers and safety
+checks, including the failed-preparation block on uncached reads. Filtered or
+partial coverage, scope and refresh limits stay visible. Wrapped path displays
+are presentation, with no redaction guarantee or clipboard action. Refresh
+reconciles navigation with the new list, keeps the file bookmark as its target,
+and invalidates bookmarks whose numeric identities belonged to the old list. The
+atlas keeps the original numeric file/change-kind identities and
+commit/comparison IDs, stops pending Working changes refresh work until return,
+and its nested Back returns to the previous filter/selection and review
+position. Working files may change after capture; no view promises an atomic
+snapshot. See [Git workspaces](engineering/workspaces/git.md).
 
-Path + Tab can capture immediate directory entries from a lone path or an
-explicit directory argument such as `vim ~/Developer`. The editor retains the
-command prefix only in invocation-local memory; insertion replaces that
-argument after screen cleanup, without executing the command. Escape and Copy
-preserve the draft. Browsing reads entry names and file-type metadata, never
-file contents; snapshots and the retained prefix are released on return.
-Quoted or escaped leading tildes delegate to native completion, including lone
-command-position paths, so quote removal cannot redirect a literal path to HOME.
-Inspect `.zsh.addons/.zsh.editor` and run `zsh tests/run.zsh 'directory argument'`
-to verify insertion, quoting, cancellation, clipboard dispatch and native file
-completion in isolated fixtures. These checks do not establish availability
-or latency for arbitrary mounted filesystems.
+**Confirmations.** Action cards, their captured target/plan columns and Xcode
+configuration-return bookmarks add no provider or execution boundary.
+`g --discard-all` prints complete captured status before confirmation and may
+add a scoped native confirmation screen with at most 32,768 status characters
+in its inspector. Only literal `y` or `Y` confirms; empty Return and
+cancellation refuse. Screen restoration precedes the revalidation and writes
+described under [Local-only Git controls](#local-only-git-controls); plain and
+missing-UI confirmation remains. No new privilege, network path, persistence,
+automatic action or rollback claim is introduced.
 
-After recognizing a bracketed-paste opening prefix, the shared picker retains
-input ownership through the closing marker. A stalled or oversized paste is
-discarded in the existing screen, keeping only a bounded marker suffix during
-recovery. Enter, cancellation bytes and handled SIGINT cannot release a delayed
-payload into the ordinary command buffer. The modal screen owns SIGINT abort
-through terminal cleanup and restores prior function, static or ignored handlers
-on return. Paste recovery temporarily intercepts SIGINT within that scope;
-resize handling remains active. If the terminal omits the closing marker, the
-recovery screen tells the user to press Escape and type `[201~`; normal
-cancellation resumes afterward.
-A closed input stream exits recovery without a busy retry loop. The ordinary
-short Escape-key recognition window remains in force before a paste prefix is
-recognized. Complete non-paste CSI keys consume their bounded suffix without
-entering paste recovery; suffix parsing retains at most 32 characters after
-the initial `ESC [ 2`. Run `zsh tests/run.zsh 'picker nonpaste CSI'` and
-`zsh tests/run.zsh 'picker interrupted paste'` for isolated
-payload limits, split markers, EOF, signal, guide and filter-state checks.
+**Branches.** The local catalog includes names absent from the bounded checkout
+reflog. When nothing local matches, the fallback reads `git remote` names and
+`for-each-ref refs/remotes/` through the same local-only provider controls,
+and further unmatched filters reuse that snapshot.
+These are locally known remote-tracking refs, not a server result or freshness
+guarantee: a missing branch requires an explicit user-run `g fetch <remote>`
+before reopening `g`, and typing, selection, confirmation and creation never
+fetch. Confirmation shows the exact source and new local branch and defaults to
+Back. After terminal cleanup, a non-forcing
+`git switch --track=direct --create` revalidates
+the selected ref's locally available commit and refuses a moved or deleted tip
+or an existing local branch, with transport, lazy fetching and submodule
+recursion disabled. As with any explicit Git switch, configured checkout
+filters and post-checkout hooks remain external programs with their own effects
+and network behavior, unsandboxed by this workflow. Git can fail after partial
+checkout work; inspect its diagnostic and the repository before retrying, as no
+automatic rollback or cleanup is attempted.
 
-These are local process, filesystem, agent-directory, and operating-system
-clipboard interfaces on the machine running Compozsh. A user can independently
-configure a history, configuration, temporary, or agent directory on a synced
-or network-mounted filesystem. macOS can also synchronize its clipboard when
-the user enables that operating-system feature. Compozsh does not configure,
-detect, start, or control either form of synchronization. Users who require
-physical single-machine retention must choose local, nonsynchronized paths and
-disable operating-system clipboard synchronization or avoid Copy actions.
+### Git worktrees
+
+**Reads.** The workspace reads local refs, commit IDs, registered paths and
+flags, directory identities, and explicitly browsed parent-folder names.
+Removal also reads operation markers, tracked-tree modes, index flags and
+status including ignored and untracked names (Git may read working file
+contents for status); creation reads the selected committed tree to check for
+submodules; moving reads operation markers and committed-tree modes and
+validates source/destination directory identities without scanning contents.
+Captures stay in invocation memory, bounded to 256 KiB each and 1,000
+worktrees, branches or child folders per catalog; failed or oversized safety
+captures refuse the action. Compozsh writes no worktree catalog or navigation
+history. Git may take longer than these output bounds suggest on slow storage.
+
+**Git policy.** Every workspace Git call disables transport, lazy fetch, hooks,
+fsmonitor, automatic maintenance, optional index writes and submodule
+recursion, and explicit roots override inherited Git
+directory/index/object/namespace selectors. Entering a worktree changes this
+shell's directory and can run independently owned user `chpwd` hooks.
+
+**Create** writes the chosen new folder and native Git refs/registration; the
+installed Git and the user's umask govern checkout ownership and modes.
+`git rev-parse --path-format=absolute --git-common-dir` resolves the metadata
+base: registrations live under its `worktrees/<id>` directory, and branches in
+the repository's native reference storage. No ignored/private files are copied
+from another checkout and no access controls change. Configured
+clean/smudge/process filters or required-filter settings, including globally
+configured Git LFS even where a checkout might not use it, are refused rather
+than invoked or disabled; submodule checkouts are refused. Creation runs
+`worktree add --no-checkout`, rechecks effective configuration in the new
+branch/directory (covering conditional includes absent from the source), then
+populates the complete committed tree with a non-forcing
+`read-tree -m -u --no-sparse-checkout`. Refusal at that stage leaves the branch
+and registered empty folder for inspection; no filter runs.
+
+**Move / rename** calls native `git worktree move` after review of the exact
+source and destination; tracked edits, untracked and ignored files travel with
+the folder, its registration is updated and the branch is kept. The destination
+must be absent and on the same filesystem; main/current, locked, missing,
+in-progress and submodule checkouts are refused. Moving runs no checkout or
+filter, copies no file, changes no privilege and leaves the shell's directory
+unchanged.
+
+**Remove** deletes only the confirmed registered linked checkout and keeps its
+branch. It refuses main/current, locked, missing or detached worktrees,
+in-progress operations, changes, untracked or ignored files, submodules,
+sparse/unmerged indexes and assume-unchanged flags. The removal chooser filters
+the captured catalog and reads file status only for the selected target, sharing
+confirmation and validation with selected-worktree options. Repository and
+directory identities, branch/commit and safety checks are revalidated after
+screen restoration. No force, branch deletion, automatic stash, recursive shell
+deletion or rollback is used; there is no Undo.
+
+**Limitations.** Validation followed by Git is not an atomic filesystem
+transaction: concurrent writers or path replacement can change a move or
+removal outcome, so stop other writers first. Git errors keep their status. A
+failed move can leave location and registration partially updated; an
+interrupted or failed creation can leave a branch, registration or partial
+folder. Inspect `git worktree list`, `git branch` and the exact paths before
+retrying; Compozsh performs no automatic rollback or residue deletion. A failed
+directory change after creation preserves the checkout. Removing Compozsh
+leaves created worktrees and branches intact.
+
+### Xcode capture, Run and logs
+
+Interaction details are specified in [the Xcode
+workspace contract](engineering/workspaces/xcode.md).
+
+**Captures.** Provider stdout keeps at most `ZSH_XCODE_CAPTURE_MAX_BYTES`
+(262,144 by default, minimum 4,096) and diagnostics at most 8,192 bytes,
+enforced while the command runs, including bytes in temporary files; readers
+hold one 8-KiB chunk while discarding excess. Two-byte completion records
+identify finished synchronous streams; incomplete captures and stdout overflow
+are rejected unparsed. Streams stay separate, the native status is kept within
+the limit, and byte bounds impose no duration limit. Cleanup removes the private
+capture directory. **Scheme and destination discovery** streams through three
+mode-0600 FIFOs in a mode-0700 directory into the same budgets, writing only an
+atomically published exit-status record of at most four bytes. After exit,
+queued output is consumed without waiting for inherited writers, and at most
+eight 8-KiB chunks per stream per poll keep a busy provider from monopolizing
+input. A supervisor keeps the provider group's identity until cleanup; owned
+child state is checked before signaling the group, the supervisor is then
+reaped, and completion, Escape and Ctrl-C remove the FIFOs and record. Discovery reads no terminal stdin and never starts during paint or
+resize; its loading label is view-scoped, and later captures keep their own
+status and cancellation guidance. Snapshots and selections stay bounded to four
+schemes in the open workspace; canceled or removed destinations never become
+implicit selections.
+
+**Tests.** Test and Rebuild & Test use a transient result bundle with verbose
+test diagnostics disabled; Xcode can still store test-authored attachments and
+logs there. Compozsh reads only size-bounded summary/detail JSON and source
+locations, never attachments or source files, rejects a symlinked bundle, and
+deletes the whole bundle before showing results. An uncatchable termination can
+leave it under the identifiable `compozsh-xcode-test.*` temporary directory.
+
+**Run targets.** Build & Run and Rebuild & Run keep the captured destination's
+platform, device ID, architecture and variant. Build settings are bounded to 100
+targets; product paths and validated bundle identifiers stay in invocation
+memory. Several qualifying products require an explicit choice, no filesystem
+search infers one, and a symlink leaf or vanished product is rejected before
+handoff, not atomically. A Mac app opens as a new instance through native
+`open`, with the chosen architecture and no process monitor; a command-line
+product runs in the restored terminal with native output and status. App code
+has its own access and network behavior.
+
+**Physical devices.** `devicectl` receives the selected app and device ID and
+reaches that device over its configured wired or wireless connection, an
+independent tool boundary like explicit Git transport. Installation replaces the
+installed copy and launch replaces the running instance, with the captured
+architecture. Compozsh adds no network client, endpoint, broad device scan,
+automatic connection policy, provisioning update or device log file;
+pairing/trust, Developer Mode, signing and provisioning stay with Xcode and the
+user. A failed build or installation prevents launch; a failed launch does not
+undo installation. `--console` owns stdout, waiting and catchable signal
+forwarding. Monitoring sends the owned child's output to a private FIFO and the
+bounded reader without bridging stdin; plain fallback keeps the native console
+and scrollback. Stop restores the screen, signals the still-owned child, drains
+for at most one second, then forces exit with a notice to check the device; a
+forced console end cannot guarantee that the app stopped. The child is reaped
+and its FIFO/directory removed; an uncatchable termination can leave a
+`compozsh-xcode-device.*` directory whose FIFO holds no log. Console messages
+may contain sensitive app values.
+
+**Simulators.** Run reads only the selected device's `SIMULATOR_ARCHS`,
+`SIMULATOR_RUNTIME_VERSION` and `SIMULATOR_SHARED_RESOURCES_DIRECTORY` through
+bounded `simctl getenv` captures. A captured architecture is requested at boot
+and passed explicitly to runtime 26 and newer; older runtimes must report only
+that architecture. Missing, malformed, incompatible or ambiguous output stops
+before the viewer, installation or launch, and a running Simulator is never
+shut down to change architecture. The data directory must be a normalized
+absolute control-free path whose `tmp` child exists, without symlink leaves; a
+fresh mode-0700 `data/tmp/compozsh-xcode-run.*` holds two mode-0600 FIFOs that
+the app reaches as `/tmp/compozsh-xcode-run.*/output`, a path `simctl`
+resolves in the device's data filesystem, and cleanup reuses the
+captured host path. `--terminate-running-process` replaces the running bundle
+and binds its new process to this run's output FIFO;
+`SIMCTL_CHILD_NSUnbufferedIO=YES` affects only that child, not the shell or log
+privacy. Launch metadata uses the temporary capture boundary; app output never
+serves as a PID or command. `ps` reads the launch-returned PID's user, start
+time and executable identity, rechecked before attaching or stopping; this
+cannot be atomic against exit or replacement. The window opens through the
+explicit Device Hub or Simulator bundle of the Xcode chosen by
+`xcode-select --print-path` (honoring `DEVELOPER_DIR`); Device Hub receives a
+local `devices:///manage/select` URL with only the validated device ID, so
+another app's URL registration cannot choose the viewer, and a failed open
+prevents installation and launch. Apple's viewer is an explicit
+external-application boundary.
+
+**Unified logs.** `xcrun simctl spawn` runs the device's
+`log stream --level debug --style compact --color none` with a native predicate
+matching `processImagePath` to the installed `CFBundleExecutable` path, so
+filtering happens before records reach Compozsh. In-app framework records are
+included; helpers and extensions with other executables are excluded; another
+launch of the same executable can match. The observer starts before launch
+with a bounded readiness wait, but native drops and startup races prevent
+exhaustive capture; records can appear in both sources, and merged order is not
+timestamp order. Only the log child gets `LOGRC=/dev/null`, so personal
+`.logrc` rules cannot broaden capture. Compozsh never enables private-data
+logging or changes log privacy settings, and native behavior is no redaction
+guarantee: a disposable iOS 27 Simulator exposed a probe's synthetic `.private`
+payload by default. Captured logs may therefore contain sensitive app data,
+including values marked private, a limit distinct from Compozsh's local,
+ephemeral handling. Compozsh writes no app-output log and does not control the
+Simulator's own log retention.
+
+**Reading and copying logs.** The input loop drains at most 32 KiB per idle
+turn, fairly across sources, sanitizing display; Read wraps at most 20,000 rows.
+A noisy app can see temporary pipe backpressure. A failed source is disclosed
+and stops while the other continues; a closed pipe does not mean the app exited.
+Read is a full-width view of the retained tail. Search, exclusion, severity
+view, counts, formatting and copies derive only from the displayed snapshot,
+without new log discovery, while the run keeps draining; following, pausing,
+filters and bookmark persist for the run, and Options and the guide hold
+displayed text while capture continues. Matching keeps source order and
+duplicates; display controls are sanitized while filters and copies keep raw
+lines and metadata. Message words never set severity, and Error/Fault counters
+cover recognized native records, filtered ones included, without establishing
+app health. Copy all, Copy filtered and Ctrl-Y copy complete matching raw lines,
+including offscreen text, without labels or wrapping, but not the run's whole
+history; empty output has no Copy action. Options freezes its scope, direct
+Ctrl-Y uses the current displayed capture, and acceptance freezes the payload
+without fetching newer output. The captured `pbcopy` path is rechecked and
+invoked only after screen restoration, without reading the clipboard; Run
+reopens with feedback while the app continues, and a clipboard failure makes the
+final status nonzero. Copies may contain the sensitive values above and outlive
+the run, including through [clipboard
+synchronization](#external-synchronization).
+
+**LLDB and cleanup.** Enter LLDB gives the restored terminal to the
+Xcode-selected debugger for that PID with automatic `.lldbinit` and
+symbol-script loading disabled; LLDB may read the app's memory, symbols and
+source, and its commands, macOS authorization and the app are separate trust
+boundaries. Colors use only fixed native settings and validated numeric palette
+values for this invocation: no debugger configuration or color plugin, no
+interpretation of app output or input, and `NO_COLOR` or non-color output
+disables them without relaxing the autoload protections. Nothing elevates
+privileges or changes signing. The log observer lives only within the run and
+is stopped and reaped before LLDB and on cleanup: each signal revalidates the
+owned child, a suspended child is resumed for termination, and an observer
+still alive after one second of bounded draining is killed and reaped without
+masking the app's or debugger's status. During LLDB a temporary Zsh child
+discards app output so the app does not block. LLDB exit, Stop, Escape and
+handled errors stop the still-identical app, reap children, close descriptors
+and remove the FIFOs and directory. A changed or unavailable identity prevents
+termination and reports a failure telling the user to check or stop the app in
+Simulator, which does not prove the app is alive; failed stops are reported.
+An uncatchable termination can leave an app, observer, drainer or pipe
+directory; Simulator can stop the app, and there is no recovery log to retrieve
+or uninstall.
+
+**Apple skill export.** `xcode --export-skills` detects local coding-agent
+installations and the selected exporter. With interactive UI it first shows
+destination and exporter paths in a scoped plan (context bounded to 32,768
+characters, truncation disclosed) before staging; Escape writes nothing, and
+Export skills closes the screen before exporting and installing each skill.
+Noninteractive, dumb and missing-UI calls run immediately. The plan is not a
+dry run or transaction: personal conflicts stay preserved, and a later failure
+can leave earlier skills updated. Rendering performs no provider read, project
+discovery or private skill-directory scan; mode help is inert. Inspect
+`.zsh.addons/.zsh.xcode`.
+
+### External devices and task routing
+
+Bare `external-device` presents two fixed task choices without reading disks or
+images; choosing one closes that screen before its normal scoped capture. USB
+review and the flash and format modes keep their separate exact-device
+confirmations ([Administrator boundary](#administrator-boundary)). Shared pure
+USB readers validate supplied SHA/CRC text and native progress records without
+consulting caller-local variables or reading devices; raw and Windows execution
+share digest validation, while media-specific preflight, checksum requirements
+and final verification stay with their effect owners. Installer candidate
+labels reuse captured metadata, but action-time identity checks acquire fresh
+observations. USB and Xcode scalar extraction share one fixed `/usr/bin/plutil`
+invocation over supplied document text, without provider discovery or
+persistent state. Xcode child/failure counts and display-span offsets are
+validated as bounded decimal text before arithmetic (offsets use local
+whitespace splitting), without reading or modifying caller variables; missing
+count support keeps neutral results within the existing traversal and
+retained-failure limits. Inspect
+`.zsh.addons/.zsh.usb`, `.zsh.addons/.zsh.help`, `.zsh.addons/.zsh.tools` and
+`.zsh.addons/.zsh.xcode`.
+
+### Installer backups and temporary residue
 
 The installer never prints the contents of an old `.zshrc` or private add-on,
 but a recovery backup can contain secrets that were already present there.
 Protect and eventually archive or remove those backups according to your own
-retention policy. Compozsh deliberately does not delete them automatically.
-An uncatchable process termination or system failure can also leave a temporary
+retention policy; Compozsh deliberately does not delete them automatically.
+
+An uncatchable process termination or system failure can leave a temporary
 capture behind; its validated `compozsh-*` name makes it identifiable in
 `${TMPDIR:-/tmp}`. For Git review this can be an empty mode-0700
 `compozsh-review.*` directory containing its mode-0600 FIFO; provider output is
 streamed through pipes and is not persisted there. Normal exit removes both;
 after an uncatchable termination, the user may inspect and remove the
-identifiable directory under their own temporary directory.
+identifiable directory. Other feature-specific residue (manual transport and
+formatter directories, cache staging files, Xcode test bundles, device and
+Simulator run directories, interrupted worktree creation, and Touch ID policy
+temporaries) is disclosed in its own section.
 
-Xcode provider captures enforce their stdout and diagnostic limits while the
-command runs, including bytes retained in temporary files. Stdout retains at
-most `ZSH_XCODE_CAPTURE_MAX_BYTES` bytes (262,144 by default, minimum 4,096);
-diagnostics retain at most 8,192 bytes. Synchronous captures use two completion
-records, each two bytes long, to identify successfully finished stream capture.
-An incomplete capture is rejected. Each stream reader holds at most one 8-KiB chunk while draining excess data without
-retaining it. Stdout overflow is rejected without parsing a partial response.
-The capture keeps stdout and stderr separate and preserves the native command
-status for output within the stdout limit. These byte bounds do not impose a
-command-duration limit. Normal and handled-error cleanup removes the private
-capture directory.
+### External synchronization
 
-Interactive scheme and destination discovery uses three private mode-0600
-FIFOs in a mode-0700 temporary directory. Stdout and stderr stream into the same
-bounded in-memory budgets; only an atomically published native exit-status
-record of at most four bytes is written to disk. After the provider exits,
-capture consumes its queued output without waiting for inherited writers to
-close. The shared input loop drains at most eight 8-KiB chunks per stream per
-poll, so a busy provider cannot monopolize keyboard handling. A supervisor
-retains the provider process group's identity until cleanup; Compozsh checks
-its owned child state before signaling that group and then reaps the supervisor.
-Normal completion, Escape and Ctrl-C remove the FIFOs and completion record.
-The loading label is scoped to the discovery view; later task captures retain
-their own status and cancellation guidance. Run
-`zsh tests/run.zsh 'Xcode discovery'` for isolated completion, cancellation,
-stream limits, owned-process cleanup and subsequent Files status checks.
-Discovery reads no terminal stdin. No provider starts during paint or resize,
-and successful parsed destination snapshots and explicit selections remain
-bounded to four schemes in the current workspace. Closing the workspace releases
-them; canceled choices and removed destinations never become implicit selections.
+The locations above are local process, filesystem, agent-directory, and
+operating-system clipboard interfaces on the machine running Compozsh. A user
+can independently configure a history, configuration, temporary, or agent
+directory on a synced or network-mounted filesystem. macOS can also synchronize
+its clipboard when the user enables that operating-system feature. Compozsh does
+not configure, detect, start, or control either form of synchronization. Users
+who require physical single-machine retention must choose local,
+nonsynchronized paths and disable
+operating-system clipboard synchronization
+or avoid Copy actions.
 
-The Xcode dashboard's Test and Rebuild & Test actions ask Xcode to create a
-transient result bundle while disabling verbose test-diagnostic collection.
-Xcode can still put test-authored attachments and logs in that bundle. Compozsh
-reads only size-bounded summary/detail JSON and structured source locations,
-never those attachments or source files, rejects a symlink substituted for the
-result bundle, and removes the complete bundle before opening the result view.
-An uncatchable termination can leave the local bundle behind under the
-identifiable `compozsh-xcode-test.*` temporary directory.
-
-Build & Run and Rebuild & Run preserve the captured destination's platform,
-device ID, architecture and variant. A bounded build-settings capture reports
-at most 100 targets; runnable product paths and validated bundle identifiers
-stay in invocation memory. When several products qualify, an explicit Run
-product view selects the exact product. Cancellation launches nothing; no
-filesystem search infers a different product. A symlink leaf or a disappeared
-chosen product is rejected before handoff, without claiming atomic protection
-against concurrent filesystem changes.
-
-Mac Run opens a new instance of the exact built application through native
-`open`, or runs a built command-line product in the restored terminal. App
-launch returns without retaining a process monitor; the app remains under the
-user's control. Command-line products retain native output and exit status.
-The chosen architecture also reaches the native launcher. Application code
-has its own independently controlled access and network behavior.
-
-Physical-device Run explicitly hands the selected app and device ID to Apple's
-`devicectl` for installation and console launch. This native tool communicates
-with the exact user-selected device over its already configured wired or
-wireless connection, as an independently controlled tool boundary analogous to
-explicit Git transport. Compozsh creates no network client, endpoint, broad
-device scan, automatic connection policy or physical-device log file. Device
-pairing/trust, Developer Mode, signing and provisioning stay under Xcode and
-user control. No provisioning updates are enabled. Installation replaces that
-app's installed copy; launch replaces its running instance. `--console` owns
-stdout, waiting and catchable signal forwarding. A failed build or installation
-prevents launch; a failed launch does not roll installation back. Native console
-messages may contain sensitive app values. Interactive monitoring redirects the
-owned console child's stdout/stderr to a private temporary FIFO and the same
-bounded in-memory reader used by Simulator; stdin is not bridged from the UI.
-Plain fallback retains the native foreground console and terminal scrollback.
-Stop restores the screen before signaling the still-owned child, drains while
-waiting at most one second, then forces an unresponsive child to exit with an
-explicit notice to check the app on the device. The native tool forwards
-catchable termination; a forcibly ended console cannot guarantee the app stopped.
-The child is reaped and its FIFO/directory removed. An uncatchable termination
-can leave a `compozsh-xcode-device.*` directory, but its FIFO stores no log file.
-The captured architecture is passed to the native device launcher.
-
-For a Simulator destination with a captured architecture, Run requests that
-architecture at boot, then reads only the exact device's `SIMULATOR_ARCHS`
-and `SIMULATOR_RUNTIME_VERSION` through bounded `simctl getenv` captures.
-Version 26 and newer runtimes receive an explicit launch architecture; older
-runtimes must report only the selected architecture. Missing, malformed,
-incompatible or ambiguous output stops before the viewer opens or installation
-and launch occur. Compozsh does not shut down an already-running Simulator to
-change its architecture; the user controls that recovery.
-
-Simulator Build & Run and Rebuild & Run ask only the exact selected device for
-`SIMULATOR_SHARED_RESOURCES_DIRECTORY` through a bounded `simctl getenv`
-capture. The returned data directory must be a normalized absolute path without
-control characters; it and its `tmp` child must exist and have no symlink leaf.
-A fresh mode-0700
-`data/tmp/compozsh-xcode-run.*` directory contains two mode-0600 FIFOs.
-Launch receives the corresponding Simulator path `/tmp/compozsh-xcode-run.*/output`;
-`simctl` interprets redirection paths within that device's data filesystem.
-Cleanup uses the captured host directory without another provider read.
-Launch uses `--terminate-running-process` to replace the already-running
-selected bundle and bind its new process to this run's stdout/stderr FIFO.
-`SIMCTL_CHILD_NSUnbufferedIO=YES` requests unbuffered output in that child;
-it does not change the parent shell's environment or native log privacy settings.
-The second FIFO carries native unified logs from the selected Simulator.
-Both sources remain in kernel pipes and bounded shell memory until an explicit
-log Copy action writes retained matching text to the clipboard. Compozsh does
-not write app output to a log file. These bounds apply to Compozsh's copies;
-it does not control the Simulator's own log retention. Launch metadata uses
-the existing temporary Xcode capture boundary; app output never
-serves as a PID or command. App identity checks use `ps` to read the
-launch-returned PID's user, start time and executable identity. Those facts are
-checked again immediately before attachment or stopping the exact Simulator
-bundle. The observation and
-action cannot be atomic against concurrent process exit or replacement.
-
-Read output presents a full-width document from the retained tail,
-bounded to 32 KiB/200 source lines and 20,000 wrapped display rows. Its
-shared case-insensitive fuzzy search, literal phrase exclusion, severity view,
-match counts, and copied text derive only from
-the displayed snapshot; reading and filtering perform no new log discovery.
-The run owner continues draining its existing scoped sources. The reader
-publishes the latest tail automatically while following, with both filters
-preserved. Scrolling upward pauses publication; reaching the bottom or
-Follow latest resumes. Returning to Run and reopening preserves that mode,
-filters, active editing field, severity view and paused reading bookmark. Options and the guide hold the displayed
-text while capture continues; returning resumes the prior mode.
-
-Log formatting derives compact time/severity/scope headers, separate message
-bodies and spacing only from retained text. It performs no provider read or
-execution and keeps regex scratch/results local to the formatter and reader.
-Unrecognized lines remain plain; message words do not establish severity.
-Error/Fault counters describe recognized native-format records across the
-retained snapshot, including records hidden by filters; they never establish
-app health. Plain output is not classified from message words. Matching retains
-source order and duplicates. Display controls are sanitized by the shared renderer. Filtering and
-clipboard payloads retain the original raw source lines and metadata.
-
-Copy all captured logs, Copy filtered logs, and the reader's Ctrl-Y copy the
-complete matching raw source lines, including offscreen text, without UI labels
-or display wrapping. They do not promise the run's entire history. Empty or
-unmatched output has no Copy action. Opening Options freezes its displayed
-copy scope; direct Ctrl-Y uses the current displayed capture. Acceptance
-freezes the payload, without fetching newer output for the copy; the
-captured `pbcopy` path is rechecked and invoked only after screen restoration,
-without reading the clipboard. Run then reopens with success or failure
-feedback while the app continues. A clipboard failure makes the eventual run
-status nonzero. Clipboard text may contain the native sensitive values
-described below and outlives the run under operating-system and user control,
-including independently enabled clipboard synchronization.
-
-The unified-log observer uses `xcrun simctl spawn` on the exact selected device
-to run the device's `log stream --level debug --style compact --color none`.
-Its native predicate compares `processImagePath` to the canonical installed
-`CFBundleExecutable` path before records reach Compozsh. No broad stream is
-captured and filtered afterward. Framework records emitted within that app
-are included; helpers and extensions with different executable paths are
-excluded. Another launch of the same exact executable can match: the predicate
-identifies an executable path rather than one particular process lifetime.
-The observer
-starts before app launch, with a bounded wait for its native startup header;
-native drops and startup races still prevent exhaustive capture. Records can
-appear in both sources, and their merged read order is not a global timestamp
-order.
-
-Only the log child receives `LOGRC=/dev/null`, preventing personal `.logrc`
-rules from broadening capture. Compozsh never enables private-data logging or
-changes native log privacy settings. Native behavior is retained, without a
-redaction guarantee: a disposable iOS 27 Simulator exposed the probe's
-synthetic `.private` payload under its default settings. Captured logs may
-therefore contain sensitive app data, including values developers marked
-private. Keep that limit distinct from Compozsh's local-only handling and
-ephemeral retention.
-
-The Simulator window opens through the explicit Device Hub or Simulator bundle
-inside the Xcode selected by `xcode-select --print-path`, which honors
-`DEVELOPER_DIR`. Device Hub receives a local `devices:///manage/select` URL with
-only the validated selected device ID; the bundle is specified explicitly, so
-another application's URL registration cannot choose the viewer. A failed
-window-opening command prevents app installation and launch. Opening Apple's
-device viewer is an explicit external-application boundary.
-
-The shared input loop drains at most 32 KiB per idle turn, fairly across the
-two sources, and sanitizes output for display. The combined tail and frozen
-preview/reader snapshots are each bounded to 32 KiB/200 source lines; each
-source has a separate unfinished-line buffer bounded to 8 KiB. Paused reading
-freezes displayed text while the bounded tail continues to update; input priority can cause temporary pipe
-backpressure for a noisy app. A failed source is disclosed and stops polling
-while the other source continues. A closed output pipe does not necessarily
-mean that the app exited.
-Enter LLDB hands the restored terminal to the Xcode-selected debugger for that
-PID, with automatic `.lldbinit` and symbol-script loading disabled. LLDB may
-read the app's memory, symbols and source as part of debugging; its commands,
-macOS authorization, and the app's behavior are separate trust boundaries.
-Debugger presentation uses fixed native settings and validated numeric palette
-values passed only to this invocation. It writes no debugger configuration,
-loads no color plugin, and does not interpret app output or command input for
-coloring. `NO_COLOR` and non-color/non-terminal output disable debugger colors;
-optional presentation support never relaxes the init/symbol-script protections.
-Compozsh neither elevates privileges nor changes app signing. The unified-log
-observer lives only within the run and is stopped and reaped before LLDB
-starts, and during other cleanup paths. Cleanup revalidates the shell-owned
-child before each signal, resumes a suspended child for termination, and gives
-the observer up to one second to exit while draining and discarding bounded
-chunks of its final output. An unresponsive owned observer is killed and reaped;
-its cleanup does not replace the app or debugger's failure status. Device
-console polling also recognizes suspended jobs without blocking on them, and
-cleanup preserves failures after resuming a stopped child. If Zsh cannot
-distinguish an exit status of 127 from a missing cached status after suspension,
-cleanup conservatively retains the earlier nonzero stop status.
-While LLDB runs, one temporary native
-Zsh child drains and discards stdout/stderr to avoid blocking the app. LLDB
-exit, Stop, Escape in Run, and handled-error cleanup stop the
-still-identical app, reap owned children, close descriptors and remove the FIFOs
-and directory. An unavailable or changed process identity prevents termination
-and returns a failure with instructions to check or stop the app in Simulator;
-it does not prove that the app remains alive. A failed stop is also reported.
-An uncatchable shell termination or
-system failure can leave an app, observer, drainer, or pipe directory behind;
-Simulator can stop the app. There is no recovery log to retrieve or uninstall.
-
-The worktree workspace reads local refs, commit IDs, registered paths and flags
-from Git, directory identities, and explicitly browsed parent-folder names.
-Removal additionally reads Git operation markers, tracked-tree modes, index
-flags, and status including ignored and untracked names; Git may read working
-file contents to establish status. Creation reads the selected committed tree
-to check for submodules. Moving also reads operation markers and committed-tree
-modes, and validates source/destination directory identities without scanning
-file contents for cleanliness. Captures stay in invocation memory, bounded to
-256 KiB each and 1,000 worktrees, branches or child folders per catalog. Failed or
-oversized safety captures refuse the action. No worktree catalog or navigation
-history is written by Compozsh. Git may take longer than these output bounds
-suggest, especially on slow storage.
-
-Create writes the chosen new folder and native Git refs/registration; the
-installed Git and the user's umask govern normal checkout ownership and modes.
-`git rev-parse --path-format=absolute --git-common-dir` resolves the metadata
-base: linked-worktree registrations live under its `worktrees/<id>` directory,
-and branch references use the repository's native Git reference storage.
-Compozsh neither copies ignored/private files from another checkout nor changes
-existing access controls. The workspace refuses configured clean/smudge/process
-filters or required-filter settings, rather than invoking them or disabling
-their content transformations. This includes globally configured Git LFS even
-when a particular checkout might not use it. Submodule checkouts are refused.
-Creation first uses `worktree add --no-checkout`, then checks effective
-configuration in that new branch/directory before a non-forcing `read-tree -m
--u --no-sparse-checkout` populates the complete committed tree. This second
-check covers conditional includes absent from the source checkout. Refusal at
-that stage leaves the branch and registered empty folder for inspection; no
-filter is executed and no automatic cleanup is attempted.
-All workspace Git calls disable transport, lazy fetch, hooks, fsmonitor,
-automatic maintenance, optional index writes and submodule recursion. Explicit
-roots override inherited Git directory/index/object/namespace selectors.
-Entering a worktree changes this shell's directory and can invoke independently
-owned user `chpwd` hooks, as with an ordinary explicit directory change.
-
-Move / rename calls native `git worktree move` after reviewing the exact source
-and destination. It relocates the existing checkout and updates its native Git
-registration; tracked edits, untracked and ignored files travel with the folder,
-and the branch is preserved. The destination must be absent and on the same
-filesystem. Main/current, locked, missing, in-progress and submodule checkouts
-are refused. Moving performs no checkout/filter execution, file copy, privilege
-change or directory change in the current shell. Failure can leave the folder
-location and registration partially updated; inspect both paths and the Git
-catalog before retrying. There is no automatic rollback. Other writers and path
-replacement can race validation, as with removal below.
-
-Removal deletes only the confirmed registered linked checkout, preserves its
-branch, and refuses main/current, locked, missing or detached worktrees,
-in-progress Git operations, changes, untracked and ignored files, submodules,
-sparse/unmerged indexes and assume-unchanged flags. Repository and directory
-identities, branch/commit and safety checks are revalidated after screen
-restoration. The removal chooser in the main menu filters the captured worktree
-catalog; only selecting a target reads its file status. It shares confirmation
-and action validation with selected-worktree options. These checks are not an
-atomic filesystem transaction: concurrent writers or path replacement between
-validation and Git can still change the outcome. Stop other writers before
-removal; there is no Undo. No force, branch deletion, automatic stash, recursive
-shell deletion or rollback is used.
-Git action errors retain their status. An interrupted/failed creation may leave a
-branch, registration or partial folder. Inspect `git worktree list`,
-`git branch` and the exact destination before retrying; Compozsh does not delete
-that residue automatically. A failed directory change after creation preserves
-the checkout. Removing Compozsh leaves created worktrees and branches intact.
+### Secrets on the command line
 
 Shell command lines are a poor place for passwords, tokens, or private keys:
 they can be exposed through history, process listings, logs, or the invoked
@@ -1056,19 +920,21 @@ convenience and not a secret-storage mechanism. Prefer the macOS Keychain or a
 dedicated secret store, and rotate any credential that was exposed. Assignment
 values are omitted only from the Interaction lens's secondary presentation; the
 living prompt transcript deliberately retains the exact submitted command text.
-Both behaviors are presentation choices, not a privacy or redaction boundary.
+Both behaviors are presentation choices, not a
+privacy or redaction boundary.
 
 ## Administrator boundary
 
 No administrator access occurs at shell startup, during installation, while
 showing help, during `compozsh --sudo-touch-id status`, or during normal prompt,
 search, history, Git, and navigation features. Administrator access has two
-explicit boundaries: `external-device --flash` and `external-device --format` after the user
-selects a whole external physical disk and types the exact visible `ERASE
-diskN` confirmation; and `compozsh --sudo-touch-id enable|disable` after the user
-names that state-changing mode.
+explicit boundaries: `external-device --flash` and `external-device --format`
+after the user selects a whole external physical disk and types the exact
+visible `ERASE diskN` confirmation; and
+`compozsh --sudo-touch-id enable|disable` after the user names that
+state-changing mode.
 
-The privilege flow is deliberately narrow:
+### External media writes
 
 1. Compozsh captures and validates an external whole-disk identity.
 2. The user reviews the exact `/dev/diskN` target and confirms it by name.
@@ -1090,7 +956,7 @@ shell history, environment dumps, credentials, or network destinations.
 Password handling remains entirely inside the operating system's `sudo`
 process.
 
-The Touch ID policy flow is separate and equally bounded:
+### Touch ID for sudo
 
 1. Compozsh verifies macOS and an ACL-free, root-owned, non-writable
    `/etc/pam.d`. Enable additionally requires the root-owned, ACL-free system
@@ -1100,9 +966,10 @@ The Touch ID policy flow is separate and equally bounded:
    reading; this is a fail-closed size check, not atomic isolation from root.
 2. `status` reads fixed PAM-directory metadata and the fixed target. `enable`
    proceeds only when `/etc/pam.d/sudo_local` is absent. `disable` remains
-   usable if the enable prerequisites later drift, but proceeds only for a regular, ACL-free,
-   `root:wheel`, mode `0444`, byte-identical managed file. Existing
-   custom, symbolic-link, special-file, changed, or unsafe policy is preserved.
+   usable if the enable prerequisites later drift, but proceeds only for a
+   regular, ACL-free, `root:wheel`, mode `0444`, byte-identical managed file.
+   Existing custom, symbolic-link, special-file, changed, or unsafe policy is
+   preserved.
 3. The state-changing modes run `/usr/bin/sudo -v`. Before enable, this normally
    means a password; after enable, Apple's PAM stack can present Touch ID.
    Authentication data remains inside `sudo`, PAM, and macOS. The local
@@ -1123,11 +990,11 @@ The Touch ID policy flow is separate and equally bounded:
    exact managed target with additional hard links remains removable, but only
    the literal `/etc/pam.d/sudo_local` name is unlinked; every other link is
    preserved for separate inspection. Handled failures do not broaden either
-   target. The privileged routines do not trust
-   the caller's inspection path: they repeat checks against literal
-   `/etc/pam.d` targets. A concurrent root policy manager can
-   still replace state around shell-level checks; Compozsh fails closed when it
-   observes drift but does not claim compare-and-unlink isolation from root.
+   target. The privileged routines do not trust the caller's inspection path:
+   they repeat checks against literal `/etc/pam.d` targets. A concurrent root
+   policy manager can still replace state around shell-level checks; Compozsh
+   fails closed when it observes drift but does not claim compare-and-unlink
+   isolation from root.
 5. `pam_tid` is configured as `sufficient`. A failed or unavailable biometric
    attempt falls through to the verified later required
    `pam_opendirectory.so` authenticator; the rule changes the authentication
@@ -1143,8 +1010,6 @@ either fixed byte sequence, including its exact size, owner, mode and ACL; a
 similar or edited comment is not ownership proof. Nothing rewrites existing PAM
 files during loading or this command migration. The fixed temporary filename
 prefix remains unchanged so interrupted-operation residue stays identifiable.
-Run `zsh tests/run.zsh 'sudo Touch ID'` for grouped dispatch, static help,
-ownership checks and both policy formats in unprivileged disposable fixtures.
 
 The managed policy persists across shells and macOS updates until explicit
 disable. No backup is created because existing `sudo_local` policy is never
@@ -1157,7 +1022,7 @@ residue as administrator after confirming its fixed path and contents. Apple's
 unavailable through a multiplexer or another remote context. The later password
 authenticator can prompt only when `sudo` has usable terminal input.
 
-Audit the complete privilege surface with:
+### Audit the privilege surface
 
 ```sh
 git grep -n 'sudo' -- .zshrc install.zsh '.zsh.addons/**'
@@ -1168,12 +1033,12 @@ git grep -nE 'sudo[[:space:]]+(-S|--stdin)|SUDO_ASKPASS|pbpaste|/usr/bin/securit
 The first command identifies operations in `.zsh.addons/.zsh.usb` and
 `.zsh.addons/.zsh.sudo-touch-id`, grouped dispatch and static documentation in
 `.zsh.addons/.zsh.help`, and a literal advisory in `.zsh.addons/.zsh.prompt`.
-Only the first two peers invoke sudo. The second should print no matches and return
-status 1. Inspect every changed result rather than treating the command as a
-permanent allowlist. In the Touch ID peer, confirm every privileged target is a
-literal path beneath `/etc/pam.d` and that only `/usr/bin/sudo -v` can prompt.
-On a supported Mac, independently inspect the active system files for Apple's
-documented interface with
+Only the first two peers invoke sudo. The second should print no matches and
+return status 1. Inspect every changed result rather than treating the command
+as a permanent allowlist. In the Touch ID peer, confirm every privileged target
+is a literal path beneath `/etc/pam.d` and that only `/usr/bin/sudo -v` can
+prompt. On a supported Mac, independently inspect the active system files for
+Apple's documented interface with
 `ls -lde /etc/pam.d /etc/pam.d/sudo /etc/pam.d/sudo_local.template`,
 `sed -n '1,120p' /etc/pam.d/sudo`, and
 `sed -n '1,120p' /etc/pam.d/sudo_local.template`; do not paste these files into
@@ -1188,169 +1053,151 @@ prompt disclosure and transcript transitions use only the literal editor buffer
 and current captured snapshot; they do not evaluate the buffer, poll, run a
 background worker, or recapture providers as the user edits, toggles the lens,
 or resizes the terminal. A `REMOTE` or remote-related `ACTION` row is advisory
-text and does not create a connection. Compozsh's Git inspection
-does not request `clone`, `fetch`, `pull`, `push`, or another remote operation:
-prompt status disables repository-configured clean/process filters,
-filesystem monitors, hooks, required-filter enforcement, and lazy fetches;
-branch snapshot providers disable lazy fetches, prompts, transport and optional
-writes while reading local refs, reflogs and detail subjects; and Git review applies its own
-equivalent read-only filter boundary. Interactive branch, review, worktree and explicit discard
-workspaces use the current folder's repository, temporarily shadowing inherited
-Git directory, worktree, common-directory, index, object-store, alternate-object
-and namespace selectors. Explicit-root review providers apply the same rule.
-The caller's environment survives the operation; transparent `g` arguments and
-the prompt retain their native Git-context behavior. Revision comparisons acquire local refs
-only on chooser entry and resolve literal names/IDs only on submission or direct
-entry. Filtering, scrolling, resizing and the guide do not discover Git data.
-Working changes alone performs automatic local rechecks while its review screen
-is open. It keeps one bounded screen-session worker/provider pair in flight,
-tracks the exact Git provider in worker memory, carries the result
-through private pipes and bounded shell memory, and applies the same
-disabled-filter, hook, lazy-fetch, prompt and transport controls as manual
-review refresh. Checks start enabled by default, can be paused with Ctrl-A or by setting
-`ZSH_GIT_REVIEW_AUTO_REFRESH=0` before peers load, adapt from a two-second floor
-to the capture cost measured inside the worker, and time out after thirty
-seconds even while terminal input remains queued. The same worker deadline
-bounds provider capture and result delivery. The worker opens its response FIFO
-without following links and uses nonblocking writes of at most 8 KiB, preserving
-partial-write counts. A full pipe returns control to cancellation and deadline
-handling; cleanup drains any incomplete packet before another generation starts.
-Paste recovery pauses enclosing result consumption and live log draining until
-the closing marker arrives; retained data remains bounded, and a timed-out Git
-check is reported when normal input processing resumes. Automatic checks create
-no daemon, persistent cache, Git hook, fetch or other
-network operation. Filter discovery and its generated inert override argv share
-a 4,096-entry bound in manual and automatic refresh. A filter driver name that
-contains `=` is refused because Git's command-line configuration form cannot
-unambiguously override that key.
-The same pure override builder now protects prompt status and guarded discard
-reads, including the generated-argument bound and refusal of `=` driver names.
-Discard explicitly requests additional inert smudge overrides. Filter names are
-captured through the shared bounded synchronous command reader; it retains
-completion and exit-status information separately from the payload. Review may
-display a marked partial prefix, while Worktree and filter discovery require a
-complete capture. The byte bound does not impose a wall-time deadline; automatic
-Review refresh retains its separate worker timeout and process ownership.
-Run `zsh tests/run.zsh 'shared Git'` for literal driver names, oversized capture,
-operation-marker policy and a synthetic local filter-execution regression.
-Comparison refresh retains both captured commit IDs and any resolved common
-ancestor. Missing objects and ambiguous ancestry fail visibly without fetching
-or choosing another method. The new ref catalog contains no author identities
-or commit subjects. Its bounds and immutable targets are covered by
-`zsh tests/run.zsh 'Git comparison'` in disposable repositories.
-The `g --worktree` action
-workspace also disables transport and hooks and refuses checkout filters;
-its checkout/removal boundary is detailed in the local-data inventory above.
-`g --discard-all` applies those controls
-to preview, restore, cleanup, and verification, and revalidates repository,
-HEAD, operation, filter-name, and listed-path state after confirmation. The same
-local-only controls cover initial HEAD validation.
-An existing index lock refuses the operation before writes and is never removed.
-Native untracked cleanup runs before tracked restoration, while the reviewed
-ignore rules still apply. Ignored files newly exposed by restoring `.gitignore`
-remain on disk and produce a remaining-changes report with status 1. An empty
-committed tree supports untracked-only cleanup. If tracked restoration fails
-after cleanup, the diagnostic reports that partial outcome; completed deletion
-is not rolled back.
-Operation checks include Git's sequencer directory before and after confirmation.
-Restore explicitly disables submodule recursion even under `submodule.recurse=true`,
-preserving tracked and untracked child contents. A dirty child can still make
-post-cleanup verification report remaining changes and return status 1 after
-parent changes have been discarded. The disposable-repository regression is
-`zsh tests/run.zsh 'g --discard-all preserves dirty submodule'`. File
-discovery uses bounded filesystem reads, local Git metadata, or the local
-Spotlight index. Files' Git detection and capture use one explicit-folder read
-boundary with the same Git-selector isolation, disabled filesystem monitors,
-optional writes, lazy fetches and transport. Repository-configured fsmonitor
-commands cannot run during `ls-files` enumeration. Inspect `.zsh.addons/.zsh.find`
-and run `zsh tests/run.zsh 'Files Git'` for synthetic monitor and scope regressions;
-`zsh tests/run.zsh 'Git selectors'` covers workspace environment restoration.
-`zsh tests/run.zsh 'promisor fetch'` uses synthetic remote-helper spies to check
-that missing promised objects cannot initiate transport during branch details
-or initial cleanup validation. Branch switching separates options from the exact
-selected ref name; a native PTY regression covers a ref beginning with `--`.
+text and does not create a connection.
 
-Runtime capture is owned by the runtime functions in `.zsh.addons/support/functions/`; the prompt calls
-it at the existing fact-capture boundary. Sourcing these optional peers defines
-functions and shell-memory data only. Loading them does not inspect the current project,
-probe an executable, install a toolchain or register a background task.
-Numeric comparison consumes supplied strings; metadata observation is separate.
-The explicit source inventory and precedence are documented in README's
-**Project and runtime context** section. In addition to simple version files
-and `.tool-versions`, readers recognize literal Rust toolchain TOML, Go
-`go.work`/`go.mod` minima, Swift's first-line tools minimum, Cargo's package
-Rust minimum and Python's project version range. No manifest is sourced,
-evaluated, passed to a package manager or used to install/activate software.
+### Local-only Git controls
 
-Metadata paths must resolve inside the detected project, be regular files,
-not be leaf symlinks, and pass a 1 MiB eligibility size check. Non-following/
-nonblocking opens, descriptor type validation and mode-specific byte budgets
-additionally reject leaf replacement with symlinks/FIFOs and bound reads if a
-file grows. Simple
-selection files and Swift's tools declaration require a complete first line
-(newline or observed EOF) within a 4 KiB read budget. TOML and multi-entry
-sources use a stricter 64 KiB read/parse budget (at most one extra byte to detect
-growth), plus 256 lines and 4 KiB per line. The parser rejects excess work before
-interpreting declarations. An incomplete
-first line or a captured source exceeding a parsing budget is unverified. These
-checks do not establish an atomic snapshot of a concurrently changing directory
-tree. Captured text stays local in invocation memory; displayed requirements
-are capped at 240 characters and pass prompt sanitization/escaping. Captured
-selectors exceeding that display bound, ambiguous values and unsupported syntax
-are unverified, not inferred compatible. Files rejected by the initial path/type/
-1 MiB size check are skipped; a later eligible source may supply a requirement.
-This fallback does not validate the skipped source or establish compatibility
-with all project requirements.
-The existing shell-memory installed-version cache remains refreshable with
-`compozsh --refresh` and disappears with the shell; no new persistent storage
-is introduced. Missing runtime support leaves project identity/tool markers.
+Compozsh's Git inspection does not request `clone`, `fetch`, `pull`, `push`, or
+another remote operation.
 
-Inspect this boundary without executing it using
-`git grep -n . HEAD -- .zsh.addons/support/functions/`. Isolated regression commands
-are `zsh tests/run.zsh 'runtime versions'`,
-`zsh tests/run.zsh 'bounded direct metadata'` and
-`zsh tests/run.zsh 'prompt probes installed runtimes'`; expected results are
-passing tests without project-code execution. They cover supported numeric
-semantics, malformed text, read bounds, symlinks/FIFOs, optional-peer order and
-neutral-directory external probes, not every possible concurrent filesystem
-mutation or the behavior of independently installed version-manager shims.
+- **Prompt status** disables repository-configured clean/process filters,
+  filesystem monitors, hooks, required-filter enforcement, and lazy fetches.
+- **Branch snapshot providers** disable lazy fetches, prompts, transport and
+  optional writes while reading local refs, reflogs and detail subjects, so a
+  missing promised object cannot start transport during branch details. Branch
+  switching separates options from the
+  exact selected ref name, including a ref beginning with `--`.
+- **Git review** applies its own equivalent read-only filter boundary.
+- **Repository selection.** Interactive branch, review, worktree and explicit
+  discard workspaces, and explicit-root review providers, use the current
+  folder's repository, temporarily shadowing inherited Git directory, worktree,
+  common-directory, index, object-store, alternate-object and namespace
+  selectors; the caller's environment survives, and transparent `g` arguments
+  and the prompt keep native Git-context behavior.
+- **Revision comparisons** acquire local refs only on chooser entry and resolve
+  literal names/IDs only on submission or direct entry; filtering, scrolling,
+  resizing and the guide discover nothing. Refresh keeps both commit IDs and any
+  resolved common ancestor; missing objects and ambiguous ancestry fail visibly
+  without fetching or switching method. The ref catalog holds no author
+  identities or commit subjects.
+- **Working changes refresh** is the only automatic local recheck, only while
+  its review screen is open: one bounded worker/provider pair at a time,
+  results through private pipes and bounded memory, and the same disabled
+  filters, hooks, lazy fetch, prompts and transport as manual refresh. Checks
+  start enabled; pause with Ctrl-A or `ZSH_GIT_REVIEW_AUTO_REFRESH=0` set before
+  peers load. Intervals adapt from a two-second floor to measured cost; a
+  thirty-second worker deadline bounds capture and delivery even with input
+  queued. The response FIFO is opened without following links and written
+  nonblocking in chunks of at most 8 KiB; cleanup drains incomplete packets,
+  terminates and reaps owned processes and removes the FIFO. No daemon,
+  persistent cache, Git hook or fetch is created.
+- **Filter overrides.** One pure builder protects manual and automatic review
+  refresh, prompt status and guarded discard reads: filter discovery and its
+  inert override argv share a 4,096-entry bound, and a driver name containing
+  `=` is refused because Git's command-line configuration cannot
+  unambiguously override it. Discard also requests inert smudge overrides.
+  Filter names come from the shared bounded reader, which keeps completion and
+  exit status apart from the payload; Review may show a marked partial prefix,
+  while Worktree and filter discovery require complete captures. The byte bound
+  is not a wall-time deadline.
+- **Worktrees** disable transport and hooks and refuse checkout filters
+  ([Git worktrees](#git-worktrees)).
+- **`g --discard-all`** applies these controls to initial HEAD validation
+  (where a missing promised object likewise cannot start transport), preview,
+  restore, cleanup and verification, and after confirmation
+  revalidates repository, HEAD, operation (including Git's sequencer directory,
+  before and after), filter-name and listed-path state. An existing index lock
+  refuses before writes and is never removed. Native untracked cleanup runs
+  before tracked restoration while reviewed ignore rules apply; ignored files
+  newly exposed by restoring `.gitignore` stay on disk and yield a
+  remaining-changes report with status 1. An empty committed tree supports
+  untracked-only cleanup. If tracked restoration fails after cleanup, the
+  diagnostic reports the partial outcome; completed deletion is not rolled
+  back. Restore disables submodule recursion even under
+  `submodule.recurse=true`, preserving child contents; a dirty child can still
+  make verification report remaining changes (status 1) after parent changes
+  are discarded.
+- **Files** discovery uses bounded filesystem reads, local Git metadata, or the
+  local Spotlight index. Its Git detection and capture share one
+  explicit-folder boundary with the same selector isolation and disabled
+  filesystem monitors, optional writes, lazy fetches and transport, so
+  repository-configured fsmonitor commands cannot run during `ls-files`.
+  Inspect `.zsh.addons/.zsh.find`.
 
-This is the complete external-network boundary disclosure. The following
-independently controlled software can use the network; none is a permission for
-Compozsh to add a request, destination, or data:
+### Independently controlled network-capable software
+
+The following independently controlled software can use the network; none is
+a permission for Compozsh to add a request, destination, or data:
 
 - Cloning and updating the repository, and network-capable Git subcommands the
   user explicitly runs, use the configured Git transport. Git also documents
   that a [partial clone](https://git-scm.com/docs/partial-clone) may
   demand-fetch a missing object during an otherwise local command; that is
   installed Git behavior against the repository's configured promisor remote,
-  not a Compozsh endpoint.
-- Prompt runtime detection invokes a trusted-path installed runtime with a
-  fixed version argument from `/`. Common auto-install and telemetry controls
-  are disabled where supported, but the executable on `PATH` remains
-  independently trusted software with its own behavior.
-  Scala CLI's version capture explicitly passes `--offline` to suppress its
-  documented update check; it displays the default Scala version rather than
-  the CLI launcher version. See [Scala CLI version](https://scala-cli.virtuslab.org/docs/commands/version/).
-  An ambiguous `scala` launcher is left unprobed and labeled `launcher-managed`;
-  its incompatible classic/modern interfaces cannot safely identify themselves
+  not a Compozsh endpoint. Compozsh's own Git calls disable lazy fetching as
+  listed above.
+- Prompt runtime detection invokes a trusted-path installed runtime with a fixed
+  version argument from `/`. Common auto-install and telemetry controls are
+  disabled where supported, but the executable on `PATH` remains independently
+  trusted software with its own behavior. Scala CLI's version capture explicitly
+  passes `--offline` to suppress its documented update check; it displays the
+  default Scala version rather than the CLI launcher version. See [Scala CLI
+  version](https://scala-cli.virtuslab.org/docs/commands/version/). An ambiguous
+  `scala` launcher is left unprobed and labeled `launcher-managed`; its
+  incompatible classic/modern interfaces cannot safely identify themselves
   through a speculative version invocation.
-- Explicit Xcode build, test, analyze, clean, run, LLDB, and Apple skill-export actions
-  invoke Apple's tools. Discovery disables automatic package resolution and
-  updates; a chosen build can execute project build phases. Physical-device Run
-  explicitly asks Apple's `devicectl` to install and launch the app on the
-  selected device over its configured connection, as detailed above.
+- Explicit Xcode build, test, analyze, clean, run, LLDB, and Apple skill-export
+  actions invoke Apple's tools. Discovery disables automatic package resolution
+  and updates; a chosen build can execute project build phases. Physical-device
+  Run explicitly asks Apple's `devicectl` to install and launch the app on the
+  selected device over its configured connection, as detailed under [Xcode
+  capture, Run and logs](#xcode-capture-run-and-logs).
 - Open and Reveal actions can launch Finder or another installed application.
   That application's later behavior is outside this repository.
-- Explicitly invoking the repository's `compozsh-platform-review` agent skill
-  asks the chosen coding agent to consult current official documentation. The
-  local snapshot script contains no URL request and omits personal machine
-  data, but the agent and its provider have their own network and data policies.
-- Invoking the repository's `compozsh-release-draft` agent skill asks the chosen
-  coding agent to read this project's public GitHub release metadata and tag
-  resolution. Its instructions prohibit sending repository contents, local
-  paths, credentials, or private remote parameters in those requests, but the
-  agent, its provider, and GitHub retain their own network and data policies.
+- An explicit branch switch, including creating a local branch from a
+  remote-tracking one, runs the repository's configured checkout filters and
+  post-checkout hooks (see [Git review and branches](#git-review-and-branches));
+  worktree operations disable hooks and refuse filters. Any explicit directory
+  change — entering a worktree, a Browse or Recents directory change, `mkcd` —
+  runs the user's own `chpwd` hooks, as an ordinary `cd` would. Each has its own
+  effects and network behavior. Private add-ons and the machine-local
+  initializer are likewise independently controlled code.
+- The repository's contributor skills in `.claude/skills/` are Claude Code
+  project skills. They run when a contributor invokes them by name or asks
+  Claude Code for the task in their description, inside a forked subagent of
+  the same Claude Code session that has no file-editing tools and is
+  instructed to stay read-only (shell commands other than the listed
+  pre-approvals still need the contributor's approval); the coding agent and its model
+  provider apply their own network and data policies, and content the agent
+  reads is sent to that provider as context. `compozsh-platform-review` asks
+  the agent to consult current Apple documentation and official upstream Zsh
+  and tool documentation, and pre-approves page reads only from
+  `developer.apple.com`, `support.apple.com`, `opensource.apple.com` and
+  `zsh.sourceforge.io` (other fetches and web searches still prompt); its local
+  snapshot script contains no URL request and omits personal machine data.
+  `compozsh-release-draft` asks the agent to read this project's public GitHub
+  release metadata and tag resolution using only public, unauthenticated
+  reads, never the user's credentials, an authenticated session or `gh`, and
+  pre-approves page reads from `github.com` and `api.github.com`; those reads
+  run without a per-request prompt from the contributor's machine. Its
+  instructions prohibit sending repository contents, local paths,
+  credentials, or private remote parameters in those requests; the agent, its
+  provider, and GitHub retain their own network and data policies. Neither
+  skill pre-approves shell commands beyond the platform snapshot script and
+  `sw_vers` version queries. The shared `.claude/settings.json` pre-approves
+  only `zsh tests/run.zsh`, `zsh tests/verify.zsh` and `zsh -fn -- <file>`
+  syntax checks (the `--` keeps later arguments from re-enabling execution).
+  Pre-approving the runner means an agent can run the working tree's own test
+  code without a shell prompt, relative to its current directory. The file
+  denies Claude Code reads and edits of `~/.zshrc`, `~/.zshenv`, `~/.zprofile`,
+  `~/.zlogin`, `~/.zsh_history`, `~/.zsh_sessions/` and `~/.zsh.addons/`;
+  those rules also cover recognized shell file commands such as `cat`, `tee`
+  and `sed` and input or output redirections, but not other programs or
+  scripts, and a custom `ZDOTDIR` or `HISTFILE` lives elsewhere. It registers a local hook
+  that runs `zsh -fn` on an edited Zsh file and reports the first parse error.
+  None of it adds network access.
+
+### Static website
 
 The optional `docs/` website is static and self-contained. Its Content Security
 Policy uses `connect-src 'none'`; JavaScript has no fetch, beacon, WebSocket, or
@@ -1360,32 +1207,24 @@ page or the user follows a link. GitHub or another chosen host may retain normal
 web-server access logs; that hosting boundary is not controlled by the static
 files in this repository.
 
-The website's composition model uses three fixed synthetic peer labels. Its
-loading-order and repeated-load controls change only that illustration in page
-memory; reloading the page resets it. It executes no shell code, reads no user
-configuration, and uses no browser storage or clipboard access.
-The Context tab likewise switches among fixed synthetic living prompt moments;
-it does not inspect the visitor's terminal, clock, command line, filesystem,
-Git repository, environment, or project metadata.
-
-The showcase's Help → Compose and Change atlas journeys also operate entirely
-in page memory. The composer accepts at most 120 characters per browser field
-and quotes them into a displayed sample; Replace draft changes only an editable
-page control and never submits a shell command or writes the clipboard. Values
-are discarded when the demo is reset or the page is closed/reloaded, with no
-browser storage, provider lookup or network request. Do not enter secrets in
-the demo. The atlas derives groups from six fixed synthetic change entries;
-it reads no visitor files. These illustrative limits and browser controls are
+The interactive examples run entirely on fixed synthetic data in page memory.
+They execute no shell code, read no user configuration or visitor files, and
+use no browser storage, clipboard access, provider lookup or network request;
+reloading or closing the page discards their state, and re-entering an example
+resets its controls. The composition model's three fixed peer labels and its
+loading-order and repeated-load controls change only that illustration. The
+Context tab switches among fixed synthetic prompt moments and never inspects
+the visitor's terminal, clock, command line, filesystem, Git repository,
+environment, or project metadata. Help → Compose accepts at most 120 characters
+per field and quotes them into a displayed sample; Replace draft changes only
+an editable page control, never submitting a command, and reset discards the
+values. Do not enter secrets in the demo. The Change atlas groups six fixed
+synthetic entries. Picker and Git-review filters accept at most 120 characters
+per field and derive results from fixed sample paths, labels and context; the
+Git example keeps view choice, folds, selection and reading positions in page
+memory and summarizes three synthetic entries. Keyboard guides keep only their
+caller's browser focus. These illustrative limits are
 separate from the native tool contracts above.
-
-Picker and Git-review browser filters each accept at most 120 characters per
-field. Positive filters and literal exclusion derive results from fixed sample
-paths, labels and context; they discover no files. The Git example retains its
-view choice, folder folds, selection and reading positions in page memory and
-derives folder summaries from three synthetic change entries. Keyboard guides
-retain only their caller's browser focus. Re-entering an example resets its
-controls; reloading or closing the page discards this temporary state. These controls use no browser
-storage, clipboard, provider lookup or network request.
 
 ## Audit a commit before installing
 
@@ -1419,9 +1258,9 @@ git grep -nE '(^|[[:space:]])(source|eval)[[:space:]]' \
 
 The tracked bootstrap sources the optional machine-local initializer and every
 matching peer beneath the repository and user add-on directories, excluding the
-reserved `support/cache` data directory. The tracked
-starter is inert, but an existing private initializer or peer is user-owned code
-and must be audited separately.
+reserved `support/cache` data directory. The tracked starter is inert, but an
+existing private initializer or peer is user-owned code and must be audited
+separately.
 
 Search the executable shell surface for common network clients:
 
@@ -1433,9 +1272,9 @@ git grep -nE -e '(^|[;&|[:space:]])(command[[:space:]]+)?(/usr/bin/)?(curl|wget|
 
 Full-line comments are excluded, matching the native regression check; the
 prompt classifier mentions network clients as inert draft text. The command
-should print no matches and return status 1. This is a useful
-regression check, not proof by keyword absence; also read new command execution,
-redirection, dynamic function dispatch, and source paths in the diff.
+should print no matches and return status 1. This is a useful regression check,
+not proof by keyword absence; also read new command execution, redirection,
+dynamic function dispatch, and source paths in the diff.
 
 Audit the worktree action boundary before exercising it:
 
@@ -1446,13 +1285,9 @@ zsh tests/run.zsh 'worktree '
 ```
 
 Read the fixed Git policy in `_git_worktree_git`, complete-capture checks,
-creation/removal validation and post-screen dispatch. The focused tests use
-disposable repositories and should all pass: aliases/fallbacks, exact targets,
-refusals, move preservation of local files, branch preservation and native
-keyboard/screen behavior. They do not
-prove atomicity against concurrent external writers. Run against the exact
-checkout being audited; before commit, read the corresponding working files
-instead of `git show HEAD:...`.
+creation/removal validation and post-screen dispatch. The tests cover
+aliases/fallbacks, exact targets, refusals, move preservation of local files,
+branch preservation and native keyboard/screen behavior.
 
 Audit the living prompt's local presentation boundary:
 
@@ -1462,17 +1297,14 @@ git show HEAD:.zsh.addons/.zsh.editor
 zsh tests/run.zsh 'living prompt'
 ```
 
-Read the ordinary `precmd` fact capture, the bounded Context trigger fingerprint,
-the private compact/lens/transcript modes, the Context/Interaction renderers,
-and the editor peer's line-init/pre-redraw/line-finish transitions and
-`compozsh-context-lens` Option-I widget. The focused tests show that READY,
-operation-specific, advisory, assignment-value, autosuggestion, pin, transcript,
-and resize behavior preserves the exact ZLE buffer. They also replace provider
-functions and executable names with sentinels to verify that Interaction edits
-remain inert; the resize PTY separately instruments provider calls. The tests
-use disposable repositories and synthetic commands; they do not prove that the
-limited CAUTION recognizer covers arbitrary shell text or how a custom terminal
-stores or exports its scrollback.
+Read the ordinary `precmd` fact capture, the bounded Context trigger
+fingerprint, the private compact/lens/transcript modes, the Context/Interaction
+renderers, and the editor peer's line-init/pre-redraw/line-finish transitions
+and `compozsh-context-lens` Option-I widget. The tests check that READY,
+operation-specific, advisory, assignment-value, autosuggestion, pin,
+transcript and resize behavior preserve the exact ZLE buffer, replace
+providers and executables with sentinels to keep Interaction edits inert, and
+instrument provider calls in a resize PTY.
 
 Audit alias previews and manual capture without reading private shell settings:
 
@@ -1484,12 +1316,10 @@ zsh tests/run.zsh 'manual summaries'
 ```
 
 Read `_prompt_alias_expansions` and the `.zsh.manual` capture/reader/formatter
-helpers alongside these tests. Disposable fixtures cover current definitions,
-quoted/suppressed aliases, nonexecution during native ZLE painting, MANPATH
-ordering, links/compression/forwarding, literal configuration and unavailable
-NAME summaries. Formatter fixtures check that command requests and caller-folder
-includes remain inert. These checks do not establish exhaustive shell grammar,
-manual-format coverage, or a general operating-system sandbox.
+helpers alongside these tests. Fixtures cover current, quoted and suppressed
+aliases, nonexecution during native ZLE painting, MANPATH ordering,
+links/compression/forwarding, literal configuration, unavailable NAME
+summaries, and inert formatter command requests and caller-folder includes.
 
 Audit Simulator and device monitoring without launching Xcode or a real app:
 
@@ -1504,30 +1334,27 @@ zsh tests/run.zsh 'editor reader'
 ```
 
 Read `_xcode_run_live`, `_xcode_run_identity`, `_xcode_run_idle`, their scoped
-log-observer and `_xcode_logs_*` helpers, and the shared picker's screen cleanup.
-For device consoles, inspect `_xcode_run_device_live` and `_xcode_device_poll`
-for literal launch arguments, owned-job termination, failure preservation,
-temporary FIFO permissions and post-screen cleanup.
-Audit captured fuzzy matching, literal exclusion, copy payload bounds, post-screen clipboard
-dispatch, retained failure status, automatic following and paused/Options
-capture boundaries, and full-reader returns that keep the app
-running. Audit the exact
-device and installed-executable predicate, child-only `LOGRC` and unbuffered
-launch settings, readiness bound, fair draining and line bounds, source failure
-disclosure, and observer stop/reap before LLDB and on cleanup. The focused tests
-also cover malformed launch responses, frozen reading, native PTY
-resize/guide/cancellation, identity replacement and failure status. Synthetic
-command spies do not prove Simulator FIFO support, native privacy behavior,
-complete log delivery, signing permission, or LLDB attachment on the host.
-Run against the exact checkout being audited; before commit, read the working
-files instead of `git show HEAD:...`.
+log-observer and `_xcode_logs_*` helpers, the shared picker's screen cleanup,
+and for device consoles `_xcode_run_device_live` and `_xcode_device_poll`.
+Check literal launch arguments, owned-job termination, failure preservation,
+temporary FIFO permissions, post-screen cleanup and clipboard dispatch, copy
+payload bounds, matching and exclusion over captured text, following and
+paused/Options capture boundaries, full-reader returns that keep the app
+running, the exact device and installed-executable predicate, child-only
+`LOGRC` and unbuffered launch settings, the readiness bound, fair draining and
+line bounds, source failure disclosure, and observer stop/reap before LLDB and
+on cleanup. The tests also cover malformed launch responses, frozen reading,
+native PTY resize/guide/cancellation, identity replacement and failure status.
+
+For each `git show HEAD:...` block, run against the exact checkout being
+audited; before commit, read the corresponding working files instead.
 
 Audit website connection primitives and all hard-coded destinations:
 
 ```sh
 git grep -nE 'fetch\(|XMLHttpRequest|WebSocket|sendBeacon|src="https?://|@import' -- docs
 git grep -nE 'https?://|wss?://|ftp://' \
-  -- .zshrc install.zsh '.zsh.addons/**' templates docs .agents
+  -- .zshrc install.zsh '.zsh.addons/**' templates docs .claude
 ```
 
 The first command should print no matches. The second is intentionally broad:
@@ -1552,6 +1379,56 @@ zsh tests/run.zsh
 Tests improve confidence in documented behavior but do not replace source
 review. A new commit is new code and should be compared before it becomes the
 active symlinked configuration.
+
+### Focused regression checks
+
+Run one boundary's checks with `zsh tests/run.zsh '<filter>'` from the
+repository root; a filter selects every test whose description contains it,
+ignoring case. Expected result: all selected tests pass. The tests use isolated
+homes, synthetic fixtures, disposable repositories and command stand-ins; they
+read no private configuration or real cache contents and contact no remote
+server.
+
+| Boundary | Filters |
+| --- | --- |
+| Appearance, contrast and plain output | `appearance` |
+| Shared screens and native ZLE cleanup | `UI`, `picker screen` |
+| Living prompt buffer preservation and inert edits | `living prompt` |
+| READY toolchains without extra reads or probes | `runtime prompt` |
+| Help workspace capture, fallback and cleanup | `help workspace` |
+| Tool descriptions and alias previews | `tool descriptions`, `alias coverage` |
+| Draft inspector | `task experience` |
+| Command composer | `command composer` |
+| Runtime metadata bounds and installed-runtime probes | `runtime versions`, `bounded direct metadata`, `prompt probes installed runtimes` |
+| Manual capture, formatter and transport | `manual coverage`, `manual summaries`, `manual async` |
+| Public manual cache and installer exclusion | `manual cache`, `cache data`, `installer excludes generated` |
+| Matching and exclusion | `exclusion`, `matching component` |
+| Shared effects and data | `shared effects`, `shared data` |
+| Picker digits and slot acceptance | `numeric`, `detail panels preserve native` |
+| Path + Tab directory arguments | `directory argument` |
+| Bracketed paste | `picker nonpaste CSI`, `picker interrupted paste` |
+| Job lifecycle | `job lifecycle` |
+| Git file review and Change atlas | `Git tree`, `Git atlas`, `Git review native g` |
+| Branch catalog and remote fallback | `absent from the reflog`, `branch remote` |
+| Git filter, selector, Files and promisor controls | `shared Git`, `Git selectors`, `Files Git`, `promisor fetch` |
+| Git comparison bounds | `Git comparison` |
+| Discard with a dirty submodule | `g --discard-all preserves dirty submodule` |
+| Worktrees | `worktree ` |
+| Xcode discovery | `Xcode discovery` |
+| Xcode Run, device console and logs | `Xcode run`, `Xcode monitor`, `Xcode device monitor`, `log reader`, `log copy`, `editor reader` |
+| Task routing and external-device modes | `task families` |
+| Touch ID policy in unprivileged fixtures | `sudo Touch ID` |
+
+These checks do not establish: an operating-system sandbox or OS protection
+boundary; defense of a compromised account; atomicity against concurrent
+external writers, ref or configuration changes, or filesystem mutation; Git
+server freshness; visual behavior in Terminal.app on every Mac, arbitrary
+terminal profiles' contrast, or how a custom terminal stores scrollback;
+mounted-filesystem availability or latency; exhaustive shell grammar, manual
+formats or `CAUTION` coverage; version-manager shim behavior; macOS
+application behavior or prevention of clipboard synchronization; or, for
+Xcode, Simulator FIFO support, native log privacy behavior, complete log
+delivery, signing permission or LLDB attachment on the host.
 
 ## Audit an update before activating it
 
@@ -1591,9 +1468,10 @@ submit, so review and redact the report before sending it.
 
 Do not place a live password, token, private key, personal path, private
 repository content, or exploitable sensitive detail in a public issue. Use
-[GitHub private vulnerability reporting](https://github.com/bitbemol/compozsh/security/advisories/new)
-when it is available. If that route is unavailable, open a minimal issue asking
-for a private reporting channel without including the sensitive details.
+[GitHub private vulnerability
+reporting](https://github.com/bitbemol/compozsh/security/advisories/new) when it
+is available. If that route is unavailable, open a minimal issue asking for a
+private reporting channel without including the sensitive details.
 
 Include the affected commit ID, macOS and Zsh versions, the smallest synthetic
 reproduction, the observed data or privilege boundary, and whether credentials

@@ -1,5 +1,7 @@
 # Critical-path performance
 
+> **Status note (2026-10-11).** Manual capture has since moved off the first prompt ([manual concurrency](manual-concurrency.md)); statements about synchronous first-TTY capture timing describe that earlier state. The deferred findings are tracked in the [investigations index](README.md#open-backlog).
+
 This pass optimizes the behavior shipped in `ff58981` (`Make Xcode discovery
 lazy and cancellable`). Measurements compare an immutable archive of that
 commit with the modified implementation. Prototypes from the preceding

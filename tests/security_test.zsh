@@ -29,7 +29,7 @@ _test_runtime_has_no_network_client_invocation() {
     done < "$file"
   done
 }
-test_case 'runtime source contains no direct network-client invocation' \
+test_case 'security: runtime source contains no direct network-client invocation' \
   _test_runtime_has_no_network_client_invocation
 
 _test_privilege_and_credential_surface_stays_bounded() {
@@ -82,5 +82,5 @@ _test_privilege_and_credential_surface_stays_bounded() {
     return 1
   }
 }
-test_case 'privilege and credential surface stays inside documented fixed boundaries' \
+test_case 'security: privilege and credential surface stays inside documented fixed boundaries' \
   _test_privilege_and_credential_surface_stays_bounded

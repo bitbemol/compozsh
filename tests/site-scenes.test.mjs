@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { scenes, fileActions } from '../docs/demo-data.mjs';
 import { findMatches } from '../docs/search.mjs';
-import { readFileSync } from 'node:fs';
 
 test('Context examples cover the fixed living and Interaction prompt system without a live source', () => {
   const promptScenes = Object.values(scenes).filter(scene => scene.mode === 'prompt');
@@ -123,21 +122,6 @@ test('empty and spaces-only receipt examples preserve literal input without outp
     assert.equal(scene?.promptState, 'transcript');
     assert.deepEqual(scene.transcript, { time: '14:27', command, output: '', outcome: '' });
     assert.match(scene.description, /LAST/);
-  }
-});
-
-test('current public guidance does not restore the superseded universal ACTION rule', () => {
-  for (const file of ['README.md', 'SECURITY.md', 'docs/README.md', 'docs/index.html']) {
-    const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-    assert.equal(/An `ACTION` row is always a qualified|ACTION<\/code> always says|`ACTION` is a lexical advisory\s+expressed as/.test(text), false, file);
-    assert.match(text, /help-derived|help description|documented intent/i, file);
-  }
-});
-
-test('refresh documentation includes the help-description snapshot invalidation', () => {
-  for (const file of ['README.md', 'SECURITY.md', '.zsh.addons/.zsh.help']) {
-    const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-    assert.equal(/help[\s-]+description/i.test(text), true, file);
   }
 });
 

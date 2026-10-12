@@ -1,137 +1,161 @@
 # Verification
 
-Read this contract when the task matches its route in [AGENTS.md](../AGENTS.md).
-Paths in code spans are repository-relative unless explicitly qualified.
-These are maintained product contracts; investigations retain historical evidence.
+How Compozsh is tested and what "done" means.
 
-## Contents
+## Essentials
 
-- [Test-driven development](#test-driven-development)
-- [Change workflow](#change-workflow)
-- [Required verification](#required-verification)
+- **Behavioral TDD.** Every observable feature or fix starts with a test that
+  fails for the intended reason. Never weaken an assertion to make it green.
+- **Isolation.** Tests never touch the operator's real configuration, history
+  or private peers, never need the network, and never launch GUI applications.
+- **Done means verified.** Parsing is not completion: interactive code is done
+  when fallbacks, display, failure paths and latency have been checked and the
+  documentation matches reality.
 
 ## Test-driven development
 
-Compozsh requires behavioral TDD. See the [contributor TDD workflow](../README.md#strict-tdd-workflow) for the red/green/refactor cycle.
+For every observable feature or bug fix:
 
-Pure documentation edits do not require manufacturing a failing product test.
-A behavior-preserving refactor begins from green characterization coverage; add
+1. Describe the intended behavior and edge cases.
+2. Add the smallest test that expresses the behavior without implementing it.
+3. Run it with its description filter and see `FAIL` — because the behavior is
+   missing or broken, not because of a syntax or setup mistake (**red**).
+4. Implement the smallest correct change until the focused test passes
+   (**green**).
+5. Improve names, boundaries, duplication or performance without changing
+   behavior, rerunning the test (**refactor**).
+6. Run the required verification below before finishing.
+
+A bug's regression test must demonstrably fail against the buggy code and stay
+afterward. Pure documentation edits need no manufactured failing test. A
+behavior-preserving refactor starts from green characterization coverage; add
 missing characterization tests before moving code. When behavior is inherently
-visual or terminal-driven, write the smallest deterministic automated contract
-for its underlying logic first, record the manual reproduction and acceptance
-criteria before implementation, and complete the change with a real PTY check.
+visual or terminal-driven, write the smallest deterministic test of its
+underlying logic first, record the manual reproduction and acceptance criteria
+before implementing, and finish with a real PTY check.
 
-Prefer tests against public behavior and durable state. A focused test may call
-an underscore-prefixed helper only when that narrow algorithm is the contract
-being protected and exercising it through ZLE would make the test ambiguous.
-Do not make private names public merely for testing.
+## The native harness
 
-Every automated test must be deterministic and isolated. Use a disposable
-`HOME`/`ZDOTDIR`, a minimal environment, fixed locale, and validated
-`mktemp`-created paths. Never source the operator's real configuration, inspect
-private history or add-ons, depend on network access, launch GUI applications,
-or perform destructive tests outside a disposable repository. Avoid sleeps,
-wall-clock assumptions, machine-specific paths, installed optional tools, and
-assertions on unstable presentation details.
+Zsh has no complete unit-test framework, so the suite is a deliberately small
+harness of ordinary Zsh functions, arrays, subshells and exit statuses — no
+library, plug-in or downloaded runner. Keep the harness smaller than the
+product: add a shared helper only for a repeated lifecycle, isolation or
+assertion rule.
 
-Keep the harness smaller than the product. Add a shared test helper only for a
-repeated lifecycle, isolation, or assertion rule; do not build a shell testing
-framework inside the repository. Test architectural invariants such as
-standalone sourcing and the [peer configuration laws](architecture.md#peer-configuration-algebra)
-directly; a browser model of those laws cannot validate the Zsh implementation.
-Complement automation with a real PTY/ZLE check for key sequences, resize
-behavior, colors, cursor motion, and terminal cleanup that a child-shell test
-cannot establish.
-For resize regressions, verify the painted editor display and preserved caller
-state, and reject runtime diagnostics. Calculated layout values or a frame
-marker alone cannot prove that a redraw succeeded.
-For screen-cleanup regressions, send test synchronization over a separate
-channel; printing markers inside the terminal changes the cursor and can mask
-the fault. Include automatic pre-handler refreshes in resize coverage and
-record Terminal.app's manual fullscreen/windowed acceptance result separately.
+- `tests/run.zsh` sources every regular `tests/*_test.zsh`. Each file registers
+  functions with `test_case '<description>' <function>`; every test runs in its
+  own subshell with `ERR_RETURN` and a validated temp-dir cleanup trap, so
+  variables, options, directories, functions and traps never leak.
+- `zsh tests/run.zsh 'fragment'` selects tests whose descriptions contain the
+  case-insensitive fragment. The runner prints `PASS`/`FAIL` lines and a
+  summary, and exits nonzero when anything fails.
+- `tests/support.zsh` provides assertions (`test_fail`, `test_assert_equal`,
+  `test_assert_contains`), temporary state (`test_make_temp_dir`,
+  `test_write_file`) and shells under test (`test_run_zsh`,
+  `test_run_interactive`, `test_run_noninteractive`). Those launch Zsh through
+  `env -i` with a fresh temporary `HOME`/`ZDOTDIR`, a minimal fixed environment
+  and locale, `-d -f` to skip startup files, and `-i` only when the behavior
+  needs an interactive shell.
+- Interactive regressions drive an isolated terminal with Zsh's bundled
+  `zsh/zpty` module, sending keys and real resize signals.
 
-## Change workflow
+Adding a test — arrange, act, assert, guarding each step with `|| return` so a
+later success cannot hide an earlier failure:
 
-- Keep README, SECURITY, shipped-unit inventory, repository layout, initializer
-  template and affected add-on documentation synchronized when their contracts
-  change. Review the final diff against the security contract even when no
-  security documentation edit is needed.
-- Review shell changes for quoting, idiomatic supported Zsh, exit-status
-  preservation, effects, and the applicable performance and terminal contracts.
-- When commits are requested, use one coherent unit and a short imperative
-  message. Never stage unrelated files or push unless asked.
+```zsh
+_test_mkcd_rejects_a_missing_operand() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
 
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.tools"
+    mkcd
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 2 "$exit_status" \
+    'mkcd accepted a missing directory' || return
+  test_assert_contains "$output" 'usage: mkcd [--] <directory>' \
+    'mkcd omitted its usage diagnostic'
+}
+test_case 'mkcd rejects a missing directory operand' \
+  _test_mkcd_rejects_a_missing_operand
+```
+
+Put a test beside the closest concern in an existing `*_test.zsh`, or create a
+focused new file with that suffix.
+
+## Writing good tests
+
+- Test public behavior and durable state. Call an underscore-prefixed helper
+  only when its narrow algorithm is the contract and driving it through ZLE
+  would make the test ambiguous; never make a private name public for testing.
+- Be deterministic: disposable `HOME`/`ZDOTDIR`, minimal environment, fixed
+  locale, validated `mktemp` paths. Avoid sleeps, wall-clock assumptions,
+  machine-specific paths, installed optional tools and assertions on unstable
+  presentation details. Destructive tests run only in disposable repositories.
+- Test architectural invariants such as standalone sourcing and the
+  [peer configuration laws](architecture.md#peer-configuration-algebra)
+  directly; the website's browser model cannot validate the Zsh code.
+- Resize regressions verify the painted display and preserved caller state and
+  reject runtime diagnostics; a calculated layout value or frame marker alone
+  does not prove a redraw worked.
+- Screen-cleanup regressions send test synchronization over a separate
+  channel, because markers printed in the terminal move the cursor and can
+  mask the fault. Include Zsh's automatic pre-handler refresh in resize
+  coverage.
+- Complement automation with a real PTY/ZLE check for key sequences, resize,
+  colors, cursor motion and terminal cleanup. A PTY still cannot prove how
+  Terminal.app renders colors or reflows scrollback, or physical key
+  ergonomics, so record Terminal.app fullscreen/windowed and other manual
+  acceptance separately.
+- A static scan of source or documentation text is a fine test for a static
+  invariant (for example, no shipped file names a retired peer); behavior
+  still needs a behavioral test.
 
 ## Required verification
 
 Run at least:
 
 ```sh
-zsh tests/run.zsh
-syntax_status=0
-for syntax_file in .zshrc install.zsh templates/init.zsh tests/*.zsh \
-                   .zsh.addons/**/.zsh.?*(N.); do
-  [[ $syntax_file == .zsh.addons/support/cache/* ]] && continue
-  zsh -n "$syntax_file" || syntax_status=1
-done
-(( syntax_status == 0 ))
-git diff --check
-test_home=$(mktemp -d) || exit
-verify_status=0
-TERM=xterm-256color HOME=$test_home ZDOTDIR=$test_home \
-  ZSH_LOCAL_INIT=/dev/null \
-  zsh -dfi -c 'source ./.zshrc; source ./.zshrc' || verify_status=$?
-if [[ -d $test_home && ${test_home:t} == tmp.* ]]; then
-  rm -rf -- "$test_home" || verify_status=$?
-else
-  print -u2 -r -- "Refusing unsafe test cleanup: $test_home"
-  verify_status=1
-fi
-(( verify_status == 0 ))
+zsh tests/run.zsh      # full suite
+zsh tests/verify.zsh   # syntax of every shipped Zsh file, git diff --check, double re-source
 ```
 
-Then select relevant checks from this list:
+The full suite takes about 3–4 minutes. The real-FAT32 `hdiutil` round trip
+and the Xcode Logger cleanup timing test are environment-sensitive; rerun them
+alone before treating a failure as a regression.
 
-- For every change, reread `SECURITY.md` against the final tree and run the
-  focused security and documentation contracts. When a sensitive boundary
-  changes, exercise its independent audit commands, confirm their documented
-  expected output and limitations, and include that evidence in the handoff.
-- Whenever shipped add-ons change, compare every recursive repository-relative
-  `.zsh.<name>` path with the README inventory. Every file must have exactly one
-  current row and every row must resolve to a shipped file.
-- After adding, moving or changing shared support entries, run
-  `zsh tests/run.zsh 'support components'`,
-  `zsh tests/run.zsh 'support function filenames'` and
-  `zsh tests/run.zsh 'support private helpers'`. Review purity through the
-  callees as well; naming and ownership checks cannot establish it. Remove
-  obsolete paths and ownership claims from active instructions, documentation
-  and fixtures; keep historical investigation layouts explicitly historical.
-- When the loader or repository layout changes, exercise both symlinked and
-  copied installations under disposable home directories and verify a public
-  add-on command is discoverable in each.
-- After changing add-on boundaries or shared state, source every enabled unit
-  in normal, reverse, and at least one rotated order under isolated shells.
-  Compare options, aliases, bindings, styles, hooks, prompts, and public names;
-  checked orders must converge without load diagnostics. Apply the
-  [peer configuration algebra](architecture.md#peer-configuration-algebra) to repeated sourcing,
-  affected runtime behavior, overrides, fallbacks and any regrouping as well.
-- Inspect final bindings with `bindkey` under `xterm-256color` and
-  `screen-256color`; exercise changed keys in a real PTY/ZLE session.
-- Verify standalone Escape, bracketed paste, cancellation, redraw, and resize
-  behavior after changing an interactive widget.
-- Test prompt changes outside Git, in clean/dirty/detached repositories, during
-  an operation, with missing tools, and at wide and narrow terminal widths.
-- Test destructive Git helpers only in a disposable temporary repository.
-- Confirm wrappers preserve plain output through a pipe or redirect and retain
-  the underlying command's options and status.
-- Time several isolated startups before and after latency-sensitive changes.
-- For manual async capture, run `zsh tests/run.zsh 'manual async'`, compare
-  serial/async catalogs with `investigations/benchmarks/manual-async-parity.zsh`
-  under an isolated environment, and measure editable prompt and parent catalog
-  arrival with `investigations/benchmarks/async-first-prompt.zsh`. Keep benchmark
-  runs separate from the suite and report Terminal.app acceptance independently.
-- Source twice to prove hooks, functions, and bindings remain stable.
+Then add the checks for each boundary you changed:
 
-Do not declare work complete merely because the file parses. Interactive shell
-code is complete when its fallback behavior, display, failure paths, and latency
-have also been checked and the documentation matches reality.
+| Changed | Also verify |
+| --- | --- |
+| Anything | Reread SECURITY.md against the final tree; during development run `zsh tests/run.zsh 'docs:'` and `zsh tests/run.zsh 'security:'`. When a sensitive boundary changes, run its independent audit commands, confirm their documented expected output and limitations, and report that evidence. |
+| Shipped peer files | Every recursive `.zsh.addons/**/.zsh.<name>` has exactly one README inventory row and every row resolves to a file. |
+| Shared support entries | `zsh tests/run.zsh 'support components'`, `'support function filenames'`, `'support private helpers'`; review purity through callees. Remove obsolete paths from active docs and fixtures. |
+| Loader or layout | Symlinked and copied installs under disposable homes; a public command is discoverable in each. |
+| Peer boundaries or source-time state (aliases, options, bindings, hooks, defaults) | Source every unit in normal, reverse and a rotated order; compare options, aliases, bindings, styles, hooks, prompts and public names — checked orders must converge without load diagnostics; source twice for stable hooks/bindings. See the [peer configuration algebra](architecture.md#peer-configuration-algebra). |
+| Keys or widgets | `bindkey` under `xterm-256color` and `screen-256color`; standalone Escape, bracketed paste, cancellation, redraw and resize in a real PTY. |
+| Prompt | Outside Git; clean, dirty and detached repositories; during an operation; missing tools; wide and narrow widths. |
+| Destructive Git helpers | Only in disposable repositories. |
+| Wrappers | Plain output through pipes/redirects; original options and exit status preserved. |
+| Latency-sensitive paths | Several isolated startups before and after, or the workspace measurement recipe in [performance](performance.md#measuring-latency). |
+| Manual async capture | `zsh tests/run.zsh 'manual async'`; compare serial/async catalogs with `investigations/benchmarks/manual-async-parity.zsh`; measure editable prompt and catalog arrival with `investigations/benchmarks/async-first-prompt.zsh`, separately from the suite. |
+| Claude Code setup (`.claude/`) | `zsh tests/run.zsh 'tooling:'`, `'docs:'` and `'platform'`; start a new session to load changed settings, agents or skills. |
+| Website | `zsh tests/run.zsh 'website'`; with Node, `node --test tests/site.test.mjs tests/site-scenes.test.mjs tests/site-picker.test.mjs tests/site-review.test.mjs`; browser checks per [docs/README.md](../docs/README.md). |
+
+## Change hygiene
+
+- Keep README, SECURITY, the shipped-unit inventory, the repository-layout
+  tree, the initializer template and affected `--help` text synchronized when
+  their contracts change; a change is incomplete while any of them is stale.
+- Don't label a partial implementation a complete experience.
+- When a convention changes, fix contradicting assertions across active docs,
+  showcase copy and tests; adding a correct paragraph doesn't repair an older
+  contradictory one. Keep historical investigations labeled as historical.
+- Review shell changes for quoting, idiomatic Zsh, exit-status preservation,
+  effects, and the applicable performance and terminal contracts.
+- When commits are requested, make one coherent unit with a short imperative
+  message. Never stage unrelated files or push unless asked.
+- Report automated results, timing failures, PTY evidence and manual
+  Terminal.app acceptance separately; don't call a rerun an entirely green
+  original run.

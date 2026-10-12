@@ -1,5 +1,7 @@
 # Xcode discovery performance investigation
 
+> **Status note (2026-10-11).** Recommendations 1–2 (on-demand destinations, cancellable discovery) shipped; 3–4 remain open in the [investigations index](README.md#open-backlog). Current rules: [Xcode workspace](../engineering/workspaces/xcode.md#dashboard).
+
 ## Scope and measurements
 
 Investigated slow entry into Actions and switching schemes/destinations, then
