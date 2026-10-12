@@ -3595,6 +3595,85 @@ _test_usb_format_workspace_validates_a_custom_volume_name() {
 test_case 'USB format workspace validates and retains a custom volume name' \
   _test_usb_format_workspace_validates_a_custom_volume_name
 
+_test_usb_format_reports_a_failed_catalog_capture() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    TMPDIR=$HOME
+    _usb_external_device_choose() {
+      _USB_DISK_IDS=(disk9) _USB_DISK_LABELS=(external-drive)
+      _USB_DISK_SIZES=(9000000000) _USB_DISK_FINGERPRINTS=(disk-fingerprint)
+      _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=1
+    }
+    _usb_diskutil_run() { return 1; }
+    _usb_format_workspace_controller
+    print -r -- "diskutil:$?|$_USB_FORMAT_ERROR"
+    _usb_formats_capture() {
+      _USB_CAPTURE_ERROR="diskutil reported no usable filesystem personalities"
+      return 1
+    }
+    _usb_format_workspace_controller
+    print -r -- "personalities:$?|$_USB_FORMAT_ERROR"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" \
+    'diskutil:2|diskutil could not capture its filesystem catalog' \
+    'a failed diskutil catalog capture was reported as a cancelled workspace' || return
+  test_assert_contains "$output" \
+    'personalities:2|diskutil reported no usable filesystem personalities' \
+    'an unusable filesystem catalog was reported as a cancelled workspace'
+}
+test_case 'USB format reports a failed filesystem catalog capture' \
+  _test_usb_format_reports_a_failed_catalog_capture
+
+_test_usb_format_catalog_failure_is_not_a_cancel() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    TMPDIR=$HOME
+    _matching_compile() { :; }
+    _zle_picker_run() { "$5"; }
+    _usb_external_device_choose() {
+      _USB_DISK_IDS=(disk9) _USB_DISK_LABELS=(external-drive)
+      _USB_DISK_SIZES=(9000000000) _USB_DISK_FINGERPRINTS=(disk-fingerprint)
+      _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=1
+    }
+    _usb_diskutil_run() { return 1; }
+    _format_catalog_fixture() {
+      external-device --format 2> "$HOME/error"
+      print -r -- "format-status:$?"
+      print -r -- END-FORMAT-CATALOG
+    }
+    zmodload zsh/zpty || exit 2
+    local chunk="" captured="" error=""
+    zpty format-catalog _format_catalog_fixture || exit 3
+    {
+      while zpty -r format-catalog chunk; do
+        captured+=$chunk
+        [[ $chunk == *END-FORMAT-CATALOG* ]] && break
+      done
+    } always {
+      zpty -d format-catalog
+    }
+    [[ $captured == *END-FORMAT-CATALOG* ]] || exit 4
+    error=$(<"$HOME/error")
+    print -r -- "${captured//$'\''\r'\''/}"
+    print -r -- "error:[$error]"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'format-status:2' \
+    'external-device --format turned a failed catalog capture into success' || return
+  test_assert_contains "$output" \
+    'error:[external-device --format: diskutil could not capture its filesystem catalog]' \
+    'external-device --format discarded the catalog capture diagnostic'
+}
+test_case 'USB format catalog failure is reported, not treated as cancel' \
+  _test_usb_format_catalog_failure_is_not_a_cancel
+
 _test_usb_volume_name_validation_is_format_aware() {
   test_make_temp_dir || return
   local output=''

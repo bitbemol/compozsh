@@ -1761,9 +1761,10 @@ _usb_format_workspace_controller() {
     (( result == 0 )) || return $result
     disk_index=$_ZLE_PICKER_SELECTED_VALUE
     disk=${_USB_DISK_IDS[disk_index]}
+    # Status 1 means the user cancelled; a failed capture must stay a failure.
     _usb_formats_capture || {
       _USB_FORMAT_ERROR=${_USB_CAPTURE_ERROR:-'diskutil did not return a usable filesystem catalog'}
-      return 1
+      return 2
     }
     REPLY='size unavailable'
     (( ${+functions[_usb_human_size]} )) && _usb_human_size "${_USB_DISK_SIZES[disk_index]}"
