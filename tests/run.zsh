@@ -3,6 +3,12 @@
 emulate -LR zsh
 setopt PIPE_FAIL
 
+# Git fixtures also run in this process. An inherited selector such as GIT_DIR
+# could redirect them into a real repository, and global or system
+# configuration could run the operator's hooks or signing programs.
+unset -m 'GIT_*'
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+
 typeset -gr TESTS_DIR=${0:A:h}
 typeset -gr TEST_REPO_ROOT=${TESTS_DIR:h}
 

@@ -97,6 +97,11 @@ focused new file with that suffix.
   locale, validated `mktemp` paths. Avoid sleeps, wall-clock assumptions,
   machine-specific paths, installed optional tools and assertions on unstable
   presentation details. Destructive tests run only in disposable repositories.
+  `tests/run.zsh` unsets inherited `GIT_*` variables and disables global and
+  system Git configuration, so an inherited selector cannot redirect Git
+  fixtures in the runner process into another repository, and the operator's
+  global hooks and signing setup never run on them (Git's default per-user
+  ignore and attributes files still apply).
 - Test architectural invariants such as standalone sourcing and the
   [peer configuration laws](architecture.md#peer-configuration-algebra)
   directly; the website's browser model cannot validate the Zsh code.
