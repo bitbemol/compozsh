@@ -169,6 +169,132 @@ print -r -- "$heading|$warning|$match|$selected|${(j:|:)@}"' || return
 test_case 'manual-page styling shares the semantic output palette' \
   _test_man_uses_semantic_output_palette
 
+# Native man chooses its pager from MANPAGER, then MANCOLOR (less -sR), then
+# PAGER, then less -s. The wrapper adds styles only and never picks a pager.
+_test_man_wrapper_keeps_native_pager_precedence() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output=''
+  test_write_file "$fake_bin/man" $'#!/bin/zsh\nprint -r -- "MANPAGER=${MANPAGER-<unset>}|MANCOLOR=${MANCOLOR-<unset>}|PAGER=${PAGER-<unset>}|${1-}"' || return
+  command chmod +x "$fake_bin/man" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    path=("$2" $path)
+    source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
+    export PAGER=most
+    unset MANPAGER MANCOLOR
+    man ls
+    export MANPAGER=custom; man ls; unset MANPAGER
+    export MANCOLOR=1; man ls
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+
+  test_assert_equal 'MANPAGER=<unset>|MANCOLOR=<unset>|PAGER=most|ls
+MANPAGER=custom|MANCOLOR=<unset>|PAGER=most|ls
+MANPAGER=<unset>|MANCOLOR=1|PAGER=most|ls' "$output" \
+    'man wrapper replaced the native pager choice'
+}
+test_case 'man wrapper keeps the native pager precedence' \
+  _test_man_wrapper_keeps_native_pager_precedence
+
+# The palette and its plain text-attribute defaults stay out of the
+# environment under NO_COLOR or without 256 colors; explicit values still pass.
+_test_man_palette_honors_no_color_and_terminal_colors() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output=''
+  test_write_file "$fake_bin/man" $'#!/bin/zsh\ntypeset name=\'\'\ntypeset -a styles=()\nfor name in mb md me so se us ue; do\n  (( ${+parameters[LESS_TERMCAP_$name]} )) && styles+=("$name=${(V)${(P)${:-LESS_TERMCAP_$name}}}")\ndone\nprint -r -- "${#styles}:${(j:,:)styles}"' || return
+  command chmod +x "$fake_bin/man" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    path=("$2" $path)
+    typeset -gA ZSH_OUTPUT_COLORS=(heading 123)
+    source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
+    local mode=""
+    for mode in default no-color limited unsupported no-color-explicit; do
+      TERM=xterm-256color
+      unset NO_COLOR LESS_TERMCAP_md
+      case $mode in
+        no-color) export NO_COLOR=1 ;;
+        limited) TERM=xterm ;;
+        unsupported) TERM=dumb ;;
+        no-color-explicit) export NO_COLOR=1 LESS_TERMCAP_md=custom ;;
+      esac
+      print -r -- "$mode|$(man example)"
+    done
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+
+  test_assert_equal 'default|7:mb=^[[1;38;5;199m,md=^[[1;38;5;123m,me=^[[0m,so=^[[1;38;5;16;48;5;123m,se=^[[0m,us=^[[4;38;5;221m,ue=^[[0m
+no-color|0:
+limited|0:
+unsupported|0:
+no-color-explicit|1:md=custom' "$output" \
+    'man palette ignored NO_COLOR or the terminal color count'
+}
+test_case 'man palette stays plain under NO_COLOR or without 256 colors' \
+  _test_man_palette_honors_no_color_and_terminal_colors
+
+# Real grep under a PTY: matches use the palette only on a 256-color terminal
+# without NO_COLOR; otherwise grep runs with the exact argv and exit status.
+_test_grep_wrapper_honors_no_color_and_terminal_colors() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    typeset -gA ZSH_OUTPUT_COLORS=(match 125)
+    source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
+    source "$1/tests/pty_support.zsh" || exit 1
+    local esc="" cr="" nl="" haystack="$HOME/haystack" mode="" trace="" state=""
+    local -a states=()
+    printf -v esc "\033"; printf -v cr "\r"; printf -v nl "\n"
+    print -r -- "needle in haystack" > "$haystack" || exit 2
+    _grep_color_fixture() {
+      print -r -- BEGIN-TTY; grep needle "$haystack"
+      print -r -- BEGIN-PIPE; grep needle "$haystack" | cat
+      grep absent "$haystack"
+      print -r -- "END-GREP-COLOR:$?"
+    }
+    for mode in default no-color limited unsupported; do
+      TERM=xterm-256color
+      unset NO_COLOR
+      case $mode in
+        no-color) export NO_COLOR=1 ;;
+        limited) TERM=xterm ;;
+        unsupported) TERM=dumb ;;
+      esac
+      test_pty_start grep-color _grep_color_fixture || exit 3
+      {
+        test_pty_expect grep-color "" END-GREP-COLOR || exit 4
+        trace=${TEST_PTY_OUTPUT//$cr/}
+      } always {
+        zpty -d grep-color
+      }
+      states=()
+      for state in "${${trace#*BEGIN-TTY$nl}%%BEGIN-PIPE*}" \
+        "${${trace#*BEGIN-PIPE$nl}%%END-GREP-COLOR*}"; do
+        if [[ $state == *"${esc}[1;38;5;125m"*needle* ]]; then
+          states+=(palette)
+        elif [[ $state == *"${esc}["* ]]; then
+          states+=(color)
+        elif [[ $state == "needle in haystack$nl" ]]; then
+          states+=(plain)
+        else
+          states+=(missing)
+        fi
+      done
+      [[ $trace == *END-GREP-COLOR:1* ]] && states+=(status-1)
+      print -r -- "$mode|${(j:|:)states}"
+    done
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal 'default|palette|plain|status-1
+no-color|plain|plain|status-1
+limited|plain|plain|status-1
+unsupported|plain|plain|status-1' "$output" \
+    'grep wrapper colored matches under NO_COLOR or without 256 colors'
+}
+test_case 'grep wrapper adds no color under NO_COLOR or without 256 colors' \
+  _test_grep_wrapper_honors_no_color_and_terminal_colors
+
 # A same-name alias would expand in a wrapper definition and abort the peer.
 _test_output_loads_after_wrapper_aliases() {
   test_make_temp_dir || return

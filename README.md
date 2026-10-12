@@ -394,9 +394,9 @@ substitutions and redirected data stay byte-compatible.
 | Output | Behavior |
 | --- | --- |
 | `ls`, `ll`, `la`, file completion | Native file-type colors; long-listing metadata stays neutral |
-| `grep` | Matches use the shared match color on a terminal |
+| `grep` | Matches use the shared match color on a 256-color terminal |
 | Git | Native semantic colors for status, diffs, logs, branches and remote messages |
-| `man` | Scoped heading, reference and search-match colors through `less` |
+| `man` | Scoped heading, reference and search-match colors when the pager is `less` |
 | Compozsh help | Heading, option, example and safety emphasis on 256-color terminals |
 | `curl`, compilers, TUIs | Their native behavior; `curl` bodies are untouched |
 | JSON, CSV, logs, binary data | Unchanged, because meaning cannot be inferred from bytes |
@@ -407,8 +407,9 @@ subcommands whose stdout is a terminal. Your own `color.ui` or
 options win (`git -c color.ui=never log`). With stdout piped or redirected,
 Git gets your exact arguments and behaves as without Compozsh. Redirected
 `grep` output stays plain; use `grep --color=always … | less -R` to keep grep
-colors. Manual colors apply only to `man`, and an existing `MANPAGER`,
-`MANCOLOR` or `LESS_TERMCAP_*` value wins.
+colors. Manual colors apply only to `man` and never change its pager: native
+`man` still chooses it from `MANPAGER`, `MANCOLOR` and `PAGER`, falling back
+to `less -s`, and the colors appear when that pager is `less`.
 
 ```zsh
 typeset -gA ZSH_OUTPUT_COLORS
@@ -425,7 +426,7 @@ listings whenever `CLICOLOR` exists, even as `0` or empty: a nonempty
 `NO_COLOR` at startup, inherited or set in `~/.zsh.addons/local/init.zsh`,
 keeps Compozsh from setting it, and `unset CLICOLOR` turns listing colors off
 in a running shell. `NO_COLOR` or fewer than 256 colors keeps Compozsh's
-completion colors plain.
+completion, help, `grep` and `man` colors plain.
 
 ## History autosuggestions
 

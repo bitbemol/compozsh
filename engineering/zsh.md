@@ -192,6 +192,10 @@ safety facts without freezing whole paragraphs.
 - Color command output only when stdout is a terminal. Pipes, redirects,
   command substitutions and machine-readable output stay plain and
   byte-compatible with the original command, and the exit status is preserved.
+- `grep` and `man` add palette styling only where help would: a nonempty
+  `NO_COLOR`, an unset or dumb `TERM`, or fewer than 256 terminfo colors runs
+  them as without Compozsh. `man` never chooses the pager; native `MANPAGER`,
+  `MANCOLOR` and `PAGER` precedence stays with the system command.
 
 ## Tool discovery
 

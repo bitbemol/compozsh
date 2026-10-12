@@ -170,9 +170,9 @@ starts no process, and reads no project or private file. Palette defaults and
 public overrides live in shell memory; consumers resolve current roles without
 separate default palettes, rendering never recreates them, and missing or
 non-associative public maps count as unavailable rather than being read as
-arithmetic. Completion and printable-stack colors follow terminal capabilities
-and `NO_COLOR`; manual-page selection contrast uses fixed indexed-color
-arithmetic. Reference RGB colors do not establish contrast
+arithmetic. Completion, printable-stack, help, `grep` and `man` colors follow
+terminal capabilities and `NO_COLOR`; manual-page selection contrast uses fixed
+indexed-color arithmetic. Reference RGB colors do not establish contrast
 for arbitrary terminal profiles. Inspect `.zsh.addons/support/.zsh.appearance`,
 `.zsh.addons/support/ui/`, and the `.zsh.output`, `.zsh.editor`,
 `.zsh.navigation` and `.zsh.prompt` peers.
