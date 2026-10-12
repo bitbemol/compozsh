@@ -813,7 +813,9 @@ documents keep 10,000 lines. Binary files, conflicts and symlinks show notices,
 submodules are excluded, and renames appear as a deletion plus an addition.
 These limit output, not time, so huge worktrees can still be slow. Review
 disables external diff, text conversion, filters, hooks and network transport,
-so filtered files can differ from your configured `git diff`.
+so filtered files can differ from your configured `git diff`. Review and the
+`g` branch picker never verify commit signatures, so no configured verifier
+(such as `gpg.program`) runs.
 
 `g --review` needs an interactive terminal; use `git diff A B` for plain output.
 

@@ -32,16 +32,18 @@ _git_review_git() {
   local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
   local -x GIT_ALLOW_PROTOCOL='' GIT_LITERAL_PATHSPECS=1
   local -x GIT_GLOB_PATHSPECS=0 GIT_NOGLOB_PATHSPECS=0 GIT_ICASE_PATHSPECS=0
+  # log.showSignature=false: a configured verifier (gpg.program and variants)
+  # must not run for history or root-commit reads, or mix into captured IDs.
   if (( ${_GIT_REVIEW_WORKER_EXEC:-0} )); then
     # The automatic worker launches this function as a direct asynchronous
     # child, records that PID, then replaces it with Git. Cancellation can
     # therefore terminate the actual provider before reaping its Zsh parent.
     exec "$git_binary" --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
-      -c core.untrackedCache=false -c core.hooksPath=/dev/null \
+      -c core.untrackedCache=false -c core.hooksPath=/dev/null -c log.showSignature=false \
       "${_GIT_REVIEW_CONFIG[@]}" "$@"
   fi
   command git --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
-    -c core.untrackedCache=false -c core.hooksPath=/dev/null \
+    -c core.untrackedCache=false -c core.hooksPath=/dev/null -c log.showSignature=false \
     "${_GIT_REVIEW_CONFIG[@]}" "$@"
 }
 

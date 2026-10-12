@@ -42,6 +42,9 @@ invocation. Disabling them keeps ordinary `g` switch/copy and Git delegation.
 Bare `g` opens recent local branches (it can also create a local branch from
 a remote one). Ctrl-X on Branches opens review choices (below). The branch
 picker keeps its actions — switch, copy — performed after terminal cleanup.
+Branch snapshot reads (refs, checkout reflog, detail subjects) keep the
+local-only controls and disable commit-signature verification, so reading a
+signed reflog never runs a configured verifier.
 
 ## Git worktree workspace boundary
 
@@ -121,13 +124,15 @@ focus.
 ### Git invocation safety
 
 - Disable optional index writes, fsmonitor, hooks, lazy fetch, network
-  protocols, external diffs and textconv. Discover configured clean/process
-  filter names and override them to inert values per invocation, also
-  disabling required-filter enforcement. Refuse a capped or failed filter-name
-  discovery and any driver name containing `=` (Git's `-c key=value` can't
-  address it unambiguously). Bound the generated override argv to 4,096
-  entries in manual and automatic paths. Help explains the unfiltered
-  comparison. These measures are not an OS sandbox. References:
+  protocols, external diffs, textconv and commit-signature verification
+  (`-c log.showSignature=false`: no configured verifier such as `gpg.program`
+  runs, and history captures hold only Git's own output). Discover configured
+  clean/process filter names and override them to inert values per
+  invocation, also disabling required-filter enforcement. Refuse a capped or
+  failed filter-name discovery and any driver name containing `=` (Git's
+  `-c key=value` can't address it unambiguously). Bound the generated override
+  argv to 4,096 entries in manual and automatic paths. Help explains the
+  unfiltered comparison. These measures are not an OS sandbox. References:
   [git diff](https://git-scm.com/docs/git-diff),
   [git status](https://git-scm.com/docs/git-status),
   [Git environment](https://git-scm.com/docs/git).

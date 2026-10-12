@@ -1250,10 +1250,15 @@ another remote operation.
   filesystem monitors, hooks, required-filter enforcement, and lazy fetches.
 - **Branch snapshot providers** disable lazy fetches, prompts, transport and
   optional writes while reading local refs, reflogs and detail subjects, so a
-  missing promised object cannot start transport during branch details. Branch
-  switching separates options from the
-  exact selected ref name, including a ref beginning with `--`.
-- **Git review** applies its own equivalent read-only filter boundary.
+  missing promised object cannot start transport during branch details. They
+  also disable commit-signature verification (`log.showSignature`), so no
+  configured verifier program such as `gpg.program` runs while reflogs are
+  read. Branch switching separates options from the exact selected ref name,
+  including a ref beginning with `--`.
+- **Git review** applies its own equivalent read-only filter boundary and
+  disables commit-signature verification, so commit history and root-commit
+  documents never run a configured verifier program or mix its output into
+  captured commit IDs.
 - **Repository selection.** Interactive branch, review, worktree and explicit
   discard workspaces, and explicit-root review providers, use the current
   folder's repository, temporarily shadowing inherited Git directory, worktree,
@@ -1623,7 +1628,7 @@ server.
 | Job lifecycle | `job lifecycle` |
 | Git file review and Change atlas | `Git tree`, `Git atlas`, `Git review native g` |
 | Branch catalog and remote fallback | `absent from the reflog`, `branch remote` |
-| Git filter, selector, Files and promisor controls | `shared Git`, `Git selectors`, `Files Git`, `promisor fetch` |
+| Git filter, selector, Files, promisor and signature-verifier controls | `shared Git`, `Git selectors`, `Files Git`, `promisor fetch`, `signature verifier` |
 | Git comparison bounds | `Git comparison` |
 | Discard with a dirty submodule | `g --discard-all preserves dirty submodule` |
 | Worktrees | `worktree ` |

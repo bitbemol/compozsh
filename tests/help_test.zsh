@@ -221,7 +221,7 @@ _test_tool_help_explains_real_boundaries() {
         'Against' 'Both choices' 'Enter chooses the best matching ref'
         'full object IDs' '512 characters' 'nothing is fetched'
         'staged' 'unstaged' 'first parent' '256 KiB' 'filters' 'containing ='
-        'fails closed' 'hunks'
+        'fails closed' 'hunks' 'never verify commit signatures'
         '800 ms child'
         'untracked regular text' 'NUL' 'Symlinks' 'new-file snapshot'
         'inside new directories' 'Ignored files remain excluded'

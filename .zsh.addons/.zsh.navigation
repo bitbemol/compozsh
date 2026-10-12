@@ -209,6 +209,8 @@ _directory_recents_choose() {
 # other shells. Deleted branches and detached commit IDs are filtered out.
 # Branch snapshots inspect local objects only. Keep these controls scoped to
 # providers so explicit switching and transparent Git arguments retain semantics.
+# Disabling log.showSignature keeps reflog reads from running a configured
+# signature verifier (gpg.program) for each signed entry.
 _git_branch_read() {
   emulate -L zsh
   local root=$1
@@ -217,7 +219,7 @@ _git_branch_read() {
   local -x GIT_ALLOW_PROTOCOL=''
   command git --no-pager --no-replace-objects -C "$root" \
     -c core.fsmonitor=false -c core.hooksPath=/dev/null \
-    -c maintenance.auto=false -c gc.auto=0 "$@"
+    -c maintenance.auto=false -c gc.auto=0 -c log.showSignature=false "$@"
 }
 
 _git_recent_branches() {
@@ -834,6 +836,8 @@ _compozsh_help_g() {
     '  optional index writes and Git network transport. Filtered files may' \
     '  therefore differ from your usual configured diff. A filter driver name' \
     '  containing = cannot be overridden unambiguously, so review fails closed.' \
+    '  Review and the branch picker never verify commit signatures, so no' \
+    '  configured verifier (such as gpg.program) runs.' \
     '  No settings change.' \
     '  Bounds limit retained output, not elapsed time: large repositories or' \
     '  slow storage can delay synchronous reads. Failed captures show a notice.' \
