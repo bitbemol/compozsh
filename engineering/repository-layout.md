@@ -81,8 +81,9 @@ compozsh/
   overwrite an existing initializer, or add active machine policy to it.
 - `install.zsh` is the installation boundary: dry-run plan, symlink and
   namespaced-copy modes, `ZDOTDIR` support, confirmation, timestamped recovery
-  backups, transactional rollback, and refusal to overwrite unmarked managed
-  namespaces. `--clean` means archive and start fresh, never delete.
+  backups, transactional rollback (also after Ctrl-C, hangup or termination,
+  never restoring over an occupied path), and refusal to overwrite unmarked
+  managed namespaces. `--clean` means archive and start fresh, never delete.
 - `tests/` is the native-Zsh regression suite: files focused by behavior,
   `tests/support.zsh` as the minimal harness, no third-party dependencies.
 - `investigations/` preserves bounded evidence behind decisions. Durable rules

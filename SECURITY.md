@@ -109,7 +109,8 @@ recoverable installer need local state.
 | Command history | `${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}` by default | Zsh's normal local, shared history and the in-memory history picker |
 | Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`, written by Zsh's stock `compinit` (called bare by `.zsh.editor`) when a fresh shell finds it missing or its `fpath` file count or Zsh version changed; persists until deleted, including after `--clean` and uninstall | [Zsh-generated shell code](#native-completion-dump) that `compinit` sources: the count, Zsh version and the verbatim first-line words of `fpath` completion files (normally function, command, service, pattern and key names), private entries included, plus completion widget bindings. No `fpath` directory paths, file bodies, history, environment values or project data. Mode follows the umask at write time (0644 under the default 022); an interrupted write can leave `.zcompdump.<host>.<pid>` |
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons`; an initializer moved by `ZSH_LOCAL_INIT` stays at that absolute path (a relative value is ignored) | User-owned machine setup and extensions loaded by the bootstrap |
-| Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted |
+| Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted; a rollback that cannot put an item back keeps it there and prints the path |
+| Installer copy staging | `${ZDOTDIR:-$HOME}/.compozsh-install.*`, a mode-0700 directory that exists only while `install.zsh --copy` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The clone's `.zsh.addons` tree without `support/cache` (untracked files included) plus the `.managed-by-compozsh` marker, staged before any active state moves; never sourced |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory; discarded with the shell or view | Color-scheme classification, runtime versions, Git state, paths, Context trigger/disclosure flags, positive/exclusion fields and their bookmarks, temporary view snapshots |
 | Local manual summaries | Shell memory until refresh, discovery-selector invalidation or shell exit | Bounded NAME descriptions and page-name/section attribution from the [manual roots](#local-manual-summaries); describes literal names, not executable identity |
@@ -1020,6 +1021,20 @@ but a recovery backup can contain secrets that were already present there.
 Protect and eventually archive or remove those backups according to your own
 retention policy; Compozsh deliberately does not delete them automatically.
 
+Ctrl-C, a hangup or a termination signal during installation rolls back like a
+handled failure, and further such signals are ignored while it cleans up.
+Rollback moves an archived item back only into a free location, so an item it
+cannot restore stays in the `.zsh-backups/compozsh-*` directory, whose path it
+prints. Copy mode first stages the shipped add-ons in a mode-0700
+`${ZDOTDIR:-$HOME}/.compozsh-install.*` directory, which the bootstrap never
+sources and cleanup removes. An uncatchable termination (`SIGKILL`, power loss),
+or a signal that stops `mktemp` between creating that directory and reporting
+its name, can leave it behind, and an uncatchable termination can also leave a
+partially applied installation whose replaced files remain in the backup.
+Earlier releases named the staging directory `.my-zsh-install.*`. Inspect
+`install.zsh`; `zsh tests/run.zsh 'installer'` checks rollback after failures
+and signals, the staging name and its cleanup.
+
 An uncatchable process termination or system failure can leave a temporary
 capture behind; its validated `compozsh-*` name makes it identifiable in
 `${TMPDIR:-/tmp}`. For Git review this can be an empty mode-0700
@@ -1684,6 +1699,7 @@ server.
 | Manual capture, formatter and transport | `manual coverage`, `manual summaries`, `manual async` |
 | Public manual cache and installer exclusion | `manual cache`, `cache data`, `installer excludes generated` |
 | Native completion dump call, path, contents, mode and `--clean` survival | `native completion dump`, `clean installer touches only` |
+| Installer rollback after failures and signals, copy staging name and cleanup | `installer` |
 | Matching and exclusion | `exclusion`, `matching component` |
 | Captured-data parsing without temporary files | `here-string`, `filter override builder`, `worktree removal` |
 | Captured, setting and inherited text kept out of arithmetic | `never splices text into arithmetic`, `stay text`, `overflowing`, `hostile`, `inherited`, `numeric metadata`, `stat numbers`, `dd parser`, `validates width text` |

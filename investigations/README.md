@@ -106,7 +106,8 @@ measurement and design decision before implementation.
   directory name containing `\e[…` could inject terminal sequences after
   `g --discard-all`.
 - Leftover `my-zsh` identifiers: highlight memo tags (`my-zsh-picker`,
-  `my-zsh-autosuggestion`) and temp-directory prefixes.
+  `my-zsh-autosuggestion`) and the test harness's `my-zsh-tests.*`
+  temporary-directory prefix.
 - The real-FAT32 `hdiutil` round-trip test fails on the current macOS 27
   host; cause not yet investigated.
 

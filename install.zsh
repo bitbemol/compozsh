@@ -45,8 +45,8 @@ _installer_help() {
     '  Update that clone with git pull, then run exec zsh in each terminal.' \
     '  Copy mode keeps a snapshot; update the clone and rerun --copy to refresh.' \
     '  Both modes leave private data separate from shipped configuration.' \
-    '  Failures attempt rollback; inspect diagnostics and retained backups.' \
-    '  The printed recovery path contains replaced state for manual recovery.' \
+    '  Failures and interruptions (Ctrl-C, hangup, termination) roll back;' \
+    '  any printed recovery path holds replaced state for manual recovery.' \
     '  Installs only Compozsh configuration, never tools or package managers.' \
     '  Other startup files such as .zprofile and .zshenv remain untouched.' \
     '' \
@@ -101,6 +101,18 @@ _installer_remove_tree() {
   }
   [[ -e $target || -L $target ]] || return 0
   command rm -rf -- "$target"
+}
+
+# Rollback moves an archived item back only when it reached the backup and its
+# original location is free, so an interrupted step is never nested into or
+# written over. An occupied original is a failed restore and keeps the backup.
+_installer_restore() {
+  emulate -L zsh
+
+  local archived=$1 original=$2
+  [[ -e $archived || -L $archived ]] || return 0
+  [[ ! -e $original && ! -L $original ]] || return 1
+  command mv -- "$archived" "$original"
 }
 
 # Ship reviewed code/assets, never generated machine-local module data.
@@ -313,23 +325,34 @@ _installer_main() {
   local -i rc_created=0 addons_created=0 managed_created=0
   local -i initializer_created=0 transaction_ok=0 result=0
 
-  # Prepare copy-mode content before moving any active state.
-  if [[ $mode == copy ]]; then
-    stage_dir=$(command mktemp -d "$config_base/.my-zsh-install.XXXXXX") || {
-      print -u2 -r -- 'installer: cannot create a staging directory'
-      return 1
-    }
-    staged_addons="$stage_dir/compozsh"
-    _installer_stage_addons "$source_addons" "$staged_addons" &&
-      print -r -- 'version=1' >| \
-        "$staged_addons/.managed-by-compozsh" || {
-        print -u2 -r -- 'installer: could not stage shared add-ons'
-        _installer_remove_tree "$stage_dir" "$config_base" '.my-zsh-install.*'
-        return 1
-      }
-  fi
+  # From here Ctrl-C, a hangup or a termination signal unwinds through the
+  # always list like a handled failure, and a diagnostic written to a closed
+  # pipe cannot end the installer. LOCAL_TRAPS (emulate -L) scopes all four.
+  # Each step is recorded before it runs, so a signal that lands after a step
+  # completed still undoes it.
+  TRAPINT() { return $(( 128 + $1 )) }
+  TRAPHUP() { return $(( 128 + $1 )) }
+  TRAPTERM() { return $(( 128 + $1 )) }
+  trap '' PIPE
 
   {
+    # Prepare copy-mode content before moving any active state.
+    if [[ $mode == copy ]]; then
+      stage_dir=$(command mktemp -d "$config_base/.compozsh-install.XXXXXX") || {
+        print -u2 -r -- 'installer: cannot create a staging directory'
+        result=1
+        return 1
+      }
+      staged_addons="$stage_dir/compozsh"
+      _installer_stage_addons "$source_addons" "$staged_addons" &&
+        print -r -- 'version=1' >| \
+          "$staged_addons/.managed-by-compozsh" || {
+          print -u2 -r -- 'installer: could not stage shared add-ons'
+          result=1
+          return 1
+        }
+    fi
+
     if (( backup_rc || backup_addons || backup_managed )); then
       _installer_backup_path "$backup_root" || {
         print -u2 -r -- 'installer: could not calculate a backup location'
@@ -345,28 +368,28 @@ _installer_main() {
     fi
 
     if (( backup_rc )); then
+      rc_moved=1
       command mv -- "$active_zshrc" "$backup_dir/.zshrc" || {
         print -u2 -r -- 'installer: could not archive the existing .zshrc'
         result=1
         return 1
       }
-      rc_moved=1
     fi
     if (( backup_addons )); then
+      addons_moved=1
       command mv -- "$user_addons" "$backup_dir/.zsh.addons" || {
         print -u2 -r -- 'installer: could not archive the existing .zsh.addons'
         result=1
         return 1
       }
-      addons_moved=1
     fi
     if (( backup_managed )); then
+      managed_moved=1
       command mv -- "$managed_addons" "$backup_dir/copied-addons" || {
         print -u2 -r -- 'installer: could not archive copied shared add-ons'
         result=1
         return 1
       }
-      managed_moved=1
     fi
 
     if [[ $rc_action == install ]]; then
@@ -382,26 +405,20 @@ _installer_main() {
       }
     fi
 
+    # A fresh add-on directory exists only where the old tree was archived.
+    (( backup_addons )) && addons_created=1
+    command mkdir -p -- "$user_addons" || {
+      print -u2 -r -- 'installer: could not create the add-on directory'
+      result=1
+      return 1
+    }
     if [[ $mode == copy ]]; then
-      command mkdir -p -- "$user_addons" || {
-        print -u2 -r -- 'installer: could not create the add-on directory'
-        result=1
-        return 1
-      }
-      (( backup_addons )) && addons_created=1
+      managed_created=1
       command mv -- "$staged_addons" "$managed_addons" || {
         print -u2 -r -- 'installer: could not activate copied shared add-ons'
         result=1
         return 1
       }
-      managed_created=1
-    else
-      command mkdir -p -- "$user_addons" || {
-        print -u2 -r -- 'installer: could not create the add-on directory'
-        result=1
-        return 1
-      }
-      (( backup_addons )) && addons_created=1
     fi
 
     if [[ $initializer_action == create ]]; then
@@ -416,6 +433,8 @@ _installer_main() {
 
     transaction_ok=1
   } always {
+    # Cleanup is bounded local work; a repeated signal must not abandon it.
+    trap '' INT HUP TERM
     if (( ! transaction_ok )); then
       print -u2 -r -- 'installer: rolling back the incomplete installation'
       (( initializer_created )) && command rm -f -- "$initializer"
@@ -424,24 +443,27 @@ _installer_main() {
           'compozsh' || result=1
       fi
       if (( managed_moved )); then
-        command mv -- "$backup_dir/copied-addons" "$managed_addons" || result=1
+        _installer_restore "$backup_dir/copied-addons" "$managed_addons" || result=1
       fi
       if (( addons_created )); then
         _installer_remove_tree "$user_addons" "$config_base" '.zsh.addons' || result=1
       fi
       if (( addons_moved )); then
-        command mv -- "$backup_dir/.zsh.addons" "$user_addons" || result=1
+        _installer_restore "$backup_dir/.zsh.addons" "$user_addons" || result=1
       fi
       (( rc_created )) && command rm -f -- "$active_zshrc"
       if (( rc_moved )); then
-        command mv -- "$backup_dir/.zshrc" "$active_zshrc" || result=1
+        _installer_restore "$backup_dir/.zshrc" "$active_zshrc" || result=1
       fi
-      [[ -n $backup_dir && -d $backup_dir ]] && command rmdir "$backup_dir" 2>/dev/null
+      if [[ -n $backup_dir && -d $backup_dir ]] &&
+          ! command rmdir -- "$backup_dir" 2>/dev/null; then
+        print -u2 -r -- "installer: rollback incomplete; replaced state remains in $backup_dir"
+      fi
       result=1
     fi
 
     if [[ -n $stage_dir && ( -d $stage_dir || -L $stage_dir ) ]]; then
-      _installer_remove_tree "$stage_dir" "$config_base" '.my-zsh-install.*' || result=1
+      _installer_remove_tree "$stage_dir" "$config_base" '.compozsh-install.*' || result=1
     fi
   }
 
@@ -454,5 +476,5 @@ _installer_main() {
 _installer_main "$@"
 typeset -i _installer_status=$?
 unfunction _installer_usage _installer_help _installer_choose_mode _installer_backup_path
-unfunction _installer_remove_tree _installer_main
+unfunction _installer_remove_tree _installer_restore _installer_main
 exit $_installer_status

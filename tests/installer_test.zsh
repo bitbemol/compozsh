@@ -344,6 +344,183 @@ _test_installer_rolls_back_failed_activation() {
 test_case 'installer restores active state when activation fails' \
   _test_installer_rolls_back_failed_activation
 
+# A stand-in tool signals its parent installer the way Ctrl-C, a closed
+# terminal or `kill` would, without depending on timing.
+_test_installer_rolls_back_interrupted_activation() {
+  test_make_temp_dir || return
+  local home='' fake_bin='' output='' signal=''
+  local -a retained=()
+
+  for signal in INT HUP TERM; do
+    home="$TEST_TMP_DIR/$signal/home"
+    fake_bin="$TEST_TMP_DIR/$signal/bin"
+    test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+    test_write_file "$fake_bin/ln" \
+      "#!/usr/bin/env zsh"$'\n'"kill -$signal \$PPID"$'\n''exit 130' || return
+    command chmod +x "$fake_bin/ln" || return
+
+    if output=$(path=("$fake_bin" $path); rehash
+        _test_run_installer "$home" "$home" --symlink --yes 2>&1); then
+      test_fail "installer reported success after SIG$signal during activation" || return
+    fi
+    [[ -f $home/.zshrc && ! -L $home/.zshrc ]] ||
+      test_fail "SIG$signal during activation left no active .zshrc" || return
+    test_assert_equal 'ORIGINAL_RC=1' "$(<"$home/.zshrc")" \
+      "SIG$signal during activation did not restore the previous bootstrap" || return
+    test_assert_contains "$output" 'rolling back' \
+      "SIG$signal during activation did not report its rollback" || return
+    retained=("$home"/.zsh-backups/compozsh-*/*(DN))
+    test_assert_equal 0 "${#retained}" \
+      "SIG$signal rollback left replaced state in a backup" || return
+  done
+}
+test_case 'installer rolls back and reports recovery when interrupted during activation' \
+  _test_installer_rolls_back_interrupted_activation
+
+_test_installer_copy_staging_removed_when_interrupted() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''
+  local -a leftovers=()
+  test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+  test_write_file "$fake_bin/cp" $'#!/usr/bin/env zsh\nkill -INT $PPID\nexit 130' || return
+  command chmod +x "$fake_bin/cp" || return
+
+  path=("$fake_bin" $path)
+  rehash
+  if output=$(_test_run_installer "$home" "$home" --copy --yes 2>&1); then
+    test_fail 'copy installer reported success after an interrupted staging copy' || return
+  fi
+  leftovers=("$home"/.*-install.*(DN))
+  (( ! $#leftovers )) ||
+    test_fail "interrupted copy left staging: ${leftovers[*]}" || return
+  test_assert_equal 'ORIGINAL_RC=1' "$(<"$home/.zshrc")" \
+    'interrupted copy staging changed the active bootstrap'
+}
+test_case 'copy installer removes its staging directory when interrupted' \
+  _test_installer_copy_staging_removed_when_interrupted
+
+_test_installer_finishes_rollback_when_interrupted_again() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''
+  local -a retained=()
+  test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+  test_write_file "$home/.zsh.addons/work/.zsh.private" 'PRIVATE=1' || return
+  test_write_file "$fake_bin/ln" $'#!/usr/bin/env zsh\nkill -INT $PPID\nexit 130' || return
+  test_write_file "$fake_bin/mv" $'#!/usr/bin/env zsh
+/bin/mv "$@" || exit
+[[ $2 == */.zsh-backups/*/.zsh.addons ]] && kill -INT $PPID
+exit 0' || return
+  command chmod +x "$fake_bin/ln" "$fake_bin/mv" || return
+
+  path=("$fake_bin" $path)
+  rehash
+  if output=$(_test_run_installer "$home" "$home" --symlink --clean --yes 2>&1); then
+    test_fail 'clean installer reported success after an interrupted activation' || return
+  fi
+  test_assert_equal 'ORIGINAL_RC=1' "$(<"$home/.zshrc")" \
+    'a second interrupt stopped the bootstrap restore' || return
+  test_assert_equal 'PRIVATE=1' \
+    "$(<"$home/.zsh.addons/work/.zsh.private")" \
+    'a second interrupt stopped the private add-on restore' || return
+  retained=("$home"/.zsh-backups/compozsh-*/*(DN))
+  test_assert_equal 0 "${#retained}" 'interrupted rollback left replaced state in a backup'
+}
+test_case 'installer finishes rollback when interrupted again during restore' \
+  _test_installer_finishes_rollback_when_interrupted_again
+
+# Ctrl-C under `install.zsh 2>&1 | tee log` also ends the reader, so the
+# rollback's own diagnostics must not end the installer with SIGPIPE.
+_test_installer_finishes_rollback_with_closed_diagnostics_pipe() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin"
+  local -a retained=()
+  test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+  test_write_file "$fake_bin/ln" $'#!/usr/bin/env zsh\nkill -INT $PPID\nexit 130' || return
+  command chmod +x "$fake_bin/ln" || return
+
+  path=("$fake_bin" $path)
+  rehash
+  { _test_run_installer "$home" "$home" --symlink --yes \
+      2>&1 >"$TEST_TMP_DIR/plan.out" } | : || :
+  test_assert_equal 'ORIGINAL_RC=1' "$(<"$home/.zshrc")" \
+    'a closed diagnostics pipe stopped the bootstrap restore' || return
+  retained=("$home"/.zsh-backups/compozsh-*/*(DN))
+  test_assert_equal 0 "${#retained}" 'rollback left replaced state in a backup'
+}
+test_case 'installer finishes rollback when its diagnostics pipe is closed' \
+  _test_installer_finishes_rollback_with_closed_diagnostics_pipe
+
+# The signal lands after the stand-in's own step completed, before the
+# installer records it, as when Ctrl-C reaches a tool that already acted.
+_test_installer_rolls_back_steps_completed_before_interrupt() {
+  test_make_temp_dir || return
+  local home='' fake_bin='' output='' tool='' step=''
+  local -a retained=()
+  local -i scenario=0
+
+  for tool step in \
+      mv '[[ $3 == */.zsh-backups/*/.zshrc ]]' \
+      mv '[[ $3 == */.zsh-backups/*/.zsh.addons ]]' \
+      mkdir '[[ ${@[-1]} == */.zsh.addons ]]'; do
+    home="$TEST_TMP_DIR/$(( ++scenario ))-$tool/home"
+    fake_bin="${home:h}/bin"
+    test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+    test_write_file "$home/.zsh.addons/work/.zsh.private" 'PRIVATE=1' || return
+    test_write_file "$fake_bin/$tool" "#!/usr/bin/env zsh
+/bin/$tool \"\$@\" || exit
+$step && { kill -INT \$PPID; exit 130; }
+exit 0" || return
+    command chmod +x "$fake_bin/$tool" || return
+
+    if output=$(path=("$fake_bin" $path); rehash
+        _test_run_installer "$home" "$home" --symlink --clean --yes 2>&1); then
+      test_fail "clean installer reported success after interrupting $tool" || return
+    fi
+    test_assert_equal 'ORIGINAL_RC=1' "$(<"$home/.zshrc")" \
+      "interrupt after $step left the bootstrap unrestored" || return
+    test_assert_equal 'PRIVATE=1' \
+      "$(<"$home/.zsh.addons/work/.zsh.private")" \
+      "interrupt after $step left private add-ons unrestored" || return
+    retained+=("$home"/.zsh-backups/compozsh-*/*(DN))
+    test_assert_equal 0 "${#retained}" \
+      "interrupt after $step left replaced state in a backup" || return
+  done
+}
+test_case 'installer rolls back steps that completed just before an interrupt' \
+  _test_installer_rolls_back_steps_completed_before_interrupt
+
+# A move across volumes can be stopped after writing a partial copy but before
+# removing its source; rollback must keep the intact original and say where
+# the leftover backup is instead of restoring the copy over it.
+_test_installer_keeps_backup_it_cannot_restore_safely() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''
+  local -a retained=()
+  test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+  test_write_file "$fake_bin/mv" $'#!/usr/bin/env zsh
+if [[ $3 == */.zsh-backups/*/.zshrc ]]; then
+  print -r -- PARTIAL >| "$3"
+  kill -INT $PPID
+  exit 130
+fi
+exec /bin/mv "$@"' || return
+  command chmod +x "$fake_bin/mv" || return
+
+  path=("$fake_bin" $path)
+  rehash
+  if output=$(_test_run_installer "$home" "$home" --symlink --yes 2>&1); then
+    test_fail 'installer reported success after an interrupted archive' || return
+  fi
+  test_assert_equal 'ORIGINAL_RC=1' "$(<"$home/.zshrc")" \
+    'rollback replaced the intact bootstrap with a partial backup' || return
+  retained=("$home"/.zsh-backups/compozsh-*(/N))
+  test_assert_equal 1 "${#retained}" 'rollback removed the unrestored backup' || return
+  test_assert_contains "$output" "replaced state remains in ${retained[1]:A}" \
+    'rollback did not name the backup it kept'
+}
+test_case 'installer keeps and names a backup it cannot restore safely' \
+  _test_installer_keeps_backup_it_cannot_restore_safely
+
 _test_installer_removes_partial_initializer_on_failure() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''

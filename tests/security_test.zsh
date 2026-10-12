@@ -357,3 +357,45 @@ _test_external_media_temporary_names_are_disclosed() {
 }
 test_case 'security: every external-media temporary name is disclosed' \
   _test_external_media_temporary_names_are_disclosed
+
+# Installer staging lives in the configuration base, so its residue must carry
+# a compozsh name that the inventory and the residue section both disclose.
+_test_installer_temporary_names_are_disclosed() {
+  emulate -L zsh
+  local line='' name='' current='' inventory='' residue=''
+  local -a match=() mbegin=() mend=() names=()
+  local -i calls=0 templates=0
+
+  while IFS= read -r line; do
+    if [[ $line == ('## '|'### ')* ]]; then
+      current=$line
+      continue
+    fi
+    case $current in
+      ('## Complete local data inventory') [[ $line == '| '* ]] && inventory+=$line$'\n' ;;
+      ('### Installer backups and temporary residue') residue+=$line$'\n' ;;
+    esac
+  done < "$TEST_REPO_ROOT/SECURITY.md"
+  [[ -n $inventory && -n $residue ]] || {
+    test_fail 'SECURITY.md lacks its inventory table or installer residue section'
+    return 1
+  }
+  while IFS= read -r line; do
+    [[ $line == *mktemp* ]] && (( ++calls ))
+    [[ $line =~ '/(\.?compozsh-[a-z-]+)\.XXXXXX' ]] || continue
+    names+=("$match[1]")
+    (( ++templates ))
+  done < "$TEST_REPO_ROOT/install.zsh"
+  (( calls >= 1 && calls == templates )) || {
+    test_fail "installer mktemp calls ($calls) and literal compozsh-* names ($templates) differ"
+    return 1
+  }
+  for name in ${(ou)names}; do
+    test_assert_contains "$inventory" "\`\${ZDOTDIR:-\$HOME}/$name.*\`" \
+      "SECURITY.md inventory has no row for the installer name $name" || return
+    test_assert_contains "$residue" "\`\${ZDOTDIR:-\$HOME}/$name.*\`" \
+      "SECURITY.md residue section does not disclose the installer name $name" || return
+  done
+}
+test_case 'security: installer temporary names are compozsh-named and disclosed' \
+  _test_installer_temporary_names_are_disclosed

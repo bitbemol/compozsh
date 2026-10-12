@@ -171,8 +171,9 @@ zsh "$repo_dir/install.zsh" --symlink
 Review the plan and answer `y`. The installer links the active `.zshrc` to the
 repository bootstrap, keeps an existing private `.zsh.addons` tree, copies
 `templates/init.zsh` only when `local/init.zsh` is absent, archives any `.zshrc`
-it replaces, and restores the prior state if activation fails. Then start a new
-shell:
+it replaces, and restores the prior state if activation fails or is interrupted
+by Ctrl-C, a hangup or a termination signal; anything it cannot put back stays
+in the backup, whose path it prints. Then start a new shell:
 
 ```sh
 exec zsh
