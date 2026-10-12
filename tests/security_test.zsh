@@ -287,3 +287,44 @@ _test_completion_dump_records_names_without_paths() {
 }
 test_case 'security: native completion dump records fpath names without paths at the configuration base' \
   _test_completion_dump_records_names_without_paths
+
+# Every external-media mktemp call must use a literal name that the public
+# disclosure section lists, so a new temporary file cannot ship unlisted.
+_test_external_media_temporary_names_are_disclosed() {
+  emulate -L zsh
+  local file='' line='' MATCH='' name='' section=''
+  local -a match=() mbegin=() mend=() names=() files=(
+    "$TEST_REPO_ROOT/.zsh.addons/.zsh.usb"
+    "$TEST_REPO_ROOT"/.zsh.addons/support/functions/.zsh.*usb*(N.)
+  )
+  local -i calls=0 templates=0 in_section=0
+
+  while IFS= read -r line; do
+    if [[ $line == ('## '|'### ')* ]]; then
+      (( in_section )) && break
+      [[ $line == '### External media temporary files' ]] && in_section=1
+      continue
+    fi
+    (( in_section )) && section+=$line$'\n'
+  done < "$TEST_REPO_ROOT/SECURITY.md"
+  [[ -n $section ]] ||
+    { test_fail 'SECURITY.md has no External media temporary files section'; return 1; }
+  for file in "${files[@]}"; do
+    while IFS= read -r line; do
+      [[ $line == *'command /usr/bin/mktemp'* ]] && (( ++calls ))
+      [[ $line =~ '/(compozsh-[a-z-]+)\.XXXXXX' ]] || continue
+      names+=("$match[1]")
+      (( ++templates ))
+    done < "$file"
+  done
+  (( calls >= 10 && calls == templates )) || {
+    test_fail "external-media mktemp calls ($calls) and literal compozsh-* names ($templates) differ"
+    return 1
+  }
+  for name in ${(ou)names}; do
+    test_assert_contains "$section" "\`$name.*\`" \
+      "SECURITY.md does not disclose the external-media temporary name $name" || return
+  done
+}
+test_case 'security: every external-media temporary name is disclosed' \
+  _test_external_media_temporary_names_are_disclosed

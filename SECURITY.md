@@ -129,7 +129,7 @@ recoverable installer need local state.
 | Known remote branch fallback | Invocation memory until `g` returns; tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB, and 128 remote names / 32 KiB; no remote URLs. No fetch, pull or disk cache |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
-| Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, progress, read-back, GPT headers and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
 | Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (the here-string that fills it also creates a file there, unlinked at once); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
@@ -999,7 +999,8 @@ after an uncatchable termination, the user may inspect and remove the
 identifiable directory. Other feature-specific residue (manual transport and
 formatter directories, cache and completion-dump staging files, Xcode test
 bundles, device and Simulator run directories, interrupted worktree creation,
-and Touch ID policy temporaries) is disclosed in its own section.
+external media captures and image mount points, and Touch ID policy
+temporaries) is disclosed in its own section.
 
 ### External synchronization
 
@@ -1060,6 +1061,85 @@ and uses that descriptor for writing and read-back comparison. It does not pass
 shell history, environment dumps, credentials, or network destinations.
 Password handling remains entirely inside the operating system's `sudo`
 process.
+
+### External media temporary files
+
+`external-device` keeps its captures in shell memory except for these
+`/usr/bin/mktemp` names directly beneath `${TMPDIR:-/tmp}`, created as mode
+`0600` files or `0700` directories owned by the invoking user. Privileged
+output reaches them only through redirections opened by that user's shell; no
+`sudo` command receives a temporary path.
+
+| Name | Created during | Contents and bounds |
+| --- | --- | --- |
+| `compozsh-usb.*` | Each `diskutil … -plist` capture: external disk list, disk or volume info, filesystem catalog | One property list: disk and volume identifiers, names, mount points, sizes, UUIDs and device-tree facts, or the filesystem catalog's names and size limits. No size cap on disk; output above 1 MiB is rejected unread |
+| `compozsh-usb-iso.*` | ISO classification | The selected ISO's `tar -tf` path listing, at most 16 MiB + 1 byte |
+| `compozsh-usb-inspect.*` | ISO classification when that listing is inconclusive | Read-only, `nobrowse` `hdiutil` mount point. While attached it presents the image's file tree with the mount's own permissions (observed `0755` with an ISO 9660 fixture; check with `stat -f %Lp` on the attached mount point), so other local users can read it only through a traversable parent such as `/tmp`; the default per-user macOS `TMPDIR` is owner-only. The mount path itself is visible to them in `mount` and `df` output |
+| `compozsh-usb-progress.*` | Raw image write, including `flash-verify` read-back inside the same privileged session | Standard error of that session: `dd` write and read-back progress and record counts, fixed `compozsh-write-*` stage and result markers, and native error text that can name the image or device. No size cap on disk; read in steps of at most 1 MiB |
+| `compozsh-usb-verify-progress.*`, `compozsh-usb-verify-meta.*`, `compozsh-usb-verify-result.*` | Only the post-write read-back fallback (below) | Privileged `dd` read progress and native error text (no size cap on disk; not read above 1 MiB, which fails the comparison); one fixed phase label with the compared byte count and the byte offset within the first read block; one `scope=` and one `error=` line from fixed vocabularies |
+| `compozsh-usb-primary-gpt.*`, `compozsh-usb-backup-gpt.*` | Only that fallback, for a hybrid GPT image whose full comparison differed | Raw 512-byte copies of the target's LBA 1 and final LBA: normally GPT headers carrying the written image's disk GUID, otherwise whatever those sectors held |
+| `compozsh-usb-read.*` | Only a read-back comparison outside that fallback's worker, which no shipped caller makes | `dd` read progress and native error text. No size cap on disk; not read above 1 MiB, which fails the comparison |
+| `compozsh-createinstallmedia.*` | Apple `createinstallmedia` | Its combined standard output and error. No size cap on disk; ignored above 1 MiB |
+| `compozsh-usb-windows.*`, `compozsh-windows-readonly.*`, `compozsh-windows-verify.*` | Only the retired `_usb_windows_execute` writer, which no public path reaches (`_usb_media_execute` refuses Windows media) | Read-only ISO and target mount points; per-file `dd` read progress |
+
+The post-write read-back fallback, `_usb_verify_payload`, runs only after a
+write that succeeded without in-session verification. Current `flash-verify`
+never produces one: `_usb_execute` requests verification inside the privileged
+write session, and `_usb_write_image` then reports success only after that
+session's `compozsh-write-verified` marker; `flash-only` skips read-back. When
+the fallback runs, its progress poll also reads the fixed phase label and two
+integers from `compozsh-usb-verify-meta.*` every 0.25 seconds with one bounded
+native read; no here-string or other temporary file is involved.
+
+Each capture file lives only inside the function that created it, whose
+`always` block removes the exact path `mktemp` returned on normal return,
+handled failure or an interrupt that unwinds Zsh. An interrupt in the instant
+between a `mktemp` call and the start of its `always` block, including between
+the fallback's consecutive `mktemp` calls, can leave that file. Most sites also
+recheck the
+`compozsh-` name and `${TMPDIR:-/tmp}` parent first; the verification, GPT and
+read files rely on the exact path alone. Progress views first wait for their
+native worker to exit, because a command started with `&` while the `MONITOR`
+option is off ignores `SIGINT` (`man zshmisc`, SIGNALS). A second interrupt
+during that wait skips the rest of the `always` block: the privileged worker
+keeps running after `external-device` returns, its capture file remains, and
+the outer cleanup can request `diskutil eject` while the write continues. A
+mount point is removed the same way, but only after `hdiutil detach` succeeds;
+when detaching fails, the image stays attached read-only there, detaching is
+retried before the next inspection and when `external-device --flash` returns,
+and a further failure leaves both in place without a separate notice. An
+interrupt while `hdiutil attach` itself runs unwinds before Compozsh records the
+device: the empty directory's removal then fails if macOS completed the
+attachment, which stays mounted there with no retry or notice (find it with
+`hdiutil info`).
+
+Neither the USB peer nor the shared screen it runs in traps `SIGHUP`; the
+screen session installs only `TRAPINT` and `TRAPWINCH`. A hangup (closing the
+terminal or losing an SSH session), `SIGKILL`, crash or power loss therefore
+skips that cleanup and
+can leave any of these names with the contents above; a worker that outlives the shell can keep writing to its progress file
+until it exits. Confirm the traps with
+`grep -nE '\btrap\b|TRAP[A-Z]' .zsh.addons/.zsh.usb .zsh.addons/support/ui/.zsh.ui.zle_picker_screen_session`
+(only that screen session's comments, `LOCAL_TRAPS`, `TRAPINT` and `TRAPWINCH`
+lines).
+List residue in Zsh with
+`ls -ld "${TMPDIR:-/tmp}"/compozsh-(usb|windows|createinstallmedia)*` (no
+residue: `no matches found`, status 1) and `hdiutil info` (no residue: no
+`compozsh-usb-inspect.*` mount point); release an attachment with
+`hdiutil detach /dev/diskN`, then remove its empty directory with `rmdir`. Read
+the creation and cleanup sites with
+`grep -n -e mktemp -e 'rm -f' -e rmdir .zsh.addons/.zsh.usb`.
+`zsh tests/run.zsh 'USB temporary'` uses stand-ins for `diskutil`, `hdiutil`,
+`dd` and `createinstallmedia` to check removal after success and handled
+failure, and each name and mode while it exists, for every name except
+`compozsh-usb-iso.*` (removal only; `tar` has no stand-in seam) and the retired
+Windows names. `zsh tests/run.zsh 'ISO inspection'` covers the failed-detach
+retry and a later refused inspection.
+`zsh tests/run.zsh 'external-media temporary'` fails when a
+`command /usr/bin/mktemp` call in `.zsh.addons/.zsh.usb` lacks a literal
+`compozsh-*` name or when that name is missing from this section. It pairs
+calls and names by count rather than per call and does not recognize other
+`mktemp` spellings.
 
 ### Touch ID for sudo
 
@@ -1548,6 +1628,7 @@ server.
 | Xcode Run, device console and logs | `Xcode run`, `Xcode monitor`, `Xcode device monitor`, `log reader`, `log copy`, `editor reader` |
 | Task routing and external-device modes | `task families`, `USB verification progress` |
 | USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds` |
+| External media writes, read-back and temporary files | `USB raw`, `USB verification`, `USB temporary`, `ISO inspection`, `external-media temporary` |
 | Touch ID policy in unprivileged fixtures | `sudo Touch ID` |
 
 These checks do not establish: an operating-system sandbox or OS protection
@@ -1558,10 +1639,11 @@ terminal profiles' contrast, or how a custom terminal stores scrollback;
 mounted-filesystem availability or latency; exhaustive shell grammar, manual
 formats or `CAUTION` coverage; arithmetic in code held in single-quoted
 strings, such as the fixed `sudo` routines, which the arithmetic scan does not
-lex; version-manager shim behavior; macOS
-application behavior or prevention of clipboard synchronization; or, for
-Xcode, Simulator FIFO support, native log privacy behavior, complete log
-delivery, signing permission or LLDB attachment on the host.
+lex; version-manager shim behavior; macOS application behavior or prevention of
+clipboard synchronization; for external media, real device writes, `sudo`,
+`diskutil`, `hdiutil` or `createinstallmedia` behavior; or, for Xcode,
+Simulator FIFO support, native log privacy behavior, complete log delivery,
+signing permission or LLDB attachment on the host.
 
 ## Audit an update before activating it
 

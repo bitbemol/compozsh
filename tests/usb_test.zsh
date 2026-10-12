@@ -4884,3 +4884,201 @@ _test_usb_disk_info_sizes_are_validated_before_integer_assignment() {
 }
 test_case 'USB numeric bounds validate diskutil sizes before integer assignment' \
   _test_usb_disk_info_sizes_are_validated_before_integer_assignment
+
+# Script helpers that record each external-media temporary name and mode present
+# while a native stand-in runs, so a residue check also proves the capture
+# existed. The ISO listing runs /usr/bin/tar directly, so only its removal is seen.
+_test_usb_temporary_observer_script() {
+  REPLY='
+  _test_usb_temporary_observe() {
+    local entry=""
+    for entry in "$TMPDIR"/*(ND); do
+      print -r -- "${${entry:t}%.*}:$(command /usr/bin/stat -f %Lp "$entry")" >> "$observed_log"
+    done
+  }
+  _test_usb_temporary_report() {
+    local -a leftovers=("$TMPDIR"/*(ND:t))
+    print -r -- "$1:$2|leftovers:${(j:,:)leftovers}|end"
+  }
+'
+}
+
+_test_usb_temporary_verification_captures_are_removed() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
+  local pristine_target="$TEST_TMP_DIR/pristine-target.img"
+  local capture_root="$TEST_TMP_DIR/captures" observed_log="$TEST_TMP_DIR/observed"
+  local output='' observed='' expected='' REPLY=''
+  command mkdir -p "$capture_root" || return
+  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
+  _test_usb_make_sparse_relocated_gpt_target "$source_image" "$target_image" || return
+  builtin printf X |
+    command /bin/dd of="$target_image" bs=1 seek=440 conv=notrunc status=none \
+      2>/dev/null || return
+  command /bin/cp "$target_image" "$pristine_target" || return
+
+  _test_usb_temporary_observer_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    TMPDIR=$2 source_image=$3 target_image=$4 pristine_target=$5 observed_log=$6
+    integer dd_fail=0
+    _usb_unmount() { return 0; }
+    _usb_progress_stage() { return 0; }
+    _usb_dd_read_run() {
+      local -a arguments=("$@")
+      local -i index=0
+      _test_usb_temporary_observe
+      (( dd_fail )) && return 1
+      for (( index = 1; index <= ${#arguments}; ++index )); do
+        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
+      done
+      command /bin/dd "${arguments[@]}"
+    }
+
+    _usb_verify_payload "$source_image" disk7 131072 153600
+    _test_usb_temporary_report verify-success "$?|$_USB_PAYLOAD_VERIFY_ERROR"
+    builtin printf X | command /bin/dd of="$target_image" bs=1 seek=153088 \
+      conv=notrunc status=none 2>/dev/null
+    _usb_verify_payload "$source_image" disk7 131072 153600
+    _test_usb_temporary_report verify-failure "$?|$_USB_PAYLOAD_VERIFY_ERROR"
+    command /bin/cp "$pristine_target" "$target_image"
+
+    _usb_cmp_run -n 512 -i 1024 /dev/rdisk7 "$source_image" >/dev/null 2>&1
+    _test_usb_temporary_report read-match "$?"
+    _usb_cmp_run -n 1 -i 440 /dev/rdisk7 "$source_image" >/dev/null 2>&1
+    _test_usb_temporary_report read-mismatch "$?"
+    dd_fail=1
+    _usb_cmp_run -n 512 -i 1024 /dev/rdisk7 "$source_image" >/dev/null 2>&1
+    _test_usb_temporary_report read-failure "$?"
+  ' "$TEST_REPO_ROOT" "$capture_root" "$source_image" "$target_image" \
+    "$pristine_target" "$observed_log") || return
+
+  for expected in 'verify-success:0|gpt-geometry-diff|leftovers:|end' \
+      'verify-failure:1|gpt-invalid|leftovers:|end' 'read-match:0|leftovers:|end' \
+      'read-mismatch:1|leftovers:|end' 'read-failure:2|leftovers:|end'; do
+    test_assert_contains "$output" "$expected" \
+      'a USB verification capture remained after success or handled failure' || return
+  done
+  observed=${(j:,:)${(ou)${(f)"$(<"$observed_log")"}}}
+  test_assert_equal 'compozsh-usb-backup-gpt:600,compozsh-usb-primary-gpt:600,compozsh-usb-read:600,compozsh-usb-verify-meta:600,compozsh-usb-verify-progress:600,compozsh-usb-verify-result:600' \
+    "$observed" 'USB verification did not create exactly its disclosed owner-only captures'
+}
+test_case 'USB temporary verification, read-back and GPT captures are owner-only and removed' \
+  _test_usb_temporary_verification_captures_are_removed
+
+_test_usb_temporary_capture_and_progress_files_are_removed() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/captures" observed_log="$TEST_TMP_DIR/observed"
+  local tree="$TEST_TMP_DIR/tree" installer="$TEST_TMP_DIR/Install macOS Tahoe.app"
+  local volume="$TEST_TMP_DIR/CompozshVolume" output='' observed='' expected='' REPLY=''
+  command mkdir -p "$capture_root" "$tree/sources" "$tree/boot" \
+    "$installer/Contents/Resources" "$volume" || return
+  test_write_file "$tree/sources/boot.wim" boot || return
+  test_write_file "$tree/boot/kernel" kernel || return
+  command /usr/bin/tar -cf "$TEST_TMP_DIR/windows.iso" -C "$tree" sources || return
+  command /usr/bin/tar -cf "$TEST_TMP_DIR/linux.iso" -C "$tree" boot || return
+  test_write_file "$TEST_TMP_DIR/unreadable.iso" 'not an archive' || return
+  test_write_file "$installer/Contents/Resources/createinstallmedia" '#!/bin/zsh' || return
+  command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
+
+  _test_usb_temporary_observer_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    TMPDIR=$2 fixtures=$3 installer=$4 volume=$5 observed_log=$6
+    _usb_progress_stage() { return 0; }
+    _usb_diskutil_run() {
+      _test_usb_temporary_observe
+      case $plist_mode in
+        (valid) print -rn -- "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict/></plist>" ;;
+        (oversized) builtin printf "%1048577s" "" ;;
+        (*) return 1 ;;
+      esac
+    }
+    for plist_mode in valid oversized failed; do
+      _usb_diskutil_plist_capture list -plist external physical
+      _test_usb_temporary_report "plist-$plist_mode" "$?"
+    done
+
+    for image in windows linux unreadable; do
+      _usb_windows_iso_table_detect "$fixtures/$image.iso"
+      _test_usb_temporary_report "listing-$image" "$?"
+    done
+
+    _usb_hdiutil_attach_readonly() {
+      _test_usb_temporary_observe
+      (( attach_ok )) || return 1
+      _USB_INSPECT_DEVICE=disk88 _USB_INSPECT_MOUNT=$2
+    }
+    _usb_hdiutil_detach() { return 0; }
+    for attach_ok in 1 0; do
+      _usb_windows_installer_detect "$fixtures/linux.iso"
+      _test_usb_temporary_report "inspect-$attach_ok" "$?"
+    done
+
+    _usb_raw_write_session_run() {
+      _test_usb_temporary_observe
+      print -u2 -r -- "4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)"
+      (( write_ok )) || return 1
+      print -u2 -r -- "8388608 bytes transferred in 2.0 secs (4194304 bytes/sec)"
+    }
+    for write_ok in 1 0; do
+      _usb_write_image /images/linux.iso disk7 8388608
+      _test_usb_temporary_report "write-$write_ok" "$?"
+    done
+
+    _usb_createinstallmedia_command_run() {
+      _test_usb_temporary_observe
+      print -r -- "Erasing disk: 0%"
+      return $(( !media_ok ))
+    }
+    for media_ok in 1 0; do
+      _usb_createinstallmedia_run "$installer" "$volume"
+      _test_usb_temporary_report "createinstallmedia-$media_ok" "$?"
+    done
+  ' "$TEST_REPO_ROOT" "$capture_root" "$TEST_TMP_DIR" "$installer" "$volume" \
+    "$observed_log") || return
+
+  for expected in 'plist-valid:0|leftovers:|end' 'plist-oversized:1|leftovers:|end' \
+      'plist-failed:1|leftovers:|end' 'listing-windows:0|leftovers:|end' \
+      'listing-linux:1|leftovers:|end' 'listing-unreadable:2|leftovers:|end' \
+      'inspect-1:1|leftovers:|end' 'inspect-0:1|leftovers:|end' \
+      'write-1:0|leftovers:|end' 'write-0:1|leftovers:|end' \
+      'createinstallmedia-1:0|leftovers:|end' 'createinstallmedia-0:1|leftovers:|end'; do
+    test_assert_contains "$output" "$expected" \
+      'a USB capture, mount directory or progress file remained after success or handled failure' || return
+  done
+  observed=${(j:,:)${(ou)${(f)"$(<"$observed_log")"}}}
+  test_assert_equal 'compozsh-createinstallmedia:600,compozsh-usb-inspect:700,compozsh-usb-progress:600,compozsh-usb:600' \
+    "$observed" 'USB capture, mount and progress files were not the disclosed owner-only names'
+}
+test_case 'USB temporary disk metadata, ISO listing, mount and progress files are owner-only and removed' \
+  _test_usb_temporary_capture_and_progress_files_are_removed
+
+_test_usb_temporary_refused_inspection_removes_its_own_mount_point() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/captures" output=''
+  local retained="$capture_root/compozsh-usb-inspect.retained"
+  command mkdir -p "$retained" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    TMPDIR=$2
+    _USB_INSPECT_DEVICE=disk77 _USB_INSPECT_MOUNT=$3
+    _usb_hdiutil_detach() { return 1; }
+    _usb_windows_installer_detect /images/next.iso
+    print -r -- "status:$?|device:$_USB_INSPECT_DEVICE|mount:${_USB_INSPECT_MOUNT:t}"
+    local -a entries=("$2"/*(ND:t))
+    print -r -- "entries:${(j:,:)entries}|end"
+  ' "$TEST_REPO_ROOT" "$capture_root" "$retained") || return
+
+  test_assert_contains "$output" 'status:2|device:disk77|mount:compozsh-usb-inspect.retained' \
+    'a refused ISO inspection discarded the earlier retained cleanup ownership' || return
+  test_assert_contains "$output" 'entries:compozsh-usb-inspect.retained|end' \
+    'a refused ISO inspection leaked its own unrecorded empty mount point'
+}
+test_case 'USB temporary refused ISO inspection removes only its own new mount point' \
+  _test_usb_temporary_refused_inspection_removes_its_own_mount_point

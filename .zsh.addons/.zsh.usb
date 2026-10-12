@@ -447,11 +447,13 @@ _usb_windows_setup_markers_detect() {
 }
 
 # A Windows installer ISO is identified from canonical setup markers, not from
-# its filename. The temporary mount is read-only and always detached.
+# its filename. The temporary mount is read-only; a failed detach stays
+# recorded for retry before the next inspection and when the workspace exits.
 _usb_windows_installer_detect() {
   emulate -L zsh
   setopt EXTENDED_GLOB NULL_GLOB
   local image=$1 temp_root=${TMPDIR:-/tmp} mount_point='' device=''
+  local -a reply=()
   local -i detected=1 attach_status=0 cleanup_status=0
   [[ ${image:e:l} == iso ]] || return 1
   mount_point=$(command /usr/bin/mktemp -d \
@@ -465,7 +467,13 @@ _usb_windows_installer_detect() {
       detected=$?
     fi
   } always {
-    _usb_inspect_cleanup "$device" "$mount_point" || cleanup_status=1
+    if [[ -z $_USB_INSPECT_MOUNT || $_USB_INSPECT_MOUNT == "$mount_point" ]]; then
+      _usb_inspect_cleanup "$device" "$mount_point" || cleanup_status=1
+    else
+      # An attach refused over an earlier inspection's retained ownership
+      # leaves that identity recorded; remove only this call's empty mount.
+      _usb_mount_cleanup '' "$mount_point" compozsh-usb-inspect || cleanup_status=1
+    fi
   }
   # Inspection is optional for an ISO that can still be written as a raw disk
   # image. A mount refusal therefore means "not identified as Windows". Once
@@ -5037,7 +5045,9 @@ _usb_help_flash() {
     '  captured. A macOS .dmg or .pkg must first install the full application.' \
     '  ISO selection first reads a bounded archive table without mounting it.' \
     '  Media the native archive reader cannot parse uses a read-only attach fallback;' \
-    '  every fallback device is detached before the workspace continues. Recognized' \
+    '  its device is detached before the workspace continues; if macOS refuses, it' \
+    '  stays attached read-only and is retried before the next inspection and on' \
+    '  exit. Recognized' \
     '  Windows Setup media opens a terminal Windows unsupported screen before' \
     '  target capture. It explains the portable FAT32 requirement, its 4 GiB' \
     '  single-file limit, and Microsoft’s DISM/install.swm resolution on Windows.' \
