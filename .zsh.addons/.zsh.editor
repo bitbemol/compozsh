@@ -749,7 +749,8 @@ _directory_browser_absolute() {
 
 # Explicit Ctrl-O snapshot. Y stops enumeration at 41 directory entries before
 # sorting; the first 40 filesystem-order names are a sample, never a count of
-# the whole folder. No file content is opened and no descendant is traversed.
+# the whole folder or a name-sorted prefix, and the Limits note says so. No
+# file content is opened and no descendant is traversed.
 _directory_browser_preview() {
   emulate -L zsh
   local value=$1 entry='' name='' kind=''
@@ -777,7 +778,7 @@ _directory_browser_preview() {
     (( ++count ))
   done
   (( count )) || lines+=('  No visible entries.')
-  (( ${#entries} > 40 )) && lines+=('' 'Limits: first 40 entries; use → to browse.')
+  (( ${#entries} > 40 )) && lines+=('' 'Limits: 40-entry sample in filesystem order; more exist. Use → to browse.')
   REPLY=${(F)lines}
 }
 

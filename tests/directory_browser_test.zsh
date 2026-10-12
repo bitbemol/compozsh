@@ -27,6 +27,8 @@ _test_browser_preview() {
     _directory_browser_preview "~/Projects/alpha/" || exit 9
     [[ $REPLY == *Limits:* ]] || exit 10
     (( ${#${(@f)REPLY}} <= 47 )) || exit 11
+    # The sample stops before sorting, so the note names its order, not a prefix.
+    [[ $REPLY == *Limits:*"filesystem order"* && $REPLY != *"first 40"* ]] || exit 12
     print preview
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal preview "$output"
