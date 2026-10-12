@@ -1,9 +1,10 @@
 # Arithmetic input validation
 
-> **Status (2026-10-12).** Implemented as an uncommitted change on top of
-> `00deab4`. Rules: [Zsh conventions](../engineering/zsh.md#idioms) and
+> **Status (2026-10-12).** Landed as `f17abf6`. Rules:
+> [Zsh conventions](../engineering/zsh.md#idioms) and
 > [security](../engineering/security.md#handling-sensitive-data); public claim
-> and test filters in [SECURITY.md](../SECURITY.md#privacy-model).
+> in [SECURITY.md](../SECURITY.md#privacy-model) and test filters in its
+> [focused regression checks](../SECURITY.md#focused-regression-checks).
 
 ## Problem
 
@@ -130,9 +131,11 @@ owner chose to fix it for robustness (a stray value also aborted peer loads).
 
 ## Not changed (proposals)
 
-- `.zsh.usb` GPT fallback: `backup_entry_lba * 512` can wrap for a 17-digit
-  LBA from a crafted image and pass the bounds after it; it needs an
-  `lba <= last_lba` check before multiplying (not text evaluation).
+- *Implemented separately (`1a42865`, `8646dc5`):* the `.zsh.usb` GPT
+  fallback's `backup_entry_lba * 512` could wrap for a 17-digit LBA from a
+  crafted image; the image- and drive-side LBAs are now range-checked by
+  subtraction before multiplying
+  ([USB bounds](usb-progress-integer-bounds.md)).
 - One shared pure entry beside `_matching_decimal_limit` could replace the
   three 64-bit text comparisons: `_usb_decimal_is_int64` and the two inline
   `ZSH_XCODE_CAPTURE_MAX_BYTES` checks in `.zsh.xcode`.
@@ -150,9 +153,10 @@ owner chose to fix it for robustness (a stray value also aborted peer loads).
 
 ## Coordination
 
-`_usb_verify_progress_read` and its test are byte-identical to the separate
-in-memory capture parsing change (uncommitted when this was written), so the
-two merge cleanly there. That change's
+`_usb_verify_progress_read` and its test were byte-identical to the separate
+in-memory capture parsing change when this was written, so the two merged
+cleanly there; the integrated reader is the later bounded `sysread` version
+(`1a42865`, `f18d8d9`). That change's
 [Zsh conventions](../engineering/zsh.md#idioms) bullet and `security:` test sit
 next to this change's and need a small manual merge; it also removes the
 remaining here-strings that write project data to temporary files.

@@ -112,7 +112,7 @@ both copy-paste sprawl and speculative abstraction.
   files); if the user wants help with their installed setup, work from what they
   share.
 - `zsh tests/run.zsh 'fragment'` runs tests whose *descriptions* contain the
-  case-insensitive fragment. The full suite (~900 cases, 3–4 minutes) runs
+  case-insensitive fragment. The full suite (~950 cases, 3–4 minutes) runs
   before handoff, in the background when possible. The real-FAT32 `hdiutil`
   round trip currently fails on macOS 27 (known, in `investigations/README.md`;
   report it, don't investigate unless asked), and the Xcode Logger cleanup

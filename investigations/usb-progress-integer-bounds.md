@@ -90,7 +90,10 @@ old `$(<…)` read plus here-string. Most of the remaining tick is the
   would read at most 1 MiB + 1 byte and reject longer captures. That removes
   one process per tick from write, raw-verify and Windows-verify polling. It
   needs its own characterization and measurement.
-- **Remaining diskutil numbers.** These are `<->`-validated without a length
+- **Remaining diskutil numbers.** *Implemented separately (`f17abf6`,
+  [arithmetic validation](arithmetic-input-validation.md)):* the integer audit
+  bounds the `AllDisks` count, the personality sizes (as int64 text) and FAT32
+  free space. As first recorded, these were `<->`-validated without a length
   bound before `(( ))` comparisons; none is assigned to an integer:
   - the `AllDisks` count;
   - personality minimum and maximum sizes;

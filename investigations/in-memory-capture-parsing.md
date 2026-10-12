@@ -1,7 +1,9 @@
 # In-memory capture parsing
 
-> **Status (2026-10-11).** Implemented as an uncommitted change on top of
-> `f3bc494`. Every shipped here-string parse now splits in memory, and the one
+> **Status (2026-10-12).** Landed as `732732e` (developed on `f3bc494`).
+> Later integrated changes replaced its `_usb_verify_progress_read` with a
+> bounded `sysread` reader that requires exactly three fields (`1a42865`,
+> `f18d8d9`); notes below describe this change as written. Every shipped here-string parse now splits in memory, and the one
 > remaining TMPPREFIX file — Zsh's own Ctrl-X Ctrl-E widget — is disclosed in
 > SECURITY.md. Rule:
 > [security](../engineering/security.md#handling-sensitive-data); idioms:
@@ -84,7 +86,8 @@ Deliberate deviations:
   for arbitrary bytes. `_git_recent_branches` reads `%(HEAD)%09%(refname)`:
   `%(HEAD)` is one `*` or space, and Git refnames cannot contain tabs or
   control characters; a malformed line is rejected rather than normalized.
-  `_usb_verify_progress_read` reads Compozsh's own `%s\t%d\t%d\n` line.
+  `_usb_verify_progress_read` reads Compozsh's own `%s\t%d\t%d\n` line
+  (since `1a42865`, through one bounded `sysread` and a `(ps:\t:)` split).
 - **Worktree removal hardening.** The removal check already refused empty or
   non-`H ` index records; text after the last NUL now refuses too (the old loop
   ignored it). The capture already rejects incomplete output, so this only
@@ -103,8 +106,9 @@ worker's first write the empty file produced `0 bytes of 0 bytes` instead of
 `Preparing the first raw read block…`.
 
 Fields are now validated as text (`<->`, at most 18 digits) before integer
-assignment. An absent third field still means offset 0, as the existing
-two-field live-progress test expects.
+assignment. An absent third field still meant offset 0 here, as the
+two-field live-progress test then expected; `f18d8d9` later made the reader
+require all three fields and moved that test to the writer's real format.
 
 ## Remaining TMPPREFIX file: Ctrl-X Ctrl-E
 
@@ -140,8 +144,8 @@ the widget with one that uses a validated `mktemp` file in a mode-0700
 
 Apple M3 Max, macOS 27.0.1 (26A434), Zsh 5.9, Git 2.54.0 (Apple Git-157).
 The load average was about 2.9–3.8 during the runs (not an idle machine).
-Baseline: a `git archive` copy of `f3bc494`; candidate: the uncommitted change
-(record its commit when it lands). Script:
+Baseline: a `git archive` copy of `f3bc494`; candidate: this change, landed
+as `732732e`. Script:
 [`benchmarks/prompt-git-render.zsh`](benchmarks/prompt-git-render.zsh), which
 alternates baseline/candidate order every run and reports the median, minimum
 and maximum of per-shell medians.

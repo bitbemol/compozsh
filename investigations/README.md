@@ -74,8 +74,7 @@ measurement and design decision before implementation.
 - **Second reference Mac:** startup latency has not been measured directly on
   the second target Mac. ([startup](terminal-startup-latency.md))
 - **USB progress polling:** replace the per-tick `/usr/bin/stat` in
-  `_usb_dd_bytes_observed` with a bounded native read, decide whether
-  remaining diskutil-reported numbers get the 18-digit bound, and keep
+  `_usb_dd_bytes_observed` with a bounded native read, and keep
   `_usb_progress_model`'s percentage from wrapping for 17–18-digit totals
   (display only). ([USB bounds](usb-progress-integer-bounds.md#proposals-not-implemented))
 
@@ -85,12 +84,13 @@ measurement and design decision before implementation.
   guard other public commands use. This is a real failure, not style: with a
   same-name alias already defined, sourcing the peer prints a parse error and
   the rest of that peer doesn't load.
-- User-facing errors (`.zsh.git-review:3391`, `.zsh.usb:83,5142,5283`) and
-  `--help` text (`.zsh.usb:5086,5255`) still name the retired `.zsh.ui` /
-  `.zsh.matching` peers.
+- User-facing errors (`_git_review_session`; `external-device`, `_usb_flash`
+  and `_usb_format` in `.zsh.usb`) and `--help` text (`_usb_help_flash`,
+  `_usb_help_format`) still name the retired `.zsh.ui` / `.zsh.matching`
+  peers.
 - `sudo` and other prefix commands are classified as the command itself, so
   `sudo rm -rf x` shows `RUN` rather than `CAUTION`.
-- `g --help` says "Ctrl-X is inactive here" (`.zsh.navigation:791`), which
+- `g --help` says "Ctrl-X is inactive here" (`_compozsh_help_g`), which
   reads as stale; the shared UI also carries an `atlas` options kind no caller
   sets.
 - Some `print` calls in `.zsh.tools`, `.zsh.sudo-touch-id` and
