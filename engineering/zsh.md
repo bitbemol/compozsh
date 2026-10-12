@@ -30,6 +30,26 @@ Idioms, naming and the public command/help interface.
   splitting, globbing or array flag is intentional and evident.
 - `--` before user-controlled path operands when the command supports it;
   `IFS= read -r` for input.
+- Split captured text with parameter flags, never through `<<<`, a
+  here-document or `=(...)` ([security](security.md#handling-sensitive-data)).
+  Each split is equivalent, record for record, to a read loop over
+  `<<< "$text"`:
+  - `"${(@f)text}"` equals the lines `IFS= read -r` reads, including a final
+    empty one;
+  - after `fields=("${(@0)text}")`, `"${(@)fields[1,-2]}"` equals the records
+    `IFS= read -r -d ''` reads: NUL-terminated ones, empty records kept and an
+    unterminated tail dropped;
+  - for K-field records, `for a b … in "${(@)fields[1,(${#fields}-1)/K*K]}"`
+    equals K chained `read -d ''` calls: complete records only.
+
+  A fail-closed check can treat text after the last NUL as one more record to
+  reject: `"${(@)fields[1,-2]}" ${fields[-1]:+unterminated}`. Unquoted
+  `${(0)text}` instead drops empty records and keeps an unterminated tail; use
+  it only where both are harmless, as in the filter-override builder, where an
+  extra override fails safe.
+- Validate numeric text (`<->` and a digit bound) before assigning it to an
+  integer: integer assignment evaluates arithmetic, including `$(...)` in a
+  subscript.
 - Don't use `eval`, for parsing, dispatch or anything else.
 
 ## Naming and visibility

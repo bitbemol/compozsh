@@ -245,7 +245,9 @@ _prompt_git() {
     -c core.hooksPath=/dev/null "${filter_config[@]}" status \
     --porcelain=v2 --branch --show-stash 2>/dev/null) || return
 
-  while IFS= read -r line; do
+  # Split in memory: Zsh backs here-strings with temporary files, and this
+  # output names changed and untracked paths.
+  for line in "${(@f)git_output}"; do
     case $line in
       '# branch.oid '*)
         oid=${line#\# branch.oid }
@@ -275,7 +277,7 @@ _prompt_git() {
         (( untracked++ ))
         ;;
     esac
-  done <<< "$git_output"
+  done
 
   if [[ $branch == '(detached)' ]]; then
     branch="@${oid[1,7]}"

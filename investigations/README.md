@@ -18,6 +18,7 @@ when work spans sessions (record progress and remaining steps there).
 | [critical-path-performance](critical-path-performance.md) | Measured hot-path optimizations and deferred provider findings | [performance](../engineering/performance.md) |
 | [git-comparison-design](git-comparison-design.md) | Revision comparison usability revision and endpoint correctness | [Git workspaces](../engineering/workspaces/git.md#scopes-and-comparisons) |
 | [git-review-key-repeat-latency](git-review-key-repeat-latency.md) | Preview settlement versus input debouncing; portability rule | [Git workspaces](../engineering/workspaces/git.md#responsive-navigation) |
+| [in-memory-capture-parsing](in-memory-capture-parsing.md) | Here-string temporary files, exact in-memory replacements and prompt latency | [security](../engineering/security.md#handling-sensitive-data), [Zsh conventions](../engineering/zsh.md#idioms) |
 | [manual-concurrency](manual-concurrency.md) | Async manual capture lifecycle and the unshipped worker-pool experiment | [manual cache](../engineering/manual-cache.md#asynchronous-prompt-capture) |
 | [palette-perception](palette-perception.md) | Palette research, contrast targets and diff colors | [architecture](../engineering/architecture.md#shared-behavior-ownership) |
 | [shared-architecture-sign-off](shared-architecture-sign-off.md) | Decision record for the shared support/UI extraction | [architecture](../engineering/architecture.md) |
@@ -32,7 +33,10 @@ run separately from the suite in a disposable `HOME`/`ZDOTDIR`:
 `async-first-prompt.zsh` and `manual-async-parity.zsh` measure the shipped
 async manual capture (see [verification](../engineering/verification.md));
 `manual-delivery-budgets.zsh` and `manual-parallelism.zsh` support the
-concurrency record; `first-editable-prompt.zsh` is historical (pre-async), and
+concurrency record; `prompt-git-render.zsh` compares complete prompt rendering
+of two trees inside and outside Git repositories
+([in-memory parsing](in-memory-capture-parsing.md#measurements));
+`first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 
 ## Open backlog

@@ -117,7 +117,7 @@ recoverable installer need local state.
 | Git Tree / All files navigation | Current review's shell memory; released on review exit | Directory prefixes, folder summaries (change states, child areas, captured numstat) and expansion/filter/scope/selection state from the 1,000-entry/256-KiB list; ancestor choices at most 200 rows/262,144 prefix characters, with a partial notice. No discovery, saved preference or new worker |
 | Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention follows the user's terminal settings |
 | Prompt tool descriptions | Current-shell memory; cleared on shell exit or invalidation | At most 64 same-source command/help pairs; up to 262,144 characters of source/definition identity; 240-character summaries and option descriptions from at most 4,096 characters per guide plus the Touch ID subguide. No disk cache |
-| Git comparison choices and snapshots | View memory, released on view exit; native Zsh here-strings can use short-lived local temporary files | At most 1,000 refs/256 KiB of names, kinds and object IDs; resolved endpoints, paths and bounded diff snapshots. No saved comparison catalog |
+| Git comparison choices and snapshots | View memory, released on view exit | At most 1,000 refs/256 KiB of names, kinds and object IDs; resolved endpoints, paths and bounded diff snapshots. No saved comparison catalog |
 | Git branch picker | Shell memory; catalog replaced on the next invocation or shell exit, details cleared on view exit | All local branch names (no count cap), ordered by current branch and up to 200 checkout reflog entries, then other refnames; details at most 262,144 characters across 401 refs, 512 per subject. No fetch, saved history or background refresh |
 | Known remote branch fallback | Invocation memory until `g` returns; tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB, and 128 remote names / 32 KiB; no remote URLs. No fetch, pull or disk cache |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
@@ -125,8 +125,20 @@ recoverable installer need local state.
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB progress, bounded Xcode discovery output, transient test-result bundles, Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
+| Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (the here-string that fills it also creates a file there, unlinked at once); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
 | Exported Apple skills | Detected coding agents' local skill directories | Created only by an explicit `xcode --export-skills` invocation and marked for safe refresh |
 | Clipboard values | The clipboard of the machine running Zsh; may outlive the view or run under operating-system/user control | Only explicit Copy writes: a path, branch, current directory, visible website command, bounded Xcode test report, or matching Simulator/device log lines that can hold local paths, diagnostics and sensitive app values. Never read back |
+
+Where a row names shell, view or invocation memory, Compozsh keeps that data in
+process memory and pipes and writes no file of it; any file, FIFO or directory
+is named in the row. Operating-system paging (encrypted swap, the sleep image)
+is outside this guarantee. Captured command output, including Git status
+paths, branch and worktree catalogs and USB progress metadata, is split into
+fields inside Zsh. Compozsh's own code passes no data through here-strings
+(`<<<`), here-documents or `=(...)` substitution, which Zsh 5.9 implements with
+temporary files under `${TMPPREFIX:-/tmp/zsh}`; the editor row above is Zsh's
+own widget. Process substitution `<(...)` and `>(...)` uses `/dev/fd` pipes on
+macOS.
 
 `compozsh --refresh` clears the current shell's in-memory runtime,
 manual-summary, help-description, Git-directory and grep-capability caches and
@@ -917,7 +929,9 @@ Shell command lines are a poor place for passwords, tokens, or private keys:
 they can be exposed through history, process listings, logs, or the invoked
 program itself. `HIST_IGNORE_SPACE` is enabled, but a leading space is only a
 convenience and not a secret-storage mechanism. Prefer the macOS Keychain or a
-dedicated secret store, and rotate any credential that was exposed. Assignment
+dedicated secret store, and rotate any credential that was exposed. Ctrl-X
+Ctrl-E hands the whole draft to your editor through a temporary file (see the
+[inventory](#complete-local-data-inventory)). Assignment
 values are omitted only from the Interaction lens's secondary presentation; the
 living prompt transcript deliberately retains the exact submitted command text.
 Both behaviors are presentation choices, not a
@@ -1370,6 +1384,24 @@ git grep -nE 'HISTFILE|mktemp|\.zsh-backups|pbcopy|sudo|/dev/(r)?disk|diskutil|c
   -- .zshrc install.zsh '.zsh.addons/**' templates README.md
 ```
 
+Check that data never passes through Zsh's temporary-file redirections:
+
+```sh
+git grep -n -e '<<' -- .zshrc install.zsh '.zsh.addons/**' templates
+git grep -nE '(^|[[:space:];|&(])=\(' -- .zshrc install.zsh '.zsh.addons/**' templates
+zsh -fc 'print -r -- <(:) >(:)'
+zsh -fc 'grep -n "=(<<<" /dev/null $^fpath/edit-command-line(N)'
+```
+
+The first command prints four lines and no redirection: quoted operator
+patterns in the prompt's command classifier (two in `.zsh.prompt`, one in
+`.zsh.pure.compozsh_is_redirection`) and the `%<<` prompt truncation escape in
+`.zsh.pure.zle_picker_abbreviate`. The second prints nothing and returns status
+1. The third prints two `/dev/fd/N` paths, showing that process substitution
+uses pipes. The fourth shows the one line of Zsh's stock `edit-command-line`
+that writes the Ctrl-X Ctrl-E draft to a temporary file, as disclosed in the
+inventory.
+
 Finally run the isolated regression suite:
 
 ```sh
@@ -1403,6 +1435,7 @@ server.
 | Manual capture, formatter and transport | `manual coverage`, `manual summaries`, `manual async` |
 | Public manual cache and installer exclusion | `manual cache`, `cache data`, `installer excludes generated` |
 | Matching and exclusion | `exclusion`, `matching component` |
+| Captured-data parsing without temporary files | `here-string`, `filter override builder`, `worktree removal` |
 | Shared effects and data | `shared effects`, `shared data` |
 | Picker digits and slot acceptance | `numeric`, `detail panels preserve native` |
 | Path + Tab directory arguments | `directory argument` |

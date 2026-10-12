@@ -148,6 +148,36 @@ _test_worktree_remove_safety() {
 }
 test_case 'worktree removal protects tracked untracked ignored locked main and hidden-index data' _test_worktree_remove_safety
 
+# The index listing must be NUL-terminated `H ` records; anything else blocks.
+_test_worktree_remove_index_records() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
+    source "$1/tests/support.zsh"
+    source "$1/tests/git_worktree_test.zsh"
+    _test_worktree_fixture "$1" || exit 1
+    functions[_test_worktree_real_capture]=$functions[_git_worktree_capture]
+    _git_worktree_capture() {
+      if [[ $2 == ls-files ]]; then _GWT_DATA=$test_listing; return 0; fi
+      _test_worktree_real_capture "$@"
+    }
+    local test_listing=""
+    for test_listing in $'"'"'H file\0'"'"' "" $'"'"'H file\0\0H other\0'"'"' $'"'"'H file\0H cut'"'"' garbage; do
+      if _git_worktree_remove_check "$HOME/occupied"; then
+        print -r -- "${(qqqq)test_listing}: removable"
+      else
+        print -r -- "${(qqqq)test_listing}: blocked"
+      fi
+    done
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal "\$'H file\\0': removable
+\$'': removable
+\$'H file\\0\\0H other\\0': blocked
+\$'H file\\0H cut': blocked
+\$'garbage': blocked" "$output" 'worktree removal accepted an empty, unterminated or malformed index record'
+}
+test_case 'worktree removal blocks empty unterminated or malformed index records' _test_worktree_remove_index_records
+
 _test_worktree_fallback() {
   test_make_temp_dir || return
   local output=''

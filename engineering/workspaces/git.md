@@ -324,9 +324,11 @@ The narrowly approved screen-session worker exception.
   undo disabled; a system-only runtime path; and only reviewed OS syntax
   definitions enabled (initially Swift, Zsh, shell, JSON, Python). No filetype
   detection, repository paths, source execution, user runtime scripts, HTML
-  export or ANSI extraction. Source reaches it through private mode-600 FIFOs
-  — Zsh 5.9 here-strings create temporary files, so `<<<` is not a no-disk
-  transport ([implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/exec.c#L4383-L4406)).
+  export or ANSI extraction. Source reaches it through private mode-600 FIFOs,
+  never a here-string: Zsh 5.9 backs `<<<` with a temporary file
+  ([implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/exec.c#L4383-L4406)),
+  which is also why Git captures are parsed in memory
+  ([security](../security.md#handling-sensitive-data)).
   It returns a versioned, request-ID-framed, fully validated protocol of
   numeric character spans and fixed semantic roles. This is configuration
   hardening, not an OS sandbox.

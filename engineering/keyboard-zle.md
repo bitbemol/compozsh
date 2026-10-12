@@ -41,7 +41,7 @@ What keys *mean* inside workspaces is in the [full-screen key map](full-screen.m
 | Option-I (`Meta-I`) | `compozsh-context-lens`: toggle the pinned Context lens, preserving draft and cursor; inactive inside modal input | [prompt](prompt.md) |
 | Ctrl-F / Right, Option-F, Ctrl-E / End | Accept autosuggestion character, word, all — falling back to the native motion | this contract |
 | Up/Down, Ctrl-P/N | Prefix history search | this contract |
-| Ctrl-X Ctrl-E | Edit the command line in `$EDITOR` (native widget) | this contract |
+| Ctrl-X Ctrl-E | Edit the command line in `$EDITOR` (native widget; the draft passes through a [disclosed temporary file](../SECURITY.md#complete-local-data-inventory)) | this contract |
 
 Leave Ctrl-Tab to Terminal's tab switching, Ctrl-D to native delete/EOF and
 Ctrl-X Ctrl-E to command editing.

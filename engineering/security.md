@@ -45,6 +45,14 @@ is the public statement of these guarantees and the self-audit guide.
   controls on user-owned history, configuration or recovery data.
 - Never interpolate unsanitized branch names, paths, history or tool output
   into prompt syntax, glob patterns, terminal control sequences or shell code.
+- Parse captured data in shell memory. Zsh 5.9 implements here-strings,
+  here-documents and `=(...)` with temporary files under
+  `${TMPPREFIX:-/tmp/zsh}`, which put the data on disk and fail when that
+  directory is unwritable or full, so captured data never passes through them
+  ([idioms](zsh.md#idioms); a `security:` test scans shipped code). An
+  intentional temporary file needs its own SECURITY.md inventory row, and so
+  does one written by a stock Zsh function Compozsh binds (Ctrl-X Ctrl-E's
+  `edit-command-line`).
 - Receipt compaction is presentation, never redaction. The transcript prefix
   may change prompt decoration but keeps the exact submitted command as ZLE
   input, creates no second persistent copy, and makes no claim to remove it

@@ -2481,6 +2481,43 @@ _test_usb_verification_paints_live_read_progress() {
 test_case 'USB verification paints live determinate read progress' \
   _test_usb_verification_paints_live_read_progress
 
+# The metadata file exists empty from mktemp until the worker's first write.
+_test_usb_verification_progress_waits_for_numeric_metadata() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
+    probe() {
+      local -h SECONDS=7
+      local content=""
+      : >| "$HOME/progress"
+      for content in "" $'"'"'Reading raw blocks\tpending\t0'"'"' \
+          $'"'"'Reading raw blocks\t2048\tsoon'"'"' \
+          $'"'"'Reading raw blocks\t99999999999999999999999\t0'"'"' \
+          $'"'"'Reading raw blocks\treply[$(: >| $HOME/substituted)1]\t0'"'"' \
+          $'"'"'Reading raw blocks\t2048'"'"'; do
+        print -rn -- "$content" >| "$HOME/meta"
+        _usb_verify_progress_read "$HOME/progress" "$HOME/meta" 7
+        print -r -- "$REPLY"
+      done
+      [[ ! -e $HOME/substituted ]] || print -r -- "metadata ran a command substitution"
+    }
+    probe
+  ' "$TEST_REPO_ROOT" 2>&1) || return
+
+  # Integer assignment evaluates arithmetic, including $(...) in a subscript.
+  test_assert_equal 'Preparing the first raw read block…
+Preparing the first raw read block…
+Preparing the first raw read block…
+Preparing the first raw read block…
+Preparing the first raw read block…
+Reading raw blocks · 0 bytes of 2.0 KiB · 0s elapsed' "$output" \
+    'verification progress evaluated or counted empty, nonnumeric or overflowing metadata'
+}
+test_case 'USB verification progress waits for numeric metadata before counting bytes' \
+  _test_usb_verification_progress_waits_for_numeric_metadata
+
 _test_usb_unmounts_immediately_after_write() {
   test_make_temp_dir || return
   local output=''

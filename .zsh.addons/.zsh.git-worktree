@@ -106,9 +106,12 @@ _git_worktree_repository_current() {
 _git_worktree_snapshot() {
   emulate -L zsh
   local field='' location='' branch='' oid='' state=''
-  local -a paths=() branches=() oids=() states=()
+  local -a paths=() branches=() oids=() states=() fields=()
   _git_worktree_capture "$_GWT_ROOT" worktree list --porcelain -z || return
-  while IFS= read -r -d '' field; do
+  # Split in memory: Zsh backs here-strings with temporary files. Keep empty
+  # fields (they end each worktree) and drop the unterminated last element.
+  fields=("${(@0)_GWT_DATA}")
+  for field in "${(@)fields[1,-2]}"; do
     case $field in
       ('worktree '*) location=${field#worktree } ;;
       ('HEAD '*) oid=${field#HEAD } ;;
@@ -123,7 +126,7 @@ _git_worktree_snapshot() {
         paths+=("$location") branches+=("$branch") oids+=("$oid") states+=("$state")
         location='' branch='' oid='' state='' ;;
     esac
-  done <<< "$_GWT_DATA"
+  done
   (( ${#paths} )) && [[ -z $location ]] || return 1
   _GWT_PATHS=("${paths[@]}") _GWT_BRANCHES=("${branches[@]}")
   _GWT_OIDS=("${oids[@]}") _GWT_STATES=("${states[@]}")
@@ -132,15 +135,18 @@ _git_worktree_snapshot() {
 _git_worktree_branches() {
   emulate -L zsh
   local ref='' oid=''
-  local -a refs=() tips=()
+  local -a refs=() tips=() fields=()
   _git_worktree_capture "$_GWT_ROOT" for-each-ref --count=1001 \
     '--format=%(refname)%00%(objectname)%00' refs/heads/ || return
-  while IFS= read -r -d '' ref && IFS= read -r -d '' oid; do
+  # Split in memory: Zsh backs here-strings with temporary files. Use only
+  # NUL-terminated fields that form complete records.
+  fields=("${(@0)_GWT_DATA}")
+  for ref oid in "${(@)fields[1,(${#fields}-1)/2*2]}"; do
     ref=${ref#$'\n'}
     [[ $ref == refs/heads/* ]] && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 1
     (( ${#refs} < 1000 )) || { _git_worktree_fail 'More than 1,000 local branches; catalog unavailable.'; return 1; }
     refs+=("${ref#refs/heads/}") tips+=("$oid")
-  done <<< "$_GWT_DATA"
+  done
   _GWT_REFS=("${refs[@]}") _GWT_TIPS=("${tips[@]}")
 }
 
@@ -291,6 +297,7 @@ _git_worktree_move_plan() {
 _git_worktree_remove_check() {
   emulate -L zsh
   local target=$1 flag=''
+  local -a flags=()
   local -i index=0
   _GWT_ERROR=''
   _git_worktree_target_current "$target" && _git_worktree_snapshot || return
@@ -307,12 +314,16 @@ _git_worktree_remove_check() {
   _git_worktree_idle_check "$target" || return
   _git_worktree_tree_safe "$target" "$_GWT_OIDS[index]" || return
   _git_worktree_capture "$target" ls-files -v -z || return
-  while IFS= read -r -d '' flag; do
+  # Split in memory: Zsh backs here-strings with temporary files. Every record
+  # must be a NUL-terminated `H ` entry: empty records fail the check, and text
+  # after the last NUL is checked as one more (malformed) record.
+  flags=("${(@0)_GWT_DATA}")
+  for flag in "${(@)flags[1,-2]}" ${flags[-1]:+unterminated}; do
     [[ $flag == 'H '* ]] || {
       _git_worktree_fail 'Sparse, unmerged or assume-unchanged index entries prevent a complete removal check.'
       return 1
     }
-  done <<< "$_GWT_DATA"
+  done
   _git_worktree_capture "$target" status --porcelain=v1 -z --no-renames \
     --untracked-files=all --ignored --ignore-submodules=none || return
   [[ -z $_GWT_DATA ]] || {

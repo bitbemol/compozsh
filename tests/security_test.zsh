@@ -84,3 +84,61 @@ _test_privilege_and_credential_surface_stays_bounded() {
 }
 test_case 'security: privilege and credential surface stays inside documented fixed boundaries' \
   _test_privilege_and_credential_surface_stays_bounded
+
+# Zsh 5.9 writes here-string and here-document bodies, and =(...) output, to
+# temporary files under ${TMPPREFIX:-/tmp/zsh}. Shipped code parses captured
+# data in memory instead. The lexer strips comments but keeps $(...), <(...)
+# and quoted words as single tokens, so match inside each token after removing
+# single-quoted literals (the classifier's '<<<' labels) and the %<< prompt
+# truncation escape. Code inside a single-quoted string (zsh -c '...') is
+# invisible here; SECURITY.md's textual `<<` audit covers it.
+_security_temporary_file_transports() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local file='' token='' contents=''
+  for file in "$@"; do
+    contents=$(<"$file")
+    for token in ${(Z+C+)contents}; do
+      token=${${token//\'[^\']#\'/}//\%\<\</}
+      [[ $token == *\<\<* || $token == (|*[[:space:]\(\`\<\>\|\;\&])\=\(* ]] &&
+        print -r -- "${file#$TEST_REPO_ROOT/}: $token"
+    done
+  done
+}
+
+_test_runtime_parses_captures_without_temporary_files() {
+  emulate -L zsh
+  test_make_temp_dir || return
+  local fixture="$TEST_TMP_DIR/.zsh.fixture" found='' expected=''
+  local -a zsh_files=()
+  test_write_file "$fixture" 'case $op in ('"'"'<<<'"'"'|'"'"'<<'"'"') ;; esac # <<< note
+read -r a <<< "$b"
+cat <<EOF
+body
+EOF
+read -r c 0<<- "$d"
+diff =(print a) =(print b)
+x=$(tr a b <<< "$y")
+y="$(cat <<< "$d")"
+while read -r e; do :; done < <(cat <<< "$d")
+lines=(${(f)"$(sort <<< "$d")"})
+v=$(diff =(print a) -)
+print -r -- "%<<" '"'"'<<'"'"'
+list=(one two)' || return
+  found=$(_security_temporary_file_transports "$fixture")
+  found=${(F)${(f)found}#"$fixture: "}
+  for expected in '<<<' '<<' '0<<-' '=(print a)' '=(print b)' 'x=$(tr a b <<< "$y")' \
+      'y="$(cat <<< "$d")"' '<(cat <<< "$d")' '${(f)"$(sort <<< "$d")"}' 'v=$(diff =(print a) -)'; do
+    [[ $'\n'$found$'\n' == *$'\n'"$expected"$'\n'* ]] ||
+      { test_fail "temporary-file transport scan missed: $expected"$'\n'"$found"; return 1; }
+  done
+  [[ $found != *(note|one|%|\"\"|\'\'|EOF|body)* ]] ||
+    { test_fail "temporary-file transport scan flagged text, a comment or a quoted pattern:"$'\n'"$found"; return 1; }
+  _security_runtime_files
+  zsh_files=(${(M)_SECURITY_RUNTIME_FILES:#*/(.zshrc|*.zsh|.zsh.*)})
+  (( ${#zsh_files} > 20 )) || { test_fail 'runtime Zsh file inventory is unexpectedly small'; return 1; }
+  found=$(_security_temporary_file_transports "${zsh_files[@]}")
+  [[ -z $found ]] || test_fail "shipped Zsh passes data through a here-string, here-document or =(...) temporary file; split it in memory (engineering/security.md#handling-sensitive-data):"$'\n'"$found"
+}
+test_case 'security: shipped Zsh parses captured data without here-string or here-document temporary files' \
+  _test_runtime_parses_captures_without_temporary_files

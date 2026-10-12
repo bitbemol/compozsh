@@ -223,7 +223,7 @@ _git_branch_read() {
 _git_recent_branches() {
   emulate -L zsh
 
-  local root=$1 current='' refs='' ref_marker='' ref=''
+  local root=$1 current='' refs='' line='' ref=''
   local subject='' transition='' from='' to='' candidate=''
   local -a local_branches=()
   local -A local_branch_set=() recent_branch_set=()
@@ -232,13 +232,15 @@ _git_recent_branches() {
 
   refs=$(_git_branch_read "$root" for-each-ref \
     --format='%(HEAD)%09%(refname)' refs/heads/ 2>/dev/null) || return 1
-  while IFS=$'\t' read -r ref_marker ref; do
-    [[ $ref == refs/heads/* ]] || continue
-    ref=${ref#refs/heads/}
+  # Split in memory: Zsh backs here-strings with temporary files. Each line is
+  # a one-character %(HEAD) marker, a tab and a refname, which has no tabs.
+  for line in "${(@f)refs}"; do
+    [[ $line == ?$'\t'refs/heads/* ]] || continue
+    ref=${line#?$'\t'refs/heads/}
     local_branches+=("$ref")
     local_branch_set[$ref]=1
-    [[ $ref_marker == '*' ]] && current=$ref
-  done <<< "$refs"
+    [[ $line == '*'* ]] && current=$ref
+  done
 
   [[ -n $current ]] && {
     _GIT_RECENT_BRANCHES+=("$current")
@@ -279,7 +281,7 @@ _git_recent_branches() {
 _git_branch_remote_capture() {
   emulate -L zsh
   local root=$1 data='' ref='' symbolic='' oid='' remote='' owner='' name='' key=''
-  local -a reply=() remotes=()
+  local -a reply=() remotes=() fields=()
   local -i count=0
   typeset -ga _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
   typeset -gA _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
@@ -293,7 +295,10 @@ _git_branch_remote_capture() {
     '--format=%(refname)%00%(symref)%00%(objectname)%00' refs/remotes/ || return 1
   [[ $reply[2] == complete && $reply[3] == 0 ]] || return 1
   data=$reply[1]
-  while IFS= read -r -d '' ref && IFS= read -r -d '' symbolic && IFS= read -r -d '' oid; do
+  # Split in memory: Zsh backs here-strings with temporary files. Use only
+  # NUL-terminated fields that form complete records.
+  fields=("${(@0)data}")
+  for ref symbolic oid in "${(@)fields[1,(${#fields}-1)/3*3]}"; do
     (( ++count <= 1000 )) || {
       _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
       _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
@@ -315,7 +320,7 @@ _git_branch_remote_capture() {
     _GIT_BRANCH_REMOTE_VALUES+=("$key")
     _GIT_BRANCH_REMOTE_LABELS+=("${ref#refs/remotes/} · remote-tracking")
     _GIT_BRANCH_REMOTE_NAMES[$key]=$name _GIT_BRANCH_REMOTE_OIDS[$key]=$oid
-  done <<< "$data"
+  done
   _GIT_BRANCH_REMOTE_NOTICE='No matching known remote branches. Run g fetch <remote> explicitly, then reopen g.'
   return 0
 }
@@ -386,6 +391,7 @@ _git_branch_remote_switch() {
 _git_branch_inspector_capture() {
   emulate -L zsh
   local root=$1 branch='' state='' data='' ref='' upstream='' oid='' subject='' text=''
+  local -a fields=()
   typeset -gA _ZLE_PICKER_INSPECT_TEXTS=()
   for branch in "${_GIT_RECENT_BRANCHES[@]}"; do
     state='Local branch'
@@ -398,8 +404,10 @@ _git_branch_inspector_capture() {
   IFS= read -r -u 0 -k 262144 data < <(_git_branch_read "$root" for-each-ref \
     --count=401 --format='%(refname)%00%(upstream:short)%00%(objectname:short)%00%(subject)%00' \
     refs/heads/ 2>/dev/null) || :
-  while IFS= read -r -d '' ref && IFS= read -r -d '' upstream &&
-        IFS= read -r -d '' oid && IFS= read -r -d '' subject; do
+  # Split in memory: Zsh backs here-strings with temporary files. Use only
+  # NUL-terminated fields that form complete records.
+  fields=("${(@0)data}")
+  for ref upstream oid subject in "${(@)fields[1,(${#fields}-1)/4*4]}"; do
     ref=${ref#$'\n'}
     branch=${ref#refs/heads/}
     (( ${+_ZLE_PICKER_INSPECT_TEXTS[$branch]} )) || continue
@@ -411,7 +419,7 @@ _git_branch_inspector_capture() {
     text+=$'\n\nUpstream:\n  '"${(V)upstream:-not configured}"
     text+=$'\n\n  Enter switches to this branch.\n  Snapshot captured when g opened; no fetch.'
     _ZLE_PICKER_INSPECT_TEXTS[$branch]=$text
-  done <<< "$data"
+  done
   return 0
 }
 

@@ -169,9 +169,13 @@ _git_review_reset() {
 _git_review_changes_parse() {
   emulate -L zsh
   local record='' name='' xy='' kind='' state=''
+  local -a records=("${(@0)_GIT_REVIEW_DATA}")
   local -i staged=0 unstaged=0 untracked=0 conflicts=0 index=0
   _git_review_reset
-  while IFS= read -r -d '' record; do
+  # Split in memory: Zsh backs here-strings with temporary files. The last
+  # element is never NUL-terminated (a byte-limited capture can cut a path),
+  # so only complete records are listed.
+  for record in "${(@)records[1,-2]}"; do
     (( ${#record} >= 4 )) || continue
     xy=${record[1,2]} name=${record[4,-1]}
     if [[ $xy == '??' ]]; then
@@ -207,7 +211,7 @@ _git_review_changes_parse() {
       _GIT_REVIEW_DETAILS+=("$state"$'\n'"$name"$'\n\nEnter reads the conflict notice.\nConflict content is not opened.')
     fi
     (( ${#_GIT_REVIEW_PATHS} >= 1000 )) && { _GIT_REVIEW_TRUNCATED=1; break; }
-  done <<< "$_GIT_REVIEW_DATA"
+  done
   _GIT_REVIEW_SUMMARY="$staged staged · $unstaged unstaged · $untracked untracked · $conflicts conflicts"
   (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · partial snapshot'
   _GIT_REVIEW_NOTICE='Renames appear as add/delete. Submodules and ignored files are excluded; untracked files are listed individually.'
@@ -317,12 +321,16 @@ _git_review_compare_base() {
 _git_review_refs_capture() {
   emulate -L zsh
   local root=$1 ref='' kind='' oid='' label=''
+  local -a fields=()
   local -i count=0
   _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=()
   _git_review_capture "$root" for-each-ref --count=1001 --sort=refname \
     '--format=%(refname)%00%(objecttype)%00%(objectname)%00' \
     refs/heads/ refs/tags/ refs/remotes/ || return 2
-  while IFS= read -r -d '' ref && IFS= read -r -d '' kind && IFS= read -r -d '' oid; do
+  # Split in memory: Zsh backs here-strings with temporary files. Use only
+  # NUL-terminated fields that form complete records.
+  fields=("${(@0)_GIT_REVIEW_DATA}")
+  for ref kind oid in "${(@)fields[1,(${#fields}-1)/3*3]}"; do
     (( ++count <= 1000 )) || { _GIT_REVIEW_TRUNCATED=1; break; }
     ref=${ref#$'\n'}
     [[ $kind == (commit|tag) ]] && (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || continue
@@ -333,27 +341,29 @@ _git_review_refs_capture() {
       (*) continue ;;
     esac
     _GIT_REVIEW_REFS+=("$ref") _GIT_REVIEW_REF_OIDS+=("$oid") _GIT_REVIEW_REF_LABELS+=("$label")
-  done <<< "$_GIT_REVIEW_DATA"
+  done
   return 0
 }
 
 _git_review_commits_capture() {
   emulate -L zsh
   local root=$1 oid=$2 hash='' short='' date='' subject='' parents=''
+  local -a fields=()
   _git_review_reset
   (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 2
   _git_review_capture "$root" log --max-count=201 --date-order \
     --format='%H%x00%h%x00%cs%x00%s%x00%P%x00' "$oid" -- || return 2
-  while IFS= read -r -d '' hash && IFS= read -r -d '' short &&
-        IFS= read -r -d '' date && IFS= read -r -d '' subject &&
-        IFS= read -r -d '' parents; do
+  # Split in memory: Zsh backs here-strings with temporary files. Use only
+  # NUL-terminated fields that form complete records.
+  fields=("${(@0)_GIT_REVIEW_DATA}")
+  for hash short date subject parents in "${(@)fields[1,(${#fields}-1)/5*5]}"; do
     hash=${hash#$'\n'}
     (( ${#_GIT_REVIEW_PATHS} < 200 )) || { _GIT_REVIEW_TRUNCATED=1; break; }
     _GIT_REVIEW_PATHS+=("$hash") _GIT_REVIEW_KINDS+=(commit)
     _GIT_REVIEW_LABELS+=("$short · ${subject[1,512]}") _GIT_REVIEW_CONTEXTS+=("$date")
     _GIT_REVIEW_PARENTS+=("${parents%% *}")
     _GIT_REVIEW_DETAILS+=("${subject[1,512]}"$'\n'"$date"$'\n\n  '"$hash"$'\n\nEnter lists changed files.\nMerge commits compare with their first parent.\nRead-only · captured local history')
-  done <<< "$_GIT_REVIEW_DATA"
+  done
   _GIT_REVIEW_SUMMARY='local history · read-only'
   (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · first 200 / byte limit'
   return 0
@@ -362,7 +372,7 @@ _git_review_commits_capture() {
 _git_review_committed_files_capture() {
   emulate -L zsh
   local root=$1 oid=$2 before=$3 kind=$4 record='' added='' removed='' name='' summary=''
-  local -a args=(diff)
+  local -a args=(diff) records=()
   _git_review_reset
   (( ${+functions[_compozsh_git_valid_oid]} )) && _compozsh_git_valid_oid "$oid" || return 2
   [[ -z $before ]] || {
@@ -373,7 +383,10 @@ _git_review_committed_files_capture() {
   [[ -n $before ]] && args+=("$before")
   args+=("$oid" --)
   _git_review_capture "$root" "${args[@]}" || return 2
-  while IFS= read -r -d '' record; do
+  # Split in memory: Zsh backs here-strings with temporary files. The last
+  # element is never NUL-terminated, so only complete records are listed.
+  records=("${(@0)_GIT_REVIEW_DATA}")
+  for record in "${(@)records[1,-2]}"; do
     [[ $record == *$'\t'*$'\t'* ]] || continue
     added=${record%%$'\t'*} record=${record#*$'\t'}
     removed=${record%%$'\t'*} name=${record#*$'\t'}
@@ -383,7 +396,7 @@ _git_review_committed_files_capture() {
     _GIT_REVIEW_LABELS+=("$name") _GIT_REVIEW_CONTEXTS+=("$summary")
     _GIT_REVIEW_DETAILS+=("$name"$'\n'"$summary"$'\n\nEnter reads the committed diff.\nRead-only · no checkout')
     (( ${#_GIT_REVIEW_PATHS} >= 1000 )) && { _GIT_REVIEW_TRUNCATED=1; break; }
-  done <<< "$_GIT_REVIEW_DATA"
+  done
   _GIT_REVIEW_SUMMARY="${#_GIT_REVIEW_PATHS} captured files · read-only"
   (( _GIT_REVIEW_TRUNCATED )) && _GIT_REVIEW_SUMMARY+=' · partial snapshot'
   return 0

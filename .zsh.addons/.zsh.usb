@@ -2768,7 +2768,7 @@ _usb_verify_progress_read() {
   emulate -L zsh
   local progress_file=$1 meta_file=$2 started=$3
   local phase='Preparing raw read' meta=''
-  local -a reply=()
+  local -a reply=() fields=()
   local -i total=0 intra=0 raw_bytes=0 bytes=0
   local -i elapsed=$(( SECONDS - started )) bar_width=32
   bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
@@ -2780,8 +2780,14 @@ _usb_verify_progress_read() {
   REPLY='Preparing the first raw read block…'
   [[ -f $meta_file ]] || return 0
   meta=$(<"$meta_file")
-  IFS=$'\t' read -r phase total intra <<< "$meta"
-  [[ $total == <-> && $intra == <-> ]] || return 0
+  # Split the first line in memory: Zsh backs here-strings with temporary
+  # files. Validate text before integer assignment, which evaluates arithmetic
+  # (including $(...) in a subscript) and turns an empty, not yet written
+  # count into 0. An absent offset means 0.
+  fields=("${(@ps:\t:)${meta%%$'\n'*}}")
+  [[ ${fields[2]-} == <-> && ${fields[3]:-0} == <-> ]] &&
+    (( ${#fields[2]} <= 18 && ${#fields[3]} <= 18 )) || return 0
+  phase=$fields[1] total=$fields[2] intra=${fields[3]:-0}
   if _usb_dd_bytes_observed "$progress_file"; then
     raw_bytes=$REPLY
     bytes=$(( raw_bytes > intra ? raw_bytes - intra : 0 ))
