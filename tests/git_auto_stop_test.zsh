@@ -5,6 +5,7 @@ _test_git_auto_refresh_suspended_worker() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     zmodload zsh/system zsh/zselect zsh/datetime zsh/parameter
     unsetopt MONITOR NOTIFY BG_NICE
     export TMPDIR=$HOME

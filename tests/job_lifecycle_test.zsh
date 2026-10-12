@@ -33,6 +33,7 @@ _test_syntax_job_cleanup() {
   command mkfifo "$TEST_TMP_DIR/home-gate" || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-syntax"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     zmodload zsh/parameter
     zmodload zsh/zpty
     zmodload zsh/zselect
@@ -107,6 +108,7 @@ _test_syntax_finished_job_cleanup() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-syntax"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     zmodload zsh/parameter
     zmodload zsh/zpty
     zmodload zsh/zselect
@@ -131,7 +133,7 @@ _test_syntax_finished_job_cleanup() {
         [[ $options[monitor] == on && $options[notify] == on ]] || { print BAD-OPTIONS; return 5; }
         kill -0 $owned 2>/dev/null && { print BAD-LIVE; return 6; }
         (( ${#jobstates} == 0 )) || { print BAD-RECORD; return 7; }
-        _git_syntax_reap_child 99999999 || { print BAD-ABSENT; return 8; }
+        _compozsh_job_reap 99999999 || { print BAD-ABSENT; return 8; }
         _git_syntax_session_stop
       } always {
         _git_syntax_session_stop
@@ -153,3 +155,104 @@ _test_syntax_finished_job_cleanup() {
   ' "$TEST_REPO_ROOT"
 }
 test_case 'job lifecycle syntax cleanup handles completed and absent children and restores enabled options' _test_syntax_finished_job_cleanup
+
+_test_git_review_auto_job_cleanup() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,job_reap}(N.); do source "$git_support_component"; done
+    zmodload zsh/parameter zsh/zpty zsh/zselect zsh/datetime zsh/system || exit 1
+    export TMPDIR=$HOME
+    command mkdir -p "$HOME/repo" && builtin cd "$HOME/repo" || exit 1
+    git init -qb main && git config user.name Fixture &&
+      git config user.email fixture@example.invalid && git config commit.gpgsign false || exit 1
+    print -r -- before > tracked && git add tracked && git commit -qm fixture || exit 1
+    print -r -- after > tracked
+    command mkfifo "$HOME/events" "$HOME/provider-gate" || exit 1
+    exec {event_fd}<> "$HOME/events" {gate_fd}<> "$HOME/provider-gate"
+    # The first check reads the real repository. The second blocks only its
+    # owned worker provider, so screen exit must terminate an in-flight check.
+    local -i gated=0
+    functions[_lifecycle_original_git]=$functions[_git_review_git]
+    _git_review_git() {
+      if (( gated && ${_GIT_REVIEW_WORKER_EXEC:-0} )); then
+        print -r -- $sysparams[pid] >| "$HOME/provider-pid"
+        print -r -- ready >| "$HOME/events"
+        IFS= read -r blocked < "$HOME/provider-gate"
+        exit 1
+      fi
+      _lifecycle_original_git "$@"
+    }
+    _auto_driver() {
+      unsetopt MONITOR NOTIFY BG_NICE
+      local root=$HOME/repo context=3 number="" state="" retained="" event=""
+      local -i _ZLE_PICKER_SELECTED=0 _git_auto_session_fd=-1 _git_auto_session_pid=0
+      local -i _git_auto_generation=0 user_done=0 worker=0 provider=0 attempt=0 poll_result=1
+      local -F _git_auto_started_at=0 _git_auto_deadline_at=0 _ZLE_PICKER_DEADLINE_AT=0
+      local _git_auto_session_dir="" _git_auto_session_fifo="" _git_auto_session_buffer=""
+      local _git_auto_request_name="" _git_auto_request_kind="" _git_auto_request_context=""
+      local -a _ZLE_PICKER_RESULTS=()
+      {
+        sleep 30 &
+        user_done=$!
+        kill -KILL $user_done
+        wait $user_done 2>/dev/null
+        # Read the table here: a command substitution sees an empty one.
+        for number in ${(k)jobstates}; do
+          [[ $jobstates[$number] == done:*":$user_done="* ]] && retained=$number
+        done
+        [[ -n $retained ]] || { print BAD-FIXTURE; return 2; }
+        _git_review_auto_launch || { print BAD-LAUNCH; return 3; }
+        worker=$_git_auto_session_pid
+        for (( attempt=0; attempt<300; ++attempt )); do
+          poll_result=0
+          _git_review_auto_poll || poll_result=$?
+          (( poll_result == 1 )) || break
+          zselect -r $_git_auto_session_fd -t 10 2>/dev/null
+        done
+        (( poll_result == 0 && ${_git_auto_candidate_ready:-0} )) || { print BAD-POLL; return 4; }
+        [[ ${jobstates[$retained]:-} == done:*":$user_done="* ]] || { print BAD-USER-NOTICE-CHECK; return 5; }
+        for state in "${(@v)jobstates}"; do
+          [[ $state != *":$worker="* ]] || { print BAD-STALE-CHECK-WORKER; return 6; }
+        done
+        gated=1
+        _git_review_auto_launch || { print BAD-RELAUNCH; return 7; }
+        worker=$_git_auto_session_pid
+        IFS= read -r -t 10 -u $event_fd event && [[ $event == ready ]] || { print BAD-READY; return 8; }
+        provider=$(<"$HOME/provider-pid")
+        _git_review_auto_session_stop
+        [[ $options[monitor] == off && $options[notify] == off ]] || { print BAD-OPTIONS; return 9; }
+        [[ ${jobstates[$retained]:-} == done:*":$user_done="* ]] || { print BAD-USER-NOTICE-STOP; return 10; }
+        for state in "${(@v)jobstates}"; do
+          [[ $state != *":$worker="* ]] || { print BAD-STALE-STOP-WORKER; return 11; }
+        done
+        kill -0 $worker 2>/dev/null && { print BAD-LIVE-WORKER; return 12; }
+        kill -0 $provider 2>/dev/null && { print BAD-LIVE-PROVIDER; return 13; }
+      } always {
+        if (( worker > 1 )) && kill -0 $worker 2>/dev/null; then
+          kill -KILL $worker 2>/dev/null
+          wait $worker 2>/dev/null
+        fi
+        (( provider > 1 )) && kill -KILL $provider 2>/dev/null
+        _git_auto_session_pid=0
+        _git_review_auto_session_stop
+      }
+      print VERIFIED
+    }
+    local chunk="" trace=""
+    zpty -b auto _auto_driver || exit 1
+    local pfd=$REPLY
+    {
+      while zselect -r $pfd -t 1000; do
+        while zpty -r auto chunk; do trace+=$chunk; done
+        [[ $trace == *VERIFIED* || $trace == *BAD-* ]] && break
+      done
+      [[ $trace == *VERIFIED* && $trace != *BAD-* ]] || { print -u2 -r -- "$trace"; exit 2; }
+    } always {
+      zpty -d auto
+      exec {event_fd}>&- {gate_fd}>&-
+    }
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'job lifecycle Git review automatic refresh keeps unrelated completion records and retires its own' \
+  _test_git_review_auto_job_cleanup

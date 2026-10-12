@@ -2048,16 +2048,24 @@ _git_review_auto_candidate_clear() {
   _git_auto_candidate_diff_result=0 _git_auto_candidate_diff_truncated=0
 }
 
+# Cancel the in-flight check, or reap a worker that published (argument none).
 _git_review_auto_worker_stop() {
   emulate -L zsh
-  local chunk=''
+  local signal=TERM chunk='' REPLY=''
   local -i amount=0
+  [[ ${1-} == none ]] && signal=none
   if (( ${_git_auto_session_pid:-0} > 0 )); then
-    kill -TERM -- ${_git_auto_session_pid} 2>/dev/null
     # Nonblocking publication lets TERM run even with a full response FIFO.
     # The worker kills and reaps its exact in-memory provider before exiting;
-    # the parent never signals a provider through a handoff PID.
-    wait ${_git_auto_session_pid} 2>/dev/null
+    # the parent never signals a provider through a handoff PID. The shared
+    # reaper retires only the worker's own job record (no NOTIFY-off sweep);
+    # the exact-PID fallback still never leaves a live worker without it.
+    if (( ${+functions[_compozsh_job_reap]} )); then
+      _compozsh_job_reap "$_git_auto_session_pid" "$signal"
+    else
+      [[ $signal == none ]] || kill -TERM -- ${_git_auto_session_pid} 2>/dev/null
+      wait ${_git_auto_session_pid} 2>/dev/null
+    fi
   fi
   # The parent holds the FIFO read/write so a killed writer does not produce
   # EOF. Discard any partial packet before this screen session launches a new
@@ -2154,9 +2162,7 @@ _git_review_auto_poll() {
     parse_result=$?
     case $parse_result in
       (0)
-        wait $pid 2>/dev/null
-        _git_auto_session_pid=0 _git_auto_session_buffer=''
-        _ZLE_PICKER_DEADLINE_AT=0
+        _git_review_auto_worker_stop none
         _git_auto_candidate_ready=1
         return 0 ;;
       (1)
@@ -2170,9 +2176,7 @@ _git_review_auto_poll() {
     # write can race us, before classifying an incomplete packet as failure.
     worker_finished=1
   done
-  wait $pid 2>/dev/null
-  _git_auto_session_pid=0 _git_auto_session_buffer=''
-  _ZLE_PICKER_DEADLINE_AT=0
+  _git_review_auto_worker_stop none
   return 3
 }
 

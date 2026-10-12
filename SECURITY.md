@@ -676,10 +676,18 @@ closes descriptors, kills and reaps the owned child when still live, retires its
 completed shell-job record, and removes the transport paths. It does not signal
 unrelated running or suspended jobs or detach a live helper.
 
+The Git Working changes auto-refresh worker is reaped the same way. A worker
+that has published its result or exited is reaped without a signal. Pause,
+manual refresh, timeout, an invalid or oversized response and screen exit send
+`TERM` only while its job is running or suspended; the worker then kills and
+reaps its own Git provider before exiting. Either way the parent retires only
+the worker's completed job record.
+
 Zsh 5.9's `wait` and `jobs` builtins scan prior completed records when `NOTIFY`
-is off, even with an exact operand. Cleanup therefore uses a narrowly scoped
-`MONITOR`-off, `NOTIFY`-on section and restores caller options afterward. This
-avoids that broad scan and keeps already-pending unrelated completion records.
+is off, even with an exact operand. Both cleanups therefore share one narrowly
+scoped `MONITOR`-off, `NOTIFY`-on section and restore caller options afterward.
+This avoids that broad scan and keeps already-pending unrelated completion
+records.
 **Limitation:** an unrelated job that newly finishes during this short section
 can still have its completion notification retired by native Zsh handling;
 preserving every concurrent notification is not guaranteed. See the [native
@@ -694,8 +702,8 @@ Xcode device console polling recognizes suspended jobs without blocking on
 them, and cleanup preserves failures after resuming a stopped child. If Zsh
 cannot distinguish an exit status of 127 from a missing cached status after
 suspension, cleanup conservatively keeps the earlier nonzero stop status. Other
-owned children (Git review worker, manual capture supervisors, Xcode discovery
-supervisor and Run observer) are stopped and reaped as their sections describe.
+owned children (manual capture supervisors, Xcode discovery supervisor and Run
+observer) are stopped and reaped as their sections describe.
 
 ### Git review and branches
 

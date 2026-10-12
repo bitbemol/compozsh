@@ -300,7 +300,9 @@ The narrowly approved screen-session worker exception.
   same bounded, transport-disabled status and selected-diff reads as manual
   refresh, and owns the exact provider PID so pause, manual refresh, timeout
   and cleanup terminate and reap it without signaling a parent-visible
-  handoff PID.
+  handoff PID. The parent reaps the worker through the shared job reaper and
+  retires only its own job record — never an unqualified `jobs`/`wait` sweep
+  (see the [job-lifecycle limitation](../../SECURITY.md#job-lifecycle)).
 - Pace checks no faster than two seconds and at least four times the measured
   capture duration, capped at thirty seconds. One check has a thirty-second
   screen-session deadline that doesn't depend on picker-idle callbacks or an
