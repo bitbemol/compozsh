@@ -266,8 +266,10 @@ _file_search_capture_local() {
         break
       fi
       (( ++_FILE_SEARCH_VISITED ))
+      # Repository metadata at any depth (a gitdir or a worktree/submodule
+      # gitfile) counts as inspected but is never matched or queued.
+      [[ ${entry:t} == .git ]] && continue
       relative=${entry#$root/}
-      [[ $relative == .git || $relative == .git/* ]] && continue
 
       if [[ $relative == ${~_FILE_SEARCH_FILTER_PATTERN} ]]; then
         _file_search_consider "$entry" "$relative" "$relative"

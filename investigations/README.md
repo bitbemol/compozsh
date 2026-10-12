@@ -61,10 +61,10 @@ measurement and design decision before implementation.
   versus ≈148 ms under `C` for Browse; the harness forces `LC_ALL=C`).
   Partitioning with unsorted glob qualifiers (`*(N-/oN)`, `*(N-.oN)`) and
   sorting only what is displayed reached ≈157 ms with identical output in its
-  prototype; per-batch `(on)` sorting dominates local search similarly. It
-  also noted that the walk skips only the root `.git`, so nested repositories
-  can consume the visit budget. Reproduce with characterization tests and PTY
-  measurements before adopting.
+  prototype; per-batch `(on)` sorting dominates local search similarly.
+  Reproduce with characterization tests and PTY measurements before adopting.
+  (Its other note, that nested repositories' `.git` metadata consumed the
+  visit budget, is fixed: the walk skips `.git` at any depth, 2026-10-12.)
 - **Native peer compilation** (`zcompile`): deferred until artifact freshness
   and loader behavior have a design. ([critical path](critical-path-performance.md#deferred-findings))
 - **Xcode repeated workflows:** keeping a workspace across actions, or

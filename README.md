@@ -604,7 +604,7 @@ Escape returns to the same browsing position.
 
 | Source | Coverage |
 | --- | --- |
-| Search filesystem | Breadth-first walk with hidden entries; skips `.git`, unreadable folders and directory symlinks |
+| Search filesystem | Breadth-first walk with hidden entries; skips `.git` metadata at any depth, unreadable folders and directory symlinks |
 | Search Git files | Tracked and non-ignored untracked files, plus matching directories |
 | Search Spotlight index | macOS indexed paths below the folder |
 

@@ -83,6 +83,10 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
   home or `/` on macOS, otherwise a bounded filesystem walk. Show the source
   before submission; explicit Ctrl-X choices bypass the default. Missing or
   failed Spotlight never triggers a filesystem fallback.
+- The walk is breadth-first, includes hidden entries and never follows
+  directory links. It counts but never matches or descends `.git` metadata at
+  any depth (directories and worktree/submodule gitfiles), so a folder of
+  projects spends its budget on the user's files.
 - Return submits positive text or — for filesystem and Git — a nonempty
   exclusion alone; both-empty submission is inert. Spotlight needs positive
   filename text and offers explicit recovery without switching sources.

@@ -128,6 +128,34 @@ _test_file_search_local_boundaries() {
 test_case 'local file finder is hidden-aware, bounded, and never follows links' \
   _test_file_search_local_boundaries
 
+# A folder of projects is not itself a worktree, so its default source is the
+# walk. Nested repository metadata (gitdirs and worktree/submodule gitfiles)
+# is counted as inspected but never matched or descended.
+_test_file_search_local_skips_nested_git() {
+  test_make_temp_dir || return
+  local root="$TEST_TMP_DIR/root" output=''
+
+  test_write_file "$root/.git/hooks/pre-commit.sample" 'root hook' || return
+  test_write_file "$root/vendor/lib/.git/hooks/pre-commit.sample" 'hook' || return
+  test_write_file "$root/vendor/lib/src/hooks.c" 'source' || return
+  test_write_file "$root/sub/wt/.git" 'gitdir: x' || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
+    source "$1/.zsh.addons/.zsh.find"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    _file_search_capture "$2" hooks local
+    print -r -- "hooks:$?|${(j:|:)_FILE_SEARCH_LABELS}|$_FILE_SEARCH_VISITED"
+    _file_search_capture "$2" git local
+    print -r -- "git:$?|${#_FILE_SEARCH_VALUES}"
+  ' "$TEST_REPO_ROOT" "$root") || return
+
+  test_assert_equal $'hooks:0|· vendor/lib/src/hooks.c|9\ngit:1|0' "$output" \
+    'local search matched or descended nested .git metadata'
+}
+test_case 'local file finder skips nested .git metadata at any depth' \
+  _test_file_search_local_skips_nested_git
+
 # Limits are settings text. Nineteen or more digits would truncate or wrap in
 # arithmetic, and a count of 2^31 or more breaks the bounded `Y` glob.
 _test_file_search_limits_reject_overflowing_settings() {
