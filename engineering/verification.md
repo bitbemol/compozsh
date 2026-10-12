@@ -29,10 +29,14 @@ For every observable feature or bug fix:
 A bug's regression test must demonstrably fail against the buggy code and stay
 afterward. Pure documentation edits need no manufactured failing test. A
 behavior-preserving refactor starts from green characterization coverage; add
-missing characterization tests before moving code. When behavior is inherently
-visual or terminal-driven, write the smallest deterministic test of its
-underlying logic first, record the manual reproduction and acceptance criteria
-before implementing, and finish with a real PTY check.
+missing characterization tests before moving code. A test that pins
+already-correct behavior is characterization coverage and passes from the
+start; say so rather than manufacturing a failure. When intended behavior
+changes, update the exact expectation first and watch it fail; never loosen an
+exact assertion to pass. When behavior is inherently visual or terminal-driven,
+write the smallest deterministic test of its underlying logic first, record the
+manual reproduction and acceptance criteria before implementing, and finish
+with a real PTY check.
 
 ## The native harness
 
@@ -131,7 +135,7 @@ Then add the checks for each boundary you changed:
 | --- | --- |
 | Anything | Reread SECURITY.md against the final tree; during development run `zsh tests/run.zsh 'docs:'` and `zsh tests/run.zsh 'security:'`. When a sensitive boundary changes, run its independent audit commands, confirm their documented expected output and limitations, and report that evidence. |
 | Shipped peer files | Every recursive `.zsh.addons/**/.zsh.<name>` has exactly one README inventory row and every row resolves to a file. |
-| Shared support entries | `zsh tests/run.zsh 'support components'`, `'support function filenames'`, `'support private helpers'`; review purity through callees. Remove obsolete paths from active docs and fixtures. |
+| Shared support entries | `zsh tests/run.zsh 'support components'`, `'support function filenames'`, `'support private helpers'`, `'support pure'`; review purity through callees. Remove obsolete paths from active docs and fixtures. |
 | Loader or layout | Symlinked and copied installs under disposable homes; a public command is discoverable in each. |
 | Peer boundaries or source-time state (aliases, options, bindings, hooks, defaults) | Source every unit in normal, reverse and a rotated order; compare options, aliases, bindings, styles, hooks, prompts and public names — checked orders must converge without load diagnostics; source twice for stable hooks/bindings. See the [peer configuration algebra](architecture.md#peer-configuration-algebra). |
 | Keys or widgets | `bindkey` under `xterm-256color` and `screen-256color`; standalone Escape, bracketed paste, cancellation, redraw and resize in a real PTY. |

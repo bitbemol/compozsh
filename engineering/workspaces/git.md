@@ -393,3 +393,7 @@ races and mode switches.
   replaced by **All differences**, **Changes since common ancestor** and
   **Compare branches or commits**.
 - A Ctrl-X-only route into the change atlas; it now lives under View options.
+- Line-count change atlas bars, narrowed to entry counts before release: for
+  working changes, line counts would need content reads beyond the
+  selected-file capture boundary
+  ([composer and atlas](../../investigations/composer-and-atlas.md)).

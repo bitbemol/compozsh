@@ -10,7 +10,8 @@ when you open matching files.
 
 ## Product invariants
 
-These define the product; a feature that needs to weaken one doesn't belong.
+These define the product and, like the safety rules, are never traded away:
+decline what would weaken one, explain why and offer a conforming alternative.
 
 - **Local-only.** Local-only operation is the highest security invariant. All
   processing performed by Compozsh stays on the machine running its Zsh
@@ -57,12 +58,11 @@ both copy-paste sprawl and speculative abstraction.
 ## Modern-first compatibility
 
 - The Zsh in the latest generally available macOS is the ceiling, so users
-  never need Homebrew, MacPorts or a self-built shell. Upstream-only Zsh
-  features wait until Apple ships them.
-- Write for the declared minimum only, with no polyfills for older Zsh. When
-  the minimum advances, delete superseded code and treat it as a breaking
-  change: requirements, release notes, migration guidance and tests change
-  together.
+  never need Homebrew, MacPorts or a self-built shell; upstream-only Zsh
+  features wait until Apple ships them. Write for the declared minimum only,
+  with no polyfills for older Zsh. When the minimum advances, delete superseded
+  code and treat it as a breaking change: requirements, release notes,
+  migration guidance and tests change together.
 - Adopt a newer native mechanism when it concretely improves correctness,
   security, measured performance or clarity; novelty alone is no reason to
   change working code. Test against the declared minimum and the currently
@@ -73,10 +73,12 @@ both copy-paste sprawl and speculative abstraction.
 - Features live in peers; `.zshrc` stays a bootstrap. `local/init.zsh` is the
   one first-load exception and never calls peer functions; peers never call
   each other while loading.
-- Each shared support entry (`.zsh.addons/support/`) has one owning file and
-  one classification: pure (calculation), impure (reads/effects) or UI.
-- Capture, calculation, painting and final actions stay separate: resize and
-  repaint reuse captured facts, and final actions run after screen cleanup.
+- Pure calculation, effects at the edges: capture, calculation, painting and
+  final actions stay separate; calculation, resize and repaint use only
+  captured facts; state ends with its view or invocation unless SECURITY.md
+  discloses longer; final actions run after screen cleanup. Each support entry
+  owns one file and is pure (explicit inputs, caller-local `REPLY`/`reply`,
+  pure callees only), impure (reads or effects) or UI.
 - Machine-local customization, initializer values and recovery data are
   preserved. The installer keeps previews, confirmation, marked namespaces,
   recovery backups, rollback and both installation layouts; `--clean` archives
@@ -102,20 +104,19 @@ both copy-paste sprawl and speculative abstraction.
 
 ## Working in this repository
 
-- Run shells, tests and install checks only against disposable state:
-  temporary `HOME`/`ZDOTDIR`, fixed fixtures and throwaway repositories, with
-  no network or GUI launches. During repository work, leave the operator's
-  real `~/.zshrc`, `~/.zsh.addons/local/init.zsh`, private peers and history
-  unread and untouched (`.claude/settings.json` denies access to them and to
-  the other Zsh startup files); if the user wants help with their installed
-  setup, work from what they share.
+- Run shells, tests and install checks only against disposable state: temporary
+  `HOME`/`ZDOTDIR`, fixed fixtures and throwaway repositories, with no network
+  or GUI launches. During repository work, leave the operator's real `~/.zshrc`,
+  `~/.zsh.addons/local/init.zsh`, private peers and history unread and untouched
+  (`.claude/settings.json` denies access to them and to the other Zsh startup
+  files); if the user wants help with their installed setup, work from what they
+  share.
 - `zsh tests/run.zsh 'fragment'` runs tests whose *descriptions* contain the
-  case-insensitive fragment. The full suite (~900 cases, about 3–4 minutes)
-  runs before handoff, in the background when possible. Two tests are
-  environment-sensitive: the real-FAT32 `hdiutil` round trip currently fails
-  on macOS 27 hosts (a known issue in `investigations/README.md`; report it,
-  don't investigate unless asked), and the Xcode Logger cleanup timing test can
-  flake under load (rerun it alone).
+  case-insensitive fragment. The full suite (~900 cases, 3–4 minutes) runs
+  before handoff, in the background when possible. The real-FAT32 `hdiutil`
+  round trip currently fails on macOS 27 (known, in `investigations/README.md`;
+  report it, don't investigate unless asked), and the Xcode Logger cleanup
+  timing test can flake under load (rerun it alone).
 - Everything is native Zsh except the optional `docs/` website, whose
   `tests/site*.mjs` checks (Node, not a dependency) matter only for `docs/`.
 - PTY tests (`zsh/zpty`) can't judge how Terminal.app looks. Where a contract
@@ -138,9 +139,9 @@ both copy-paste sprawl and speculative abstraction.
   SECURITY.md, and keep README, SECURITY, `--help` output and contracts
   synchronized. When the change touches product code, the installer, tests,
   SECURITY.md or README claims, contracts or `.claude/`, also run the
-  `security-reviewer` and `contract-reviewer` subagents on it in parallel and
-  fix blocking findings; a typo-level or investigation-only edit needs only
-  your own review. If those agent types aren't registered yet, give a
+  `security-reviewer` and `contract-reviewer` subagents in parallel and fix
+  blocking findings (a typo-level or investigation-only edit needs only your
+  own review). If those agent types aren't registered yet, give a
   general-purpose agent `.claude/agents/<name>.md`; without subagents, apply
   their checklists yourself.
 - Report tests, failures, performance and manual acceptance separately. Feature
@@ -150,16 +151,25 @@ both copy-paste sprawl and speculative abstraction.
 ## How the contracts work
 
 - Each behavioral contract (all but the glossary) opens with **Essentials**:
-  its invariants and why they exist. Those are binding, and so is every rule
-  about security, privacy, data handling, credentials, destructive actions,
-  confirmation and terminal cleanup wherever it appears —
-  [security](engineering/security.md) is binding in full.
+  its invariants and why they exist. Those are binding, and so are the safety
+  rules: every rule about security, privacy, data handling, credentials,
+  destructive actions, confirmation and terminal cleanup wherever it appears,
+  with [security](engineering/security.md) binding in full.
 - Other interaction and implementation detail is the current design — a
-  baseline, not a ceiling. If a better design fits your task, implement it
-  (code, tests and contract in one unit) and call it out; if it reaches beyond
-  the task, describe it as a proposal.
-- **Retired decisions** lists behavior removed on purpose; bringing one back
-  needs an explicit migration decision.
+  baseline, not a ceiling. If a better design fits your task and needs no
+  owner decision (below), implement it (code, tests and contract in one unit)
+  and call it out; if it reaches beyond the task, describe it as a proposal.
+- Ask only when really in doubt, meaning an owner decision within the invariants
+  and safety rules that the user hasn't explicitly accepted: weakening any other
+  Essential; reviving a **Retired decision** (removed or rejected on purpose);
+  background work or retained state beyond caching.md, performance.md and
+  SECURITY.md; a read or effect in calculation or repaint code (a pure entry
+  made impure included); or a choice whose reasonable readings differ materially
+  in data read or effects. A request accepts a trade-off only by naming it; one
+  naming a non-conforming place states a goal: meet it conformingly and say so.
+  Check cheap facts, ask once with options and a recommendation, keep doing
+  independent work, and otherwise take the narrowest reasonable reading. If
+  you can't ask (subagent, unattended run), leave it and report the question.
 - Contracts quote some limits for orientation; code and tests define shipped
   behavior, and SECURITY.md's inventory is the public list. If prose and tests
   disagree, fix the stale side in the same change and say which one it was.
@@ -186,12 +196,4 @@ both copy-paste sprawl and speculative abstraction.
 | Data, credentials, privilege, storage, execution or releases | [Security](engineering/security.md) and [public guarantees](SECURITY.md) |
 | Tests, TDD, completion checks or documentation sync | [Verification](engineering/verification.md) |
 | Website implementation, demos or publication | [Website](engineering/website.md) and [website guide](docs/README.md) |
-
-## Claude Code setup
-
-Skills `.claude/skills/compozsh-platform-review/` and
-`.claude/skills/compozsh-release-draft/` (read-only, draft-only); subagents in
-`.claude/agents/` (the reviewers and the skills' read-only auditor); rules in
-`.claude/rules/`; `.claude/settings.json` pre-approves the test commands,
-denies private shell files and runs a `zsh -n` hook after each edit
-(`zsh tests/run.zsh 'tooling:'` covers it).
+| Claude Code skills (`.claude/skills/compozsh-platform-review/`, `.claude/skills/compozsh-release-draft/`), subagents, rules, settings or hooks | [Repository layout](engineering/repository-layout.md#file-ownership) and `zsh tests/run.zsh 'tooling:'` |

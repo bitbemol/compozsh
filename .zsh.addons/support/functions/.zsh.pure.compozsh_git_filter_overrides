@@ -10,7 +10,8 @@ _compozsh_git_filter_overrides() {
   reply=()
   [[ $mode == (clean|restore) ]] || return 2
   [[ $mode == restore ]] && width=8
-  while IFS= read -r -d '' key; do
+  # Split in memory: Zsh backs here-strings with temporary files.
+  for key in ${(0)names}; do
     driver=${${key#filter.}%.*}
     [[ -n $driver && -z ${seen[$driver]-} ]] || continue
     # Git splits -c key=value at the first equals sign. Such a subsection
@@ -21,7 +22,7 @@ _compozsh_git_filter_overrides() {
     reply+=(-c "filter.${driver}.clean=")
     [[ $mode == restore ]] && reply+=(-c "filter.${driver}.smudge=")
     reply+=(-c "filter.${driver}.process=" -c "filter.${driver}.required=false")
-  done <<< "$names"
+  done
   return 0
 }
 

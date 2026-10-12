@@ -21,8 +21,9 @@ Idioms, naming and the public command/help interface.
   change options); enable extra options locally.
 - Declare function variables with typed `local` (`-i`, `-F`, `-a`, `-A`).
   Declare intentional globals with `typeset -g`, `-gi`, `-gF`, `-ga` or `-gA`.
-- Return a helper's scalar in `REPLY` to avoid a subshell. Use a clearly named
-  typed global only when several results or shared widget state need it.
+- Return a helper's scalar in `REPLY` and a short list in `reply` to avoid a
+  subshell; pure entries return only this way. Use a clearly named typed
+  global only when several results or shared widget state need it.
 - `print -r --` instead of `echo`; diagnostics to stderr with `print -u2`.
 - `command name` inside wrappers, so aliases and functions cannot recurse.
 - Quote arguments and paths. Leave an expansion unquoted only when a specific

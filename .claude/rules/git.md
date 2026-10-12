@@ -1,6 +1,7 @@
 ---
 paths:
   - ".zsh.addons/.zsh.git-*"
+  - ".zsh.addons/.zsh.navigation"
   - ".zsh.addons/support/git-syntax.vim"
   - ".zsh.addons/support/functions/.zsh.*.compozsh_git_*"
   - "tests/git_*"

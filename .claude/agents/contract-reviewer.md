@@ -27,11 +27,17 @@ handoff checklist is for the implementing agent — you only review and report.
 
 1. Use CLAUDE.md's "Read by task" table to pick the contracts the touched files
    belong to. Read each contract's **Essentials** first (the glossary has
-   none), then the sections relevant to the diff. Security, privacy and
-   destructive-action rules are binding wherever they appear.
+   none), then the sections relevant to the diff. CLAUDE.md's safety rules
+   (security, privacy, data handling, credentials, destructive actions,
+   confirmation, terminal cleanup) are binding wherever they appear.
 2. Check the change against those contracts. A deliberate improvement to a
    design detail is fine when the contract and tests changed with it; flag it
-   only when they didn't.
+   only when they didn't. Weakening a product invariant or one of CLAUDE.md's
+   safety rules is always blocking, whatever approval is claimed. Any other
+   owner decision listed in CLAUDE.md's "Ask only when really in doubt" rule is
+   blocking unless your prompt quotes the user's own words accepting that
+   trade-off; a bare request or an agent's summary is not acceptance, so if the
+   prompt is silent, report it as needing the owner's decision.
 3. Check synchronization: public commands and `--help` companions
    (same-source `_compozsh_help_<command>`, `usage:` first line, a preceding
    `unalias`), README usage and the **Shipped configuration units** table,
@@ -44,7 +50,15 @@ handoff checklist is for the implementing agent — you only review and report.
    re-source-safe peers, effects after screen cleanup, provider-free repaint
    and resize. Check that behavior changes have focused tests that would fail
    without the change and that no assertion was weakened.
-5. For documentation-only changes, compare moved or rewritten text with
+5. For shared support entries, check each classification through the whole
+   call chain against architecture.md's "Pure entries stay pure" and "Shared
+   support organization": pure code takes explicit inputs into caller-local
+   `REPLY`/`reply` and reaches no impure, UI, provider, command, file or
+   ambient-parameter code. Read the diff for what the `'support pure'` scan
+   can't see (listed there). A helper needed twice is promoted, not
+   duplicated. Making a pure entry impure is an owner decision under step 2,
+   and widening the scan's builtin allowlist needs the user's agreement.
+6. For documentation-only changes, compare moved or rewritten text with
    `git show <base>:FILE` statement by statement to catch dropped or changed
    rules; check that numbers and names stated in contracts still match the
    code (sample at least a dozen concrete claims per rewritten contract); and

@@ -10,6 +10,8 @@ paths:
 ---
 
 This is product shell code. Follow `engineering/zsh.md` (idioms, naming, the
-`--help` contract) and keep peers order-independent and re-source safe per
-`engineering/architecture.md`. Change behavior test-first; a new public command
-needs a same-source `_compozsh_help_<command>` companion and a README entry.
+`--help` contract) and `engineering/architecture.md`: peers stay
+order-independent and re-source safe, and capture, pure calculation, painting
+and post-cleanup actions stay separate. Change behavior test-first; a new
+public command needs a same-source `_compozsh_help_<command>` companion and a
+README entry.

@@ -11,9 +11,29 @@ How peers, shared support and runtime capabilities fit together.
   re-source safely (the [peer configuration algebra](#peer-configuration-algebra)).
   Optional capabilities are detected at invocation, with useful standalone
   fallbacks.
-- **Separate the five jobs.** Collect facts, sanitize, calculate layout,
-  render, act — each helper does one. Resize and repaint reuse captured facts;
-  final actions run after screen cleanup.
+- **Pure calculation, effects at the edges.** Collect facts, sanitize,
+  calculate layout, render, act — each helper does one job. Facts enter at
+  explicit capture boundaries (entry, `precmd`, an explicit submission,
+  refresh or preview, or another read a contract approves, such as an approved
+  worker or the highlighter's bounded path checks); the shared UI owns painting
+  and input; other effects leave through named final actions after screen
+  cleanup. Filtering, layout and frame construction, resize and repaint
+  included, calculate over captured values only. This keeps hot paths fast,
+  effects few and auditable, and calculations testable without a terminal.
+- **Pure entries stay pure.** A pure entry computes only from explicit inputs
+  (arguments, or read-only arrays named by a validated argument) and returns
+  through caller-local `REPLY`/`reply`; its whole call chain reaches no impure
+  entry, UI callback, provider, file (here-strings create one), process,
+  ambient parameter such as `$COLUMNS` or `$PWD`, or shared mutable state.
+  Move a needed read or effect to an impure entry or the caller; making a pure
+  entry impure is a design change to raise with the user.
+- **State lives no longer than disclosed.** View state and workspace
+  snapshots are released with their view or invocation unless SECURITY.md's
+  data inventory discloses a longer lifetime, such as the `precmd` snapshot
+  until the next capture; memoized results last until `compozsh --refresh` or
+  invalidation. Catalogs are derived from live sources at their capture
+  boundary, and nothing becomes a registry or persistent feature state beyond
+  what [caching](caching.md) allows.
 - **Plain mechanisms.** No plugin manager, registry, dependency resolution,
   lifecycle hooks, state-machine framework or event bus. Extract a helper when
   it centralizes a repeated rule, security boundary or non-trivial algorithm,
@@ -65,11 +85,27 @@ without its leading underscore.
   command before binding, which can read a caller's same-named variable.
   Validate numeric text before integer assignment (assignment evaluates
   arithmetic), and define splitting delimiters locally instead of trusting the
-  caller's `IFS`.
+  caller's `IFS`. Every function in a pure file, private helpers included, is
+  pure; checking a pure callee's presence with `${+functions[name]}` is
+  allowed. Split captured text in memory with `${(f)…}` or `${(0)…}`:
+  here-strings and here-documents are backed by temporary files.
+- `zsh tests/run.zsh 'support pure'` flags calls outside pure code, commands
+  other than allowlisted builtins, substitutions, subshells, pipelines,
+  background jobs, redirections, here-strings, file tests, `(e)`, `(D)` and
+  `(%%)` expansion, `emulate` without `-L`, globals, non-local parameters (in
+  `(( ))` and same-declaration reads included), and assignments, shifts or
+  match parameters that escape. It can't see filename generation, `(%)` or `~`
+  expansion, names built at run time (`${(P)…}`), bare names evaluated as
+  arithmetic outside `(( ))` (subscripts, integer assignments, `[[ -lt ]]`,
+  `return`), or reads hidden by unusual quoting, so still audit the chain. A
+  genuinely pure construct it flags is a scan false positive to fix with a
+  clean-fixture case; widening its builtin allowlist is the user's decision.
 - **Impure** covers external reads, filesystem/process operations and implicit
-  mutable state — including read-only operations. Reclassify and rename an
-  entry when its contract changes, updating callers, tests and the README
-  inventory together. Labels aid review; they don't prove safety.
+  mutable state — including read-only operations. Rename an entry when its
+  contract changes, updating callers, tests and the README inventory together:
+  an impure entry that no longer reads or acts may become pure, while making a
+  pure entry impure needs the user's agreement. Labels aid review; they don't
+  prove safety.
 - Entries are internal library interfaces: extraction implies no new command,
   help topic or extension point.
 - Two configuration peers are explicit exceptions: `support/.zsh.appearance`

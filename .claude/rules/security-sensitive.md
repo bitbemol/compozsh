@@ -23,4 +23,5 @@ This file sits near a sourcing, history, privilege, destructive-action,
 clipboard, persistent-storage or installation boundary. If your change touches
 that boundary, follow `engineering/security.md` (binding in full) and keep
 SECURITY.md's disclosure exact in the same change; the `security-reviewer`
-subagent checks it at handoff. Unrelated edits here need no extra process.
+subagent checks it at handoff. Unrelated edits here need nothing beyond the
+standard handoff checks.

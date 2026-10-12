@@ -32,6 +32,29 @@ _test_shared_git_filter_overrides() {
 }
 test_case 'shared Git filter override builder deduplicates preserves smudge policy and bounds safe argv' _test_shared_git_filter_overrides
 
+# Pure calculation stays in memory. Zsh backs here-strings with temporary
+# files; when one couldn't be created, the builder once succeeded with no
+# overrides, leaving repository filters active. An unterminated final name
+# (never produced by Git's --null output) is overridden too, failing safe.
+_test_shared_git_filter_overrides_in_memory() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_git_filter_overrides" || exit 1
+    TMPPREFIX=$2/missing/zsh
+    local -a reply=()
+    _compozsh_git_filter_overrides $'"'"'filter.alpha.clean\0filter.beta.required\0'"'"' clean || exit 2
+    print -r -- "${(j: :)reply}"
+    _compozsh_git_filter_overrides $'"'"'filter.alpha.clean\0filter.gamma.required'"'"' clean || exit 3
+    print -r -- "${(j: :)reply}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2>&1) || return
+  test_assert_equal '-c filter.alpha.clean= -c filter.alpha.process= -c filter.alpha.required=false -c filter.beta.clean= -c filter.beta.process= -c filter.beta.required=false
+-c filter.alpha.clean= -c filter.alpha.process= -c filter.alpha.required=false -c filter.gamma.clean= -c filter.gamma.process= -c filter.gamma.required=false' \
+    "$output" 'filter override builder lost overrides without a temporary file or dropped an unterminated name'
+}
+test_case 'shared Git filter override builder keeps every override without temporary files' \
+  _test_shared_git_filter_overrides_in_memory
+
 _test_shared_git_bounded_capture() {
   test_make_temp_dir || return
   local output
