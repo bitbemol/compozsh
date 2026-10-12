@@ -92,6 +92,35 @@ _test_autosuggest_repeated_prefix_history_characterization() {
 test_case 'autosuggestions retain safe completions across dense repeated prefixes and long Unicode entries' \
   _test_autosuggest_repeated_prefix_history_characterization
 
+_test_autosuggest_accept_widgets_under_unusual_options() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    # Sourcing registers the widgets with the real zle; only then stand in a
+    # word motion that stops after "switch", as .forward-word would.
+    zle() { [[ $1 == .forward-word ]] && CURSOR=10; return 0; }
+    local widget=""
+    for widget in _zle_autosuggest_accept_{character,word,all}; do
+      BUFFER="git sw" CURSOR=6
+      _ZLE_AUTOSUGGEST_SUFFIX="itch main"
+      _ZLE_AUTOSUGGEST_DISPLAY=$_ZLE_AUTOSUGGEST_SUFFIX
+      POSTDISPLAY=$_ZLE_AUTOSUGGEST_SUFFIX
+      _ZLE_AUTOSUGGEST_CACHE_BUFFER=$BUFFER
+      setopt SH_WORD_SPLIT RC_EXPAND_PARAM GLOB_SUBST KSH_ARRAYS NO_NOMATCH NO_UNSET
+      "$widget"
+      emulate -R zsh
+      print -r -- "${widget##*_}:$BUFFER|$CURSOR"
+    done
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal \
+    $'character:git swi|7\nword:git switch|10\nall:git switch main|15' \
+    "$output" \
+    'an autosuggestion accept widget changed the draft under caller options'
+}
+test_case 'autosuggestion accept widgets keep exact text under unusual caller options' \
+  _test_autosuggest_accept_widgets_under_unusual_options
+
 _test_numeric_token_grammar_characterization() {
   test_make_temp_dir || return
   local output=''

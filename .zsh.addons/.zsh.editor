@@ -1473,6 +1473,7 @@ _zle_autosuggest_reset() {
   _ZLE_AUTOSUGGEST_CACHE_FULL=''
 }
 
+# Called only by the accept widgets below, which already run under zsh options.
 _zle_autosuggest_is_active() {
   [[ -n $_ZLE_AUTOSUGGEST_SUFFIX &&
      $_ZLE_AUTOSUGGEST_CACHE_BUFFER == "$BUFFER" &&
@@ -1480,7 +1481,11 @@ _zle_autosuggest_is_active() {
     (( CURSOR == ${#BUFFER} ))
 }
 
+# These widgets wrap native editing keys, so subscripts and the accepted text
+# must not depend on the user's options (KSH_ARRAYS would shift them).
 _zle_autosuggest_accept_character() {
+  emulate -L zsh
+
   if _zle_autosuggest_is_active; then
     BUFFER+="${_ZLE_AUTOSUGGEST_SUFFIX[1]}"
     CURSOR=${#BUFFER}
@@ -1490,6 +1495,8 @@ _zle_autosuggest_accept_character() {
 }
 
 _zle_autosuggest_accept_word() {
+  emulate -L zsh
+
   if _zle_autosuggest_is_active; then
     BUFFER+=$_ZLE_AUTOSUGGEST_SUFFIX
     zle .forward-word
@@ -1501,6 +1508,8 @@ _zle_autosuggest_accept_word() {
 }
 
 _zle_autosuggest_accept_all() {
+  emulate -L zsh
+
   if _zle_autosuggest_is_active; then
     BUFFER+=$_ZLE_AUTOSUGGEST_SUFFIX
     CURSOR=${#BUFFER}
