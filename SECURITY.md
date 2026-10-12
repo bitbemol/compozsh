@@ -896,7 +896,10 @@ range-checked against the image's last sector before its byte offset is
 computed. Each verification progress poll reads its phase record with one
 no-follow, nonblocking native read of at most 1,025 bytes and ignores a record
 longer than 1 KiB; the raw-read progress capture it also polls is read only when
-it is at most 1 MiB, measured by `/usr/bin/stat`. Installer candidate labels
+it is at most 1 MiB, measured by `/usr/bin/stat`. A phase record
+needs exactly its three tab-separated fields; anything else keeps the preparing
+message, and the metadata never reads or modifies caller variables or runs
+commands. Installer candidate labels
 reuse captured metadata, but action-time identity checks acquire fresh
 observations. USB and Xcode scalar
 extraction share one fixed `/usr/bin/plutil` invocation over supplied document
@@ -1466,7 +1469,7 @@ server.
 | Worktrees | `worktree ` |
 | Xcode discovery | `Xcode discovery` |
 | Xcode Run, device console and logs | `Xcode run`, `Xcode monitor`, `Xcode device monitor`, `log reader`, `log copy`, `editor reader` |
-| Task routing and external-device modes | `task families` |
+| Task routing and external-device modes | `task families`, `USB verification progress` |
 | USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds` |
 | Touch ID policy in unprivileged fixtures | `sudo Touch ID` |
 

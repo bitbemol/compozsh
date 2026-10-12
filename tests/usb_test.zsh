@@ -2615,7 +2615,7 @@ _test_usb_verification_paints_live_read_progress() {
     _usb_progress_stage() { frames+=("$*"); }
     _usb_compare_written_image() {
       if [[ -n ${_USB_VERIFY_META_FILE:-} && -n ${_USB_VERIFY_PROGRESS_FILE:-} ]]; then
-        builtin printf "%s\\t%s\\n" "Full image comparison" 8388608 \
+        builtin printf "%s\\t%s\\t%s\\n" "Full image comparison" 8388608 0 \
           >| "$_USB_VERIFY_META_FILE"
         print -r -- "4194304 bytes (4.2 MB) transferred in 1.0 secs (4.2 MB/sec)" \
           >| "$_USB_VERIFY_PROGRESS_FILE"
@@ -2653,7 +2653,7 @@ _test_usb_verification_progress_waits_for_numeric_metadata() {
           $'"'"'Reading raw blocks\t2048\tsoon'"'"' \
           $'"'"'Reading raw blocks\t99999999999999999999999\t0'"'"' \
           $'"'"'Reading raw blocks\treply[$(: >| $HOME/substituted)1]\t0'"'"' \
-          $'"'"'Reading raw blocks\t2048'"'"'; do
+          $'"'"'Reading raw blocks\t2048\t0'"'"'; do
         print -rn -- "$content" >| "$HOME/meta"
         _usb_verify_progress_read "$HOME/progress" "$HOME/meta" 7
         print -r -- "$REPLY"
@@ -2674,6 +2674,53 @@ Reading raw blocks · 0 bytes of 2.0 KiB · 0s elapsed' "$output" \
 }
 test_case 'USB verification progress waits for numeric metadata before counting bytes' \
   _test_usb_verification_progress_waits_for_numeric_metadata
+
+_test_usb_verification_progress_metadata_is_never_arithmetic() {
+  test_make_temp_dir || return
+  local output='' tab=$'\t' fallback='reply:Preparing the first raw read block…'
+  local -a records=(
+    "Phase${tab}sentinel=99${tab}0"
+    "Phase${tab}probe[\$(print -u2 ran)1]${tab}0"
+    "Phase${tab}8388608${tab}sentinel=98"
+    "Phase${tab}1234567890123456789${tab}0"
+    "Phase${tab}8388608"
+    "Phase${tab}8388608${tab}0${tab}extra"
+    "Phase${tab}${tab}8388608${tab}0"
+  )
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
+    work=$2
+    shift 2
+    typeset -g sentinel=kept
+    typeset -ga probe=(first second)
+    : >| "$work/stderr"
+    print -r -- "4194304 bytes (4.2 MB) transferred in 1.0 secs (4.2 MB/sec)" \
+      >| "$work/progress"
+    for record in "$@"; do
+      print -r -- "$record" >| "$work/meta"
+      _usb_verify_progress_read "$work/progress" "$work/meta" $SECONDS \
+        2>>| "$work/stderr"
+      print -r -- "reply:$REPLY"
+    done
+    builtin printf "%s\t%s\t%s\n" "Full image comparison" 8388608 0 >| "$work/meta"
+    _usb_verify_progress_read "$work/progress" "$work/meta" $SECONDS \
+      2>>| "$work/stderr"
+    print -r -- "valid:$_USB_VERIFY_PROGRESS_BAR|$REPLY"
+    print -r -- "sentinel:$sentinel|stderr:$(<$work/stderr)"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" "${records[@]}") ||
+    test_fail "verify metadata aborted the progress reader: ${(qqq)output}" || return
+
+  test_assert_equal "${(F)${(@)records/*/$fallback}}" \
+    "${(F)${(@M)${(f)output}:#reply:*}}" \
+    'malformed verify metadata did not fall back to the preparing message' || return
+  test_assert_equal 'sentinel:kept|stderr:' "${(@M)${(f)output}:#sentinel:*}" \
+    'verify metadata assigned caller variables, ran code or reported arithmetic errors' || return
+  test_assert_contains "${(@M)${(f)output}:#valid:*}" '50%' \
+    'well-formed verify metadata lost determinate progress'
+}
+test_case 'USB verification progress never evaluates metadata as arithmetic' \
+  _test_usb_verification_progress_metadata_is_never_arithmetic
 
 _test_usb_unmounts_immediately_after_write() {
   test_make_temp_dir || return

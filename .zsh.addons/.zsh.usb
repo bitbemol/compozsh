@@ -2810,8 +2810,8 @@ _usb_verify_progress_read() {
   }
   (( meta_bytes > 0 && meta_bytes <= 1024 )) || return 0
   fields=("${(@ps:\t:)${meta%%$'\n'*}}")
-  (( ${#fields} == 2 || ${#fields} == 3 )) || return 0
-  phase=${fields[1]} total_text=${fields[2]} intra_text=${fields[3]:-0}
+  (( ${#fields} == 3 )) || return 0
+  phase=${fields[1]} total_text=${fields[2]} intra_text=${fields[3]}
   [[ $total_text == <-> && $intra_text == <-> ]] &&
     (( ${#total_text} <= 18 && ${#intra_text} <= 18 )) || return 0
   total=$(( 10#$total_text )) intra=$(( 10#$intra_text ))
