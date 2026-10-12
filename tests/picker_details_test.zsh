@@ -151,7 +151,8 @@ _test_details_native_actions() {
   test_write_file "$repository/note one" 'must not be executed' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    path=("$3" "${path[@]}")
+    fake_bin=$3
+    path=("$fake_bin" "${path[@]}")
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
@@ -174,7 +175,7 @@ _test_details_native_actions() {
     _details_driver() {
       COLUMNS=120 LINES=30
       local passed=0 inserted="" copied="" expected_path="${PWD:A}/note one"
-      if [[ $scenario == branch-* ]]; then g; else test_search_session note; fi
+      if [[ $scenario == branch-* ]]; then g; else test_search_session note "$fake_bin/pbcopy"; fi
       (( ${#_ZLE_PICKER_INSPECT_TEXTS} == 0 && !_ZLE_PICKER_INSPECT_FOCUS &&
          ${#_ZLE_PICKER_CONTEXTS} == 0 )) || passed=1
       case $scenario in

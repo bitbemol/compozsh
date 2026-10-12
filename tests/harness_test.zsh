@@ -81,3 +81,23 @@ test_case "fixture git probe" _test_fixture_git_probe
 }
 test_case 'test runner isolates fixture Git commands from inherited repository selectors and global configuration' \
   _test_runner_isolates_fixture_git_environment
+
+# Shared PTY helpers must never hand the operator's GUI or clipboard programs
+# to file actions; a test that wants those effects passes its own fakes.
+_test_search_session_fails_closed_on_effects() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    _zle_picker_run() {
+      print -r -- "open=$_directory_browser_open|clipboard=$_directory_browser_clipboard"
+      return 1
+    }
+    test_search_session x
+    test_search_session y /fake/copy /fake/open
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'open=|clipboard=\nopen=/fake/open|clipboard=/fake/copy' "$output" \
+    'shared search session resolved a system open or clipboard executable'
+}
+test_case 'shared search session never resolves system open or clipboard executables' \
+  _test_search_session_fails_closed_on_effects

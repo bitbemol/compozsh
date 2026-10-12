@@ -85,10 +85,12 @@ test_run_noninteractive() {
 
 # Native picker tests can start with a known query, bypassing only mode/query
 # entry (covered by files_workspace_test). Keep real shared ZLE and actions.
+# Usage: test_search_session <query> [clipboard-binary] [open-binary]
+# Copy, Open and Reveal exist only when a test passes fakes; never the PATH's.
 test_search_session() {
   local test_search_query=$1 mode=insert
-  local _directory_browser_clipboard=${commands[pbcopy]:-}
-  local _directory_browser_open=${commands[open]:-}
+  local _directory_browser_clipboard=${2:-}
+  local _directory_browser_open=${3:-}
   local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   _test_search_choose() { _file_search_choose "$PWD" "$test_search_query" local; }
   _zle_picker_run 10 '' 1 0 _test_search_choose

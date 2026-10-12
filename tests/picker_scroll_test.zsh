@@ -173,7 +173,8 @@ _test_picker_scroll_native() {
   command chmod +x "$TEST_TMP_DIR/bin/pbcopy" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    path=("$3" "${path[@]}")
+    fake_bin=$3
+    path=("$fake_bin" "${path[@]}")
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
@@ -202,7 +203,7 @@ _test_picker_scroll_native() {
       local -i captures=0 collections=0
       local actual="" expected=""
       local tty_device=$(command tty)
-      test_search_session row
+      test_search_session row "$fake_bin/pbcopy"
       case $scenario in
         (end) expected="${PWD:A}/row-25" ;;
         (digit) expected="${PWD:A}/row-02" ;;

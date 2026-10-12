@@ -14,7 +14,8 @@ _test_file_actions_native() {
   command chmod +x "$TEST_TMP_DIR/bin/open" "$TEST_TMP_DIR/bin/pbcopy" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    path=("$3" "${path[@]}")
+    fake_bin=$3
+    path=("$fake_bin" "${path[@]}")
     source "$1/.zsh.addons/.zsh.editor"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
     for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
@@ -48,11 +49,11 @@ _test_file_actions_native() {
       local -i captures=0 invalid_menu=0
       local original=$PWD actual="" expected="$PWD/note & final.txt"
       case $scenario in
-        (directory|directory-digit) test_search_session folder ;;
-        (linked-directory) test_search_session link-dir ;;
-        (resume) test_search_session row ;;
-        (link) test_search_session link-note ;;
-        (*) test_search_session "note & final" ;;
+        (directory|directory-digit) test_search_session folder "$fake_bin/pbcopy" "$fake_bin/open" ;;
+        (linked-directory) test_search_session link-dir "$fake_bin/pbcopy" "$fake_bin/open" ;;
+        (resume) test_search_session row "$fake_bin/pbcopy" "$fake_bin/open" ;;
+        (link) test_search_session link-note "$fake_bin/pbcopy" "$fake_bin/open" ;;
+        (*) test_search_session "note & final" "$fake_bin/pbcopy" "$fake_bin/open" ;;
       esac
       case $scenario in
         (linked-directory)
