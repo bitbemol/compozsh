@@ -123,6 +123,7 @@ recoverable installer need local state.
 | Git Change atlas | View-scoped shell memory; released on return | Path-prefix groups, entry-count bars and bookmarks from the captured file list, staged/unstaged distinct. No discovery, bulk content read, saved atlas or new worker |
 | Git Tree / All files navigation | Current review's shell memory; released on review exit | Directory prefixes, folder summaries (change states, child areas, captured numstat) and expansion/filter/scope/selection state from the 1,000-entry/256-KiB list; ancestor choices at most 200 rows/262,144 prefix characters, with a partial notice. No discovery, saved preference or new worker |
 | Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention follows the user's terminal settings |
+| Terminal title | The terminal's window/tab title, replaced at each prompt and each command start; display and retention follow the terminal and any multiplexer | `user@host: <current folder>` (home as `~`) at each prompt, and while a command runs `user@host: <command word>`: the first lexical word after leading assignments, at most 60 characters. Never an assignment value; the identity alone after an array assignment or when no command word is established. Controls sanitized; written only when standard output is a terminal and `TERM` is not `dumb` |
 | Prompt tool descriptions | Current-shell memory; cleared on shell exit or invalidation | At most 64 same-source command/help pairs; up to 262,144 characters of source/definition identity; 240-character summaries and option descriptions from at most 4,096 characters per guide plus the Touch ID subguide. No disk cache |
 | Git comparison choices and snapshots | View memory, released on view exit | At most 1,000 refs/256 KiB of names, kinds and object IDs; resolved endpoints, paths and bounded diff snapshots. No saved comparison catalog |
 | Git branch picker | Shell memory; catalog replaced on the next invocation or shell exit, details cleared on view exit | All local branch names (no count cap), ordered by current branch and up to 200 checkout reflog entries, then other refnames; details at most 262,144 characters across 401 refs, 512 per subject. No fetch, saved history or background refresh |
@@ -278,6 +279,15 @@ success. Command receipts, plus outcome receipts for failures and slow
 successes, become terminal display and terminal-owned scrollback; compaction
 neither conceals nor removes submitted command text from the terminal or Zsh
 history (see [Secrets on the command line](#secrets-on-the-command-line)).
+
+The [terminal title](#complete-local-data-inventory) is another
+terminal-owned display. At command start, `.zsh.prompt`'s `preexec` hook lexes
+at most 512 characters of the accepted command without evaluation or expansion
+and titles only the first word after leading assignments, so it never shows an
+assignment value. After an array assignment, without a command word, or
+without the shared assignment predicate it shows `user@host` alone. The command
+word itself appears unredacted, so the title is not a redaction boundary
+either. Check it with `zsh tests/run.zsh 'running-command title'`.
 
 ### Help workspace and tool descriptions
 
@@ -1030,8 +1040,8 @@ program itself. `HIST_IGNORE_SPACE` is enabled, but a leading space is only a
 convenience and not a secret-storage mechanism. Prefer the macOS Keychain or a
 dedicated secret store, and rotate any credential that was exposed. Ctrl-X
 Ctrl-E hands the whole draft to your editor through a temporary file (see the
-[inventory](#complete-local-data-inventory)). Assignment
-values are omitted only from the Interaction lens's secondary presentation; the
+[inventory](#complete-local-data-inventory)). Only the Interaction lens and
+the terminal title, both secondary presentations, omit assignment values; the
 living prompt transcript deliberately retains the exact submitted command text.
 Both behaviors are presentation choices, not a
 privacy or redaction boundary.
@@ -1645,6 +1655,7 @@ server.
 | Appearance, contrast and plain output | `appearance` |
 | Shared screens and native ZLE cleanup | `UI`, `picker screen` |
 | Living prompt buffer preservation and inert edits | `living prompt` |
+| Terminal title without assignment values | `running-command title` |
 | Display control sanitization, including UTF-8-encoded C1 in every locale | `sanitiz`, `encoded C1` |
 | READY toolchains without extra reads or probes | `runtime prompt` |
 | Help workspace capture, fallback and cleanup | `help workspace` |

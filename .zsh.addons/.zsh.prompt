@@ -2834,9 +2834,25 @@ _prompt_command_started() {
     _PROMPT_COMMAND_STARTED=$EPOCHREALTIME
 
   if [[ $TERM != dumb && -t 1 ]]; then
-    local command_name=${1%% *} title_identity=''
-    title_identity=${(%):-%n@%m}
-    REPLY="${title_identity}: ${command_name[1,60]}"
+    # Title the command word from bounded lexical structure, never a leading
+    # assignment value. An array assignment's values follow its opener as
+    # separate words, so it fails closed to the identity alone, as do a
+    # missing predicate and a first command without a word.
+    local command_name='' word='' title_identity=${(%):-%n@%m}
+    local -a words=()
+    if (( ${+functions[_compozsh_is_assignment]} )); then
+      words=("${(@Z+C+)${1[1,512]}}") 2>/dev/null
+      for word in "${words[@]}"; do
+        if _compozsh_is_assignment "$word"; then
+          [[ $word == *=\( ]] && break
+          continue
+        fi
+        [[ $word == [\;\&\|]* ]] || command_name=${(Q)word}
+        break
+      done
+    fi
+    REPLY=$title_identity
+    [[ -n $command_name ]] && REPLY+=": ${command_name[1,60]}"
     (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$REPLY" || REPLY=${(V)REPLY}
     print -rn -- $'\e]0;'"${REPLY}"$'\a'
   fi

@@ -395,6 +395,46 @@ markers:0' "status:$exit_status"$'\n'"$output" \
 test_case 'living prompt never times commands with an inherited EPOCHREALTIME' \
   _test_living_prompt_never_times_with_inherited_epoch
 
+# The running-command title is a second display of the draft; it names only
+# the command word and fails closed to the identity when that word is unknown.
+_test_living_prompt_title_omits_assignment_values() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_is_assignment"
+    source "$1/.zsh.addons/.zsh.prompt"
+    zmodload zsh/zpty || exit 90
+    _test_title() {
+      local out="" title=""
+      zpty prompt-title "_prompt_command_started ${(q)1}; print -rn -- END; sleep 1" || return
+      zpty -r prompt-title out "*END" || :
+      zpty -d prompt-title
+      title=${${out#*$'"'"'\e]0;'"'"'}%%$'"'"'\a'"'"'*}
+      [[ $out == *$'"'"'\e]0;'"'"'* ]] || title="no title"
+      print -r -- "[${title#${(%):-%n@%m}}]"
+    }
+    _test_title "API_TOKEN=fixture-secret-value true"
+    _test_title "FOO=bar BAZ=qux print ok"
+    _test_title "secrets=(fixture-array-value)"
+    _test_title "FOO=fixture-chain-value; true"
+    _test_title "make test"
+    unfunction _compozsh_is_assignment
+    _test_title "make test"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+[: true]
+[: print]
+[]
+[]
+[: make]
+[]' "status:$exit_status"$'\n'"$output" \
+    'the running-command title repeated an assignment value or guessed a command'
+}
+test_case 'living prompt running-command title never repeats leading assignment values' \
+  _test_living_prompt_title_omits_assignment_values
+
 _test_living_prompt_interaction_lens_ready_morphs_and_returns_to_base() {
   test_make_temp_dir || return
   local project="$TEST_TMP_DIR/home/project" output=''

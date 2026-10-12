@@ -206,6 +206,14 @@ short windows use bounded omission.
   failure, and `✓ 2.3s` for a slow success. Fast successes add nothing.
   Painting never changes command bytes, history insertion, output or the exit
   status the next prompt reports.
+- The terminal title, written only to a terminal whose `TERM` isn't `dumb`,
+  is `user@host: <current folder>` at each prompt and
+  `user@host: <command word>` from `preexec` while a command runs. It is a
+  second display of the draft, so the word is the first one after leading
+  assignments in bounded lexical structure (512 characters lexed, 60 shown,
+  sanitized) and never an assignment value. An array assignment, a first
+  command without a word or a missing assignment predicate leaves the
+  identity alone.
 
 ## Layout, sanitization and color
 
