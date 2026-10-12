@@ -201,6 +201,46 @@ _test_file_search_spotlight_boundary() {
 test_case 'Spotlight file finder treats queries as data and enforces its root' \
   _test_file_search_spotlight_boundary
 
+_test_file_search_spotlight_root_scope() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin"
+  local outside="$TEST_TMP_DIR/outside.txt" log="$TEST_TMP_DIR/mdfind.args"
+  local output='' fake_script=''
+
+  test_write_file "$home/Documents/Final Report.txt" 'inside' || return
+  test_write_file "$outside" 'outside' || return
+  fake_script=$'#!/bin/zsh\n'
+  fake_script+=$'print -rl -- "$@" >| "$FAKE_MDFIND_LOG"\n'
+  fake_script+=$'print -rn -- "$FAKE_MDFIND_INSIDE"$\'\\0\''
+  fake_script+=$'"$FAKE_MDFIND_OUTSIDE"$\'\\0\''
+  test_write_file "$fake_bin/mdfind" "$fake_script" || return
+  command chmod +x "$fake_bin/mdfind" || return
+
+  # `/` contains every absolute path; the capture must keep indexed results
+  # instead of reporting a successful empty search.
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.find"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    export FAKE_MDFIND_LOG="$4"
+    export FAKE_MDFIND_INSIDE="$HOME/Documents/Final Report.txt"
+    export FAKE_MDFIND_OUTSIDE="$3"
+    _file_search_capture_spotlight / "final report" "$2/mdfind"
+    print -r -- "status:$?"
+    print -r -- "labels:${(j:|:)_FILE_SEARCH_LABELS}"
+    print -r -- "args:${(j:,:)${(f)$(<$4)}}"
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$outside" "$log") || return
+
+  test_assert_contains "$output" 'status:0' \
+    'root-scoped Spotlight search reported no matches for indexed results' || return
+  test_assert_contains "$output" 'labels:· ~/Documents/Final Report.txt' \
+    'root-scoped Spotlight search discarded an in-scope indexed result' || return
+  test_assert_contains "$output" 'args:-0,-onlyin,/,-name,report' \
+    'root-scoped Spotlight search changed its index scope or seed'
+}
+test_case 'Spotlight file finder keeps in-scope results when the scope is the filesystem root' \
+  _test_file_search_spotlight_root_scope
+
 _test_file_search_command_contract() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" root="$TEST_TMP_DIR/root" output=''

@@ -332,7 +332,8 @@ _file_search_capture_spotlight() {
     fi
     [[ $path == /* && ( -e $path || -L $path ) ]] || continue
     resolved=${path:A}
-    if [[ -n $root && $resolved != $root && $resolved != $root/* ]]; then
+    # `/` contains every absolute path; `$root/*` would become `//*` there.
+    if [[ -n $root && $root != / && $resolved != $root && $resolved != $root/* ]]; then
       continue
     fi
     if [[ $path == $HOME ]]; then
