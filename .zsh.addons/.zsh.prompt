@@ -195,14 +195,19 @@ prompt_add_project_segment() {
 # Avoid launching Git in ordinary directories. Standard repositories,
 # submodules, and linked worktrees all expose a .git directory or file in an
 # ancestor; explicit Git environments still defer discovery to Git itself.
+# REPLY names the nearest .git marker, or is empty for an explicit environment.
 _prompt_has_git_context() {
   emulate -L zsh
 
+  REPLY=''
   [[ -n ${GIT_DIR:-} || -n ${GIT_WORK_TREE:-} ]] && return 0
 
   local dir=$1
   while [[ -n $dir ]]; do
-    [[ -e "$dir/.git" ]] && return 0
+    if [[ -e "$dir/.git" ]]; then
+      REPLY="$dir/.git"
+      return 0
+    fi
     [[ $dir == / ]] && break
     dir=${dir:h}
   done
@@ -210,15 +215,16 @@ _prompt_has_git_context() {
 }
 
 # Render a compact Git summary. Porcelain v2 gives branch and file state in one
-# Git call. The metadata directory is resolved once per working directory so
-# operation checks do not require another Git process on every prompt.
+# Git call. The metadata directory is resolved once per working directory and
+# nearest .git marker, so operation checks do not require another Git process
+# on every prompt, and a repository initialized inside a visited folder is not
+# served the enclosing repository's metadata.
 _prompt_git() {
   setopt localoptions noglobsubst
 
   local git_output line branch='' oid='' upstream=''
   local separator=$'\x1f'
-  local git_dir operation=''
-  local cache_key="${PWD}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
+  local git_dir operation='' cache_key=''
   local summary=''
   local color=''
   REPLY=''
@@ -237,6 +243,8 @@ _prompt_git() {
   _PROMPT_GIT_OPERATION_TEXT=''
   _PROMPT_GIT_ATTENTION=''
   _prompt_has_git_context "$PWD" || return
+  # Keep PWD as well: a relative GIT_DIR or GIT_WORK_TREE resolves against it.
+  cache_key="${PWD}${separator}${REPLY}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
   (( ${+functions[_compozsh_git_filter_config]} &&
      ${+functions[_compozsh_git_operation]} )) || return
   _compozsh_git_filter_config "$PWD" clean || return

@@ -174,6 +174,69 @@ _test_living_prompt_fingerprint_uses_only_high_signal_changes() {
 test_case 'living prompt fingerprint reacts to branch environment conflict and runtime attention but not dirt counts' \
   _test_living_prompt_fingerprint_uses_only_high_signal_changes
 
+_test_living_prompt_git_operation_follows_nested_repository() {
+  test_make_temp_dir || return
+  local outer="$TEST_TMP_DIR/outer"
+  local first="$TEST_TMP_DIR/a"
+  local second="$TEST_TMP_DIR/b"
+  local output=''
+
+  command git init -q "$outer" || return
+  command mkdir -p -- "$outer/inner" || return
+  command git init -q "$first" || return
+  command git init -q "$second" || return
+  : >| "$second/.git/MERGE_HEAD" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    TERM=dumb
+    source "$1/.zsh.addons/.zsh.shell"
+    source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/.zsh.editor"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+
+    # Visit a plain folder inside the outer repository first, so its Git
+    # directory is resolved while the folder is not yet a repository.
+    builtin cd -- "$2/inner" || exit 1
+    true; _prompt_update
+
+    # A repository initialized in that folder is nearer than the outer one:
+    # a merge in the outer repository must not leak into the inner prompt...
+    command git init -q . || exit 90
+    : >| ../.git/MERGE_HEAD || exit 91
+    true; _prompt_update
+    [[ -z $_PROMPT_GIT_OPERATION_TEXT && -z $_PROMPT_GIT_ATTENTION ]] || {
+      print -u2 -r -- "outer state leaked: [$_PROMPT_GIT_OPERATION_TEXT] [$_PROMPT_GIT_ATTENTION]"
+      exit 2
+    }
+
+    # ...and an operation in the inner repository itself must be seen.
+    : >| .git/REVERT_HEAD || exit 92
+    true; _prompt_update
+    [[ $_PROMPT_GIT_OPERATION_TEXT == revert ]] || {
+      print -u2 -r -- "inner operation missed: [$_PROMPT_GIT_OPERATION_TEXT]"
+      exit 3
+    }
+
+    # A relative GIT_DIR resolves against the working directory, so folders
+    # that share it must not share one resolved Git directory.
+    export GIT_DIR=.git
+    builtin cd -- "$3" || exit 93
+    true; _prompt_update
+    builtin cd -- "$4" || exit 94
+    true; _prompt_update
+    [[ $_PROMPT_GIT_OPERATION_TEXT == merge ]] || {
+      print -u2 -r -- "relative GIT_DIR reused another folder: [$_PROMPT_GIT_OPERATION_TEXT]"
+      exit 4
+    }
+    print -r -- nearest-repository
+  ' "$TEST_REPO_ROOT" "$outer" "$first" "$second") || return
+
+  test_assert_equal nearest-repository "$output"
+}
+test_case 'living prompt Git operation follows a repository initialized inside a previously visited folder' \
+  _test_living_prompt_git_operation_follows_nested_repository
+
 _test_living_prompt_manual_lens_and_transcript_state() {
   test_make_temp_dir || return
   local project="$TEST_TMP_DIR/home/project"
