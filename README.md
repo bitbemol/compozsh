@@ -470,7 +470,9 @@ Right or Tab reads the full selected command. **Selection never executes**:
 Enter puts the exact entry on the editable line, and Escape restores the
 original line. `Ctrl-C` aborts.
 
-The picker searches Zsh's loaded history (up to 50,000 entries) in memory and
+The picker searches Zsh's loaded history in memory, which `HISTSIZE` bounds
+(stock macOS keeps 2,000 entries and saves 1,000; set `HISTSIZE` and `SAVEHIST`
+in the [initializer](#local-user-and-machine-settings) to change them), and
 shows eight rows by default. Colors use `picker-*` roles in
 `ZSH_HIGHLIGHT_STYLES`, such as `picker-query`, `picker-selected` and
 `picker-match`; older `history-search-*` overrides still take precedence.

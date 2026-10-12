@@ -92,6 +92,22 @@ _test_initializer_precedes_peers_and_preserves_defaults() {
 test_case 'local initializer runs once before peers and its inputs survive' \
   _test_initializer_precedes_peers_and_preserves_defaults
 
+# Stock macOS /etc/zshrc sets HISTSIZE=2000 and SAVEHIST=1000 before ~/.zshrc;
+# -f skips it, so the script emulates those values. The shell peer keeps limits
+# no initializer chose and supplies only the history file /etc/zshrc would set.
+_test_history_limits_keep_stock_values() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  output=$(test_run_interactive "$home" \
+    'HISTSIZE=2000; SAVEHIST=1000; ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "$HISTSIZE|$SAVEHIST|$HISTFILE"' \
+    "$TEST_REPO_ROOT") || return
+  test_assert_equal "2000|1000|$home/.zsh_history" "$output" \
+    'shell history limits or default history file changed'
+}
+test_case 'shell history limits keep stock macOS values when no initializer chooses them' \
+  _test_history_limits_keep_stock_values
+
 _test_discovery_filename_contract() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" output=''

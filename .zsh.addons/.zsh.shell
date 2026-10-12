@@ -13,11 +13,10 @@ setopt NO_BEEP
 setopt NO_CLOBBER            # Refuse to overwrite non-empty files with >.
 setopt CLOBBER_EMPTY         # Zsh 5.9: allow > to reuse an empty file.
 
-# Keep a useful history across terminal windows unless the local initializer
-# selected different storage or limits for this machine.
+# Share history across terminal windows. HISTSIZE and SAVEHIST always exist,
+# so their limits come from Zsh, macOS /etc/zshrc or the local initializer;
+# only the history file needs a default, for shells that skip global rc files.
 HISTFILE=${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}
-HISTSIZE=${HISTSIZE:-50000}
-SAVEHIST=${SAVEHIST:-50000}
 setopt EXTENDED_HISTORY
 setopt SHARE_HISTORY
 setopt HIST_IGNORE_ALL_DUPS

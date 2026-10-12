@@ -226,6 +226,31 @@ _test_public_guidance_keeps_help_derived_intent_wording() {
 test_case 'docs: public guidance keeps help-derived intent and refresh wording' \
   _test_public_guidance_keeps_help_derived_intent_wording
 
+# The picker copies Zsh's loaded history, so its bound is HISTSIZE (2,000 on
+# stock macOS); no Compozsh code applies a fixed count of its own.
+_test_history_picker_states_effective_bound() {
+  local line='' paragraph=''
+  local -i found=0
+
+  while IFS= read -r line; do
+    if (( found )); then
+      [[ -n $line ]] || break
+      paragraph+=" $line"
+    elif [[ $line == 'The picker searches '* ]]; then
+      found=1
+      paragraph=$line
+    fi
+  done < "$TEST_REPO_ROOT/README.md"
+  (( found )) ||
+    test_fail 'README omits the history picker scope paragraph' || return
+  [[ ! $paragraph =~ 'up to [0-9,]+ entries' ]] ||
+    test_fail "README claims a fixed history bound: $paragraph" || return
+  test_assert_contains "$paragraph" '`HISTSIZE`' \
+    'README does not tie the history picker bound to HISTSIZE'
+}
+test_case 'docs: history picker states the effective HISTSIZE bound' \
+  _test_history_picker_states_effective_bound
+
 _test_claude_rule_paths_match_repository_files() {
   setopt EXTENDED_GLOB GLOB_DOTS
   local rule='' line='' pattern=''
