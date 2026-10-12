@@ -1636,6 +1636,140 @@ _test_usb_plist_capture_uses_whole_disk_facts() {
 test_case 'USB providers parse native plists into exact whole-disk facts' \
   _test_usb_plist_capture_uses_whole_disk_facts
 
+# diskutil names an APFS volume's synthesized (Virtual) container as its
+# ParentWholeDisk; only APFSPhysicalStores leads to the physical disk a target
+# could be. Every effect after the source guards is a recording stand-in,
+# because _usb_unmount and _usb_eject call /usr/sbin/diskutil directly.
+_test_usb_apfs_source_run() {
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    TMPDIR=$2
+    local -a trace=()
+    local volume_keys="" effect=""
+    plist() { print -rn -- "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict>$1</dict></plist>"; }
+    key() { print -rn -- "<key>$1</key><string>$2</string>"; }
+    stores() {
+      local store=""
+      REPLY="$(key DeviceIdentifier disk5s1)$(key ParentWholeDisk disk5)$(key APFSContainerReference disk5)<key>APFSPhysicalStores</key><array>"
+      for store; do REPLY+="<dict>$(key APFSPhysicalStore "$store")</dict>"; done
+      REPLY+="</array>"
+    }
+    whole() {
+      plist "$(key DeviceIdentifier $1)$(key ParentWholeDisk $1)<key>TotalSize</key><integer>$2</integer><key>DeviceBlockSize</key><integer>512</integer>$(key MediaName "$3")$(key BusProtocol USB)<key>Internal</key><false/>$(key VirtualOrPhysical Physical)<key>WholeDisk</key><true/><key>WritableMedia</key><true/>"
+    }
+    _usb_image_filesystem_device_capture() { _USB_IMAGE_DEVICE=/dev/disk5s1; }
+    _usb_diskutil_run() {
+      case "$*" in
+        ("list -plist external physical")
+          plist "<key>AllDisks</key><array><string>disk4</string><string>disk4s1</string><string>disk4s2</string><string>disk6</string></array>" ;;
+        ("info -plist /dev/disk5s1") plist "$volume_keys" ;;
+        ("info -plist /dev/disk4s2") plist "$(key DeviceIdentifier disk4s2)$(key ParentWholeDisk disk4)" ;;
+        ("info -plist /dev/disk4s3") plist "$(key DeviceIdentifier disk4s3)$(key ParentWholeDisk disk4)" ;;
+        ("info -plist /dev/disk7s2") plist "$(key DeviceIdentifier disk7s2)$(key ParentWholeDisk disk7)" ;;
+        ("info -plist /dev/disk8s2") plist "$(key DeviceIdentifier disk8s2)" ;;
+        ("info -plist /dev/disk4") whole disk4 1000204886016 "Example SSD holding the image" ;;
+        ("info -plist /dev/disk6") whole disk6 64023257088 "Example empty stick" ;;
+        (*) return 1 ;;
+      esac
+    }
+    for effect in _usb_progress_stage _usb_authorize _usb_authorization_valid \
+        _usb_macos_installer_revalidate _usb_image_revalidate _usb_target_revalidate \
+        _usb_macos_prepare_volume _usb_createinstallmedia_run _usb_unmount \
+        _usb_write_image _usb_dd_run _usb_verify_payload _usb_eject \
+        _usb_diskutil_erase_run; do
+      functions[$effect]="trace+=($effect); return 0"
+    done
+    '"$1" "$TEST_REPO_ROOT" "$TEST_TMP_DIR"
+}
+
+_test_usb_source_exclusion_resolves_apfs_physical_store() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(_test_usb_apfs_source_run '
+    stores disk4s2; volume_keys=$REPLY
+    _usb_image_source_disk_capture "/Volumes/SSD/Install macOS Tahoe.app"
+    print -r -- "capture:$?|source:$_USB_IMAGE_SOURCE_DISK|error:$_USB_CAPTURE_ERROR"
+    source_disk=$_USB_IMAGE_SOURCE_DISK
+    _usb_external_disks_capture 2147483648 "$source_disk" raw-image
+    print -r -- "targets:$?|${(j:,:)_USB_DISK_IDS}"
+    trace=()
+    _usb_macos_execute "/Volumes/SSD/Install macOS Tahoe.app" disk4 disk-fingerprint \
+      installer-fingerprint 17179869184 flash-verify "$source_disk" 1 "" "" 1000204886016 >/dev/null 2>&1
+    print -r -- "macos:$?|$_USB_RESULT_ERROR|trace:${(j:,:)trace}"
+    trace=()
+    _usb_execute /Volumes/SSD/linux.iso disk4 disk-fingerprint image-fingerprint \
+      1048576 flash-only "$source_disk" 1 "" "" 1000204886016 >/dev/null 2>&1
+    print -r -- "raw:$?|$_USB_RESULT_ERROR|trace:${(j:,:)trace}"
+  ') || return
+
+  test_assert_contains "$output" 'capture:0|source:disk4|error:' \
+    'an APFS image source resolved to its synthesized container instead of its physical disk' || return
+  test_assert_contains "$output" 'targets:0|disk6' \
+    'the physical disk holding an APFS image source remained a write target' || return
+  test_assert_contains "$output" \
+    'macos:1|The selected drive contains the macOS installer source; nothing was written.|trace:' \
+    'the macOS handler reached an effect on the disk holding its APFS installer source' || return
+  test_assert_contains "$output" \
+    'raw:1|The selected drive contains the image source; nothing was written.|trace:' \
+    'the raw writer reached an effect on the disk holding its APFS image source'
+}
+test_case 'USB source exclusion resolves APFS volumes to their physical store disk' \
+  _test_usb_source_exclusion_resolves_apfs_physical_store
+
+_test_usb_source_exclusion_covers_every_store_and_fails_closed() {
+  test_make_temp_dir || return
+  local output='' probe=''
+  output=$(_test_usb_apfs_source_run '
+    stores disk4s2 disk7s2 disk4s3; volume_keys=$REPLY
+    _usb_image_source_disk_capture /Volumes/Fusion/linux.iso
+    print -r -- "fusion:$?|source:$_USB_IMAGE_SOURCE_DISK"
+    source_disk=$_USB_IMAGE_SOURCE_DISK
+    _usb_external_disks_capture 2147483648 "$source_disk" raw-image
+    print -r -- "fusion-targets:$?|${(j:,:)_USB_DISK_IDS}"
+    trace=()
+    _usb_execute /Volumes/Fusion/linux.iso disk7 disk-fingerprint image-fingerprint \
+      1048576 flash-only "$source_disk" 1 "" "" 1000204886016 >/dev/null 2>&1
+    print -r -- "fusion-raw:$?|$_USB_RESULT_ERROR|trace:${(j:,:)trace}"
+    trace=()
+    _usb_macos_execute "/Volumes/Fusion/Install macOS Tahoe.app" disk4 disk-fingerprint \
+      installer-fingerprint 17179869184 flash-verify "$source_disk" 1 "" "" 1000204886016 >/dev/null 2>&1
+    print -r -- "fusion-macos:$?|trace:${(j:,:)trace}"
+    probe() {
+      volume_keys=$2
+      _usb_image_source_disk_capture /Volumes/SSD/linux.iso
+      print -r -- "$1:$?|source:$_USB_IMAGE_SOURCE_DISK|error:${_USB_CAPTURE_ERROR:+present}"    }
+    stores disk9s2; probe unreadable-store "$REPLY"
+    print -r -- "unreadable-error:$_USB_CAPTURE_ERROR"
+    stores disk8s2; probe store-without-whole-disk "$REPLY"
+    stores "disk4s2/../disk6"; probe malformed-store "$REPLY"
+    stores; probe empty-store-list "$REPLY"
+    local -a many=(); repeat 17 many+=(disk4s2)
+    stores "${many[@]}"; probe over-bound-store-list "$REPLY"
+    probe missing-store-list "$(key DeviceIdentifier disk5s1)$(key ParentWholeDisk disk5)$(key APFSContainerReference disk5)"
+    probe store-dictionary "$(key DeviceIdentifier disk5s1)$(key ParentWholeDisk disk5)<key>APFSPhysicalStores</key><dict>$(key APFSPhysicalStore disk4s2)</dict>"
+  ') || return
+
+  test_assert_contains "$output" 'fusion:0|source:disk4 disk7' \
+    'a multi-store APFS source did not resolve each physical whole disk once' || return
+  test_assert_contains "$output" 'fusion-targets:0|disk6' \
+    'a physical disk holding one APFS store remained a write target' || return
+  test_assert_contains "$output" \
+    'fusion-raw:1|The selected drive contains the image source; nothing was written.|trace:' \
+    'the raw writer reached an effect on a later APFS store disk' || return
+  test_assert_contains "$output" 'fusion-macos:1|trace:' \
+    'the macOS handler reached an effect on the first APFS store disk' || return
+  test_assert_contains "$output" 'unreadable-error:diskutil could not inspect /dev/disk9s2' \
+    'an unreadable APFS physical store did not name the store that failed' || return
+  for probe in unreadable-store store-without-whole-disk malformed-store \
+      empty-store-list over-bound-store-list missing-store-list store-dictionary; do
+    test_assert_contains "$output" "$probe:1|source:|error:present" \
+      "an APFS source whose physical store is unestablished ($probe) was not refused" || return
+  done
+}
+test_case 'USB source exclusion covers every APFS store and fails closed when unresolved' \
+  _test_usb_source_exclusion_covers_every_store_and_fails_closed
+
 # Integer assignment evaluates arithmetic, including $(...) in a subscript, and
 # 19 or more digits truncate or wrap; validate plist text before either.
 _test_usb_plist_capture_rejects_hostile_numbers() {

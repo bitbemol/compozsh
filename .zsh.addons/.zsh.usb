@@ -1162,13 +1162,33 @@ _usb_image_filesystem_device_capture() {
   _USB_IMAGE_DEVICE=$device
 }
 
+# Whole disk named by one captured diskutil info plist, in REPLY.
+_usb_plist_whole_disk() {
+  emulate -L zsh
+  local plist=$1 parent=''
+  _usb_plist_optional "$plist" ParentWholeDisk
+  parent=$REPLY
+  if [[ -z $parent ]]; then
+    _usb_plist_optional "$plist" DeviceIdentifier
+    [[ $REPLY == disk<-> ]] && parent=$REPLY
+  fi
+  REPLY=$parent
+  [[ $parent == disk<-> ]]
+}
+
 # Resolve a local source volume through diskutil metadata instead of deriving a
-# whole-disk identifier from a partition name. Network/FileProvider sources do
-# not map to a local /dev/disk target and therefore need no exclusion.
+# whole-disk identifier from a partition name. An APFS volume's ParentWholeDisk
+# is its synthesized (Virtual) container, never a physical target, so each APFS
+# physical store resolves to its own whole disk; a Fusion container spans two.
+# The result is one or more space-separated diskN identifiers, and anything
+# unestablished fails closed. Network/FileProvider sources do not map to a
+# local /dev/disk target and therefore need no exclusion.
 _usb_image_source_disk_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local path=$1 device='' identifier='' plist='' parent=''
+  local path=$1 device='' identifier='' plist='' count='' store=''
+  local -i index=0
+  local -a disks=()
   _USB_IMAGE_SOURCE_DISK='' _USB_CAPTURE_ERROR=''
   _usb_image_filesystem_device_capture "$path" || return
   device=$_USB_IMAGE_DEVICE
@@ -1180,17 +1200,40 @@ _usb_image_source_disk_capture() {
   identifier=${device#/dev/}
   _usb_disk_info_read "$identifier" || return
   plist=$_USB_PLIST
-  _usb_plist_optional "$plist" ParentWholeDisk
-  parent=$REPLY
-  if [[ -z $parent ]]; then
-    _usb_plist_optional "$plist" DeviceIdentifier
-    [[ $REPLY == disk<-> ]] && parent=$REPLY
+  _usb_plist_optional "$plist" APFSPhysicalStores
+  count=$REPLY
+  if [[ -z $count ]]; then
+    _usb_plist_optional "$plist" APFSContainerReference
+    [[ -z $REPLY ]] || {
+      _USB_CAPTURE_ERROR='diskutil did not report the APFS physical store holding the image'
+      return 1
+    }
+    _usb_plist_whole_disk "$plist" || {
+      _USB_CAPTURE_ERROR='diskutil could not resolve the image filesystem to a whole disk'
+      return 1
+    }
+    _USB_IMAGE_SOURCE_DISK=$REPLY
+    return 0
   fi
-  [[ $parent == disk<-> ]] || {
-    _USB_CAPTURE_ERROR='diskutil could not resolve the image filesystem to a whole disk'
+  [[ $count == <1-16> ]] || {
+    _USB_CAPTURE_ERROR='diskutil reported an unusable APFS physical store list for the image'
     return 1
   }
-  _USB_IMAGE_SOURCE_DISK=$parent
+  for (( index = 0; index < count; ++index )); do
+    _usb_plist_optional "$plist" "APFSPhysicalStores.$index.APFSPhysicalStore"
+    store=$REPLY
+    [[ $store == disk<->(s<->)# ]] || {
+      _USB_CAPTURE_ERROR='diskutil reported an unsupported APFS physical store for the image'
+      return 1
+    }
+    _usb_disk_info_read "$store" || return
+    _usb_plist_whole_disk "$_USB_PLIST" || {
+      _USB_CAPTURE_ERROR="diskutil could not resolve APFS physical store /dev/$store to a whole disk"
+      return 1
+    }
+    (( ${disks[(Ie)$REPLY]} )) || disks+=("$REPLY")
+  done
+  _USB_IMAGE_SOURCE_DISK=${(j: :)disks}
 }
 
 
@@ -1382,7 +1425,7 @@ _usb_external_disks_capture() {
   _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
   _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
   for identifier in "${captured_ids[@]}"; do
-    if [[ -n $excluded_disk && $identifier == "$excluded_disk" ]]; then
+    if [[ -n $excluded_disk && " $excluded_disk " == *" $identifier "* ]]; then
       (( ++excluded_count ))
       continue
     fi
@@ -3944,7 +3987,7 @@ _usb_macos_execute() {
   [[ $minimum_size == <-> && $target_size == <-> ]] || return 2
   (( target_size >= minimum_size )) || return 2
   [[ $request == flash-verify ]] || return 2
-  if [[ -n $source_disk && $identifier == "$source_disk" ]]; then
+  if [[ -n $source_disk && " $source_disk " == *" $identifier "* ]]; then
     _USB_RESULT_OUTCOME=failed
     _USB_RESULT_ERROR='The selected drive contains the macOS installer source; nothing was written.'
     return 1
@@ -4046,7 +4089,7 @@ _usb_windows_execute() {
   elif [[ -n $checksum_algorithm ]]; then
     return 2
   fi
-  if [[ -n $source_disk && $identifier == "$source_disk" ]]; then
+  if [[ -n $source_disk && " $source_disk " == *" $identifier "* ]]; then
     _USB_RESULT_OUTCOME=failed
     _USB_RESULT_ERROR='The selected drive contains the Windows ISO source; nothing was written.'
     return 1
@@ -4345,7 +4388,7 @@ _usb_execute() {
   elif [[ -n $checksum_algorithm ]]; then
     return 2
   fi
-  if [[ -n $source_disk && $identifier == "$source_disk" ]]; then
+  if [[ -n $source_disk && " $source_disk " == *" $identifier "* ]]; then
     _USB_RESULT_OUTCOME=failed
     _USB_RESULT_ERROR='The selected drive contains the image source; nothing was written.'
     return 1
