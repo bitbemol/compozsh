@@ -1,17 +1,19 @@
 # Entry point: _usb_dd_progress_bytes
 # Pure: one literal native dd record in; observed decimal byte count in REPLY.
 # Accept periodic records with units and final records without units; unrelated
-# stderr remains with the caller's stage/error handling.
+# stderr remains with the caller's stage/error handling. Counts are decimal
+# integers of at most 18 digits, so callers' integer assignments stay exact and
+# silent; longer counts are rejected with an empty REPLY.
 _usb_dd_progress_bytes() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local line=$1
+  local line=$1 count=''
   REPLY=''
   line=${line##[[:space:]]#}
   [[ $line == <->' bytes '*transferred* ]] || return 1
-  REPLY=${line%% *}
-  # Callers assign the count to integers; 19 or more digits would wrap.
-  [[ $REPLY == <-> && ${#REPLY} -le 18 ]]
+  count=${line%% *}
+  [[ $count == <-> ]] && (( ${#count} <= 18 )) || return 1
+  REPLY=$count
 }
 
 :

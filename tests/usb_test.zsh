@@ -4479,3 +4479,225 @@ _test_usb_failure_screen_separates_image_and_drive_evidence() {
 }
 test_case 'USB result screen separates image integrity from USB fidelity' \
   _test_usb_failure_screen_separates_image_and_drive_evidence
+
+_test_usb_dd_progress_bounds_byte_counts() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.pure.usb_dd_progress_bytes" || exit
+    _usb_dd_progress_bytes "999999999999999999 bytes transferred in 1.0 secs"
+    print -r -- "eighteen:$?|$REPLY"
+    _usb_dd_progress_bytes "1000000000000000000 bytes (1.0 EB) transferred 1.0s"
+    print -r -- "nineteen:$?|$REPLY"
+    print -r -- "456 bytes transferred in 0.2 secs" >| "$HOME/progress"
+    print -r -- "12345678901234567890 bytes transferred in 0.3 secs" >> "$HOME/progress"
+    _usb_dd_bytes_observed "$HOME/progress" 2>| "$HOME/errors"
+    print -r -- "observed:$?|$REPLY|errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal $'eighteen:0|999999999999999999\nnineteen:1|\nobserved:0|456|errors:' \
+    "$output" 'dd byte counts beyond 18 digits were accepted or wrote a diagnostic'
+}
+test_case 'USB numeric bounds reject dd byte counts beyond 18 digits without diagnostics' \
+  _test_usb_dd_progress_bounds_byte_counts
+
+_test_usb_write_progress_bounds_byte_counts() {
+  test_make_temp_dir || return
+  local progress_file="$TEST_TMP_DIR/write-progress" output=''
+  test_write_file "$progress_file" $'compozsh-write-stage:image\n4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r12345678901234567890 bytes transferred in 1.0 secs\rcompozsh-write-stage:verify\ncompozsh-write-verify-bytes:12345678901234567890\n' || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
+    _usb_dd_progress_read "$2" 8388608 0 2>| "$HOME/errors"
+    print -r -- "write:$_USB_WRITE_BYTES_OBSERVED|verify:$_USB_WRITE_VERIFY_BYTES_OBSERVED|errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT" "$progress_file") || return
+
+  test_assert_equal 'write:4194304|verify:0|errors:' "$output" \
+    'overlong write or verification byte records reached native integer arithmetic'
+}
+test_case 'USB numeric bounds ignore write progress byte records beyond 18 digits' \
+  _test_usb_write_progress_bounds_byte_counts
+
+_test_usb_write_stage_text_is_never_arithmetic() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-stage-text" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
+    TMPDIR=$2
+    local -i planted_status=0 evaluated=0
+    _usb_progress_stage() { return 0; }
+    _usb_raw_write_session_run() {
+      print -u2 -r -- "compozsh-write-stage:image"
+      print -u2 -r -- "4096 bytes transferred in 1.0 secs (4096 bytes/sec)\r"
+      return 1
+    }
+    _usb_write_image /images/linux.iso disk7 8192 8192 1 2>| "$HOME/errors"
+    print -r -- "image:$?|stage:$_USB_WRITE_STAGE|errors:$(<"$HOME/errors")"
+    _usb_raw_write_session_run() {
+      print -u2 -r -- '\''compozsh-write-stage:path[$(print -r -- evaluated >| "$HOME/stage-evaluated")1]'\''
+      print -u2 -r -- "8192 bytes transferred in 1.0 secs (8192 bytes/sec)\r"
+      return 1
+    }
+    _usb_write_image /images/linux.iso disk7 8192 8192 1 2>| "$HOME/errors"
+    planted_status=$?
+    [[ -e $HOME/stage-evaluated ]] && evaluated=1
+    print -r -- "planted:$planted_status|evaluated:$evaluated|errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_equal $'image:1|stage:image|errors:\nplanted:1|evaluated:0|errors:' "$output" \
+    'progress-file stage text was evaluated as arithmetic or wrote a diagnostic'
+}
+test_case 'USB numeric bounds compare write stage text literally, never as arithmetic' \
+  _test_usb_write_stage_text_is_never_arithmetic
+
+_test_usb_verify_progress_meta_is_bounded_literal_data() {
+  test_make_temp_dir || return
+  local output='' waiting='Preparing the first raw read block…'
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
+    local meta="$HOME/meta" progress="$HOME/progress" phase=""
+    local -i evaluated=0
+    : >| "$HOME/errors"
+    print -r -- "4194304 bytes transferred in 1.0 secs" >| "$progress"
+    builtin printf "%s\t%s\t%s\n" "Full image comparison" 8388608 512 >| "$meta"
+    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
+    print -r -- "valid:$REPLY"
+    builtin printf "%s\t%s\t%s\n" "Full image comparison" 12345678901234567890123 0 >| "$meta"
+    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
+    print -r -- "overlong:$REPLY"
+    builtin printf "%s\t%s\t%s\n" "Full image comparison" "1+1" 0 >| "$meta"
+    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
+    print -r -- "expression:$REPLY"
+    builtin printf "%s\t%s\t%s\n" "Full image comparison" \
+      '\''reply[$(print -r -- evaluated >| "$HOME/meta-evaluated")1]'\'' 0 >| "$meta"
+    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
+    [[ -e $HOME/meta-evaluated ]] && evaluated=1
+    print -r -- "planted:$REPLY|evaluated:$evaluated"
+    phase=${(l:2048::x:)}
+    builtin printf "%s\t%s\t%s\n" "$phase" 8388608 0 >| "$meta"
+    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
+    print -r -- "oversized:$REPLY"
+    print -r -- "errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'valid:Full image comparison · 4.0 MiB of 8.0 MiB' \
+    'a well-formed verification phase record lost determinate progress' || return
+  test_assert_contains "$output" $'\n'"overlong:$waiting"$'\n' \
+    'an overlong verification total was accepted' || return
+  test_assert_contains "$output" $'\n'"expression:$waiting"$'\n' \
+    'a verification total was evaluated as an arithmetic expression' || return
+  test_assert_contains "$output" $'\n'"planted:$waiting|evaluated:0"$'\n' \
+    'verification phase metadata was evaluated as arithmetic' || return
+  test_assert_contains "$output" $'\n'"oversized:$waiting"$'\n' \
+    'an oversized verification phase record was accepted' || return
+  [[ $output == *$'\nerrors:' ]] ||
+    test_fail "verification phase metadata wrote a diagnostic: ${(qqq)output##*errors:}"
+}
+test_case 'USB numeric bounds keep verification progress metadata bounded literal data' \
+  _test_usb_verify_progress_meta_is_bounded_literal_data
+
+_test_usb_createinstallmedia_progress_bounds_percent() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
+    print -r -- $'\''Erasing disk: 42%\rCopying to disk: 12345678901234567890%'\'' >| "$HOME/progress"
+    _usb_createinstallmedia_progress_read "$HOME/progress" 2>| "$HOME/errors"
+    print -r -- "bar:$_USB_PROGRESS_BAR|errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT") || return
+
+  [[ $output == 'bar:['*'] 42%|errors:' ]] ||
+    test_fail "an overlong createinstallmedia percentage reached native integer arithmetic: ${(qqq)output}"
+}
+test_case 'USB numeric bounds ignore createinstallmedia percentages beyond 18 digits' \
+  _test_usb_createinstallmedia_progress_bounds_percent
+
+_test_usb_gpt_fields_beyond_native_range_are_rejected() {
+  test_make_temp_dir || return
+  local image="$TEST_TMP_DIR/oversized-gpt.img" output=''
+  command /bin/dd if=/dev/zero of="$image" bs=512 count=68 status=none || return
+  builtin printf 'EFI PART' |
+    command /bin/dd of="$image" bs=1 seek=512 conv=notrunc status=none 2>/dev/null || return
+  builtin printf '%b' '\xff\xff\xff\xff\xff\xff\xff\xff' |
+    command /bin/dd of="$image" bs=1 seek=536 conv=notrunc status=none 2>/dev/null || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    _usb_od_uint "$2" 520 4
+    print -r -- "revision:$?|$REPLY"
+    _usb_od_uint "$2" 536 8
+    print -r -- "current:$?"
+    _usb_gpt_layout_capture "$2" 34816 2>| "$HOME/errors"
+    print -r -- "layout:$?|errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT" "$image") || return
+
+  test_assert_equal $'revision:0|0\ncurrent:1\nlayout:1|errors:' "$output" \
+    'a 20-digit unsigned GPT field reached native integer arithmetic'
+}
+test_case 'USB numeric bounds reject image GPT fields beyond native integer range' \
+  _test_usb_gpt_fields_beyond_native_range_are_rejected
+
+_test_usb_gpt_backup_entry_offset_cannot_wrap() {
+  test_make_temp_dir || return
+  local image="$TEST_TMP_DIR/wrapping-gpt.img" output=''
+  _test_usb_make_hybrid_gpt_fixture "$image" || return
+  command /bin/cp "$image" "$image.valid" || return
+  # 2^55 + 20 sectors wraps to the primary entry array at byte 10240.
+  _test_usb_write_le "$image" 130632 36028797018963988 8 || return
+  _test_usb_update_gpt_header_crc "$image" 130560 || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    _usb_gpt_layout_capture "$2.valid" 131072
+    print -r -- "valid:$?|$_USB_GPT_STABLE_END"
+    _usb_gpt_layout_capture "$2" 131072 2>| "$HOME/errors"
+    print -r -- "wrapped:$?|$_USB_GPT_STABLE_END|errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT" "$image") || return
+
+  test_assert_equal $'valid:0|108032\nwrapped:1|0|errors:' "$output" \
+    'a GPT backup entry LBA whose byte offset wraps narrowed the verified stable range'
+}
+test_case 'USB numeric bounds reject a GPT backup entry LBA whose byte offset would wrap' \
+  _test_usb_gpt_backup_entry_offset_cannot_wrap
+
+_test_usb_disk_info_sizes_are_validated_before_integer_assignment() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    local size="" planted=""
+    local -i evaluated=0 planted_status=0
+    _usb_disk_info_read() {
+      _USB_PLIST="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>DeviceIdentifier</key><string>disk7</string><key>TotalSize</key>$size<key>DeviceBlockSize</key><integer>512</integer><key>MediaName</key><string>External SSD</string><key>BusProtocol</key><string>USB</string><key>Internal</key><false/><key>VirtualOrPhysical</key><string>Physical</string><key>WholeDisk</key><true/><key>WritableMedia</key><true/><key>DeviceTreePath</key><string>IOService:/fixture</string></dict></plist>"
+    }
+    size="<integer>64000000000</integer>"
+    _usb_disk_info_capture disk7
+    print -r -- "valid:$?|$_USB_INFO_SIZE|$_USB_INFO_BLOCK_SIZE"
+    size="<string>1+1</string>"
+    _usb_disk_info_capture disk7 2>| "$HOME/errors"
+    print -r -- "expression:$?|$_USB_INFO_SIZE|errors:$(<"$HOME/errors")"
+    size="<string>12345678901234567890</string>"
+    _usb_disk_info_capture disk7 2>| "$HOME/errors"
+    print -r -- "overlong:$?|$_USB_INFO_SIZE|errors:$(<"$HOME/errors")"
+    planted='\''path[$(print -r -- evaluated >| "$HOME/info-evaluated")1]'\''
+    size="<string>$planted</string>"
+    _usb_disk_info_capture disk7 2>| "$HOME/errors"
+    planted_status=$?
+    [[ -e $HOME/info-evaluated ]] && evaluated=1
+    print -r -- "planted:$planted_status|evaluated:$evaluated|errors:$(<"$HOME/errors")"
+  ' "$TEST_REPO_ROOT") || test_fail "diskutil size capture aborted: ${(qqq)output}"
+
+  test_assert_equal $'valid:0|64000000000|512\nexpression:1|0|errors:\noverlong:1|0|errors:\nplanted:1|evaluated:0|errors:' \
+    "$output" 'diskutil size text was evaluated before validation'
+}
+test_case 'USB numeric bounds validate diskutil sizes before integer assignment' \
+  _test_usb_disk_info_sizes_are_validated_before_integer_assignment

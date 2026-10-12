@@ -886,15 +886,25 @@ confirmations ([Administrator boundary](#administrator-boundary)). Shared pure
 USB readers validate supplied SHA/CRC text and native progress records without
 consulting caller-local variables or reading devices; raw and Windows execution
 share digest validation, while media-specific preflight, checksum requirements
-and final verification stay with their effect owners. Installer candidate
-labels reuse captured metadata, but action-time identity checks acquire fresh
-observations. USB and Xcode scalar extraction share one fixed `/usr/bin/plutil`
-invocation over supplied document text, without provider discovery or
-persistent state. Xcode child/failure counts and display-span offsets are
-validated as bounded decimal text before arithmetic (offsets use local
-whitespace splitting), without reading or modifying caller variables; missing
-count support keeps neutral results within the existing traversal and
-retained-failure limits. Inspect
+and final verification stay with their effect owners. Progress byte counts,
+verification-phase totals, installer percentages, diskutil `TotalSize` and
+`DeviceBlockSize`, and GPT header fields read from images or devices are
+validated as decimal text of at most 18 digits before arithmetic, and progress
+stage names are compared literally, so this text never reaches arithmetic as an
+expression or an out-of-range number. The GPT backup entry location is
+range-checked against the image's last sector before its byte offset is
+computed. Each verification progress poll reads its phase record with one
+no-follow, nonblocking native read of at most 1,025 bytes and ignores a record
+longer than 1 KiB; the raw-read progress capture it also polls is read only when
+it is at most 1 MiB, measured by `/usr/bin/stat`. Installer candidate labels
+reuse captured metadata, but action-time identity checks acquire fresh
+observations. USB and Xcode scalar
+extraction share one fixed `/usr/bin/plutil` invocation over supplied document
+text, without provider discovery or persistent state. Xcode child/failure
+counts and display-span offsets are validated as bounded decimal text before
+arithmetic (offsets use local whitespace splitting), without reading or
+modifying caller variables; missing count support keeps neutral results within
+the existing traversal and retained-failure limits. Inspect
 `.zsh.addons/.zsh.usb`, `.zsh.addons/.zsh.help`, `.zsh.addons/.zsh.tools` and
 `.zsh.addons/.zsh.xcode`.
 
@@ -1457,6 +1467,7 @@ server.
 | Xcode discovery | `Xcode discovery` |
 | Xcode Run, device console and logs | `Xcode run`, `Xcode monitor`, `Xcode device monitor`, `log reader`, `log copy`, `editor reader` |
 | Task routing and external-device modes | `task families` |
+| USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds` |
 | Touch ID policy in unprivileged fixtures | `sudo Touch ID` |
 
 These checks do not establish: an operating-system sandbox or OS protection
