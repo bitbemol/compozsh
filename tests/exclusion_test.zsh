@@ -421,6 +421,26 @@ _test_exclusion_sources() {
 }
 test_case 'exclusion discovery keeps Git result caps filesystem visit bounds and Spotlight positive-seed requirements' _test_exclusion_sources
 
+_test_exclusion_git_parent_folders() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/.zsh.find"
+    mkdir -p "$HOME/repo/Tests/Unit"
+    git init -q "$HOME/repo" || exit 1
+    touch "$HOME/repo/Tests/Unit/ClientTests.swift" "$HOME/repo/README.md"
+    git -C "$HOME/repo" add . || exit 2
+    _file_search_capture "$HOME/repo" Tests git .swift || exit 3
+    [[ ${(j:|:)_FILE_SEARCH_LABELS} == "▸ Tests/|▸ Tests/Unit/" ]] || exit 4
+    _file_search_capture "$HOME/repo" "" git .swift || exit 5
+    (( ${_FILE_SEARCH_LABELS[(Ie)▸ Tests/]} && ${_FILE_SEARCH_LABELS[(Ie)▸ Tests/Unit/]} )) || exit 6
+    print folders
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal folders "$output"
+}
+test_case 'exclusion Git search keeps matching folders whose files the exclusion removes' _test_exclusion_git_parent_folders
+
 _test_exclusion_capture_display() {
   test_make_temp_dir || return
   local output

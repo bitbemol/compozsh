@@ -178,6 +178,7 @@ _file_search_capture_git() {
   local relative='' candidate_path='' parent=''
   local -i consider_status=0 stop=0 source_status=2
   local completion=''
+  local -A visited=()
   [[ -d $root ]] || return 2
   _file_search_git "$root" rev-parse --is-inside-work-tree \
     >/dev/null 2>&1 || return 2
@@ -202,18 +203,21 @@ _file_search_capture_git() {
       break
     }
 
-    if (( consider_status == 0 )); then
-      parent=${relative:h}
-      while [[ $parent != . && -n $parent ]]; do
-        _file_search_consider "$root/$parent" "$parent" "$parent"
-        consider_status=$?
-        (( consider_status == 2 )) && {
-          stop=1
-          break
-        }
-        parent=${parent:h}
-      done
-    fi
+    # Git lists only files, so derive their folders even when the exclusion
+    # or a missing worktree file rejects the file itself: a folder is judged on
+    # its own path. The prefilter stays sound because a file path contains its
+    # ancestors' paths. A visited folder's ancestors were already walked.
+    parent=${relative:h}
+    while [[ $parent != . && -n $parent && -z ${visited[$parent]-} ]]; do
+      visited[$parent]=1
+      _file_search_consider "$root/$parent" "$parent" "$parent"
+      consider_status=$?
+      (( consider_status == 2 )) && {
+        stop=1
+        break
+      }
+      parent=${parent:h}
+    done
     (( stop )) && break
   done < <(_file_search_git "$root" ls-files -z \
     --cached --others --exclude-standard 2>/dev/null
