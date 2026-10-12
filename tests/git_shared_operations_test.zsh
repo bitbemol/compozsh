@@ -78,6 +78,32 @@ _test_shared_git_bounded_capture() {
 }
 test_case 'shared Git bounded capture preserves NUL newlines exit status and caller-visible truncation' _test_shared_git_bounded_capture
 
+_test_shared_git_bounded_capture_newline_cut() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded" || exit 1
+    fixture() { print -rn -- "$1"; return "$2"; }
+    local -a reply=()
+    _compozsh_capture_bounded 8 fixture $'"'"'12345678\nmore'"'"' 0 || exit 2
+    [[ $reply[1] == 12345678 && $reply[2] == truncated && -z $reply[3] ]] || exit 3
+    _compozsh_capture_bounded 8 fixture $'"'"'1234567\n\nmore'"'"' 0 || exit 4
+    [[ $reply[1] == $'"'"'1234567\n'"'"' && $reply[2] == truncated && -z $reply[3] ]] || exit 5
+    _compozsh_capture_bounded 8 fixture $'"'"'12345\x000\n\nhidden'"'"' 3 || exit 6
+    [[ $reply[1] == $'"'"'12345\x000\n'"'"' && $reply[2] == truncated && -z $reply[3] ]] || exit 7
+    _compozsh_capture_bounded 8 fixture $'"'"'12345\n'"'"' 7 || exit 8
+    [[ $reply[1] == $'"'"'12345\n'"'"' && $reply[2] == complete && $reply[3] == 7 ]] || exit 9
+    _compozsh_capture_bounded 8 fixture 1234. 0 || exit 10
+    [[ $reply[1] == 1234. && $reply[2] == complete && $reply[3] == 0 ]] || exit 11
+    _compozsh_capture_bounded 8 fixture 1234567.. 0 || exit 12
+    [[ $reply[1] == 1234567. && $reply[2] == truncated && -z $reply[3] ]] || exit 13
+    print bounded
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal bounded "$output" 'a truncation cut on newlines was reported as incomplete or complete'
+}
+test_case 'shared Git bounded capture keeps truncation when the cut lands on newlines' \
+  _test_shared_git_bounded_capture_newline_cut
+
 _test_shared_git_operation_state() {
   test_make_temp_dir || return
   local output

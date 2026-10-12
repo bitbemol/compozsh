@@ -217,6 +217,9 @@ _test_git_review_limits() {
     _git_review_capture fixture || exit 1
     (( _GIT_REVIEW_TRUNCATED && ${#_GIT_REVIEW_DATA} == 262144 )) || exit 2
     _git_review_prepare fixture && exit 3
+    _git_review_git() { print -rn -- "${(pl:262144::x:)}"$'\''\nmore'\''; }
+    _git_review_capture fixture || exit 11
+    (( _GIT_REVIEW_TRUNCATED && ${#_GIT_REVIEW_DATA} == 262144 )) || exit 12
     _git_review_git() { return 7; }
     _git_review_capture fixture && exit 4
     [[ -z $_GIT_REVIEW_DATA ]] || exit 5

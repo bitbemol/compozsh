@@ -2,8 +2,10 @@
 # Impure: invokes explicitly supplied, trusted command argv and captures stdout.
 # The bound covers the packet, including the private trailing NUL/exit status.
 # reply returns payload, complete/truncated/incomplete, and command status.
-# A partial packet has no trustworthy command status. This bounds retained
-# bytes, not wall time; asynchronous deadline/PID ownership stays with callers.
+# A partial packet has no trustworthy command status. The reader's trailing
+# sentinel keeps newlines at the cut from command-substitution stripping.
+# This bounds retained bytes, not wall time; asynchronous deadline/PID
+# ownership stays with callers.
 _compozsh_capture_bounded() {
   emulate -L zsh
   local -x LC_ALL=C
@@ -16,7 +18,8 @@ _compozsh_capture_bounded() {
   shift
   _ccb_packet=$( { "$@" 2>/dev/null; print -rn -- $'\0'"$?"; } |
     { local _ccb_chunk=''; IFS= read -r -u 0 -k $(( _ccb_limit + 1 )) _ccb_chunk || :;
-      print -rn -- "$_ccb_chunk"; } )
+      print -rn -- "$_ccb_chunk."; } )
+  _ccb_packet=${_ccb_packet%.}
   if (( ${#_ccb_packet} > _ccb_limit )); then
     reply=("${_ccb_packet[1,_ccb_limit]}" truncated '')
   elif [[ $_ccb_packet == *$'\0'* ]]; then
