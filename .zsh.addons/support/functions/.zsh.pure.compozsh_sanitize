@@ -5,7 +5,14 @@
 # Replace terminal controls for display. Keep exact targets separately; prompt
 # escaping and shell quoting remain the caller's distinct responsibilities.
 _compozsh_sanitize() {
+  emulate -L zsh
   REPLY=${1//[[:cntrl:]]/?}
+  # Unicode terminals decode UTF-8-encoded C1 controls (U+0080-U+009F, such as
+  # CSI and ST) whatever the shell locale, but [[:cntrl:]] sees them only in a
+  # UTF-8 locale, so also match their two-byte encoding bytewise. Lone
+  # 0x80-0x9F bytes stay: they are often valid UTF-8 continuation bytes.
+  setopt NO_MULTIBYTE
+  REPLY=${REPLY//$'\xc2'[$'\x80'-$'\x9f']/?}
 }
 
 :

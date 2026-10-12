@@ -101,6 +101,32 @@ _test_shared_display_literal_contract() {
 test_case 'shared display preserves literal text bias combining boundaries and input ownership' \
   _test_shared_display_literal_contract
 
+# Unicode terminals decode UTF-8-encoded C1 controls (CSI, OSC, ST) whatever
+# the shell locale; valid multibyte text with C1-range continuation bytes
+# (ğ, ❯, …) and the C2-led NBSP must stay byte-identical.
+_test_shared_display_encoded_c1_controls() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_sanitize" || exit 1
+    local REPLY loc encoded legit_state
+    local text=$'"'"'a\xc2\x9b2Jb\xc2\x9d0;t\xc2\x9c \xc2\x80\xc2\x83\xc2\x9f'"'"'
+    local legit=$'"'"'caf\xc3\xa9 \xc4\x9f \xe2\x9d\xaf \xc2\xa0 \xe2\x80\xa6'"'"'
+    for loc in C en_US.US-ASCII en_US.UTF-8; do
+      export LC_ALL=$loc
+      _compozsh_sanitize "$text"
+      [[ $REPLY == "a?2Jb?0;t? ???" ]] && encoded=replaced || encoded=${(qqqq)REPLY}
+      _compozsh_sanitize "$legit"
+      [[ $REPLY == "$legit" ]] && legit_state=intact || legit_state=${(qqqq)REPLY}
+      print -r -- "$loc:$encoded:$legit_state"
+    done
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'C:replaced:intact\nen_US.US-ASCII:replaced:intact\nen_US.UTF-8:replaced:intact' "$output" \
+    'encoded C1 controls must become ? while valid multibyte text stays byte-identical'
+}
+test_case 'shared display sanitizer replaces encoded C1 controls in every locale' \
+  _test_shared_display_encoded_c1_controls
+
 _test_support_pure_picker_abbreviate_width() {
   test_make_temp_dir || return
   local output=''

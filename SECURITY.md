@@ -259,9 +259,15 @@ vocabulary is specified in [the prompt contract](engineering/prompt.md).
 Dynamic prompt text has controls sanitized and prompt syntax escaped: `%`
 always; backslash, `$` and backticks under `PROMPT_SUBST`; `!` preserved under
 `PROMPT_BANG`. This prevents prompt evaluation or rewriting without changing
-the real buffer. The public project-segment extension accepts only a `0`–`255`
-color index or a fixed basic Zsh color name; an invalid color falls back
-through the validated `tool` role or native text before reaching prompt syntax.
+the real buffer. The shared display sanitizer replaces C0 controls, DEL and C1
+controls (U+0080–U+009F, such as CSI and ST) with `?` in every shell locale,
+including C and US-ASCII, where it matches a C1 control by its two-byte UTF-8
+encoding. A stray 0x80–0x9F byte outside a UTF-8 sequence can remain; Compozsh
+relies on the Unicode terminal it requires to decode that byte as invalid
+UTF-8, not as a control. The public project-segment extension accepts only a
+`0`–`255` color index or a fixed basic Zsh color name; an invalid color falls
+back through the validated `tool` role or native text before reaching prompt
+syntax.
 
 A transcript repaint changes only decoration; ZLE keeps the exact submitted
 command, and Compozsh keeps no separate command store. Empty and
@@ -1639,6 +1645,7 @@ server.
 | Appearance, contrast and plain output | `appearance` |
 | Shared screens and native ZLE cleanup | `UI`, `picker screen` |
 | Living prompt buffer preservation and inert edits | `living prompt` |
+| Display control sanitization, including UTF-8-encoded C1 in every locale | `sanitiz`, `encoded C1` |
 | READY toolchains without extra reads or probes | `runtime prompt` |
 | Help workspace capture, fallback and cleanup | `help workspace` |
 | Tool descriptions and alias previews | `tool descriptions`, `alias coverage` |
