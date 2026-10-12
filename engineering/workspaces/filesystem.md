@@ -48,6 +48,10 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
   captured parent, with a safe fallback if it disappeared. A child that
   vanished or became unreadable after capture keeps the current level and
   says so. Snapshots, visibility and bookmarks are scoped to the invocation.
+- At a bare-name level (a lone `x` + Tab lists the current directory), a child
+  whose name starts with `-` or `~` gets the value `./-name/` or `./~name/`
+  and keeps its plain label, so Right/Tab can enter it and the inserted path
+  never reads as an option or a quoted tilde.
 - Read only the explicitly entered, previewed or refreshed level; filtering
   and resizing never scan descendants.
 - Folder workspaces compose a captured ancestor trail with the shared list and

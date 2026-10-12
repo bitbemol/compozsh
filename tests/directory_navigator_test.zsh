@@ -74,6 +74,53 @@ _test_directory_navigator_vanished_child() {
 }
 test_case 'directory navigator keeps the current level with a notice when a descended child vanished' _test_directory_navigator_vanished_child
 
+# A bare-name level lists cwd children. Names that would read as an option or
+# a quoted tilde at the prompt must still be enterable and insertable.
+_test_directory_navigator_dash_tilde_children() {
+  test_make_temp_dir || return
+  command mkdir -p "$TEST_TMP_DIR/home/proj/-x-dir/inner" \
+    "$TEST_TMP_DIR/home/proj/~x/inner" "$TEST_TMP_DIR/home/proj/x-plain/inner" || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    setopt AUTO_CD
+    builtin cd -- "$HOME/proj" || exit 1
+    local label="" value=""
+    for label in "-x-dir/" "~x/" "x-plain/"; do
+      _DIRECTORY_PICKER_STACK=()
+      _DIRECTORY_PICKER_QUERIES=() _DIRECTORY_PICKER_SELECTIONS=() _DIRECTORY_PICKER_OFFSETS=()
+      _DIRECTORY_PICKER_RESUME=("" 1 0) _DIRECTORY_PICKER_INPUT=x
+      _directory_picker_prepare x 1 1 1 || exit 2
+      value=${_DIRECTORY_PICKER_VALUES[${_DIRECTORY_PICKER_LABELS[(Ie)$label]}]}
+      _directory_picker_quote "$value"
+      print -r -- "insert:$label|$REPLY"
+      _ZLE_PICKER_BOOKMARK=("" 1 0)
+      _directory_picker_transition descend "$value"
+      print -r -- "descend:$label|$?|$REPLY|${(j:,:)_DIRECTORY_PICKER_VALUES}"
+      _ZLE_PICKER_BOOKMARK=("" 1 0)
+      _directory_picker_transition parent ""
+      print -r -- "parent:$label|$?|$_DIRECTORY_PICKER_INPUT|${_ZLE_PICKER_RESULTS[${_DIRECTORY_PICKER_RESUME[2]}]}"
+    done
+  ' "$TEST_REPO_ROOT") || return
+  local label=''
+  for label in -x-dir/ '~x/'; do
+    test_assert_contains "$output" "insert:$label|./$label" \
+      "a bare-level $label child is not spelled as a ./ path" || return
+    test_assert_contains "$output" "descend:$label|0||./${label}inner/" \
+      "Browse could not enter the bare-level $label child" || return
+    test_assert_contains "$output" "parent:$label|0|x|./$label" \
+      "Back did not reselect the bare-level $label child" || return
+  done
+  test_assert_contains "$output" 'descend:x-plain/|0||x-plain/inner/' \
+    'an ordinary bare-level child gained a ./ spelling'
+}
+test_case 'directory navigator enters dash- and tilde-prefixed child folders from a bare-name level' _test_directory_navigator_dash_tilde_children
+
 _test_directory_navigator_hidden() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/Projects/visible" \

@@ -585,7 +585,13 @@ _directory_picker_prepare() {
       [[ $name != . && $name != .. ]] || continue
       (( ++_DIRECTORY_PICKER_CONTENT_COUNTS[1] ))
       [[ $name != *[[:cntrl:]]* ]] || continue
-      _DIRECTORY_PICKER_VALUES+=("${insertion_prefix}${name}/")
+      # The guards above reject a bare `-x/` (option) or quoted `~x/`, so
+      # Right/Tab could not enter it; `./` names the same cwd child.
+      if [[ -z $insertion_prefix && $name == (-|\~)* ]]; then
+        _DIRECTORY_PICKER_VALUES+=("./${name}/")
+      else
+        _DIRECTORY_PICKER_VALUES+=("${insertion_prefix}${name}/")
+      fi
       _DIRECTORY_PICKER_LABELS+=("${name}/")
     else
       if [[ -f $entry ]]; then
