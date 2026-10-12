@@ -79,7 +79,9 @@ _installer_backup_path() {
 
   local backup_root=$1 stamp='' candidate=''
   local -i suffix=0
-  strftime -s stamp '%Y%m%d-%H%M%S' $EPOCHSECONDS || return 1
+  # No epoch operand: strftime then reads the clock itself. Only the builtin
+  # is loaded, so $EPOCHSECONDS would be unset or inherited environment text.
+  strftime -s stamp '%Y%m%d-%H%M%S' || return 1
   candidate="$backup_root/compozsh-$stamp"
   while [[ -e $candidate || -L $candidate ]]; do
     (( ++suffix ))

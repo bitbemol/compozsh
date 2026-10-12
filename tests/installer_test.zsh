@@ -151,6 +151,48 @@ _test_installer_preserves_private_state() {
 test_case 'default installer preserves private state and backs up the bootstrap' \
   _test_installer_preserves_private_state
 
+# An exported EPOCHSECONDS is ordinary environment text, not the clock: it
+# must neither rename the recovery backup nor abort the installation.
+_test_installer_backup_stamp_ignores_inherited_epoch() {
+  test_make_temp_dir || return
+  local inherited='' home='' name='' error_file=''
+  local -i install_status=0
+  local -a backups=()
+
+  for inherited in not-a-number 0; do
+    home="$TEST_TMP_DIR/home-$inherited"
+    error_file="$TEST_TMP_DIR/install-$inherited.err"
+    test_write_file "$home/.zshrc" 'old active configuration' || return
+    install_status=0
+    command env -i \
+      PATH="$PATH" \
+      HOME="$home" \
+      ZDOTDIR="$home" \
+      TERM=xterm-256color \
+      TMPDIR="${TMPDIR:-/tmp}" \
+      LC_ALL=C \
+      EPOCHSECONDS="$inherited" \
+      "$TEST_ZSH_BIN" "$TEST_REPO_ROOT/install.zsh" --symlink --yes \
+      > /dev/null 2> "$error_file" || install_status=$?
+    test_assert_equal 0 "$install_status" \
+      "installer failed with EPOCHSECONDS=$inherited: $(<"$error_file")" || return
+    [[ $(<"$error_file") != *'could not calculate a backup location'* ]] ||
+      test_fail "installer could not name a backup with EPOCHSECONDS=$inherited" || return
+    backups=("$home/.zsh-backups"/compozsh-*(N/))
+    (( ${#backups} == 1 )) ||
+      test_fail "EPOCHSECONDS=$inherited did not produce one backup" || return
+    name=${backups[1]:t}
+    [[ $name =~ '^compozsh-[0-9]{8}-[0-9]{6}$' ]] ||
+      test_fail "backup name is not a timestamp: $name" || return
+    [[ $name != compozsh-19691231-* && $name != compozsh-19700101-* ]] ||
+      test_fail "backup was stamped from EPOCHSECONDS=$inherited: $name" || return
+    test_assert_equal 'old active configuration' "$(<"${backups[1]}/.zshrc")" \
+      'backup did not preserve the previous bootstrap' || return
+  done
+}
+test_case 'installer timestamps recovery backups from the clock, not an inherited EPOCHSECONDS' \
+  _test_installer_backup_stamp_ignores_inherited_epoch
+
 _test_installer_clean_is_recoverable() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" backup=''

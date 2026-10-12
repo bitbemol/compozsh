@@ -144,9 +144,14 @@ owner chose to fix it for robustness (a stray value also aborted peer loads).
 - The root-run `_trusted` check in the fixed `sudo` script uses `<->` before
   `8#$mode`; real `/usr/bin/stat %Lp` output bounds it, no test can reach it,
   and the `security:` scan cannot lex code held in single-quoted strings.
-- `install.zsh` loads only `b:strftime`, so `$EPOCHSECONDS` is empty and
-  `strftime` uses the current time by accident; an inherited numeric value
-  changes the backup stamp and a non-numeric one fails closed.
+- *Implemented separately ("Stamp installer backups from the clock, not
+  an inherited EPOCHSECONDS"):* `install.zsh` loads only `b:strftime`, so
+  `$EPOCHSECONDS` was empty and `strftime` used the current time by accident;
+  an inherited numeric value changed the backup stamp and a non-numeric one
+  failed closed. `_installer_backup_path` now passes no epoch operand, the
+  documented current-time form. Loading `p:EPOCHSECONDS` and quoting it would
+  not help: an inherited value makes that load fail with "parameter already
+  exists" and stays in use.
 - Without `.zsh.ui.state` (a partial support install) associative view arrays
   would be ordinary and keyed lookups would become arithmetic; the bootstrap
   always loads the whole UI group.
