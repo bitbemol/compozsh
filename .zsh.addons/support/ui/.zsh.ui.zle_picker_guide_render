@@ -143,7 +143,8 @@ _zle_picker_guide_render() {
           'Option-Delete deletes a word; Option-W copies where available.')
   notes_last=${#lines}
   # Optional caller-owned facts; guide rendering never acquires new data.
-  (( ${#_ZLE_PICKER_GUIDE_CONTEXT} )) && lines+=("${_ZLE_PICKER_GUIDE_CONTEXT[@]}")
+  # Callers pass raw captured text, sanitized here like every other caller row.
+  (( ${#_ZLE_PICKER_GUIDE_CONTEXT} )) && lines+=("${(@V)_ZLE_PICKER_GUIDE_CONTEXT}")
   _zle_picker_body_height
   height=$REPLY
   (( height < 2 )) && height=2

@@ -215,7 +215,9 @@ These are Compozsh controls, not claims about macOS-wide standards.
   digits and copy keys don't edit the filter or apply a result, and it never
   triggers refresh or a provider check. Key and fact labels use the heading
   style, descriptions ordinary text, notes muted text; emphasis is clipped to
-  the visible row and passive labels never get numbers.
+  the visible row and passive labels never get numbers. Caller-supplied
+  context lines arrive as raw captured facts; the guide sanitizes and fits
+  them like every other row and paints them as unemphasized literal text.
 
 ## Selection and focus
 

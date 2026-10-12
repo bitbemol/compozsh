@@ -54,3 +54,41 @@ _test_keyboard_guide_semantic_styles() {
   ' "$TEST_REPO_ROOT"
 }
 test_case 'keyboard guide distinguishes labels descriptions and notes with bounded semantic spans' _test_keyboard_guide_semantic_styles
+
+_test_keyboard_guide_sanitizes_context() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zshrc"
+    local esc="" bel="" nl="" row=""
+    local -i visible=0
+    printf -v esc "\033"; printf -v bel "\a"; printf -v nl "\n"
+    _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_GUIDE_ACTIVE=1
+    _ZLE_PICKER_RESULTS=(main) _ZLE_PICKER_LABELS=(main)
+    _ZLE_PICKER_SELECTED=1
+    # Callers pass raw captured facts, such as a repository folder name that
+    # may hold terminal controls or a newline; the renderer sanitizes them.
+    _ZLE_PICKER_GUIDE_CONTEXT=(
+      "Method · repo${esc}[2Jname${bel} · committed content"
+      "Line with${nl}newline")
+    LINES=40 COLUMNS=60 _ZLE_PICKER_GUIDE_OFFSET=1000
+    _zle_picker_guide_render 59
+    for row in "${_ZLE_PICKER_DISPLAY[@]}"; do
+      [[ $row != *[[:cntrl:]]* ]] || {
+        print -u2 -r -- "Guide row keeps a control character: ${(qqqq)row}"
+        exit 1
+      }
+      (( ${(m)#${(V)row}} <= 59 )) || {
+        print -u2 -r -- "Guide row exceeds the frame width: ${(qqqq)row}"
+        exit 2
+      }
+      [[ $row == *"repo^[[2Jname^G · committed"* ||
+         $row == *"Line with\\nnewline"* ]] && (( ++visible ))
+    done
+    (( visible == 2 )) || {
+      print -u2 -r -- "Caller context must stay visible as literal text"
+      exit 3
+    }
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'keyboard guide sanitizes caller-owned context lines' _test_keyboard_guide_sanitizes_context
