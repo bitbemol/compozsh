@@ -129,6 +129,61 @@ _test_files_recents_bookmark() {
 }
 test_case 'Recents restores its filter selection and viewport after browsing' _test_files_recents_bookmark
 
+# Ctrl-O on a stack entry removed after capture must not open its parent
+# filtered by the missing name. Recents stays, keeps its bookmark and says why.
+_test_files_recents_vanished_browse() {
+  test_make_temp_dir || return
+  command mkdir -p "$TEST_TMP_DIR/home/gone" "$TEST_TMP_DIR/home/Other" || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zshrc"
+    builtin cd -- "$HOME" || exit 1
+    local _FILES_ORIGIN=recents _FILES_VIEW=recents
+    local -a _FILES_RECENTS_BOOKMARK=("" 1 0)
+    local -i _DIRECTORY_PICKER_SHOW_HIDDEN=0
+    local -a _DIRECTORY_PICKER_QUERIES=() _DIRECTORY_PICKER_SELECTIONS=() _DIRECTORY_PICKER_OFFSETS=()
+    local -a _DIRECTORY_PICKER_RESUME=("" 1 0) _DIRECTORY_PICKER_STACK=()
+    local -a _DIRECTORY_PICKER_VALUES=() _DIRECTORY_PICKER_LABELS=()
+    local _DIRECTORY_PICKER_INPUT=./ _DIRECTORY_PICKER_LOCATION="" _DIRECTORY_PICKER_PATH_QUERY=""
+    local _directory_browser_clipboard="" mode=insert
+    local -a dirstack=("$HOME/gone")
+    command rmdir "$HOME/gone" || exit 2
+    local -i visits=0 browsed=0
+    _zle_picker_loop() {
+      (( ++visits ))
+      case $visits in
+        (1)
+          _ZLE_PICKER_BOOKMARK=(gone 2 0)
+          _ZLE_PICKER_ACTION=browse _ZLE_PICKER_SELECTED_VALUE="$HOME/gone" ;;
+        (2)
+          [[ $1 == gone && $3 == 2 ]] || print -r -- "BAD-BOOKMARK:$1:$3"
+          print -r -- "notice:$_ZLE_PICKER_BROWSE_LABEL"
+          _ZLE_PICKER_BOOKMARK=(gone 2 0)
+          _ZLE_PICKER_ACTION=browse _ZLE_PICKER_SELECTED_VALUE="$HOME/Other" ;;
+        (*)
+          print -r -- "again:$_ZLE_PICKER_BROWSE_LABEL"
+          return 1 ;;
+      esac
+      return 0
+    }
+    _directory_browser_choose() {
+      (( ++browsed ))
+      (( visits == 2 )) || print -r -- "BAD-BROWSE:$_DIRECTORY_PICKER_LOCATION:${(j:,:)_DIRECTORY_PICKER_VALUES}"
+      return 1
+    }
+    _files_workspace_choose
+    print -r -- "done:$?|$visits|$browsed"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_contains "$output" 'notice:cannot browse gone/' \
+    'Recents did not explain why a vanished location stayed in Recents' || return
+  test_assert_contains "$output" 'again:this shell' \
+    'the unavailable-location notice was repeated' || return
+  test_assert_contains "$output" 'done:1|3|1' \
+    'Recents did not return after a vanished location' || return
+  [[ $output != *BAD-* ]] || test_fail "vanished Recents location opened Browse: $output"
+}
+test_case 'Recents Ctrl-O on a vanished location stays in Recents with a notice' _test_files_recents_vanished_browse
+
 _test_files_workspace_capabilities() {
   test_make_temp_dir || return
   local output

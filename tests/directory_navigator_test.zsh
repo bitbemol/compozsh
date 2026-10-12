@@ -40,6 +40,40 @@ _test_directory_navigator_bookmarks() {
 }
 test_case 'directory navigator restores query, selected path, and viewport when returning' _test_directory_navigator_bookmarks
 
+# A child removed after capture must not turn the descend into a filter on the
+# current level with a prefix cut mid-name (~/Projects/a + alpha-old/).
+_test_directory_navigator_vanished_child() {
+  test_make_temp_dir || return
+  command mkdir -p "$TEST_TMP_DIR/home/Projects/alpha" \
+    "$TEST_TMP_DIR/home/Projects/alpha-old" "$TEST_TMP_DIR/home/Projects/beta" || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    setopt AUTO_CD
+    _DIRECTORY_PICKER_INPUT="~/Projects/" _DIRECTORY_PICKER_SHOW_HIDDEN=0
+    _DIRECTORY_PICKER_STACK=()
+    _DIRECTORY_PICKER_QUERIES=() _DIRECTORY_PICKER_SELECTIONS=() _DIRECTORY_PICKER_OFFSETS=()
+    _DIRECTORY_PICKER_RESUME=("" 1 0)
+    _directory_picker_prepare "$_DIRECTORY_PICKER_INPUT" ${#_DIRECTORY_PICKER_INPUT} || exit 1
+    command rmdir "$HOME/Projects/alpha" || exit 2
+    _ZLE_PICKER_BOOKMARK=(al 1 0)
+    _directory_picker_transition descend "~/Projects/alpha/"
+    print -r -- "descend:$?|$_DIRECTORY_PICKER_INPUT|$_DIRECTORY_PICKER_LOCATION|${#_DIRECTORY_PICKER_STACK}|${(j:,:)_DIRECTORY_PICKER_VALUES}"
+    print -r -- "notice:$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_contains "$output" \
+    'descend:1|~/Projects/|~/Projects/|0|~/Projects/alpha-old/,~/Projects/beta/' \
+    'descending into a vanished child did not keep the current level' || return
+  test_assert_contains "$output" 'notice:cannot open alpha/' \
+    'a vanished child did not explain why the level stayed'
+}
+test_case 'directory navigator keeps the current level with a notice when a descended child vanished' _test_directory_navigator_vanished_child
+
 _test_directory_navigator_hidden() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/Projects/visible" \

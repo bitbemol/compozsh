@@ -324,6 +324,40 @@ _test_contextual_directory_picker_fallbacks() {
 test_case 'contextual Tab picker delegates non-directory completion contexts' \
   _test_contextual_directory_picker_fallbacks
 
+# A trailing slash names a folder. If it is missing there is no parent filter
+# to fall back to: the prefix would be cut mid-name (~/P + Projects/).
+_test_contextual_directory_picker_missing_folder() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  command mkdir -p -- "$home/Projects/app" "$home/Other" || return
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    setopt AUTO_CD
+    builtin cd -- "$HOME" || exit
+
+    _directory_picker_prepare "~/Projcts/" 10; tab=$?
+    _directory_picker_prepare "~/Projcts/" 10 1 1; internal=$?
+    _directory_picker_prepare "Projcts/" 8; relative=$?
+    _directory_picker_prepare "~/Projects/apx/" 15; nested=$?
+    print -r -- "missing:$tab|$internal|$relative|$nested|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_DIRECTORY_PICKER_VALUES}"
+    _directory_picker_prepare "~/Projcts" 9; control=$?
+    print -r -- "control:$control|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_DIRECTORY_PICKER_VALUES}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'missing:1|1|1|1||' \
+    'a missing folder ending in a slash became a filter on its parent' || return
+  test_assert_contains "$output" 'control:0|~/|~/Other/,~/Projects/' \
+    'a missing final name without a slash no longer filters its parent'
+}
+test_case 'contextual Tab picker delegates a missing folder ending in a slash instead of filtering its parent' \
+  _test_contextual_directory_picker_missing_folder
+
 _test_contextual_directory_argument() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/Developer/Example & Co" || return

@@ -24,7 +24,9 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
 - **Tab** at the prompt (`directory-context-complete`) opens contextual
   directory completion for a path argument; ordinary Tab completion and modal
   Tab/Escape semantics are otherwise unchanged. Completing a command's path
-  argument replaces only that argument.
+  argument replaces only that argument. A trailing `/` names a folder: if it
+  is missing, Tab delegates to native completion instead of filtering the
+  parent by its name.
 - **Option-Tab** (`ESC TAB`, requires Terminal's Option-as-Meta) opens Recents.
   Enter and Option-digits use the same insertion dispatcher as path + Tab:
   replace the draft with the exact quoted path, put the cursor at its end and
@@ -43,8 +45,9 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
   and inspectors added here never take the hierarchy-navigation keys.
   Guide and footer show these actual keys.
 - Back restores query and viewport and reselects by literal path in the newly
-  captured parent, with a safe fallback if it disappeared. Snapshots,
-  visibility and bookmarks are scoped to the invocation.
+  captured parent, with a safe fallback if it disappeared. A child that
+  vanished or became unreadable after capture keeps the current level and
+  says so. Snapshots, visibility and bookmarks are scoped to the invocation.
 - Read only the explicitly entered, previewed or refreshed level; filtering
   and resizing never scan descendants.
 - Folder workspaces compose a captured ancestor trail with the shared list and
@@ -147,7 +150,9 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
 - Rendering never enumerates children or recursively inspects visited
   folders, and never invents visit timestamps or persists a second history.
   `dirs -v` keeps stack indexes; picker digits are visible slots, and details
-  may show `~N`. Ctrl-O browses the selected location.
+  may show `~N`. Ctrl-O browses the selected location; if it is now
+  unavailable, Recents stays with its bookmark and a one-time notice naming
+  only the short folder name.
 
 ## Testing
 

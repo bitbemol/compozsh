@@ -682,7 +682,8 @@ Search ‹›
 Filtering searches full paths. Enter or an Option-digit inserts the quoted path,
 replacing the draft; **press Enter at the prompt to change directory**. Ctrl-Y
 copies, Tab shows details and **Ctrl-O** browses the location in the
-[folder browser](#contextual-directory-completion). Slot numbers are positions
+[folder browser](#contextual-directory-completion); a location that has since
+disappeared keeps Recents open with a notice. Slot numbers are positions
 on screen; run `dirs -v` for native stack indexes (`~1`, `~2` still work).
 Recents never lists children, runs Git or saves a second history.
 

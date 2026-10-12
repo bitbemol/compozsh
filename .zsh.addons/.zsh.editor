@@ -552,6 +552,9 @@ _directory_picker_prepare() {
   else
     resolved=$input_path
   fi
+  # A trailing slash names a folder, not a prefix to filter its parent by. If
+  # that folder is missing, delegate like a missing parent; transitions recover.
+  [[ $input_path == */ && ! -d $resolved ]] && return 1
 
   # A final bare dot is a hidden-name prefix unless the user already typed a
   # trailing slash. Treat `~/.` like native completion, not as `$HOME` itself.
@@ -705,8 +708,10 @@ _directory_picker_transition() {
 
   _DIRECTORY_PICKER_SHOW_HIDDEN=$previous_hidden
   if [[ $action == descend ]]; then
+    # Descend opens an empty child too; failure means it could not be opened,
+    # typically because it vanished or became unreadable after capture.
     selected_name=${${selected_path%/}:t}
-    notice="no visible child directories in ${selected_name}/"
+    notice="cannot open ${selected_name}/: missing or unreadable"
   else
     notice='the previous directory level is unavailable'
   fi
@@ -1204,7 +1209,7 @@ _directory_browser_choose() {
 # providers are detected at invocation; no mode performs work during sourcing.
 _files_workspace_choose() {
   local -i result=0
-  local root='' target=''
+  local root='' target='' name='' recents_notice=''
   while true; do
     _ZLE_PICKER_WORKSPACE_ACTIONS=1
     case $_FILES_VIEW in
@@ -1215,7 +1220,7 @@ _files_workspace_choose() {
         _directory_browser_choose ;;
       (recents)
         (( ${+functions[_directory_recents_choose]} )) || return 4
-        _directory_recents_choose ;;
+        _directory_recents_choose "$recents_notice" ;;
       (search-*)
         (( ${+functions[_file_search_choose]} )) || return 4
         _directory_browser_absolute "${_DIRECTORY_PICKER_LOCATION:-./}"
@@ -1223,6 +1228,7 @@ _files_workspace_choose() {
         _file_search_choose "$root" '' "${_FILES_VIEW#search-}" ;;
     esac
     result=$?
+    recents_notice=''
     if (( result == 1 )) && [[ $_FILES_VIEW != $_FILES_ORIGIN ]]; then
       _FILES_VIEW=$_FILES_ORIGIN
       continue
@@ -1236,7 +1242,14 @@ _files_workspace_choose() {
         target="${_ZLE_PICKER_SELECTED_VALUE%/}/"
         _directory_picker_quote "$target"
         target=$REPLY
-        _directory_picker_prepare "$target" ${#target} 1 1 || return 4
+        if ! _directory_picker_prepare "$target" ${#target} 1 1; then
+          # Recents keeps its bookmark and explains, never browsing a parent.
+          name=${${_ZLE_PICKER_SELECTED_VALUE%/}:t}
+          [[ -n $name ]] && name+=/ || name=/
+          (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$name" || REPLY=${(V)name}
+          recents_notice="cannot browse ${REPLY}: missing or unreadable"
+          continue
+        fi
         _DIRECTORY_PICKER_INPUT=$target
         _DIRECTORY_PICKER_STACK=() _DIRECTORY_PICKER_QUERIES=()
         _DIRECTORY_PICKER_SELECTIONS=() _DIRECTORY_PICKER_OFFSETS=()

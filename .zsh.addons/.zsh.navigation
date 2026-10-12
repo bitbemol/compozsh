@@ -163,8 +163,11 @@ _directory_stack_describe() {
 
 # Recents is an explicit workspace view, never injected into child listings.
 # Snapshot Zsh's native stack; it needs no separate directory history or scan.
+# An optional caller notice (a display label, never a path to act on) replaces
+# the status label once, e.g. after Ctrl-O found the location unavailable.
 _directory_recents_choose() {
   emulate -L zsh
+  local notice=${1-}
   local _ZLE_PICKER_TITLE='Recent directories' _ZLE_PICKER_SUBTITLE='This shell · native directory stack'
   local _ZLE_PICKER_INSPECT_TITLE=Location _ZLE_PICKER_INSPECT_ACTION=${mode:-insert}
   local _ZLE_PICKER_CANCEL_LABEL=back
@@ -180,7 +183,8 @@ _directory_recents_choose() {
   _directory_stack_describe
   while true; do
     _ZLE_PICKER_TITLE='Recent directories'
-    _ZLE_PICKER_BROWSE_LABEL='this shell'
+    _ZLE_PICKER_BROWSE_LABEL=${notice:-this shell}
+    notice=''
     _ZLE_PICKER_EMPTY_LABEL='no matching visited locations'
     _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
     _ZLE_PICKER_DIGIT_SELECT=1
