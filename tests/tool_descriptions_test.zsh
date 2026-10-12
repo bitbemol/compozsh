@@ -35,6 +35,7 @@ _test_prompt_owned_descriptions() {
     _expect_description "external-device --flash --help" ACTION "Read help for external-device" || exit 20
     _expect_description "xcode --export-skills --help" ACTION "Read help for xcode" || exit 21
     _expect_description "compozsh --refresh --help" ACTION "Read help for compozsh" || exit 22
+    _expect_description "compozsh --refresh" ACTION "Clear cached facts in this shell and run rehash." || exit 24
     _expect_description "compozsh --enable-touch-id" ABOUT "Explore public functions loaded from Compozsh add-on directories." || exit 9
     _expect_description la EXPANSION "ls -A" || exit 10
     _expect_description la ABOUT "List entries, including hidden files except . and .." || exit 11
