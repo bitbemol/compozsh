@@ -101,6 +101,41 @@ _test_shared_display_literal_contract() {
 test_case 'shared display preserves literal text bias combining boundaries and input ownership' \
   _test_shared_display_literal_contract
 
+_test_support_pure_picker_abbreviate_width() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    exec 2>&1
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_abbreviate"
+    local REPLY="" width="" sentinel=7
+    local -a a=(1)
+    _zle_picker_abbreviate abcdefgh 5 || exit 1
+    [[ $REPLY == "a…fgh" ]] || exit 2
+    _zle_picker_abbreviate abcdefghi 010 || exit 3
+    [[ $REPLY == abcdefghi ]] || exit 4
+    _zle_picker_abbreviate abcdefgh 999999999999999999 head || exit 5
+    [[ $REPLY == abcdefgh ]] || exit 6
+    for width in 0 -3 -999999999999999999; do
+      REPLY=stale
+      _zle_picker_abbreviate abc $width || exit 7
+      [[ -z $REPLY ]] || exit 8
+    done
+    COLUMNS=12
+    for width in "" COLUMNS "sentinel=99" "1+1" "a[\$(print -u2 substituted)1]" - \
+        9999999999999999999 -9999999999999999999; do
+      REPLY=stale
+      _zle_picker_abbreviate abc "$width"
+      [[ $? == 2 && -z $REPLY ]] || { print -r -- "accepted width ${(qqq)width}: ${(qqq)REPLY}"; exit 9; }
+    done
+    (( sentinel == 7 )) || exit 10
+    print validated
+  ' "$TEST_REPO_ROOT") || { print -r -- "$output"; return 1; }
+  test_assert_equal validated "$output"
+}
+test_case 'support pure picker abbreviate validates width text before integer assignment' \
+  _test_support_pure_picker_abbreviate_width
+
 _test_shared_display_optional_support() {
   test_make_temp_dir || return
   local output=''

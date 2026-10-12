@@ -2,9 +2,17 @@
 # Pure: explicit supplied numbers in; caller-local REPLY out.
 # Ordinary support peer; no cross-peer calls at source time.
 
+# Seconds default to zero when empty and are otherwise decimal integer text of
+# at most 18 digits (sign excluded); negative values clamp to zero. Other text
+# gives an empty REPLY and status 2.
 _usb_human_duration() {
   emulate -L zsh
-  local -i total=${1:-0} hours=0 minutes=0 seconds=0
+  REPLY=''
+  local total_text=${1:-0}
+  # Integer assignment evaluates arithmetic, which can read or assign names and
+  # run subscript command substitutions; longer digits truncate and can flip sign.
+  [[ $total_text == (|-)<-> ]] && (( ${#${total_text#-}} <= 18 )) || return 2
+  local -i total=$total_text hours=0 minutes=0 seconds=0
   (( total < 0 )) && total=0
   hours=$(( total / 3600 ))
   minutes=$(( (total % 3600) / 60 ))

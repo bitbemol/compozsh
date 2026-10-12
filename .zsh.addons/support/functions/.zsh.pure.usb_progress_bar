@@ -2,9 +2,18 @@
 # Pure: explicit supplied numbers in; caller-local REPLY out.
 # Ordinary support peer; no cross-peer calls at source time.
 
+# Percent and width default when empty and are otherwise decimal integer text
+# of at most 18 digits (sign excluded). Percent clamps to 0-100 and width to at
+# least 10; other text gives an empty REPLY and status 2.
 _usb_progress_bar() {
   emulate -L zsh
-  local -i percent=${1:-0} width=${2:-32} filled_count=0
+  REPLY=''
+  local percent_text=${1:-0} width_text=${2:-32}
+  # Integer assignment evaluates arithmetic, which can read or assign names and
+  # run subscript command substitutions; longer digits truncate and can flip sign.
+  [[ $percent_text == (|-)<-> && $width_text == (|-)<-> ]] &&
+    (( ${#${percent_text#-}} <= 18 && ${#${width_text#-}} <= 18 )) || return 2
+  local -i percent=$percent_text width=$width_text filled_count=0
   local filled='' empty=''
   (( percent < 0 )) && percent=0
   (( percent > 100 )) && percent=100

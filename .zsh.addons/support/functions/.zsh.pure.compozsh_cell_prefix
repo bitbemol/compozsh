@@ -4,12 +4,18 @@
 
 # Return a literal prefix without separating retained characters from following
 # zero-cell marks. ${#REPLY} is its consumed character count for source offsets.
+# Width is decimal integer text of at most 18 digits (sign excluded). Zero or
+# negative gives an empty REPLY with status 0; other text gives an empty REPLY
+# and status 2.
 _compozsh_cell_prefix() {
   emulate -L zsh
   setopt localoptions multibyte
+  REPLY=''
+  # Integer assignment evaluates arithmetic, which can read or assign names and
+  # run subscript command substitutions; longer digits truncate and can flip sign.
+  [[ $2 == (|-)<-> ]] && (( ${#${2#-}} <= 18 )) || return 2
   local text=$1 prefix='' character=''
   local -i width=$2 used=0 next=0 character_width=0 length=${#text}
-  REPLY=''
   (( width > 0 )) || return 0
   if [[ $text != *[^\ -~]* ]]; then
     REPLY=${text[1,width]}

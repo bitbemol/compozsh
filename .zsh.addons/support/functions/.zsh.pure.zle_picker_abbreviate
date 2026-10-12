@@ -5,16 +5,20 @@
 # Bound display cells while preserving both ends. Optional head/tail bias
 # controls which end receives more room; the default favors the tail. Native
 # truncation supplies the fast path; zero-cell boundary marks stay with bases.
+# Width is decimal integer text of at most 18 digits (sign excluded). Zero or
+# negative gives an empty REPLY with status 0; other text gives an empty REPLY
+# and status 2.
 _zle_picker_abbreviate() {
   emulate -L zsh
   setopt MULTIBYTE
+  REPLY=''
+  # Integer assignment evaluates arithmetic, which can read or assign names and
+  # run subscript command substitutions; longer digits truncate and can flip sign.
+  [[ $2 == (|-)<-> ]] && (( ${#${2#-}} <= 18 )) || return 2
   local text=$1 head='' tail='' bias=${3:-tail} character=''
   local -i max_width=$2 left_width=0 right_width=0 source_index=0
 
-  if (( max_width <= 0 )); then
-    REPLY=''
-    return
-  fi
+  (( max_width > 0 )) || return 0
   if (( ${(m)#text} <= max_width )); then
     REPLY=$text
     return

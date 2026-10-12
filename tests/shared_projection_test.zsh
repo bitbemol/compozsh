@@ -76,3 +76,60 @@ _test_shared_usb_progress() {
   test_assert_equal modeled "$output"
 }
 test_case 'shared USB progress models captured facts without changing effect state' _test_shared_usb_progress
+
+_test_support_pure_usb_numeric_text() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    exec 2>&1
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/support/functions/.zsh.pure.usb_progress_bar"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.usb_human_duration"
+    local REPLY="" value="" sentinel=7
+    local -a a=(1)
+    _usb_progress_bar 50 10 || exit 1
+    [[ $REPLY == "[=====·····] 50%" ]] || exit 2
+    _usb_progress_bar 010 010 || exit 3
+    [[ $REPLY == "[=·········] 10%" ]] || exit 4
+    _usb_progress_bar -5 -3 || exit 5
+    [[ $REPLY == "[··········] 0%" ]] || exit 6
+    _usb_progress_bar "" "" || exit 7
+    [[ $REPLY == "[${(l:32::·:)}] 0%" ]] || exit 8
+    _usb_human_duration 0100 || exit 9
+    [[ $REPLY == "1m 40s" ]] || exit 10
+    _usb_human_duration -4 || exit 11
+    [[ $REPLY == 0s ]] || exit 12
+    _usb_human_duration "" || exit 13
+    [[ $REPLY == 0s ]] || exit 14
+    _usb_human_duration 999999999999999999 || exit 15
+    [[ $REPLY == "277777777777777h 46m 39s" ]] || exit 16
+    COLUMNS=12
+    for value in COLUMNS "sentinel=99" "1+1" "a[\$(print -u2 substituted)1]" - \
+        9999999999999999999 -9999999999999999999; do
+      REPLY=stale
+      _usb_progress_bar "$value" 10
+      [[ $? == 2 && -z $REPLY ]] || { print -r -- "bar accepted percent ${(qqq)value}: ${(qqq)REPLY}"; exit 17; }
+      REPLY=stale
+      _usb_progress_bar 50 "$value"
+      [[ $? == 2 && -z $REPLY ]] || { print -r -- "bar accepted width ${(qqq)value}: ${(qqq)REPLY}"; exit 18; }
+      REPLY=stale
+      _usb_human_duration "$value"
+      [[ $? == 2 && -z $REPLY ]] || { print -r -- "duration accepted ${(qqq)value}: ${(qqq)REPLY}"; exit 19; }
+    done
+    (( sentinel == 7 )) || exit 20
+    source "$1/.zsh.addons/support/functions/.zsh.pure.usb_human_size"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.usb_progress_model"
+    local -a reply=() arguments=()
+    _usb_progress_model 999999999999999999 999999999999999999 -999999999999999999 999 || exit 21
+    for value in "9999999999999999999 1 0 10" "1 9999999999999999999 0 10" \
+        "1 2 1234567890123456789 32" "1 2 +1234567890123456789 32" "1 2 0 9999999999999999999"; do
+      arguments=(${=value}) reply=(stale)
+      _usb_progress_model "${arguments[@]}"
+      [[ $? == 2 && ${#reply} == 0 ]] || { print -r -- "model accepted ${(qqq)value}: ${(qqq)reply}"; exit 22; }
+    done
+    print validated
+  ' "$TEST_REPO_ROOT") || { print -r -- "$output"; return 1; }
+  test_assert_equal validated "$output"
+}
+test_case 'support pure USB progress bar and duration validate numeric text before integer assignment' \
+  _test_support_pure_usb_numeric_text

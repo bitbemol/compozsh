@@ -7,17 +7,19 @@ _usb_progress_model() {
   reply=()
   (( $# == 4 || $# == 5 )) || return 2
   [[ $1 == <-> && $2 == <-> && $3 == (|-|+)<-> && $4 == <-> ]] || return 2
+  # Longer digit strings would truncate, and callees reject them.
+  (( ${#1} <= 18 && ${#2} <= 18 && ${#${3#[-+]}} <= 18 && ${#4} <= 18 )) || return 2
   local -i bytes=$1 total=$2 elapsed=$3 width=$4 percent=0
   local phase=${5:-} REPLY='' bar='' done_label='' total_label=''
   (( bytes > total )) && bytes=$total
   (( total > 0 )) && percent=$(( bytes * 100 / total ))
-  _usb_progress_bar "$percent" "$width"
+  _usb_progress_bar "$percent" "$width" || return 2
   bar=$REPLY
   _usb_human_size "$bytes"
   done_label=$REPLY
   _usb_human_size "$total"
   total_label=$REPLY
-  _usb_human_duration "$elapsed"
+  _usb_human_duration "$elapsed" || return 2
   reply=("$bar" "${phase:+$phase · }$done_label of $total_label · $REPLY elapsed")
   return 0
 }
