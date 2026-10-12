@@ -103,10 +103,6 @@ measurement and design decision before implementation.
   `my-zsh-autosuggestion`) and temp-directory prefixes.
 - The real-FAT32 `hdiutil` round-trip test fails on the current macOS 27
   host; cause not yet investigated.
-- *Found 2026-10-12:* `_usb_disk_info_capture` (`.zsh.usb`) ends with
-  `[[ -n $device_tree ]] && …`, so it returns 1 when diskutil omits
-  `DeviceTreePath`, and its three callers treat that as a capture failure.
-  ([USB bounds](usb-progress-integer-bounds.md#related-observation))
 
 ## Archive
 

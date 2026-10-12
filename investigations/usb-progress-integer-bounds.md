@@ -106,7 +106,12 @@ old `$(<…)` read plus here-string. Most of the remaining tick is the
 
 ## Related observation
 
-`_usb_disk_info_capture` ends with `[[ -n $device_tree ]] && …`, so it
-returns 1 when diskutil omits `DeviceTreePath`, and its callers treat that as
-a capture failure. This was found while writing the disk-size fixture and was
-left unchanged.
+`_usb_disk_info_capture` ended with `[[ -n $device_tree ]] && …`, so it
+returned 1 when diskutil omitted `DeviceTreePath`, and its callers treated that
+as a capture failure. This was found while writing the disk-size fixture and was
+left unchanged here.
+
+*Fixed 2026-10-12 (separate change):* the function ends with
+`if [[ -n $device_tree ]]; then …; fi`, so a disk without the key captures with
+fingerprint `id|size|name|protocol` and stays eligible. Regression case:
+`zsh tests/run.zsh 'without DeviceTreePath'`.

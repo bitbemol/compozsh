@@ -1358,7 +1358,7 @@ _usb_disk_info_capture() {
   [[ $whole == true ]] && _USB_INFO_WHOLE=1
   [[ $writable == true ]] && _USB_INFO_WRITABLE=1
   _USB_INFO_FINGERPRINT="${_USB_INFO_ID}|${_USB_INFO_SIZE}|${_USB_INFO_NAME}|${_USB_INFO_PROTOCOL}"
-  [[ -n $device_tree ]] && _USB_INFO_FINGERPRINT+="|$device_tree"
+  if [[ -n $device_tree ]]; then _USB_INFO_FINGERPRINT+="|$device_tree"; fi
 }
 
 _usb_info_is_eligible() {

@@ -1717,6 +1717,37 @@ markers:0' "status:$exit_status"$'\n'"$output" \
 test_case 'USB native tool numbers stay text until validated' \
   _test_usb_native_numbers_stay_text_until_validated
 
+_test_usb_disk_info_capture_without_device_tree() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    info_plist="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>DeviceIdentifier</key><string>disk7</string><key>TotalSize</key><integer>64000000000</integer><key>DeviceBlockSize</key><integer>512</integer><key>MediaName</key><string>External SSD</string><key>BusProtocol</key><string>USB</string><key>Internal</key><false/><key>VirtualOrPhysical</key><string>Physical</string><key>WholeDisk</key><true/><key>WritableMedia</key><true/></dict></plist>"
+    _usb_disk_info_read() { _USB_PLIST=$info_plist; }
+    _usb_disk_info_capture disk7
+    print -r -- "capture:$?|${_USB_INFO_FINGERPRINT}"
+    _usb_disk_ids_capture() { _USB_DISK_IDS=(disk7); }
+    _usb_disks_capture 5000 >/dev/null 2>&1
+    print -r -- "list:$?|${(j:,:)_USB_DISK_IDS}|${_USB_DISK_FINGERPRINTS[1]}"
+    _usb_target_revalidate disk7 "disk7|64000000000|External SSD|USB" 5000
+    print -r -- "revalidate:$?"
+    _usb_target_revalidate disk7 "disk7|64000000000|External SSD|USB|IOService:/fixture" 5000
+    print -r -- "lost-tree:$?"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" $'capture:0|disk7|64000000000|External SSD|USB\n' \
+    'a valid disk without DeviceTreePath failed capture or changed fingerprint format' || return
+  test_assert_contains "$output" $'list:0|disk7|disk7|64000000000|External SSD|USB\n' \
+    'a valid disk without DeviceTreePath was dropped from eligible targets' || return
+  test_assert_contains "$output" 'revalidate:0' \
+    'an unchanged disk without DeviceTreePath failed target revalidation' || return
+  test_assert_contains "$output" 'lost-tree:1' \
+    'a target that lost its captured DeviceTreePath passed revalidation'
+}
+test_case 'USB disk capture accepts a valid disk without DeviceTreePath' \
+  _test_usb_disk_info_capture_without_device_tree
+
 _test_usb_plist_capture_ignores_custom_path() {
   test_make_temp_dir || return
   local capture_root="$TEST_TMP_DIR/capture" output=''
