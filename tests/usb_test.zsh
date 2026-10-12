@@ -2517,6 +2517,111 @@ _test_usb_compare_accepts_source_bounded_gpt_on_larger_media() {
 test_case 'USB verification accepts a faithful source-bounded GPT on larger raw media' \
   _test_usb_compare_accepts_source_bounded_gpt_on_larger_media
 
+_test_usb_compare_rejects_wrapping_image_backup_entry_lba() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
+  local control_image="$TEST_TMP_DIR/control.iso"
+  local output=''
+  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
+  command /bin/cp "$source_image" "$control_image" || return
+  # The same edit with the last in-range LBA proves the header stays valid.
+  _test_usb_write_le "$control_image" 130632 211 8 || return
+  _test_usb_update_gpt_header_crc "$control_image" 130560 || return
+  # 2^55 + 4 sectors: times 512 the byte offset wraps to 2048, which lies
+  # inside the image and holds the same zero bytes as the primary entries.
+  _test_usb_write_le "$source_image" 130632 36028797018963972 8 || return
+  _test_usb_update_gpt_header_crc "$source_image" 130560 || return
+  _test_usb_make_relocated_gpt_target "$source_image" "$target_image" || return
+  builtin printf X |
+    command /bin/dd of="$target_image" bs=1 seek=32768 conv=notrunc status=none \
+      2>/dev/null || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    target_image=$3
+    _usb_dd_read_run() {
+      local -a arguments=("$@")
+      local -i index=0
+      for (( index = 1; index <= ${#arguments}; ++index )); do
+        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
+      done
+      command /bin/dd "${arguments[@]}"
+    }
+    _usb_gpt_layout_capture "$4" 131072
+    print -r -- "control:$?|$_USB_GPT_STABLE_END"
+    _usb_gpt_layout_capture "$2" 131072
+    print -r -- "capture:$?|$_USB_GPT_STABLE_END"
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$control_image") || return
+
+  test_assert_contains "$output" 'control:0|108032' \
+    'the in-range backup entry LBA control did not capture' || return
+  test_assert_contains "$output" 'capture:1|0' \
+    'a backup entry LBA beyond the image was accepted as GPT geometry' || return
+  test_assert_contains "$output" 'result:1||mismatch' \
+    'a wrapped backup entry offset narrowed the GPT fallback and hid a payload change'
+}
+test_case 'USB verification rejects an image backup GPT entry LBA beyond the image' \
+  _test_usb_compare_rejects_wrapping_image_backup_entry_lba
+
+_test_usb_compare_rejects_overflowing_drive_backup_entry_lba() {
+  test_make_temp_dir || return
+  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
+  local control_target="$TEST_TMP_DIR/control.img"
+  local output=''
+  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
+  _test_usb_make_relocated_gpt_target "$source_image" "$target_image" || return
+  command /bin/cp "$target_image" "$control_target" || return
+  # The same edit with the relocated in-range LBA proves the header stays valid.
+  _test_usb_write_le "$control_target" 153160 255 8 || return
+  _test_usb_update_gpt_header_crc "$control_target" 153088 || return
+  # INT64_MAX sectors: adding the entry sectors overflows to a negative sum.
+  _test_usb_write_le "$target_image" 153160 9223372036854775807 8 || return
+  _test_usb_update_gpt_header_crc "$target_image" 153088 || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    target_image=$3
+    _usb_dd_read_run() {
+      local -a arguments=("$@")
+      local -i index=0
+      for (( index = 1; index <= ${#arguments}; ++index )); do
+        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
+      done
+      command /bin/dd "${arguments[@]}"
+    }
+    functions[_usb_original_raw_range_digest]=$functions[_usb_raw_range_digest]
+    _usb_raw_range_digest() {
+      print -r -- "$run-range-offset:$2"
+      _usb_original_raw_range_digest "$@"
+    }
+    run=control target_image=$4
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "control:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+    run=crafted target_image=$3
+    _usb_compare_written_image "$2" disk7 131072 153600
+    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
+  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$control_target") || return
+
+  test_assert_contains "$output" \
+    'control-range-offset:130560' \
+    'the in-range relocated backup entry LBA control did not reach its range read' || return
+  test_assert_contains "$output" \
+    'control:0|boot-and-installer-payload|gpt-geometry-diff' \
+    'the in-range relocated backup entry LBA control was rejected' || return
+  test_assert_contains "$output" 'result:1||gpt-invalid' \
+    'a drive backup GPT entry LBA beyond the drive passed geometry validation' || return
+  [[ $output != *'crafted-range-offset:'* ]] ||
+    test_fail 'an unbounded drive backup entry LBA reached the raw drive range read'
+}
+test_case 'USB verification rejects a drive backup GPT entry LBA beyond the drive' \
+  _test_usb_compare_rejects_overflowing_drive_backup_entry_lba
+
 _test_usb_readback_bypasses_cache_and_compares_exact_range() {
   test_make_temp_dir || return
   local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"

@@ -3063,9 +3063,10 @@ _usb_gpt_layout_capture() {
   (( backup_current == last_lba && backup_alternate == 1 )) || return 1
   (( backup_first_usable == first_usable && backup_last_usable == last_usable )) || return 1
   (( backup_entry_count == entry_count && backup_entry_size == entry_size )) || return 1
-  # Bound the LBA before multiplying: an 18-digit image value can still wrap.
-  (( backup_entry_lba > last_usable &&
-     backup_entry_lba + entry_storage_bytes / 512 <= last_lba )) || return 1
+  # Bound the image's LBA in sectors first, by subtraction: a larger one can
+  # wrap in bytes, and adding to it can overflow.
+  (( backup_entry_lba > last_usable )) || return 1
+  (( backup_entry_lba <= last_lba - entry_storage_bytes / 512 )) || return 1
   backup_entry_offset=$(( backup_entry_lba * 512 ))
   (( backup_entry_offset + entry_storage_bytes <= backup_header_offset )) || return 1
   _usb_od_hex "$image" 568 16 || return 1
@@ -3226,7 +3227,8 @@ _usb_target_gpt_layout_validate() {
     [[ $backup_guid == "$primary_guid" ]] || return 1
     (( backup_entry_count == primary_entry_count && backup_entry_size == primary_entry_size )) || return 1
     (( backup_entry_crc == primary_entry_crc )) || return 1
-    (( backup_entry_lba + entry_storage_sectors <= target_last_lba )) || return 1
+    # Bound the drive's LBA by subtraction: adding to it can overflow.
+    (( backup_entry_lba <= target_last_lba - entry_storage_sectors )) || return 1
     (( backup_entry_lba > backup_last_usable )) || return 1
     _usb_gpt_header_crc_validate "$backup_file" 0 "$backup_header_size" || return 1
     backup_entry_offset=$(( backup_entry_lba * 512 ))
