@@ -147,6 +147,10 @@ focus.
   logical / 20,000 wrapped lines, with notices. Full-file context is opt-in
   under the same bounds. Add no background processes or persistent caches
   beyond the auto-refresh and syntax children below.
+- Patch captures pin their output shape per invocation, overriding
+  configuration: default prefixes, no relative paths, word diff or color,
+  `diff.suppressBlankEmpty=false`, the Myers algorithm and zero inter-hunk
+  context, so the parser numbers every line, blank context included.
 - Use `git status --untracked-files=all` so files in new directories are
   individually selectable. Git owns enumeration and ignore rules; never add a
   second recursive walker or enumerate on movement or redraw. Large untracked

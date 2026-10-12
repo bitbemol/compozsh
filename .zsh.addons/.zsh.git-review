@@ -555,7 +555,9 @@ _git_review_diff_capture() {
   args+=(--no-ext-diff --no-textconv --no-color --no-renames --ignore-submodules=all
          --no-relative --default-prefix --word-diff=none --diff-algorithm=myers
          "--unified=$context" --inter-hunk-context=0 -- "$name")
-  _git_review_capture "$root" "${args[@]}" || return 2
+  # Configured diff.suppressBlankEmpty prints blank context as an empty line
+  # the document cannot number; -c must precede the subcommand.
+  _git_review_capture "$root" -c diff.suppressBlankEmpty=false "${args[@]}" || return 2
   if [[ -z $_GIT_REVIEW_DATA ]]; then
     if [[ $kind == comparison ]]; then _GIT_REVIEW_DATA='No differences between these captured versions for this file.'
     else _GIT_REVIEW_DATA='No diff remains for this selection. The working tree may have changed.'; fi

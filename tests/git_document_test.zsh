@@ -164,6 +164,46 @@ _test_git_document_context() {
 }
 test_case 'Git document supports full-file context and compact changes using the same read-only provider' _test_git_document_context
 
+# diff.suppressBlankEmpty prints a blank context line as an empty line, which
+# the parser cannot number; review must neutralize it per invocation.
+_test_git_document_suppress_blank_empty() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$HOME/fixture.gitconfig"
+    git config --file "$GIT_CONFIG_GLOBAL" diff.suppressBlankEmpty true || exit 1
+    mkdir -p "$HOME/repo"
+    cd "$HOME/repo"
+    git init -q
+    git config user.name Fixture
+    git config user.email fixture@example.invalid
+    git config commit.gpgsign false
+    [[ $(git config --get diff.suppressBlankEmpty) == true ]] || exit 2
+    print -rl -- one "" three four five > file
+    git add . && git commit -qm initial || exit 3
+    print -rl -- one "" three four FIVE > file
+    _git_review_prepare "$PWD" || exit 4
+    local context=""
+    for context in 1000000000 3; do
+      _git_review_diff_capture "$PWD" unstaged file "" "" "$context" || exit 5
+      _git_review_document_parse
+      print -r -- "$context|${(j: :)_GIT_REVIEW_DOCUMENT_OLD}|${(j: :)_GIT_REVIEW_DOCUMENT_NEW}"
+    done
+    git commit -qam change || exit 6
+    _git_review_diff_capture "$PWD" commit file "$(git rev-parse HEAD)" "" 3 || exit 7
+    _git_review_document_parse
+    print -r -- "commit|${(j: :)_GIT_REVIEW_DOCUMENT_OLD}|${(j: :)_GIT_REVIEW_DOCUMENT_NEW}"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal '1000000000|0 1 2 3 4 5 0|0 1 2 3 4 0 5
+3|0 2 3 4 5 0|0 2 3 4 0 5
+commit|0 2 3 4 5 0|0 2 3 4 0 5' "$output" \
+    'a blank context line was dropped or later lines were misnumbered'
+}
+test_case 'Git document keeps blank context lines and numbering when diff.suppressBlankEmpty is set' \
+  _test_git_document_suppress_blank_empty
+
 _test_git_document_labels() {
   test_make_temp_dir || return
   local output
