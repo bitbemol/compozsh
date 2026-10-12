@@ -17,6 +17,7 @@ when work spans sessions (record progress and remaining steps there).
 | [arithmetic-input-validation](arithmetic-input-validation.md) | Text that reached Zsh arithmetic, the sweep's site ledger and validation bounds | [Zsh conventions](../engineering/zsh.md#idioms), [security](../engineering/security.md#handling-sensitive-data) |
 | [composer-and-atlas](composer-and-atlas.md) | Command composer, help Compose example and change atlas boundaries | [interaction design](../engineering/interaction-design.md) |
 | [critical-path-performance](critical-path-performance.md) | Measured hot-path optimizations and deferred provider findings | [performance](../engineering/performance.md) |
+| [excellence-2026-10-12](excellence-2026-10-12.md) | In progress: unattended quality pass; suite baseline, latency baselines and their A/A noise floor | [performance](../engineering/performance.md#measuring-latency), [verification](../engineering/verification.md#required-verification) |
 | [git-comparison-design](git-comparison-design.md) | Revision comparison usability revision and endpoint correctness | [Git workspaces](../engineering/workspaces/git.md#scopes-and-comparisons) |
 | [git-review-key-repeat-latency](git-review-key-repeat-latency.md) | Preview settlement versus input debouncing; portability rule | [Git workspaces](../engineering/workspaces/git.md#responsive-navigation) |
 | [in-memory-capture-parsing](in-memory-capture-parsing.md) | Here-string temporary files, exact in-memory replacements and prompt latency | [security](../engineering/security.md#handling-sensitive-data), [Zsh conventions](../engineering/zsh.md#idioms) |
@@ -38,6 +39,11 @@ async manual capture (see [verification](../engineering/verification.md));
 concurrency record; `prompt-git-render.zsh` compares complete prompt rendering
 of two trees inside and outside Git repositories
 ([in-memory parsing](in-memory-capture-parsing.md#measurements));
+`isolated-startup.zsh` compares isolated interactive startup (sourcing, and
+the first editable prompt in a PTY, fresh and warm) and
+`workspace-first-frame.zsh` the first painted full-screen frame of Browse,
+Search, Ctrl-R history and Git review in a PTY, both alternating two trees
+([excellence run](excellence-2026-10-12.md#method));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 
