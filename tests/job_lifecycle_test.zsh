@@ -256,3 +256,95 @@ _test_git_review_auto_job_cleanup() {
 }
 test_case 'job lifecycle Git review automatic refresh keeps unrelated completion records and retires its own' \
   _test_git_review_auto_job_cleanup
+
+# Discovery reaps its supervisor under MONITOR; device consoles, observers and
+# drainers are often reaped by native handling first, and a resumed console
+# can cache its stop status ahead of the final one. All keep NOTIFY off.
+_test_xcode_job_reaping() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
+    zmodload zsh/parameter zsh/zpty zsh/zselect || exit 1
+    _reap_settle() {
+      local pid=$1 wanted=$2 state=""
+      local -i attempt=0
+      for (( attempt=0; attempt<300; ++attempt )); do
+        for state in "${(@v)jobstates}"; do
+          [[ $state == ${~wanted}:*":$pid="* ]] && return 0
+        done
+        zselect -t 1
+      done
+      return 1
+    }
+    _reap_driver() {
+      local mode=$1 number="" state="" retained="" before="" expected=137
+      local -i owned=0 user_done=0
+      {
+        if [[ $mode == discovery ]]; then
+          setopt MONITOR
+        else
+          unsetopt MONITOR
+        fi
+        unsetopt BG_NICE NOTIFY
+        { /bin/sleep 30 & owned=$! } 2>/dev/null
+        { /bin/sleep 30 & user_done=$! } 2>/dev/null
+        kill -KILL $user_done
+        # Never wait here: the fixture itself must not scan the job table.
+        _reap_settle $user_done done || { print BAD-FIXTURE; return 2; }
+        for number in ${(k)jobstates}; do
+          [[ $jobstates[$number] == done:*":$user_done="* ]] && retained=$number
+        done
+        case $mode in
+          (discovery)
+            kill -KILL $owned ;;
+          (reaped)
+            kill -KILL $owned
+            _reap_settle $owned done || { print BAD-OWNED-FIXTURE; return 3; } ;;
+          (stopped)
+            expected=143
+            kill -STOP $owned
+            _reap_settle $owned suspended || { print BAD-STOP-FIXTURE; return 3; }
+            kill -TERM $owned
+            kill -CONT $owned
+            _reap_settle $owned done || { print BAD-OWNED-FIXTURE; return 3; } ;;
+        esac
+        before="$options[monitor]:$options[notify]"
+        _xcode_run_wait_child $owned
+        [[ $REPLY == $expected ]] || { print -r -- "BAD-STATUS:$REPLY"; return 4; }
+        [[ "$options[monitor]:$options[notify]" == $before ]] || { print BAD-OPTIONS; return 5; }
+        [[ ${jobstates[$retained]:-} == done:*":$user_done="* ]] || { print BAD-USER-NOTICE; return 6; }
+        for state in "${(@v)jobstates}"; do
+          [[ $state != *":$owned="* ]] || { print BAD-STALE-OWNED; return 7; }
+        done
+        # A repeated reap finds no owned job: no status, no sweep.
+        _xcode_run_wait_child $owned
+        [[ $REPLY == 127 && ${jobstates[$retained]:-} == done:*":$user_done="* ]] ||
+          { print -r -- "BAD-REPEAT:$REPLY"; return 8; }
+        print -r -- "VERIFIED-$mode"
+      } always {
+        (( owned > 0 )) && kill -KILL $owned 2>/dev/null
+      }
+    }
+    local mode="" chunk="" trace="" pfd=0
+    for mode in discovery reaped stopped; do
+      trace=""
+      zpty -b reap _reap_driver $mode || exit 1
+      pfd=$REPLY
+      {
+        while zselect -r $pfd -t 300; do
+          while zpty -r reap chunk; do trace+=$chunk; done
+          [[ $trace == *VERIFIED-* || $trace == *BAD-* ]] && break
+        done
+        [[ $trace == *VERIFIED-$mode* && $trace != *BAD-* &&
+           $trace != *(done|killed|terminated|suspended)* ]] || {
+          print -u2 -r -- "$mode: ${(V)trace}"; exit 2
+        }
+      } always {
+        zpty -d reap
+      }
+    done
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'job lifecycle Xcode reaping retires only its own job record and keeps unrelated completion notices' \
+  _test_xcode_job_reaping

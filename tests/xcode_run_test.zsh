@@ -684,6 +684,7 @@ command cat > "$HOME/copied"' || return
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     PROMPT="fixture> " RPROMPT="clock"
     exec {events}<> "$HOME/events"

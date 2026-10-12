@@ -46,6 +46,7 @@ exit 0' || return
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     exec {events}<> "$HOME/events"
     functions[_discovery_show]=$functions[_zle_picker_show]
     _zle_picker_show() {

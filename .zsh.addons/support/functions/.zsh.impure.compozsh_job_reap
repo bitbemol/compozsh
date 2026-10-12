@@ -2,11 +2,12 @@
 # Impure: signals and reaps one exact owned background child, then retires
 # only that child's completed job record. Usage: <pid> [none|TERM|KILL].
 # The signal reaches the PID only while its owned job is running or suspended,
-# never a PID whose job is already done or absent. REPLY is the wait status,
-# or empty when this shell owns no such job.
+# never a PID whose job is already done or absent. REPLY is the child's final
+# wait status, or empty when this shell owns no such job.
 _compozsh_job_reap() {
   emulate -L zsh
   local pid=$1 signal=${2:-none} job='' state='' owned=''
+  local -i result=0 final=0
   REPLY=''
   [[ $pid == <1-> && ${#pid} -le 10 && $signal == (none|TERM|KILL) ]] || return 2
   zmodload zsh/parameter || return 1
@@ -27,7 +28,17 @@ _compozsh_job_reap() {
     builtin kill -$signal "$pid" 2>/dev/null
   fi
   builtin wait "$pid" 2>/dev/null
-  REPLY=$?
+  result=$?
+  # A child stopped before it ended can report that cached stop status ahead
+  # of its final one. A second answer of 127 means either exit 127 or no
+  # cached status; keep the earlier failure in that ambiguous case.
+  if (( result > 128 && result <= 255 )) &&
+     [[ ${signals[result - 127]-} == (STOP|TSTP|TTIN|TTOU) ]]; then
+    builtin wait "$pid" 2>/dev/null
+    final=$?
+    (( final != 127 )) && result=$final
+  fi
+  REPLY=$result
   state=${jobstates[$owned]:-}
   if [[ $state == done:*":${pid}="* ]]; then
     builtin jobs -p "%$owned" >/dev/null 2>&1

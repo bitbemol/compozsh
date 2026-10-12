@@ -173,6 +173,7 @@ while read -r -u $gate line; do :; done' || return
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     exec {events}<> "$HOME/events"
     functions[_device_show]=$functions[_zle_picker_show]
     functions[_device_screen]=$functions[_zle_picker_run]

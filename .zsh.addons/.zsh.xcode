@@ -1504,14 +1504,20 @@ _xcode_run_child_state() {
   return 1
 }
 
-# Call only after the owned child ended or received KILL. Zsh can retain a
-# prior stop notification ahead of its final PID status after CONT. A second
-# status of 127 can mean either exit 127 or no cached status; retain the first
-# failure conservatively in that ambiguous case.
+# Call only after the owned child ended or received KILL. The shared reaper
+# avoids Zsh's NOTIFY-off sweep of unrelated completed jobs and retires only
+# this child's record; no owned job reports 127, as wait does without a status.
+# The fallback waits directly. Zsh can retain a prior stop notification ahead
+# of its final PID status after CONT. A second status of 127 can mean either
+# exit 127 or no cached status; retain the first failure conservatively then.
 _xcode_run_wait_child() {
   emulate -L zsh
   local pid=$1
   local -i result=0 final=0
+  if (( ${+functions[_compozsh_job_reap]} )) && _compozsh_job_reap "$pid"; then
+    REPLY=${REPLY:-127}
+    return 0
+  fi
   wait "$pid" 2>/dev/null
   result=$?
   if (( result > 128 && result <= 255 )) &&
@@ -2360,8 +2366,8 @@ _xcode_run_live() {
       fi
     fi
     if (( drainer > 0 )); then
-      kill -KILL $drainer 2>/dev/null
-      wait $drainer 2>/dev/null
+      _xcode_run_child_state "$drainer" && kill -KILL $drainer 2>/dev/null
+      _xcode_run_wait_child "$drainer"
     fi
     (( writer >= 0 )) && exec {writer}>&-
     (( _xcode_run_fd >= 0 )) && exec {_xcode_run_fd}<&-

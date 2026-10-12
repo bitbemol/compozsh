@@ -683,8 +683,13 @@ manual refresh, timeout, an invalid or oversized response and screen exit send
 reaps its own Git provider before exiting. Either way the parent retires only
 the worker's completed job record.
 
+Xcode reaps its discovery supervisor, Run log observer, device console and LLDB
+output drainer the same way once its own ownership-checked stop has ended the
+child: each reap leaves unrelated completion records in place and retires only
+that child's completed job record.
+
 Zsh 5.9's `wait` and `jobs` builtins scan prior completed records when `NOTIFY`
-is off, even with an exact operand. Both cleanups therefore share one narrowly
+is off, even with an exact operand. These cleanups therefore share one narrowly
 scoped `MONITOR`-off, `NOTIFY`-on section and restore caller options afterward.
 This avoids that broad scan and keeps already-pending unrelated completion
 records.
@@ -701,9 +706,8 @@ acknowledge that completed record; listing it does not kill the process.
 Xcode device console polling recognizes suspended jobs without blocking on
 them, and cleanup preserves failures after resuming a stopped child. If Zsh
 cannot distinguish an exit status of 127 from a missing cached status after
-suspension, cleanup conservatively keeps the earlier nonzero stop status. Other
-owned children (manual capture supervisors, Xcode discovery supervisor and Run
-observer) are stopped and reaped as their sections describe.
+suspension, cleanup conservatively keeps the earlier nonzero stop status.
+Manual capture supervisors are stopped and reaped as their section describes.
 
 ### Git review and branches
 

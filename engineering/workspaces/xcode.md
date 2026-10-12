@@ -219,6 +219,12 @@ different app. A closed output stream is not proof of exit. Preserve
 launch/debugger failure status and disclose missing identity, failed stop and
 crash-cleanup limits.
 
+Signal an owned child (discovery supervisor, device console, log observer or
+drainer) only after revalidating its job, and reap it through the shared job
+reaper: retire only its own job record and preserve unrelated jobs — never an
+unqualified `jobs`/`wait` sweep (see the
+[job-lifecycle limitation](../../SECURITY.md#job-lifecycle)).
+
 ## Apple skill export
 
 `xcode --export-skills` runs `xcrun agent skills export` for detected coding
