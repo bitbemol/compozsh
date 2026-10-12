@@ -82,7 +82,8 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
 - Reproducible public system data may use disposable persistent caches under
   the [caching contract](caching.md). Never persist user or project facts or
   make a feature depend on a cache. Zsh's native completion dump is not
-  feature-state storage.
+  feature-state storage; SECURITY.md
+  [discloses it](../SECURITY.md#native-completion-dump).
 
 ## Approved background work
 

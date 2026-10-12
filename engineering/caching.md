@@ -28,8 +28,9 @@ system data.
   word “stateless” alone does not make information public.
 - Never persist user or project information: private manuals, paths, selections,
   arbitrary environment values, identifiers, credentials, history, drafts, logs, repository
-  facts or fingerprints of those inputs. Existing history, completion and
-  recovery storage retain their own separately documented purposes.
+  facts or fingerprints of those inputs. Existing history,
+  [completion](../SECURITY.md#native-completion-dump) and recovery storage
+  retain their own separately documented purposes.
 - Keep all performance cache files under
   `${ZDOTDIR:-$HOME}/.zsh.addons/support/cache`, independent of installation
   layout and current directory. The owning `.zsh.<module>` uses

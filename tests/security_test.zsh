@@ -216,3 +216,74 @@ print '"'"'$(( quoted[$x] ))'"'"'' || return
 }
 test_case 'security: shipped Zsh never splices text into arithmetic subscripts' \
   _test_runtime_never_splices_text_into_arithmetic_subscripts
+
+# SECURITY.md's completion-dump row assumes a bare compinit call: no -d path,
+# -C/-i/-u audit bypass, fpath entry, compiled dump or completion cache.
+_test_completion_dump_call_matches_disclosure() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
+  local file='' line='' trimmed=''
+  local fpath_entry='(^|[^[:alnum:]_])(fpath|FPATH)(\[[^]]*\])?\+?='
+  local -a calls=()
+  _security_runtime_files
+
+  for file in "${_SECURITY_RUNTIME_FILES[@]}"; do
+    while IFS= read -r line; do
+      trimmed=${line##[[:space:]]#}
+      [[ $trimmed == \#* ]] && continue
+      if [[ $trimmed == *(compdump|use-cache|cache-path)* || $trimmed =~ $fpath_entry ]]; then
+        test_fail "completion dump, cache or fpath entry entered ${file#$TEST_REPO_ROOT/}: $trimmed"
+        return 1
+      fi
+      [[ $trimmed == *compinit* ]] && calls+=("${file#$TEST_REPO_ROOT/}:$trimmed")
+    done < "$file"
+  done
+  test_assert_equal \
+    '.zsh.addons/.zsh.editor:autoload -Uz compinit|.zsh.addons/.zsh.editor:compinit' \
+    "${(j:|:)calls}" 'compinit invocation differs from the disclosed bare call' || return
+  test_assert_contains "$security" '| Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`' \
+    'security inventory omits the native completion dump'
+}
+test_case 'security: native completion dump keeps the disclosed bare compinit call' \
+  _test_completion_dump_call_matches_disclosure
+
+_test_completion_dump_records_names_without_paths() {
+  test_make_temp_dir || return
+  local root=$TEST_TMP_DIR output=''
+  test_write_file "$root/fixture-fpath/_fixture_tool" $'#compdef fixture-tool\n_arguments' || return
+  test_write_file "$root/init.zsh" "umask 077; fpath=(${(q)root}/fixture-fpath \$fpath)" || return
+  command mkdir -p "$root/zdotdir" || return
+  # A group-writable runner umask would make compaudit prompt for this entry.
+  command chmod 755 "$root/fixture-fpath" || return
+
+  # ZDOTDIR differs from HOME, the initializer adds a private fpath entry and
+  # tightens the umask; the dump must keep its names, not its directory path,
+  # and take the umask-derived mode.
+  output=$(test_run_interactive "$root/home" '
+    ZDOTDIR=$2 ZSH_LOCAL_INIT=$3
+    source "$1/.zshrc" || exit 1
+    typeset dump=$ZDOTDIR/.zcompdump header="" contents=""
+    typeset -a mode=() staging=() facts=()
+    [[ $_comp_dumpfile == "$dump" && -f $dump && ! -e $HOME/.zcompdump ]] || exit 3
+    IFS= read -r header < "$dump"
+    contents=$(<"$dump")
+    zmodload -F zsh/stat b:zstat || exit 4
+    zstat -o -A mode +mode -- "$dump" || exit 5
+    staging=( "$dump".*(N) )
+    [[ $header == "#files: "<->[[:blank:]]"version: $ZSH_VERSION" ]] && facts+=(header)
+    [[ $contents == *"$5"* ]] && facts+=(names)
+    [[ $contents == *"$4"* ]] && facts+=(path-leak)
+    facts+=("mode=${mode[1][-3,-1]}" "staging=${#staging}")
+    zstyle -t ":completion:*" use-cache && facts+=(use-cache)
+    command rm -f -- "$dump"
+    source "$1/.zshrc" || exit 6
+    [[ -e $dump ]] && facts+=(rewritten-on-resource)
+    print -r -- "${(j:|:)facts}"' \
+    "$TEST_REPO_ROOT" "$root/zdotdir" "$root/init.zsh" "$root" \
+    "'fixture-tool' '_fixture_tool'") || return
+  test_assert_equal 'header|names|mode=600|staging=0' "$output" \
+    'native completion dump left its disclosed path, contents, mode or once-per-shell write'
+}
+test_case 'security: native completion dump records fpath names without paths at the configuration base' \
+  _test_completion_dump_records_names_without_paths

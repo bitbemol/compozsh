@@ -107,6 +107,7 @@ recoverable installer need local state.
 | Data | Location and lifetime | Contents and bounds |
 | --- | --- | --- |
 | Command history | `${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}` by default | Zsh's normal local, shared history and the in-memory history picker |
+| Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`, written by Zsh's stock `compinit` (called bare by `.zsh.editor`) when a fresh shell finds it missing or its `fpath` file count or Zsh version changed; persists until deleted, including after `--clean` and uninstall | [Zsh-generated shell code](#native-completion-dump) that `compinit` sources: the count, Zsh version and the verbatim first-line words of `fpath` completion files (normally function, command, service, pattern and key names), private entries included, plus completion widget bindings. No `fpath` directory paths, file bodies, history, environment values or project data. Mode follows the umask at write time (0644 under the default 022); an interrupted write can leave `.zcompdump.<host>.<pid>` |
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons` | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
@@ -461,8 +462,9 @@ All Compozsh performance caches use the configuration base's
 or the source peer's symlink target). The sole producer, `.zsh.manual`, writes
 `.zsh.manual.cache`, an empty `.zsh.manual.lock` and temporary
 `.zsh.manual.cache.*` files. No private, user or project facts or their
-fingerprints belong there; history, completion and recovery storage stay
-separate. Format, locking and digest mechanics are in [the
+fingerprints belong there; history, the [native completion
+dump](#native-completion-dump) and recovery storage stay separate. Format,
+locking and digest mechanics are in [the
 producer contract](engineering/manual-cache.md).
 
 - **Eligibility.** Only discovered `/usr/share/man` pages whose whole resolved
@@ -520,6 +522,76 @@ Independently read `.zsh.manual`'s eligibility, key, load/store and capture
 helpers, `.zshrc`'s cache exclusion and `install.zsh`'s staging exclusion. Its
 fixtures exercise inert data, private-input exclusion, freshness, failures and
 concurrency.
+
+### Native completion dump
+
+`.zsh.editor` runs Zsh's stock `compinit` with no options once per fresh shell;
+re-sourcing skips it while `_comps` exists, and if the initializer or an
+earlier private peer already ran `compinit`, that call owns the dump instead.
+Without `-d`, `-C`, `-i`, `-u` or `-D`, `compinit` keeps its full `compaudit`
+ownership and permission check of `fpath` (an interactive prompt can exclude
+insecure entries or abort) and its default dump path,
+`${ZDOTDIR:-$HOME}/.zcompdump`, resolved when it runs and with no Zsh-version
+suffix. Compozsh adds no `fpath` entry, leaves completion's `use-cache` style
+off (so it writes no `.zcompcache`) and never compiles the dump.
+
+- **Contents.** A `#files: <count>` and `version: <zsh>` header; the
+  `_comps`, `_services`, `_patcomps`, `_postpatcomps`, `_compautos` and
+  `_comp_assocs` tables; `zle -C` and `bindkey` lines for every
+  underscore-named completion widget that exists when `compinit` runs
+  (including any the initializer or an earlier private peer defined), with
+  `zmodload -i zsh/complist` when one needs it; and `autoload -Uz` lines.
+  `compinit` reads only the first line of each `fpath` completion file and
+  copies its words verbatim. Normally they are function, command, service,
+  pattern and key names, and names from private `fpath` entries (for example
+  Homebrew's site-functions or a personal directory) are recorded too; a
+  private file that declares a command by path records that path, and the
+  rest of an `#autoload` line becomes dump code, so text in `fpath` files is
+  trusted like their function bodies. The dump holds no `fpath` directory
+  paths, file bodies, history, environment values, host name or project data.
+- **Rewrite and lifetime.** On a fresh shell, `compinit` sources the dump as
+  shell code when its header matches the current `fpath` scan and Zsh version,
+  and rewrites it only when it is missing or either differs; editing a
+  completion file without changing the count keeps the old dump until it is
+  deleted. The file persists across shells, installs, `--clean` and uninstall,
+  and `compozsh --refresh` does not touch it. Deleting it loses nothing: the
+  next fresh shell that runs `compinit` regenerates it, at the cost of one full
+  `fpath` scan.
+- **Mode and residue.** Zsh's `compdump` writes `.zcompdump.<host>.<pid>` in the
+  same directory and renames it into place, so each rewrite applies the shell's
+  umask at that moment (0644 under macOS's default 022, 0600 under 077);
+  Compozsh neither tightens nor checks the mode. Stock `compdump` installs no
+  cleanup, so any interruption between that write and the rename (for example
+  Ctrl-C while a first shell starts) can leave the staging file, whose name
+  carries the host name and process ID. An unwritable configuration base skips
+  the dump, and completion still works from the scan.
+- **Trust.** `compaudit` checks `fpath` directories and files, not the dump.
+  It sits in the configuration base beside the bootstrap, never in the current
+  directory or a project, so an account that can replace it can already
+  replace `.zshrc`. Editing it in place depends on its own umask-derived mode:
+  with group or other write, other accounts that can reach the configuration
+  base could change code `compinit` sources, so keep a umask without group or
+  other write (the macOS default 022 qualifies). Zsh's `.` would load a
+  `.zcompdump.zwc` no older than the dump if another tool created one.
+
+Independently read the call and Zsh's own implementation:
+
+```sh
+git grep -n -e compinit -e compdump -e zcompile -e fpath -e use-cache \
+  -e cache-path -- .zshrc install.zsh templates '.zsh.addons/**'
+zsh -fc 'print -rl -- ${^fpath}/(compinit|compaudit|compdump)(N)'
+ls -l "${ZDOTDIR:-$HOME}/.zcompdump"
+```
+
+The first command should list only `.zsh.editor`'s `autoload -Uz compinit`
+line, its bare `compinit` call and two comments, plus the two commented
+`fpath` lines in `templates/init.zsh`; the second prints the stock functions
+(on macOS under `/usr/share/zsh/5.9/functions/`) whose `_comp_dumpfile`
+default, header check and `compdump` writer establish the facts above. The
+third should show your account as owner and no `w` for group or other; if it
+shows either, delete the dump and choose a umask without group or other write
+before the next shell. These reads cover the call and format, not every
+completion function's runtime behavior.
 
 ### Pickers, matching and effects
 
@@ -925,9 +997,9 @@ capture behind; its validated `compozsh-*` name makes it identifiable in
 streamed through pipes and is not persisted there. Normal exit removes both;
 after an uncatchable termination, the user may inspect and remove the
 identifiable directory. Other feature-specific residue (manual transport and
-formatter directories, cache staging files, Xcode test bundles, device and
-Simulator run directories, interrupted worktree creation, and Touch ID policy
-temporaries) is disclosed in its own section.
+formatter directories, cache and completion-dump staging files, Xcode test
+bundles, device and Simulator run directories, interrupted worktree creation,
+and Touch ID policy temporaries) is disclosed in its own section.
 
 ### External synchronization
 
@@ -1293,7 +1365,11 @@ The tracked bootstrap sources the optional machine-local initializer and every
 matching peer beneath the repository and user add-on directories, excluding the
 reserved `support/cache` data directory. The tracked starter is inert, but an
 existing private initializer or peer is user-owned code and must be audited
-separately.
+separately. Within that boundary, peers autoload stock Zsh functions from
+`fpath` (such as `compinit` and `add-zle-hook-widget`), and `.zsh.editor`'s
+`compinit` also sources Zsh's own [completion dump](#native-completion-dump)
+from the configuration base and autoloads completion functions. Compozsh adds
+no `fpath` entry, and neither path comes from the current directory.
 
 Search the executable shell surface for common network clients:
 
@@ -1399,7 +1475,7 @@ does not give curl a URL.
 Review local storage and sensitive effect boundaries:
 
 ```sh
-git grep -nE 'HISTFILE|mktemp|\.zsh-backups|pbcopy|sudo|/dev/(r)?disk|diskutil|createinstallmedia' \
+git grep -nE 'HISTFILE|compinit|mktemp|\.zsh-backups|pbcopy|sudo|/dev/(r)?disk|diskutil|createinstallmedia' \
   -- .zshrc install.zsh '.zsh.addons/**' templates README.md
 ```
 
@@ -1453,6 +1529,7 @@ server.
 | Runtime metadata bounds and installed-runtime probes | `runtime versions`, `bounded direct metadata`, `prompt probes installed runtimes` |
 | Manual capture, formatter and transport | `manual coverage`, `manual summaries`, `manual async` |
 | Public manual cache and installer exclusion | `manual cache`, `cache data`, `installer excludes generated` |
+| Native completion dump call, path, contents, mode and `--clean` survival | `native completion dump`, `clean installer touches only` |
 | Matching and exclusion | `exclusion`, `matching component` |
 | Captured-data parsing without temporary files | `here-string`, `filter override builder`, `worktree removal` |
 | Captured, setting and inherited text kept out of arithmetic | `never splices text into arithmetic`, `stay text`, `overflowing`, `hostile`, `inherited`, `numeric metadata`, `stat numbers`, `dd parser` |

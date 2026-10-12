@@ -104,7 +104,12 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
 - Startup sourcing is restricted to the fixed or explicit local initializer,
   shared peers adjacent to the resolved bootstrap, and private peers in the
   fixed user add-on directory. Add-on names and paths never come from the
-  current directory or project metadata.
+  current directory or project metadata. Two native mechanisms sit outside
+  that list: Zsh's stock functions autoloaded from `fpath` (such as `compinit`
+  and `add-zle-hook-widget`), and stock `compinit`'s sourcing of its
+  configuration-base dump. Keep the `compinit` call bare and add no `fpath`
+  entry, completion cache or compiled dump; any of those is new persistence or
+  execution that needs an owner decision and a SECURITY.md update.
 - Add-on installers write only to documented, fixed user-level integration
   directories: stage generated content first, mark installed units, and never
   replace a same-named directory that lacks the installer's marker. Temporary

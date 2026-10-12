@@ -376,12 +376,15 @@ _test_installer_clean_leaves_other_zsh_startup_files() {
   test_write_file "$home/.zshrc" 'old rc' || return
   test_write_file "$home/.zshenv" 'KEEP_ZSHENV=1' || return
   test_write_file "$home/.zprofile" 'KEEP_ZPROFILE=1' || return
+  test_write_file "$home/.zcompdump" 'KEEP_ZCOMPDUMP=1' || return
 
   _test_run_installer "$home" "$home" --symlink --clean --yes >/dev/null || return
   test_assert_equal 'KEEP_ZSHENV=1' "$(<"$home/.zshenv")" \
     'clean mode changed .zshenv' || return
   test_assert_equal 'KEEP_ZPROFILE=1' "$(<"$home/.zprofile")" \
-    'clean mode changed .zprofile'
+    'clean mode changed .zprofile' || return
+  test_assert_equal 'KEEP_ZCOMPDUMP=1' "$(<"$home/.zcompdump")" \
+    'clean mode changed the native completion dump'
 }
 test_case 'clean installer touches only the active bootstrap and add-on tree' \
   _test_installer_clean_leaves_other_zsh_startup_files

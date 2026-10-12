@@ -197,7 +197,8 @@ as Meta key**; see [Option as Meta: one-time setup](#option-as-meta-one-time-set
 Choose one of `--symlink` or `--copy`; omitting both in an interactive terminal
 opens a mode chooser. `--copy` refuses to replace an unmarked directory of the
 same name. `--clean` touches only `.zshrc` and `.zsh.addons`, never `.zshenv`,
-`.zprofile`, `.zlogin`, `.zlogout`, the repository or exported agent skills.
+`.zprofile`, `.zlogin`, `.zlogout`, Zsh's `.zcompdump`, the repository or
+exported agent skills.
 
 ## Apply changes
 
@@ -1069,6 +1070,15 @@ manual summaries:
 - Deleting the `support/cache` directory is always safe; it is recreated when
   needed.
 
+Separately, Zsh's stock `compinit` keeps its completion dump at
+`${ZDOTDIR:-$HOME}/.zcompdump`. It copies the first line of each `fpath`
+completion file, normally function and command names and including those from
+your own `fpath` entries, but never `fpath` directory paths, history or project
+data. Zsh rewrites it when it is missing, when the number of completion files
+in `fpath` changes or when Zsh is updated. Its mode follows your umask, and
+because new shells run it as code, it should not be writable by group or
+other. Deleting it loses nothing; the next new shell recreates it.
+
 See [SECURITY.md](SECURITY.md), the [caching contract](engineering/caching.md)
 and the measured [startup results](investigations/terminal-startup-latency.md).
 
@@ -1737,6 +1747,19 @@ Do not archive the complete tree when keeping `local/init.zsh` or private peers.
 With a symlink installation, the tree contains only those private files, so it
 can remain untouched. Agent skills exported by `xcode --export-skills` are
 independent managed copies and remain installed.
+
+Zsh's completion dump sits directly in the configuration base, outside the
+add-on tree, so it stays behind. It holds completion data derived from `fpath`,
+and deleting it loses nothing because any configuration that runs `compinit`
+recreates it. List it together with any `.zcompdump.<host>.<pid>` file an
+interrupted write left, then remove the dump and any such leftover by its exact
+listed name. Don't delete by glob: a `.zcompdump.zwc` or another setup's
+`.zcompdump-<host>-<version>` is not from Compozsh.
+
+```sh
+ls -l "$config_base"/.zcompdump*
+rm -f -- "$config_base/.zcompdump"
+```
 
 Installer-created recovery snapshots remain under `.zsh-backups`. List them and
 restore deliberately after first archiving any new active objects:
