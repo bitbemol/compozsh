@@ -190,7 +190,7 @@ _zle_picker_guide_render() {
   _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
   _ZLE_PICKER_DISPLAY_MATCH_STARTS=("${_ZLE_PICKER_DISPLAY[@]/*/-1}")
   _ZLE_PICKER_INDEXES_VISIBLE=0
-  _zle_picker_workspace
+  _zle_picker_workspace $width
 }
 
 

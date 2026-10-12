@@ -3,15 +3,17 @@
 # Ordinary support peer; no cross-peer calls at source time.
 
 # Fit literal text using the shared cell prefix, then apply this element's
-# ellipsis and right-padding policy.
+# ellipsis and right-padding policy. Width must be decimal integer text: zero
+# or negative gives an empty REPLY with status 0; anything else gives an empty
+# REPLY and status 2.
 _zle_picker_fit() {
   emulate -L zsh
+  REPLY=''
+  # Integer assignment evaluates arithmetic, which could read or assign names.
+  [[ $2 == (|-)<-> ]] || return 2
   local text=$1 marker='…'
   local -i width=$2
-  if (( width <= 0 )); then
-    REPLY=''
-    return
-  fi
+  (( width > 0 )) || return 0
   if (( ${(m)#text} > width )); then
     (( ${(m)#marker} > width )) && marker='.'
     _compozsh_cell_prefix "$text" $(( width - ${(m)#marker} ))

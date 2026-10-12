@@ -39,6 +39,7 @@ _test_picker_paste_boundary() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_loop"
+    source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_paint"
     local scenario="" stream="" result=0 delivered=0 notices=0 recovery_visible=0
     local -i _ZLE_PICKER_GUIDE_ACTIVE=1 _ZLE_PICKER_INSPECT_FOCUS=1 _ZLE_PICKER_VIEW_OFFSET=17
     local eof_fd=0

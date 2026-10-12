@@ -673,6 +673,7 @@ _test_xcode_discovery_status_scope() {
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_ui_view"
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_capture"
+    source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_paint"
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_render"
     local result=0 expected="" loop_status=0 label_seen=""
     _zle_picker_loop() {

@@ -4,11 +4,12 @@
 
 # Stable chrome belongs to the owned screen only. Empty rows are represented
 # by newlines, keeping padding cheap and leaving ZLE in charge of painting.
+# The caller passes its frame's captured row width, not the live COLUMNS.
 _zle_picker_workspace() {
   emulate -L zsh
   (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} && LINES >= 8 )) || return 0
   _zle_picker_body_height
-  local -i gap=$(( REPLY - (${#_ZLE_PICKER_DISPLAY} - 1) )) width=$(( COLUMNS - 1 ))
+  local -i gap=$(( REPLY - (${#_ZLE_PICKER_DISPLAY} - 1) )) width=$1
   local separator=''
   local -a padding=() reply=()
   # Inline rows need no pane metadata. Supply it before inserting spacer rows

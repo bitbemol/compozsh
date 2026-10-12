@@ -45,6 +45,9 @@ behavior tests and user feedback.
   Identity stays at the top and the input/action dock near the bottom,
   independent of result count or focus. Workspace padding keeps parallel row
   metadata aligned.
+- One frame uses one width: the renderer captures `COLUMNS` once and passes it
+  to the trail, navigation strip, guide and footer. Resize timing is in
+  [keyboard and ZLE](keyboard-zle.md#screen-session-lifecycle).
 - The navigation strip describes disclosure, not an execution plan: generic
   choices show Results plus an available inspector; readers show only their
   reading surface; Files → Focused diff → Full file requires the selected

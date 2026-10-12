@@ -68,6 +68,64 @@ _test_picker_workspace_layout() {
 }
 test_case 'picker workspace anchors search and footer across filtering, focus, and terminal sizes' _test_picker_workspace_layout
 
+# A resize signal can update COLUMNS while a frame is being composed. The
+# browse renderer stands in for that signal; every row keeps the frame width.
+_test_picker_workspace_captured_width() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    _ZLE_PICKER_TRAIL=(Location "~" "  Projects" "    example")
+    _ZLE_PICKER_RESULTS=(alpha beta) _ZLE_PICKER_LABELS=(alpha/ beta/)
+    _ZLE_PICKER_TITLE="Directory browser"
+    _ZLE_PICKER_INSPECT_TEXTS=(alpha "Inside alpha" beta "Inside beta")
+    _ZLE_PICKER_SCREEN_ACTIVE=1
+    _test_mid_frame_browse() {
+      case $test_resize in
+        narrower) COLUMNS=100 ;;
+        unset) unset COLUMNS ;;
+      esac
+      REPLY=Browse
+    }
+    _ZLE_PICKER_BROWSE_RENDERER=_test_mid_frame_browse
+    for test_resize in none narrower unset; do
+      COLUMNS=140 LINES=12
+      _zle_picker_render "" 1
+      for row in "${_ZLE_PICKER_DISPLAY[@]}"; do
+        [[ -z $row ]] || (( ${(m)#row} == 139 )) || {
+          print -u2 -r -- "$test_resize resize mixed widths: ${(m)#row} ${(qqq)row}"
+          exit 1
+        }
+      done
+      [[ ${_ZLE_PICKER_DISPLAY[1]} == "─ ▸ Results  ›  Details "*" ^E inspect ─" ]] || exit 2
+      [[ ${_ZLE_PICKER_DISPLAY[2]} == "Location "*"│ [ 1] ▸ alpha/ "*"│ Details "* &&
+         ${_ZLE_PICKER_DISPLAY[3]} == "~ "*"│ [ 2]   beta/ "*"│ Inside alpha "* ]] || {
+        print -u2 -r -- "$test_resize resize lost trail content: ${(qqq)_ZLE_PICKER_DISPLAY[2]}"
+        exit 3
+      }
+    done
+    _ZLE_PICKER_GUIDE_ACTIVE=1 test_resize=narrower COLUMNS=140 LINES=12
+    _zle_picker_render "" 1
+    [[ ${_ZLE_PICKER_DISPLAY[1]} == "─ ▸ Keyboard guide "* ]] || exit 4
+    for row in "${_ZLE_PICKER_DISPLAY[@]}"; do
+      [[ -z $row ]] || (( ${(m)#row} == 139 )) || {
+        print -u2 -r -- "guide resize mixed widths: ${(m)#row} ${(qqq)row}"
+        exit 5
+      }
+    done
+    print captured
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal captured "$output"
+}
+test_case 'picker workspace fits trail and navigation rows to the captured frame width during resize' \
+  _test_picker_workspace_captured_width
+
 _test_picker_workspace_matches() {
   test_make_temp_dir || return
   local output

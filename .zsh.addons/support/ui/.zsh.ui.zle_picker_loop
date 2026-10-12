@@ -152,6 +152,8 @@ _zle_picker_loop() {
         fi
       fi
       key=''
+      read_columns=$COLUMNS
+      read_lines=$LINES
       _zle_picker_render "$query" $selected
       if (( idle_prepaint )); then
         # Layout has now published the exact document viewport. Consume one
@@ -172,10 +174,19 @@ _zle_picker_loop() {
           fi
         fi
       fi
+      # Paint only a frame laid out for the current size. A resize during
+      # layout, whose ZLE redraw may also replace rows mid-frame, lays out
+      # again in place so an already-read key is kept.
+      while (( COLUMNS != read_columns || LINES != read_lines )); do
+        read_columns=$COLUMNS read_lines=$LINES
+        _zle_picker_render "$query" $selected
+      done
       _zle_picker_show
+      # A resize during the paint lets ZLE's redraw paint the new size before
+      # this frame resumes over it. Lay out again before waiting for input; a
+      # key already read repaints after its handler.
+      [[ -z $key ]] && (( COLUMNS != read_columns || LINES != read_lines )) && continue
 
-      read_columns=$COLUMNS
-      read_lines=$LINES
       idle_repaint=0
       if (( document_preview_pending )); then
         # Consume input throughout the quiet window. Every received key resets
@@ -854,8 +865,7 @@ _zle_picker_paste_discard() {
     'Remaining paste text is discarded, including Enter and cancellation keys.'
     'Finish the paste, or send its closing marker using the keys above.'
     'After recovery, Escape or Ctrl-C works normally.')
-  _zle_picker_render '' 0
-  _zle_picker_show
+  _zle_picker_paint '' 0
   while true; do
     paste_interrupted=0
     if ! IFS= read -r -k 1 character; then

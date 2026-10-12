@@ -22,6 +22,37 @@ _test_shared_display_highlight_inputs() {
 test_case 'shared display highlight spans use explicit inputs and preserve caller IFS' \
   _test_shared_display_highlight_inputs
 
+_test_support_pure_picker_fit_width() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.zle_picker_fit"
+    local REPLY='' width='' sentinel=7
+    _zle_picker_fit abcdef 4 || exit 1
+    [[ $REPLY == "abc…" ]] || exit 2
+    _zle_picker_fit ab 010 || exit 3
+    [[ $REPLY == "ab${(l:8:: :)}" ]] || exit 4
+    for width in 0 -3; do
+      REPLY=stale
+      _zle_picker_fit abc $width || exit 5
+      [[ -z $REPLY ]] || exit 6
+    done
+    COLUMNS=12
+    for width in "" - COLUMNS "sentinel=99" "1+1"; do
+      REPLY=stale
+      _zle_picker_fit abc "$width"
+      [[ $? == 2 && -z $REPLY ]] || { print -r -- "accepted width ${(qqq)width}: ${(qqq)REPLY}"; exit 7; }
+    done
+    (( sentinel == 7 )) || exit 8
+    print validated
+  ' "$TEST_REPO_ROOT") || { print -r -- "$output"; return 1; }
+  test_assert_equal validated "$output"
+}
+test_case 'support pure picker fit validates width text before integer assignment' \
+  _test_support_pure_picker_fit_width
+
 _test_shared_display_navigation_width() {
   test_make_temp_dir || return
   local output=''

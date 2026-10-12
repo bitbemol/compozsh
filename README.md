@@ -1497,6 +1497,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/ui/.zsh.ui.zle_picker_guide_render` | Ctrl-K guide |
 | `support/ui/.zsh.ui.zle_picker_inspect_render` | Detail and reader rows |
 | `support/ui/.zsh.ui.zle_picker_loop` | Input loop and paste recovery |
+| `support/ui/.zsh.ui.zle_picker_paint` | Size-stable paint before work or a wait |
 | `support/ui/.zsh.ui.zle_picker_redraw` | Resize and redraw |
 | `support/ui/.zsh.ui.zle_picker_render` | Frame assembly |
 | `support/ui/.zsh.ui.zle_picker_run` | Nested ZLE entry |

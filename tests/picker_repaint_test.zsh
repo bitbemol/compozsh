@@ -141,3 +141,163 @@ _test_picker_resize_without_prompt() {
   _test_picker_resize_automatic_paint standalone
 }
 test_case 'standalone editor scopes its picker resize handler and restores it on exit' _test_picker_resize_without_prompt
+
+# A real resize can land while a frame is still being laid out or painted;
+# ZLE's resize redraw then runs inside that frame and paints the new size
+# before the outer frame resumes. Each arm issues the kernel window change at
+# one point: in the browse callback during layout, or at the zle -R of a
+# composed frame: the input loop's, capture status before its work, and paste
+# recovery before its wait. Only a frame laid out for the current size may stay
+# painted: one row width, a location trail only where it fits, and BUFFERLINES
+# for one unwrapped screen.
+_test_picker_resize_mid_frame() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    local arm=$2
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    zmodload zsh/zpty
+    zmodload zsh/zselect
+    command mkfifo "$HOME/events" || exit 1
+    exec {event_fd}<> "$HOME/events" || exit 2
+    functions[_layout_original_show]=$functions[_zle_picker_show]
+    _zle_picker_show() {
+      _layout_original_show
+      local row="" trail=0
+      local -A widths=()
+      for row in "${_ZLE_PICKER_DISPLAY[@]}"; do
+        [[ -n $row ]] && widths[${(m)#row}]=1
+        [[ $row == Location* ]] && trail=1
+      done
+      # BUFFERLINES counts painted screen rows, so a row wider than the
+      # terminal shows up as wrapping rather than only as layout data.
+      print -r -u $event_fd -- "FRAME:${COLUMNS}:${(j:,:)${(@on)${(@k)widths}}}:${trail}:${_ZLE_PICKER_SELECTED}:${BUFFERLINES}"
+    }
+    _layout_resize() {
+      [[ -e $HOME/resize-now ]] || return 0
+      command rm -f -- "$HOME/resize-now"
+      command stty cols 100 < "$device"
+    }
+    _layout_browse() {
+      [[ $arm == layout ]] && _layout_resize
+      REPLY=Browse
+    }
+    # Show asks ZLE to paint only after composing its whole frame.
+    if [[ $arm != layout ]]; then
+      zle() {
+        [[ $# == 1 && $1 == -R ]] && _layout_resize
+        builtin zle "$@"
+      }
+    fi
+    _layout_collect() {
+      _ZLE_PICKER_RESULTS=(alpha beta) _ZLE_PICKER_LABELS=(alpha/ beta/)
+      _ZLE_PICKER_RESULT_INDEXES=(0 1)
+    }
+    _layout_capture() {
+      : > "$HOME/resize-now"
+      _zle_picker_capture Files "Search · ~" "" _layout_captured
+    }
+    _layout_captured() { print -r -u $event_fd -- "CAPTURED:$COLUMNS"; }
+    _layout_driver() {
+      command stty rows 20 cols 140
+      local device=$(command tty)
+      print -r -u $event_fd -- "TTY:$device"
+      _ZLE_PICKER_COLLECTOR=_layout_collect
+      _ZLE_PICKER_TITLE="Directory browser"
+      _ZLE_PICKER_BROWSE_RENDERER=_layout_browse
+      _ZLE_PICKER_TRAIL=(Location "~" "  Projects")
+      _ZLE_PICKER_INSPECT_TEXTS=(alpha "Inside alpha" beta "Inside beta")
+      if [[ $arm == capture ]]; then
+        _zle_picker_run 10 "" 1 0 _layout_capture
+      else
+        _zle_picker_run 10
+      fi
+      print -r -u $event_fd -- "DONE:$?"
+    }
+    # Collect every event until the picker is quiet (half a second without a
+    # new one); the last frame is the one left on the screen.
+    _layout_settle() {
+      local chunk=""
+      local -i timeout=500
+      event=""
+      while zselect -r $event_fd $pty_fd -t $timeout; do
+        while zpty -r layout chunk; do trace+=$chunk; done
+        if IFS= read -r -t 0 -u $event_fd line; then
+          event=$line timeout=50 events+=("$line")
+          [[ $event == DONE:* ]] && break
+        fi
+      done
+      [[ -n $event ]]
+    }
+    local event="" line="" trace="" pty_fd=0
+    local -a events=()
+    # Status frames as ZLE paints them directly at 100 columns. Capture keeps
+    # the docked workspace height; the paste recovery status view is compact.
+    local status_frame=FRAME:100:99:0:0:19
+    [[ $arm == paste ]] && status_frame=FRAME:100:99:0:0:8
+    zpty -b layout _layout_driver || exit 3
+    pty_fd=$REPLY
+    {
+      zselect -r $event_fd -t 500 && IFS= read -r -u $event_fd event || exit 4
+      [[ $event == TTY:/dev/(ttys|pts/)<-> ]] || exit 5
+      _layout_settle || exit 6
+      if [[ $arm == capture ]]; then
+        # The capture work runs while its status frame stays on screen.
+        [[ ${(j: :)events[-3,-1]} == "$status_frame CAPTURED:100 DONE:0" ]] || {
+          print -u2 -r -- "resize during capture status left a stale frame: ${(j: :)events}"
+          exit 7
+        }
+      else
+        [[ $event == FRAME:140:139:1:1:19 ]] || { print -u2 -r -- "first frame: $event"; exit 7; }
+        zpty -w -n layout $'\''\e[B'\''
+        _layout_settle || exit 8
+        [[ $event == FRAME:140:139:1:2:19 ]] || { print -u2 -r -- "selection frame: $event"; exit 9; }
+        : > "$HOME/resize-now"
+        events=()
+        if [[ $arm == paste ]]; then
+          # An unterminated paste times out after one second into recovery,
+          # which waits for the closing marker before the picker resumes.
+          zpty -w -n layout $'\''\e[200~x'\''
+          _layout_settle || exit 10
+          [[ $event == "$status_frame" ]] || {
+            print -u2 -r -- "resize during paste recovery left a stale frame: ${(j: :)events}"
+            exit 11
+          }
+          zpty -w -n layout $'\''\e[201~'\''
+          _layout_settle || exit 15
+          [[ $event == FRAME:100:99:0:2:19 ]] || { print -u2 -r -- "recovered frame: $event"; exit 16; }
+        else
+          zpty -w -n layout $'\''\e[A'\''
+          _layout_settle || exit 10
+          [[ $event == FRAME:100:99:0:1:19 ]] || {
+            print -u2 -r -- "resize during $arm left a stale frame: ${(j: :)events}"
+            exit 11
+          }
+        fi
+        zpty -w -n layout $'\''\x07'\''
+        _layout_settle || exit 12
+        [[ $event == DONE:1 ]] || exit 13
+      fi
+      [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 14
+    } always {
+      zpty -d layout
+      exec {event_fd}>&-
+    }
+    print current-geometry
+  ' "$TEST_REPO_ROOT" "$1") || return
+  test_assert_equal current-geometry "$output"
+}
+_test_picker_resize_during_layout() { _test_picker_resize_mid_frame layout; }
+test_case 'picker resize during frame layout leaves only current geometry painted' _test_picker_resize_during_layout
+_test_picker_resize_during_paint() { _test_picker_resize_mid_frame paint; }
+test_case 'picker resize during frame paint leaves only current geometry painted' _test_picker_resize_during_paint
+_test_picker_resize_during_capture() { _test_picker_resize_mid_frame capture; }
+test_case 'picker resize during capture status paint leaves only current geometry painted' _test_picker_resize_during_capture
+_test_picker_resize_during_paste_recovery() { _test_picker_resize_mid_frame paste; }
+test_case 'picker resize during paste recovery paint leaves only current geometry painted' _test_picker_resize_during_paste_recovery

@@ -395,8 +395,8 @@ _zle_picker_render() {
     _ZLE_PICKER_DISPLAY_CONTEXT_STARTS+=(0)
     _ZLE_PICKER_DISPLAY_MATCH_STARTS+=(-1)
     (( inspector )) && _zle_picker_inspect_render $selected $full_width $left_width
-    _zle_picker_workspace
-    _zle_picker_trail_render $trail_width
+    _zle_picker_workspace $(( columns - 1 ))
+    _zle_picker_trail_render $trail_width $full_width
   fi
   return 0
 }
@@ -404,9 +404,11 @@ _zle_picker_render() {
 # A quiet captured location trail precedes the existing list/details layout.
 # It disappears first on narrow screens; all action indexes still address the
 # central list. This composes rows, never starts another terminal renderer.
+# Rows keep the content width captured for this frame, even if a resize
+# changes COLUMNS meanwhile; the next frame lays out the new size.
 _zle_picker_trail_render() {
   emulate -L zsh
-  local -i width=$1 index=0 prefix_end=0 first=1 trail_index=0 row_visible_width=0
+  local -i width=$1 content_width=$2 index=0 prefix_end=0 first=1 trail_index=0 row_visible_width=0
   local left='' row=''
   _ZLE_PICKER_DISPLAY_PREFIX_ENDS=("${_ZLE_PICKER_DISPLAY[@]/*/0}")
   (( width )) || return 0
@@ -421,7 +423,7 @@ _zle_picker_trail_render() {
     [[ -n $left || -n $row ]] || continue
     _zle_picker_fit "${(V)left}" $width
     left="$REPLY │ " prefix_end=${#left}
-    _zle_picker_fit "$row" $(( COLUMNS - width - 4 ))
+    _zle_picker_fit "$row" $content_width
     row_visible_width=${#REPLY}
     _ZLE_PICKER_DISPLAY[index]="$left$REPLY"
     _zle_picker_highlights_shift "${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[index]-}" $prefix_end $row_visible_width

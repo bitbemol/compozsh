@@ -1,0 +1,21 @@
+# Entry point: _zle_picker_paint
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Paint one frame before work or a wait that repaints only on the next resize.
+# ZLE's resize redraw can run inside a layout or paint and leave rows of two
+# sizes, so lay out again whenever the size changed meanwhile, and paint only a
+# frame laid out for the current size.
+_zle_picker_paint() {
+  emulate -L zsh
+  local -i paint_columns=-1 paint_lines=-1
+  while (( COLUMNS != paint_columns || LINES != paint_lines )); do
+    paint_columns=$COLUMNS paint_lines=$LINES
+    _zle_picker_render "$1" $2
+    (( COLUMNS == paint_columns && LINES == paint_lines )) || continue
+    _zle_picker_show || return $?
+  done
+}
+
+
+:

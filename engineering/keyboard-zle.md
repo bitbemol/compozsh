@@ -84,7 +84,11 @@ Ctrl-X Ctrl-E to command editing.
   restores the caller's signal registrations.
 - Full-screen clears are allowed only inside the owned alternate screen.
   Resize goes through a registered ZLE widget; ordinary selection redraws stay
-  incremental.
+  incremental. That widget can run inside a frame still being laid out or
+  painted, so a frame is laid out again before painting whenever the size
+  changed during its layout, and the input loop, capture status and paste
+  recovery lay out and paint again before waiting for input or starting their
+  work whenever it changed during the paint.
 - Hide the original prompt and multiline draft during the modal session and
   restore their exact editing state on exit. Preserve the living prompt's
   pinned/consumed disclosure state and derive the right compact or lens
