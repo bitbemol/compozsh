@@ -169,6 +169,31 @@ print -r -- "$heading|$warning|$match|$selected|${(j:|:)@}"' || return
 test_case 'manual-page styling shares the semantic output palette' \
   _test_man_uses_semantic_output_palette
 
+# A same-name alias would expand in a wrapper definition and abort the peer.
+_test_output_loads_after_wrapper_aliases() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output='' exit_status=0
+  test_write_file "$fake_bin/man" $'#!/bin/zsh\nprint -r -- "manual:$*"' || return
+  command chmod +x "$fake_bin/man" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    alias git="print aliased-git" grep="print aliased-grep" man="print aliased-man"
+    source "$1/.zsh.addons/.zsh.output"
+    print -r -- "load:$?"
+    print -r -- "git:${+functions[git]}${+aliases[git]} grep:${+functions[grep]}${+aliases[grep]} man:${+functions[man]}${+aliases[man]}"
+    man fixture-page
+  ' "$TEST_REPO_ROOT" "$fake_bin" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+load:0
+git:10 grep:10 man:10
+manual:fixture-page' "status:$exit_status"$'\n'"$output" \
+    'a same-name alias aborted the output peer'
+}
+test_case 'output peer loads after same-name aliases of git grep and man' \
+  _test_output_loads_after_wrapper_aliases
+
 _test_output_palette_matches_prompt_semantics() {
   test_make_temp_dir || return
   local output=''

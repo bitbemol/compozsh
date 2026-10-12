@@ -395,6 +395,30 @@ markers:0' "status:$exit_status"$'\n'"$output" \
 test_case 'living prompt never times commands with an inherited EPOCHREALTIME' \
   _test_living_prompt_never_times_with_inherited_epoch
 
+# An alias named like the documented extension API would expand in its
+# definition and abort the rest of the peer, so the hooks would never register.
+_test_living_prompt_loads_after_extension_api_alias() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    alias prompt_add_project_segment="print aliased"
+    source "$1/.zsh.addons/.zsh.prompt"
+    print -r -- "load:$?"
+    print -r -- "hook:$(( ${precmd_functions[(Ie)_prompt_update]:-0} > 0 )) function:${+functions[prompt_add_project_segment]} alias:${+aliases[prompt_add_project_segment]}"
+    REPLY=""
+    prompt_add_project_segment x white
+    print -r -- "segment:$REPLY"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+load:0
+hook:1 function:1 alias:0
+segment:%F{white}x%f' "status:$exit_status"$'\n'"$output" \
+    'a same-name alias aborted the living prompt peer'
+}
+test_case 'living prompt peer loads after a same-name alias of its extension API' \
+  _test_living_prompt_loads_after_extension_api_alias
+
 # The running-command title is a second display of the draft; it names only
 # the command word and fails closed to the identity when that word is unknown.
 _test_living_prompt_title_omits_assignment_values() {

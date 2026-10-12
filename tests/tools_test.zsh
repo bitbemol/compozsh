@@ -11,6 +11,31 @@ _test_mkcd_contract() {
 test_case 'mkcd creates and enters exactly one requested directory' \
   _test_mkcd_contract
 
+# A same-name alias would expand in a public definition and abort the peer.
+_test_tools_load_after_command_aliases() {
+  test_make_temp_dir || return
+  local target="$TEST_TMP_DIR/aliased/nested" output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    alias mkcd="print aliased-mkcd" cpdir="print aliased-cpdir"
+    source "$1/.zsh.addons/.zsh.tools"
+    print -r -- "load:$?"
+    print -r -- "mkcd:${+functions[mkcd]}${+aliases[mkcd]} cpdir:${+functions[cpdir]}${+aliases[cpdir]}"
+    mkcd "$2" && print -r -- "pwd:$PWD"
+    cpdir unexpected-operand
+    print -r -- "cpdir-status:$?"
+  ' "$TEST_REPO_ROOT" "$target" 2>&1) || exit_status=$?
+
+  test_assert_equal "status:0
+load:0
+mkcd:10 cpdir:10
+pwd:$target
+usage: cpdir
+cpdir-status:2" "status:$exit_status"$'\n'"$output" \
+    'a same-name alias aborted the tools peer'
+}
+test_case 'tools peer loads after same-name aliases of mkcd and cpdir' \
+  _test_tools_load_after_command_aliases
+
 _test_cpdir_contract() {
   test_make_temp_dir || return
   local fake_bin="$TEST_TMP_DIR/bin" target="$TEST_TMP_DIR/path with spaces"

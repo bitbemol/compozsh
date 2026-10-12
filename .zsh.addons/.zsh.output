@@ -322,6 +322,7 @@ grep() {
 # Render the semantic emphasis already embedded in manual pages with the
 # shared output palette. The exported values are local to this invocation, so
 # ordinary `less` sessions keep their own appearance.
+unalias man 2>/dev/null
 man() {
   emulate -L zsh
 

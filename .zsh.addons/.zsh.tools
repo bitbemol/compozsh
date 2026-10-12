@@ -69,6 +69,7 @@ _compozsh_help_cpdir() {
     '  cpdir       Copy this directory, then paste in an editor or file dialog.'
 }
 
+unalias mkcd 2>/dev/null
 mkcd() {
   emulate -L zsh
 
@@ -84,6 +85,7 @@ mkcd() {
 }
 
 # Copy the exact logical working directory to the local macOS clipboard.
+unalias cpdir 2>/dev/null
 cpdir() {
   emulate -L zsh
   setopt PIPE_FAIL

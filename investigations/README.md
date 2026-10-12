@@ -86,10 +86,6 @@ measurement and design decision before implementation.
 
 ### Known code issues (found 2026-10-11, not yet fixed)
 
-- `mkcd`, `cpdir` and the `man` wrapper are defined without the `unalias`
-  guard other public commands use. This is a real failure, not style: with a
-  same-name alias already defined, sourcing the peer prints a parse error and
-  the rest of that peer doesn't load.
 - User-facing errors (`_git_review_session`; `external-device`, `_usb_flash`
   and `_usb_format` in `.zsh.usb`) and `--help` text (`_usb_help_flash`,
   `_usb_help_format`) still name the retired `.zsh.ui` / `.zsh.matching`

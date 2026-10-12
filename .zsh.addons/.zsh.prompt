@@ -164,6 +164,7 @@ _prompt_prefix_abbreviate() {
 }
 
 # Called by custom project-context functions to append a safe, colored item.
+unalias prompt_add_project_segment 2>/dev/null
 prompt_add_project_segment() {
   emulate -L zsh
   setopt localoptions multibyte
