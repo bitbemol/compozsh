@@ -135,8 +135,10 @@ _output_lldb_color_arguments() {
 }
 
 # Build Git's native semantic color configuration from the shared output
-# palette. Values are separate argv elements; no shell source or output text is
-# constructed from them.
+# palette. Only color.<command>.<slot> shades are produced; none enables
+# coloring, so color.ui and color.<command> stay with the user's Git
+# configuration. Values are separate argv elements; no shell source or output
+# text is constructed from them.
 _output_git_color_arguments() {
   emulate -L zsh
 
@@ -192,9 +194,6 @@ _output_git_color_arguments() {
     [[ -n $value ]] || continue
     _OUTPUT_GIT_COLOR_CONFIG+=("$property=${attributes:+$attributes }$value")
   done
-  if (( ${#_OUTPUT_GIT_COLOR_CONFIG} )); then
-    _OUTPUT_GIT_COLOR_CONFIG=('color.ui=auto' "${_OUTPUT_GIT_COLOR_CONFIG[@]}")
-  fi
 }
 
 # Find the Git subcommand without interpreting its operands. Unknown global
@@ -244,10 +243,12 @@ _output_git_subcommand_uses_color() {
   return 1
 }
 
-# Apply only Git's own color engine to human-facing commands. Non-terminal
-# calls, configuration inspection, and machine-oriented subcommands receive the
-# exact original argv. Explicit `git -c color.ui=...` arguments come later and
-# therefore retain final authority.
+# Apply only Git's own color engine to human-facing commands. Calls whose
+# stdout is not a terminal, configuration inspection, and machine-oriented
+# subcommands receive the exact original argv, so pipes stay byte-compatible
+# even while stderr is a terminal. Palette shades never turn coloring on: the
+# user's color.ui/color.<command> settings decide whether Git colors, and
+# explicit `git -c color.*` arguments come later and retain final authority.
 unalias git 2>/dev/null
 git() {
   emulate -L zsh
@@ -256,7 +257,7 @@ git() {
   local configuration=''
   local -a git_color_arguments=()
 
-  if [[ ! -t 1 && ! -t 2 ]]; then
+  if [[ ! -t 1 ]]; then
     command git "$@"
     return
   fi

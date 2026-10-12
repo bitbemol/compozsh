@@ -65,6 +65,86 @@ _test_git_wrapper_preserves_plain_delegation_and_status() {
 test_case 'Git wrapper leaves non-terminal output byte-compatible' \
   _test_git_wrapper_preserves_plain_delegation_and_status
 
+# Real Git under a PTY: the user's color.ui/color.<command> decides whether Git
+# colors, and a piped stdout gets native bytes even while stderr is a terminal.
+_test_git_wrapper_defers_color_enablement_to_git() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    source "$1/.zsh.addons/support/.zsh.appearance"; source "$1/.zsh.addons/.zsh.output"
+    zmodload zsh/zpty || exit 1
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$HOME/user.gitconfig"
+    local esc="" cr="" nl=""
+    printf -v esc "\033"; printf -v cr "\r"; printf -v nl "\n"
+    : > "$GIT_CONFIG_GLOBAL" || exit 2
+    mkdir -p "$HOME/repo" && cd "$HOME/repo" || exit 2
+    command git -c init.defaultBranch=main init -q || exit 2
+    print -r -- before > file && command git add file || exit 2
+    command git -c user.name=Fixture -c user.email=fixture@example.invalid \
+      -c commit.gpgsign=false commit -qm initial || exit 2
+    print -r -- after > file
+    _git_color_fixture() {
+      print -r -- BEGIN-WRAPPER-TTY; git --no-pager diff
+      print -r -- BEGIN-NATIVE-TTY; command git --no-pager diff
+      print -r -- BEGIN-WRAPPER-PIPE; git --no-pager diff | cat
+      print -r -- BEGIN-NATIVE-PIPE; command git --no-pager diff | cat
+      print -r -- END-GIT-COLOR
+    }
+    _git_color_capture() {
+      local chunk="" captured=""
+      zpty git-color _git_color_fixture || return 1
+      {
+        while zpty -r git-color chunk; do
+          captured+=$chunk
+          [[ $captured == *END-GIT-COLOR* ]] && break
+        done
+        [[ $captured == *END-GIT-COLOR* ]] || return 1
+        captured=${captured//$cr/}
+        reply=(
+          "${${captured#*BEGIN-WRAPPER-TTY$nl}%%BEGIN-NATIVE-TTY*}"
+          "${${captured#*BEGIN-NATIVE-TTY$nl}%%BEGIN-WRAPPER-PIPE*}"
+          "${${captured#*BEGIN-WRAPPER-PIPE$nl}%%BEGIN-NATIVE-PIPE*}"
+          "${${captured#*BEGIN-NATIVE-PIPE$nl}%%END-GIT-COLOR*}"
+        )
+      } always {
+        zpty -d git-color
+      }
+    }
+    _git_color_state() {
+      if [[ $1 == *"${esc}[38;5;"* ]]; then
+        REPLY=palette
+      elif [[ $1 == *"${esc}["* ]]; then
+        REPLY=color
+      else
+        REPLY=plain
+      fi
+    }
+    local mode="" key="" value="" wrapper_tty="" native_tty="" native_pipe="" pipe=""
+    for mode key value in empty "" "" never color.ui never \
+      always color.ui always diff-always color.diff always; do
+      : > "$GIT_CONFIG_GLOBAL" || exit 3
+      [[ -z $key ]] || command git config --file "$GIT_CONFIG_GLOBAL" "$key" "$value" || exit 3
+      _git_color_capture || exit 4
+      [[ ${reply[2]} == *"diff --git"* && ${reply[4]} == *"diff --git"* ]] || exit 5
+      _git_color_state "${reply[1]}"; wrapper_tty=$REPLY
+      _git_color_state "${reply[2]}"; native_tty=$REPLY
+      _git_color_state "${reply[4]}"; native_pipe=$REPLY
+      pipe=different
+      [[ ${reply[3]} == "${reply[4]}" ]] && pipe=same
+      print -r -- "$mode|tty $wrapper_tty/$native_tty|pipe $native_pipe $pipe"
+    done
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal 'empty|tty palette/color|pipe plain same
+never|tty plain/plain|pipe plain same
+always|tty palette/color|pipe color same
+diff-always|tty palette/color|pipe color same' "$output" \
+    'Git wrapper overrode the user color configuration or changed piped bytes'
+}
+test_case 'Git wrapper defers color enablement to the user Git configuration and keeps pipes byte-compatible' \
+  _test_git_wrapper_defers_color_enablement_to_git
+
 _test_man_uses_semantic_output_palette() {
   test_make_temp_dir || return
   local fake_bin="$TEST_TMP_DIR/bin" output=''

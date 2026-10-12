@@ -401,11 +401,14 @@ substitutions and redirected data stay byte-compatible.
 | `curl`, compilers, TUIs | Their native behavior; `curl` bodies are untouched |
 | JSON, CSV, logs, binary data | Unchanged, because meaning cannot be inferred from bytes |
 
-Git colors are temporary `-c color.*` values for human-facing subcommands on a
-terminal; explicit options win (`git -c color.ui=never log`). Redirected output
-stays plain; use `grep --color=always … | less -R` to keep grep colors. Manual
-colors apply only to `man`, and an existing `MANPAGER`, `MANCOLOR` or
-`LESS_TERMCAP_*` value wins.
+Git colors are temporary `-c color.*` palette shades for human-facing
+subcommands whose stdout is a terminal. Your own `color.ui` or
+`color.<command>` setting still decides whether Git colors, and explicit
+options win (`git -c color.ui=never log`). With stdout piped or redirected,
+Git gets your exact arguments and behaves as without Compozsh. Redirected
+`grep` output stays plain; use `grep --color=always … | less -R` to keep grep
+colors. Manual colors apply only to `man`, and an existing `MANPAGER`,
+`MANCOLOR` or `LESS_TERMCAP_*` value wins.
 
 ```zsh
 typeset -gA ZSH_OUTPUT_COLORS
