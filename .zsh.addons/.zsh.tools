@@ -81,7 +81,11 @@ mkcd() {
   fi
   (( $# == 2 )) && [[ $1 == -- ]] && shift
   (( $# == 1 )) || { print -u2 'usage: mkcd [--] <directory>'; return 2; }
-  command mkdir -p -- "$1" && builtin cd -- "$1"
+  # cd reads -, -N and +N as OLDPWD or stack entries even after --. It never
+  # looks those names up in CDPATH, so ./ names exactly the created directory.
+  local target=$1
+  [[ $target == (-|[+-]<->) ]] && target=./$target
+  command mkdir -p -- "$1" && builtin cd -- "$target"
 }
 
 # Copy the exact logical working directory to the local macOS clipboard.

@@ -11,6 +11,30 @@ _test_mkcd_contract() {
 test_case 'mkcd creates and enters exactly one requested directory' \
   _test_mkcd_contract
 
+# cd reads -, -N and +N as OLDPWD or stack entries even after --; the shipped
+# AUTO_PUSHD stack would otherwise land mkcd in another directory with status 0.
+_test_mkcd_stack_reference_names() {
+  test_make_temp_dir || return
+  local output=''
+  command mkdir -p -- "$TEST_TMP_DIR/A" "$TEST_TMP_DIR/B" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    setopt AUTO_PUSHD PUSHD_IGNORE_DUPS PUSHD_SILENT
+    source "$1/.zsh.addons/.zsh.tools"
+    builtin cd -- "$2/A" && builtin cd -- "$2/B" || exit
+    for name in - -2 +1 +01 -0; do
+      mkcd -- "$name"
+      print -r -- "$name:$?:${PWD#$2/}"
+      builtin cd -- "$2/B" || exit
+    done
+    mkcd plain
+    print -r -- "plain:$?:${PWD#$2/}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2>&1) || return
+  test_assert_equal $'-:0:B/-\n-2:0:B/-2\n+1:0:B/+1\n+01:0:B/+01\n-0:0:B/-0\nplain:0:B/plain' \
+    "$output" 'mkcd entered a directory other than the one it created'
+}
+test_case 'mkcd enters the created directory for names cd treats as stack references' \
+  _test_mkcd_stack_reference_names
+
 # A same-name alias would expand in a public definition and abort the peer.
 _test_tools_load_after_command_aliases() {
   test_make_temp_dir || return
