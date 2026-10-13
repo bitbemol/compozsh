@@ -9,7 +9,7 @@ _test_support_components_standalone() {
       source "$1" || exit 1
       source "$1" || exit 2
       print ready
-    ' "$unit") || return
+    ' "$unit" 2>&1) || return
     test_assert_equal ready "$output" "standalone component emitted diagnostics: ${unit:t}" || return
   done
 }

@@ -264,7 +264,11 @@ bindkey "^[i"
 bindkey "^E"'
 
   for mode in lexical reverse rotate-left rotate-right; do
-    output=$(test_run_interactive "$home" "$script" "$TEST_REPO_ROOT" "$mode") || return
+    output=$(test_run_interactive "$home" "$script" "$TEST_REPO_ROOT" "$mode" \
+      2> "$TEST_TMP_DIR/errors-$mode") || return
+    [[ ! -s "$TEST_TMP_DIR/errors-$mode" ]] ||
+      test_fail "peer order $mode produced load diagnostics: $(<"$TEST_TMP_DIR/errors-$mode")" ||
+      return
     if [[ -z $expected ]]; then
       expected=$output
     else

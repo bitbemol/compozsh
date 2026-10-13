@@ -150,6 +150,46 @@ test_case "fixture git probe" _test_fixture_git_probe
 test_case 'test runner isolates fixture Git commands from inherited repository selectors and global configuration' \
   _test_runner_isolates_fixture_git_environment
 
+# The bootstrap reports a peer's load diagnostic and keeps going, so the
+# handoff re-source check must reject any output, not only a failing status.
+_test_verify_rejects_reload_diagnostics() {
+  test_make_temp_dir || return
+  local suite="$TEST_TMP_DIR/meta-suite" output='' exit_status=0
+  local -a isolated=(env -i PATH="$PATH" HOME="$TEST_TMP_DIR/home"
+    TMPDIR="$TEST_TMP_DIR/tmp" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null)
+
+  command mkdir -p -- "$suite/tests" "$suite/.zsh.addons" \
+    "$TEST_TMP_DIR/home" "$TEST_TMP_DIR/tmp" || return
+  command cp "$TEST_REPO_ROOT/tests/verify.zsh" "$suite/tests/verify.zsh" || return
+  command cp "$TEST_REPO_ROOT/.zshrc" "$suite/.zshrc" || return
+  test_write_file "$suite/install.zsh" ':' || return
+  test_write_file "$suite/templates/init.zsh" ':' || return
+  command "${isolated[@]}" git init -q -- "$suite" || return
+  command "${isolated[@]}" git -C "$suite" add -A || return
+
+  output=$(command "${isolated[@]}" "$TEST_ZSH_BIN" "$suite/tests/verify.zsh" 2>&1) ||
+    exit_status=$?
+  test_assert_equal 0 "$exit_status" "verify failed its clean control run: $output" || return
+  test_assert_contains "$output" 're-source: ok' \
+    'verify did not report a clean double re-source' || return
+
+  test_write_file "$suite/.zsh.addons/.zsh.broken" \
+    $'print -u2 -r -- "fixture peer: simulated load error"\n:' || return
+  exit_status=0
+  output=$(command "${isolated[@]}" "$TEST_ZSH_BIN" "$suite/tests/verify.zsh" 2>&1) ||
+    exit_status=$?
+  (( exit_status != 0 )) || {
+    test_fail "verify accepted a double re-source with load diagnostics: $output"
+    return
+  }
+  test_assert_contains "$output" 're-source: failed' \
+    'verify did not report the failed double re-source' || return
+  test_assert_contains "$output" 'fixture peer: simulated load error' \
+    'verify did not show the load diagnostics'
+}
+test_case 'verify fails the double re-source when a peer reports load diagnostics' \
+  _test_verify_rejects_reload_diagnostics
+
 # Shared PTY helpers must never hand the operator's GUI or clipboard programs
 # to file actions; a test that wants those effects passes its own fakes.
 _test_search_session_fails_closed_on_effects() {

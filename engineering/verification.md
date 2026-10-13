@@ -135,7 +135,7 @@ Run at least:
 
 ```sh
 zsh tests/run.zsh      # full suite
-zsh tests/verify.zsh   # syntax of every shipped Zsh file, git diff --check, double re-source
+zsh tests/verify.zsh   # syntax of every shipped Zsh file, git diff --check, silent double re-source
 ```
 
 The full suite takes about 3–4 minutes. The real-FAT32 `hdiutil` round trip

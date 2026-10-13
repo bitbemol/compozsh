@@ -1,7 +1,8 @@
 #!/usr/bin/env zsh
 # Handoff baseline that complements `zsh tests/run.zsh`: syntax-check every
 # shipped Zsh file, reject whitespace errors in the diff and in new untracked
-# files, and source the bootstrap twice in an isolated interactive shell.
+# files, and source the bootstrap twice in an isolated interactive shell, which
+# must exit 0 without printing anything.
 
 emulate -LR zsh
 setopt EXTENDED_GLOB PIPE_FAIL
@@ -32,12 +33,18 @@ else
   failed=1
 fi
 
+# The bootstrap reports a failing peer and keeps going, and a peer can print a
+# diagnostic yet return 0, so any output fails the check, not only the status.
+typeset reload_output=''
+typeset -i reload_status=0
 test_home=$(mktemp -d) || exit 1
-if env -i PATH=$PATH TERM=xterm-256color LC_ALL=C HOME=$test_home \
-   ZDOTDIR=$test_home ZSH_LOCAL_INIT=/dev/null \
-   zsh -dfi -c 'source ./.zshrc; source ./.zshrc'; then
+reload_output=$(env -i PATH=$PATH TERM=xterm-256color LC_ALL=C HOME=$test_home \
+  ZDOTDIR=$test_home ZSH_LOCAL_INIT=/dev/null \
+  zsh -dfi -c 'source ./.zshrc; source ./.zshrc' 2>&1) || reload_status=$?
+if (( reload_status == 0 )) && [[ -z $reload_output ]]; then
   print -r -- 're-source: ok'
 else
+  [[ -z $reload_output ]] || print -u2 -r -- "$reload_output"
   print -u2 -r -- 're-source: failed'
   failed=1
 fi
