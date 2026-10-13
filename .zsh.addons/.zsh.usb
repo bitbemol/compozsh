@@ -27,7 +27,8 @@ _compozsh_help_external-device() {
     '  Digits choose rows only with both fields empty; authored text stays literal.' \
     '  Ctrl-K shows the shared keys. Narrow screens retain explicit plan access.' \
     '  Every write requires its own exact-device typed confirmation afterward.' \
-    '  Requires an interactive terminal and the UI/matching peers for tasks.' \
+    '  Tasks require an interactive terminal and the shared support/ui and' \
+    '  support/functions components.' \
     '  Pipes, dumb terminals, and missing UI return an error without discovery.' \
     '  --help, --flash --help, and --format --help read nothing and write nothing.' \
     '' \
@@ -80,7 +81,7 @@ external-device() {
       if (( $# == 0 )); then
         if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
            (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_zle_ui_view]} || ! ${+functions[_matching_compile]} )); then
-          print -u2 -r -- 'external-device: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
+          print -u2 -r -- 'external-device: an interactive terminal and the shared support/ui and support/functions components are required'
           return 1
         fi
         local _ZLE_PICKER_SELECTED_VALUE=''
@@ -5176,10 +5177,10 @@ _usb_help_flash() {
     '  the held session closes; the result describes the captured pre-mount proof.' \
     '' \
     'Requirements and recovery:' \
-    '  Requires macOS, an interactive terminal, the .zsh.ui screen peer,' \
-    '  and Apple’s diskutil, plutil, hdiutil, codesign, ditto, tar, df, sync, mktemp,' \
-    '  rmdir, rm, sleep, cat, dd, cmp, cksum, head, od, tr, shasum, stat, and' \
-    '  sudo tools.' \
+    '  Requires macOS, an interactive terminal, the shared support/ui and' \
+    '  support/functions components, and Apple’s diskutil, plutil, hdiutil,' \
+    '  codesign, ditto, tar, df, sync, mktemp, rmdir, rm, sleep, cat, dd, cmp,' \
+    '  cksum, head, od, tr, shasum, stat, and sudo tools.' \
     '  Apple mdfind supplies the indexed home catalog; if it fails, the shallow' \
     '  current-folder and Downloads snapshot plus Custom path remain available.' \
     '  A failed or interrupted write can leave the target unusable until it is' \
@@ -5232,7 +5233,7 @@ _usb_flash() {
     }
     if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
         (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_matching_compile]} )); then
-      print -u2 -r -- 'external-device --flash: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
+      print -u2 -r -- 'external-device --flash: an interactive terminal and the shared support/ui and support/functions components are required'
       return 1
     fi
     _usb_images_capture "$explicit"
@@ -5345,8 +5346,8 @@ _usb_help_format() {
     '  Formatting permanently destroys all existing partitions and data on the' \
     '  selected disk. diskutil may already have changed the layout if formatting' \
     '  later fails; Compozsh cannot restore the previous partition map or files.' \
-    '  Requires macOS, an interactive terminal, the .zsh.ui screen peer, and' \
-    '  Apple diskutil, plutil, mktemp, rm, and sudo.' \
+    '  Requires macOS, an interactive terminal, the shared support/ui and' \
+    '  support/functions components, and Apple diskutil, plutil, mktemp, rm, and sudo.' \
     '' \
     'Examples:' \
     '  external-device --format  Choose an external drive and advertised format.'
@@ -5373,7 +5374,7 @@ _usb_format() {
   }
   if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
       (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_matching_compile]} )); then
-    print -u2 -r -- 'external-device --format: an interactive terminal and the .zsh.ui and .zsh.matching peers are required'
+    print -u2 -r -- 'external-device --format: an interactive terminal and the shared support/ui and support/functions components are required'
     return 1
   fi
   {

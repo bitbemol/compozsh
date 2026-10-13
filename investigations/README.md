@@ -89,10 +89,6 @@ measurement and design decision before implementation.
 
 ### Known code issues (found 2026-10-11, not yet fixed)
 
-- User-facing errors (`_git_review_session`; `external-device`, `_usb_flash`
-  and `_usb_format` in `.zsh.usb`) and `--help` text (`_usb_help_flash`,
-  `_usb_help_format`) still name the retired `.zsh.ui` / `.zsh.matching`
-  peers.
 - `sudo` and other prefix commands are classified as the command itself, so
   `sudo rm -rf x` shows `RUN` rather than `CAUTION`.
 - `g --help` says "Ctrl-X is inactive here" (`_compozsh_help_g`), which

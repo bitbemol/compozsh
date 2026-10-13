@@ -5369,3 +5369,42 @@ _test_usb_temporary_refused_inspection_removes_its_own_mount_point() {
 }
 test_case 'USB temporary refused ISO inspection removes only its own new mount point' \
   _test_usb_temporary_refused_inspection_removes_its_own_mount_point
+
+# Diagnostics and help name the shared support components that provide the
+# screen and matching entries, never the retired grouped peers.
+_test_usb_diagnostics_and_help_name_current_support_components() {
+  test_make_temp_dir || return
+  local output='' diagnostics='' help='' expected=''
+  local components='the shared support/ui and support/functions components'
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) \
+        "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{zle,matching}_*(N.); do
+      source "$support_component" || exit
+    done
+    for request in "" --flash --format; do
+      external-device ${request:+"$request"} </dev/null 2>&1 >/dev/null
+      print -r -- "status:${request:-chooser}:$?"
+    done
+    print -r -- --help--
+    _compozsh_help_external-device
+  ' "$TEST_REPO_ROOT") || return
+  diagnostics=${output%%$'\n'--help--$'\n'*}
+  help=${(j: :)${=output#*$'\n'--help--$'\n'}}
+  expected="external-device: an interactive terminal and $components are required
+status:chooser:1
+external-device --flash: an interactive terminal and $components are required
+status:--flash:1
+external-device --format: an interactive terminal and $components are required
+status:--format:1"
+
+  test_assert_equal "$expected" "$diagnostics" \
+    'noninteractive external-device tasks did not name the current support components' || return
+  # The task chooser, bootable media and formatting guides each state it.
+  test_assert_equal 3 $(( (${#help} - ${#${help//"$components"/}}) / ${#components} )) \
+    'external-device help did not name the current support components in each requirement' || return
+  [[ $output != *.zsh.matching* && $output != *.zsh.ui([^.]*|) ]] ||
+    test_fail "external-device diagnostics or help name a retired peer: ${(qqq)output}"
+}
+test_case 'USB external-device diagnostics and help name the shared support components, not retired peers' \
+  _test_usb_diagnostics_and_help_name_current_support_components

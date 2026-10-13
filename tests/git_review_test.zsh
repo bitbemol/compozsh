@@ -432,3 +432,26 @@ _test_git_review_empty_states() {
   test_assert_equal accurate "$output"
 }
 test_case 'Git review distinguishes a filtered-out working snapshot from an actually empty worktree' _test_git_review_empty_states
+
+# The capability check follows the terminal check, so only a PTY reaches it.
+_test_git_review_missing_picker_names_current_components() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/pty_support.zsh" || exit 2
+    _review_missing_picker_driver() {
+      source "$1/.zsh.addons/.zsh.navigation" || exit 3
+      source "$1/.zsh.addons/.zsh.git-review" || exit 4
+      g --review 2>| "$HOME/review-error"
+      print -r -- $? >| "$HOME/review-status"
+    }
+    test_pty_start review _review_missing_picker_driver "$1" || exit 5
+    test_pty_expect review "" "" || exit 6
+    zpty -d review
+    print -r -- "$(<"$HOME/review-status")|$(<"$HOME/review-error")"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal '1|g --review: shared picker unavailable; keep .zsh.navigation and the shared support/ui and support/functions components installed.' \
+    "$output" 'g --review without the shared picker did not name the current components'
+}
+test_case 'g --review missing shared picker diagnostic names current components, not retired peers' \
+  _test_git_review_missing_picker_names_current_components

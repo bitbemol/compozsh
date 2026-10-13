@@ -3422,7 +3422,7 @@ _git_review_session() {
     return 1
   fi
   if (( !${+functions[_zle_picker_run]} || !${+functions[_zle_picker_capture]} || !${+functions[_navigation_picker_collect]} || !${+functions[_matching_compile]} )); then
-    print -u2 -r -- 'g --review: shared picker unavailable; keep .zsh.ui, .zsh.matching and .zsh.navigation installed.'
+    print -u2 -r -- 'g --review: shared picker unavailable; keep .zsh.navigation and the shared support/ui and support/functions components installed.'
     return 1
   fi
   {
