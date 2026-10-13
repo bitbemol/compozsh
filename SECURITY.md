@@ -742,9 +742,11 @@ missing-UI confirmation remains. No new privilege, network path, persistence,
 automatic action or rollback claim is introduced.
 
 **Branches.** The local catalog includes names absent from the bounded checkout
-reflog. When nothing local matches, the fallback reads `git remote` names and
-`for-each-ref refs/remotes/` through the same local-only provider controls,
-and further unmatched filters reuse that snapshot.
+reflog. Opening the `g` branch picker also reads `git remote` names and
+`for-each-ref refs/remotes/` once, before the first filter, through the same
+local-only provider controls, so filtering never calls Git; those refs are
+offered only when nothing local matches, and every later filter reuses that
+snapshot.
 These are locally known remote-tracking refs, not a server result or freshness
 guarantee: a missing branch requires an explicit user-run `g fetch <remote>`
 before reopening `g`, and typing, selection, confirmation and creation never
