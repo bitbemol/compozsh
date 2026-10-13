@@ -4,6 +4,8 @@
 # reply returns payload, complete/truncated/incomplete, and command status.
 # A partial packet has no trustworthy command status. The reader's trailing
 # sentinel keeps newlines at the cut from command-substitution stripping.
+# The status suffix is removed literally: a glob suffix strip (NUL then `*`)
+# is quadratic in the number of NULs, and Git packets are NUL-dense.
 # This bounds retained bytes, not wall time; asynchronous deadline/PID
 # ownership stays with callers.
 _compozsh_capture_bounded() {
@@ -27,7 +29,7 @@ _compozsh_capture_bounded() {
     [[ $_ccb_result == <-> && ${#_ccb_result} -le 3 ]] || {
       reply=('' incomplete ''); return 0
     }
-    reply=("${_ccb_packet%$'\0'*}" complete "$_ccb_result")
+    reply=("${_ccb_packet%$'\0'"$_ccb_result"}" complete "$_ccb_result")
   else
     reply=('' incomplete '')
   fi

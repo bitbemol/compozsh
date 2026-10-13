@@ -50,6 +50,9 @@ in one tree against diagnostic variants
 `git-syntax-poll.zsh` compares the Git syntax poll that consumes a completed
 response, synthetic or from a real resident Vim, in two trees
 ([excellence run](excellence-2026-10-12.md#performance-results));
+`bounded-capture.zsh` compares the shared bounded capture on NUL-dense
+packets, synthetic and through the bare-`g` remote and Git review captures,
+in two trees ([excellence run](excellence-2026-10-12.md#performance-results));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 

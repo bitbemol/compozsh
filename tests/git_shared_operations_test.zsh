@@ -104,6 +104,73 @@ _test_shared_git_bounded_capture_newline_cut() {
 test_case 'shared Git bounded capture keeps truncation when the cut lands on newlines' \
   _test_shared_git_bounded_capture_newline_cut
 
+# Only the private trailing NUL and status leave the packet, even when the
+# payload itself ends in NUL-delimited digits or glob metacharacters.
+_test_shared_git_bounded_capture_status_like_tail() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded" || exit 1
+    fixture() { print -rn -- "$1"; return "$2"; }
+    local -a reply=()
+    local payload=""
+    for payload in $'"'"'a\x000'"'"' $'"'"'x\x00255'"'"' $'"'"'\x00'"'"' $'"'"'\x00\x00'"'"' \
+      $'"'"'*\x00[0]?'"'"' $'"'"'1\x002\x003'"'"'; do
+      _compozsh_capture_bounded 32 fixture "$payload" 0 || exit 2
+      [[ $reply[1] == "$payload" && $reply[2] == complete && $reply[3] == 0 ]] || exit 3
+      _compozsh_capture_bounded 32 fixture "$payload" 255 || exit 4
+      [[ $reply[1] == "$payload" && $reply[2] == complete && $reply[3] == 255 ]] || exit 5
+    done
+    print bounded
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal bounded "$output" 'a status-like payload tail was removed with the private status'
+}
+test_case 'shared Git bounded capture keeps payload tails that look like its status suffix' \
+  _test_shared_git_bounded_capture_status_like_tail
+
+# Every foreground Git capture (bare-g remote refs, review status, worktree
+# ls-files) splits NUL-dense packets here. Removing the status suffix must stay
+# linear in the record count: 4x the records may cost only about 4x the time.
+_test_shared_git_bounded_capture_linear_split() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded" || exit 1
+    zmodload zsh/datetime || exit 1
+    fixture() { print -rn -- "$payload"; }
+    local -a reply=() best=()
+    local unit="" small="" payload=""
+    local -F started=0 elapsed=0 fastest=0
+    local -i index=0
+    for (( index = 0; index < 1000; ++index )); do
+      unit+=$'"'"'refs/remotes/origin/a-name\x00'"'"'
+    done
+    small=$unit$unit
+    for payload in "$small" "$small$small$small$small"; do
+      fastest=-1
+      repeat 3; do
+        started=$EPOCHREALTIME
+        _compozsh_capture_bounded 262144 fixture || exit 2
+        elapsed=$(( EPOCHREALTIME - started ))
+        [[ $reply[1] == "$payload" && $reply[2] == complete && $reply[3] == 0 ]] || exit 3
+        (( fastest < 0 || elapsed < fastest )) && fastest=$elapsed
+      done
+      best+=($fastest)
+    done
+    (( ${#small} == 54000 )) && print exact
+    if (( best[2] < 6 * best[1] + 0.1 )); then
+      print linear
+    else
+      printf "superlinear %.1f ms for 2000 records, %.1f ms for 8000\n" \
+        $(( best[1] * 1000 )) $(( best[2] * 1000 ))
+    fi
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'exact\nlinear' "$output" \
+    'splitting the status from a NUL-dense packet grew faster than the record count'
+}
+test_case 'shared Git bounded capture splits NUL-dense payloads in linear time' \
+  _test_shared_git_bounded_capture_linear_split
+
 _test_shared_git_operation_state() {
   test_make_temp_dir || return
   local output

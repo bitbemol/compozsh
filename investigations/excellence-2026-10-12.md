@@ -265,6 +265,50 @@ Not changed here: the audit measured `_git_syntax_apply` at about 127 ms for
 the 3,641 JSON spans on the same callback. That cost is linear but above a
 frame budget (a follow-up candidate).
 
+### Bounded capture status strip (GIT-02)
+
+`_compozsh_capture_bounded`, the shared entry behind every foreground Git
+workspace capture, removed the private NUL/status suffix with
+`${packet%$'\0'*}`. That shortest-suffix glob strip is quadratic in the number
+of NULs, and Git packets are NUL-dense: bare `g` reads remote-tracking refs
+with three NUL fields per ref, and review reads `status -z`. The entry now
+removes NUL plus the already validated status literally. The result is the
+same because the status is exactly the text after the last NUL; tests pin
+payload tails that look like a status and the linear scaling.
+
+Measured with [`benchmarks/bounded-capture.zsh`](benchmarks/bounded-capture.zsh)
+(load 3.4–3.6). The baseline is a `git archive` of `a08c1b7`; the candidate is
+the working tree. Trees alternate run by run, one new `zsh -df` child per
+sample, one untimed warm-up call, then one timed call. Medians (min–max) in ms
+over 11 runs, `en_US.UTF-8`:
+
+| Workload | Records | Before | After | Δ |
+| --- | ---: | ---: | ---: | ---: |
+| Synthetic packet | 2,000 | 113.56 (110.85–115.19) | 3.85 (3.65–4.01) | −96.6% |
+| Synthetic packet | 8,000 | 1,726.72 (1,703.34–1,745.74) | 12.99 (12.45–13.41) | −99.2% |
+| Bare-`g` remote refs | 999 | 281.50 (275.23–288.41) | 59.64 (58.69–69.48) | −78.8% |
+| Review file list, untracked | 4,000 | 202.21 (199.35–207.21) | 29.71 (28.20–30.78) | −85.3% |
+
+Ranges never overlap. The remaining cost is Git itself plus linear parsing.
+
+The end-to-end frame benchmark's Git fixtures are small, so it served as the
+no-regression check (`search-git,review-changes 11 5`, load 2.7–3.4, medians
+in ms, before → after):
+
+- search-git: fresh 186.09 → 185.81, warm 183.25 → 182.68.
+- review-changes: fresh 120.17 → 122.15, warm 119.19 → 118.93.
+
+The ranges overlap almost entirely. The largest median gap, +1.98 ms (1.6%)
+on fresh review-changes, is the size of that frame's A/A delta (1.1–2.0%).
+
+Decision: kept. Reproduce from the repository root with a disposable
+`TMPDIR`:
+
+```zsh
+/bin/zsh -df investigations/benchmarks/bounded-capture.zsh <baseline-root> <candidate-root> 11
+/bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <baseline-root> <candidate-root> search-git,review-changes 11 5
+```
+
 ## Owner decisions
 
 ### OD2: first-prompt help capture keeps one fork per guide (HELP-02)
