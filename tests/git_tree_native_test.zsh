@@ -53,7 +53,10 @@ _test_git_tree_native() {
         _git_review_prepare "$PWD" || return 2
         _zle_picker_screen_session _git_review_view "$PWD" working
         local outcome=$?
-        [[ $outcome == 1 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} == 0 && $_ZLE_PICKER_ACTIVE == 0 ]] || print -r -u $efd "BAD-CLEANUP:$outcome:$_ZLE_PICKER_SCREEN_ACTIVE:$_ZLE_PICKER_ACTIVE"
+        # The painted frame holds diff text; it ends with the screen session.
+        [[ $outcome == 1 && ${_ZLE_PICKER_SCREEN_ACTIVE:-0} == 0 && $_ZLE_PICKER_ACTIVE == 0 &&
+           ${#_ZLE_PICKER_DISPLAY} == 0 ]] ||
+          print -r -u $efd "BAD-CLEANUP:$outcome:$_ZLE_PICKER_SCREEN_ACTIVE:$_ZLE_PICKER_ACTIVE:${#_ZLE_PICKER_DISPLAY}"
         zle .accept-line
       }
       zle -N _tree_native_widget

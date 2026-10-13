@@ -184,7 +184,8 @@ derive only from captured facts, the current palette and terminal dimensions:
 they discover, capture and execute nothing and keep no copy of the user's draft
 beyond screen-restoration state. The input dock places the caret through ZLE's
 PREDISPLAY/POSTDISPLAY, restored by paint, without putting query text in the
-caller's buffer. View state is scoped to the feature callback; secondary menus
+caller's buffer. View state is scoped to the feature callback and the painted
+frame to its screen session, released on every exit; secondary menus
 and notices scope their own labels and capabilities and return exact action
 values; callback names come from trusted feature code, never labels or project
 data. Explicit capture and input-idle hooks keep their own limits, final actions

@@ -129,6 +129,97 @@ _test_picker_screen_lifecycle() {
 }
 test_case 'picker screen restores editor state on accept, cancel, abort, read failure, and plain fallbacks' _test_picker_screen_lifecycle
 
+# The painted frame copies labels, inspector, query and location text. The
+# screen owner must release it on every exit path, including a capture status
+# that ends the session, or the last view would outlive its lifetime in shell
+# parameters (and in set/typeset output) after the screen closes.
+_test_picker_screen_releases_frame() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/pty_support.zsh" || exit 12
+    zmodload zsh/parameter
+    command mkfifo "$HOME/events" || exit 1
+    exec {event_fd}<> "$HOME/events" || exit 2
+    local marker=frame-marker
+    functions[_frame_original_show]=$functions[_zle_picker_show]
+    # Report marker rows and whether the composed frame showed the marker.
+    _zle_picker_show() {
+      _frame_original_show
+      print -r -u $event_fd -- "FRAME|${#${(@M)_ZLE_PICKER_DISPLAY:#*$marker*}}|${${(M)_ZLE_PICKER_POSTDISPLAY:#*$marker*}:+1}"
+    }
+    _frame_collect() {
+      _ZLE_PICKER_RESULTS=(first second)
+      _ZLE_PICKER_LABELS=("export API_TOKEN=$marker" second)
+      _ZLE_PICKER_RESULT_INDEXES=(1 2)
+    }
+    _frame_capture() {
+      _zle_picker_capture Search "$HOME/$marker" "$marker" false
+    }
+    # Like a real view, the snapshot is scoped to the view, which has ended
+    # by the time the driver inspects what the shell still holds.
+    _frame_view() {
+      local -A _ZLE_PICKER_INSPECT_TEXTS=(first "export API_TOKEN=$marker" second plain)
+      _ZLE_PICKER_COLLECTOR=_frame_collect
+      if [[ $scenario == capture-failure ]]; then
+        _zle_picker_run 10 "" 1 0 _frame_capture
+      else
+        _zle_picker_run 10
+      fi
+    }
+    _frame_driver() {
+      command stty rows 30 cols 120
+      local -i result=-1
+      local name="" holders=""
+      {
+        _frame_view
+        result=$?
+      } always {
+        for name in ${(ok)parameters[(I)_ZLE_PICKER_*]}; do
+          [[ ${(Pkvj: :)name} == *"$marker"* ]] && holders+=" $name"
+        done
+        print -r -u $event_fd -- "AFTER|$scenario|$result|$_ZLE_PICKER_SELECTED_VALUE|rows=${#_ZLE_PICKER_DISPLAY}|holders=${holders# }"
+      }
+    }
+    local scenario=""
+    for scenario in accept cancel abort capture-failure; do
+      test_pty_start frame _frame_driver || exit 3
+      {
+        test_pty_expect -p frame $event_fd FRAME || exit 4
+        print -r -- "$scenario painted:${REPLY#FRAME|}"
+        case $scenario in
+          (accept) zpty -w -n frame $'\''\r'\'' ;;
+          (cancel) zpty -w -n frame $'\''\x07'\'' ;;
+          (abort) zpty -w -n frame $'\''\x03'\'' ;;
+        esac
+        test_pty_expect -p frame $event_fd AFTER || exit 5
+        print -r -- "${REPLY#AFTER|}"
+      } always {
+        zpty -d frame
+      }
+    done
+    exec {event_fd}>&-
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+accept painted:2|1
+accept|0|first|rows=0|holders=
+cancel painted:2|1
+cancel|1||rows=0|holders=
+abort painted:2|1
+abort|-1||rows=0|holders=
+capture-failure painted:0|1
+capture-failure|1||rows=0|holders=' "status:$exit_status"$'\n'"$output" \
+    'the painted picker frame outlived its screen session'
+}
+test_case 'picker screen releases its painted frame on accept, cancel, abort and capture failure' \
+  _test_picker_screen_releases_frame
+
 # Result limits arrive as settings text. Nineteen or more digits would print a
 # truncation warning inside the editor and wrap before clamping.
 _test_picker_limits_reject_overflowing_settings() {

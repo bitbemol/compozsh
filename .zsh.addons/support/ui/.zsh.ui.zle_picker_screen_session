@@ -6,6 +6,16 @@
 # Callers return a choice; filesystem/application actions run after restoration.
 _zle_picker_screen_session() {
   emulate -L zsh
+  # The screen owner releases its painted frame on every exit. Its rows, bars
+  # and composed copy hold labels, inspector, document, query and location
+  # text; every view and capture status in this session renders into these.
+  local -a _ZLE_PICKER_DISPLAY=() _ZLE_PICKER_DISPLAY_STYLES=() _ZLE_PICKER_DISPLAY_INDEX_ENDS=()
+  local -a _ZLE_PICKER_DISPLAY_HIGHLIGHTS=() _ZLE_PICKER_DISPLAY_LEFT_ENDS=() _ZLE_PICKER_DISPLAY_RIGHT_ROLES=()
+  local -a _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=() _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=() _ZLE_PICKER_DISPLAY_MATCH_STARTS=()
+  local -a _ZLE_PICKER_DISPLAY_PREFIX_ENDS=() _ZLE_PICKER_INSPECT_SYNTAX=()
+  local _ZLE_PICKER_HEADER='' _ZLE_PICKER_TITLEBAR='' _ZLE_PICKER_SUBTITLE_ROW=''
+  local _ZLE_PICKER_QUERY_ROW='' _ZLE_PICKER_POSTDISPLAY=''
+  local -i _ZLE_PICKER_TITLEBAR_META_START=-1 _ZLE_PICKER_QUERY_START=0 _ZLE_PICKER_QUERY_END=0
   local -i _ZLE_PICKER_SESSION=1 _ZLE_PICKER_SCREEN_ACTIVE=0 result=0
   local saved_postdisplay=$POSTDISPLAY saved_buffer=$BUFFER saved_predisplay=$PREDISPLAY
   local saved_prompt=$PROMPT saved_rprompt=$RPROMPT
