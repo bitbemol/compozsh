@@ -140,7 +140,9 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
   navigation; broken links omit Open.
 - Copy closes after restoring the terminal, copies the literal absolute path,
   and preserves the original editable command and unrelated shell state; an
-  explicit directory change also preserves the draft.
+  explicit directory change also preserves the draft, and the prompt
+  recaptures its facts for the new folder before repainting
+  ([prompt](../prompt.md#project-and-runtime-context)).
   Capability hints come from captured facts, with a checked failure path if a
   tool disappears. Never launch applications to fill a panel.
 - A target that changed or became unavailable, or a vanished `open`, is

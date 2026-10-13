@@ -2613,9 +2613,10 @@ _prompt_context_observe() {
   _PROMPT_LAST_GIT_ATTENTION=$_PROMPT_GIT_ATTENTION
   _PROMPT_LAST_PROJECT_ATTENTION=$_PROMPT_PROJECT_ATTENTION
 
-  if [[ -n $reason ]]; then
+  # A manual pin already shows Context and is the user's choice: a trigger,
+  # such as an in-widget directory change, never turns it automatic.
+  if [[ -n $reason ]] && (( !_PROMPT_LENS_PINNED )); then
     _PROMPT_VIEW=lens
-    _PROMPT_LENS_PINNED=0
     _PROMPT_LENS_REASON=$reason
   fi
   return 0
@@ -2745,8 +2746,6 @@ _prompt_update() {
   emulate -L zsh
 
   local -F 3 elapsed=0
-  local env_name='' prompt_identity='' prompt_path='' title_path=''
-  local -i job_count=0
 
   _PROMPT_EXIT_SEGMENT=''
   _PROMPT_TIME_SEGMENT=''
@@ -2776,6 +2775,22 @@ _prompt_update() {
   if [[ -t 0 && -t 1 ]] && (( ${+functions[_compozsh_prompt_capture]} )); then
     _compozsh_prompt_capture
   fi
+
+  _prompt_capture_context
+}
+
+# Capture the local facts the prompt presents for the current folder and
+# environment: env, Git, identity and path, live jobs, project and runtime
+# context, the Context trigger, the layout and the window title. precmd runs it
+# through _prompt_update; the editor runs it after an explicit in-widget
+# directory change, so the snapshot never describes the previous folder.
+# Outcomes, receipts and the manual and help capture requests stay in precmd.
+_prompt_capture_context() {
+  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
+  emulate -L zsh
+
+  local env_name='' prompt_identity='' prompt_path='' title_path=''
+  local -i job_count=0
 
   _PROMPT_ENV_TEXT=''
   _PROMPT_ENV_KEY=''

@@ -1078,13 +1078,14 @@ _directory_browser_session() {
         result=$?
         (( result )) || outcome=''
       fi
-      [[ $runner == widget ]] && zle reset-prompt ;;
+      [[ $runner == widget ]] && _zle_prompt_directory_changed $result ;;
     (open|enter-link|directory)
       # directory: a search result captured as a folder, refused if now a link.
       (( ${+functions[_file_search_apply]} )) || return 4
       _file_search_apply "$action" "$selected_path" "$_directory_browser_clipboard" "$_directory_browser_open"
       result=$? outcome=$REPLY
-      [[ $runner == widget && $action != open ]] && zle reset-prompt ;;
+      [[ $runner == widget && $action != open ]] &&
+        _zle_prompt_directory_changed $result ;;
     (copy)
       (( ${+functions[_compozsh_effect_copy]} )) &&
         _compozsh_effect_copy "$selected_path" "$_directory_browser_clipboard" || return 4
@@ -1619,6 +1620,21 @@ _zle_prompt_toggle_widget() {
      _prompt_toggle_lens; then
     zle reset-prompt || :
   fi
+  return 0
+}
+
+# A workspace's explicit directory change (Change directory, Enter linked
+# directory) runs inside its widget after screen cleanup, so no precmd follows
+# before the next edit. Once it succeeds, recapture the prompt's folder facts so
+# the prompt and title never describe the previous folder; always repaint.
+# Usage: _zle_prompt_directory_changed <cd-status>
+_zle_prompt_directory_changed() {
+  emulate -L zsh
+
+  if [[ $1 == 0 ]] && (( ${+functions[_prompt_capture_context]} )); then
+    _prompt_capture_context
+  fi
+  zle reset-prompt || :
   return 0
 }
 

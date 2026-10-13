@@ -869,6 +869,9 @@ environment, Git operation or conflict state, or runtime attention state
 changes. Ordinary staged, modified, untracked, stash, ahead, and behind count
 changes still update the Git summary, but do not reopen the lens by themselves.
 Typing switches to the Interaction lens. There is no timer or polling loop.
+**Change directory** or **Enter linked directory** in the path workspace or
+Recents refreshes the folder, Git and toolchain facts and the tab title at
+once, keeping your draft.
 **Option-I** pins the lens while you edit; accepting a command clears the pin.
 Option-I needs [Option as Meta](#option-as-meta-one-time-setup); automatic
 triggers do not.

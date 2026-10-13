@@ -12,8 +12,9 @@ and the Command composer. Ownership: `.zsh.prompt` captures facts and renders;
   acceptance leaves a line (the receipt) in scrollback.
 - **Presentation, never a provider.** Lens derivation, morphing, pinning,
   transcript repaint and resize use only the literal buffer, bounded
-  editor-owned suggestion state and already captured facts: the `precmd`
-  snapshot, the asynchronously delivered manual catalog and the highlighter's
+  editor-owned suggestion state and already captured facts: the prompt
+  snapshot (captured at `precmd` and after an explicit in-widget directory
+  change), the asynchronously delivered manual catalog and the highlighter's
   shared directory observation. They
   launch no subprocess, read no files or project metadata, write nothing and
   make no network request.
@@ -55,10 +56,13 @@ and the Command composer. Ownership: `.zsh.prompt` captures facts and renders;
   height allow.
 - An automatic lens stays while `BUFFER` is empty. The first nonempty edit or
   paste replaces it with the Interaction lens and consumes the disclosure for
-  the current trigger fingerprint; emptying the buffer doesn't reopen it.
+  the current trigger fingerprint; emptying the buffer doesn't reopen it. A
+  trigger captured while a draft exists (after an in-widget directory change)
+  is consumed the same way at the next repaint.
 - Option-I maps to the `compozsh-context-lens` widget and toggles a pinned
   lens. A pinned lens survives editing, reserves a small live interaction
-  section that follows the buffer, and is cleared by accepting a command.
+  section that follows the buffer, and is cleared by accepting a command; a
+  trigger never unpins it.
 
 ## Interaction lens
 
@@ -207,7 +211,8 @@ short windows use bounded omission.
   Painting never changes command bytes, history insertion, output or the exit
   status the next prompt reports.
 - The terminal title, written only to a terminal whose `TERM` isn't `dumb`,
-  is `user@host: <current folder>` at each prompt and
+  is `user@host: <current folder>` at each prompt (and after an in-widget
+  directory change) and
   `user@host: <command word>` from `preexec` while a command runs. It is a
   second display of the draft, so the word is the first one after leading
   assignments in bounded lexical structure (512 characters lexed, 60 shown,
@@ -243,11 +248,18 @@ short windows use bounded omission.
 
 ## Project and runtime context
 
-- `precmd` is the fact-capture boundary. Detection uses bounded upward
-  searches, exact marker checks and shallow conventional directories (see
-  [performance](performance.md)); it never executes repository-local
-  wrappers, binaries, manifests or scripts, and resolves trusted installed
-  tools through `PATH`.
+- `precmd` is the fact-capture boundary, with one explicit addition: an
+  in-widget directory change. A filesystem workspace's Change directory or
+  Enter linked directory runs `cd` inside its widget after screen cleanup, so
+  no `precmd` follows before the next edit. Once it succeeds, the editor runs
+  the prompt's `_prompt_capture_context` (resolved at invocation) before
+  repainting, so the prompt and title never describe the previous folder. It
+  recaptures the same facts and title as `precmd`, keeps the draft, and adds
+  no outcome, receipt, history entry, manual or help capture request.
+- Detection uses bounded upward searches, exact marker checks and shallow
+  conventional directories (see [performance](performance.md)); it never
+  executes repository-local wrappers, binaries, manifests or scripts, and
+  resolves trusted installed tools through `PATH`.
 - Runtime support is an optional capability resolved at invocation; without
   it the prompt keeps project identity and tool markers. Don't duplicate
   probes or readers in prompt or UI peers. Reading external state is an

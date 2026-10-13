@@ -11,8 +11,10 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   derivation, repaint and resize launch no subprocess, touch no network, write
   no files and avoid unbounded scans; they reuse captured facts.
 - **Capture at defined boundaries.** `precmd` is the prompt's fact-capture
-  boundary; workspaces capture on entry or explicit refresh. Approved
-  background work is limited to the exceptions listed below.
+  boundary, repeated once after an explicit in-widget directory change
+  ([prompt](prompt.md#project-and-runtime-context)); workspaces capture on
+  entry or explicit refresh. Approved background work is limited to the
+  exceptions listed below.
 - **Startup budget.** On the reference Mac, isolated startup stays in the
   tens of milliseconds and should not exceed roughly 50 ms without a measured,
   justified tradeoff.

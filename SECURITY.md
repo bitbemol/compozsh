@@ -124,7 +124,7 @@ recoverable installer need local state.
 | Git Change atlas | View-scoped shell memory; released on return | Path-prefix groups, entry-count bars and bookmarks from the captured file list, staged/unstaged distinct. No discovery, bulk content read, saved atlas or new worker |
 | Git Tree / All files navigation | Current review's shell memory; released on review exit | Directory prefixes, folder summaries (change states, child areas, captured numstat) and expansion/filter/scope/selection state from the 1,000-entry/256-KiB list; ancestor choices at most 200 rows/262,144 prefix characters, with a partial notice. No discovery, saved preference or new worker |
 | Living prompt receipts | Ordinary terminal display and terminal-owned scrollback | A local `HH:MM` timestamp and the exact submitted command in each command receipt, plus status/duration in applicable outcome receipts; Compozsh writes no receipt log, and terminal retention follows the user's terminal settings |
-| Terminal title | The terminal's window/tab title, replaced at each prompt and each command start; display and retention follow the terminal and any multiplexer | `user@host: <current folder>` (home as `~`) at each prompt, and while a command runs `user@host: <command word>`: the first lexical word after leading assignments, at most 60 characters. Never an assignment value; the identity alone after an array assignment or when no command word is established. Controls sanitized; written only when standard output is a terminal and `TERM` is not `dumb` |
+| Terminal title | The terminal's window/tab title, replaced at each prompt, after an in-widget directory change and at each command start; display and retention follow the terminal and any multiplexer | `user@host: <current folder>` (home as `~`) at each prompt and after an in-widget directory change, and while a command runs `user@host: <command word>`: the first lexical word after leading assignments, at most 60 characters. Never an assignment value; the identity alone after an array assignment or when no command word is established. Controls sanitized; written only when standard output is a terminal and `TERM` is not `dumb` |
 | Prompt tool descriptions | Current-shell memory; cleared on shell exit or invalidation | At most 64 same-source command/help pairs; up to 262,144 characters of source/definition identity; 240-character summaries and option descriptions from at most 4,096 characters per guide plus the Touch ID subguide. No disk cache |
 | Git comparison choices and snapshots | View memory, released on view exit | At most 1,000 refs/256 KiB of names, kinds and object IDs; resolved endpoints, paths and bounded diff snapshots. No saved comparison catalog |
 | Git branch picker | Shell memory; catalog replaced on the next invocation or shell exit, details cleared on view exit | All local branch names (no count cap), ordered by current branch and up to 200 checkout reflog entries, then other refnames; details at most 262,144 characters across 401 refs, 512 per subject. No fetch, saved history or background refresh |
@@ -221,6 +221,12 @@ ZLE buffer using bounded Zsh lexical structure, without evaluation, expansion,
 target resolution or execution. They launch no process, read no
 provider/project/runtime/Git/filesystem data and write no file; ordinary
 `precmd` capture is the boundary that reads the local facts in this inventory.
+The one other prompt capture repeats it after an explicit in-widget directory
+change: when a Browse, Recents, Search or Draft inspector Files action
+(Change directory, Enter linked directory) succeeds, the editor runs the
+prompt's same fact capture and title update after screen cleanup and before
+repainting, so the prompt never describes the previous folder. It keeps the
+draft and records no outcome, receipt or history entry.
 This covers lens derivation and repaint, not the complete ZLE pre-redraw hook
 chain: the independent syntax highlighter keeps bounded filesystem checks for
 literal path tokens without evaluating substitutions or globs. READY keeps
@@ -230,7 +236,7 @@ vocabulary is specified in [the prompt contract](engineering/prompt.md).
 
 - Rows labeled `… TEXT`, including `ENDPOINT TEXT`, are sanitized,
   width-bounded buffer excerpts that do not prove a path, endpoint, query or
-  operation exists. Context rows reuse the prior `precmd` capture. `PIPELINE`
+  operation exists. Context rows reuse the latest prompt capture. `PIPELINE`
   (`FLOW`/`STAGES`) and `CHAIN` (`FLOW`/`STEPS`/`CONTROL`) summarize literal
   `&&`, `||`, `;` or `&` structure; `COMMENT` uses `COMMENT TEXT` and the
   advisory `likely remain an interactive shell comment`; `REDIRECT` selects
@@ -381,11 +387,12 @@ template companions in navigation and tools, and the editor/help handoffs.
 ### Runtime and project context
 
 The runtime functions in `.zsh.addons/support/functions/` run only at the
-prompt's existing fact-capture boundary. Loading them defines functions and
-shell-memory data only: it inspects no project, probes no executable, installs
-no toolchain and registers no background task. Numeric comparison consumes
-supplied strings, separately from metadata observation. README's **Project and
-runtime context** section documents the sources and precedence. Besides simple
+prompt's fact capture (`precmd`, or after an in-widget directory change).
+Loading them defines functions and shell-memory data only: it inspects no
+project, probes no executable, installs no toolchain and registers no
+background task. Numeric comparison consumes supplied strings, separately
+from metadata observation. README's **Project and runtime context** section
+documents the sources and precedence. Besides simple
 version files and `.tool-versions`, readers recognize literal Rust toolchain
 TOML, Go `go.work`/`go.mod` minima, Swift's first-line tools minimum, Cargo's
 package Rust minimum and Python's project version range. No manifest is sourced,
@@ -1599,14 +1606,18 @@ git show HEAD:.zsh.addons/.zsh.editor
 zsh tests/run.zsh 'living prompt'
 ```
 
-Read the ordinary `precmd` fact capture, the bounded Context trigger
-fingerprint, the private compact/lens/transcript modes, the Context/Interaction
-renderers, and the editor peer's line-init/pre-redraw/line-finish transitions
-and `compozsh-context-lens` Option-I widget. The tests check that READY,
-operation-specific, advisory, assignment-value, autosuggestion, pin,
-transcript and resize behavior preserve the exact ZLE buffer, replace
-providers and executables with sentinels to keep Interaction edits inert, and
-instrument provider calls in a resize PTY.
+Read the ordinary `precmd` fact capture and its repeat after an in-widget
+directory change, the bounded Context trigger fingerprint, the private
+compact/lens/transcript modes, the Context/Interaction renderers, and the
+editor peer's line-init/pre-redraw/line-finish transitions, post-cleanup
+directory-change recapture and `compozsh-context-lens` Option-I widget. The
+tests check that READY, operation-specific, advisory, assignment-value,
+autosuggestion, pin, transcript and resize behavior preserve the exact ZLE
+buffer, replace providers and executables with sentinels to keep Interaction
+edits inert, and instrument provider calls in a resize PTY. They also check
+that Change directory and Enter linked directory recapture the new folder's
+facts and title while keeping the draft and a manual pin, without a `precmd`
+or history entry.
 
 Audit alias previews and manual capture without reading private shell settings:
 
@@ -1715,7 +1726,7 @@ server.
 | --- | --- |
 | Appearance, contrast and plain output | `appearance` |
 | Shared screens and native ZLE cleanup | `UI`, `picker screen` |
-| Living prompt buffer preservation and inert edits | `living prompt` |
+| Living prompt buffer preservation, inert edits and the in-widget directory-change recapture | `living prompt` |
 | Terminal title without assignment values | `running-command title` |
 | Display control sanitization, including UTF-8-encoded C1 in every locale | `sanitiz`, `encoded C1` |
 | READY toolchains without extra reads or probes | `runtime prompt` |

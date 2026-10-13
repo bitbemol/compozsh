@@ -599,3 +599,188 @@ source ${(q)alone}/observer.zsh
 }
 test_case 'editor removes its unaccepted autosuggestion at every line finish, including continuation lines and prompt-less installs' \
   _test_editor_autosuggestion_line_finish_everywhere
+
+# An explicit in-widget directory change is a fact-capture boundary: after
+# Browse's Change directory the captured facts, the repainted prompt and the
+# window title describe the new folder and its repository. The draft stays,
+# and no precmd, receipt or history entry is produced.
+_test_living_prompt_recaptures_after_browse_change_directory() {
+  test_make_temp_dir || return
+  # Resolve /var to /private/var: the shell computes PWD physically.
+  local home="${TEST_TMP_DIR:A}/home" target="${TEST_TMP_DIR:A}/home/work/target-dir"
+  local output=''
+
+  command mkdir -p -- "$home/.zsh.addons/private" "$target" || return
+  command ln -s "$TEST_REPO_ROOT/.zshrc" "$home/.zshrc" || return
+  test_write_file "$target/notes.txt" '' || return
+  command git init -q "$target" || return
+  command git -C "$target" config user.name 'Zsh Tests' || return
+  command git -C "$target" config user.email 'zsh-tests.invalid@example.invalid' || return
+  command git -C "$target" add notes.txt || return
+  command git -C "$target" commit -qm baseline || return
+  command git -C "$target" branch -M browse-target || return
+  command mkfifo "$home/events" || return
+  test_write_file "$home/.zsh.addons/local/init.zsh" 'HISTFILE=/dev/null' || return
+  test_write_file "$home/.zsh.addons/private/.zsh.recapture-observer" '
+typeset -gi _RECAPTURE_TEST_FD=0
+exec {_RECAPTURE_TEST_FD}<> "$HOME/events" || return 1
+_recapture_test_emit() { print -r -u $_RECAPTURE_TEST_FD -- "$1"; }
+_recapture_test_ready() { _recapture_test_emit "READY|$PWD"; }
+_recapture_test_chpwd() { _recapture_test_emit "CHPWD|$PWD"; }
+precmd_functions+=(_recapture_test_ready)
+chpwd_functions+=(_recapture_test_chpwd)
+functions[_recapture_test_show]=$functions[_zle_picker_show]
+_zle_picker_show() {
+  _recapture_test_show "$@"
+  local -i show_status=$?
+  _recapture_test_emit "FRAME|$_ZLE_PICKER_TITLE|$_ZLE_PICKER_QUERY"
+  return $show_status
+}
+_recapture_test_probe() {
+  local rendered=""
+  print -P -v rendered -r -- "$PROMPT"
+  _recapture_test_emit "PROBE|$PWD|$_PROMPT_FULL_PATH_TEXT|$_PROMPT_GIT_BRANCH_TEXT|$BUFFER|${#history}|${(V)rendered}"
+}
+zle -N recapture-test-probe _recapture_test_probe
+bindkey "^X^Z" recapture-test-probe
+_recapture_test_emit SOURCE
+:' || return
+
+  output=$(test_run_interactive "$home" '
+    export LC_ALL=en_US.UTF-8
+    setopt EXTENDED_GLOB
+    source "$1/tests/pty_support.zsh" || exit 1
+    exec {event_fd}<> "$HOME/events" || exit 2
+    local event="" trace="" chunk="" after="" painted=""
+    local -a events=() fields=() later=()
+    local -i trace_start=0 events_start=0
+
+    _recapture_driver() {
+      builtin cd -- "$HOME/work" || return 1
+      command stty rows 30 cols 120
+      exec env -i PATH="$PATH" HOME="$HOME" ZDOTDIR="$HOME" \
+        TERM=xterm-256color TMPDIR="${TMPDIR:-/tmp}" LC_ALL=en_US.UTF-8 \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 "$1" -di
+    }
+    _recapture_expect() {
+      { test_pty_expect -p recapture $event_fd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+        events+=("${TEST_PTY_EVENTS[@]}")
+        (( ${#TEST_PTY_EVENTS} )) && event=${TEST_PTY_EVENTS[-1]}
+      }
+    }
+
+    test_pty_start recapture _recapture_driver "$2" || exit 3
+    {
+      _recapture_expect SOURCE || exit 4
+      _recapture_expect "READY|$HOME/work" || exit 5
+      zpty -w -n recapture ./
+      zpty -w -n recapture $'"'"'\t'"'"'
+      _recapture_expect "FRAME|Directory browser|" || exit 6
+      zpty -w -n recapture $'"'"'\x18'"'"'
+      _recapture_expect "FRAME|Folder actions|" || exit 7
+      zpty -w -n recapture "change dir"
+      _recapture_expect "FRAME|Folder actions|change dir" || exit 8
+      trace_start=${#trace} events_start=${#events}
+      zpty -w -n recapture $'"'"'\r'"'"'
+      _recapture_expect "CHPWD|$HOME/work/target-dir" || exit 9
+      zpty -w -n recapture $'"'"'\x18\x1a'"'"'
+      _recapture_expect "PROBE|" || exit 10
+      while zpty -r recapture chunk; do trace+=$chunk; done
+
+      fields=("${(@s:|:)event}")
+      [[ $fields[2] == "$HOME/work/target-dir" && $fields[5] == ./ && $fields[6] == 0 ]] || {
+        print -u2 -r -- "Change directory lost the draft or wrote history: $event"
+        exit 11
+      }
+      [[ $fields[3] == "~/work/target-dir" && $fields[4] == browse-target ]] || {
+        print -u2 -r -- "living prompt kept the previous folder facts: $event"
+        exit 12
+      }
+      painted=${(j:|:)fields[7,-1]}
+      painted=${painted//\^\[\[[0-9;]#m/}
+      [[ $painted == *"~/work/target-dir"* ]] || {
+        print -u2 -r -- "rendered prompt names the previous folder: $painted"
+        exit 13
+      }
+      later=("${(@)events[$(( events_start + 1 )),-1]}")
+      (( ${#${(M)later:#READY|*}} == 0 )) || {
+        print -u2 -r -- "the directory change ran precmd: ${(j:; :)later}"
+        exit 14
+      }
+      after=${trace[$(( trace_start + 1 )),-1]}
+      [[ $after == *$'"'"'\e]0;'"'"'*": ~/work/target-dir"$'"'"'\a'"'"'* ]] || {
+        print -u2 -r -- "window title still names the previous folder: ${(V)after[-600,-1]}"
+        exit 15
+      }
+      # Screen cleanup repaints before the action; the last frame must be new.
+      after=${after//$'"'"'\e]0;'"'"'[^$'"'"'\a'"'"']#$'"'"'\a'"'"'/}
+      after=${after//$'"'"'\e['"'"'[0-9;?]#[A-Za-z]/}
+      painted=${after##*╭─}
+      [[ $painted == *"~/work/target-dir"* && $painted == *browse-target* &&
+         $painted != *" ~/work"$'"'"'\r'"'"'* ]] || {
+        print -u2 -r -- "repainted prompt names the previous folder: ${(V)after[-600,-1]}"
+        exit 16
+      }
+    } always {
+      zpty -d recapture 2>/dev/null
+      exec {event_fd}>&-
+    }
+    print -r -- recaptured
+  ' "$TEST_REPO_ROOT" "$TEST_ZSH_BIN") || return
+  test_assert_equal recaptured "$output"
+}
+test_case 'living prompt recaptures directory facts after a Browse Change directory action' \
+  _test_living_prompt_recaptures_after_browse_change_directory
+
+# Following a directory link is the same boundary. A manual pin survives it:
+# only accepting a command clears a pinned Context lens.
+_test_living_prompt_recaptures_after_entering_a_link() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" repo="$TEST_TMP_DIR/home/repos/linked-repo"
+  local output=''
+
+  command mkdir -p -- "$repo" "$home/links" || return
+  test_write_file "$repo/notes.txt" '' || return
+  command git init -q "$repo" || return
+  command git -C "$repo" config user.name 'Zsh Tests' || return
+  command git -C "$repo" config user.email 'zsh-tests.invalid@example.invalid' || return
+  command git -C "$repo" add notes.txt || return
+  command git -C "$repo" commit -qm baseline || return
+  command git -C "$repo" branch -M link-target || return
+  command ln -s ../repos/linked-repo "$home/links/linked-dir" || return
+
+  output=$(test_run_interactive "$home" '
+    source "$1/.zshrc"
+    builtin cd -- "$HOME/links" || exit 1
+    true; _prompt_update
+    [[ $_PROMPT_FULL_PATH_TEXT == "~/links" && -z $_PROMPT_GIT_BRANCH_TEXT ]] || exit 2
+    _prompt_toggle_lens || exit 3
+    [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED == 1 ]] || exit 4
+    local -i refreshed=0
+    _zle_picker_screen_session() {
+      _ZLE_PICKER_ACTION=enter-link
+      _ZLE_PICKER_SELECTED_VALUE="$HOME/links/linked-dir"
+    }
+    zle() { [[ $1 == reset-prompt ]] && (( ++refreshed )); return 0; }
+    BUFFER=draft
+    _directory_browser_session ./ insert widget browse || exit 5
+    [[ $PWD == "$HOME/links/linked-dir" && $BUFFER == draft && $refreshed == 1 ]] || exit 6
+    [[ $_PROMPT_FULL_PATH_TEXT == "~/links/linked-dir" &&
+       $_PROMPT_GIT_BRANCH_TEXT == link-target ]] || {
+      print -u2 -r -- "living prompt kept the previous folder facts: $_PROMPT_FULL_PATH_TEXT|$_PROMPT_GIT_BRANCH_TEXT"
+      exit 7
+    }
+    [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED == 1 ]] || {
+      print -u2 -r -- "the directory change cleared a manual pin: $_PROMPT_VIEW|$_PROMPT_LENS_PINNED"
+      exit 8
+    }
+    local rendered=""
+    print -P -v rendered -r -- "$PROMPT"
+    [[ $rendered == *"~/links/linked-dir"* && $rendered == *link-target* ]] || exit 9
+    print -r -- recaptured
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal recaptured "$output"
+}
+test_case 'living prompt recaptures directory facts after following a directory link and keeps a manual pin' \
+  _test_living_prompt_recaptures_after_entering_a_link
