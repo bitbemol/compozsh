@@ -29,6 +29,7 @@ _test_xcode_log_native_scope() {
   test_write_file "$TEST_TMP_DIR/home/bin/xcrun" '#!/bin/zsh -df
 if [[ $2 == get_app_container ]]; then
   [[ $3 == SIM-456 && $4 == com.example.app && $5 == app ]] || exit 91
+  print -r -- "${SIMCTL_CHILD_LOGRC-unset}|${SIMCTL_CHILD_NSUnbufferedIO-unset}" >> "$HOME/metadata-env"
   print -r -- "$HOME/app with spaces.app"
 elif [[ $2 == spawn ]]; then
   print -r -- "${(j:|:)@}" > "$HOME/log-call"
@@ -41,7 +42,11 @@ elif [[ $2 == spawn ]]; then
 else
   exit 92
 fi' || return
-  command chmod +x "$TEST_TMP_DIR/home/bin/xcrun" "$TEST_TMP_DIR/home/app with spaces.app/Example" || return
+  test_write_file "$TEST_TMP_DIR/home/bin/plutil" '#!/bin/zsh -df
+print -r -- "${SIMCTL_CHILD_LOGRC-unset}|${SIMCTL_CHILD_NSUnbufferedIO-unset}" >> "$HOME/metadata-env"
+exec /usr/bin/plutil "$@"' || return
+  command chmod +x "$TEST_TMP_DIR/home/bin/xcrun" "$TEST_TMP_DIR/home/bin/plutil" \
+    "$TEST_TMP_DIR/home/app with spaces.app/Example" || return
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     path=("$HOME/bin" $path); rehash
     export TMPDIR=$HOME SCENARIO=ready
@@ -57,6 +62,9 @@ fi' || return
     _xcode_run_logs_start SIM-456 com.example.app || { print -u2 "logger failed to start"; exit 2; }
     [[ $_xcode_run_unified_status == following && $_xcode_run_logger -gt 1 && $_xcode_run_unified_fd -ge 0 ]] || exit 3
     [[ $(<"$HOME/log-env") == /dev/null\|YES ]] || exit 4
+    # Metadata reads before the stream never receive its child environment.
+    [[ $(<"$HOME/metadata-env") == unset\|unset$'\''\n'\''unset\|unset ]] || {
+      print -u2 -r -- "metadata env: $(<"$HOME/metadata-env")"; exit 9; }
     local calls=$(<"$HOME/log-call")
     [[ $calls == "simctl|spawn|SIM-456|log|stream|--predicate|processImagePath == \"${HOME:A}/app with spaces.app/Example\"|--level|debug|--style|compact|--color|none" ]] || { print -u2 -- "$calls"; exit 5; }
     local logger=$_xcode_run_logger
@@ -75,7 +83,7 @@ fi' || return
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal scoped "$output"
 }
-test_case 'Xcode Logger capture prefilters the exact executable disables logrc and reaps its child' _test_xcode_log_native_scope
+test_case 'Xcode Logger capture prefilters the exact executable disables logrc only for its child and reaps it' _test_xcode_log_native_scope
 
 _test_xcode_log_fairness_and_independent_closure() {
   test_make_temp_dir || return

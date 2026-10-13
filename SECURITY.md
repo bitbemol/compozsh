@@ -893,8 +893,10 @@ the app reaches as `/tmp/compozsh-xcode-run.*/output`, a path `simctl`
 resolves in the device's data filesystem, and cleanup reuses the
 captured host path. `--terminate-running-process` replaces the running bundle
 and binds its new process to this run's output FIFO;
-`SIMCTL_CHILD_NSUnbufferedIO=YES` affects only that child, not the shell or log
-privacy. Launch metadata uses the temporary capture boundary; app output never
+`SIMCTL_CHILD_NSUnbufferedIO=YES` is exported only for the launch and the
+log-stream spawn, so only the app and its log process get `NSUnbufferedIO=YES`;
+the shell, `ps`, LLDB, stopping and log privacy are unaffected. Launch metadata
+uses the temporary capture boundary; app output never
 serves as a PID or command. `ps` reads the launch-returned PID's user, start
 time and executable identity, rechecked before attaching or stopping; this
 cannot be atomic against exit or replacement. The window opens through the
@@ -1619,6 +1621,8 @@ Audit Simulator and device monitoring without launching Xcode or a real app:
 ```sh
 git show HEAD:.zsh.addons/.zsh.xcode
 zsh tests/run.zsh 'Xcode run'
+zsh tests/run.zsh 'Xcode Logger'
+zsh tests/run.zsh 'Xcode logs'
 zsh tests/run.zsh 'Xcode monitor'
 zsh tests/run.zsh 'Xcode device monitor'
 zsh tests/run.zsh 'log reader'

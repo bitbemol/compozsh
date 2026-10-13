@@ -449,8 +449,10 @@ _test_xcode_run_lifecycle() {
   test_make_temp_dir || return
   local fake_bin="$TEST_TMP_DIR/bin" output
   command mkdir -p "$TEST_TMP_DIR/home/simulator data/tmp" || return
+  # Each child records whether the launch-only variable reached it.
   test_write_file "$fake_bin/xcrun" '#!/bin/zsh -df
 print -r -- "${(j:|:)@}" >> "$HOME/calls"
+print -r -- "xcrun|$1|$2|${SIMCTL_CHILD_NSUnbufferedIO-unset}" >> "$HOME/child-env"
 if [[ $2 == getenv ]]; then print -r -- "$HOME/simulator data"; exit; fi
 if [[ $1 == --find ]]; then print -r -- "$HOME/bin/lldb"; exit; fi
 if [[ $2 == launch ]]; then
@@ -464,9 +466,11 @@ if [[ $2 == launch ]]; then
   print -r -- "com.example.app: 12345"
 fi' || return
   test_write_file "$fake_bin/ps" '#!/bin/zsh -df
+print -r -- "ps|${SIMCTL_CHILD_NSUnbufferedIO-unset}" >> "$HOME/child-env"
 [[ ! -e $HOME/replaced ]] && print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
   test_write_file "$TEST_TMP_DIR/home/bin/lldb" '#!/bin/zsh -df
 print -r -- "lldb|${(j:|:)@}" >> "$HOME/calls"
+print -r -- "lldb|${SIMCTL_CHILD_NSUnbufferedIO-unset}" >> "$HOME/child-env"
 exit 23' || return
   command chmod +x "$fake_bin/"* "$TEST_TMP_DIR/home/bin/lldb" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
@@ -497,9 +501,17 @@ exit 23' || return
   test_assert_contains "$calls" 'simctl|terminate|SIM-456|com.example.app' || return
   test_assert_contains "$calls" 'lldb|--no-lldbinit|--source-quietly|--one-line-before-file|settings set target.load-script-from-symbol-file false|--no-use-colors|--attach-pid|12345' || return
   local -a lldb_calls=("${(@M)${(f)calls}:#lldb|*}")
-  (( ${#lldb_calls} == 1 )) || test_fail 'LLDB attached after process identity changed'
+  (( ${#lldb_calls} == 1 )) || test_fail 'LLDB attached after process identity changed' || return
+  local -a child_env=("${(@f)$(<"$TEST_TMP_DIR/home/child-env")}")
+  local child=''
+  test_assert_equal $'xcrun|simctl|launch|YES\nxcrun|simctl|launch|YES\nxcrun|simctl|launch|YES' \
+    "${(pj:\n:)${(@M)child_env:#*|YES}}" 'NSUnbufferedIO reached a child other than the Simulator launch' || return
+  for child in 'xcrun|simctl|getenv|unset' 'xcrun|simctl|terminate|unset' \
+    'xcrun|--find|lldb|unset' 'ps|unset' 'lldb|unset'; do
+    (( ${child_env[(Ie)$child]} )) || test_fail "missing isolated child record: $child" || return
+  done
 }
-test_case 'Xcode run stops exact target and hands off LLDB after screen cleanup' _test_xcode_run_lifecycle
+test_case 'Xcode run stops exact target exports NSUnbufferedIO only to the launch and hands off LLDB after screen cleanup' _test_xcode_run_lifecycle
 
 # Device flags belong to the device console. A Simulator run scopes them too,
 # so its shared readers never evaluate a same-named inherited variable.

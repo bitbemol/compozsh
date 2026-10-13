@@ -1410,7 +1410,7 @@ _xcode_run_logs_start() {
   unsetopt BG_NICE NOTIFY
   local identifier=$1 bundle=$2 app='' executable='' predicate='' chunk='' header=''
   local -i attempt=0 read_status=0
-  local -x SIMCTL_CHILD_LOGRC=/dev/null SIMCTL_CHILD_NSUnbufferedIO=YES LC_ALL=C
+  local -x LC_ALL=C
   _xcode_run_unified_status=unavailable
   zmodload zsh/parameter || return 1
   _xcode_capture_command xcrun simctl get_app_container "$identifier" "$bundle" app || return 1
@@ -1433,8 +1433,10 @@ _xcode_run_logs_start() {
   sysopen -r -o nonblock,cloexec -u _xcode_run_unified_fd "$_xcode_run_unified_fifo" || return 1
   # This invocation's producer owns no terminal job. simctl forwards termination
   # to its spawned log process; the caller stops and reaps it before closing FIFO.
+  # Only this child receives the guest environment (no .logrc, unbuffered).
   unsetopt MONITOR
-  command xcrun simctl spawn "$identifier" log stream --predicate "$predicate" \
+  SIMCTL_CHILD_LOGRC=/dev/null SIMCTL_CHILD_NSUnbufferedIO=YES \
+    command xcrun simctl spawn "$identifier" log stream --predicate "$predicate" \
     --level debug --style compact --color none > "$_xcode_run_unified_fifo" 2>/dev/null &
   _xcode_run_logger=$!
   # Native header observation avoids launching before the stream even starts.
@@ -2297,9 +2299,10 @@ _xcode_run_live() {
     # Keep an initial writer until simctl has opened the app's output handles.
     sysopen -w -o nonblock,cloexec -u writer "$_xcode_run_fifo" || return 1
     _xcode_run_logs_start "$identifier" "$bundle" || _xcode_run_logs_stop
-    local -x SIMCTL_CHILD_NSUnbufferedIO=YES
-    _xcode_capture_command xcrun simctl launch "--stdout=$guest_fifo" \
-      "--stderr=$guest_fifo" --terminate-running-process "${launch_arguments[@]}" "$identifier" "$bundle" || {
+    # Export the guest variable for the launch only, not later ps, LLDB or stop.
+    SIMCTL_CHILD_NSUnbufferedIO=YES _xcode_capture_command xcrun simctl launch \
+      "--stdout=$guest_fifo" "--stderr=$guest_fifo" --terminate-running-process \
+      "${launch_arguments[@]}" "$identifier" "$bundle" || {
       result=$?
       print -u2 -r -- "xcode: ${(V)_XCODE_CAPTURE_ERROR}"
       return $result
