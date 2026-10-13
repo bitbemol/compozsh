@@ -131,6 +131,7 @@ recoverable installer need local state.
 | Known remote branch fallback | Invocation memory until `g` returns; tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB, and 128 remote names / 32 KiB; no remote URLs. No fetch, pull or disk cache |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
+| External device captures | Invocation memory; released when `external-device --flash` or `--format` returns | Image and installer paths and stat identities, an optional user-supplied checksum and computed digests, disk identifiers, media names, sizes, protocols and device-tree paths, the filesystem catalog, and the writer's stage, byte counts and native error text that can name the image or device. Its files are the [external media temporary files](#external-media-temporary-files) |
 | Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, progress, read-back, GPT headers and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
@@ -1161,11 +1162,14 @@ process.
 
 ### External media temporary files
 
-`external-device` keeps its captures in shell memory except for these
+`external-device` keeps its captures in invocation memory, released when the
+flash or format task returns, except for these
 `/usr/bin/mktemp` names directly beneath `${TMPDIR:-/tmp}`, created as mode
 `0600` files or `0700` directories owned by the invoking user. Privileged
 output reaches them only through redirections opened by that user's shell; no
-`sudo` command receives a temporary path.
+`sudo` command receives a temporary path. `zsh tests/run.zsh 'USB invocation state'`
+checks that every `_USB_*` shell parameter is back to its load-time value after
+leaving `--flash` or `--format` at drive selection and after a failed write.
 
 | Name | Created during | Contents and bounds |
 | --- | --- | --- |
@@ -1741,6 +1745,7 @@ server.
 | Task routing and external-device modes | `task families`, `USB verification progress` |
 | USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds`, `backup GPT entry` |
 | External media writes, read-back and temporary files | `USB raw`, `USB verification`, `USB temporary`, `ISO inspection`, `external-media temporary` |
+| External device captures released when the task returns | `USB invocation state` |
 | Apple signature before `createinstallmedia` runs as root | `USB Apple signature boundary`, `USB macOS` |
 | Touch ID policy in unprivileged fixtures | `sudo Touch ID` |
 

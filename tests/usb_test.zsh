@@ -3734,6 +3734,132 @@ _test_usb_format_catalog_failure_is_not_a_cancel() {
 test_case 'USB format catalog failure is reported, not treated as cancel' \
   _test_usb_format_catalog_failure_is_not_a_cancel
 
+# Disk identity, image identity and writer diagnostics last only as long as
+# the external-device invocation: afterwards every _USB_* parameter is back to
+# its load-time value, whether the user leaves at Step 2 or a write fails.
+_test_usb_invocation_state_ends_when_external_device_returns() {
+  test_make_temp_dir || return
+  local image="$TEST_TMP_DIR/media/compozsh-invocation.img" output='' snapshot=''
+  # 65,535 bytes plus the trailing newline: one 64 KiB, 512-byte-aligned image.
+  test_write_file "$image" "${(l:65535::x:)}" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset" || exit
+    for usb_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do
+      source "$usb_component" || exit
+    done
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw" || exit
+    TMPDIR=$HOME
+    image=$2 scenario=escape
+    sentinel_name="Sentinel Private Stick" sentinel_tree="IODeviceTree:/sentinel/usb@1"
+    sentinel_path="$HOME/Sentinel/private-name.img"
+    checksum=$(command /usr/bin/shasum -a 256 < "$image") checksum=${checksum%% *}
+    list_plist="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>AllDisks</key><array><string>disk9</string></array></dict></plist>"
+    info_plist="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>DeviceIdentifier</key><string>disk9</string><key>TotalSize</key><integer>64023257088</integer><key>DeviceBlockSize</key><integer>512</integer><key>MediaName</key><string>$sentinel_name</string><key>BusProtocol</key><string>USB</string><key>Internal</key><false/><key>VirtualOrPhysical</key><string>Physical</string><key>WholeDisk</key><true/><key>WritableMedia</key><true/><key>DeviceTreePath</key><string>$sentinel_tree</string></dict></plist>"
+    _usb_diskutil_run() {
+      case "$*" in
+        ("list -plist external physical") print -r -- "$list_plist" ;;
+        ("info -plist /dev/disk9") print -r -- "$info_plist" ;;
+        (*) print -r -- "unexpected-diskutil:$*" >> "$HOME/trace"; return 1 ;;
+      esac
+    }
+    _matching_compile() { :; }
+    # Step 2 captures the drives; Escape or a selection follows. Later screens
+    # run their real controller.
+    _zle_picker_run() {
+      case $5 in
+        (_usb_workspace_controller)
+          _usb_external_disks_capture 1 "" raw-image || return 2
+          print -r -- "captured:flash:${(j:,:)_USB_DISK_IDS}" >> "$HOME/trace"
+          [[ $scenario == write ]] || return 1
+          _usb_workspace_request flash-verify 1 1 "${_USB_IMAGE_PATHS[1]}" disk9 "" \
+            raw-image "$checksum" 256 matched
+          return 0 ;;
+        (_usb_format_workspace_controller)
+          _usb_external_disks_capture 1 "" format || return 2
+          print -r -- "captured:format:${(j:,:)_USB_DISK_IDS}" >> "$HOME/trace"
+          return 1 ;;
+        (*) "$5" ;;
+      esac
+    }
+    # Every device, privilege and terminal effect is a stand-in.
+    _usb_confirm() { return 0; }
+    _usb_authorize() { return 0; }
+    _usb_authorization_valid() { return 0; }
+    _usb_unmount() { return 0; }
+    _usb_eject() { return 0; }
+    _usb_dd_run() { print -r -- unexpected-dd >> "$HOME/trace"; return 1; }
+    _usb_dd_read_run() { print -r -- unexpected-dd-read >> "$HOME/trace"; return 1; }
+    _usb_diskutil_erase_run() { print -r -- unexpected-erase >> "$HOME/trace"; return 1; }
+    _usb_hdiutil_detach() { print -r -- unexpected-detach >> "$HOME/trace"; return 1; }
+    _usb_raw_write_session_run() {
+      print -u2 -r -- compozsh-write-stage:verify
+      print -u2 -r -- "dd: $sentinel_path: Input/output error"
+      return 1
+    }
+    _usb_media_result_screen() {
+      print -r -- "result:$1:$2:$_USB_RESULT_VERIFY_REASON" >> "$HOME/trace"
+    }
+    _usb_state_snapshot() {
+      local name=""
+      for name in ${(ok)parameters[(I)_USB_*]}; do
+        print -r -- "$name ${parameters[$name]}=${(j: :)${(@qq)${(@P)name}}}"
+      done
+    }
+    _invocation_fixture() {
+      _usb_state_snapshot >| "$HOME/baseline"
+      external-device --flash "$image" 2>> "$HOME/errors"
+      print -r -- "flash-escape:$?" >> "$HOME/trace"
+      _usb_state_snapshot >| "$HOME/after-flash-escape"
+      external-device --format 2>> "$HOME/errors"
+      print -r -- "format-escape:$?" >> "$HOME/trace"
+      _usb_state_snapshot >| "$HOME/after-format-escape"
+      scenario=write
+      external-device --flash "$image" 2>> "$HOME/errors"
+      print -r -- "flash-write:$?" >> "$HOME/trace"
+      _usb_state_snapshot >| "$HOME/after-flash-write"
+      print -r -- END-USB-INVOCATION
+    }
+    source "$1/tests/pty_support.zsh" || exit 2
+    local captured=""
+    test_pty_start usb-invocation _invocation_fixture || exit 3
+    {
+      test_pty_expect usb-invocation "" END-USB-INVOCATION 30
+      captured=$TEST_PTY_OUTPUT
+    } always {
+      zpty -d usb-invocation 2>/dev/null
+    }
+    [[ $captured == *END-USB-INVOCATION* ]] || exit 4
+    print -r -- "trace:${(j:,:)${(f)$(<"$HOME/trace")}}"
+    local -a baseline=("${(@f)$(<"$HOME/baseline")}") current=() added=() removed=()
+    local -a known=("${(@M)baseline:#(_USB_INFO_NAME|_USB_WRITE_ERROR) *}")
+    print -r -- "baseline-entries:${#known}"
+    for snapshot in after-flash-escape after-format-escape after-flash-write; do
+      current=("${(@f)$(<"$HOME/$snapshot")}")
+      added=(${current:|baseline}) removed=(${baseline:|current})
+      print -r -- "${snapshot}:added:${(j:;:)added}"
+      print -r -- "${snapshot}:removed:${(j:;:)removed}"
+    done
+    print -r -- end-of-snapshots
+  ' "$TEST_REPO_ROOT" "$image") || return
+
+  test_assert_contains "$output" \
+    'trace:captured:flash:disk9,flash-escape:0,captured:format:disk9,format-escape:0,captured:flash:disk9,result:raw-image:6:drive-read-failed,flash-write:6' \
+    'the external-device fixture did not capture the drive and fail the write as staged' || return
+  test_assert_contains "$output" 'baseline-entries:2' \
+    'the parameter snapshot did not see the load-time USB globals' || return
+  for snapshot in after-flash-escape after-format-escape after-flash-write; do
+    test_assert_contains "$output" $'\n'"${snapshot}:added:"$'\n' \
+      "external-device left new or changed USB state after $snapshot" || return
+    test_assert_contains "$output" $'\n'"${snapshot}:removed:"$'\n' \
+      "external-device removed or changed load-time USB state after $snapshot" || return
+  done
+  [[ $output != *[Ss]entinel* ]] ||
+    test_fail "a captured disk name, device-tree path or writer error outlived external-device: ${(qqq)output}"
+}
+test_case 'USB invocation state ends when external-device returns' \
+  _test_usb_invocation_state_ends_when_external_device_returns
+
 _test_usb_volume_name_validation_is_format_aware() {
   test_make_temp_dir || return
   local output=''
