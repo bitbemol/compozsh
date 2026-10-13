@@ -49,7 +49,9 @@ assertion rule.
 - `tests/run.zsh` sources every regular `tests/*_test.zsh`. Each file registers
   functions with `test_case '<description>' <function>`; every test runs in its
   own subshell with `ERR_RETURN` and a validated temp-dir cleanup trap, so
-  variables, options, directories, functions and traps never leak.
+  variables, options, directories, functions and traps never leak. `INT` or
+  `TERM` cleans up and then ends the test by that signal, even mid-wait, so it
+  fails instead of continuing without its directory; Ctrl-C stops the run.
 - `zsh tests/run.zsh 'fragment'` selects tests whose descriptions contain the
   case-insensitive fragment. The runner prints `PASS`/`FAIL` lines and a
   summary, and exits nonzero when anything fails.

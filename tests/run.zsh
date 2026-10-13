@@ -31,7 +31,7 @@ unset test_file
   exit 1
 }
 
-zmodload zsh/datetime
+zmodload zsh/datetime zsh/system
 typeset -F suite_started=$EPOCHREALTIME
 typeset -i passed=0 failed=0 selected=0 index=0
 typeset -i test_status=0
@@ -43,10 +43,15 @@ for (( index = 1; index <= ${#TEST_CASE_FUNCTIONS}; ++index )); do
   [[ -z $TEST_FILTER || ${name:l} == *"${TEST_FILTER:l}"* ]] || continue
   (( ++selected ))
 
+  # A signalled test cleans up, then dies of the same signal: a trap-level exit
+  # would wait for a blocking read or nested shell, and returning would continue
+  # the test without its directory. The runner reports it as failed.
   (
     setopt ERR_RETURN
     TEST_TMP_DIR=''
-    trap 'test_cleanup_temp' EXIT INT TERM
+    trap 'test_cleanup_temp' EXIT
+    trap 'test_cleanup_temp; builtin trap - INT; builtin kill -INT ${sysparams[pid]}' INT
+    trap 'test_cleanup_temp; builtin trap - TERM; builtin kill -TERM ${sysparams[pid]}' TERM
     "$function_name"
   )
   test_status=$?

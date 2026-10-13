@@ -24,6 +24,74 @@ test_case "unhandled assertion failure" _test_deliberately_masked_failure
 test_case 'test runner cannot mask an unhandled failed assertion' \
   _test_runner_cannot_mask_failed_assertion
 
+# A signalled test must stop after its cleanup, even while it waits on a nested
+# shell, and fail; it must not continue without its temporary directory.
+_test_runner_ends_signalled_test() {
+  test_make_temp_dir || return
+  zmodload zsh/datetime || return
+  local suite="$TEST_TMP_DIR/meta-suite" nested_tmp="$TEST_TMP_DIR/tmp"
+  local output='' recorded=''
+  local -i exit_status=0
+  local -F started=0 elapsed=0
+  local -a leftovers=()
+
+  command mkdir -p -- "$suite/tests" "$nested_tmp" || return
+  command cp "$TEST_REPO_ROOT/tests/run.zsh" "$suite/tests/run.zsh" || return
+  command cp "$TEST_REPO_ROOT/tests/support.zsh" "$suite/tests/support.zsh" || return
+  test_write_file "$suite/tests/signal_test.zsh" $'
+_test_terminated_probe() {
+  zmodload zsh/system || return
+  test_make_temp_dir || return
+  print -r -- "$TEST_TMP_DIR" >| "${TESTS_DIR:h}/recorded" || return
+  kill -TERM $sysparams[pid]
+  : >| "${TESTS_DIR:h}/continued"
+}
+test_case "terminated probe" _test_terminated_probe
+
+_test_waiting_probe() {
+  zmodload zsh/system || return
+  test_make_temp_dir || return
+  local -i self=$sysparams[pid]
+  local output=
+  ( sleep 0.3; kill -TERM $self ) &!
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" "sleep 4" 2> /dev/null)
+}
+test_case "waiting probe" _test_waiting_probe
+' || return
+
+  # A file, not a command substitution: the waiting probe's nested shell is
+  # left running until its short sleep ends.
+  started=$EPOCHREALTIME
+  TMPDIR=$nested_tmp "$TEST_ZSH_BIN" "$suite/tests/run.zsh" \
+    >| "$suite/output" 2>&1 || exit_status=$?
+  elapsed=$(( EPOCHREALTIME - started ))
+  output=$(<"$suite/output") || return
+
+  test_assert_contains "$output" 'FAIL  terminated probe' \
+    'nested runner did not report the terminated test' || return
+  test_assert_contains "$output" 'FAIL  waiting probe' \
+    'nested runner did not report the test terminated while waiting' || return
+  test_assert_equal 1 "$exit_status" 'nested runner did not finish its run' || return
+  [[ ! -e $suite/continued ]] || {
+    test_fail 'a terminated test continued after its cleanup'
+    return
+  }
+  recorded=$(<"$suite/recorded") || return
+  [[ $recorded == "$nested_tmp"/my-zsh-tests.* && ! -e $recorded ]] || {
+    test_fail "the terminated test left its temporary directory: ${(qqq)recorded}"
+    return
+  }
+  leftovers=("$nested_tmp"/*(DN))
+  (( ! ${#leftovers} )) || {
+    test_fail "signalled tests left temporary state: ${(j:, :)${(qqq)leftovers}}"
+    return
+  }
+  (( elapsed < 2.5 )) ||
+    test_fail "TERM did not end a test waiting on a nested shell (${elapsed} s)"
+}
+test_case 'test runner ends a test that receives TERM and removes its temporary directory' \
+  _test_runner_ends_signalled_test
+
 _test_runner_isolates_fixture_git_environment() {
   test_make_temp_dir || return
   local suite="$TEST_TMP_DIR/meta-suite" operator_home="$TEST_TMP_DIR/operator-home"
