@@ -258,6 +258,7 @@ _test_files_workspace_stale_actions() {
   test_write_file "$home/bin/open" $'#!/bin/zsh\nprint -rl -- "$@" >> "$HOME/opened"\nexit "${OPEN_STATUS:-0}"' || return
   command chmod +x "$home/bin/open" || return
   command ln -s locked "$home/locked-link" && command chmod 000 "$home/locked" || return
+  command ln -s bin "$home/linked-folder" || return
   output=$(test_run_interactive "$home" '
     source "$1/.zshrc"
     path=("$HOME/bin" $path)
@@ -300,6 +301,8 @@ _test_files_workspace_stale_actions() {
     _stale_case "reset-prompt -M redisplay" "$folder" cd "$HOME/vanished-dir" || exit 4
     _stale_case "reset-prompt -M redisplay" "$folder" cd "$HOME/locked" || exit 5
     _stale_case "reset-prompt -M redisplay" "$folder" enter-link "$HOME/locked-link" || exit 13
+    # A search result captured as a folder that has since become a link.
+    _stale_case "reset-prompt -M redisplay" "$folder" directory "$HOME/linked-folder" || exit 14
     _stale_case "-M redisplay" "$tool" open "$HOME/present.txt" "$HOME/bin/vanished-open" || exit 6
     _stale_case "-M redisplay" "$tool" reveal "$HOME/present.txt" "$HOME/bin/vanished-open" || exit 7
     [[ ! -e "$HOME/opened" ]] || { print -r -- "a stale action launched open"; exit 8; }

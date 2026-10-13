@@ -127,6 +127,9 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
   Current folder; Recents to Go to. No mode registry for three known views.
 - Keep the selected search result and its captured type when opening the
   menu; never substitute the search root or a parent for item actions.
+  Change directory on a result captured as an ordinary folder is refused if
+  it has since become a link; Browse rows and the current folder may be links
+  and are followed as listed.
 - Selection is type-aware: ordinary directories insert an editable path;
   files and symbolic links open an explicit action picker. Action labels are
   captured display data — never call filesystem or application providers to

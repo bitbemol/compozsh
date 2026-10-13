@@ -459,3 +459,80 @@ _test_browser_action_boundaries() {
   test_assert_equal boundaries "$output"
 }
 test_case 'directory browser actions keep literal paths, failures, and directory changes explicit' _test_browser_action_boundaries
+
+# A search result's captured type is what its menu promised: a folder that
+# became a link before Change directory is refused, while Browse rows and the
+# current folder may legitimately be links and are followed as listed.
+_test_browser_search_cd_link() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+  command mkdir -p "$home/root/folder" "$home/root/elsewhere" || return
+  command ln -s root "$home/root-link" || return
+  output=$(test_run_interactive "$home" '
+    source "$1/.zshrc"
+    local root="$HOME/root" search_query=folder stale=""
+    stale="Files: the selected folder changed or is unavailable; your directory and draft are unchanged."
+    local -a picks=()
+    local -i result=0
+    _zle_picker_run() { "$5"; }
+    _files_read_query() { _ZLE_PICKER_SELECTED_VALUE=$search_query; _ZLE_PICKER_BOOKMARK=("" 1 0 ""); }
+    # Replace only user selection: one queued pick per real picker loop.
+    _zle_picker_loop() {
+      local pick=${picks[1]} action=""
+      local -i index=0
+      picks=("${(@)picks[2,-1]}")
+      case $pick in
+        (search-folder)
+          _ZLE_PICKER_SELECTED_VALUE=${_FILE_SEARCH_VALUES[1]}
+          [[ -n $_ZLE_PICKER_SELECTED_VALUE && ${_FILE_SEARCH_LABELS[1]} == "▸ "* ]] || return 21
+          _ZLE_PICKER_ACTION=actions ;;
+        (browse-folder)
+          _ZLE_PICKER_SELECTED_VALUE=${_DIRECTORY_PICKER_VALUES[(r)*folder/]}
+          [[ -n $_ZLE_PICKER_SELECTED_VALUE ]] || return 22
+          _ZLE_PICKER_ACTION=actions ;;
+        (cd|swap-cd|current-cd)
+          action=${pick#swap-}
+          index=${_directory_action_values[(Ie)$action]}
+          [[ $index != 0 && ${_directory_action_labels[index]} == *" · Change directory" ]] || return 23
+          if [[ $pick == swap-cd ]]; then
+            command mv -- "$root/folder" "$HOME/moved" &&
+              command ln -s elsewhere "$root/folder" || return 24
+          fi
+          _ZLE_PICKER_SELECTED_VALUE=$action ;;
+        (*) return 25 ;;
+      esac
+      return 0
+    }
+    builtin cd "$HOME" || exit 20
+    # Control: a captured folder that is still a folder is entered.
+    picks=(search-folder cd)
+    _directory_browser_session "$root/" insert command search-local 2>|"$HOME/stderr"
+    result=$?
+    [[ $result == 0 && $PWD -ef "$root/folder" && ! -s "$HOME/stderr" && ${#picks} == 0 ]] ||
+      { print -r -- "folder: status=$result PWD=$PWD"; exit 1; }
+    builtin cd "$HOME" || exit 20
+    # The captured folder becomes a link between capture and the explicit action.
+    picks=(search-folder swap-cd)
+    _directory_browser_session "$root/" insert command search-local 2>|"$HOME/stderr"
+    result=$?
+    [[ $result != 0 && $PWD == "$HOME" && ${#picks} == 0 ]] ||
+      { print -r -- "became a link: status=$result PWD=$PWD"; exit 2; }
+    [[ $(<"$HOME/stderr") == "$stale" ]] || { print -r -- "became a link: stderr=$(<"$HOME/stderr")"; exit 3; }
+    # Guard: Browse lists the same link as a folder row, so its action follows it.
+    picks=(browse-folder cd)
+    _directory_browser_session "$root/" insert command browse 2>|"$HOME/stderr"
+    result=$?
+    [[ $result == 0 && $PWD == "$root/folder" && $PWD -ef "$root/elsewhere" && ${#picks} == 0 ]] ||
+      { print -r -- "browse link: status=$result PWD=$PWD"; exit 4; }
+    builtin cd "$HOME" || exit 20
+    # Guard: a search scope opened through a link stays a usable current folder.
+    search_query=elsewhere picks=(search-folder current-cd)
+    _directory_browser_session "$HOME/root-link/" insert command search-local 2>|"$HOME/stderr"
+    result=$?
+    [[ $result == 0 && $PWD == "$HOME/root-link" && ${#picks} == 0 ]] ||
+      { print -r -- "current link: status=$result PWD=$PWD"; exit 5; }
+    print refused
+  ' "$TEST_REPO_ROOT") || { test_fail "search Change directory journey failed: $output"; return; }
+  test_assert_equal refused "$output"
+}
+test_case 'search Change directory refuses a captured folder that became a symlink' _test_browser_search_cd_link

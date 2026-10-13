@@ -723,6 +723,13 @@ _file_search_choose() {
       _directory_browser_actions "$selected" "$mode" "$kind"
       result=$?
       (( result == 1 )) && continue
+      # Change directory keeps the captured promise of an ordinary folder:
+      # the directory action rechecks that it has not become a link. Browse
+      # rows and the current folder may be links and keep the plain cd.
+      if (( result == 0 )) && [[ $kind == directory && $_ZLE_PICKER_SELECTED_VALUE == "$selected" &&
+            ( $_ZLE_PICKER_ACTION == cd || $mode == cd && $_ZLE_PICKER_ACTION == select ) ]]; then
+        _ZLE_PICKER_ACTION=directory
+      fi
       return $result
     fi
     [[ $_ZLE_PICKER_ACTION == copy ]] && return 0

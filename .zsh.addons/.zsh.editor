@@ -1079,11 +1079,12 @@ _directory_browser_session() {
         (( result )) || outcome=''
       fi
       [[ $runner == widget ]] && zle reset-prompt ;;
-    (open|enter-link)
+    (open|enter-link|directory)
+      # directory: a search result captured as a folder, refused if now a link.
       (( ${+functions[_file_search_apply]} )) || return 4
       _file_search_apply "$action" "$selected_path" "$_directory_browser_clipboard" "$_directory_browser_open"
       result=$? outcome=$REPLY
-      [[ $runner == widget && $action == enter-link ]] && zle reset-prompt ;;
+      [[ $runner == widget && $action != open ]] && zle reset-prompt ;;
     (copy)
       (( ${+functions[_compozsh_effect_copy]} )) &&
         _compozsh_effect_copy "$selected_path" "$_directory_browser_clipboard" || return 4
@@ -1108,7 +1109,7 @@ _directory_browser_session() {
   case $outcome in
     (unavailable) message='Files: macOS opening is unavailable; your draft is unchanged.' ;;
     (stale)
-      if [[ $action == (cd|enter-link) ]]; then
+      if [[ $action == (cd|directory|enter-link) ]]; then
         message='Files: the selected folder changed or is unavailable; your directory and draft are unchanged.'
       else
         message='Files: the selected item changed or is unavailable; your draft is unchanged.'
