@@ -1427,9 +1427,9 @@ _test_usb_home_index_capture_is_newest_first_with_metadata() {
       print -rn -- "$HOME/Archive/Nested/new.img"$'\''\0'\''
     }
     _usb_image_stat_capture() {
-      local path=$1 created=100 modified=110 size=20000
-      [[ $path == */new.img ]] && { created=300; modified=310; size=30000; }
-      [[ $path == */local.iso ]] && { created=200; modified=210; size=25000; }
+      local image_path=$1 created=100 modified=110 size=20000
+      [[ $image_path == */new.img ]] && { created=300; modified=310; size=30000; }
+      [[ $image_path == */local.iso ]] && { created=200; modified=210; size=25000; }
       _USB_STAT_SIZE=$size _USB_STAT_MODIFIED=$modified _USB_STAT_CREATED=$created
       _USB_STAT_FINGERPRINT="1:2:${size}:${modified}:${created}"
     }
@@ -1558,6 +1558,68 @@ _test_usb_image_architecture_is_passive_context() {
 }
 test_case 'USB image architecture is equal passive context without warnings' \
   _test_usb_image_architecture_is_passive_context
+
+# A local named `path` stays special in Zsh: it would rebind PATH for every
+# child and clear the interactive shell's command hash table on entry and exit.
+_test_usb_helpers_keep_caller_path_and_command_hash() {
+  test_make_temp_dir || return
+  local image="$TEST_TMP_DIR/x.img" log="$TEST_TMP_DIR/progress.log"
+  local folder="$TEST_TMP_DIR/tree" output='' helper=''
+  test_write_file "$image" "${(l:20000::x:)}" || return
+  test_write_file "$log" '20000 bytes transferred · 40%' || return
+  command mkdir -p "$folder" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for usb_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$usb_component"; done
+    _usb_spotlight_run() { return 0; }
+    _usb_disk_info_read() { return 1; }
+    probe() {
+      hash compozsh-probe=/bin/echo
+      "$@" >/dev/null 2>&1
+      print -r -- "hash:$1:${commands[compozsh-probe]-gone}"
+    }
+    probe _usb_media_kind_capture "$2"
+    probe _usb_image_stat_capture "$2"
+    probe _usb_image_add "$2"
+    probe _usb_macos_installer_add "$2"
+    probe _usb_media_add "$2"
+    probe _usb_spotlight_images_capture
+    probe _usb_image_filesystem_device_capture "$2"
+    probe _usb_image_source_disk_capture "$2"
+    probe _usb_image_revalidate "$2" unknown 20000
+    probe _usb_dd_bytes_observed "$3"
+    probe _usb_od_uint "$2" 0 4
+    probe _usb_od_hex "$2" 0 4
+    probe _usb_file_range_digest "$2" 0 512
+    probe _usb_file_range_crc32 "$2" 0 16
+    probe _usb_gpt_header_crc_validate "$2" 0 92
+    probe _usb_windows_target_bytes_capture "$4"
+    probe _usb_createinstallmedia_progress_read "$3"
+    caller_path=$PATH child_path=unobserved
+    _usb_macos_installer_tool() {
+      child_path=$(command /usr/bin/env | command /usr/bin/grep "^PATH=")
+      return 1
+    }
+    _usb_media_kind_capture "$2"
+    [[ $child_path == "PATH=$caller_path" ]] && child_path=same
+    print -r -- "child-path:$child_path"
+  ' "$TEST_REPO_ROOT" "$image" "$log" "$folder") || return
+
+  for helper in _usb_media_kind_capture _usb_image_stat_capture _usb_image_add \
+      _usb_macos_installer_add _usb_media_add _usb_spotlight_images_capture \
+      _usb_image_filesystem_device_capture _usb_image_source_disk_capture \
+      _usb_image_revalidate _usb_dd_bytes_observed _usb_od_uint _usb_od_hex \
+      _usb_file_range_digest _usb_file_range_crc32 _usb_gpt_header_crc_validate \
+      _usb_windows_target_bytes_capture _usb_createinstallmedia_progress_read; do
+    test_assert_contains "$output" "hash:$helper:/bin/echo" \
+      "$helper cleared the caller's command hash table" || return
+  done
+  test_assert_contains "$output" 'child-path:same' \
+    'a USB helper started a child with PATH rebound to the media path'
+}
+test_case 'USB helpers keep the caller PATH and command hash table intact' \
+  _test_usb_helpers_keep_caller_path_and_command_hash
 
 _test_usb_disk_capture_filters_unsafe_targets() {
   test_make_temp_dir || return
@@ -2484,7 +2546,7 @@ test_case 'USB verification proves strict MBR boot and partition-map boundaries'
 
 _test_usb_write_le() {
   emulate -L zsh
-  local path=$1 offset=$2 value=$3 count=$4 escaped='' byte=''
+  local file_path=$1 offset=$2 value=$3 count=$4 escaped='' byte=''
   local -i index=0
   for (( index = 0; index < count; ++index )); do
     builtin printf -v byte '%02x' $(( value & 255 ))
@@ -2492,13 +2554,13 @@ _test_usb_write_le() {
     (( value >>= 8 ))
   done
   builtin printf '%b' "$escaped" |
-    command /bin/dd of="$path" bs=1 seek="$offset" conv=notrunc status=none 2>/dev/null
+    command /bin/dd of="$file_path" bs=1 seek="$offset" conv=notrunc status=none 2>/dev/null
 }
 
 _test_usb_range_crc32() {
   emulate -L zsh
-  local path=$1 offset=$2 count=$3 output=''
-  output=$(command /bin/dd if="$path" bs=1 skip="$offset" count="$count" \
+  local file_path=$1 offset=$2 count=$3 output=''
+  output=$(command /bin/dd if="$file_path" bs=1 skip="$offset" count="$count" \
       status=none 2>/dev/null | command /usr/bin/cksum -o 3) || return
   REPLY=${output%% *}
   [[ $REPLY == <-> ]]
@@ -2506,50 +2568,50 @@ _test_usb_range_crc32() {
 
 _test_usb_update_gpt_header_crc() {
   emulate -L zsh
-  local path=$1 offset=$2
-  _test_usb_write_le "$path" $(( offset + 16 )) 0 4 || return
-  _test_usb_range_crc32 "$path" "$offset" 92 || return
-  _test_usb_write_le "$path" $(( offset + 16 )) "$REPLY" 4
+  local file_path=$1 offset=$2
+  _test_usb_write_le "$file_path" $(( offset + 16 )) 0 4 || return
+  _test_usb_range_crc32 "$file_path" "$offset" 92 || return
+  _test_usb_write_le "$file_path" $(( offset + 16 )) "$REPLY" 4
 }
 
 _test_usb_make_hybrid_gpt_fixture() {
   emulate -L zsh
-  local path=$1
-  command /bin/dd if=/dev/zero of="$path" bs=512 count=256 status=none || return
+  local file_path=$1
+  command /bin/dd if=/dev/zero of="$file_path" bs=512 count=256 status=none || return
   builtin printf 'EFI PART' |
-    command /bin/dd of="$path" bs=1 seek=512 conv=notrunc status=none 2>/dev/null || return
+    command /bin/dd of="$file_path" bs=1 seek=512 conv=notrunc status=none 2>/dev/null || return
   builtin printf 'EFI PART' |
-    command /bin/dd of="$path" bs=1 seek=130560 conv=notrunc status=none 2>/dev/null || return
+    command /bin/dd of="$file_path" bs=1 seek=130560 conv=notrunc status=none 2>/dev/null || return
   builtin printf '%b' '\x55\xaa' |
-    command /bin/dd of="$path" bs=1 seek=510 conv=notrunc status=none 2>/dev/null || return
-  _test_usb_write_le "$path" 524 92 4 || return
-  _test_usb_write_le "$path" 520 65536 4 || return
-  _test_usb_write_le "$path" 536 1 8 || return
-  _test_usb_write_le "$path" 544 255 8 || return
-  _test_usb_write_le "$path" 552 64 8 || return
-  _test_usb_write_le "$path" 560 210 8 || return
-  _test_usb_write_le "$path" 584 20 8 || return
-  _test_usb_write_le "$path" 592 176 4 || return
-  _test_usb_write_le "$path" 596 128 4 || return
-  _test_usb_write_le "$path" 130572 92 4 || return
-  _test_usb_write_le "$path" 130568 65536 4 || return
-  _test_usb_write_le "$path" 130584 255 8 || return
-  _test_usb_write_le "$path" 130592 1 8 || return
-  _test_usb_write_le "$path" 130600 64 8 || return
-  _test_usb_write_le "$path" 130608 210 8 || return
-  _test_usb_write_le "$path" 130632 211 8 || return
-  _test_usb_write_le "$path" 130640 176 4 || return
-  _test_usb_write_le "$path" 130644 128 4 || return
+    command /bin/dd of="$file_path" bs=1 seek=510 conv=notrunc status=none 2>/dev/null || return
+  _test_usb_write_le "$file_path" 524 92 4 || return
+  _test_usb_write_le "$file_path" 520 65536 4 || return
+  _test_usb_write_le "$file_path" 536 1 8 || return
+  _test_usb_write_le "$file_path" 544 255 8 || return
+  _test_usb_write_le "$file_path" 552 64 8 || return
+  _test_usb_write_le "$file_path" 560 210 8 || return
+  _test_usb_write_le "$file_path" 584 20 8 || return
+  _test_usb_write_le "$file_path" 592 176 4 || return
+  _test_usb_write_le "$file_path" 596 128 4 || return
+  _test_usb_write_le "$file_path" 130572 92 4 || return
+  _test_usb_write_le "$file_path" 130568 65536 4 || return
+  _test_usb_write_le "$file_path" 130584 255 8 || return
+  _test_usb_write_le "$file_path" 130592 1 8 || return
+  _test_usb_write_le "$file_path" 130600 64 8 || return
+  _test_usb_write_le "$file_path" 130608 210 8 || return
+  _test_usb_write_le "$file_path" 130632 211 8 || return
+  _test_usb_write_le "$file_path" 130640 176 4 || return
+  _test_usb_write_le "$file_path" 130644 128 4 || return
   builtin printf 'P' |
-    command /bin/dd of="$path" bs=1 seek=32768 conv=notrunc status=none 2>/dev/null || return
+    command /bin/dd of="$file_path" bs=1 seek=32768 conv=notrunc status=none 2>/dev/null || return
   builtin printf 'Q' |
-    command /bin/dd of="$path" bs=1 seek=108031 conv=notrunc status=none 2>/dev/null || return
-  _test_usb_range_crc32 "$path" 10240 22528 || return
+    command /bin/dd of="$file_path" bs=1 seek=108031 conv=notrunc status=none 2>/dev/null || return
+  _test_usb_range_crc32 "$file_path" 10240 22528 || return
   local entry_crc=$REPLY
-  _test_usb_write_le "$path" 600 "$entry_crc" 4 || return
-  _test_usb_write_le "$path" 130648 "$entry_crc" 4 || return
-  _test_usb_update_gpt_header_crc "$path" 512 || return
-  _test_usb_update_gpt_header_crc "$path" 130560
+  _test_usb_write_le "$file_path" 600 "$entry_crc" 4 || return
+  _test_usb_write_le "$file_path" 130648 "$entry_crc" 4 || return
+  _test_usb_update_gpt_header_crc "$file_path" 512 || return
+  _test_usb_update_gpt_header_crc "$file_path" 130560
 }
 
 _test_usb_make_relocated_gpt_target() {

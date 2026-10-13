@@ -545,26 +545,26 @@ _usb_windows_iso_table_detect() {
 
 _usb_media_kind_capture() {
   emulate -L zsh
-  local path=${1:A} detect_status=0
+  local media_path=${1:A} detect_status=0
   _USB_MEDIA_ERROR=''
-  if _usb_macos_installer_tool "$path" >/dev/null; then
+  if _usb_macos_installer_tool "$media_path" >/dev/null; then
     REPLY=macos-installer
     return 0
   fi
-  _usb_image_extension_supported "$path" || {
+  _usb_image_extension_supported "$media_path" || {
     _USB_MEDIA_ERROR='choose a readable .iso, .img, or full Install macOS application'
     return 2
   }
-  if [[ ${path:e:l} == iso ]]; then
+  if [[ ${media_path:e:l} == iso ]]; then
     # Officially named Windows media can only reach the unsupported terminal
     # screen, so refusing it from a conservative filename prefix is safe and
     # avoids macOS's comparatively slow temporary attach/detach cycle. Renamed
     # or ambiguous ISOs retain the structural inspection below.
-    if _usb_windows_filename_hint "$path"; then
+    if _usb_windows_filename_hint "$media_path"; then
       REPLY=windows-installer
       return 0
     fi
-    _usb_windows_iso_table_detect "$path"
+    _usb_windows_iso_table_detect "$media_path"
     detect_status=$?
     if (( detect_status == 0 )); then
       REPLY=windows-installer
@@ -573,7 +573,7 @@ _usb_media_kind_capture() {
       REPLY=raw-image
       return 0
     fi
-    _usb_windows_installer_detect "$path"
+    _usb_windows_installer_detect "$media_path"
     detect_status=$?
     if (( detect_status == 0 )); then
       REPLY=windows-installer
@@ -617,12 +617,12 @@ _usb_image_architecture_short_label() {
 
 _usb_image_stat_capture() {
   emulate -L zsh
-  local path=$1 raw=''
+  local file_path=$1 raw=''
   local -a fields=()
   _USB_STAT_FINGERPRINT=''
   _USB_STAT_SIZE=0 _USB_STAT_MODIFIED=0 _USB_STAT_CREATED=0
-  [[ -f $path && ! -L $path && -r $path ]] || return 1
-  raw=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$path" 2>/dev/null) || return
+  [[ -f $file_path && ! -L $file_path && -r $file_path ]] || return 1
+  raw=$(command /usr/bin/stat -f '%d:%i:%z:%m:%B' "$file_path" 2>/dev/null) || return
   fields=("${(@s/:/)raw}")
   (( ${#fields} == 5 )) || return 1
   [[ ${fields[3]} == <-> && ${fields[4]} == <-> && ${fields[5]} == <-> ]] || return 1
@@ -652,36 +652,36 @@ _usb_format_epoch() {
 
 _usb_image_add() {
   emulate -L zsh
-  local path=${1:a} fingerprint='' raw_size='' label='' size_label='' filename='' highlights=''
+  local image_path=${1:a} fingerprint='' raw_size='' label='' size_label='' filename='' highlights=''
   local created_label='' modified_label='' format='' architecture='' architecture_label=''
   local architecture_short=''
   local -i architecture_start=0 architecture_end=0 size_start=0 size_end=0
-  [[ ! -L $path ]] || return 1
-  path=${path:A}
-  [[ ${#path} -le 4096 && $path != *[[:cntrl:]]* ]] || return 1
-  _usb_image_extension_supported "$path" || return 1
+  [[ ! -L $image_path ]] || return 1
+  image_path=${image_path:A}
+  [[ ${#image_path} -le 4096 && $image_path != *[[:cntrl:]]* ]] || return 1
+  _usb_image_extension_supported "$image_path" || return 1
   # Expand lookups first: a subscript in arithmetic text is reparsed, so `]`
   # or $(...) in a file name would run as code.
-  (( ${_USB_IMAGE_PATHS[(Ie)$path]} )) && return 0
-  _usb_image_stat_capture "$path" || return 1
+  (( ${_USB_IMAGE_PATHS[(Ie)$image_path]} )) && return 0
+  _usb_image_stat_capture "$image_path" || return 1
   fingerprint=$_USB_STAT_FINGERPRINT
   raw_size=$_USB_STAT_SIZE
   (( raw_size > 17408 )) || return 1
   REPLY='size unavailable'
   (( ${+functions[_usb_human_size]} )) && _usb_human_size "$raw_size"
   size_label=$REPLY
-  format="${path:e:u} raw disk image"
+  format="${image_path:e:u} raw disk image"
   _usb_format_epoch "$_USB_STAT_CREATED"
   created_label=$REPLY
   _usb_format_epoch "$_USB_STAT_MODIFIED"
   modified_label=$REPLY
-  _usb_image_architecture_hint "$path"
+  _usb_image_architecture_hint "$image_path"
   architecture=$REPLY
   _usb_image_architecture_label "$architecture"
   architecture_label=$REPLY
   _usb_image_architecture_short_label "$architecture"
   architecture_short=$REPLY
-  filename=${path:t}
+  filename=${image_path:t}
   if [[ $architecture == unknown ]]; then
     label="$filename · $size_label"
     size_start=$(( ${#filename} + 3 ))
@@ -694,10 +694,10 @@ _usb_image_add() {
   fi
   size_end=$(( size_start + ${#size_label} ))
   highlights+="$size_start:$size_end:picker-size"
-  _USB_IMAGE_PATHS+=("$path")
+  _USB_IMAGE_PATHS+=("$image_path")
   _USB_IMAGE_LABELS+=("$label")
   _USB_IMAGE_HIGHLIGHTS+=("$highlights")
-  _USB_IMAGE_DETAILS+=("${path:t}"$'\n\nPath\n  '"$path"$'\n\n'"Format · $format"$'\n'"Architecture · $architecture_label"$'\n'"Size · $size_label"$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
+  _USB_IMAGE_DETAILS+=("${image_path:t}"$'\n\nPath\n  '"$image_path"$'\n\n'"Format · $format"$'\n'"Architecture · $architecture_label"$'\n'"Size · $size_label"$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
   _USB_IMAGE_SIZES+=("$raw_size")
   _USB_IMAGE_FINGERPRINTS+=("$fingerprint")
   _USB_IMAGE_CREATED+=("$_USB_STAT_CREATED")
@@ -707,28 +707,28 @@ _usb_image_add() {
 
 _usb_macos_installer_add() {
   emulate -L zsh
-  local path=${1:A} fingerprint='' root_stat='' filename='' label=''
+  local installer_path=${1:A} fingerprint='' root_stat='' filename='' label=''
   local created_label='' modified_label=''
   local -a fields=()
-  [[ ${#path} -le 4096 && $path != *[[:cntrl:]]* ]] || return 1
-  (( ${_USB_IMAGE_PATHS[(Ie)$path]} )) && return 0
-  _usb_macos_installer_fingerprint "$path" || return 1
+  [[ ${#installer_path} -le 4096 && $installer_path != *[[:cntrl:]]* ]] || return 1
+  (( ${_USB_IMAGE_PATHS[(Ie)$installer_path]} )) && return 0
+  _usb_macos_installer_fingerprint "$installer_path" || return 1
   fingerprint=$REPLY
   # Reuse the root observation already retained in this exact fingerprint.
   root_stat=${fingerprint%%|*}
   fields=("${(@s/:/)root_stat}")
   (( ${#fields} == 4 )) || return 1
   [[ ${fields[3]} == <-> && ${fields[4]} == <-> ]] || return 1
-  filename=${path:t}
+  filename=${installer_path:t}
   label="$filename · macOS installer · 16 GB-class target"
   _usb_format_epoch "${fields[4]}"
   created_label=$REPLY
   _usb_format_epoch "${fields[3]}"
   modified_label=$REPLY
-  _USB_IMAGE_PATHS+=("$path")
+  _USB_IMAGE_PATHS+=("$installer_path")
   _USB_IMAGE_LABELS+=("$label")
   _USB_IMAGE_HIGHLIGHTS+=("$(( ${#filename} + 3 )):$(( ${#filename} + 18 )):picker-architecture")
-  _USB_IMAGE_DETAILS+=("$filename"$'\n\nPath\n  '"$path"$'\n\n''Format · Full macOS installer application'$'\n''Handler · Apple createinstallmedia'$'\n''Target · 16 GB-class minimum; Apple reports if more is required'$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
+  _USB_IMAGE_DETAILS+=("$filename"$'\n\nPath\n  '"$installer_path"$'\n\n''Format · Full macOS installer application'$'\n''Handler · Apple createinstallmedia'$'\n''Target · 16 GB-class minimum; Apple reports if more is required'$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
   _USB_IMAGE_SIZES+=("$_USB_MACOS_TARGET_MINIMUM")
   _USB_IMAGE_FINGERPRINTS+=("$fingerprint")
   _USB_IMAGE_CREATED+=("${fields[4]}")
@@ -738,13 +738,13 @@ _usb_macos_installer_add() {
 
 _usb_media_add() {
   emulate -L zsh
-  local original=$1 path=''
+  local original=$1 media_path=''
   [[ ! -L $original ]] || return 1
-  path=${original:A}
-  if _usb_macos_installer_tool "$path" >/dev/null; then
-    _usb_macos_installer_add "$path"
+  media_path=${original:A}
+  if _usb_macos_installer_tool "$media_path" >/dev/null; then
+    _usb_macos_installer_add "$media_path"
   else
-    _usb_image_add "$path"
+    _usb_image_add "$media_path"
   fi
 }
 
@@ -789,12 +789,12 @@ _usb_spotlight_run() {
 # descendant discovery without a synchronous recursive filesystem walk.
 _usb_spotlight_images_capture() {
   emulate -L zsh
-  local root=${HOME:A} path='' resolved='' completion=''
+  local root=${HOME:A} found_path='' resolved='' completion=''
   local query='(kMDItemFSName == "*.iso"cd || kMDItemFSName == "*.img"cd)'
   local -i considered=0 source_status=2 stopped=0
   [[ -x /usr/bin/mdfind && -d $root ]] || return 2
-  while IFS= read -r -d '' path; do
-    if [[ -z $path ]]; then
+  while IFS= read -r -d '' found_path; do
+    if [[ -z $found_path ]]; then
       IFS= read -r -d '' completion
       [[ $completion == 0 ]] && source_status=0
       break
@@ -804,8 +804,8 @@ _usb_spotlight_images_capture() {
       stopped=1
       break
     }
-    [[ $path == /* && -f $path && ! -L $path ]] || continue
-    resolved=${path:A}
+    [[ $found_path == /* && -f $found_path && ! -L $found_path ]] || continue
+    resolved=${found_path:A}
     [[ $resolved == $root/* ]] || continue
     _usb_image_add "$resolved"
   done < <(_usb_spotlight_run -0 -onlyin "$root" "$query" 2>/dev/null
@@ -1144,9 +1144,9 @@ _usb_browse_image_path() {
 
 _usb_image_filesystem_device_capture() {
   emulate -L zsh
-  local path=$1 output='' line='' device=''
+  local image_path=$1 output='' line='' device=''
   _USB_IMAGE_DEVICE=''
-  output=$(command /bin/df -P "$path" 2>/dev/null) || {
+  output=$(command /bin/df -P "$image_path" 2>/dev/null) || {
     _USB_CAPTURE_ERROR='macOS could not resolve the selected image filesystem'
     return 1
   }
@@ -1187,11 +1187,11 @@ _usb_plist_whole_disk() {
 _usb_image_source_disk_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local path=$1 device='' identifier='' plist='' count='' store=''
+  local image_path=$1 device='' identifier='' plist='' count='' store=''
   local -i index=0
   local -a disks=()
   _USB_IMAGE_SOURCE_DISK='' _USB_CAPTURE_ERROR=''
-  _usb_image_filesystem_device_capture "$path" || return
+  _usb_image_filesystem_device_capture "$image_path" || return
   device=$_USB_IMAGE_DEVICE
   [[ $device == /dev/disk* ]] || return 0
   [[ $device == /dev/disk<->(s<->)# ]] || {
@@ -2279,8 +2279,8 @@ _usb_workspace_request() {
 
 _usb_image_revalidate() {
   emulate -L zsh
-  local path=$1 expected_fingerprint=$2 expected_size=$3
-  _usb_image_fingerprint "$path" || return 1
+  local image_path=$1 expected_fingerprint=$2 expected_size=$3
+  _usb_image_fingerprint "$image_path" || return 1
   [[ $REPLY == "$expected_fingerprint" && $expected_size == <-> ]] || return 1
   [[ ${${REPLY#*:*:}%%:*} == "$expected_size" ]]
 }
@@ -2739,14 +2739,14 @@ _usb_dd_bytes_observed() {
   emulate -L zsh
   (( ${+functions[_usb_dd_progress_bytes]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt EXTENDED_GLOB
-  local path=$1 raw='' line='' size_text=''
+  local log_path=$1 raw='' line='' size_text=''
   local -i raw_size=0 bytes=-1
-  [[ -f $path ]] || return 1
-  size_text=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 1
+  [[ -f $log_path ]] || return 1
+  size_text=$(command /usr/bin/stat -f '%z' "$log_path" 2>/dev/null) || return 1
   [[ $size_text == <-> && ${#size_text} -le 18 ]] || return 1
   raw_size=$size_text
   (( raw_size > 0 && raw_size <= 1048576 )) || return 1
-  raw=$(<"$path")
+  raw=$(<"$log_path")
   raw=${raw//$'\r'/$'\n'}
   for line in "${(f)raw}"; do
     _usb_dd_progress_bytes "$line" && bytes=$REPLY
@@ -2894,12 +2894,12 @@ _usb_image_checksum() {
 _usb_od_uint() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local path=$1 offset=$2 width=$3 output=''
+  local file_path=$1 offset=$2 width=$3 output=''
   case $width in
     (4|8) ;;
     (*) return 2 ;;
   esac
-  output=$(command /usr/bin/od -An -j "$offset" -N "$width" -t "u${width}" "$path" \
+  output=$(command /usr/bin/od -An -j "$offset" -N "$width" -t "u${width}" "$file_path" \
     2>/dev/null) || return 1
   output=${output//[[:space:]]/}
   # Image and device bytes are untrusted: an unsigned 64-bit field can exceed
@@ -2912,8 +2912,8 @@ _usb_od_uint() {
 _usb_od_hex() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local path=$1 offset=$2 width=$3 output=''
-  output=$(command /usr/bin/od -An -j "$offset" -N "$width" -t x1 "$path" \
+  local file_path=$1 offset=$2 width=$3 output=''
+  output=$(command /usr/bin/od -An -j "$offset" -N "$width" -t x1 "$file_path" \
     2>/dev/null) || return 1
   output=${output//[[:space:]]/}
   (( ${#output} == width * 2 )) || return 1
@@ -2925,11 +2925,11 @@ _usb_file_range_digest() {
   emulate -L zsh
   (( ${+functions[_usb_checksum_output_read]} && ${+functions[_usb_checksum_validate]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt PIPE_FAIL
-  local path=$1 offset=$2 count=$3 output=''
+  local file_path=$1 offset=$2 count=$3 output=''
   local -i sectors=0
   (( offset >= 0 && count > 0 && offset % 512 == 0 )) || return 2
   sectors=$(( (count + 511) / 512 ))
-  output=$(command /bin/dd if="$path" bs=512 skip=$(( offset / 512 )) \
+  output=$(command /bin/dd if="$file_path" bs=512 skip=$(( offset / 512 )) \
       count="$sectors" status=none 2>/dev/null |
     command /usr/bin/head -c "$count" |
     command /usr/bin/shasum -a 256 -b) || return 1
@@ -2940,9 +2940,9 @@ _usb_file_range_crc32() {
   emulate -L zsh
   (( ${+functions[_usb_crc32_output_read]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt PIPE_FAIL
-  local path=$1 offset=$2 count=$3 output=''
+  local file_path=$1 offset=$2 count=$3 output=''
   (( offset >= 0 && count > 0 )) || return 2
-  output=$(command /bin/dd if="$path" bs=1 skip="$offset" count="$count" \
+  output=$(command /bin/dd if="$file_path" bs=1 skip="$offset" count="$count" \
       status=none 2>/dev/null | command /usr/bin/cksum -o 3) || return 1
   _usb_crc32_output_read "$output" "$count"
 }
@@ -2951,15 +2951,15 @@ _usb_gpt_header_crc_validate() {
   emulate -L zsh
   (( ${+functions[_usb_crc32_output_read]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
   setopt PIPE_FAIL
-  local path=$1 offset=$2 header_size=$3 output='' expected=''
+  local file_path=$1 offset=$2 header_size=$3 output='' expected=''
   (( offset >= 0 && header_size >= 92 && header_size <= 512 )) || return 2
-  _usb_od_uint "$path" $(( offset + 16 )) 4 || return 1
+  _usb_od_uint "$file_path" $(( offset + 16 )) 4 || return 1
   expected=$REPLY
   output=$(
     {
-      command /bin/dd if="$path" bs=1 skip="$offset" count=16 status=none 2>/dev/null
+      command /bin/dd if="$file_path" bs=1 skip="$offset" count=16 status=none 2>/dev/null
       builtin printf '\0\0\0\0'
-      command /bin/dd if="$path" bs=1 skip=$(( offset + 20 )) \
+      command /bin/dd if="$file_path" bs=1 skip=$(( offset + 20 )) \
         count=$(( header_size - 20 )) status=none 2>/dev/null
     } | command /usr/bin/cksum -o 3
   ) || return 1
@@ -3680,16 +3680,16 @@ _usb_windows_ditto_run() {
 _usb_windows_target_bytes_capture() {
   emulate -L zsh
   zmodload zsh/stat || return 1
-  local root=${1:a} relative='' path=''
+  local root=${1:a} relative='' file_path=''
   local -a file_stat=()
   local -i index=0 total=0
   REPLY=0
   [[ -d $root && ! -L $root ]] || return 1
   for (( index = 1; index <= ${#_USB_WINDOWS_FILES}; ++index )); do
     relative=${_USB_WINDOWS_FILES[index]}
-    path="$root/$relative"
-    [[ -e $path && -f $path && ! -L $path ]] || continue
-    zstat -A file_stat +size -- "$path" 2>/dev/null || continue
+    file_path="$root/$relative"
+    [[ -e $file_path && -f $file_path && ! -L $file_path ]] || continue
+    zstat -A file_stat +size -- "$file_path" 2>/dev/null || continue
     (( file_stat[1] > _USB_WINDOWS_FILE_SIZES[index] )) &&
       file_stat[1]=${_USB_WINDOWS_FILE_SIZES[index]}
     (( total += file_stat[1] ))
@@ -3884,7 +3884,7 @@ _usb_macos_prepare_volume() {
 _usb_createinstallmedia_progress_read() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local path=$1 raw='' line='' prefix='' latest='Preparing Apple createinstallmedia…'
+  local log_path=$1 raw='' line='' prefix='' latest='Preparing Apple createinstallmedia…'
   local size_text=''
   local -i raw_size=0 percent=0 bar_width=32
   bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
@@ -3894,12 +3894,12 @@ _usb_createinstallmedia_progress_read() {
   (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar 0 $bar_width
   _USB_PROGRESS_BAR=$REPLY
   REPLY=$latest
-  [[ -f $path ]] || return 0
-  size_text=$(command /usr/bin/stat -f '%z' "$path" 2>/dev/null) || return 0
+  [[ -f $log_path ]] || return 0
+  size_text=$(command /usr/bin/stat -f '%z' "$log_path" 2>/dev/null) || return 0
   [[ $size_text == <-> && ${#size_text} -le 18 ]] || return 0
   raw_size=$size_text
   (( raw_size > 0 && raw_size <= 1048576 )) || return 0
-  raw=$(<"$path")
+  raw=$(<"$log_path")
   raw=${raw//$'\r'/$'\n'}
   for line in "${(f)raw}"; do
     line=${line##[[:space:]]#}
