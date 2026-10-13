@@ -47,6 +47,11 @@ Idioms, naming and the public command/help interface.
   `${(0)text}` instead drops empty records and keeps an unterminated tail; use
   it only where both are harmless, as in the filter-override builder, where an
   extra override fails safe.
+- Consume a long record stream from a pipe in `sysread` chunks: prepend the
+  previous chunk's cut-off tail, split with `"${(@0)chunk}"` and carry the last
+  element on. `IFS= read -d ''` makes one read(2) per byte on a pipe, so it
+  costs time in proportion to the bytes listed. `_file_search_stream` in
+  `.zsh.addons/.zsh.find` is the model.
 - Validate numeric text (`<->` and a digit bound) before assigning it to an
   integer: integer assignment evaluates arithmetic, including `$(...)` in a
   subscript. The same holds for float assignment, `read` into either, `(( ))`,

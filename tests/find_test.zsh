@@ -325,6 +325,161 @@ _test_file_search_path_fidelity() {
 test_case 'filesystem and Git capture preserve newline-bearing paths as literal array values' \
   _test_file_search_path_fidelity
 
+# More than 128 KiB of names that each carry multibyte bytes or a newline, so
+# whatever boundaries the pipe delivers fall inside records, with matches
+# spread through the stream.
+_test_file_search_provider_stream_chunks() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''
+
+  test_write_file "$fake_bin/git" $'#!/bin/zsh\nwhile [[ $1 == -C || $1 == -c ]]; do shift 2; done\n[[ $1 == rev-parse ]] && exit 0\n/bin/cat -- "$FAKE_LIST"\nexit "${FAILURE:-0}"' || return
+  test_write_file "$fake_bin/mdfind" $'#!/bin/zsh\n/bin/cat -- "$FAKE_LIST"\nexit "${FAILURE:-0}"' || return
+  command chmod +x "$fake_bin/git" "$fake_bin/mdfind" || return
+  command mkdir -p "$home/Notes" || return
+
+  output=$(test_run_interactive "$home" '
+    path=("$2" "${path[@]}")
+    source "$1/.zsh.addons/.zsh.find"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    local root=${HOME:A} name="" git_list="" spot_list="" provider="" locale=""
+    local accent=$'"'"'\xc3\xa9'"'"' newline=$'"'"'\n'"'"' nul=$'"'"'\0'"'"'
+    local -a names=() values=() labels=() unexpected=()
+    local -i i=0 result=0
+    for (( i = 1; i <= 12; ++i )); do
+      names+=("Notes/caf$accent r${accent}sum$accent notes $i.txt" "Notes/line${newline}break notes $i.txt")
+    done
+    for name in "${names[@]}"; do print -rn -- x >| "$HOME/$name" || exit 9; done
+    for (( i = 1; i <= 4000; ++i )); do
+      name="filler/caf$accent-r${accent}sum$accent-line${newline}break-$i.md"
+      git_list+=$name$nul
+      spot_list+=$HOME/$name$nul
+      (( i % 150 == 0 && i / 150 <= ${#names} )) || continue
+      name=${names[i / 150]}
+      git_list+=$name$nul
+      spot_list+=$HOME/$name$nul
+    done
+    (( ${#git_list} > 131072 )) || exit 8
+    print -rn -- "$git_list" >| "$HOME/git.list" || exit 9
+    print -rn -- "$spot_list" >| "$HOME/spot.list" || exit 9
+    _test_capture() {
+      if [[ $provider == git ]]; then
+        _file_search_capture_git "$HOME" notes
+      else
+        _file_search_capture_spotlight "$HOME" notes "$2/mdfind"
+      fi
+    }
+    for locale in C en_US.UTF-8; do
+      LC_ALL=$locale
+      for provider in git spotlight; do
+        if [[ $provider == git ]]; then
+          export FAKE_LIST=$HOME/git.list
+          values=("$root/Notes" "$root/${^names[@]}")
+          labels=("▸ Notes/" "· ${^names[@]}")
+        else
+          export FAKE_LIST=$HOME/spot.list
+          values=("$HOME/${^names[@]}")
+          labels=("· ~/${^names[@]}")
+        fi
+        export FAILURE=0
+        ZSH_FILE_SEARCH_MAX_CANDIDATES=2000
+        _test_capture "$@"
+        result=$?
+        (( result == 0 && ! _FILE_SEARCH_TRUNCATED )) &&
+          [[ ${(pj:\0:)${(o)_FILE_SEARCH_VALUES}} == ${(pj:\0:)${(o)values}} &&
+             ${(pj:\0:)${(o)_FILE_SEARCH_LABELS}} == ${(pj:\0:)${(o)labels}} ]] ||
+          { print -r -- "$locale $provider complete stream: status $result, ${#_FILE_SEARCH_VALUES} values"; exit 1; }
+        FAILURE=3
+        _test_capture "$@"
+        result=$?
+        (( result == 2 && _FILE_SEARCH_TRUNCATED )) &&
+          [[ ${(pj:\0:)${(o)_FILE_SEARCH_VALUES}} == ${(pj:\0:)${(o)values}} ]] ||
+          { print -r -- "$locale $provider failed source: status $result, ${#_FILE_SEARCH_VALUES} values"; exit 1; }
+        ZSH_FILE_SEARCH_MAX_CANDIDATES=5
+        _test_capture "$@"
+        result=$?
+        unexpected=("${(@)_FILE_SEARCH_VALUES:|values}")
+        (( result == 0 && ${#_FILE_SEARCH_VALUES} == 5 && _FILE_SEARCH_TRUNCATED &&
+           ! ${#unexpected} )) ||
+          { print -r -- "$locale $provider early stop: status $result, ${#_FILE_SEARCH_VALUES} values"; exit 1; }
+      done
+    done
+    print chunked
+  ' "$TEST_REPO_ROOT" "$fake_bin") || { test_fail "$output"; return; }
+  test_assert_equal chunked "$output" 'provider capture lost records split across reads'
+}
+test_case 'Git and Spotlight capture keep records split across read chunks' \
+  _test_file_search_provider_stream_chunks
+
+# Reads of 1 to 7 bytes from a file split every record, multibyte character
+# and the trailer's NUL/status pair at a known place.
+_test_file_search_stream_boundaries() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.find"
+    local nul=$'"'"'\0'"'"' locale="" stream="" expected=""
+    local -a records=("caf"$'"'"'\xc3\xa9'"'"' "line"$'"'"'\n'"'"'"break" plain)
+    local -a collected=()
+    local -i size=0 result=0
+    _test_collect() { collected+=("$@"); return 0; }
+    _test_stop() { collected+=("$@"); return 1; }
+    _test_read() {
+      local name=$1 data=$2 handler=$3 want_status=$4 want=$5
+      print -rn -- "$data" >| "$HOME/stream" || exit 9
+      collected=()
+      _file_search_stream $size $handler < "$HOME/stream"
+      result=$?
+      (( result == want_status )) && [[ ${(pj:\0:)collected} == "$want" ]] ||
+        { print -r -- "$locale size $size $name: status $result, ${#collected} records"; exit 1; }
+    }
+    stream=${(pj:\0:)records}$nul
+    expected=${(pj:\0:)records}
+    for locale in C en_US.UTF-8; do
+      LC_ALL=$locale
+      for (( size = 1; size <= 7; ++size )); do
+        _test_read complete "$stream${nul}0$nul" _test_collect 0 "$expected"
+        _test_read empty "${nul}0$nul" _test_collect 0 ""
+        _test_read failed "$stream${nul}23$nul" _test_collect 2 "$expected"
+        _test_read unterminated-status "$stream${nul}0" _test_collect 2 "$expected"
+        _test_read cut-off "${stream}caf"$'"'"'\xc3'"'"' _test_collect 2 "$expected"
+        _test_read stopped "$stream${nul}0$nul" _test_stop 1 "${records[1]}"
+      done
+    done
+    size=0
+    _test_read size "$stream${nul}0$nul" _test_collect 2 ""
+    print boundaries
+  ' "$TEST_REPO_ROOT") || { test_fail "$output"; return; }
+  test_assert_equal boundaries "$output" 'file search stream handed on a partial record'
+}
+test_case 'file search stream hands on only complete records at every read size' \
+  _test_file_search_stream_boundaries
+
+# Spotlight filters the home-relative display text, not the raw indexed path.
+_test_file_search_spotlight_display_match() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''
+
+  test_write_file "$home/Documents/Final Report.txt" 'inside' || return
+  test_write_file "$fake_bin/mdfind" $'#!/bin/zsh\nprint -rn -- "$HOME/Documents/Final Report.txt"$\'\\0\'' || return
+  command chmod +x "$fake_bin/mdfind" || return
+
+  output=$(test_run_interactive "$home" '
+    source "$1/.zsh.addons/.zsh.find"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    _file_search_capture_spotlight "$HOME" "~/doc report" "$2/mdfind"
+    print -r -- "tilde:$?:${(j:|:)_FILE_SEARCH_LABELS}"
+    _file_search_capture_spotlight "$HOME" "${HOME:t} report" "$2/mdfind"
+    print -r -- "home:$?:${(j:|:)_FILE_SEARCH_LABELS}"
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+  test_assert_equal $'tilde:0:· ~/Documents/Final Report.txt\nhome:1:' "$output" \
+    'Spotlight search stopped matching the home-relative display text'
+}
+test_case 'Spotlight search matches the home-relative display text' \
+  _test_file_search_spotlight_display_match
+
 _test_ui_owns_command_picker_lifecycle() {
   test_make_temp_dir || return
   local output=''

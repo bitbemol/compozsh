@@ -410,6 +410,63 @@ Decision: kept. Reproduce from the repository root with a disposable
 /bin/zsh -df investigations/benchmarks/xcode-scheme-parse.zsh <baseline-root> <candidate-root> 4 C
 ```
 
+### File search provider streams (FS-05)
+
+The Git and Spotlight search providers read their NUL-delimited output with
+`IFS= read -r -d ''`, one record per call. On a pipe, Zsh reads one byte
+per read(2) so that it never passes the delimiter, so the cost followed the
+bytes listed: about 0.34 µs per byte. The Git source lists the whole project
+with no visit cap, so the cost grew with repository size behind the busy
+frame. Both providers now share `_file_search_stream`. It takes up to
+64 KiB per `sysread`, splits the chunk with `(@0)`, carries the cut-off
+record into the next read and hands each batch of complete records to the
+provider. The trailer protocol is unchanged: an empty record, then the exit
+status. A tail cut off at the end is still dropped, and early stop at the
+candidate cap still stops reading. The Git batch is prefiltered with
+`${(M)…:#pattern}`, which is the same per-record test. Spotlight still matches
+the home-relative display text (`~/…`), never the raw path, and now checks it
+before any filesystem test. New tests pin records split across reads (more
+than 128 KiB of multibyte and newline-bearing names, failure trailer, early
+stop) under C and UTF-8, every boundary from 1- to 7-byte reads, and the
+Spotlight display match.
+
+Measured with [`benchmarks/file-search-stream.zsh`](benchmarks/file-search-stream.zsh)
+(load 2.5–2.7). The baseline is a `git archive` of `41ab17a`; the candidate is
+the working tree. Trees alternate run by run, one new `zsh -df` child per
+sample, one untimed warm-up call, then one timed capture. Status and result
+count match between the trees. Medians (min–max) in ms over 10 runs,
+`en_US.UTF-8`:
+
+| Workload | Status/results | Before | After | Δ |
+| --- | ---: | ---: | ---: | ---: |
+| Git, search-git repository (2,400 paths), `controller` | 0/300 | 100.59 (99.28–101.89) | 68.56 (66.38–72.08) | −31.8% |
+| Git, 50,000-path stub list, no matches | 1/0 | 1,307.40 (1,278.33–1,323.95) | 105.89 (104.85–107.20) | −91.9% |
+| Spotlight, 5,000 indexed paths, no matches | 1/0 | 532.73 (513.87–539.72) | 71.57 (70.29–72.44) | −86.6% |
+| Spotlight, 5,000 indexed paths, `note 42` | 0/780 | 596.69 (585.54–611.14) | 153.45 (150.94–156.39) | −74.3% |
+
+An earlier invocation of 10 runs (load 3.0–3.2), before a one-line guard was
+added to the Git batch handler, repeated the result: 100.02 → 68.07,
+1,286.25 → 106.08, 531.07 → 72.62 and 593.76 → 152.28 ms.
+
+The end-to-end first-frame benchmark (`search-git 11 5`, load 2.9–3.0, medians
+in ms, before → after):
+
+- search-git: fresh 180.54 (175.37–187.70) → 123.60 (120.92–126.98), −31.5%;
+  warm 181.25 (179.26–183.09) → 121.59 (116.72–126.70), −32.9%.
+
+Ranges never overlap, and the change is more than a hundred times that
+frame's A/A delta (up to 0.48 ms). Both trees painted the populated results
+frame (the benchmark's marker); one traced candidate frame read
+`300 candidates for controller`, the count both trees captured above.
+
+Decision: kept. Reproduce from the repository root with a disposable
+`TMPDIR`:
+
+```zsh
+/bin/zsh -df investigations/benchmarks/file-search-stream.zsh <baseline-root> <candidate-root> 10
+/bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <baseline-root> <candidate-root> search-git 11 5
+```
+
 ## Owner decisions
 
 ### OD2: first-prompt help capture keeps one fork per guide (HELP-02)

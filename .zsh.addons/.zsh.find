@@ -170,38 +170,60 @@ _file_search_git() {
   command "$git_binary" -C "$root" -c core.fsmonitor=false "$@"
 }
 
-_file_search_capture_git() {
+# Hand a provider's NUL-terminated stream on stdin to a handler in batches of
+# complete records. `read -d ''` costs one read(2) per byte on a pipe; sysread
+# takes up to <size> bytes and the split happens in memory, so memory stays
+# bounded by one read plus a cut-off record. Providers end the stream with an
+# empty record and then their NUL-terminated exit status, and a record cut off
+# at the end is never handed on.
+# Usage: _file_search_stream <size> <handler> [handler-arguments...]
+# The handler receives its arguments, then the batch, and stops the stream by
+# returning nonzero. Returns 0 when the stream ended with status 0, 1 when the
+# handler stopped it, and 2 otherwise.
+_file_search_stream() {
+  emulate -L zsh
+
+  [[ $1 == <1-1048576> ]] || return 2
+  zmodload -F zsh/system b:sysread || return 2
+  local -i size=$1 index=0 trailer=0
+  local chunk='' carry='' empty=''
+  local -a records=()
+  shift
+  while sysread -s $size chunk; do
+    chunk=$carry$chunk
+    records=("${(@0)chunk}")
+    carry=$records[-1]
+    records[-1]=()
+    if (( !trailer )); then
+      index=${records[(ie)$empty]}
+      if (( index > 1 )); then
+        "$@" "${(@)records[1,index-1]}" || return 1
+      fi
+      (( index <= ${#records} )) || continue
+      trailer=1
+      records=("${(@)records[index+1,-1]}")
+    fi
+    (( ${#records} )) || continue
+    [[ $records[1] == 0 ]] && return 0
+    return 2
+  done
+  return 2
+}
+
+# One batch of Git paths relative to the root. Returns 1 at the candidate cap.
+# The `visited` folder map belongs to _file_search_capture_git and spans
+# batches; without it a path subscript would be arithmetic, so stop instead.
+_file_search_git_batch() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local root=${1:A} query=$2
-  local relative='' candidate_path='' parent=''
-  local -i consider_status=0 stop=0 source_status=2
-  local completion=''
-  local -A visited=()
-  [[ -d $root ]] || return 2
-  _file_search_git "$root" rev-parse --is-inside-work-tree \
-    >/dev/null 2>&1 || return 2
-
-  _file_search_reset
-  _file_search_compile_query "$query"
-  _FILE_SEARCH_ROOT=$root
-  _FILE_SEARCH_SOURCE=git
-  while IFS= read -r -d '' relative; do
-    if [[ -z $relative ]]; then
-      IFS= read -r -d '' completion
-      [[ $completion == 0 ]] && source_status=0
-      break
-    fi
-    [[ -n $relative && $relative != /* ]] || continue
-    [[ $relative == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
-    candidate_path="$root/$relative"
-    _file_search_consider "$candidate_path" "$relative" "$relative"
-    consider_status=$?
-    (( consider_status == 2 )) && {
-      stop=1
-      break
-    }
+  [[ ${(t)visited-} == association* ]] || return 1
+  local root=$1 relative='' parent=''
+  shift
+  for relative in "${(@M)@:#${~_FILE_SEARCH_FILTER_PATTERN}}"; do
+    [[ $relative != /* ]] || continue
+    _file_search_consider "$root/$relative" "$relative" "$relative"
+    (( $? == 2 )) && return 1
 
     # Git lists only files, so derive their folders even when the exclusion
     # or a missing worktree file rejects the file itself: a folder is judged on
@@ -211,21 +233,36 @@ _file_search_capture_git() {
     while [[ $parent != . && -n $parent && -z ${visited[$parent]-} ]]; do
       visited[$parent]=1
       _file_search_consider "$root/$parent" "$parent" "$parent"
-      consider_status=$?
-      (( consider_status == 2 )) && {
-        stop=1
-        break
-      }
+      (( $? == 2 )) && return 1
       parent=${parent:h}
     done
-    (( stop )) && break
-  done < <(_file_search_git "$root" ls-files -z \
-    --cached --others --exclude-standard 2>/dev/null
+  done
+  return 0
+}
+
+_file_search_capture_git() {
+  emulate -L zsh
+
+  local root=${1:A} query=$2
+  local -i stream_status=0
+  local -A visited=()
+  [[ -d $root ]] || return 2
+  _file_search_git "$root" rev-parse --is-inside-work-tree \
+    >/dev/null 2>&1 || return 2
+
+  _file_search_reset
+  _file_search_compile_query "$query"
+  _FILE_SEARCH_ROOT=$root
+  _FILE_SEARCH_SOURCE=git
+  _file_search_stream 65536 _file_search_git_batch "$root" < <(
+    _file_search_git "$root" ls-files -z \
+      --cached --others --exclude-standard 2>/dev/null
     # Empty paths cannot occur: terminate the NUL stream with its exit status.
     print -rn -- $'\0'"$?"$'\0' 2>/dev/null)
+  stream_status=$?
 
   _file_search_sort_matches
-  if (( !stop && source_status )); then
+  if (( stream_status == 2 )); then
     (( ${#_FILE_SEARCH_VALUES} )) && _FILE_SEARCH_TRUNCATED=1
     return 2
   fi
@@ -303,18 +340,47 @@ _file_search_spotlight_seed() {
   [[ -n $seed ]]
 }
 
-_file_search_capture_spotlight() {
+# One batch of indexed paths for the resolved root (empty for no scope). The
+# query matches the home-relative display text, so the batch is never
+# prefiltered on raw paths; the text check runs before any filesystem check.
+# Returns 1 at the candidate cap.
+_file_search_spotlight_batch() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
+  local root=$1 candidate='' resolved='' display=''
+  shift
+  for candidate in "$@"; do
+    if [[ $candidate == $HOME ]]; then
+      display='~'
+    elif [[ $candidate == $HOME/* ]]; then
+      display="~${candidate#$HOME}"
+    else
+      display=$candidate
+    fi
+    [[ $display == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
+    [[ $candidate == /* && ( -e $candidate || -L $candidate ) ]] || continue
+    resolved=${candidate:A}
+    # `/` contains every absolute path; `$root/*` would become `//*` there.
+    if [[ -n $root && $root != / && $resolved != $root && $resolved != $root/* ]]; then
+      continue
+    fi
+    _file_search_consider "$candidate" "$display" "$display"
+    (( $? == 2 )) && return 1
+  done
+  return 0
+}
+
+_file_search_capture_spotlight() {
+  emulate -L zsh
+
   local raw_root=$1 query=$2 binary=${3:-${commands[mdfind]:-}}
-  local root='' path='' resolved='' display=''
+  local root=''
   # `-name` consumes the seed as one argv value. Do not combine it with
   # `-literal`: macOS mdfind applies that mode to raw query expressions and
   # rejects the combination instead of producing filename results.
   local -a command_args=(-0)
-  local -i consider_status=0 stop=0 source_status=2
-  local completion=''
+  local -i stream_status=0
   [[ -n $binary && -x $binary ]] || return 2
 
   if [[ -n $raw_root ]]; then
@@ -330,34 +396,13 @@ _file_search_capture_spotlight() {
   _file_search_compile_query "$query"
   _FILE_SEARCH_ROOT=$root
   _FILE_SEARCH_SOURCE=spotlight
-  while IFS= read -r -d '' path; do
-    if [[ -z $path ]]; then
-      IFS= read -r -d '' completion
-      [[ $completion == 0 ]] && source_status=0
-      break
-    fi
-    [[ $path == /* && ( -e $path || -L $path ) ]] || continue
-    resolved=${path:A}
-    # `/` contains every absolute path; `$root/*` would become `//*` there.
-    if [[ -n $root && $root != / && $resolved != $root && $resolved != $root/* ]]; then
-      continue
-    fi
-    if [[ $path == $HOME ]]; then
-      display='~'
-    elif [[ $path == $HOME/* ]]; then
-      display="~${path#$HOME}"
-    else
-      display=$path
-    fi
-    [[ $display == ${~_FILE_SEARCH_FILTER_PATTERN} ]] || continue
-    _file_search_consider "$path" "$display" "$display"
-    consider_status=$?
-    (( consider_status == 2 )) && { stop=1; break; }
-  done < <(command "$binary" "${command_args[@]}" 2>/dev/null
+  _file_search_stream 65536 _file_search_spotlight_batch "$root" < <(
+    command "$binary" "${command_args[@]}" 2>/dev/null
     print -rn -- $'\0'"$?"$'\0' 2>/dev/null)
+  stream_status=$?
 
   _file_search_sort_matches
-  if (( !stop && source_status )); then
+  if (( stream_status == 2 )); then
     (( ${#_FILE_SEARCH_VALUES} )) && _FILE_SEARCH_TRUNCATED=1
     return 2
   fi
