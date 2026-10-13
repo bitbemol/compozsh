@@ -1506,7 +1506,7 @@ _usb_choice_view() {
       flash 'choose media' format 'choose drive'
       default-name 'review confirmation' custom-name 'enter name' image 'choose media'
       target 'choose drive' checksum 'enter checksum' remove-checksum 'remove checksum'
-      retry 'retry capture' back back done done source inspect info inspect)
+      retry 'retry capture' back back done done)
   fi
   _ZLE_PICKER_REFRESH_ENABLED=${5:-0}
   local -i show_highlights=${6:-0}
@@ -1877,11 +1877,13 @@ _usb_image_architecture_capture() {
 _usb_media_attention_choose() {
   emulate -L zsh
   local image=$1 headline=$2 detail=$3
-  local -a _USB_PICKER_VALUES=(back info)
-  local -a _USB_PICKER_LABELS=('Choose another media' "$headline")
-  local -a _USB_PICKER_HIGHLIGHTS=('' "0:${#headline}:picker-error")
-  local -a _USB_PICKER_SEARCH=(back media unsupported inspect)
-  local -a _USB_PICKER_DETAILS=("$detail" "$detail")
+  local -a _USB_PICKER_VALUES=(back)
+  local -a _USB_PICKER_LABELS=('Choose another media')
+  local -a _USB_PICKER_HIGHLIGHTS=('')
+  local -a _USB_PICKER_SEARCH=(back)
+  local -a _USB_PICKER_DETAILS=("$detail")
+  local -a _USB_PICKER_PASSIVE_LINES=("$headline")
+  local -a _USB_PICKER_PASSIVE_STYLES=(picker-error)
   _usb_choose 'External device / Flash · Media compatibility' \
     "MEDIA  ›  ${image:t}" 'Choose another media' 1 0 1
 }
@@ -1912,20 +1914,20 @@ _usb_macos_review_choose() {
   local installer=$1 disk_index=$2
   local disk=${_USB_DISK_IDS[disk_index]}
   local source_label='Source validation · Verified · Apple-signed full installer'
-  _USB_PICKER_VALUES=(flash-verify source image target)
+  _USB_PICKER_VALUES=(flash-verify image target)
   _USB_PICKER_LABELS=(
     'Create bootable macOS installer'
-    "$source_label"
     "Change installer · ${installer:t}"
     "Change drive · ${_USB_DISK_LABELS[disk_index]}")
-  _USB_PICKER_HIGHLIGHTS=(
-    '' "0:${#source_label}:picker-success" '' '')
-  _USB_PICKER_SEARCH=(create apple validation installer drive)
+  _USB_PICKER_HIGHLIGHTS=('' '' '')
+  _USB_PICKER_SEARCH=(create installer drive)
   _USB_PICKER_DETAILS=(
-    'Create macOS installer'$'\n\n'"The whole selected external disk is prepared as Mac OS Extended, then the selected app’s Apple createinstallmedia tool builds the bootable installer and the disk is ejected."
-    'Apple signature verified'$'\n\n''The full installer application and its createinstallmedia executable passed validation. Their captured filesystem identities are checked again before erasing the drive.'
+    'Create macOS installer'$'\n\n'"The whole selected external disk is prepared as Mac OS Extended, then the selected app’s Apple createinstallmedia tool builds the bootable installer and the disk is ejected."$'\n\n''The full installer application and its createinstallmedia executable passed Apple signature validation. Their captured filesystem identities are checked again before erasing the drive.'
     "${_USB_IMAGE_DETAILS[${_USB_IMAGE_PATHS[(Ie)$installer]}]}"
     "${_USB_DISK_DETAILS[disk_index]}")
+  # Validation is a fact, not an action; scoped here so later screens never inherit it.
+  local -a _USB_PICKER_PASSIVE_LINES=("$source_label")
+  local -a _USB_PICKER_PASSIVE_STYLES=(picker-success)
   _usb_choose 'External device / Flash · Step 3 of 3' \
     "Media  ›  Drive  ›  CREATE · macOS · ${installer:t} → /dev/$disk" \
     'Filter choices' 1 0 1 '' '' '' action

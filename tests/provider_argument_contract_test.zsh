@@ -64,7 +64,7 @@ _test_provider_explicit_macos_review_target() {
     _USB_DISK_DETAILS=(DetailsA DetailsB)
     _USB_IMAGE_PATHS=(/fixture.app)
     _USB_IMAGE_DETAILS=(Installer)
-    _usb_choose() { REPLY="$2|${_USB_PICKER_LABELS[4]}"; }
+    _usb_choose() { REPLY="$2|${_USB_PICKER_LABELS[${_USB_PICKER_VALUES[(ie)target]}]}"; }
     local disk_index=1
     _usb_macos_review_choose /fixture.app 2
     [[ $REPLY == *"/dev/disk8|Change drive · DriveB" && $disk_index == 1 ]] || exit 1

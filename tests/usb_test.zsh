@@ -1264,6 +1264,30 @@ _test_usb_result_screens_keep_facts_passive() {
 test_case 'USB result screens expose only Done as an action' \
   _test_usb_result_screens_keep_facts_passive
 
+_test_usb_attention_and_review_screens_index_only_actions() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _usb_choose() {
+      print -r -- "values:${(j:,:)_USB_PICKER_VALUES}|passive:${(j:|:)_USB_PICKER_PASSIVE_LINES}|styles:${(j:|:)_USB_PICKER_PASSIVE_STYLES}|search:${#_USB_PICKER_SEARCH}"
+    }
+    _usb_media_attention_choose /img.iso "Media inspection failed · x" detail
+    _USB_DISK_IDS=(disk7) _USB_DISK_LABELS=(DriveA) _USB_DISK_DETAILS=(DetailsA)
+    _USB_IMAGE_PATHS=(/fixture.app) _USB_IMAGE_DETAILS=(Installer)
+    _usb_macos_review_choose /fixture.app 1
+    (( ! ${+_USB_PICKER_PASSIVE_LINES} && ! ${+_USB_PICKER_PASSIVE_STYLES} )) ||
+      print -r -- leaked-passive-rows
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal \
+    'values:back|passive:Media inspection failed · x|styles:picker-error|search:1'$'\n''values:flash-verify,image,target|passive:Source validation · Verified · Apple-signed full installer|styles:picker-success|search:3' \
+    "$output"
+}
+test_case 'USB attention and macOS review screens index only actions' \
+  _test_usb_attention_and_review_screens_index_only_actions
+
 _test_usb_windows_round_trip_on_a_real_fat32_image() {
   test_make_temp_dir || return
   local source="$TEST_TMP_DIR/source" image="$TEST_TMP_DIR/windows-fat32.dmg"
