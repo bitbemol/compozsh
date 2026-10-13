@@ -643,9 +643,10 @@ Enter or an Option-digit inserts a directory. For files and links,
 | Insert path into command line | Return a quoted path to the prompt for review |
 | Enter linked directory | Follow a directory symlink and change directory |
 
-Actions run after the screen is restored and recheck the target. Selection
-never executes a file. Walks inspect at most 20,000 entries, and every source
-keeps at most 2,000 matches:
+Actions run after the screen is restored and recheck the target; if it changed
+or disappeared, one short note below the prompt says so and your draft and
+directory stay as they were. Selection never executes a file. Walks inspect at
+most 20,000 entries, and every source keeps at most 2,000 matches:
 
 ```zsh
 ZSH_FILE_SEARCH_MAX_RESULTS=10

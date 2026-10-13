@@ -140,6 +140,12 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
   explicit directory change also preserves the draft.
   Capability hints come from captured facts, with a checked failure path if a
   tool disappears. Never launch applications to fill a panel.
+- A target that changed or became unavailable, or a vanished `open`, is
+  reported after cleanup and any prompt refresh as one fixed `zle -M` message
+  that never echoes the raw path; Open, Reveal, link following and Change
+  directory all report this way and keep the draft and directory. A directory
+  is rechecked as a searchable folder before `cd`, so a stale one never
+  reaches `cd`'s raw diagnostic, while `chpwd` hooks keep their own output.
 - Secondary pickers return to a caller-owned query/selection/viewport bookmark
   without recapturing providers.
 

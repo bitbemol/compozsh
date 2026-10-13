@@ -1066,32 +1066,35 @@ _directory_browser_session() {
 
   _directory_browser_absolute "$_ZLE_PICKER_SELECTED_VALUE"
   selected_path=$REPLY
-  case $_ZLE_PICKER_ACTION in
+  local action=$_ZLE_PICKER_ACTION outcome='' message=''
+  [[ $mode == cd && $action == select ]] && action=cd
+  case $action in
     (cd)
-      builtin cd -- "$selected_path"
-      result=$?
-      [[ $runner == widget ]] && zle reset-prompt
-      return $result ;;
+      # Recheck before cd so a vanished folder never reaches cd's raw
+      # diagnostic; chpwd hooks keep their own output.
+      outcome=stale result=1
+      if [[ -d $selected_path && -x $selected_path ]]; then
+        builtin cd -- "$selected_path"
+        result=$?
+        (( result )) || outcome=''
+      fi
+      [[ $runner == widget ]] && zle reset-prompt ;;
     (open|enter-link)
       (( ${+functions[_file_search_apply]} )) || return 4
-      _file_search_apply "$_ZLE_PICKER_ACTION" "$selected_path" "$_directory_browser_clipboard" "$_directory_browser_open"
-      result=$?
-      [[ $runner == widget && $_ZLE_PICKER_ACTION == enter-link ]] && zle reset-prompt
-      return $result ;;
+      _file_search_apply "$action" "$selected_path" "$_directory_browser_clipboard" "$_directory_browser_open"
+      result=$? outcome=$REPLY
+      [[ $runner == widget && $action == enter-link ]] && zle reset-prompt ;;
     (copy)
       (( ${+functions[_compozsh_effect_copy]} )) &&
         _compozsh_effect_copy "$selected_path" "$_directory_browser_clipboard" || return 4
       [[ $runner == widget ]] && zle -M 'Copied path.'
       return 0 ;;
     (reveal)
+      # The shared effect alone: Browse Reveal never depends on the find peer.
       (( ${+functions[_compozsh_effect_open]} )) || return 4
       _compozsh_effect_open reveal "$selected_path" "$_directory_browser_open"
-      return $? ;;
+      result=$? outcome=$REPLY ;;
     (insert|select)
-      if [[ $mode == cd && $_ZLE_PICKER_ACTION == select ]]; then
-        builtin cd -- "$selected_path"
-        return $?
-      fi
       _directory_picker_quote "$_ZLE_PICKER_SELECTED_VALUE"
       if [[ $runner == widget ]]; then
         BUFFER="${argument_prefix}${REPLY}" CURSOR=${#BUFFER}
@@ -1100,6 +1103,23 @@ _directory_browser_session() {
       fi
       return 0 ;;
   esac
+  # One fixed explanation per refused effect, after cleanup and any prompt
+  # refresh. Never the raw path; the draft is untouched on every such path.
+  case $outcome in
+    (unavailable) message='Files: macOS opening is unavailable; your draft is unchanged.' ;;
+    (stale)
+      if [[ $action == (cd|enter-link) ]]; then
+        message='Files: the selected folder changed or is unavailable; your directory and draft are unchanged.'
+      else
+        message='Files: the selected item changed or is unavailable; your draft is unchanged.'
+      fi ;;
+  esac
+  if [[ -n $message && $runner == widget ]]; then
+    zle -M "$message"
+  elif [[ -n $message ]]; then
+    print -u2 -r -- "$message"
+  fi
+  return $result
 }
 
 # Uses the invoking browser's scoped snapshots and bookmarks. Every view runs

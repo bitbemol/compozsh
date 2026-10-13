@@ -549,9 +549,13 @@ _file_search_actions_view() {
 
 # All paths come from the captured search. Check mutable filesystem facts again
 # at the action boundary; never feed a selected path to a shell interpreter.
+# A refused directory or open effect sets the caller's REPLY to stale or
+# unavailable and prints nothing: the caller reports it after screen cleanup.
 _file_search_apply() {
   emulate -L zsh
   local action=$1 selected=$2 clipboard_binary=$3 open_binary=$4
+  local -i result=0
+  REPLY=''
   [[ $selected == /* ]] || return 2
   case $action in
     (copy) _file_search_copy "$selected" "$clipboard_binary" ;;
@@ -559,26 +563,16 @@ _file_search_apply() {
       _file_search_quote "$selected"
       print -zr -- "$REPLY" ;;
     (directory|enter-link)
-      if [[ -d $selected &&
-            ( $action == directory && ! -L $selected || $action == enter-link && -L $selected ) ]]; then
-        builtin cd -- "$selected"
-      else
-        print -u2 -r -- 'Files: selected directory changed or is unavailable; search again'
-        return 1
-      fi ;;
-    (open|reveal)
-      local REPLY=unavailable result=0
-      if (( ${+functions[_compozsh_effect_open]} )); then
-        _compozsh_effect_open "$action" "$selected" "$open_binary"
-        result=$?
-      else
-        result=1
-      fi
-      case $REPLY in
-        unavailable) print -u2 -r -- 'Files: macOS opening is unavailable' ;;
-        stale) print -u2 -r -- 'Files: selected item changed or is unavailable; search again' ;;
-      esac
+      REPLY=stale
+      [[ -d $selected && -x $selected &&
+         ( $action == directory && ! -L $selected || $action == enter-link && -L $selected ) ]] || return 1
+      REPLY=''
+      builtin cd -- "$selected" || { result=$?; REPLY=stale; }
       return $result ;;
+    (open|reveal)
+      REPLY=unavailable
+      (( ${+functions[_compozsh_effect_open]} )) || return 1
+      _compozsh_effect_open "$action" "$selected" "$open_binary" ;;
     (*) return 2 ;;
   esac
 }

@@ -248,6 +248,79 @@ _test_files_workspace_link_refresh() {
 }
 test_case 'following a directory link refreshes the prompt after workspace cleanup' _test_files_workspace_link_refresh
 
+# A target or tool that vanished after capture is reported once through ZLE,
+# after cleanup and any prompt refresh: never raw stderr, never silence.
+_test_files_workspace_stale_actions() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output='' result=0
+  command mkdir -p "$home/bin" "$home/locked" || return
+  test_write_file "$home/present.txt" present || return
+  test_write_file "$home/bin/open" $'#!/bin/zsh\nprint -rl -- "$@" >> "$HOME/opened"\nexit "${OPEN_STATUS:-0}"' || return
+  command chmod +x "$home/bin/open" || return
+  command ln -s locked "$home/locked-link" && command chmod 000 "$home/locked" || return
+  output=$(test_run_interactive "$home" '
+    source "$1/.zshrc"
+    path=("$HOME/bin" $path)
+    rehash
+    [[ ${commands[open]} == "$HOME/bin/open" ]] || exit 20
+    builtin cd "$HOME" || exit 21
+    local scenario="" scenario_target="" scenario_tool=""
+    local -a messages=() calls=()
+    _zle_picker_screen_session() {
+      _ZLE_PICKER_ACTION=$scenario
+      _ZLE_PICKER_SELECTED_VALUE=$scenario_target
+      # A tool that disappears while the workspace is open.
+      [[ -n $scenario_tool ]] && _directory_browser_open=$scenario_tool
+      return 0
+    }
+    zle() {
+      calls+=("$1")
+      [[ $1 == -M ]] && messages+=("$2")
+      return 0
+    }
+    _stale_case() {
+      local expected_calls=$1 expected=$2 BUFFER=./ CURSOR=2
+      scenario=$3 scenario_target=$4 scenario_tool=${5:-}
+      messages=() calls=()
+      _directory_context_complete_widget 2>|"$HOME/stderr"
+      [[ ${(j: :)calls} == "$expected_calls" && ${#messages} == 1 &&
+         ${messages[1]} == "$expected" ]] ||
+        { print -r -- "$scenario ${scenario_target:t}: calls=${(j: :)calls} messages=${(j:|:)messages}"; return 1; }
+      [[ ! -s "$HOME/stderr" ]] ||
+        { print -r -- "$scenario ${scenario_target:t}: stderr=$(<"$HOME/stderr")"; return 1; }
+      [[ $PWD == "$HOME" && $BUFFER == ./ && $CURSOR == 2 ]] ||
+        { print -r -- "$scenario ${scenario_target:t}: shell state changed"; return 1; }
+    }
+    local item="Files: the selected item changed or is unavailable; your draft is unchanged."
+    local folder="Files: the selected folder changed or is unavailable; your directory and draft are unchanged."
+    local tool="Files: macOS opening is unavailable; your draft is unchanged."
+    _stale_case "-M redisplay" "$item" open "$HOME/vanished.txt" || exit 1
+    _stale_case "-M redisplay" "$item" reveal "$HOME/vanished.txt" || exit 2
+    _stale_case "reset-prompt -M redisplay" "$folder" enter-link "$HOME/vanished-link" || exit 3
+    _stale_case "reset-prompt -M redisplay" "$folder" cd "$HOME/vanished-dir" || exit 4
+    _stale_case "reset-prompt -M redisplay" "$folder" cd "$HOME/locked" || exit 5
+    _stale_case "reset-prompt -M redisplay" "$folder" enter-link "$HOME/locked-link" || exit 13
+    _stale_case "-M redisplay" "$tool" open "$HOME/present.txt" "$HOME/bin/vanished-open" || exit 6
+    _stale_case "-M redisplay" "$tool" reveal "$HOME/present.txt" "$HOME/bin/vanished-open" || exit 7
+    [[ ! -e "$HOME/opened" ]] || { print -r -- "a stale action launched open"; exit 8; }
+    # Controls: success stays silent; an app failure keeps its one generic message.
+    local BUFFER=./ CURSOR=2
+    scenario=open scenario_target="$HOME/present.txt" scenario_tool="" messages=() calls=()
+    _directory_context_complete_widget 2>|"$HOME/stderr"
+    [[ ${(j: :)calls} == redisplay && ! -s "$HOME/stderr" ]] || { print -r -- "success: calls=${(j: :)calls}"; exit 10; }
+    export OPEN_STATUS=19
+    _stale_case "-M redisplay" "Directory browser: the requested action could not be completed." \
+      open "$HOME/present.txt" || exit 11
+    [[ $(<"$HOME/opened") == "--"$'\''\n'\''"$HOME/present.txt"$'\''\n'\''"--"$'\''\n'\''"$HOME/present.txt" ]] ||
+      { print -r -- "opened=$(<"$HOME/opened")"; exit 12; }
+    print stale-reported
+  ' "$TEST_REPO_ROOT") || result=$?
+  command chmod 700 "$home/locked"
+  (( result == 0 )) || { test_fail "stale action journey exited $result: $output"; return; }
+  test_assert_equal stale-reported "$output"
+}
+test_case 'stale file actions report one ZLE message after workspace cleanup' _test_files_workspace_stale_actions
+
 _test_files_workspace_journey() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/Projects/child/deep" "$TEST_TMP_DIR/home/Previous & notes" || return
