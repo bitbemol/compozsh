@@ -153,6 +153,40 @@ _test_discovery_filename_contract() {
 test_case 'only regular files with a non-empty .zsh.NAME basename autoload' \
   _test_discovery_filename_contract
 
+# Discovery must not depend on glob options an initializer or a previously
+# loaded peer left set: GLOB_DOTS would descend into hidden folders (and walk
+# a versioned .git) and NO_CASE_GLOB would accept .ZSH.* names. The user's own
+# options survive loading unchanged.
+_test_discovery_ignores_glob_options() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/init" output=''
+
+  test_write_file "$home/.zsh.addons/local/init.zsh" \
+    'setopt GLOB_DOTS NO_CASE_GLOB' || return
+  test_write_file "$home/.zsh.addons/.archive/.zsh.old-peer" \
+    '(( ++HIDDEN_LOADS )); :' || return
+  test_write_file "$home/.zsh.addons/private/.ZSH.upper" \
+    '(( ++UPPER_LOADS )); :' || return
+  output=$(test_run_interactive "$home" \
+    'source "$1/.zshrc"; print -r -- "${HIDDEN_LOADS:-0}|${UPPER_LOADS:-0}|${+functions[mkcd]}|${options[globdots]}|${options[caseglob]}|${+_zsh_addon_files}"' \
+    "$TEST_REPO_ROOT") || return
+  test_assert_equal '0|0|1|on|off|0' "$output" \
+    'initializer glob options changed the discovered peer set' || return
+
+  home="$TEST_TMP_DIR/peer"
+  test_write_file "$home/.zsh.addons/private/.zsh.options" \
+    'setopt GLOB_DOTS; :' || return
+  test_write_file "$home/.zsh.addons/.archive/.zsh.old-peer" \
+    '(( ++HIDDEN_LOADS )); :' || return
+  output=$(test_run_interactive "$home" \
+    'source "$1/.zshrc"; source "$1/.zshrc"; print -r -- "${HIDDEN_LOADS:-0}|${+functions[mkcd]}"' \
+    "$TEST_REPO_ROOT") || return
+  test_assert_equal '0|1' "$output" \
+    'a peer glob option changed the set discovered on re-source'
+}
+test_case 'peer discovery ignores glob options set before or during loading' \
+  _test_discovery_ignores_glob_options
+
 _test_cache_data_never_autoloads() {
   test_make_temp_dir || return
   local layout='' output='' base=''

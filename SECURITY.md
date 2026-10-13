@@ -1558,18 +1558,21 @@ git grep -nE '(^|[[:space:]])(source|eval)[[:space:]]' \
 
 The tracked bootstrap sources the optional machine-local initializer and every
 matching peer beneath the repository and user add-on directories, excluding the
-reserved `support/cache` data directory. An explicit `ZSH_LOCAL_INIT` must be
-an absolute path: the bootstrap ignores a relative initializer path with a
-diagnostic and never resolves it against the current directory
-(`zsh tests/run.zsh 'relative ZSH_LOCAL_INIT'`). The tracked starter is inert,
-but an existing private initializer or peer is user-owned code and must be
-audited separately. Within that boundary, peers autoload stock Zsh functions
-from `fpath` (such as `compinit` and `add-zle-hook-widget`), and `.zsh.editor`'s
-`compinit` also sources Zsh's own [completion dump](#native-completion-dump)
-from the configuration base and autoloads completion functions. Compozsh adds
-no `fpath` entry, and neither path comes from the current directory while
-`fpath` holds only absolute directories; an inherited relative `FPATH` entry
-would make `autoload` search the current directory.
+reserved `support/cache` data directory and hidden folders. Discovery runs under
+fixed Zsh options, so glob options set by the initializer or a peer cannot widen
+it (`zsh tests/run.zsh 'peer discovery ignores glob options'`). An explicit
+`ZSH_LOCAL_INIT` must be an absolute path: the bootstrap ignores a relative
+initializer path with a diagnostic and never resolves it against the current
+directory (`zsh tests/run.zsh 'relative ZSH_LOCAL_INIT'`). The tracked
+starter is inert, but an existing private initializer or peer is user-owned
+code and must be audited separately. Within that boundary, peers autoload
+stock Zsh functions from `fpath` (such as `compinit` and
+`add-zle-hook-widget`), and `.zsh.editor`'s `compinit` also sources Zsh's own
+[completion dump](#native-completion-dump) from the configuration base and
+autoloads completion functions. Compozsh adds no `fpath` entry, and neither
+path comes from the current directory while `fpath` holds only absolute
+directories; an inherited relative `FPATH` entry would make `autoload` search
+the current directory.
 
 Search the executable shell surface for common network clients:
 

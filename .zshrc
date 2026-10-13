@@ -33,19 +33,30 @@ fi
 # plus private peers from ~/.zsh.addons; a copied install naturally scans its
 # single combined directory only once. The fixed support/cache directory holds
 # inert module data, including .zsh.<owner>.cache files, and is never sourced.
+# Discovery runs under fixed Zsh options before any peer loads, so glob options
+# set by the initializer or a peer cannot change the set: the .zsh. prefix
+# matches case-sensitively and hidden folders are never searched. Peers are
+# then sourced at top level, keeping ordinary typeset and setopt semantics.
 typeset -aU _zsh_addon_dirs=(
   "${_zsh_shared_addons_dir:A}"
   "${_zsh_user_addons_dir:A}"
 )
-for _zsh_addons_dir in "${_zsh_addon_dirs[@]}"; do
-  [[ -d $_zsh_addons_dir ]] || continue
-  for _zsh_addon_file in "$_zsh_addons_dir"/**/.zsh.?*(N.); do
-    [[ $_zsh_addon_file == "$_zsh_addons_dir/support/cache/"* ]] && continue
-    if ! source "$_zsh_addon_file"; then
-      print -u2 -r -- "zsh: add-on failed to load: $_zsh_addon_file"
-    fi
+typeset -a _zsh_addon_files=()
+() {
+  emulate -LR zsh
+  local dir='' file=''
+  for dir in "$@"; do
+    [[ -d $dir ]] || continue
+    for file in "$dir"/**/.zsh.?*(N.); do
+      [[ $file == "$dir/support/cache/"* ]] || _zsh_addon_files+=("$file")
+    done
   done
+} "${_zsh_addon_dirs[@]}"
+for _zsh_addon_file in "${_zsh_addon_files[@]}"; do
+  if ! source "$_zsh_addon_file"; then
+    print -u2 -r -- "zsh: add-on failed to load: $_zsh_addon_file"
+  fi
 done
 
 unset _zsh_config_file _zsh_shared_addons_dir _zsh_user_addons_dir
-unset _zsh_local_init _zsh_addon_dirs _zsh_addons_dir _zsh_addon_file
+unset _zsh_local_init _zsh_addon_dirs _zsh_addon_files _zsh_addon_file

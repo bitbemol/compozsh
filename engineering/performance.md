@@ -55,9 +55,10 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   discover prompt information.
 - Recursive add-on discovery runs only inside the shared `.zsh.addons` beside
   the resolved `.zshrc` and the configuration base's `.zsh.addons`: one native
-  glob, regular `.zsh.<name>` files in deterministic order for reproducible
-  diagnostics, no nested symlink directories. Correctness never depends on
-  that order.
+  glob under fixed Zsh options, regular `.zsh.<name>` files in deterministic
+  order for reproducible diagnostics, no hidden folders (so a versioned
+  `.git` is never walked) and no nested symlink directories. Correctness never
+  depends on that order.
 - Bound user-controlled display work and result counts, and keep the
   existing fuzzy-history maximum and width/height-aware rendering.
 

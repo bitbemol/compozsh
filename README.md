@@ -1585,6 +1585,9 @@ After the initializer, every regular file matching `.zsh.addons/**/.zsh.<name>`
 loads. Symlink installations load shared peers from the repository and private
 peers from your `.zsh.addons`; copy installations nest a marked
 `.zsh.addons/compozsh/` namespace, updated only by rerunning `install.zsh --copy`.
+Discovery uses fixed Zsh options, whatever glob options your initializer or
+peers set: the `.zsh.` prefix is case-sensitive and hidden folders such as
+`.archive/` or `.git/` are never searched.
 
 ```text
 ~/.zsh.addons/
@@ -1602,9 +1605,9 @@ collaborators when it runs.
 
 ### Creating an add-on
 
-Put a private add-on anywhere under `~/.zsh.addons` with a name starting
-`.zsh.`. Define functions while loading, and do discovery or slow work only when
-the command runs:
+Put a private add-on anywhere under `~/.zsh.addons`, outside hidden folders,
+with a name starting `.zsh.`. Define functions while loading, and do discovery
+or slow work only when the command runs:
 
 ```zsh
 _postgres_tools_available() {

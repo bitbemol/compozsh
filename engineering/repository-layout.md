@@ -143,7 +143,12 @@ or ordered directories.
 After the initializer, the bootstrap sources shared peers beside the resolved
 `.zshrc` and private peers under `~/.zsh.addons`, canonicalizing and
 deduplicating those directories so a copied install scans its combined
-directory once. Lexical traversal only makes diagnostics reproducible:
+directory once. Discovery collects every file before sourcing any, under fixed
+Zsh options (`emulate -LR zsh`), so glob options set by the initializer or a
+peer cannot change the set: the `.zsh.` prefix matches case-sensitively, hidden
+folders are never searched and nested directory symlinks are never followed.
+Peers are then sourced at top level. Lexical traversal only makes diagnostics
+reproducible:
 
 - loading the same enabled units in any order produces the same behavior;
 - a peer never calls another peer at source time, relies on sorting before
