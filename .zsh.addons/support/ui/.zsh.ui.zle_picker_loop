@@ -404,7 +404,14 @@ _zle_picker_loop() {
           selected=1
           ;;
         ($'\x0c')
-          zle clear-screen
+          # Builtin widgets only: a user clear-screen widget never runs here.
+          # Clear only the owned alternate screen; the inline fallback repaints
+          # in place so the main screen and scrollback stay intact.
+          if (( ${_ZLE_PICKER_SCREEN_ACTIVE:-0} )); then
+            zle .clear-screen
+          else
+            zle .redisplay
+          fi
           ;;
         ($'\x12')
           if (( _ZLE_PICKER_DOCUMENT )); then

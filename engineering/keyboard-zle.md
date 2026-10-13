@@ -87,6 +87,9 @@ Ctrl-X Ctrl-E to command editing.
   the frame state its views and capture statuses render into and releases it
   on every exit; no painted text outlives the session.
 - Full-screen clears are allowed only inside the owned alternate screen.
+  Redraw (Ctrl-L) calls builtin widgets only, so a user or plugin
+  `clear-screen` widget never runs in the modal session: `.clear-screen` inside
+  that screen, an in-place `.redisplay` repaint in the inline fallback.
   Resize goes through a registered ZLE widget; ordinary selection redraws stay
   incremental. That widget can run inside a frame still being laid out or
   painted, so a frame is laid out again before painting whenever the size

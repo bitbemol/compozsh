@@ -129,6 +129,124 @@ _test_picker_screen_lifecycle() {
 }
 test_case 'picker screen restores editor state on accept, cancel, abort, read failure, and plain fallbacks' _test_picker_screen_lifecycle
 
+# Ctrl-L is Redraw. Only the owned alternate screen may be cleared, and only by
+# the builtin widget: a user or plugin clear-screen widget never runs inside
+# the modal session, and the inline fallback repaints in place instead of
+# clearing the main screen.
+_test_picker_screen_ctrl_l_redraws_in_place() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/pty_support.zsh" || exit 12
+    command mkfifo "$HOME/events" || exit 1
+    exec {event_fd}<> "$HOME/events" || exit 2
+    local terminal=""
+    local -A enters=() leaves=() clears=()
+    for terminal in xterm-256color vt100; do
+      TERM=$terminal
+      enters[$terminal]=$terminfo[smcup] leaves[$terminal]=$terminfo[rmcup]
+      clears[$terminal]=${terminfo[clear]%%\$<*}
+      [[ -n $clears[$terminal] ]] || exit 13
+    done
+    TERM=xterm-256color
+    functions[_redraw_original_show]=$functions[_zle_picker_show]
+    _zle_picker_show() {
+      _redraw_original_show
+      print -r -u $event_fd -- FRAME
+    }
+    _redraw_collect() {
+      _ZLE_PICKER_RESULTS=(first second)
+      _ZLE_PICKER_LABELS=(first second)
+      _ZLE_PICKER_RESULT_INDEXES=(1 2)
+    }
+    # A dotfile or plugin may replace the clear-screen widget by name.
+    _user_clear() {
+      print -r -u $event_fd -- USER-CLEAR
+      zle .clear-screen
+    }
+    zle -N clear-screen _user_clear
+    _redraw_driver() {
+      command stty rows 30 cols 120
+      TERM=$terminal
+      _ZLE_PICKER_COLLECTOR=_redraw_collect
+      _zle_picker_run 10
+      print -r -u $event_fd -- DONE
+    }
+    # Read events through <wanted>, counting user clear-screen widget runs.
+    _redraw_until() {
+      while test_pty_expect -p redraw $event_fd ""; do
+        trace+=$TEST_PTY_OUTPUT post+=$TEST_PTY_OUTPUT
+        [[ $REPLY == USER-CLEAR ]] && (( ++user_clears ))
+        [[ $REPLY == "$1" ]] && return 0
+      done
+      trace+=$TEST_PTY_OUTPUT post+=$TEST_PTY_OUTPUT
+      return 1
+    }
+    # A frame is written before its event, so this takes the rest of it.
+    _redraw_drain() {
+      local chunk=""
+      while zpty -r redraw chunk; do
+        trace+=$chunk post+=$chunk
+      done
+    }
+    # Read terminal output until the second row has been painted again.
+    _redraw_painted() {
+      [[ $post == *second* ]] && return 0
+      test_pty_expect redraw "" second 2
+      local -i painted=$?
+      trace+=$TEST_PTY_OUTPUT post+=$TEST_PTY_OUTPUT
+      return $painted
+    }
+    local trace="" post="" redrawn="" enter="" leave="" clear="" placement=""
+    local before="" after=""
+    local -i user_clears=0 repainted=0
+    for terminal in xterm-256color vt100; do
+      trace="" post="" redrawn="" user_clears=0 repainted=0
+      enter=$enters[$terminal] leave=$leaves[$terminal] clear=$clears[$terminal]
+      test_pty_start redraw _redraw_driver || exit 3
+      {
+        _redraw_until FRAME || exit 4
+        _redraw_drain
+        post=""
+        zpty -w -n redraw $'\''\x0c'\''
+        _redraw_until FRAME || exit 5
+        _redraw_painted && repainted=1
+        redrawn=$post
+        zpty -w -n redraw $'\''\x07'\''
+        _redraw_until DONE || exit 6
+        test_pty_expect redraw "" "" || exit 7
+        trace+=$TEST_PTY_OUTPUT
+        # Redraw may clear only inside the owned alternate screen.
+        placement=none
+        if [[ $redrawn == *"$clear"* ]]; then
+          placement=main
+          if [[ -n $enter && -n $leave && $trace == *"$enter"*"$leave"* ]]; then
+            before=${trace%%"$enter"*} after=${trace##*"$leave"}
+            [[ $before != *"$clear"* && $after != *"$clear"* &&
+               $redrawn != *"$enter"* && $redrawn != *"$leave"* ]] && placement=screen
+          fi
+        fi
+        print -r -- "$terminal|user-clears=$user_clears|repainted=$repainted|clear=$placement"
+      } always {
+        zpty -d redraw
+      }
+    done
+    exec {event_fd}>&-
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+xterm-256color|user-clears=0|repainted=1|clear=screen
+vt100|user-clears=0|repainted=1|clear=none' "status:$exit_status"$'\n'"$output" \
+    'Ctrl-L ran a user clear-screen widget, cleared the main screen or did not repaint'
+}
+test_case 'picker screen Ctrl-L redraws in place without user clear-screen widgets or main-screen clears' \
+  _test_picker_screen_ctrl_l_redraws_in_place
+
 # The painted frame copies labels, inspector, query and location text. The
 # screen owner must release it on every exit path, including a capture status
 # that ends the session, or the last view would outlive its lifetime in shell
@@ -289,6 +407,9 @@ _test_picker_engine_drops_inherited_view_state() {
     _zle_picker_run() { print -r -- "run:$*"; return 1; }
     _zle_picker_loop "" 10; print -r -- "loop:$?"
     _file_search_actions_view "$HOME"; print -r -- "file actions:$?"
+    # Like compozsh, declare the invocation-scoped (here empty) tool catalog.
+    local -a _COMPOZSH_TOOL_NAMES=()
+    local -A _COMPOZSH_TOOL_HELPERS=() _COMPOZSH_TOOL_SOURCES=()
     _compozsh_view; print -r -- "tools:$?"
     local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
   ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
