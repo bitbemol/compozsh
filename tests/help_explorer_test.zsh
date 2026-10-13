@@ -58,6 +58,34 @@ _test_compozsh_discovery_regenerates_from_live_state() {
 test_case 'Compozsh tool discovery is regenerated from live shell state' \
   _test_compozsh_discovery_regenerates_from_live_state
 
+_test_compozsh_tool_catalog_is_invocation_scoped() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home"
+  local addon="$home/.zsh.addons/private/.zsh.client" output=''
+
+  test_write_file "$addon" $'client-tool() { :; }\n' || return
+
+  # Every entry runs in this shell, not a subshell, so retained names show.
+  output=$(test_run_interactive "$home" $'
+    source "$1/.zsh.addons/.zsh.help" || exit
+    source "$2" || exit
+    compozsh --list >| "$HOME/list" || exit 2
+    [[ $(<$HOME/list) == *"client-tool · — no help · private/.zsh.client"* ]] || exit 3
+    compozsh help client-tool >/dev/null || exit 4
+    compozsh </dev/null >/dev/null || exit 5
+    if (( ${+functions[_compozsh_tool_explore]} )); then
+      _compozsh_choose() { (( ${#_COMPOZSH_TOOL_NAMES} == 2 )) || return 7; }
+      _compozsh_tool_explore || exit $?
+    fi
+    print -r -- "${#_COMPOZSH_TOOL_NAMES}|${#_COMPOZSH_TOOL_LABELS}|${#_COMPOZSH_TOOL_SOURCES}|${#_COMPOZSH_TOOL_HELPERS}|${#_COMPOZSH_TOOL_INDEXES}|${#_COMPOZSH_TOOL_SEARCH_TEXTS}|$(( ${+_COMPOZSH_TOOL_NAMES} + ${+_COMPOZSH_TOOL_LABELS} + ${+_COMPOZSH_TOOL_SOURCES} + ${+_COMPOZSH_TOOL_HELPERS} + ${+_COMPOZSH_TOOL_INDEXES} + ${+_COMPOZSH_TOOL_SEARCH_TEXTS} ))"
+  ' "$TEST_REPO_ROOT" "$addon") || return
+
+  test_assert_equal '0|0|0|0|0|0|0' "$output" \
+    'tool catalog outlived the compozsh invocation that captured it'
+}
+test_case 'Compozsh tool catalog is released when the compozsh invocation returns' \
+  _test_compozsh_tool_catalog_is_invocation_scoped
+
 _test_compozsh_discovery_preserves_public_name_grammar() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home"

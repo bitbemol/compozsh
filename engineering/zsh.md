@@ -204,4 +204,6 @@ when it runs, restricted to public command-like names defined beneath a
 `.zsh.addons` tree. Never scan add-on files, snapshot the loader, cache a
 catalog, add an end-of-load phase, or invoke an unknown public function to
 probe its help. A function without a same-source companion is listed as
-`no help` and never executed.
+`no help` and never executed. The catalog is invocation state: `compozsh` and
+the Draft inspector's `_compozsh_tool_explore` declare it, so it is released
+when that call returns and has no global value.

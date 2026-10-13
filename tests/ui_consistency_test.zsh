@@ -58,7 +58,7 @@ _test_ui_consistency_tool_actions() {
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     source "$1/.zsh.addons/.zsh.help"
     _COMPOZSH_TOOL_NAMES=(documented unknown limited)
-    _COMPOZSH_TOOL_HELPERS=(documented trusted-fixture limited limited-fixture)
+    typeset -A _COMPOZSH_TOOL_HELPERS=(documented trusted-fixture limited limited-fixture)
     _compozsh_tool_inspector_capture() {
       _ZLE_PICKER_INSPECT_TEXTS=(documented $'"'"'usage: documented\nExplain a documented tool.'"'"' unknown "No help available" limited "Preview limit reached")
     }

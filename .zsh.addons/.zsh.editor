@@ -302,7 +302,7 @@ _draft_inspect_widget() {
   local -a _DRAFT_INSPECT_VALUES=(read)
   (( ${+functions[_directory_browser_session]} )) && _DRAFT_INSPECT_VALUES+=(files)
   (( ${+functions[_history_fuzzy_search_widget]} )) && _DRAFT_INSPECT_VALUES+=(history)
-  (( ${+functions[_compozsh_choose]} )) && _DRAFT_INSPECT_VALUES+=(tools)
+  (( ${+functions[_compozsh_tool_explore]} )) && _DRAFT_INSPECT_VALUES+=(tools)
   if (( ${+functions[_git_review_menu]} && ${+functions[_navigation_picker_collect]} )); then
     _DRAFT_INSPECT_VALUES+=(git)
   fi
@@ -389,7 +389,7 @@ _draft_inspect_controller() {
       back) return 0 ;;
       files|history) _DRAFT_INSPECT_NEXT=$selected; return 0 ;;
       read) _zle_ui_read_text 'Draft / Read' 'Literal text · Enter or Escape returns to Inspect' "$_DRAFT_INSPECT_BUFFER" ;;
-      tools) _compozsh_tool_capture && _compozsh_choose ;;
+      tools) _compozsh_tool_explore ;;
       compose) _compozsh_compose_open "$_DRAFT_INSPECT_BUFFER" "$_DRAFT_INSPECT_SCOPE" ;;
       git)
         if _git_review_capture "$_DRAFT_INSPECT_SCOPE" rev-parse --show-toplevel &&
