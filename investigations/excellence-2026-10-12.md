@@ -362,6 +362,54 @@ Decision: kept. Reproduce from the repository root with a disposable
 /bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <baseline-root> <candidate-root> review 11 5
 ```
 
+### Xcode scheme list parse (XCODE-03, CROSS-09)
+
+`_xcode_plist_string_array_parse` turns plutil's XML conversion of
+`xcodebuild -list -json` into the scheme catalog. It looped while the rest of
+the XML still matched `*<string>*</string>*` and copied that rest twice per
+value, so the cost was the number of schemes times the XML size. Discovery
+runs it in the foreground after the 'Loading schemes' capture, and the
+[Xcode contract](../engineering/workspaces/xcode.md#entry-and-discovery)
+accepts up to 4,096 schemes, so a large or hostile workspace froze the screen
+for seconds behind the last discovery frame. The parse now splits once on
+`<string>`, requires exactly one value per reported scheme up front, and
+decodes each value on its own. Names are unchanged; tests pin the decoded
+names, the count rules, markup-like names through real plutil and the
+4,096-scheme bound. Two malformed shapes plutil never emits now fail closed: an
+unclosed trailing value no longer goes uncounted, and no failure leaves a
+partial reply (the caller already discarded it).
+
+Measured with [`benchmarks/xcode-scheme-parse.zsh`](benchmarks/xcode-scheme-parse.zsh)
+(load 2.5–3.8). The baseline is a `git archive` of `ca9d1fb`; the candidate is
+the working tree. Trees alternate run by run, one new `zsh -df` child per
+sample, one untimed warm-up parse of two names, then one timed call over the
+real `/usr/bin/plutil` conversion. *Capture* is one complete
+`_xcode_schemes_capture` through a fake `xcodebuild` that prints the JSON, the
+closest end-to-end metric (no workspace benchmark reaches Xcode discovery).
+Medians (min–max) in ms over 10 runs, `en_US.UTF-8`:
+
+| Workload | Schemes | Before | After | Δ |
+| --- | ---: | ---: | ---: | ---: |
+| Parse, realistic names | 1,024 | 436.85 (426.25–456.95) | 14.69 (14.47–15.57) | −96.6% |
+| Parse, realistic names | 4,096 | 6,725.18 (6,552.30–6,862.84) | 62.93 (62.50–67.01) | −99.1% |
+| Parse, 56 `&` per name (302 KiB XML) | 1,024 | 3,465.29 (3,400.70–3,570.02) | 48.02 (47.10–49.14) | −98.6% |
+| Capture, realistic names | 4,096 | 6,784.96 (6,737.75–7,168.67) | 105.06 (102.63–108.95) | −98.5% |
+
+A second invocation of 4 runs under `LC_ALL=C` repeated the result:
+438.85 → 15.12, 6,730.65 → 62.51, 3,459.31 → 48.94 and 6,764.63 → 105.18 ms.
+Ranges never overlap. The remaining cost grows linearly with the conversion;
+the entity-dense worst case at 4,096 names, which the audit put near 50 s of
+CPU, extrapolates to about 0.2 s (an estimate from the 1,024-name row, not
+measured).
+
+Decision: kept. Reproduce from the repository root with a disposable
+`TMPDIR`:
+
+```zsh
+/bin/zsh -df investigations/benchmarks/xcode-scheme-parse.zsh <baseline-root> <candidate-root> 10
+/bin/zsh -df investigations/benchmarks/xcode-scheme-parse.zsh <baseline-root> <candidate-root> 4 C
+```
+
 ## Owner decisions
 
 ### OD2: first-prompt help capture keeps one fork per guide (HELP-02)

@@ -210,22 +210,21 @@ _xcode_xml_string_decode() {
 # Parse only plutil's normalized XML representation of a string array. The
 # caller obtains the original array count separately, so a type mismatch or
 # malformed conversion fails instead of producing a partial scheme catalog.
+# One split keeps the parse linear in the conversion size, and each value is
+# decoded on its own, so escaped markup inside a name never becomes a tag.
 _xcode_plist_string_array_parse() {
   emulate -L zsh
-  local remaining=$1 expected=$2 value=''
-  local open='<string>' close='</string>'
-  local -i parsed=0
+  local expected=$2 part='' close='</string>'
+  local -a parts=()
   reply=()
   [[ $expected == <-> ]] || return 1
-  while [[ $remaining == *"$open"*"$close"* ]]; do
-    remaining=${remaining#*"$open"}
-    value=${remaining%%"$close"*}
-    remaining=${remaining#*"$close"}
-    _xcode_xml_string_decode "$value"
+  parts=("${(@s:<string>:)1}")
+  (( ${#parts} - 1 == expected )) || return 1
+  for part in "${(@)parts[2,-1]}"; do
+    [[ $part == *"$close"* ]] || { reply=(); return 1; }
+    _xcode_xml_string_decode "${part%%"$close"*}"
     reply+=("$REPLY")
-    (( ++parsed > expected )) && return 1
   done
-  (( parsed == expected ))
 }
 
 _xcode_test_result_reset() {

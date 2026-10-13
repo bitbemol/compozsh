@@ -206,6 +206,18 @@ worktree behavior was changed; a duplicate resize signal is only an unconfirmed
 hypothesis. This observation is retained rather than treating retries as proof
 that an underlying intermittent issue cannot exist.
 
+## Large scheme lists (2026-10-13)
+
+The measurements above used one scheme. At the contract's 4,096-scheme bound
+the scheme-list parse itself dominated discovery: it rescanned the rest of
+plutil's XML for every value, so 4,096 realistic names took about 6.7 s and
+1,024 entity-dense names (302 KiB of XML, still inside the 256 KiB JSON
+capture) 3.5 s, after `xcodebuild` and both plutil calls had finished in
+well under 0.1 s. One split per conversion brought those to 63 ms and 48 ms,
+and a complete 4,096-scheme capture from 6.8 s to 105 ms, with identical
+names. Method, ranges and the reusable benchmark:
+[excellence run](excellence-2026-10-12.md#xcode-scheme-list-parse-xcode-03-cross-09).
+
 ## Primary references
 
 - [Apple: Building from the Command Line with Xcode FAQ](https://developer.apple.com/library/archive/technotes/tn2339/_index.html)

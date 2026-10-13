@@ -56,6 +56,9 @@ in two trees ([excellence run](excellence-2026-10-12.md#performance-results));
 `inspect-wrap.zsh` compares wrapping one long ASCII line in a Git review
 document and in a reader-only document in two trees
 ([excellence run](excellence-2026-10-12.md#performance-results));
+`xcode-scheme-parse.zsh` compares parsing plutil's conversion of large and
+entity-dense Xcode scheme lists, and one complete scheme capture, in two
+trees ([excellence run](excellence-2026-10-12.md#performance-results));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 

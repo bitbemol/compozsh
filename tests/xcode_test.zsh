@@ -351,6 +351,116 @@ _test_xcode_workspace_rejects_overflowing_scheme_count() {
 test_case 'Xcode workspace rejects an overflowing scheme count before arithmetic' \
   _test_xcode_workspace_rejects_overflowing_scheme_count
 
+# Only plutil's normalized XML for a string array is accepted: the separately
+# obtained count must match exactly, each value decodes once (ampersands last)
+# and any other element type or a count mismatch fails closed.
+_test_xcode_scheme_list_parse_keeps_exact_decoded_names() {
+  test_make_temp_dir || return
+  local prolog=$'<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n'
+  local values=$'\n\t<string>S1 &amp;amp; &lt;x&gt; &apos;q&apos; &quot;d&quot;</string>\n\t<string></string>\n\t<string>Last</string>\n'
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode" || exit
+    local xml="$2<array>$3</array>"$'"'"'\n</plist>\n'"'"' expected=""
+    local -a reply=()
+    _xcode_plist_string_array_parse "$xml" 3
+    print -r -- "exact:$?|${#reply}|${(j:|:)reply}"
+    for expected in 2 4 x "" -1; do
+      _xcode_plist_string_array_parse "$xml" "$expected"
+      print -r -- "count $expected:$?"
+    done
+    _xcode_plist_string_array_parse "$2<array><string>a</string><string>b</array></plist>" 2
+    print -r -- "unclosed:$?"
+    _xcode_plist_string_array_parse "$2<array><integer>1</integer></array></plist>" 1
+    print -r -- "integer:$?"
+    _xcode_plist_string_array_parse "$2<array/></plist>" 0
+    print -r -- "empty:$?|${#reply}"
+  ' "$TEST_REPO_ROOT" "$prolog" "$values") || return
+
+  test_assert_equal $'exact:0|3|S1 &amp; <x> \'q\' "d"||Last\ncount 2:1\ncount 4:1\ncount x:1\ncount :1\ncount -1:1\nunclosed:1\ninteger:1\nempty:0|0' \
+    "$output" 'Xcode scheme list parsing changed decoded names or accepted a mismatch'
+}
+test_case 'Xcode scheme list parse keeps exact decoded names and rejects count mismatches' \
+  _test_xcode_scheme_list_parse_keeps_exact_decoded_names
+
+# A malformed conversion fails as a whole: an unclosed trailing value is never
+# ignored to make the count match, and no failure leaves a partial reply.
+_test_xcode_scheme_list_parse_fails_closed_without_partial_reply() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode" || exit
+    local -a reply=()
+    _xcode_plist_string_array_parse "<array><string>a</string><string>b</array>" 1
+    print -r -- "unclosed:$?|${#reply}"
+    _xcode_plist_string_array_parse "<array><string>a</string><string>b</string></array>" 1
+    print -r -- "extra:$?|${#reply}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal $'unclosed:1|0\nextra:1|0' "$output" \
+    'a malformed Xcode scheme list was accepted or left a partial reply'
+}
+test_case 'Xcode scheme list parse fails closed on an unclosed value without a partial reply' \
+  _test_xcode_scheme_list_parse_fails_closed_without_partial_reply
+
+# Discovery parses the list in the foreground after capture, so the accepted
+# 4,096-scheme bound must not freeze the workspace. A linear parse takes tens of
+# milliseconds; rescanning the rest of the XML per value took about 11 s.
+_test_xcode_scheme_list_parse_full_catalog_promptly() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode" || exit
+    zmodload zsh/datetime || exit
+    local nl=$'"'"'\n'"'"' tab=$'"'"'\t'"'"' xml=""
+    local -a reply=()
+    local -i index=0 result=0
+    local -F started=0 elapsed=0
+    xml="<?xml version=\"1.0\" encoding=\"UTF-8\"?>$nl<plist version=\"1.0\">$nl<array>$nl"
+    for (( index = 1; index < 4096; ++index )); do
+      xml+="$tab<string>Example Scheme Name $index &amp; &lt;more&gt;</string>$nl"
+    done
+    xml+="$tab<string>Special &amp; &lt;Final&gt;</string>$nl</array>$nl</plist>$nl"
+    started=$EPOCHREALTIME
+    _xcode_plist_string_array_parse "$xml" 4096
+    result=$?
+    elapsed=$(( EPOCHREALTIME - started ))
+    print -r -- "$result|${#reply}|${reply[1]}|${reply[-1]}"
+    (( elapsed < 1.0 )) && print -r -- prompt || printf "blocked %.0f ms\n" $(( elapsed * 1000 ))
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal $'0|4096|Example Scheme Name 1 & <more>|Special & <Final>\nprompt' "$output" \
+    'parsing a full Xcode scheme catalog changed its names or blocked the workspace'
+}
+test_case 'Xcode scheme list parse handles a full 4096-scheme catalog promptly' \
+  _test_xcode_scheme_list_parse_full_catalog_promptly
+
+# plutil escapes markup inside values, so a scheme literally named like plist
+# tags stays one exact name and never splits or ends the list.
+_test_xcode_workspace_keeps_markup_like_scheme_names_literal() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" json="$TEST_TMP_DIR/list.json"
+  test_write_file "$json" '{"workspace":{"schemes":["<string>x</string>","A &amp; B","It'\''s \"q\"","</string></array>"]}}' || return
+  test_write_file "$fake_bin/xcodebuild" $'#!/bin/sh\nexec /bin/cat -- "$XCODE_TEST_JSON"' || return
+  command chmod +x "$fake_bin/xcodebuild" || return
+
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    export XCODE_TEST_JSON=$3
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    _xcode_schemes_capture workspace /example/App.xcworkspace || exit
+    print -r -- "${#_XCODE_SCHEMES}|${(j:|:)_XCODE_SCHEMES}"
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$json") || return
+
+  test_assert_equal $'4|<string>x</string>|A &amp; B|It\'s "q"|</string></array>' "$output" \
+    'a markup-like Xcode scheme name was split, decoded twice or lost'
+}
+test_case 'Xcode workspace keeps markup-like scheme names literal' \
+  _test_xcode_workspace_keeps_markup_like_scheme_names_literal
+
 _test_xcode_destination_parser_keeps_exact_usable_ids() {
   test_make_temp_dir || return
   local output=''
