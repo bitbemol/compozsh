@@ -53,6 +53,9 @@ response, synthetic or from a real resident Vim, in two trees
 `bounded-capture.zsh` compares the shared bounded capture on NUL-dense
 packets, synthetic and through the bare-`g` remote and Git review captures,
 in two trees ([excellence run](excellence-2026-10-12.md#performance-results));
+`inspect-wrap.zsh` compares wrapping one long ASCII line in a Git review
+document and in a reader-only document in two trees
+([excellence run](excellence-2026-10-12.md#performance-results));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 

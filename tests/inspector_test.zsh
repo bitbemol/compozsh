@@ -192,3 +192,150 @@ _test_inspector_native_controls() {
 }
 test_case 'inspector native ZLE supports focus, scrolling, and cancellation cleanup' \
   _test_inspector_native_controls
+
+# Document rows never word-wrap: width-1 cells while more than a row remains,
+# then a final row of up to width cells. The oracle pins rows, roles, the
+# source map and syntax slices so a faster wrapper cannot shift geometry.
+_test_document_wrapping_geometry() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    local -i _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT=1
+    local _ZLE_PICKER_DOCUMENT_KEY=diff
+    local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+    local -A _ZLE_PICKER_DOCUMENT_SYNTAX=()
+    local -a lengths=() rows=() roles=() sources=() slices=() spans=()
+    local -a role_names=(text add remove heading info)
+    local raw="" expanded=""
+    local -i width=0 length=0 index=0 offset=0 remaining=0
+    for width in 2 3 40 100; do
+      lengths=($width $(( width + 1 )) $(( 2 * (width - 1) ))
+        $(( 2 * (width - 1) + 1 )) $(( 3 * (width - 1) + 1 )))
+      _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+      _ZLE_PICKER_DOCUMENT_SYNTAX=() rows=() roles=() sources=() slices=()
+      index=0
+      for length in $lengths; do
+        (( ++index ))
+        # A tab becomes four cells, so raw syntax offsets after it shift by 3.
+        if (( length >= 6 )); then
+          raw="a"$'\''\t'\''${(l:length-5::ab cd%F{x}=-:)}
+          _ZLE_PICKER_DOCUMENT_SYNTAX[$index]="0:1:keyword 1:3:string $(( ${#raw} - 2 )):${#raw}:comment"
+          spans=(0:1:keyword 1:6:string $(( ${#raw} + 1 )):$(( ${#raw} + 3 )):comment)
+        else
+          raw=${(l:length::ab cd%F{x}=-:)}
+          _ZLE_PICKER_DOCUMENT_SYNTAX[$index]="0:1:keyword"
+          spans=(0:1:keyword)
+        fi
+        _ZLE_PICKER_DOCUMENT_LINES+=("$raw")
+        _ZLE_PICKER_DOCUMENT_ROLES+=($role_names[index])
+        expanded=${raw//$'\''\t'\''/    }
+        (( ${#expanded} == length )) || { print -u2 "fixture length $length"; exit 1; }
+        offset=0 remaining=$length
+        while (( remaining > width )); do
+          rows+=("${expanded[offset+1,offset+width-1]}")
+          roles+=($role_names[index]) sources+=($index)
+          _zle_picker_syntax_slice $offset $(( offset + width - 1 )) "${spans[@]}"
+          slices+=("$REPLY")
+          (( offset += width - 1, remaining -= width - 1 ))
+        done
+        rows+=("${expanded[offset+1,-1]}")
+        roles+=($role_names[index]) sources+=($index)
+        _zle_picker_syntax_slice $offset $length "${spans[@]}"
+        slices+=("$REPLY")
+      done
+      _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0
+      _zle_picker_inspect_prepare diff $width
+      (( ${#_ZLE_PICKER_INSPECT_LINES} == ${#rows} &&
+         ${#_ZLE_PICKER_INSPECT_SYNTAX} == ${#slices} )) &&
+      [[ ${(pj:\n:)_ZLE_PICKER_INSPECT_LINES} == "${(pj:\n:)rows}" &&
+         ${(j:,:)_ZLE_PICKER_INSPECT_ROLES} == "${(j:,:)roles}" &&
+         ${(j:,:)_ZLE_PICKER_INSPECT_SOURCE_LINES} == "${(j:,:)sources}" &&
+         ${(pj:\n:)_ZLE_PICKER_INSPECT_SYNTAX} == "${(pj:\n:)slices}" ]] || {
+        print -u2 -- "document geometry changed at width $width"
+        print -u2 -- "rows: ${(qqj:|:)_ZLE_PICKER_INSPECT_LINES}"
+        print -u2 -- "want: ${(qqj:|:)rows}"
+        print -u2 -- "syntax: ${(qqj:|:)_ZLE_PICKER_INSPECT_SYNTAX}"
+        print -u2 -- "want: ${(qqj:|:)slices}"
+        exit 2
+      }
+    done
+    # 399 lines of 50 rows each, then a long line reaches the 20,000-row bound
+    # mid-line; its last kept row becomes the notice and later lines vanish.
+    _ZLE_PICKER_DOCUMENT_LINES=()
+    for (( index = 1; index <= 399; ++index )); do
+      _ZLE_PICKER_DOCUMENT_LINES+=("${(l:101::ab:)}")
+    done
+    _ZLE_PICKER_DOCUMENT_LINES+=("${(l:1000::x:)}" after)
+    _ZLE_PICKER_DOCUMENT_ROLES=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
+    _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0
+    _zle_picker_inspect_prepare diff 3
+    (( ${#_ZLE_PICKER_INSPECT_LINES} == 20000 &&
+       ${#_ZLE_PICKER_INSPECT_SOURCE_LINES} == 20000 &&
+       _ZLE_PICKER_INSPECT_SOURCE_LINES[19950] == 399 &&
+       _ZLE_PICKER_INSPECT_SOURCE_LINES[19951] == 400 &&
+       _ZLE_PICKER_INSPECT_SOURCE_LINES[20000] == 400 )) &&
+    [[ ${_ZLE_PICKER_INSPECT_LINES[19950]} == "${${(l:101::ab:)}[99,101]}" &&
+       ${_ZLE_PICKER_INSPECT_LINES[19951]} == xx &&
+       ${_ZLE_PICKER_INSPECT_LINES[19999]} == xx &&
+       ${_ZLE_PICKER_INSPECT_LINES[20000]} == "Limits: 20,000 wrapped lines; use Git for the remaining text." &&
+       ${_ZLE_PICKER_INSPECT_ROLES[20000]} == warning &&
+       -z ${_ZLE_PICKER_INSPECT_SYNTAX[20000]} ]] || {
+      print -u2 -- "document row bound changed: ${#_ZLE_PICKER_INSPECT_LINES} rows"
+      exit 3
+    }
+    print document-geometry
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal document-geometry "$output"
+}
+test_case 'document wrapping keeps width-1 rows with a final row of up to width cells' \
+  _test_document_wrapping_geometry
+
+# Printable ASCII occupies one cell per byte in every document, not only in
+# readers, so a long Git diff line is sliced instead of re-measured per row.
+_test_document_wrapping_ascii_path() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/.zsh.appearance"
+    local -i _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT=1 cell_prefix_calls=0
+    local _ZLE_PICKER_DOCUMENT_KEY=diff row=""
+    local -a _ZLE_PICKER_DOCUMENT_LINES=("${(l:4000::x:)}" "Unicode tail 界 é")
+    functions[_inspector_original_cell_prefix]=$functions[_compozsh_cell_prefix]
+    _compozsh_cell_prefix() {
+      (( ++cell_prefix_calls ))
+      _inspector_original_cell_prefix "$@"
+    }
+    _zle_picker_inspect_prepare diff 100
+    (( cell_prefix_calls == 0 && ${#_ZLE_PICKER_INSPECT_LINES} == 42 )) || {
+      print -u2 -- "ASCII document wrapping made $cell_prefix_calls cell-prefix calls for ${#_ZLE_PICKER_INSPECT_LINES} rows"
+      exit 1
+    }
+    [[ ${(j::)_ZLE_PICKER_INSPECT_LINES[1,41]} == "${(l:4000::x:)}" &&
+       ${_ZLE_PICKER_INSPECT_LINES[42]} == "Unicode tail 界 é" ]] || exit 2
+    # Wide characters still measure display cells, never bytes or characters.
+    _ZLE_PICKER_DOCUMENT_LINES=("${(l:250::界:)}")
+    _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0
+    _zle_picker_inspect_prepare diff 100
+    (( cell_prefix_calls > 0 && ${#_ZLE_PICKER_INSPECT_LINES} == 6 )) || exit 3
+    for row in "${_ZLE_PICKER_INSPECT_LINES[@]}"; do
+      (( ${(m)#row} <= 100 )) || exit 4
+    done
+    print ascii-document-path
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal ascii-document-path "$output"
+}
+test_case 'document wrapping takes the byte path for printable ASCII outside the reader' \
+  _test_document_wrapping_ascii_path

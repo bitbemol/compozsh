@@ -309,6 +309,59 @@ Decision: kept. Reproduce from the repository root with a disposable
 /bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <baseline-root> <candidate-root> search-git,review-changes 11 5
 ```
 
+### Inspector document wrapping (SUPPORT-06)
+
+`_zle_picker_inspect_prepare` wraps a document line into width-1-cell rows
+until at most `width` cells remain. Only reader-only documents (the Xcode log
+reader) sliced printable ASCII by bytes. Git review documents passed the whole
+remainder to `_compozsh_cell_prefix` for every row, then copied and re-measured
+it. Each wrap was quadratic in line length. Git review caps a diff at 256 KiB
+but has no per-line cap, so one minified bundle, source map or one-line JSON
+reaches this path. It runs synchronously on selection, resize and syntax-status
+changes, so input waits for it. The byte path now applies to every document.
+Document rows never word-wrap, and for printable ASCII the cell prefix is
+exactly the first width-1 characters, so rows, roles, the source map and
+syntax slices are unchanged. A new characterization test pins that geometry
+against an in-test oracle at widths 2, 3, 40 and 100, including the
+20,000-row bound reached mid-line. A second test counts cell-prefix calls
+(40 before, 0 after, for a 4,000-character line at width 100).
+
+Measured with [`benchmarks/inspect-wrap.zsh`](benchmarks/inspect-wrap.zsh)
+(load 2.9–3.8). The baseline is a `git archive` of `b22005a`; the candidate is
+the working tree. Trees alternate run by run, one new `zsh -df` child per
+sample, one untimed warm-up on a short line, then one timed prepare at width
+100. Medians (min–max) in ms over 10 runs, `en_US.UTF-8`:
+
+| Workload | Rows | Before | After | Δ |
+| --- | ---: | ---: | ---: | ---: |
+| Git review document, 16 KiB line | 166 | 43.81 (42.45–45.83) | 8.51 (8.01–9.06) | −80.6% |
+| Git review document, 64 KiB line | 662 | 611.16 (586.88–626.43) | 91.58 (83.55–94.38) | −85.0% |
+| Git review document, 262,000-byte line | 2,647 | 9,325.73 (9,006.83–9,370.70) | 1,251.65 (1,194.21–1,345.80) | −86.6% |
+| Reader-only document, 64 KiB line (control) | 662 | 89.01 (74.90–94.25) | 91.10 (84.66–97.73) | +2.3% |
+
+The document ranges never overlap, and the row counts match. The control
+already took the byte path, so it is unchanged within noise. The remaining
+cost is still quadratic, because each byte slice walks the string. A linear
+chunker that keeps the final row at up to `width` cells is a follow-up
+candidate; the new geometry test guards it.
+
+The end-to-end frame benchmark's review scenario stops at the file list,
+before any long diff line. It served as the no-regression check
+(`review 11 5`, load 3.0–3.3, medians in ms, before → after):
+
+- review: fresh 80.19 → 80.29, warm 77.96 → 75.47 (ranges 74.71–82.73 and
+  72.87–78.29).
+
+That is within the frame's A/A noise (up to 6.2%).
+
+Decision: kept. Reproduce from the repository root with a disposable
+`TMPDIR`:
+
+```zsh
+/bin/zsh -df investigations/benchmarks/inspect-wrap.zsh <baseline-root> <candidate-root> 10
+/bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <baseline-root> <candidate-root> review 11 5
+```
+
 ## Owner decisions
 
 ### OD2: first-prompt help capture keeps one fork per guide (HELP-02)

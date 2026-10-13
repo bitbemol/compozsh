@@ -307,12 +307,13 @@ _zle_picker_inspect_prepare() {
     fi
     (( ++first ))
     ascii_wrap=0
-    if (( _ZLE_PICKER_READER_ONLY && _ZLE_PICKER_DOCUMENT && width > 1 )) &&
+    if (( _ZLE_PICKER_DOCUMENT && width > 1 )) &&
        [[ $line != *[^\ -~]* ]]; then
-      # Every printable ASCII character occupies one cell. Avoid repeatedly
-      # prompt-expanding a long JSON/log remainder just to retain width-1
-      # cells, the same geometry as native truncation with its one-cell dot.
-      # Byte slicing also avoids rescanning an ASCII remainder as UTF-8.
+      # Every printable ASCII character occupies one cell, and document rows
+      # never word-wrap. Avoid re-measuring a long diff, JSON or log remainder
+      # for every row just to retain width-1 cells, the same geometry as
+      # native truncation with its one-cell dot. Byte slicing also avoids
+      # rescanning an ASCII remainder as UTF-8.
       ascii_wrap=1
       unsetopt MULTIBYTE
     fi
