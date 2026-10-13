@@ -153,8 +153,7 @@ _test_picker_resize_mid_frame() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
-    zmodload zsh/zpty
-    zmodload zsh/zselect
+    source "$1/tests/pty_support.zsh" || exit 22
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
     functions[_layout_original_show]=$functions[_zle_picker_show]
@@ -198,7 +197,20 @@ _test_picker_resize_mid_frame() {
     _layout_driver() {
       command stty rows 20 cols 140
       local device=$(command tty)
+      local -i terminal_fd=0
       print -r -u $event_fd -- "TTY:$device"
+      # The picker and paste recovery rest in a blocking key read, with no
+      # terminal input left, once their frame is final. Report each rest with
+      # the width it painted for. Poll the terminal itself, because standard
+      # input is not the terminal inside the picker widget, and collect into
+      # a local array so the picker keeps its own reply.
+      exec {terminal_fd}< "$device" || return
+      read() {
+        local -a ready=()
+        [[ $# == 4 && $1 == -r && $2 == -k ]] && ! zselect -a ready -t 0 -r $terminal_fd &&
+          print -r -u $event_fd -- "IDLE:$COLUMNS"
+        builtin read "$@"
+      }
       _ZLE_PICKER_COLLECTOR=_layout_collect
       _ZLE_PICKER_TITLE="Directory browser"
       _ZLE_PICKER_BROWSE_RENDERER=_layout_browse
@@ -211,43 +223,44 @@ _test_picker_resize_mid_frame() {
       fi
       print -r -u $event_fd -- "DONE:$?"
     }
-    # Collect every event until the picker is quiet (half a second without a
-    # new one); the last frame is the one left on the screen.
+    # Collect every event until the wanted rest or finish (an extended glob
+    # such as IDLE:100 or DONE:<->); resting at another width or finishing
+    # early fails at once, and only a missing rest waits for the deadline.
+    # The last event before the rest is the frame left on the screen.
     _layout_settle() {
-      local chunk=""
-      local -i timeout=500
-      event=""
-      while zselect -r $event_fd $pty_fd -t $timeout; do
-        while zpty -r layout chunk; do trace+=$chunk; done
-        if IFS= read -r -t 0 -u $event_fd line; then
-          event=$line timeout=50 events+=("$line")
-          [[ $event == DONE:* ]] && break
-        fi
-      done
-      [[ -n $event ]]
+      local -a seen=()
+      { test_pty_expect -g -s "IDLE:*|DONE:*" layout $event_fd "$1" } always {
+        trace+=$TEST_PTY_OUTPUT
+      }
+      local -i found=$?
+      seen=("${(@)TEST_PTY_EVENTS:#IDLE:*}")
+      events+=("${seen[@]}")
+      event=${seen[-1]-}
+      (( found == 0 )) && [[ -n $event ]]
     }
-    local event="" line="" trace="" pty_fd=0
+    local event="" trace=""
     local -a events=()
     # Status frames as ZLE paints them directly at 100 columns. Capture keeps
     # the docked workspace height; the paste recovery status view is compact.
     local status_frame=FRAME:100:99:0:0:19
     [[ $arm == paste ]] && status_frame=FRAME:100:99:0:0:8
-    zpty -b layout _layout_driver || exit 3
-    pty_fd=$REPLY
+    test_pty_start layout _layout_driver || exit 3
     {
-      zselect -r $event_fd -t 500 && IFS= read -r -u $event_fd event || exit 4
+      test_pty_expect -p layout $event_fd TTY: || exit 4
+      event=$REPLY
       [[ $event == TTY:/dev/(ttys|pts/)<-> ]] || exit 5
-      _layout_settle || exit 6
       if [[ $arm == capture ]]; then
+        _layout_settle "DONE:<->" || exit 6
         # The capture work runs while its status frame stays on screen.
         [[ ${(j: :)events[-3,-1]} == "$status_frame CAPTURED:100 DONE:0" ]] || {
           print -u2 -r -- "resize during capture status left a stale frame: ${(j: :)events}"
           exit 7
         }
       else
+        _layout_settle IDLE:140 || exit 6
         [[ $event == FRAME:140:139:1:1:19 ]] || { print -u2 -r -- "first frame: $event"; exit 7; }
         zpty -w -n layout $'\''\e[B'\''
-        _layout_settle || exit 8
+        _layout_settle IDLE:140 || exit 8
         [[ $event == FRAME:140:139:1:2:19 ]] || { print -u2 -r -- "selection frame: $event"; exit 9; }
         : > "$HOME/resize-now"
         events=()
@@ -255,24 +268,24 @@ _test_picker_resize_mid_frame() {
           # An unterminated paste times out after one second into recovery,
           # which waits for the closing marker before the picker resumes.
           zpty -w -n layout $'\''\e[200~x'\''
-          _layout_settle || exit 10
+          _layout_settle IDLE:100 || exit 10
           [[ $event == "$status_frame" ]] || {
             print -u2 -r -- "resize during paste recovery left a stale frame: ${(j: :)events}"
             exit 11
           }
           zpty -w -n layout $'\''\e[201~'\''
-          _layout_settle || exit 15
+          _layout_settle IDLE:100 || exit 15
           [[ $event == FRAME:100:99:0:2:19 ]] || { print -u2 -r -- "recovered frame: $event"; exit 16; }
         else
           zpty -w -n layout $'\''\e[A'\''
-          _layout_settle || exit 10
+          _layout_settle IDLE:100 || exit 10
           [[ $event == FRAME:100:99:0:1:19 ]] || {
             print -u2 -r -- "resize during $arm left a stale frame: ${(j: :)events}"
             exit 11
           }
         fi
         zpty -w -n layout $'\''\x07'\''
-        _layout_settle || exit 12
+        _layout_settle "DONE:<->" || exit 12
         [[ $event == DONE:1 ]] || exit 13
       fi
       [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 14

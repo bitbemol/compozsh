@@ -313,8 +313,9 @@ _test_git_review_native_burst_settle() {
     done
 
     source "$1/tests/pty_support.zsh" || exit 21
-    command mkfifo "$HOME/events" || exit 2
+    command mkfifo "$HOME/events" "$HOME/gate" || exit 2
     exec {efd}<> "$HOME/events" || exit 3
+    exec {gfd}<> "$HOME/gate" || exit 22
     functions -c _git_review_document_load _burst_original_document_load
     _git_review_document_load() {
       _burst_original_document_load "$@"
@@ -330,6 +331,20 @@ _test_git_review_native_burst_settle() {
     }
     _burst_driver() {
       command stty rows 30 cols 120
+      # While a document preview is pending (a flag of the picker loop),
+      # each expired 30 ms settlement tick reports TICK and waits for GO. The
+      # window then counts ticks the parent releases, never the parent clock.
+      read() {
+        builtin read "$@"
+        local -i read_status=$?
+        if (( read_status && ${document_preview_pending:-0} )) &&
+           [[ ${(j: :)@} == "-r -t 0.03 -k 1 key" ]]; then
+          local gate=""
+          print -r -u $efd TICK
+          builtin read -r -u $gfd gate && [[ $gate == GO ]] || print -r -u $efd BAD-GATE
+        fi
+        return read_status
+      }
       print -r -u $efd READY
       _git_review_view "$HOME/repo" working
       local -i result=$?
@@ -346,9 +361,19 @@ _test_git_review_native_burst_settle() {
       while _burst_event; do
         case $event in
           (LOAD\|*) loads+=("${${(s:|:)event}[2]}") ;;
+          (TICK)
+            # A due paced key reaches the terminal before its tick returns.
+            if (( paced_keys && ++paced_ticks == 2 )); then
+              zpty -w -n burst "$key_down"
+              (( --paced_keys, paced_ticks = 0 ))
+            fi
+            print -r -u $gfd GO
+            ;;
         esac
         [[ $event == "$wanted" ]] && return 0
         [[ $event == DONE\|* ]] && break
+        # Any load while paced keys remain resolved an intermediate document.
+        [[ $event == LOAD\|* ]] && (( paced_keys )) && break
       done
       print -u2 -r -- "expected $wanted; got ${(qqq)event}; loads=${(j:,:)loads}"
       return 1
@@ -356,6 +381,7 @@ _test_git_review_native_burst_settle() {
 
     local trace="" event="" burst_bytes="" key_down="" key_left="" key_right="" key_abort=""
     local -a loads=()
+    local -i paced_keys=0 paced_ticks=0
     printf -v key_down "\\033[B"
     printf -v key_left "\\033[D"
     printf -v key_right "\\033[C"
@@ -385,16 +411,15 @@ _test_git_review_native_burst_settle() {
         exit 12
       }
 
-      # Repeat the same contract with Terminal.app-like transport cadence.
-      # The 80 ms sleeps only deliver bytes inside the 120 ms quiet
-      # window; assertions remain event/order based rather than performance
-      # thresholds. No intermediate file may resolve while input continues.
+      # Repeat the same contract at Terminal.app key-repeat cadence, about 83
+      # ms or two expired 30 ms ticks per repeat: after the first Down, each
+      # further one arrives on the second tick it waits through. Ticks wait
+      # at the gate, so this cadence holds however slowly the parent runs.
+      # No intermediate file may resolve while input continues.
       zpty -w -n burst "$key_left"
       _burst_until "FRAME|9|9|0" || exit 13
-      repeat 5; do
-        zpty -w -n burst "$key_down"
-        command sleep 0.08
-      done
+      paced_keys=4
+      zpty -w -n burst "$key_down"
       _burst_until "LOAD|14|14" || exit 14
       _burst_until "FRAME|14|14|0" || exit 15
       [[ ${(j:,:)loads} == 1,9,14 ]] || {
@@ -413,6 +438,7 @@ _test_git_review_native_burst_settle() {
     } always {
       zpty -d burst 2>/dev/null
       exec {efd}>&-
+      exec {gfd}>&-
     }
     print burst-settled
   ' "$TEST_REPO_ROOT") || return
