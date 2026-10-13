@@ -338,11 +338,13 @@ _test_prompt_refresh_invalidates_memory_only() {
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.help"
+    _COMPOZSH_PROMPT_SIGNATURES=(demo sig) _COMPOZSH_PROMPT_SUMMARIES=(demo text)
+    _COMPOZSH_PROMPT_OPTIONS=(demo:--mode text)
     compozsh --refresh
-    print -r -- "${#_PROMPT_RUNTIME_VERSION_CACHE}|${#_PROMPT_GIT_DIR_CACHE}|$_GREP_SUPPORTS_COLOR|${#_GREP_COLOR_BINARY}"
+    print -r -- "${#_PROMPT_RUNTIME_VERSION_CACHE}|${#_PROMPT_GIT_DIR_CACHE}|$_GREP_SUPPORTS_COLOR|${#_GREP_COLOR_BINARY}|${#_COMPOZSH_PROMPT_SIGNATURES}|${#_COMPOZSH_PROMPT_SUMMARIES}|${#_COMPOZSH_PROMPT_OPTIONS}"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal '0|0|-1|0' "$output" \
+  test_assert_equal '0|0|-1|0|0|0|0' "$output" \
     'compozsh --refresh did not invalidate all documented in-memory caches'
 }
-test_case 'compozsh --refresh clears runtime, Git, and output capability caches' \
+test_case 'compozsh --refresh clears runtime, Git, help-description and output capability caches' \
   _test_prompt_refresh_invalidates_memory_only

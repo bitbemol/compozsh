@@ -19,6 +19,13 @@ typeset -gA _COMPOZSH_TOOL_SOURCES=()
 typeset -gA _COMPOZSH_PROMPT_SIGNATURES=() _COMPOZSH_PROMPT_SUMMARIES=()
 typeset -gA _COMPOZSH_PROMPT_OPTIONS=()
 
+# Refresh releases every snapshot, so text for a command removed before the
+# next capture is never kept without its identity.
+_compozsh_prompt_reset() {
+  _COMPOZSH_PROMPT_SIGNATURES=() _COMPOZSH_PROMPT_SUMMARIES=()
+  _COMPOZSH_PROMPT_OPTIONS=()
+}
+
 _compozsh_prompt_signature() {
   emulate -L zsh
   local name=$1 helper="_compozsh_help_$1" source=${functions_source[$1]-}

@@ -206,6 +206,16 @@ _compozsh_help_demo() { print -rl -- "usage: demo" "Updated fixture metadata."; 
     [[ $_PROMPT_INTERACTION_KIND == pipeline && ${_PROMPT_INTERACTION_VALUES[*]} != *"Open read-only review"* ]] || exit 11
     _prompt_interaction_model "g --discard-all"
     [[ $_PROMPT_INTERACTION_KIND == caution ]] || exit 12
+    # A refresh releases help text, so a command removed before the next
+    # capture leaves no summary or option behind.
+    source "$HOME/.zsh.addons/.zsh.fixture"
+    _compozsh_prompt_capture
+    [[ -n ${_COMPOZSH_PROMPT_OPTIONS[demo:--mode]-} ]] || exit 13
+    _tools_refresh
+    unfunction demo _compozsh_help_demo
+    _compozsh_prompt_capture
+    [[ -z ${_COMPOZSH_PROMPT_SUMMARIES[demo]+set} &&
+       -z ${(M)${(k)_COMPOZSH_PROMPT_OPTIONS}:#demo:*} ]] || exit 14
   ' "$TEST_REPO_ROOT"
 }
 test_case 'tool descriptions capture once invalidate changed help and preserve safety and overrides' _test_prompt_description_capture_safety
