@@ -47,6 +47,9 @@ Search, Ctrl-R history and Git review in a PTY, both alternating two trees
 `help-first-prompt.zsh` measures the first prompt's help-description capture
 in one tree against diagnostic variants
 ([excellence run](excellence-2026-10-12.md#owner-decisions));
+`git-syntax-poll.zsh` compares the Git syntax poll that consumes a completed
+response, synthetic or from a real resident Vim, in two trees
+([excellence run](excellence-2026-10-12.md#performance-results));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 

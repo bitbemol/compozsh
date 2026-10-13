@@ -995,6 +995,84 @@ _test_git_syntax_resident_session() {
 }
 test_case 'Git syntax reuses one framed Vim process and removes every session resource' _test_git_syntax_resident_session
 
+# Completed responses are cut from the session buffer at the first matching
+# suffix; whatever follows (the ready marker, or a partial later read) stays
+# byte-for-byte for the next poll. Offsets count characters, so the packet and
+# the tail carry a multibyte character under the UTF-8 locale Vim uses.
+_test_git_syntax_poll_keeps_following_bytes() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.git-syntax"
+    local _git_syntax_session_dir="" _git_syntax_session_request_fifo=""
+    local _git_syntax_session_response_fifo="" _git_syntax_session_buffer=""
+    local -i _git_syntax_session_fd=-1 _git_syntax_session_pid=0
+    local -i _git_syntax_session_ready=0 _git_syntax_session_generation=0
+    local -i _git_syntax_session_active_id=0 result=0
+    local -F _git_syntax_session_deadline=0
+    local body=$'\''compozsh-syntax-1\n1 0 6 keyword\n2 3 9 string é\ndone\n'\''
+    local tail=$'\''compozsh-response-1:8\n3 0 é'\''
+    exec {_git_syntax_session_fd}</dev/null
+    _git_syntax_session_active_id=7
+    _git_syntax_session_deadline=$(( EPOCHREALTIME + 60 ))
+    _git_syntax_session_buffer=$'\''compozsh-response-1:7\n'\''"$body"$'\''compozsh-response-end-1:7\ncompozsh-ready-1\n'\''"$tail"
+    _git_syntax_session_poll; result=$?
+    print -r -- "ready:$result|$REPLY|$_git_syntax_session_ready|$_git_syntax_session_active_id|$(( _git_syntax_session_deadline == 0 ))"
+    [[ $_GIT_SYNTAX_DATA == "$body" ]] && print -r -- ready-data
+    [[ $_git_syntax_session_buffer == "$tail" ]] && print -r -- ready-tail
+    _git_syntax_session_ready=0 _git_syntax_session_active_id=9
+    _git_syntax_session_deadline=$(( EPOCHREALTIME + 60 ))
+    tail=$'\''compozsh-rea'\''
+    _git_syntax_session_buffer=$'\''compozsh-response-1:9\n'\''"$body"$'\''compozsh-response-end-1:9\n'\''"$tail"
+    _git_syntax_session_poll; result=$?
+    print -r -- "partial:$result|$REPLY|$_git_syntax_session_ready|$_git_syntax_session_active_id|$(( _git_syntax_session_deadline > EPOCHREALTIME ))"
+    [[ $_GIT_SYNTAX_DATA == "$body" ]] && print -r -- partial-data
+    [[ $_git_syntax_session_buffer == "$tail" ]] && print -r -- partial-tail
+    exec {_git_syntax_session_fd}<&-
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'ready:0|7|1|0|1\nready-data\nready-tail\npartial:0|9|0|0|1\npartial-data\npartial-tail' "$output"
+}
+test_case 'Git syntax poll returns one framed response and keeps the bytes after its suffix' \
+  _test_git_syntax_poll_keeps_following_bytes
+
+# The poll runs in the picker input-idle callback, so consuming a response at
+# the declared 4,096-span output bound must not stall keys (git.md: parsing
+# never blocks input). The bound is generous; a linear cut takes milliseconds.
+_test_git_syntax_poll_large_response() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    zmodload zsh/datetime || exit 1
+    source "$1/.zsh.addons/.zsh.git-syntax"
+    local _git_syntax_session_dir="" _git_syntax_session_request_fifo=""
+    local _git_syntax_session_response_fifo="" _git_syntax_session_buffer=""
+    local -i _git_syntax_session_fd=-1 _git_syntax_session_pid=0
+    local -i _git_syntax_session_ready=0 _git_syntax_session_generation=0
+    local -i _git_syntax_session_active_id=7 result=0 i=0
+    local -F _git_syntax_session_deadline=$(( EPOCHREALTIME + 60 )) started=0 elapsed=0
+    local -a roles=(keyword string number comment type function variable)
+    local body=$'\''compozsh-syntax-1\n'\''
+    for (( i = 1; i <= 4000; ++i )); do
+      body+="$(( 1200 + i / 4 )) $(( (i % 4) * 9 )) $(( (i % 4) * 9 + 6 )) ${roles[i % 7 + 1]}"$'\''\n'\''
+    done
+    body+=$'\''done\n'\''
+    exec {_git_syntax_session_fd}</dev/null
+    _git_syntax_session_buffer=$'\''compozsh-response-1:7\n'\''"$body"$'\''compozsh-response-end-1:7\ncompozsh-ready-1\n'\''
+    started=$EPOCHREALTIME
+    _git_syntax_session_poll; result=$?
+    elapsed=$(( EPOCHREALTIME - started ))
+    exec {_git_syntax_session_fd}<&-
+    print -r -- "$result|$REPLY|$_git_syntax_session_ready|${#_git_syntax_session_buffer}|$(( ${#body} > 65536 ))"
+    [[ $_GIT_SYNTAX_DATA == "$body" ]] && print -r -- data
+    (( elapsed < 1.0 )) && print -r -- prompt || printf "blocked %.0f ms\n" $(( elapsed * 1000 ))
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'0|7|1|0|1\ndata\nprompt' "$output"
+}
+test_case 'Git syntax poll consumes a large framed response without blocking input' \
+  _test_git_syntax_poll_large_response
+
 _test_git_syntax_dead_reader_request_is_nonblocking() {
   test_make_temp_dir || return
   local output

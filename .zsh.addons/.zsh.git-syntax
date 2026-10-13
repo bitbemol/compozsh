@@ -201,8 +201,11 @@ _git_syntax_session_poll() {
       REPLY=$request_id
       return 3
     }
+    # Advance past the first suffix by offset: packet already ends there, and
+    # a shortest-prefix strip through *"$suffix" is quadratic in its position
+    # (seconds at the output bound, inside the input-idle callback).
     packet=${_git_syntax_session_buffer%%"$suffix"*}
-    _git_syntax_session_buffer=${_git_syntax_session_buffer#*"$suffix"}
+    _git_syntax_session_buffer=${_git_syntax_session_buffer:$(( ${#packet} + ${#suffix} ))}
     _git_syntax_session_active_id=0
     _git_syntax_session_deadline=$(( EPOCHREALTIME + 1.00 ))
     if [[ $_git_syntax_session_buffer == "$ready_marker"* ]]; then

@@ -200,7 +200,70 @@ frame's stripped text; a "missing marker" failure writes the frame it saw to
 
 ## Performance results
 
-*Pending.*
+### Git syntax response cut (CROSS-01)
+
+`_git_syntax_session_poll` removed each completed response from the session
+buffer with `${buffer#*"$suffix"}`. That shortest-prefix search is quadratic
+in the suffix position, and Git review runs the poll inside the picker's
+input-idle callback, so keys waited for it
+([git](../engineering/workspaces/git.md#syntax-highlighting): parsing never
+blocks input). The poll now advances by offset, `${#packet} + ${#suffix}`
+characters, because `packet` already ends at that first suffix. The
+remainder is the same; a test pins it, including a multibyte character
+under UTF-8.
+
+Measured with [`benchmarks/git-syntax-poll.zsh`](benchmarks/git-syntax-poll.zsh)
+on the machine above (load 2.3–4.5). The baseline is a `git archive` of
+`d77f39a`; the candidate is the working tree. The two trees alternate run by
+run, with one new `zsh -df` child per sample. *Synthetic* buffers one framed
+response of N spans in the real `row start end role` format. *Vim* runs a
+real resident `/usr/bin/vim` over rows 1–280 of `.zsh.addons/.zsh.git-review`
+(a 40-row viewport plus three spans each side), rows 1–598 (an 86-row
+viewport plus the 256-row guard each side) and 280 rows of ordinary dense
+JSON. The clock covers only the poll call that completes the response.
+Medians (min–max) in ms over 10 runs, `en_US.UTF-8`:
+
+| Workload | Spans | Before | After | Δ |
+| --- | ---: | ---: | ---: | ---: |
+| Synthetic | 500 | 159.51 (155.23–171.05) | 0.66 (0.59–0.70) | −99.6% |
+| Synthetic | 1,000 | 630.60 (606.78–654.88) | 0.95 (0.92–1.15) | −99.8% |
+| Synthetic | 2,000 | 2,493.52 (2,411.56–2,555.28) | 1.62 (1.53–1.85) | −99.9% |
+| Synthetic | 4,096 | 10,393.87 (10,027.66–10,630.80) | 3.01 (2.91–3.24) | −100.0% |
+| Vim, Zsh, 280 rows | 617 | 204.40 (203.68–206.90) | 0.65 (0.62–0.72) | −99.7% |
+| Vim, Zsh, 598 rows | 1,488 | 1,206.13 (1,201.73–1,214.30) | 1.24 (1.17–1.33) | −99.9% |
+| Vim, JSON, 280 rows | 3,641 | 7,212.53 (7,202.65–7,231.88) | 3.21 (3.11–3.31) | −100.0% |
+
+A second invocation of 5 runs repeated the result. Vim under UTF-8 gave
+204.53 → 0.66, 1,205.37 → 1.32 and 7,228.44 → 3.32 ms. Synthetic under
+`LC_ALL=C` gave 164.07 → 0.69 and 10,522.15 → 3.15 ms at 500 and 4,096
+spans, so the cost never depended on the locale. Ranges never overlap. The
+remaining cost grows linearly with the response.
+
+The end-to-end frame benchmark can't see this path. Its review scenarios stop
+at the chooser and the file list, before any syntax response. It served as
+the no-regression check (`review,review-changes 11 5`, medians in ms, before
+→ after):
+
+- review: fresh 63.35 → 64.69, warm 60.82 → 72.00 (ranges 59.07–75.03 and
+  59.23–78.64).
+- review-changes: fresh 113.80 → 115.20, warm 111.10 → 110.61.
+
+The warm review gap did not repeat in a second invocation, which gave
+75.98 → 76.42 at load 4.0–4.5. That is within the 6% A/A noise of that
+frame.
+
+Decision: kept. Reproduce from the repository root with a disposable
+`TMPDIR`:
+
+```zsh
+/bin/zsh -df investigations/benchmarks/git-syntax-poll.zsh <baseline-root> <candidate-root> 10 synthetic
+/bin/zsh -df investigations/benchmarks/git-syntax-poll.zsh <baseline-root> <candidate-root> 10 vim
+/bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <baseline-root> <candidate-root> review,review-changes 11 5
+```
+
+Not changed here: the audit measured `_git_syntax_apply` at about 127 ms for
+the 3,641 JSON spans on the same callback. That cost is linear but above a
+frame budget (a follow-up candidate).
 
 ## Owner decisions
 
