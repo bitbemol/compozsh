@@ -457,8 +457,13 @@ _test_xcode_lazy_pending_run_discloses_platform_effects() {
           [[ ${_XCODE_PICKER_DETAILS[2]} == *"replacing its installed copy"* ]] || {
             print -u2 "pending Run omits physical device app replacement"; return 10
           }
-          [[ ${_XCODE_PICKER_DETAILS[3]} == *"Escape stops this run"* ]] || {
-            print -u2 "pending Run omits Simulator stop behavior"; return 11
+          # Interactive Run opens the log reader first; its Escape only returns to Run.
+          [[ ${_XCODE_PICKER_DETAILS[2]} == *"log reader"*"Escape returns to Run controls"*"forwards termination through devicectl"* &&
+             ${_XCODE_PICKER_DETAILS[2]} != *"foreground console"* ]] || {
+            print -u2 "pending Run misdescribes the physical device console"; return 11
+          }
+          [[ ${_XCODE_PICKER_DETAILS[3]} == *"log reader"*"Escape returns to Run controls"*"stops this run"* ]] || {
+            print -u2 "pending Run misdescribes Simulator reader and stop behavior"; return 14
           }
           _ZLE_PICKER_SELECTED_VALUE=1 ;;
         (*) return 12 ;;

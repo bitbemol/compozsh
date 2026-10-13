@@ -2644,13 +2644,13 @@ _xcode_run_destination_description() {
       'Choose an exact destination before running. Xcode decides compatibility; the selected app or command-line product launches only after this workspace closes.') ;;
     (*Simulator) reply=(
       'Incrementally build and launch in Simulator'
-      'Boots the selected Simulator, installs the built app and opens live app output with Stop and Enter LLDB actions. Escape stops this run.') ;;
+      'Boots the selected Simulator, installs the built app and opens live app output in the log reader. Escape returns to Run controls with Stop and, when available, Enter LLDB; Stop or Escape there stops this run.') ;;
     (macOS|DriverKit) reply=(
       'Incrementally build and launch on this Mac'
       'Opens a new instance of the exact built app on this Mac. The app remains running when the command returns; quit it in the app. Command-line products run in the restored terminal.') ;;
     (*) reply=(
       'Incrementally build, install and launch on device'
-      'Installs the built app on the exact selected physical device through Apple devicectl, replacing its installed copy, then launches with a foreground console. Ctrl-C is forwarded to the app. Xcode owns device compatibility, pairing, Developer Mode and signing; configure those in Xcode before running.') ;;
+      'Installs the built app on the exact selected physical device through Apple devicectl, replacing its installed copy, then launches it and opens its console output in the live log reader. Escape returns to Run controls, where Stop or Escape forwards termination through devicectl; the app remains installed. Xcode owns device compatibility, pairing, Developer Mode and signing; configure those in Xcode before running.') ;;
   esac
 }
 
