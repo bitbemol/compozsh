@@ -57,16 +57,23 @@ test_write_file() {
 
 # Execute a completely isolated Zsh. Only the tool path and temporary home are
 # inherited; the real user configuration and private add-ons are unreachable.
+# Once a test has a temporary directory, the child's TMPDIR is
+# $TEST_TMP_DIR/tmp: anything product code stages there is removed with the
+# test instead of accumulating in the runner's TMPDIR.
 test_run_zsh() {
-  local home=$1 mode=$2 script=$3
+  local home=$1 mode=$2 script=$3 child_tmp=${TMPDIR:-/tmp}
   shift 3
   command mkdir -p "$home" || return 1
+  if [[ -n $TEST_TMP_DIR ]]; then
+    child_tmp=$TEST_TMP_DIR/tmp
+    [[ -d $child_tmp ]] || command mkdir -m 0700 -- "$child_tmp" || return 1
+  fi
   command env -i \
     PATH="$PATH" \
     HOME="$home" \
     ZDOTDIR="$home" \
     TERM=xterm-256color \
-    TMPDIR="${TMPDIR:-/tmp}" \
+    TMPDIR="$child_tmp" \
     LC_ALL=C \
     "$TEST_ZSH_BIN" "$mode" -c "$script" tests "$@"
 }

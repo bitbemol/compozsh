@@ -258,6 +258,10 @@ _test_sudo_touch_id_privileged_routines_execute_in_isolated_fixture() {
   test_make_temp_dir || return
   local pam_dir="$TEST_TMP_DIR/pam.d" output=''
   command mkdir -m 0700 -- "$pam_dir" || return
+  # The fixture stands in for root:wheel with the user's own uid and primary
+  # gid. A new directory inherits its parent's group, such as wheel under
+  # /private/tmp, so set the group the rewritten ownership check expects.
+  command chgrp -- "$(command /usr/bin/id -g)" "$pam_dir" || return
   test_write_file "$pam_dir/sudo" \
     $'auth include sudo_local\nauth required pam_opendirectory.so' || return
   test_write_file "$pam_dir/sudo_local.template" \

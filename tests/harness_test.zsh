@@ -92,6 +92,52 @@ test_case "waiting probe" _test_waiting_probe
 test_case 'test runner ends a test that receives TERM and removes its temporary directory' \
   _test_runner_ends_signalled_test
 
+# Product code stages temporary files below TMPDIR. A test child must use a
+# TMPDIR inside its test's temporary directory, so a staged leftover goes with
+# the test instead of accumulating in the runner's TMPDIR.
+_test_runner_keeps_child_temporary_files_out_of_runner_tmpdir() {
+  test_make_temp_dir || return
+  local suite="$TEST_TMP_DIR/meta-suite" runner_tmp="$TEST_TMP_DIR/runner-tmp"
+  local output='' recorded_test='' recorded_probe=''
+  local -i exit_status=0
+  local -a leftovers=()
+
+  command mkdir -p -- "$suite/tests" || return
+  command mkdir -m 0700 -- "$runner_tmp" || return
+  command cp "$TEST_REPO_ROOT/tests/run.zsh" "$suite/tests/run.zsh" || return
+  command cp "$TEST_REPO_ROOT/tests/support.zsh" "$suite/tests/support.zsh" || return
+  test_write_file "$suite/tests/probe_test.zsh" $'
+_test_child_tmpdir_probe() {
+  test_make_temp_dir || return
+  local probe=\'\'
+  probe=$(test_run_interactive "$TEST_TMP_DIR/home" \'
+    command mktemp -d "${TMPDIR:-/tmp}/compozsh-probe.XXXXXX"
+  \') || return
+  print -r -- "$TEST_TMP_DIR" >| "${TESTS_DIR:h}/recorded-test" || return
+  print -r -- "$probe" >| "${TESTS_DIR:h}/recorded-probe"
+}
+test_case "child tmpdir probe" _test_child_tmpdir_probe
+' || return
+
+  output=$(TMPDIR=$runner_tmp "$TEST_ZSH_BIN" "$suite/tests/run.zsh" 2>&1) ||
+    exit_status=$?
+  test_assert_equal 0 "$exit_status" "nested runner failed the TMPDIR probe: $output" || return
+  test_assert_contains "$output" 'PASS  child tmpdir probe' \
+    'nested runner did not report the TMPDIR probe' || return
+  leftovers=("$runner_tmp"/*(DN))
+  (( ! ${#leftovers} )) || {
+    test_fail "a test child left temporary state in the runner TMPDIR: ${(j:, :)${(qqq)leftovers}}"
+    return
+  }
+  recorded_test=$(<"$suite/recorded-test") || return
+  recorded_probe=$(<"$suite/recorded-probe") || return
+  [[ $recorded_probe == "$recorded_test"/tmp/compozsh-probe.* &&
+     ! -e $recorded_probe ]] ||
+    test_fail "a test child did not stage below its test's TMPDIR: ${(qqq)recorded_probe}"
+}
+test_case 'test runner keeps product temporary files out of the runner TMPDIR' \
+  _test_runner_keeps_child_temporary_files_out_of_runner_tmpdir
+
 _test_runner_isolates_fixture_git_environment() {
   test_make_temp_dir || return
   local suite="$TEST_TMP_DIR/meta-suite" operator_home="$TEST_TMP_DIR/operator-home"

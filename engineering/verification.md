@@ -61,7 +61,9 @@ assertion rule.
   `test_run_interactive`, `test_run_noninteractive`). Those launch Zsh through
   `env -i` with a fresh temporary `HOME`/`ZDOTDIR`, a minimal fixed environment
   and locale, `-d -f` to skip startup files, and `-i` only when the behavior
-  needs an interactive shell.
+  needs an interactive shell. Once a test has called `test_make_temp_dir`, its
+  children get `TMPDIR=$TEST_TMP_DIR/tmp`, so product temporary files are
+  removed with the test rather than left in the runner's `TMPDIR`.
 - A child script loads shared support as the installed unit: it sources
   `tests/support.zsh` and calls `test_source_support <repository-root>`, which
   sources every regular `support/**/.zsh.?*` file in the bootstrap's lexical

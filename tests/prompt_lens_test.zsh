@@ -933,6 +933,9 @@ exit 97" || return
   done
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    # Hostile text names its markers relative to the fixture root, so any
+    # evaluation would land beside the absolute markers checked below.
+    builtin cd -- "${4:h}" || exit 23
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     setopt MULTIBYTE PROMPT_SUBST PROMPT_BANG
@@ -957,10 +960,11 @@ exit 97" || return
 
     # Context text is escaped once for the final PROMPT_SUBST pass. It must
     # remain inert without exposing the protective escapes as visible text in
-    # either the compact context or expanded Context lens.
+    # either the compact context or expanded Context lens. Short relative
+    # markers keep it untruncated at COLUMNS=240 whatever the fixture path.
     local -i saved_columns=$COLUMNS
     COLUMNS=240
-    local hostile_context="\$(printf pwned > \"$4\")%!\`printf pwned > \"$5\"\`"
+    local hostile_context="\$(printf pwned > \"${4:t}\")%!\`printf pwned > \"${5:t}\"\`"
     _PROMPT_PROJECT_NAME_TEXT=$hostile_context
     _PROMPT_PATH_TEXT="~/$hostile_context"
     _PROMPT_FULL_PATH_TEXT="/fixture/$hostile_context"
