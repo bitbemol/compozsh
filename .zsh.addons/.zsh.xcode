@@ -95,6 +95,26 @@ _xcode_safe_arguments() {
   )
 }
 
+# Normalize capture-limit text to a byte count in REPLY: the 262,144-byte
+# default for anything but decimal digits within the signed 64-bit range, and
+# at least 4,096 bytes. Both capture paths share this one rule.
+_xcode_capture_limit() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local limit=$1 integer_max=9223372036854775807
+  [[ $limit == <-> ]] || limit=262144
+  limit=${limit##0#}
+  [[ -n $limit ]] || limit=0
+  # Validate decimal text before arithmetic can interpret expressions or
+  # truncate beyond the supported Zsh's signed 64-bit integer range.
+  if (( ${#limit} > ${#integer_max} )) ||
+     { (( ${#limit} == ${#integer_max} )) && [[ $limit > $integer_max ]]; }; then
+    limit=262144
+  fi
+  (( limit < 4096 )) && limit=4096
+  REPLY=$limit
+}
+
 # Capture first-party output through native bounded stream sinks. Excess bytes
 # are drained without retention; no partial stdout is returned for parsing.
 _xcode_capture_command() {
@@ -103,20 +123,11 @@ _xcode_capture_command() {
 
   local temp_root=${TMPDIR:-/tmp} capture_dir='' stdout_file='' stderr_file=''
   local output='' diagnostic='' stdout_status='' stderr_status=''
-  local max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}
-  local integer_max=9223372036854775807
+  local max_bytes='' REPLY=''
   local -i command_status=0
   _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
-  [[ $max_bytes == <-> ]] || max_bytes=262144
-  max_bytes=${max_bytes##0#}
-  [[ -n $max_bytes ]] || max_bytes=0
-  # Validate decimal text before arithmetic can interpret expressions or
-  # truncate beyond the supported Zsh's signed 64-bit integer range.
-  if (( ${#max_bytes} > ${#integer_max} )) ||
-     { (( ${#max_bytes} == ${#integer_max} )) && [[ $max_bytes > $integer_max ]]; }; then
-    max_bytes=262144
-  fi
-  (( max_bytes < 4096 )) && max_bytes=4096
+  _xcode_capture_limit "${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}"
+  max_bytes=$REPLY
 
   capture_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode.XXXXXX") || {
     _XCODE_CAPTURE_ERROR='cannot create a bounded capture directory'
@@ -568,20 +579,14 @@ _xcode_discovery_capture() {
   unsetopt BG_NICE NOTIFY
   local temp_root=${TMPDIR:-/tmp} _xcode_discovery_dir=''
   local _xcode_discovery_out='' _xcode_discovery_error=''
-  local max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144} integer_max=9223372036854775807
+  local max_bytes='' REPLY=''
   local -a _xcode_discovery_fds=(-1 -1) _xcode_discovery_eof=(0 0)
   local -i _xcode_discovery_pid=0 _xcode_discovery_done=0 _xcode_discovery_failed=0
   local -i _xcode_discovery_overflow=0 _xcode_discovery_status=-1
   local -i hold_reader=-1 hold_writer=-1 fd=-1 result=1 attempt=0 view_finished=0
   _XCODE_CAPTURE_ERROR='cannot prepare the bounded Xcode discovery capture'
-  [[ $max_bytes == <-> ]] || max_bytes=262144
-  max_bytes=${max_bytes##0#}
-  [[ -n $max_bytes ]] || max_bytes=0
-  if (( ${#max_bytes} > ${#integer_max} )) ||
-     { (( ${#max_bytes} == ${#integer_max} )) && [[ $max_bytes > $integer_max ]]; }; then
-    max_bytes=262144
-  fi
-  (( max_bytes < 4096 )) && max_bytes=4096
+  _xcode_capture_limit "${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}"
+  max_bytes=$REPLY
   _xcode_discovery_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-discovery.XXXXXXXX") || return 1
   {
     command mkfifo -m 600 -- "$_xcode_discovery_dir"/{stdout,stderr,hold} || return 1

@@ -80,11 +80,16 @@ exit 0' || return
       } 2>/dev/null
       ZSH_XCODE_CAPTURE_MAX_BYTES=4096
       [[ $discovery_mode == held-writer ]] && ZSH_XCODE_CAPTURE_MAX_BYTES=262144
+      # Discovery validates the limit as decimal text before any arithmetic;
+      # an expression falls back to the default instead of assigning here.
+      local -i audit_marker=0
+      [[ $discovery_mode == hostile ]] && ZSH_XCODE_CAPTURE_MAX_BYTES=audit_marker=1
       {
         _zle_picker_run 10 "" 1 0 _discovery_controller
         result=$?
       } always {
         (( ${_XCODE_DISCOVERY_CANCELLED:-0} == 130 )) && result=130
+        (( audit_marker == 0 )) || result=92
         kill -0 $unrelated 2>/dev/null || result=93
         kill -TERM $unrelated 2>/dev/null
         wait $unrelated 2>/dev/null

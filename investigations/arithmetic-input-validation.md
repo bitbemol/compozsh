@@ -137,8 +137,9 @@ owner chose to fix it for robustness (a stray value also aborted peer loads).
   subtraction before multiplying
   ([USB bounds](usb-progress-integer-bounds.md)).
 - One shared pure entry beside `_matching_decimal_limit` could replace the
-  three 64-bit text comparisons: `_usb_decimal_is_int64` and the two inline
-  `ZSH_XCODE_CAPTURE_MAX_BYTES` checks in `.zsh.xcode`.
+  two 64-bit text comparisons: `_usb_decimal_is_int64` and the
+  `ZSH_XCODE_CAPTURE_MAX_BYTES` check, which `.zsh.xcode` now keeps once in
+  its peer-private `_xcode_capture_limit` for both capture paths.
 - `.zsh.manual` keeps an inherited `_MANUAL_ASYNC_STATE` (a word, not
   arithmetic); `running` or `failed` would disable asynchronous capture.
 - The root-run `_trusted` check in the fixed `sudo` script uses `<->` before
