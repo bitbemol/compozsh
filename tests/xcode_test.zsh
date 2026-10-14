@@ -188,6 +188,27 @@ print -r -- \'Build version 27A100\'' || return
 test_case 'Xcode skill export stages under an identifiable compozsh temporary name' \
   _test_xcode_export_stages_under_compozsh_name
 
+# The installation-plan requirement names the shared support components that
+# provide the screen and matching entries, never the retired grouped peers.
+_test_xcode_export_help_names_current_support_components() {
+  test_make_temp_dir || return
+  local output='' words=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode" || exit
+    xcode --export-skills --help 2>&1
+  ' "$TEST_REPO_ROOT") || return
+  words=${(j: :)${=output}}
+
+  test_assert_contains "$words" \
+    'An interactive terminal with the shared support/ui and support/functions components opens an installation plan.' \
+    'Xcode skill export help did not name the current support components' || return
+  [[ $output != *UI/matching\ peers* && $output != *.zsh.matching* &&
+     $output != *.zsh.ui([^.]*|) ]] ||
+    test_fail "Xcode skill export help names a retired peer: ${(qqq)output}"
+}
+test_case 'Xcode skill export help names the shared support components, not retired peers' \
+  _test_xcode_export_help_names_current_support_components
+
 _test_xcode_workspace_discovers_only_nearest_containers() {
   test_make_temp_dir || return
   local root="$TEST_TMP_DIR/project" nested="$TEST_TMP_DIR/project/Sources/Feature"

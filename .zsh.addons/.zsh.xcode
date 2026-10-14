@@ -3412,7 +3412,8 @@ _xcode_export_help() {
     '  agent or no compatible Xcode exporter, it fails before installing.' \
     '' \
     'Refresh and recovery:' \
-    '  An interactive terminal with UI/matching peers opens an installation plan.' \
+    '  An interactive terminal with the shared support/ui and support/functions' \
+    '  components opens an installation plan.' \
     '  Review the detected destinations; Enter on Export skills closes the screen' \
     '  before exporting or writing. Escape cancels without creating staging data.' \
     '  Pipes, dumb terminals, and missing UI keep direct immediate execution.' \
