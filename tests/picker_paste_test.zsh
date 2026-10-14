@@ -1,5 +1,6 @@
 _test_picker_nonpaste_csi() {
   test_make_temp_dir || return
+  # Support subset: support/ui/.zsh.ui.zle_picker_loop alone; read and _zle_ui_view are stubbed.
   test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_loop"
     local stream="" sequence="" result=0 recovery=0 delivered=0
@@ -36,6 +37,8 @@ test_case 'picker nonpaste CSI keys retain ordinary cancellation and consume the
 # An incomplete paste retains terminal ownership until its closing marker.
 _test_picker_paste_boundary() {
   test_make_temp_dir || return
+  # Support subset: support/ui/.zsh.ui.zle_picker_{loop,paint} alone; read,
+  # _zle_picker_render, _zle_picker_show and _zle_ui_view are stubbed.
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_loop"
@@ -242,6 +245,7 @@ test_case 'picker interrupted paste keeps resumed Enter and cancellation bytes i
 
 _test_picker_paste_abort_scope() {
   test_make_temp_dir || return
+  # Support subset: support/ui/.zsh.ui.zle_picker_screen_session alone; zle is stubbed.
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_screen_session"

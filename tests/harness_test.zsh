@@ -265,11 +265,33 @@ test_case 'test support loader sources the shipped support set in bootstrap orde
   _test_source_support_mirrors_the_bootstrap
 
 # A hand-picked UI preamble tests a configuration that never ships. Keep one
-# only where a test needs a support unit absent or loaded at a chosen point,
-# and name that unit in a "# Support subset:" comment in the same test function.
+# only where a test needs a support unit absent or loaded at a chosen point, or
+# unit-tests a few UI entries with their collaborators stubbed, and name that
+# subset in a "# Support subset:" comment in the same test function.
+# A line is a preamble when it sources a UI unit by path, or loops over UI units
+# and sources them, in either the quoted or the plain path spelling.
+_test_is_ui_support_preamble() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == (|*[[:space:]\;])source[[:space:]]*support/ui(/|\"/).zsh.ui.* ||
+     $1 == (|*[[:space:]\;])for[[:space:]]*support/ui(/|\"/).zsh.ui.*source* ]]
+}
+
 _test_ui_support_preambles_use_the_shared_loader() {
   local file='' line='' trimmed='' offenders=''
   local -i number=0 marked=0
+  # Pin both spellings, and the inventory and assertion forms that are not
+  # preambles, so the scan cannot quietly narrow.
+  for line in \
+    'source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_loop"' \
+    'for c in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.); do source "$c"; done' \
+    'for c in "$1"/.zsh.addons/support/ui/.zsh.ui.*; do source "$c"; done'; do
+    _test_is_ui_support_preamble "$line" || test_fail "scan missed a UI preamble: $line" || return
+  done
+  for line in \
+    'units+=("$TEST_REPO_ROOT"/.zsh.addons/support/ui/.zsh.ui.*(N.))' \
+    '[[ ${functions_source[$f]} == "$1/.zsh.addons/support/ui/.zsh.ui.$owner" ]]'; do
+    ! _test_is_ui_support_preamble "$line" || test_fail "scan flagged a non-preamble: $line" || return
+  done
   for file in "$TEST_REPO_ROOT"/tests/*_test.zsh(N.); do
     [[ ${file:t} == harness_test.zsh ]] && continue
     number=0 marked=0
@@ -278,7 +300,7 @@ _test_ui_support_preambles_use_the_shared_loader() {
       [[ $line == _*'() {' ]] && marked=0
       trimmed=${line#"${line%%[![:space:]]*}"}
       [[ $trimmed == '# Support subset: '?* ]] && marked=1
-      [[ $line == *'support/ui"/.zsh.ui.*'* ]] && (( !marked )) &&
+      (( !marked )) && _test_is_ui_support_preamble "$line" &&
         offenders+=" ${file:t}:$number"
     done < "$file"
   done

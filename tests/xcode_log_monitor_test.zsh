@@ -70,6 +70,7 @@ test_case 'Xcode monitor opens logs first and Escape returns to run controls' _t
 
 _test_xcode_monitor_filter_bookmark() {
   test_make_temp_dir || return
+  # Support subset: support/ui/.zsh.ui.zle_ui_view alone; _zle_picker_loop is stubbed.
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"

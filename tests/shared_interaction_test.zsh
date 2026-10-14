@@ -22,6 +22,7 @@ test_case 'shared interaction result reset clears common evidence and leaves sou
 
 _test_shared_idle_protocol() {
   test_make_temp_dir || return
+  # Support subset: support/ui/.zsh.ui.zle_picker_loop alone; the idle callback is a fixture.
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_picker_loop"

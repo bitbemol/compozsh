@@ -75,8 +75,8 @@ _test_cell_prefix_reader_accent_offsets() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    local peer=""
-    for peer in "$1"/.zsh.addons/support/ui/.zsh.ui.* "$1"/.zsh.addons/support/functions/.zsh.{pure,impure}.*; do source "$peer"; done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT_KEY=accent
     _ZLE_PICKER_DOCUMENT_LINES=($'"'"'e\u0301abcd'"'"')
     _ZLE_PICKER_DOCUMENT_ROLES=(text)

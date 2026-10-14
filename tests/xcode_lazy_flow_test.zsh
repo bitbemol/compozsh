@@ -672,6 +672,8 @@ test_case 'Xcode lazy flow preserves canceled refresh selection under unusual op
 
 _test_xcode_discovery_status_scope() {
   test_make_temp_dir || return
+  # Support subset: support/ui/.zsh.ui.zle_{ui_view,picker_capture,picker_paint,picker_render}
+  # alone; zle, _zle_picker_loop, _zle_picker_render and _zle_picker_show are stubbed.
   test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_ui_view"

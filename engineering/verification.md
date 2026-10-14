@@ -66,9 +66,14 @@ assertion rule.
   `tests/support.zsh` and calls `test_source_support <repository-root>`, which
   sources every regular `support/**/.zsh.?*` file in the bootstrap's lexical
   order, skips `support/cache` and stops on the first failed source. Hand-pick
-  support files only when a test needs a support unit absent or loaded at a
-  chosen point, and name that unit in a `# Support subset:` comment in the
-  same test function; a harness check rejects an unnamed UI subset.
+  `support/ui` units only when a test needs a support unit absent or loaded at
+  a chosen point, or unit-tests a few UI entries with their collaborators
+  stubbed, and name that subset in a `# Support subset:` comment in the same
+  test function. A harness check rejects a line that sources a UI unit by
+  path, or loops over UI units to source them, in either path spelling,
+  without that comment. `support/functions` entries are outside the check: a
+  test may source the entries under test, or those a peer under test needs,
+  directly and without a comment.
 - Interactive regressions drive an isolated terminal with Zsh's bundled
   `zsh/zpty` module, sending keys and real resize signals. The shell that owns
   the terminal sources `tests/pty_support.zsh`: `test_pty_start` opens a
