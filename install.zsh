@@ -331,7 +331,9 @@ _installer_main() {
   # always list like a handled failure, and a diagnostic written to a closed
   # pipe cannot end the installer. LOCAL_TRAPS (emulate -L) scopes all four.
   # Each step is recorded before it runs, so a signal that lands after a step
-  # completed still undoes it.
+  # completed still undoes it. A new destination is checked free again just
+  # before it is recorded, so an entry that appeared after planning is refused
+  # instead of being replaced, nested into or removed by rollback.
   TRAPINT() { return $(( 128 + $1 )) }
   TRAPHUP() { return $(( 128 + $1 )) }
   TRAPTERM() { return $(( 128 + $1 )) }
@@ -395,6 +397,11 @@ _installer_main() {
     fi
 
     if [[ $rc_action == install ]]; then
+      [[ ! -e $active_zshrc && ! -L $active_zshrc ]] || {
+        print -u2 -r -- "installer: $active_zshrc appeared during installation"
+        result=1
+        return 1
+      }
       rc_created=1
       if [[ $mode == symlink ]]; then
         command ln -s "$source_zshrc" "$active_zshrc"
@@ -415,6 +422,11 @@ _installer_main() {
       return 1
     }
     if [[ $mode == copy ]]; then
+      [[ ! -e $managed_addons && ! -L $managed_addons ]] || {
+        print -u2 -r -- "installer: $managed_addons appeared during installation"
+        result=1
+        return 1
+      }
       managed_created=1
       command mv -- "$staged_addons" "$managed_addons" || {
         print -u2 -r -- 'installer: could not activate copied shared add-ons'

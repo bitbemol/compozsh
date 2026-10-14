@@ -531,6 +531,88 @@ exit 0" || return
 test_case 'installer rolls back steps that completed just before an interrupt' \
   _test_installer_rolls_back_steps_completed_before_interrupt
 
+# The plan found .zsh.addons/compozsh free, but something else put an entry
+# there before activation; the installer neither deletes nor nests into it.
+_test_installer_copy_keeps_compozsh_entry_that_appears() {
+  test_make_temp_dir || return
+  local home='' fake_bin='' output='' kind='' make_entry='' foreign=''
+  local -a leftovers=()
+
+  for kind make_entry foreign in \
+      file 'print -r -- FOREIGN=1 >| "$entry"' compozsh \
+      directory '/bin/mkdir -- "$entry" &&
+print -r -- FOREIGN=1 >| "$entry/notes"' compozsh/notes; do
+    home="$TEST_TMP_DIR/$kind/home"
+    fake_bin="${home:h}/bin"
+    test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+    test_write_file "$fake_bin/mkdir" "#!/usr/bin/env zsh
+/bin/mkdir \"\$@\" || exit
+[[ \${@[-1]} == */.zsh.addons ]] || exit 0
+entry=\${@[-1]}/compozsh
+$make_entry" || return
+    command chmod +x "$fake_bin/mkdir" || return
+
+    if output=$(path=("$fake_bin" $path); rehash
+        _test_run_installer "$home" "$home" --copy --yes 2>&1); then
+      test_fail "copy installer reported success over a $kind that appeared" || return
+    fi
+    test_assert_equal 'FOREIGN=1' "$(<"$home/.zsh.addons/$foreign")" \
+      "copy installer did not keep a $kind that appeared at compozsh" || return
+    [[ ! -e $home/.zsh.addons/compozsh/compozsh &&
+       ! -L $home/.zsh.addons/compozsh/compozsh ]] ||
+      test_fail "copy installer nested its add-ons into a $kind that appeared" || return
+    test_assert_equal 'ORIGINAL_RC=1' "$(<"$home/.zshrc")" \
+      "copy installer left the bootstrap unrestored beside a $kind" || return
+    leftovers=("$home"/.compozsh-install.*(DN))
+    (( ! $#leftovers )) ||
+      test_fail "copy installer left staging beside a $kind: ${leftovers[*]}" || return
+  done
+}
+test_case 'copy installer keeps a compozsh entry that appears during installation' \
+  _test_installer_copy_keeps_compozsh_entry_that_appears
+
+# Something else writes a .zshrc right after the old one was archived; the
+# installer neither deletes nor overwrites it, and keeps the archived original.
+_test_installer_keeps_zshrc_that_appears() {
+  test_make_temp_dir || return
+  local home='' fake_bin='' output='' mode=''
+  local -a archived=() leftovers=()
+
+  for mode in symlink copy; do
+    home="$TEST_TMP_DIR/$mode/home"
+    fake_bin="${home:h}/bin"
+    test_write_file "$home/.zshrc" 'ORIGINAL_RC=1' || return
+    test_write_file "$fake_bin/mv" '#!/usr/bin/env zsh
+/bin/mv "$@" || exit
+[[ $3 == */.zsh-backups/*/.zshrc ]] && print -r -- FOREIGN=1 >| "$2"
+exit 0' || return
+    command chmod +x "$fake_bin/mv" || return
+
+    if output=$(path=("$fake_bin" $path); rehash
+        _test_run_installer "$home" "$home" --$mode --yes 2>&1); then
+      test_fail "$mode installer reported success over a .zshrc that appeared" || return
+    fi
+    [[ -f $home/.zshrc && ! -L $home/.zshrc ]] ||
+      test_fail "$mode installer replaced a .zshrc that appeared" || return
+    test_assert_equal 'FOREIGN=1' "$(<"$home/.zshrc")" \
+      "$mode installer changed a .zshrc that appeared" || return
+    archived=("$home"/.zsh-backups/compozsh-*/.zshrc(N))
+    test_assert_equal 1 "${#archived}" \
+      "$mode installer lost the archived original .zshrc" || return
+    test_assert_equal 'ORIGINAL_RC=1' "$(<"${archived[1]}")" \
+      "$mode installer changed the archived original .zshrc" || return
+    test_assert_contains "$output" "replaced state remains in ${archived[1]:h:A}" \
+      "$mode installer did not name the backup it kept" || return
+    [[ ! -e $home/.zsh.addons/compozsh && ! -L $home/.zsh.addons/compozsh ]] ||
+      test_fail "$mode installer activated add-ons beside a .zshrc that appeared" || return
+    leftovers=("$home"/.compozsh-install.*(DN))
+    (( ! $#leftovers )) ||
+      test_fail "$mode installer left staging: ${leftovers[*]}" || return
+  done
+}
+test_case 'installer keeps a .zshrc that appears during installation' \
+  _test_installer_keeps_zshrc_that_appears
+
 # A move across volumes can be stopped after writing a partial copy but before
 # removing its source; rollback must keep the intact original and say where
 # the leftover backup is instead of restoring the copy over it.
