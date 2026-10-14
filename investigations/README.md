@@ -17,7 +17,7 @@ when work spans sessions (record progress and remaining steps there).
 | [arithmetic-input-validation](arithmetic-input-validation.md) | Text that reached Zsh arithmetic, the sweep's site ledger and validation bounds | [Zsh conventions](../engineering/zsh.md#idioms), [security](../engineering/security.md#handling-sensitive-data) |
 | [composer-and-atlas](composer-and-atlas.md) | Command composer, help Compose example and change atlas boundaries | [interaction design](../engineering/interaction-design.md) |
 | [critical-path-performance](critical-path-performance.md) | Measured hot-path optimizations and deferred provider findings | [performance](../engineering/performance.md) |
-| [excellence-2026-10-12](excellence-2026-10-12.md) | In progress: unattended quality pass; suite baseline, latency baselines and their A/A noise floor | [performance](../engineering/performance.md#measuring-latency), [verification](../engineering/verification.md#required-verification) |
+| [excellence-2026-10-12](excellence-2026-10-12.md) | Unattended quality pass: baselines and A/A noise floor, 82 audit findings and their fixes, owner decisions, before/after latency, open questions and pending manual checks | [performance](../engineering/performance.md#measuring-latency), [verification](../engineering/verification.md#required-verification) |
 | [git-comparison-design](git-comparison-design.md) | Revision comparison usability revision and endpoint correctness | [Git workspaces](../engineering/workspaces/git.md#scopes-and-comparisons) |
 | [git-review-key-repeat-latency](git-review-key-repeat-latency.md) | Preview settlement versus input debouncing; portability rule | [Git workspaces](../engineering/workspaces/git.md#responsive-navigation) |
 | [in-memory-capture-parsing](in-memory-capture-parsing.md) | Here-string temporary files, exact in-memory replacements and prompt latency | [security](../engineering/security.md#handling-sensitive-data), [Zsh conventions](../engineering/zsh.md#idioms) |
@@ -59,6 +59,9 @@ document and in a reader-only document in two trees
 `xcode-scheme-parse.zsh` compares parsing plutil's conversion of large and
 entity-dense Xcode scheme lists, and one complete scheme capture, in two
 trees ([excellence run](excellence-2026-10-12.md#performance-results));
+`file-search-stream.zsh` compares the Git and Spotlight file-search provider
+captures over a real repository and stubbed listings in two trees
+([excellence run](excellence-2026-10-12.md#performance-results));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 

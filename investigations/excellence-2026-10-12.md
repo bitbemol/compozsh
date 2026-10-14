@@ -1,8 +1,42 @@
 # Excellence run, 2026-10-12
 
-> **Status (2026-10-12): in progress.** Phase 1 (baseline) is complete:
-> suite, verification and latency baselines with their A/A noise floor. Later
-> phases fill the sections marked *Pending*.
+> **Status (2026-10-14): complete.** All five phases ran: baseline, audit and
+> adversarial verification, planning, fixes, and a final review with
+> before/after measurements. Open items are the owner's confirmation of OD1,
+> the skipped performance units, manual Terminal.app checks and proposed
+> CLAUDE.md changes, listed below.
+
+## Summary
+
+- **Scope.** An unattended pass on `excellence/2026-10-12`, from `main` at
+  `36cdcda`, between 2026-10-12 02:36 and 2026-10-14 00:53 CST (about 46 h of
+  wall clock).
+- **Audit.** Nine areas yielded 82 findings, and adversarial verifiers
+  confirmed all 82 (none rejected; 11 severities corrected). After correction
+  that is 5 high, 24 medium and 53 low: 39 correctness, 16 performance, 11
+  invariant, 9 simplification and 7 security. The plan merged 2 findings into
+  others, grouped 2 in one unit and split 2 across two units each, giving 81
+  units; 3 needed owner decisions.
+- **Fixes.** 72 units landed as commits, resolving 73 of the 82 findings
+  (OD2's by recording its cost). The 9 remaining performance units, U62–U70,
+  were skipped by owner decision. The final review ran six security and
+  contract passes and raised 39 findings, 8 of them blocking; seven follow-up
+  commits fixed or recorded all 8. The branch holds 81 commits including this
+  one. Product code changed in 25 files, +1,050/−2,350 lines, mostly deletion
+  of unreachable USB code.
+- **Tests.** The suite went from 961 cases (960 passed, 1 failed: the known
+  real-FAT32 round trip) to 1,022 cases, all passing, in 227.8 s.
+  `zsh tests/verify.zsh` passes.
+- **Latency.** The Git-source Search first frame is about 95 ms faster
+  (−47% fresh, −48% warm). Warm isolated startup is 2.6–2.8 ms faster
+  (−3.6% to −4.3%), repeated in a second run. No metric regressed beyond
+  noise. Unit benchmarks removed quadratic costs, saving up to seconds per
+  call, in the Git syntax poll, bounded capture, inspector wrapping, Xcode
+  scheme parsing and the search providers.
+- **Owner decisions.** OD1: recapture prompt facts after an in-widget `cd`.
+  OD2: keep one help-capture fork per guide. OD3: delete the retired Windows
+  writer. The owner's own confirmation of OD1 is still pending
+  ([CON-A-01](#unresolved-and-skipped-findings)).
 
 ## Purpose
 
@@ -196,13 +230,268 @@ frame's stripped text; a "missing marker" failure writes the frame it saw to
 
 ## Audit summary
 
-*Pending.*
+Nine auditors each read one area in full, reproduced every finding in
+disposable homes and repositories, and proposed a failing test and a fix. One
+adversarial verifier per finding then reran the evidence and checked it
+against the contracts. The verifiers confirmed all 82 findings, rejected
+none, and corrected severities or fixes where their reproduction disagreed.
+For example, USB-01 moved from critical to high, and BOOT-01, BOOT-02 and
+SUPPORT-05 moved down to low. A planner then turned the findings into units.
+The audit, verification and planning phases took 6.7 h and 93 agents.
+
+| Area | Findings | High / medium / low | Merges and groupings | Owner decision | Skipped |
+| --- | ---: | :---: | --- | --- | --- |
+| Bootstrap and installer | 8 | 0 / 0 / 8 | BOOT-01 grouped with BOOT-05 in U09 | — | — |
+| Living prompt and editing | 10 | 0 / 4 / 6 | — | PROMPT-03 (OD1) | PROMPT-04, PROMPT-07 |
+| Shared support | 8 | 0 / 5 / 3 | — | — | — |
+| Git workspaces | 7 | 1 / 3 / 3 | GIT-07 merged into USB-11 | — | GIT-05 |
+| Filesystem workspace | 10 | 1 / 4 / 5 | FS-09 split (U41 behavior, U77 refactor) | — | — |
+| Xcode workspace | 8 | 0 / 2 / 6 | XCODE-03 absorbs CROSS-09 | — | XCODE-05 |
+| External devices | 11 | 2 / 3 / 6 | USB-11 absorbs GIT-07 | USB-06 (OD3) | USB-07, USB-08 |
+| Help and small peers | 10 | 0 / 1 / 9 | — | HELP-02 (OD2) | HELP-03, HELP-04 |
+| Cross-cutting | 10 | 1 / 2 / 7 | CROSS-09 merged into XCODE-03; CROSS-03 split (U23, U24) | — | CROSS-02 |
+| **Total** | **82** | **5 / 24 / 53** | 2 merges, 1 grouping, 2 splits, no drops | 3 | 9 |
+
+The five high findings were all fixed:
+
+- GIT-01: a repository-configured signature verifier ran during review and
+  bare `g`.
+- FS-01: Spotlight Search at `/` discarded every result.
+- USB-01: the `createinstallmedia` signature gate accepted ad-hoc-signed
+  bundles.
+- USB-02: APFS image sources left their physical disk eligible for erasing.
+- CROSS-01: the Git syntax poll was quadratic and froze input.
+
+Units ran in this order:
+
+- U01 and U02 first: test-only isolation of Git and of open/pbcopy, which
+  protects every later unit's test runs.
+- Then security, correctness, invariant, performance and simplification
+  units.
+- The owner-decision units once answered: U79 and U80 at the start of batch
+  3, and U81 last ([run notes](#run-notes)).
 
 ## Commits
 
-*Pending.* Phase 1: this record and the two benchmark scripts.
+`git log main..HEAD`, oldest first. *Unit* names the plan unit and its
+findings; T01–T07 are the final review's fix tasks. Test counts are cases
+added or changed; existing tests that only moved to new helpers are summarized.
+
+| Commit | Subject | Unit | Category | Tests added or changed |
+| --- | --- | --- | --- | --- |
+| `abefd6b` | Record excellence baseline measurements | Phase 1 | record | benchmarks `isolated-startup.zsh`, `workspace-first-frame.zsh` |
+| `cf0d52b` | Isolate runner-level Git fixtures from inherited Git config | U01 (CROSS-04) | invariant (tests) | runner isolates fixture Git from inherited selectors and config |
+| `9dab051` | Make the shared search-session test helper fail closed on effects | U02 (CROSS-07) | invariant (tests) | search session never resolves system `open`/`pbcopy`; three callers pass fakes |
+| `17bbfe4` | Disable commit-signature verification in Git review and branch captures | U03 (GIT-01) | security | configured verifier never runs; `g --help` fact |
+| `aea7af0` | Require a caller-owned Apple code requirement before createinstallmedia | U04 (USB-01) | security | rejects self-declared, path-borne and Developer ID requirements |
+| `99da6aa` | Replace UTF-8-encoded C1 controls in the shared sanitizer in every locale | U05 (SUPPORT-04) | security | encoded C1 replaced under C, US-ASCII and UTF-8 |
+| `b45eae1` | Keep assignment values out of the running-command terminal title | U06 (PROMPT-02) | security | PTY: title omits assignment values, fails closed |
+| `f2222c3` | Refuse a relative ZSH_LOCAL_INIT instead of sourcing it from cwd | U07 (BOOT-04) | security | `security:` relative initializer never sourced |
+| `d3efe89` | Stage Xcode skill export under a disclosed compozsh temporary name | U08 (XCODE-06) | security | staging name and cleanup; `docs:` residue disclosure |
+| `4d3131c` | Roll back interrupted installs and stage copy files under compozsh name | U09 (BOOT-01, BOOT-05) | security | six interrupt and rollback cases; `security:` installer temporary names |
+| `1d1b765` | Keep Spotlight results when Search descendants runs at the filesystem root | U10 (FS-01) | correctness | Spotlight at `/` keeps in-scope results |
+| `0c09099` | Resolve APFS image sources to their physical store disks | U11 (USB-02) | correctness | store resolution; fail-closed store cases |
+| `19c2399` | Keep bounded-capture truncation when the cut lands on newlines | U12 (SUPPORT-01) | correctness | newline cuts; Git review caller case |
+| `be985d5` | Keep blank context lines in Git review under diff.suppressBlankEmpty | U13 (GIT-04) | correctness | exact line numbers with the option set |
+| `1de409e` | Report a failed filesystem catalog capture from external-device --format | U14 (USB-03) | correctness | catalog failure reported (unit and PTY) |
+| `c327a3a` | Skip nested .git metadata at any depth in the filesystem search walk | U15 (FS-04) | correctness | nested `.git` skipped and counted |
+| `98d43a9` | Derive Git-search parent folders when exclusion rejects files | U16 (FS-03) | correctness | folders kept when the exclusion removes their files |
+| `ee9ed53` | Split picker label and syntax spans on an explicit separator | U17 (SUPPORT-02) | correctness | repaint under empty `IFS`; PTY resize |
+| `a086c75` | Let the Git wrapper defer color enablement to the user | U18 (HELP-01) | correctness | PTY: four `color.ui` modes; pipes byte-identical |
+| `ea44686` | Clear the unaccepted autosuggestion at every line finish | U19 (PROMPT-01) | correctness | PTY: PS2 and prompt-less journeys |
+| `28cc67c` | Delegate a missing folder ending in / and keep Recents on vanished entries | U20 (FS-02) | correctness | three: delegated Tab, vanished child, Recents |
+| `3b98c36` | Reap the Git auto-refresh worker without consuming unrelated job records | U21 (GIT-03) | correctness | unrelated job records kept; shared reaper entry |
+| `0f0ffb3` | Reap Xcode children without sweeping unrelated job records | U22 (XCODE-01) | correctness | job lifecycle in three modes |
+| `57c13d8` | Stop deadline PTY waits from failing on silence or spinning on exit | U23 (CROSS-03) | correctness (tests) | four wait loops reshaped, assertions unchanged |
+| `b1935eb` | Add a deadline-based PTY expectation helper and migrate test readers | U24 (CROSS-03) | correctness (tests) | nine helper cases; 58 drivers migrated |
+| `4dee83c` | Rewrite the starter initializer's guarded examples in if form | U25 (BOOT-06) | correctness | starter examples with false guards |
+| `a479911` | Stamp installer backups from the clock, not an inherited EPOCHSECONDS | U26 (BOOT-08) | correctness | backup names under a hostile `EPOCHSECONDS` |
+| `78be007` | State the effective history limits and drop the unreachable defaults | U27 (BOOT-02) | correctness | stock limits kept; `docs:` HISTSIZE bound |
+| `f85af82` | Let NO_COLOR at startup keep Compozsh from enabling listing colors | U28 (BOOT-07) | correctness | `NO_COLOR` leaves `CLICOLOR` unset |
+| `b851666` | Guard every public function definition against a same-name alias | U29 (PROMPT-08) | correctness | three peers load after same-name aliases |
+| `cd61e3c` | Run the autosuggestion accept widgets under emulate -L zsh | U30 (PROMPT-06) | correctness | accept widgets under unusual caller options |
+| `8e4eb28` | Record the first-prompt help-capture fork cost | U80 (HELP-02, OD2) | performance (record) | benchmark `help-first-prompt.zsh` |
+| `46d3882` | Key the prompt Git-directory cache on the nearest .git marker too | U31 (PROMPT-05) | correctness | operation state follows a new repository |
+| `952f34e` | Make mkcd enter the directory it creates for stack-reference names | U32 (HELP-05) | correctness | `mkcd` for `-`, `-N`, `+N` |
+| `b641147` | Title the help workspace with the selected tool, not a notice word | U33 (HELP-06) | correctness | explorer titles notices with the tool |
+| `f55617a` | State compozsh --refresh as a two-space option line so its ACTION is captured | U34 (HELP-09) | correctness | refresh ACTION assertion |
+| `8e048f9` | Restore native man pager precedence and gate grep and man colors | U35 (HELP-10) | correctness | three: pager precedence, man and grep color gates |
+| `ed83cca` | Sanitize caller-owned keyboard-guide context lines like every other row | U36 (SUPPORT-08) | correctness | guide context lines sanitized |
+| `2c5460d` | Label the folder preview's 40-entry filesystem-order sample truthfully | U37 (FS-10) | correctness | preview Limits note (extended) |
+| `11ec595` | Spell dash- and tilde-prefixed bare-level Browse children with ./ | U38 (FS-07) | correctness | `-` and `~` children entered |
+| `12ea98f` | Slice path-argument Tab and resolve paths independent of KSH_ARRAYS | U39 (FS-08) | correctness | path Tab under `KSH_ARRAYS` |
+| `392ec62` | Report stale or unavailable file actions with one ZLE message | U40 (FS-06) | correctness | seven stale-action cases |
+| `d38a70d` | Refuse Search Change directory on a folder that has since become a link | U41 (FS-09) | correctness | folder replaced by a link refused |
+| `f68a882` | Describe the log-reader-first Run flow in Xcode Run destination text | U42 (XCODE-04) | correctness | destination text pins (extended) |
+| `d35281c` | Export Simulator child environment only to launch and log stream | U43 (XCODE-02) | correctness | child-environment spies (two extended) |
+| `b6858b9` | Name shared support components instead of retired peers in diagnostics | U44 (USB-11, GIT-07) | correctness | USB and `g --review` diagnostics |
+| `46378c1` | Rename USB locals named path so children keep PATH and the command hash | U45 (USB-10) | correctness | 17 helpers keep `PATH` and the hash table |
+| `039c99a` | End signalled test subshells after cleanup instead of continuing | U46 (CROSS-06) | correctness (tests) | runner ends a signalled test |
+| `aa4cb1f` | Settle two PTY tests on child-emitted events, not wall-clock windows | U47 (CROSS-10) | correctness (tests) | two tests on child events, assertions unchanged |
+| `b8fb3a4` | Scope the painted picker frame to the screen session | U48 (SUPPORT-03) | invariant | frame released on every exit |
+| `e2537b1` | Scope external-device disk, image and writer state to the invocation | U49 (USB-04) | invariant | `_USB_*` snapshot unchanged after three runs |
+| `175dd81` | Disclose that opening g reads remote-tracking names once | U50 (GIT-06) | invariant (docs) | none |
+| `6882b22` | Clear help summaries and options on compozsh --refresh | U51 (HELP-08) | invariant | refresh clears help maps (two extended) |
+| `198ce9e` | Scope the tool-explorer catalog to the compozsh invocation | U52 (HELP-07) | invariant | catalog released after `compozsh` |
+| `3ede7d8` | Redraw on Ctrl-L with builtin widgets and never clear the main screen | U53 (SUPPORT-05) | invariant | PTY: Ctrl-L under xterm-256color and vt100 |
+| `677a473` | Recapture prompt facts after an in-widget directory change | U79 (PROMPT-03, OD1) | correctness | two PTY recapture journeys |
+| `9da2047` | Render media-attention and macOS-review facts as passive rows | U54 (USB-09) | invariant | only actions indexed |
+| `3b05210` | Discover peers under fixed Zsh options | U55 (BOOT-03) | invariant | discovery ignores glob options |
+| `d77f39a` | Make re-source and diagnostics-free load checks read stderr | U56 (CROSS-05) | invariant (tests) | verify fails on load diagnostics; two tightened |
+| `a08c1b7` | Advance the Git syntax session buffer by offset, not a prefix strip | U57 (CROSS-01) | performance | two cases; `git-syntax-poll.zsh` |
+| `b22005a` | Strip the bounded-capture status suffix literally | U58 (GIT-02) | performance | two cases; `bounded-capture.zsh` |
+| `ca9d1fb` | Use the ASCII byte path for every document when wrapping inspector lines | U59 (SUPPORT-06) | performance | geometry oracle, byte-path count; `inspect-wrap.zsh` |
+| `41ab17a` | Parse Xcode scheme lists with one split instead of a quadratic rescan | U60 (XCODE-03, CROSS-09) | performance | four cases; `xcode-scheme-parse.zsh` |
+| `30da8fe` | Read Git and Spotlight provider streams in chunks and prefilter in memory | U61 (FS-05) | performance | three cases; `file-search-stream.zsh` |
+| `c7a6045` | Delete the unreachable USB read-back fallback and fail closed | U71 (USB-05) | simplification | incomplete evidence fails closed; 20 dead-path cases deleted |
+| `354be67` | Drop the dead KEYTIMEOUT default so an initializer unset survives | U72 (PROMPT-09) | simplification | `unset KEYTIMEOUT` survives |
+| `4ec2f1e` | Remove write-only legacy prompt globals and dead layout wrapper | U73 (PROMPT-10) | simplification | none (two expectations follow the removals) |
+| `8d714ed` | Delete the never-called matching_search support entry | U74 (SUPPORT-07) | simplification | matching tests rewritten without it |
+| `b3e853b` | Sanitize Xcode copy reports with one native pattern substitution | U75 (XCODE-08) | simplification | copy-report sanitization |
+| `6c102ed` | Centralize the Xcode capture-limit validation in one peer-private helper | U76 (XCODE-07) | simplification | helper over 18 inputs; hostile discovery guard |
+| `5776160` | Run the search test seam through the production file-action dispatcher | U77 (FS-09) | simplification | seam inserts through the dispatcher |
+| `d838ecf` | Load shared support in child test scripts through test_source_support | U78 (CROSS-08) | simplification (tests) | loader and subset guard; 242 child scripts migrated |
+| `7541987` | Delete the retired Windows writer and its FAT32 round trip | U81 (USB-06, OD3) | simplification | `USB ships no retired Windows writer`; 20 writer-only cases deleted |
+| `3cd7f10` | Refuse installer destinations that appear after the plan | T01 (SEC-A-01) | security | two: appeared `compozsh` entry, appeared `.zshrc` |
+| `4708e97` | Limit the README file-action recheck claim to the actions that recheck | T02 (SEC-B-01) | docs | none |
+| `bf0d523` | Drop the dead numeric metadata audit filter and guard the table | T03 (SEC-C-01, CON-C-01) | docs | `docs:` every SECURITY focused filter selects a test |
+| `227f6b0` | Name shared support components in xcode --export-skills help | T04 (CON-C-04) | correctness | export help names support components |
+| `f80a680` | Catch per-file UI support preambles and scope the subset rule | T05 (CON-C-02) | tests | widened subset scan; six subset markers |
+| `258d2eb` | Record owner decisions OD1 and OD3 in the excellence record | T06 (CON-A-01, CON-C-10) | record | none |
+| `1a8b868` | Propose the CLAUDE.md suite-note update and annotate the FAT32 baseline | T07 (CON-C-03) | record | none |
+| this commit | Complete the excellence run record | Phase 5 | record | none |
+
+## Tests
+
+| Point | Commit | Passed | Failed | Time |
+| --- | --- | ---: | ---: | ---: |
+| Phase 1 baseline | `36cdcda` | 960 | 1 | 234.2 s |
+| Gate after U30 | `cd61e3c` | 1,012 | 1 | 245.5 s |
+| After U53 (orchestrator) | `3ede7d8` | 1,031 | 1 | 250.1 s |
+| After U79 (orchestrator) | `677a473` | 1,033 | 1 | — |
+| After U81 (orchestrator) | `7541987` | 1,018 | 0 | — |
+| After T01 | `3cd7f10` | 1,020 | 0 | 227 s |
+| After T04 | `227f6b0` | 1,022 | 0 | 228.1 s |
+| **Final** | `1a8b868` | **1,022** | **0** | **227.8 s** |
+
+Until `7541987`, the one failure was always `USB Windows verifier round-trips
+and detects corruption on real FAT32`, the known real-FAT32 `hdiutil` round
+trip, which went with the retired writer
+([OD3](#od3-delete-the-retired-windows-writer-usb-06)). The final run printed
+no `FAIL` line, and the Xcode Logger cleanup timing tests did not flake in the
+final review's full runs, so nothing was rerun. `zsh tests/verify.zsh` gave syntax ok,
+whitespace ok and re-source ok.
+
+The net change is 61 cases (961 → 1,022):
+
+- Every behavior fix added or tightened tests.
+- U71 and U81 deleted 40 cases that exercised only unreachable USB code.
+- U24 and U78 moved 58 PTY drivers and 242 child scripts onto shared helpers
+  without changing assertions.
+
+One stderr line in the final run fails no test:
+`tests/support.zsh:6: read-only variable: TEST_ZSH_BIN`. It comes from
+`filesystem workspace replaces d and f without stealing ordinary editing
+keys` (`tests/files_workspace_test.zsh:9–12`), which sources
+`tests/support.zsh` inside a two-pass `TERM` loop, so the second
+`typeset -gr TEST_ZSH_BIN` is refused. It started with `d838ecf`.
+*Proposal:* move the source and `test_source_support` call above the loop.
 
 ## Performance results
+
+### Final comparison: main against the branch
+
+Every Phase 1 metric was rerun with the [method](#method) above, using the
+same scripts (unchanged since `abefd6b`) and the same machine. The baseline
+was the immutable `36cdcda` copy and the candidate the working tree at
+`1a8b868`. Conditions were `en_US.UTF-8`, Zsh 5.9, Git 2.54.0 and 140×40,
+with the trees alternating run by run. Load was 2.6–3.4 from other processes;
+nothing else from this run was active.
+
+Before timing frames, a marker check traced every scenario. Both trees
+painted byte-identical stripped frames, fresh and warm, so only timing
+differs. Startup and the local Search frames ran a second time to check
+direction.
+
+Milliseconds; median (min–max). *Verdict* uses the Phase 1
+[proposal](#measurements): a change is clearly beyond noise when it moves by
+more than three times that metric's A/A delta and by more than the larger of
+2% and 1 ms, and a second invocation repeats the direction. *Faster, below
+rule* repeated but missed one condition. *Borderline* passed in the second
+invocation only.
+
+| Metric | Mode | Runs | Before (`36cdcda`) | After (`1a8b868`) | Δ | Verdict |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Startup process | fresh | 15 | 221.99 (219.97–225.53) | 219.17 (218.12–220.98) | −1.3% | noise |
+| Startup process | warm | 15 | 72.35 (72.03–73.56) | 69.74 (69.30–70.47) | −3.6% | faster |
+| Startup source | fresh | 15 | 216.68 (214.63–220.31) | 214.00 (212.79–215.68) | −1.2% | noise |
+| Startup source | warm | 15 | 66.75 (66.40–67.68) | 64.03 (63.80–64.84) | −4.1% | faster |
+| Startup editable | fresh | 15 | 240.22 (238.58–243.56) | 238.00 (236.35–243.48) | −0.9% | noise |
+| Startup editable | warm | 15 | 98.82 (97.57–102.60) | 95.97 (95.21–99.55) | −2.9% | faster, below rule |
+| Startup tty-source | fresh | 15 | 207.13 (205.94–209.06) | 204.46 (203.61–209.48) | −1.3% | noise |
+| Startup tty-source | warm | 15 | 65.62 (65.24–67.36) | 62.82 (62.55–64.23) | −4.3% | faster, below rule |
+| Prompt render, outside | render | 11×40 | 5.02 (5.00–5.06) | 5.07 (5.05–5.09) | +0.9% | noise |
+| Prompt render, clean | render | 11×40 | 24.96 (24.86–25.21) | 25.10 (24.27–25.34) | +0.6% | noise |
+| Prompt render, dirty | render | 11×40 | 27.16 (27.05–27.26) | 27.27 (26.42–27.35) | +0.4% | noise |
+| Prompt render, large | render | 11×40 | 47.71 (47.11–48.38) | 47.85 (46.18–48.53) | +0.3% | noise |
+| Prompt render, outside | fresh | 15 | 5.36 (5.32–5.86) | 5.39 (5.34–5.60) | +0.4% | noise |
+| Prompt render, clean | fresh | 15 | 34.02 (33.61–80.22) | 34.40 (33.85–35.72) | +1.1% | noise |
+| Prompt render, dirty | fresh | 15 | 36.13 (35.63–36.79) | 36.14 (35.68–37.47) | +0.0% | noise |
+| Prompt render, large | fresh | 15 | 55.19 (54.51–56.97) | 56.00 (54.48–58.30) | +1.5% | noise |
+| Prompt Return, outside | pty | 11×15 | 8.00 (7.69–8.09) | 8.09 (7.75–8.15) | +1.2% | noise |
+| Prompt Return, clean | pty | 11×15 | 28.11 (27.01–28.32) | 28.24 (27.11–28.39) | +0.5% | noise |
+| Prompt Return, dirty | pty | 11×15 | 30.38 (30.13–30.75) | 30.42 (29.23–30.73) | +0.1% | noise |
+| Prompt Return, large | pty | 11×15 | 50.49 (47.60–51.35) | 50.55 (48.39–51.65) | +0.1% | noise |
+| Frame browse | fresh | 11 | 74.69 (74.41–75.23) | 74.83 (74.62–75.86) | +0.2% | noise |
+| Frame browse | warm | 11×5 | 73.88 (73.58–74.25) | 74.14 (73.79–74.49) | +0.3% | noise |
+| Frame browse-large | fresh | 11 | 846.43 (842.98–849.78) | 843.69 (841.33–850.72) | −0.3% | noise |
+| Frame browse-large | warm | 11×5 | 843.46 (840.79–845.32) | 843.86 (841.29–845.72) | +0.0% | noise |
+| Frame search | fresh | 11 | 509.78 (505.85–514.96) | 500.08 (497.50–507.13) | −1.9% | faster, below rule |
+| Frame search | warm | 11×5 | 489.81 (487.92–498.96) | 481.96 (479.80–485.91) | −1.6% | borderline |
+| Frame search-large | fresh | 11 | 950.38 (944.08–956.78) | 948.40 (938.52–953.72) | −0.2% | noise |
+| Frame search-large | warm | 11×5 | 951.51 (949.74–954.06) | 948.00 (946.38–953.16) | −0.4% | noise |
+| Frame search-git | fresh | 11 | 201.11 (193.18–217.71) | 106.17 (98.90–116.35) | −47.2% | faster |
+| Frame search-git | warm | 11×5 | 198.88 (197.69–215.09) | 103.23 (101.75–122.08) | −48.1% | faster |
+| Frame history | fresh | 11 | 5.64 (5.54–13.80) | 5.63 (5.48–5.71) | −0.2% | noise |
+| Frame history | warm | 11×5 | 12.39 (12.25–12.66) | 12.32 (12.20–12.53) | −0.6% | noise |
+| Frame review | fresh | 11 | 50.59 (50.32–53.06) | 51.07 (50.10–55.79) | +1.0% | noise |
+| Frame review | warm | 11×5 | 49.42 (48.93–49.95) | 49.62 (49.13–50.75) | +0.4% | noise |
+| Frame review-changes | fresh | 11 | 103.79 (99.13–107.83) | 103.15 (102.53–123.50) | −0.6% | noise |
+| Frame review-changes | warm | 11×5 | 100.77 (99.86–101.21) | 100.20 (99.63–118.96) | −0.6% | noise |
+
+- **Git-source Search.** About 95 ms faster, with ranges that do not overlap.
+  A traced run repeated it: 200.0 → 105.8 ms fresh and 203.9 → 100.2 ms warm.
+  Both trees painted 300 candidates. Measured alone from `41ab17a`, U61 cut
+  31.5–32.9% of this frame ([below](#file-search-provider-streams-fs-05)).
+  The rest predates it, plausibly from U16's capture-local visited-folder set
+  (see [other measurements](#other-measurements-recorded-by-fix-units)). That
+  attribution is an inference; no separate run measured it.
+- **Warm startup.** All four warm modes are 2.6–2.8 ms faster, and the second
+  invocation repeated it at 2.70–2.87 ms. *process* and *source* pass the
+  rule. *editable* and *tty-source* moved only 1.7–1.9 times their A/A deltas.
+  Fresh modes moved 2.2–2.8 ms, within noise.
+  *Caveat:* in Phase 1's A/A run, the working-tree copy was faster than the
+  identical baseline copy in every startup mode (by 0.34–3.63 ms), so part of
+  this shift may come from where each tree sits. Subtracting the warm A/A
+  deltas still leaves about 2.1 ms (process) and 2.4 ms (source). No single
+  commit is credited.
+- **Local Search.** 8–10 ms faster (−1.6% to −2.1%) across two invocations.
+  The second gave −8.87 ms fresh and −10.31 ms warm, with warm ranges that do
+  not overlap.
+- **No regression beyond noise.** The largest slowdown is the fresh large
+  prompt, +0.81 ms (+1.5%), under the 1 ms floor with overlapping ranges.
+- **Drift.** Absolute medians moved since Phase 1 on both trees (uptime 5
+  days, load about 3). For example, prompt render outside went 4.11 → 5.02 ms,
+  frame review 65.3 → 50.6 ms, review-changes 122.1 → 103.8 ms and
+  browse-large 809 → 846 ms. Compare only within a run.
+
+Reproduce with the Phase 1 [commands](#reproduction), using a `git archive`
+of `36cdcda` as `<baseline-root>` and the tree at `1a8b868` as
+`<candidate-root>`. Raw outputs and traces are kept with the run's local
+artifacts (not distributed).
+
+The sections below are the per-unit measurements, recorded as each
+performance unit landed.
 
 ### Git syntax response cut (CROSS-01)
 
@@ -471,23 +760,117 @@ Decision: kept. Reproduce from the repository root with a disposable
 /bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <baseline-root> <candidate-root> search-git 11 5
 ```
 
+### Other measurements recorded by fix units
+
+Three fix units, which were not performance units, measured their effect.
+Each compared the tree before and after its change, alternating run by run;
+values are medians (min–max) in ms.
+
+**Peer discovery under fixed options (BOOT-03, U55, `3b05210`).** This
+change touches the startup path. The no-regression check used
+`isolated-startup.zsh` with default options, 15 runs:
+
+| Metric | Before | After | Δ |
+| --- | ---: | ---: | ---: |
+| Startup process, fresh | 216.53 (211.62–230.71) | 212.75 (208.11–231.72) | −1.7% |
+| Startup source, warm | 65.64 (63.58–69.81) | 66.01 (62.33–69.05) | +0.6% |
+| Startup editable, warm | 95.58 (94.71–103.81) | 94.86 (93.70–103.65) | −0.8% |
+| Startup tty-source, warm | 62.65 (61.78–67.77) | 61.35 (60.98–67.36) | −2.1% |
+
+All four are within the A/A noise above. A scratch script (not kept)
+sourced `.zshrc` in-process with a `setopt GLOB_DOTS` initializer and a
+4,096-file private `.git` under the user add-on folder. It went
+79.46 (78.07–80.91) → 60.06 (59.15–61.01) ms, −24.4%, because hidden folders
+are no longer searched. That is a side benefit of the correctness fix.
+
+**Git-search parent folders (FS-03, U16, `98d43a9`).** The unit timed the Git
+capture over a throwaway 5,000-file repository, 10 runs, as information only.
+The capture-local visited set stops sibling files from rechecking the same
+parent folders:
+
+| Workload | Before | After | Δ |
+| --- | ---: | ---: | ---: |
+| Query `net`, no exclusion | 973.9 (967.6–985.6) | 527.2 (523.8–539.7) | −45.9% |
+| Exclusion `Feature1` only | 636.4 (631.0–646.5) | 478.6 (471.7–491.7) | −24.8% |
+| Query `Client`, exclusion `Module1` | 574.2 (569.0–586.4) | 375.9 (369.3–386.4) | −34.5% |
+| Query `net`, every file excluded | 261.0 (259.2–263.3) | 274.7 (273.9–278.1) | +5.2% |
+
+Results were identical. The last row is the cost of the now-correct ancestor
+walk for excluded files.
+
+**In-widget recapture (PROMPT-03, U79, `677a473`).** This change moved
+`precmd`'s capture into `_prompt_capture_context`. `prompt-git-render.zsh`
+render mode, 11 runs, confirmed that `precmd` did not change:
+
+- outside: 4.45 → 4.46 ms
+- clean: 23.02 → 23.03 ms
+- dirty: 25.07 → 25.15 ms
+- large: 44.32 → 44.48 ms
+
+Every delta is under 0.4%, with overlapping ranges. The in-widget capture
+itself has no benchmark scenario; [OD1](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03)
+estimates it.
+
+### Skipped performance units (U62–U70)
+
+The owner chose a time box after U53: 45 minutes per attempt, with a second
+attempt only when the first failed within 20 minutes. Three units hit it and
+a fourth was stopped. On 2026-10-13 the owner decided to skip the remaining
+performance units to finish sooner. None of these units changed the
+repository. Their plans and saved work stay with the run's local artifacts
+(not distributed).
+
+| Unit | Finding | Severity | State | Saved work |
+| --- | --- | --- | --- | --- |
+| U62 | PROMPT-04: project detection rereads folders once per extension | medium | Attempt 1 time-boxed at 178 min, not measured | `U62-a1.patch`: about 190-fixture characterization test (passed before and after, mutation-checked) and the one-listing-per-folder rewrite |
+| U63 | GIT-05: remote fallback scans local branches per ref | low | Time-boxed at 49 min | None. The retry plan is an associative set of local names plus a `branch-remote-capture.zsh` benchmark. Zsh looks up expanded keys literally, which was confirmed. |
+| U64 | PROMPT-07: highlighter `(Ie)` scans on every redraw | low | Time-boxed at 110 min, mostly gaps between tool calls | `U64-a1-characterization.diff`. Its expected tail must read `6 18`, not `6 20`. |
+| U65 | XCODE-05: log collector formats every line twice | low | In progress when batch 4 stopped | `U65-a1-partial.patch`: two log-reader tests, collector change, `xcode-log-collect.zsh` |
+| U66 | USB-07: `stat` forks for size-only reads | low | Not started | — |
+| U67 | USB-08: ISO table `while read` loop | low | Not started | — |
+| U68 | HELP-04: manual capture forks `rm`/`rmdir` | low | Not started | — |
+| U69 | HELP-03: help identity rebuilt as one signature | low | Not started | — |
+| U70 | CROSS-02: two static tests add about 13 s per suite | low | Not started | — |
+
+If U69 is resumed, it must also extend `_compozsh_prompt_reset` to clear
+the maps it adds (U51's note).
+
 ## Owner decisions
 
 ### OD1: in-widget directory change recaptures prompt facts (PROMPT-03)
 
 **Decision (attributed to the owner, 2026-10-12): option (a), "Recapture".**
-This record does not hold the owner's own words. The decision is attributed
-to the commit that implements it, `677a473`, whose message states
+This record does not hold the owner's own words. The orchestrating session
+received the answer in chat. Its owner-answers file records it as
+`(a) Recapture -> unit U79`, and the implementing commit `677a473` states
 `Owner decision OD1, option (a) "Recapture", chosen by the owner in chat on 2026-10-12.`
-Owner confirmation is pending ([CON-A-01](#unresolved-findings)).
+Owner confirmation is pending ([CON-A-01](#unresolved-and-skipped-findings);
+[open question 1](#open-owner-questions)).
+
+**How it landed.** The U79 fix agent implemented and verified the change. It
+did not commit, because the approval reached it only as orchestrator-written
+text, and CLAUDE.md requires the owner's own acceptance. The orchestrator
+applied the saved patch with a three-way merge. One conflict, in the Browse
+`cd`/enter-link dispatch, kept the newer stale-folder recheck and the new
+`directory` action. The orchestrator then re-verified red and green, ran the
+focused filters and ran the full suite (1,033 passed; only the FAT32 case
+failed).
 
 **Options.** Browse, Recents, Search and the Draft inspector's Files actions
 run builtin `cd` inside a ZLE widget for Change directory and Enter linked
-directory, so no `precmd` follows. The commit record names only the chosen
-option, recapture in the widget. The known alternative is the behavior it
-replaced: keep `precmd` as the prompt's only capture boundary, so the prompt,
-Context rows and window title describe the previous folder until the next
-accepted line.
+directory, so no `precmd` follows. Until the next accepted line, the prompt,
+Context rows and window title described the previous folder. The plan offered
+three options:
+
+- (a) Recapture: run the prompt's fact capture from the editor's post-cleanup
+  `cd` path.
+- (b) No new reads: mark the snapshot as belonging to the previous folder,
+  and withhold or label the PATH, GIT, PROJECT and TOOLCHAIN rows until the
+  next `precmd`.
+- (c) Keep the behavior and disclose it.
+
+The plan recommended (a), because stale rows are a safety-relevant false
+display.
 
 **What changed.** Two Essentials and one contract section:
 
@@ -553,6 +936,8 @@ per help guide and its 4,097-character pipe bound, and record the cost here,
 rather than batch every changed companion into one child process (a) or move
 the capture off the first prompt (c, new background work outside the
 [approved exceptions](../engineering/performance.md#approved-background-work)).
+The owner-answers file records `(b) Keep per-guide forks and record the cost
+-> unit U80`. U80 recorded it in `8e4eb28`, changing no product code.
 
 **Cost.** Help snapshots live in shell memory, so the first TTY `precmd` of
 every new interactive shell captures every same-source companion before the
@@ -632,13 +1017,27 @@ TMPDIR=<disposable> /bin/zsh -df investigations/benchmarks/help-first-prompt.zsh
 ### OD3: delete the retired Windows writer (USB-06)
 
 **Decision (attributed to the owner, 2026-10-12): option (a), "Delete it".**
-As with OD1, this record does not hold the owner's own words. The decision is
-attributed to the commit that implements it, `7541987`, whose message states
+As with OD1, this record does not hold the owner's own words. The
+owner-answers file records `(a) Delete the retired Windows writer -> unit
+U81`, and the implementing commit `7541987` states
 `Owner decision OD3, option (a) "Delete it", chosen by the owner in chat on 2026-10-12.`
 
-**Options.** The commit record names only the chosen option. The known
-alternative is the state it replaced: keep the writer in the tree,
-unreachable.
+**How it landed.** U81 was first scheduled before U71. It was moved to run
+last, after U71, in patch-only mode for the same reason as U79. U71 therefore
+kept `_usb_dd_bytes_observed` and `_usb_cmp_drain`, and U81 removed them. The
+orchestrator applied the patch and re-verified red: the static test listed
+the writer's symbols at the prior HEAD. It then confirmed green, and the full
+suite gave 1,018 passed, 0 failed.
+
+**Options.** The plan offered three:
+
+- (a) Delete the writer.
+- (b) Keep it as disclosed, unreachable code and keep reporting the FAT32
+  failure.
+- (c) Keep the writer but retire only the failing FAT32 test.
+
+It recommended (a): the code was unreachable, needed ongoing maintenance and
+carried the suite's only standing failure.
 
 **What was removed.**
 
@@ -671,9 +1070,105 @@ file or disclosure, and no Essential changed. Public behavior is unchanged:
 Windows Setup media is still classified and refused before any drive is
 chosen.
 
-## Unresolved findings
+### Open owner questions
 
-*Pending* for the rest of the audit. Recorded so far:
+These fall under CLAUDE.md's owner-decision list. The run could not answer
+them, so it reports them with options and a recommendation.
+
+**1. Confirm OD1 (and OD3) in your own words (CON-A-01, final review).**
+`677a473` changed two Essentials:
+
+- the performance Essential *Capture at defined boundaries*;
+- the prompt Essential *Presentation, never a provider*.
+
+They now allow a second prompt fact capture inside a ZLE widget after an
+explicit Change directory or Enter linked directory. The only records of the
+choice are agent-written: the commit message and the orchestrator's
+owner-answers file.
+
+- (a) Confirm recapture as shipped. Record your words and date under OD1.
+- (b) Revert to `precmd` as the only capture boundary, using the revert path
+  under [CON-A-01](#unresolved-and-skipped-findings). The prompt, Context
+  rows and title then show the previous folder until the next accepted line.
+- (c) A narrower recapture. After an in-widget `cd`, update only the
+  PWD-derived folder label and title, and mark Git and toolchain facts as
+  pending until the next `precmd`. This still changes an Essential, and it
+  needs a new visible pending state, tests and docs.
+
+*Recommendation:* (a), if it matches what you chose. The capture runs only
+after an explicit user action, in the post-cleanup final action and never in
+repaint. It reads exactly what the next `precmd` would read for that folder,
+and it fixes a prompt and title that describe the wrong directory;
+correctness ranks above latency. Choose (b) if `precmd` should stay the single
+boundary. For OD3, one line suffices: it removed unreachable code and changed
+no Essential.
+
+**2. Sources on virtual disks (U11 follow-up).** U11 resolves an image's APFS
+volume to its physical store disks. When the image or installer sits on a
+virtual whole disk, such as a mounted disk image, a sparsebundle or an APFS
+container on an AppleRAID set, exclusion stops at that virtual disk. It does
+not trace the disk that holds the image file, or the RAID members. A busy
+unmount usually stops the write, by accident rather than by design. The
+`--flash` help still says a target "can never destroy its own source during
+dd", and "during dd" is also narrower than the `createinstallmedia` path.
+
+- (a) Trace: read `hdiutil info` and AppleRAID membership, and exclude the
+  backing disks. This adds reads that list every attached image.
+- (b) Refuse: fail closed when the source's whole disk is virtual and its
+  physical disk can't be resolved from the `diskutil info` facts already
+  read.
+- (c) Keep the behavior and narrow the help and SECURITY.md wording to what is
+  guaranteed.
+
+*Recommendation:* (b), with the help sentence corrected in the same change.
+It fails closed, reads nothing new and affects only unusual layouts. (a)
+widens what is read to cover a rare case.
+
+**3. History size (BOOT-02, U27).** `78be007` removed the 50,000-entry
+defaults, which never applied, and documents that history keeps whatever
+`HISTSIZE`/`SAVEHIST` the system or initializer sets (macOS `/etc/zshrc`:
+2,000/1,000).
+
+- (a) Keep the stock values. Users raise them in the initializer.
+- (b) Raise the effective values to 50,000 when the user has not chosen any.
+  This needs a heuristic that treats Zsh's 30/0 and Apple's 2,000/1,000 as
+  unchosen, which misreads a deliberate value that equals a stock one, and it
+  retains more history on disk.
+
+*Recommendation:* (a). Data minimization and user control rank above breadth,
+and no heuristic can tell a deliberate stock value from an unset one.
+
+**4. Bound for the bare `g` branch catalog (Git audit note).** Bare `g` reads
+the local branch catalog through an unbounded command substitution
+(`.zsh.navigation`), and it builds inspector text for every branch. That
+conflicts with the Git Essential *Bounded and honest*, while the Branches
+section says recency must never limit matchable refs.
+
+- (a) Read through `_compozsh_capture_bounded` with byte and row bounds and
+  the standard partial notice. Matching then covers captured refs only, and
+  the notice says so.
+- (b) Keep the read unbounded and record the exception in the Git contract.
+  Retained text then grows with the branch count.
+- (c) Keep the name list complete, but build inspector text only for the
+  selected branch. This bounds what is retained without limiting matching.
+
+*Recommendation:* (a), optionally with (c). It meets the binding Essential
+with an honest notice through the shared entry. A generous bound leaves
+ordinary repositories unchanged.
+
+**5. Lazy help-identity validation (HELP-03 alternative, plan note).**
+
+- (a) Resume U69 as planned: validate help-description identity in parts each
+  prompt, with no new state.
+- (b) Validate lazily: write a stale mark when a definition changes at edit
+  time, and check it on use. This adds state written from an edit-time path.
+
+*Recommendation:* (a). It needs no owner decision. Revisit (b) only if (a)'s
+measured cost is still visible.
+
+## Unresolved and skipped findings
+
+### Pending owner confirmation
 
 - **CON-A-01: owner confirmation of OD1 (blocking review finding).**
   [OD1](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03)
@@ -691,9 +1186,383 @@ chosen.
   `tests/prompt_lens_ui_test.zsh`. Keep the stale-folder recheck, the
   pin-preservation behavior and their tests.
 
-## Manual acceptance pending
+### Skipped audit findings
 
-*Pending.*
+The owner chose to skip the nine performance findings of U62–U70: PROMPT-04,
+GIT-05, PROMPT-07, XCODE-05, USB-07, USB-08, HELP-04, HELP-03 and CROSS-02.
+Their state and saved work are listed under
+[skipped performance units](#skipped-performance-units-u62u70). Every other
+audit finding is resolved.
+
+### Final review findings not fixed
+
+The final review fixed every blocking finding (T01–T07). Its 31 non-blocking
+findings were left for follow-up, apart from the ones marked resolved below.
+They are grouped by consequence.
+
+Safety and disclosure:
+
+- **SEC-B-02, CON-B-05.** `.zsh.find` (three functions), `.zsh.navigation`
+  and `.zsh.git-review` still declare a local named `path`. Zsh ties that
+  name to `PATH`, so it rebinds `PATH` for children and empties the command
+  hash table. U45 fixed the same pattern in USB. Rename the locals, then add
+  the matching idiom to `engineering/zsh.md`.
+- **CON-A-02, SEC-C-09.** Pre-existing: the `g --discard-all` success
+  message prints the repository path with `print --`, not `print -r --`.
+  Its index entry still cites `.zsh.tools:329`; the line is now 335, and
+  SECURITY.md does not mention it.
+- **SEC-B-03, SEC-C-08, CON-C-11.** When `_compozsh_job_reap` is absent, the
+  Git syntax, review-worker and Xcode fallbacks signal by bare PID and use a
+  bare `wait`. That contradicts SECURITY.md's job-lifecycle text and the
+  Xcode contract's "never a job-table sweep". Either scope the wording to the
+  shared entry, or make the fallbacks exact.
+- **SEC-C-02.** `_usb_flash`/`_usb_format`, and also `xcode()`, leave
+  `REPLY`, `_ZLE_PICKER_SELECTED_VALUE` and `_ZLE_PICKER_BOOKMARK` global, so
+  the invocation-scope claim holds only for `_USB_*`.
+- **CON-B-02, CON-B-03.** Picker results and bookmarks outlive the view for
+  bare `g`, Recents/Files and Ctrl-R, against SECURITY.md's "view-local". The
+  frame names keep global values in `support/ui/.zsh.ui.state`, which
+  conflicts with `engineering/zsh.md`. This also makes keyboard-zle's "no
+  painted text outlives the session" too broad.
+- **SEC-C-04.** SECURITY.md does not say that the last signature check and
+  the root `createinstallmedia` exec are separate steps by path, so they are
+  not atomic.
+- **SEC-C-05, SEC-C-06, SEC-C-07.** Xcode skill-export staging has three
+  gaps:
+  - the cleanup guard compares an unquoted `${temp_root:A}`, so a `TMPDIR`
+    containing `[`, `*` or `?` leaves the staging directory;
+  - no test covers handled-error or Ctrl-C cleanup;
+  - SECURITY.md does not mention residue under the old
+    `${TMPDIR}/xcode-skills.*` name.
+
+  U08 also found that an interrupt during agent installation leaves a
+  `.xcode-skill-stage.*` sibling. That one is disclosed; interrupt-safe
+  cleanup is a follow-up.
+- **SEC-A-03.** The relative-initializer diagnostic prints raw
+  `ZSH_LOCAL_INIT` text; U07 proposed `${(V)…}`.
+- **SEC-A-04.** No test covers an assignment value longer than the title
+  lexer's 512-character bound.
+- **SEC-A-02 (narrowed).** `3cd7f10` added the same-class guard on `.zshrc`.
+  A small check-to-use window remains.
+
+Contracts, docs and tests:
+
+- **CON-B-01.** Pre-existing: loading `.zsh.navigation` removes any function
+  or alias named `b`, the user's included, which breaks load-order
+  independence. The fix is two lines.
+- **CON-B-04.** The Recents diagnostic still names the retired grouped "UI and
+  matching add-ons".
+- **CON-B-06, CON-C-05.** New tests time their own runs, contrary to
+  `engineering/verification.md`:
+  - the bounded-capture linear-scaling case;
+  - the syntax-poll case (under 1 s);
+  - the 4,096-scheme parse (under 1 s).
+- **CON-C-06.** The `SIMCTL_CHILD_NSUnbufferedIO` prefix sits on a shell
+  function, so every child that function starts gets it. SECURITY.md says
+  "only for the launch".
+- **CON-C-07, CON-C-08, CON-C-09.** Three stale texts:
+  - `--flash --help` says the "parent whole disk" is excluded, but APFS
+    sources now exclude their store disks;
+  - SECURITY.md still names `/usr/bin/cksum`, which no shipped code runs;
+  - one error message still says "for verification".
+- **SEC-B-04.** SECURITY.md's Appearance *Inspect* list omits `.zsh.help`,
+  which holds the help `NO_COLOR` gate.
+- **CON-A-03.** No release note exists for the discovery change; see the
+  release-note items below.
+- **CON-A-05, SEC-C-03.** CLAUDE.md's suite note is stale. The proposal is
+  under [proposed changes](#proposed-claudemd-and-claude-changes).
+- **Resolved here.** CON-A-04 by the U55 startup measurements under
+  [other measurements](#other-measurements-recorded-by-fix-units), and
+  CON-C-10 by the OD3 entry (`258d2eb`).
+
+### Follow-up candidates
+
+None of these was a confirmed finding. Plan verifiers and fix units noted
+them, and each would need its own unit.
+
+- **Prompt and editing:**
+  - The Interaction lens copies array-assignment values into COMMAND TEXT
+    (`secrets=(v)`), against SECURITY.md's lens row. U06's `*=\(` handling
+    would fix it.
+  - `_prompt_command_started` and `_prompt_update` overwrite the user's
+    `REPLY`.
+  - `_prompt_version_probe` runs `builtin cd -- /` without `-q`, so user
+    `chpwd` hooks run in probe subshells.
+  - The screen cleanup repaints the old prompt before an in-widget `cd`.
+  - Ctrl-C leaves an unaccepted suggestion in scrollback; this is disclosed.
+  - Project detection lists symlinked `lua/` and `script/` folders that point
+    outside the project.
+  - Under `GLOB_SUBST`, the Browse session entry respells `~`.
+- **Filesystem:**
+  - The Spotlight batch handler and the root check use unquoted
+    `$HOME`/`$root` as patterns.
+  - The local walk at `/` keeps absolute labels.
+  - Back or Ctrl-T on a vanished level closes Browse like a cancel.
+  - Providers order equal-rank folders differently.
+  - Browse Open still needs `.zsh.find`, and the dispatcher has no
+    fail-closed default branch.
+- **Git:**
+  - `_git_syntax_apply` takes about 127 ms for 3,641 spans.
+  - `-c log.showSignature=false` could also go on `_git_worktree_git` for
+    defense in depth.
+  - The `.zsh.git-review` header still says "UI peer".
+- **Shared UI:**
+  - Inspector wrapping could use a linear chunker, and the frame benchmark
+    has no long-diff-line scenario (U59).
+  - Per-view `_ZLE_PICKER_DISPLAY` locals are now redundant.
+  - Prepared inspector lines could move to session scope.
+  - Help capture invalidation grows with companions times options.
+- **Xcode:**
+  - Discovery can write its `[n] pid` launch line before the first frame.
+  - The Run destination text omits terminate-running-process.
+  - A shared decimal-limit entry is still a proposal.
+- **External devices:**
+  - Full-installer codesign passes show no progress frame.
+  - `_usb_macos_execute` has no authorization re-prompt.
+  - Status 9 can carry an empty verify reason, and there is no
+    incomplete-evidence label.
+  - `_usb_disks_capture_retry` and `_usb_dd_run` have no callers.
+  - The installer identifier could be pinned in the code requirement.
+  - Bare waits in the USB workers and `.zsh.manual` should be audited for the
+    NOTIFY-off sweep.
+  - Format catalog failure could offer an in-workspace Retry.
+- **Installer and bootstrap:**
+  - A failed fresh install leaves an empty `.zsh.addons`.
+  - A relative `HOME`/`ZDOTDIR` makes the user add-on folder relative.
+  - Rollback could also require the managed marker.
+- **Tests:**
+  - `XDG_CONFIG_HOME` isolation for fixture Git (global ignore and
+    attributes).
+  - A checked-in fail-closed `open`/`pbcopy` stub directory.
+  - Per-peer alias-guard tests for `compozsh`, `g`, `xcode` and
+    `external-device`.
+  - `git_auto_refresh_test.zsh:151` still sleeps 0.45 s.
+  - Raw support loops remain in tests that never load the UI.
+  - `editor_reader_test.zsh`'s fixture lacks the `(p)` flag.
+  - The subset scan is line-based.
+  - The `TEST_ZSH_BIN` stderr line described under [tests](#tests).
+- **Contract wording (proposals):**
+  - `engineering/zsh.md`: idioms for cd's `-`, `-N` and `+N` operands, and
+    for locals named after special parameters.
+  - `engineering/verification.md`: input paced by child-emitted events, and
+    naming `help-first-prompt.zsh` for help-capture changes.
+  - `engineering/repository-layout.md`: refusing a destination that appeared
+    after planning.
+  - An annotation of the deleted test at
+    `investigations/in-memory-capture-parsing.md:218`.
+
+### Release-note items
+
+The repository has no release-notes file, so the next release draft should
+carry these:
+
+- A relative `ZSH_LOCAL_INIT` is now ignored with a diagnostic; export an
+  absolute path (U07).
+- Private peers in hidden folders, or named `.ZSH.*`, no longer load when the
+  initializer sets `GLOB_DOTS` or `NO_CASE_GLOB` (U55, CON-A-03).
+- The Git wrapper no longer injects `color.ui=auto`, so the user's Git color
+  configuration wins. With stdout redirected, Git's stderr uses Git's own
+  colors (U18).
+- `man` no longer forces `MANPAGER='less -sR'` or `MANCOLOR`. `grep` and `man`
+  colors follow `NO_COLOR` and need 256 colors, and `NO_COLOR` at startup
+  stops `CLICOLOR` (U28, U35).
+- The 50,000-entry history defaults are gone; they never applied (U27).
+- Git review and bare `g` never verify commit signatures (U03).
+- `external-device --flash` changes:
+  - it rejects ad-hoc-signed installer bundles (U04);
+  - it no longer needs `ditto` or `sync` (U81);
+  - Flash & verify fails closed instead of rereading the drive (U71).
+
+## Manual Terminal.app acceptance pending
+
+PTY tests can't judge how Terminal.app looks. Use disposable folders,
+repositories and media; items marked *optional* are not required by a
+contract.
+
+Prompt and editing:
+
+1. **Terminal title** (U06, `b45eae1`).
+   - Run `API_TOKEN=fixture-secret-value sleep 5`. While it runs, the title
+     reads `<user>@<host>: sleep`, with no value in the tab bar or the Window
+     menu, and it returns to `<user>@<host>: <folder>` at the next prompt.
+   - `secrets=(fixture-array-value); sleep 5` shows `<user>@<host>` alone.
+   - `make --version` shows `<user>@<host>: make`.
+2. **Ghost text** (U19, `ea44686`).
+   - Run `print -s -- 'echo GHOST-TAIL'`, type `if true; then` and Return,
+     then type `echo GH` at the continuation prompt. Press Return, then type
+     `fi` and Return. Scrollback shows `echo GH` with no `OST-TAIL`.
+   - Repeat at the top level in a shell whose `.zshrc` sources only
+     `.zsh.editor`.
+3. **Accept keys under `KSH_ARRAYS`** (U30, `cd61e3c`). Set
+   `setopt KSH_ARRAYS`, keep the history entry
+   `print -r -- RESULT swmark-xyz tail`, and type `print -r -- RESULT swm`.
+   - Ctrl-F and Right each insert `a`.
+   - Option-F and Option-Right accept through `swmark-xyz` and keep the
+     leading `p`.
+   - Ctrl-E accepts the line.
+   - With no suggestion showing, all three keep their native motions.
+4. **In-widget recapture** (U79, `677a473`).
+   - Type `./`, press Tab, then Ctrl-X › Change directory into a Git
+     repository. The NAVIGATE lens shows FROM/PATH for the new folder and a
+     GIT row, and the tab title updates. Judge whether the brief repaint with
+     the old facts during cleanup distracts.
+   - With an empty draft, open Option-Tab Recents, then Ctrl-X › Current
+     folder · Change directory into a repository. The Context lens opens with
+     "entered repository" or "branch changed".
+   - With the lens pinned (Option-I), Change directory keeps it pinned and
+     shows the new rows.
+
+Full-screen and shared UI:
+
+5. **Ctrl-L** (U53, `3ede7d8`). Ctrl-L in a picker redraws in place. With the
+   profile's terminal type set to vt100 (the inline fallback), earlier
+   main-screen output and scrollback stay intact.
+6. **Resize keeps accents** (U17, `ee9ed53`).
+   - In a Git review document whose lines hold keywords and strings, resize
+     while the reader waits, then press Down. Every color stays.
+   - In a picker with metadata accents (Files sizes, an external-device or
+     Xcode architecture row), resize while it waits. The accents stay.
+   - Resize a help topic reader. The accents stay.
+7. **Frame release** (U48, `b8fb3a4`).
+   - Leave Ctrl-R, Git review (`g` › Working changes with a diff selected)
+     and Search with Escape, Ctrl-G, Enter and Ctrl-C. Prompt, draft and
+     scrollback come back unchanged.
+   - Afterwards `typeset -m '_ZLE_PICKER_DISPLAY*'` shows empty arrays, and
+     `print -r -- $_ZLE_PICKER_POSTDISPLAY` prints an empty line.
+   - Moving between views in one session shows no blank flash.
+8. **Guide context lines** (U36, `ed83cca`). At 60 columns, open Git
+   comparison or the change atlas in a repository whose folder name contains
+   ESC or BEL (and, separately, a newline). Press Ctrl-K and scroll to the
+   end. The row shows `^[`, `^G` or `\n` inline, with no wrap and no scroll.
+
+Filesystem:
+
+9. **Spotlight at `/`** (U10, `1d1b765`). Tab-browse `/`, press Ctrl-F,
+   confirm the source is spotlight, and submit a fragment of a known indexed
+   file under `~`. It is listed as `~/…`, not "No matching captured paths".
+10. **Vanished entries** (U20, `28cc67c`), at 80 and 160 columns.
+    - Run `pushd ~/gone`, `pushd` back, then `rmdir ~/gone`. Press
+      Option-Tab, select `gone/` and press Ctrl-O. Recents stays open on
+      `gone/`, with the header "cannot browse gone/: missing or unreadable ·
+      N shown" fitted cleanly. Ctrl-X then Esc restores "this shell".
+    - `~/Projcts/` plus Tab runs native completion or correction, with no
+      Browse screen and no `~/PProjects/` draft.
+    - Open `~/Projects/` with Tab and rmdir a child from another tab, then
+      press Right on it. The level stays, and the header reads "Hidden: off
+      · cannot open <name>/: missing or unreadable · N files".
+11. **Preview sample** (U37, `2c5460d`). In a folder with more than 40
+    entries, press Ctrl-O. "Limits: 40-entry sample in filesystem order; more
+    exist. Use → to browse." renders in the warning color and wraps cleanly
+    at 100–119 columns and on a narrow screen.
+12. **`-` and `~` children** (U38, `11ec595`). With `AUTO_CD` set, in a folder
+    holding `-x-dir/inner` and `~x/inner`, type `x` and press Tab.
+    - The rows read `-x-dir/` and `~x/`.
+    - Right enters each one, and Left returns to the same row.
+    - Enter inserts `./-x-dir/` or `./~x/`, and Return changes into it.
+13. **Stale actions** (U40, `392ec62`; U41, `d38a70d`).
+    - Press Tab on `./`, select a file and choose Ctrl-X › Open, then delete
+      or rename the file before accepting. One note appears below the
+      prompt: "Files: the selected item changed or is unavailable; your
+      draft is unchanged.", with no stale frame row and no shifted cursor.
+      Reveal in Finder behaves the same.
+    - Change directory on a removed folder, and Enter linked directory on a
+      dangling link, each show the folder note once. PWD and the draft stay
+      unchanged.
+    - Recents and the Draft inspector's "Choose a path here" show the same
+      note.
+
+Git and output:
+
+14. **Job notices** (U21, `3b98c36`). Run `sleep 1 &`, open `g` › Working
+    changes with an unstaged change, wait at least 3 s, then press Escape.
+    The `[n] + done sleep 1` notice appears, or `jobs` lists it. No
+    `[n] + exit 129 ( zmodload zsh/system …` notice ever appears, even when
+    leaving during a check.
+15. **Git colors** (U18, `a086c75`). Use a disposable repository with
+    `GIT_CONFIG_GLOBAL` pointing at a scratch file.
+    - An empty config shows palette shades on a terminal.
+    - `color.ui = never` shows no color.
+    - With `color.ui = always`, `git diff | less -R` matches
+      `command git diff | less -R`.
+    - An interactive `git push` to a local bare repository shows palette
+      shades in both light and dark schemes.
+16. **`man` and `grep`** (U35, `8e048f9`). Start with `MANPAGER`, `MANCOLOR`
+    and `PAGER` unset.
+    - `man ls` shows palette headings and underlined arguments through less.
+    - `PAGER=more man ls` pages with more.
+    - `NO_COLOR=1 man ls` shows only native bold and underline.
+    - `grep` highlights matches, `NO_COLOR=1 grep` shows no color, and in a
+      window declared as `xterm` (8 colors) `grep` shows no color.
+17. *Optional.* **`NO_COLOR` listing** (U28, `f85af82`). With
+    `export NO_COLOR=1` in a disposable initializer, plain `ls` is uncolored.
+    Without it, folders are colored.
+
+Help and Xcode:
+
+18. **Help titles** (U33, `b641147`).
+    - In `compozsh`, select `git` and press Enter. The title reads
+      "Help / git", and Overview reads "Help / git / Overview".
+    - Escape twice restores the bookmark.
+    - `mkcd --help` shows "Help / mkcd", and
+      `compozsh --sudo-touch-id --help` shows "Help / compozsh".
+19. **Xcode job notices** (U22, `0f0ffb3`). With `unsetopt NOTIFY`, run
+    `sleep 1 &` and open `xcode` at once, then open Destination.
+    - No `[n] done sleep 1` or `[n] killed ( unsetopt MONITOR; trap …` line
+      appears in either discovery frame.
+    - The done notice appears at the next prompt.
+    - `jobs` lists no supervisor.
+20. **Run descriptions** (U42, `f68a882`). Use a project with a Simulator
+    destination and a paired device.
+    - The Build & Run and pending Run destination texts wrap legibly at about
+      80 columns and narrower.
+    - On Simulator, Escape in the log reader returns to Run controls and the
+      app keeps running.
+    - On a device, Escape returns to Run controls, Stop or Escape there ends
+      the devicectl console, and the app stays installed.
+    - *Optional* (U43): a real Simulator Run still shows prompt stdout and
+      Logger records.
+
+External devices (disposable media, real hardware):
+
+21. **Installer signatures** (U04, `aea7af0`). In a throwaway shell that
+    sources `.zsh.usb`:
+    - `_usb_macos_codesign_verify "/Applications/Install macOS <name>.app"`
+      returns 0 for a `softwareupdate --fetch-full-installer` copy and for an
+      App Store copy.
+    - `codesign --verify --strict -R '=anchor apple' "<app>/Contents/Resources/createinstallmedia"`
+      prints nothing and returns 0 on both.
+    - `external-device --flash "<app>"` reaches Step 2 showing "Source
+      validation · Verified · Apple-signed full installer".
+    - An older installer with an expired certificate shows "macOS installer
+      validation failed · Nothing can be written".
+22. **APFS sources** (U11, `0c09099`).
+    - With an `.iso`/`.img` on an external APFS SSD, that SSD is absent from
+      Step 2 while a second external drive is listed.
+    - The same holds with an Install macOS app on that SSD.
+    - An image on an exFAT or HFS+ stick still excludes the stick.
+23. **Passive rows** (U54, `9da2047`).
+    - When media fails inspection or signature validation, only "[1] Choose
+      another media" is numbered and selected. The red headline is an
+      unnumbered passive row that never takes the arrow.
+    - The macOS Step 3 of 3 review shows exactly three numbered actions. The
+      green "Source validation · Verified · Apple-signed full installer" row
+      is passive, the footer never shows "⏎ inspect", and inspecting Create
+      shows the signature re-check paragraph.
+24. *Optional.* **Format catalog failure** (U14, `1de409e`). Override
+    `_usb_diskutil_run` to return 1, run `external-device --format` and pick
+    a drive. The workspace closes cleanly, "external-device --format:
+    diskutil could not capture its filesystem catalog" prints on its own
+    line, and `print $?` gives 2.
+25. *Optional.* **Flash & verify text** (U71, `c7a6045`). The Step 3 detail
+    reads "…writes through /dev/rDISK, compares every image byte before the
+    drive is released, and ejects." and wraps cleanly.
+
+Two optional checks fall outside Terminal.app:
+
+- On a C1-honoring terminal such as xterm (U05), run `LC_ALL=C zsh` inside a
+  repository whose branch is `$'bx\xc2\x9c\xc2\x9b2J'`. The prompt shows
+  `bx??2J`, and the screen is not cleared.
+- Resize Git review on a one-line minified diff (U59).
 
 ## Proposed CLAUDE.md and .claude changes
 
@@ -727,3 +1596,132 @@ Xcode Logger flake note and makes CLAUDE.md two lines shorter:
 
 Nothing under `.claude/` mentions the FAT32 test or the case count, so this
 finding needs no `.claude/` change.
+
+### Owner answers in unattended runs (U79)
+
+*Proposal.* CLAUDE.md, *How the contracts work*, says that an agent that
+can't ask should "leave it and report the question". It does not say whether
+an answer relayed by an orchestrating session counts. In this run, U79 and
+U81 refused relayed text, and the orchestrator, which received the answers
+directly, applied their patches. Proposed continuation of that sentence,
+which adds two lines and keeps CLAUDE.md at 199 lines together with the suite
+note above:
+
+```markdown
+  you can't ask (subagent, unattended run), leave it and report the question;
+  a relayed summary of the owner's answer is not acceptance, so finish such work
+  as a verified patch and report it until the owner's own words are recorded.
+```
+
+### Harness helpers in `.claude/rules/tests.md` (U24, U78)
+
+*Proposal.* Replace "drive PTYs with `zsh/zpty`" with "drive PTYs through
+`tests/pty_support.zsh` (`test_pty_start`, `test_pty_expect`)". Also add
+"load shared support with `test_source_support`, marking a deliberate subset
+with `# Support subset:`". Run `zsh tests/run.zsh 'tooling:'` and `'docs:'`
+afterwards.
+
+### Audit filters in `.claude/rules/docs.md` (T03)
+
+*Proposal.* Add that `tests/documentation_test.zsh` also requires every
+filter in SECURITY.md's *Focused regression checks* table to select at least
+one test.
+
+### Checked and not needed
+
+- Several units asked for guidance when subagents are unavailable. CLAUDE.md
+  already says "without subagents, apply their checklists yourself", and
+  every fix unit did.
+- The operator's auto-memory test-baseline note lives outside the repository.
+  It was updated during the run.
+
+## Run notes
+
+**Timeline (CST).**
+
+- The run started on 2026-10-12 at about 02:36, and the Phase 1 baseline was
+  committed at 04:09 (`abefd6b`).
+- The audit, verification and planning workflow took 6.7 h and 93 agents.
+- Fix batches:
+
+  | Batch | Units | Wall clock | Ended |
+  | --- | --- | --- | --- |
+  | b1 | U01–U10 | 1.9 h | normally |
+  | b2 | U11–U30 | 5 h | normally; a full-suite gate after U30 gave 1,012 passed, only the FAT32 case failing |
+  | b3 | U79, U80, U31–U53 | — | stopped by the orchestrator after U53 had run about 12 h over two attempts |
+  | b4 | U54–U65 | — | stopped by owner decision on 2026-10-13 |
+  | b5 | U71–U78, U81 | 1.9 h | normally |
+
+- The final review followed: six security and contract passes over three
+  slices of `git diff main..HEAD`, T01–T07, and the final suite and
+  measurements. It ended on 2026-10-14 at about 00:53.
+
+**U53 (SUPPORT-05, Ctrl-L redraw).**
+
+- Attempt 1 died after about 5 h.
+- Attempt 2 reached green on its focused checks after about 7 h, when the
+  orchestrator stopped the workflow.
+- With the owner's approval, the orchestrator re-verified red: without the
+  fix, the user `clear-screen` widget ran and vt100 cleared the main screen.
+- It then ran the focused filters and the full suite (1,031 passed; only the
+  FAT32 case failed) and committed `3ede7d8`.
+
+**Relayed approvals.** Fix agents treated owner answers relayed in workflow
+text as carrying no owner authority, as CLAUDE.md and the run's harness
+require. U79 (OD1) returned an owner-decision status with a verified patch.
+U81 (OD3) ran in patch-only mode. The orchestrator, which had the answers
+directly, applied both, re-verified them and committed
+([OD1](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03),
+[OD3](#od3-delete-the-retired-windows-writer-usb-06)). OD2 changed no code
+and was recorded by U80.
+
+**Time box and stalls.**
+
+- After U53, the owner set a 45-minute time box per attempt.
+- U62 took 178 min: a long focused-filter call outlived its timeout and moved
+  to the background. Its `runtime` and `living prompt` filters alone took
+  561.7 s and 782.2 s.
+- U63 took 49 min. U64 took 110 min, mostly 6–74-minute gaps between tool
+  calls, consistent with API latency.
+- U52 saw focused runs take 12–30 min of wall clock at normal CPU time, then
+  seconds on rerun, consistent with the machine idling while unattended.
+
+**Background work and processes.**
+
+- The run forbade background execution. Even so, subagents started about 19
+  background shell tasks, mostly long reproducer, benchmark or focused-filter
+  commands that outlived the Bash timeout and were moved to the background
+  automatically. All of them finished.
+- Hung reproducer processes from the audit phase were still running: one
+  `term-hung.zsh`, idle 11.5 h, and eight `help04` `inner.zsh` shells, idle
+  about 30 h, which several units reported. The orchestrator found and stopped
+  them. None used CPU, so measurements were unaffected.
+- Local residue outside the repository:
+  - three reviewer `mktemp` directories in the system `TMPDIR`, holding only
+    test-name lists, because the review rules allowed no `rm`;
+  - four older `my-zsh-tests.*` directories;
+  - one `mkdir -p` scratch folder from U62.
+- Memory notes outside the repository were updated: the test baseline and
+  lessons from the unattended fix loop.
+
+**Reviews.** Delegation was forbidden inside units, so each fix unit applied
+the `security-reviewer` and `contract-reviewer` checklists itself. The final
+review ran them as separate passes.
+
+**Harness lessons** (U23, U24):
+
+- `zpty -r` on a `-b` session returns 1 on the first read after the child
+  exits, and 2 on the next, when zpty closes the descriptor. A `zselect` on
+  that descriptor then fails with EBADF, so waits must stop at status 2.
+- Any subshell of the session's owner shell, such as `$(zpty -L)`, runs
+  zpty's exit hook when it ends and hangs up live sessions. This is
+  documented in `tests/pty_support.zsh`.
+
+*Proposals* for later unattended runs (workflow, not repository):
+
+- Keep the machine awake.
+- Measure time boxes in active tool time, or give PTY-heavy units more.
+- Run `runtime` and `living prompt` as separate calls.
+- Allow-list one-line, read-only `zsh -c` probes (U60).
+- Route owner answers so that agents receive the owner's own words; see the
+  CLAUDE.md proposal above.
