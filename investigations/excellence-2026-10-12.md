@@ -469,6 +469,79 @@ Decision: kept. Reproduce from the repository root with a disposable
 
 ## Owner decisions
 
+### OD1: in-widget directory change recaptures prompt facts (PROMPT-03)
+
+**Decision (attributed to the owner, 2026-10-12): option (a), "Recapture".**
+This record does not hold the owner's own words. The decision is attributed
+to the commit that implements it, `677a473`, whose message states
+`Owner decision OD1, option (a) "Recapture", chosen by the owner in chat on 2026-10-12.`
+Owner confirmation is pending ([CON-A-01](#unresolved-findings)).
+
+**Options.** Browse, Recents, Search and the Draft inspector's Files actions
+run builtin `cd` inside a ZLE widget for Change directory and Enter linked
+directory, so no `precmd` follows. The commit record names only the chosen
+option, recapture in the widget. The known alternative is the behavior it
+replaced: keep `precmd` as the prompt's only capture boundary, so the prompt,
+Context rows and window title describe the previous folder until the next
+accepted line.
+
+**What changed.** Two Essentials and one contract section:
+
+- [Performance](../engineering/performance.md#essentials), *Capture at
+  defined boundaries*: `precmd` was the prompt's fact-capture boundary; it is
+  now that boundary "repeated once after an explicit in-widget directory
+  change".
+- [Prompt](../engineering/prompt.md#essentials), *Presentation, never a
+  provider*: the captured facts were "the `precmd` snapshot" and are now the
+  prompt snapshot "captured at `precmd` and after an explicit in-widget
+  directory change". Lens derivation, morphing, pinning, transcript repaint
+  and resize still launch nothing and read nothing.
+- [Prompt, project and runtime context](../engineering/prompt.md#project-and-runtime-context)
+  names the new boundary and what it leaves out. The lens rules add that a
+  trigger captured while a draft exists is consumed at the next repaint, and
+  that a trigger never unpins a manual Option-I pin.
+
+README, SECURITY.md (terminal title row, lens boundary, runtime and project
+context, living prompt audit) and the filesystem contract changed with them.
+
+**Data read and effects.** After a successful Change directory or Enter
+linked directory (`cd` status 0), the editor's post-cleanup adapter
+`_zle_prompt_directory_changed` (`.zsh.addons/.zsh.editor`, line 1642 at
+`f80a680`) runs `_prompt_capture_context` when the prompt peer defines it,
+inside the widget and before `zle reset-prompt`. That is the capture `precmd`
+runs, for the new folder:
+
+- Git: `git status --porcelain=v2 --branch --show-stash` with fsmonitor,
+  hooks, content filters, optional locks and lazy fetches suppressed;
+  `git rev-parse --absolute-git-dir` unless that folder's Git directory is
+  already cached in shell memory; then the operation state from that Git
+  directory.
+- Project detection (bounded upward searches and marker checks) and runtime
+  version probes of trusted tools on `PATH`, through the optional runtime
+  support.
+- Shell-memory facts (environment name, identity, path, live jobs), then the
+  Context trigger, layout and base prompt.
+- One terminal effect: the window title `user@host: <folder>`, written when
+  standard output is a terminal and `TERM` isn't `dumb`.
+
+It keeps the draft and adds no outcome, receipt, history entry, `precmd`,
+manual catalog request or help capture request. It writes no file and keeps
+everything in shell memory, as `precmd` does. A failed `cd` only repaints.
+
+**Cost (an estimate, not a new measurement).** The in-widget capture is the
+code `precmd` already ran, moved into `_prompt_capture_context`, so this
+record's baseline *Prompt render* medians estimate it: about 4.1 ms outside a
+repository, 25.0 ms clean, 27.1 ms dirty and 48.2 ms in the large fixture
+(render mode, Git directory cached). A first visit to a folder misses that
+cache; the fresh medians (4.7, 36.1, 38.4 and 58.6 ms) include the miss along
+with other first-render costs. Both time `_prompt_update` (the shipped peers'
+only `precmd` hook) plus prompt expansion, which the capture and its repaint
+also perform, but not the title write, which needs a terminal. The benchmark
+has no in-widget scenario. The cost is paid once per successful action,
+after screen cleanup and before the repaint, never per keystroke or repaint.
+It is an additional capture: the next accepted line still runs `precmd`'s
+own.
+
 ### OD2: first-prompt help capture keeps one fork per guide (HELP-02)
 
 **Decision (owner, 2026-10-12): option (b).** Keep one process substitution
@@ -552,9 +625,67 @@ a candidate `_compozsh_prompt_capture`.
 TMPDIR=<disposable> /bin/zsh -df investigations/benchmarks/help-first-prompt.zsh <root> 15 16 en_US.UTF-8 [override-file]
 ```
 
+### OD3: delete the retired Windows writer (USB-06)
+
+**Decision (attributed to the owner, 2026-10-12): option (a), "Delete it".**
+As with OD1, this record does not hold the owner's own words. The decision is
+attributed to the commit that implements it, `7541987`, whose message states
+`Owner decision OD3, option (a) "Delete it", chosen by the owner in chat on 2026-10-12.`
+
+**Options.** The commit record names only the chosen option. The known
+alternative is the state it replaced: keep the writer in the tree,
+unreachable.
+
+**What was removed.**
+
+- *Reachability.* No public path reached the writer: `_usb_media_execute`
+  already refused Windows media, and the workspace controller returns on the
+  Windows unsupported screen before target capture. The commit deleted
+  `_usb_windows_execute` and its helpers (about 900 lines of
+  `.zsh.addons/.zsh.usb`), every post-refusal Windows branch, the writer-only
+  globals and result facts, and `_usb_dd_bytes_observed` and `_usb_cmp_drain`,
+  which lost their last caller. Classification, the unsupported screen and the
+  dispatcher refusal stay; the live ISO-table entry bound is now
+  `_USB_ISO_TABLE_MAX_ENTRIES`.
+- *Temporary names.* `compozsh-usb-windows.*`, `compozsh-windows-readonly.*`
+  and `compozsh-windows-verify.*` left SECURITY.md's temporary-file inventory
+  and its residue check, which now lists `compozsh-(usb|createinstallmedia)*`.
+- *Tool requirements.* `external-device --flash` no longer requires
+  `/usr/bin/ditto` or `/bin/sync`, in its availability check or its `--help`
+  requirements.
+- *Tests and notes.* The real-FAT32 `hdiutil` round trip, the baseline's one
+  failure ([suite](#suite-and-verification)), went with the writer, and its
+  notes left the verification contract and the investigations index. The
+  *Native progress-capture cap* proposal in
+  [USB bounds](usb-progress-integer-bounds.md#proposals-not-implemented) was
+  withdrawn with `_usb_dd_bytes_observed`. The static test
+  `USB ships no retired Windows writer` fails if the writer's functions,
+  temporary names, `ditto` or `/bin/sync` return to `.zsh.addons/.zsh.usb`.
+
+**Data read and effects.** The change only removes: no new read, process,
+file or disclosure, and no Essential changed. Public behavior is unchanged:
+Windows Setup media is still classified and refused before any drive is
+chosen.
+
 ## Unresolved findings
 
-*Pending.*
+*Pending* for the rest of the audit. Recorded so far:
+
+- **CON-A-01: owner confirmation of OD1 (blocking review finding).**
+  [OD1](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03)
+  rewrites two Essentials and adds an in-widget Git and project capture,
+  which CLAUDE.md treats as owner decisions
+  ([how the contracts work](../CLAUDE.md#how-the-contracts-work)). The tree
+  records the choice only through `677a473`'s commit message; the owner's own
+  words and date still need to be recorded under OD1. If the owner did not
+  choose recapture, a revert path exists: remove the `_prompt_capture_context`
+  call from `_zle_prompt_directory_changed` (keeping its `zle reset-prompt`;
+  `precmd` can keep calling the extracted function), restore the performance
+  and prompt Essentials, the *Project and runtime context* bullet and the
+  README, SECURITY.md and filesystem contract lines from `677a473`, and remove
+  the recapture assertions from the two `living prompt recaptures` tests in
+  `tests/prompt_lens_ui_test.zsh`. Keep the stale-folder recheck, the
+  pin-preservation behavior and their tests.
 
 ## Manual acceptance pending
 
