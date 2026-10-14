@@ -215,8 +215,7 @@ _test_picker_scroll_native() {
       if [[ $scenario == copy ]]; then
         actual=$(<"$HOME/copied")
       else
-        _file_search_quote "$expected"
-        expected=$REPLY
+        expected=${(q)expected}
         IFS= read -r -z actual || return 1
       fi
       [[ $actual == "$expected" ]] || {

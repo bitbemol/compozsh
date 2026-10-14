@@ -210,6 +210,35 @@ _test_search_session_fails_closed_on_effects() {
 test_case 'shared search session never resolves system open or clipboard executables' \
   _test_search_session_fails_closed_on_effects
 
+# The seam must run the production post-cleanup dispatcher, not a test-only
+# one: a result under HOME inserts the same quoted absolute path as Tab does.
+_test_search_session_uses_production_dispatch() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.find"
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/tests/support.zsh"
+    target="$HOME/a b.txt"
+    _zle_picker_run() {
+      _ZLE_PICKER_ACTION=insert _ZLE_PICKER_SELECTED_VALUE=$target
+      return 0
+    }
+    test_search_session x
+    print -r -- "seam-status=$?"
+    IFS= read -r -z inserted
+    [[ $inserted == "${(q)target}" ]] && print -r -- seam=absolute || print -r -- "seam=$inserted"
+    BUFFER="" CURSOR=0
+    _directory_browser_dispatch widget insert insert "$target" 2>/dev/null
+    print -r -- "widget-status=$?"
+    [[ $BUFFER == "$inserted" && $CURSOR == ${#inserted} ]] && print -r -- widget=same || print -r -- "widget=$BUFFER"
+  ' "$TEST_REPO_ROOT" 2>&1) || return
+  test_assert_equal $'seam-status=0\nseam=absolute\nwidget-status=0\nwidget=same' "$output" \
+    'shared search session did not insert through the production dispatcher'
+}
+test_case 'shared search session inserts through the production file-action dispatcher' \
+  _test_search_session_uses_production_dispatch
+
 # PTY expectations (tests/pty_support.zsh). Each probe runs in an isolated
 # shell under a watchdog, so a wait that regresses into a hang fails its case
 # instead of hanging the suite. Probes print status:, elapsed: and detail:

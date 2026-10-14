@@ -1037,7 +1037,7 @@ _directory_browser_session() {
   fi
   emulate -L zsh
 
-  local _directory_browser_clipboard=${commands[pbcopy]:-} selected_path=''
+  local _directory_browser_clipboard=${commands[pbcopy]:-}
   local _directory_browser_open=''
   local -i result=0
   [[ $OSTYPE == darwin* ]] && (( ${+functions[_compozsh_effect_open]} )) && _directory_browser_open=${commands[open]:-}
@@ -1062,10 +1062,22 @@ _directory_browser_session() {
   fi
   result=$?
   (( result == 0 )) || return $result
+  _directory_browser_dispatch "$runner" "$mode" "$_ZLE_PICKER_ACTION" \
+    "$_ZLE_PICKER_SELECTED_VALUE" "$argument_prefix"
+}
 
-  _directory_browser_absolute "$_ZLE_PICKER_SELECTED_VALUE"
+# The one post-cleanup dispatcher for every workspace journey; the search test
+# seam calls it too. The value is the captured literal path, never shell code;
+# each effect rechecks mutable facts. Open and copy use the invoking session's
+# _directory_browser_open and _directory_browser_clipboard capabilities.
+# Usage: _directory_browser_dispatch <widget|command> <mode> <action> <value> [argument-prefix]
+_directory_browser_dispatch() {
+  emulate -L zsh
+  local runner=$1 mode=$2 action=$3 value=$4 argument_prefix=${5:-}
+  local selected_path='' outcome='' message=''
+  local -i result=0
+  _directory_browser_absolute "$value"
   selected_path=$REPLY
-  local action=$_ZLE_PICKER_ACTION outcome='' message=''
   [[ $mode == cd && $action == select ]] && action=cd
   case $action in
     (cd)
@@ -1081,7 +1093,7 @@ _directory_browser_session() {
     (open|enter-link|directory)
       # directory: a search result captured as a folder, refused if now a link.
       (( ${+functions[_file_search_apply]} )) || return 4
-      _file_search_apply "$action" "$selected_path" "$_directory_browser_clipboard" "$_directory_browser_open"
+      _file_search_apply "$action" "$selected_path" "$_directory_browser_open"
       result=$? outcome=$REPLY
       [[ $runner == widget && $action != open ]] &&
         _zle_prompt_directory_changed $result ;;
@@ -1096,7 +1108,7 @@ _directory_browser_session() {
       _compozsh_effect_open reveal "$selected_path" "$_directory_browser_open"
       result=$? outcome=$REPLY ;;
     (insert|select)
-      _directory_picker_quote "$_ZLE_PICKER_SELECTED_VALUE"
+      _directory_picker_quote "$value"
       if [[ $runner == widget ]]; then
         BUFFER="${argument_prefix}${REPLY}" CURSOR=${#BUFFER}
       else

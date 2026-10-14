@@ -284,8 +284,11 @@ _test_file_search_command_contract() {
     _file_search_capture "$2" "final ready" local
     list_status=$?
     print -rl -- "${_FILE_SEARCH_VALUES[@]}"
-    _file_search_quote "$2/AI Projects/Final & Ready.md"
-    print -r -- "quoted:$REPLY"
+    # Insert runs through the production post-cleanup dispatcher in the editor.
+    source "$1/.zsh.addons/.zsh.editor"
+    _directory_browser_dispatch command insert insert "$2/AI Projects/Final & Ready.md"
+    IFS= read -r -z quoted
+    print -r -- "quoted:$quoted"
     _file_search_capture "$2" "" local
     print -r -- "missing-query:$?"
     print -r -- "public:${+functions[f]}"

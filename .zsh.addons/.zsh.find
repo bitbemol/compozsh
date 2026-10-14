@@ -482,20 +482,6 @@ _file_search_picker_collect() {
     "$_FILE_SEARCH_FILTER_PATTERN" $limit path "$exclusion_pattern"
 }
 
-_file_search_quote() {
-  emulate -L zsh
-
-  local path=$1 remainder=''
-  if [[ $path == $HOME ]]; then
-    REPLY='~'
-  elif [[ $path == $HOME/* ]]; then
-    remainder=${path#$HOME/}
-    REPLY="~/${(q)remainder}"
-  else
-    REPLY=${(q)path}
-  fi
-}
-
 # Format only facts already captured by the search. In particular, do not stat,
 # resolve symlinks, read contents, or execute a result to populate its panel.
 _file_search_inspector_capture() {
@@ -513,8 +499,9 @@ _file_search_inspector_capture() {
       ('↗ '*) kind='Symbolic link' ;;
       (*) kind=File ;;
     esac
+    # A folder result inserts its path; only an explicit action changes directory.
     if [[ $kind == Directory ]]; then
-      _ZLE_PICKER_ACCEPT_LABELS[$value]='enter directory'
+      _ZLE_PICKER_ACCEPT_LABELS[$value]=insert
     else
       _ZLE_PICKER_ACCEPT_LABELS[$value]='file actions'
     fi
@@ -528,16 +515,6 @@ _file_search_inspector_capture() {
     _ZLE_PICKER_INSPECT_TEXTS[$value]="$kind"$'\n\n  '"${(V)value}"
   done
   return 0
-}
-
-_file_search_copy() {
-  emulate -L zsh
-
-  local path=$1 binary=$2
-  [[ -n $binary && -x $binary ]] || return 1
-  (( ${+functions[_compozsh_effect_copy]} )) &&
-    _compozsh_effect_copy "$path" "$binary" || return 1
-  print -r -- 'Copied path.'
 }
 
 # The action menu is another shared picker. Its tiny caller-owned catalog is
@@ -592,21 +569,19 @@ _file_search_actions_view() {
   fi
 }
 
-# All paths come from the captured search. Check mutable filesystem facts again
-# at the action boundary; never feed a selected path to a shell interpreter.
-# A refused directory or open effect sets the caller's REPLY to stale or
-# unavailable and prints nothing: the caller reports it after screen cleanup.
+# The editor's post-cleanup dispatcher calls this for the actions that depend on
+# a captured type. Check mutable filesystem facts again at the action boundary;
+# never feed a selected path to a shell interpreter. A refused directory or open
+# effect sets the caller's REPLY to stale or unavailable and prints nothing: the
+# caller reports it after screen cleanup.
+# Usage: _file_search_apply <directory|enter-link|open> <absolute-path> <open-binary>
 _file_search_apply() {
   emulate -L zsh
-  local action=$1 selected=$2 clipboard_binary=$3 open_binary=$4
+  local action=$1 selected=$2 open_binary=$3
   local -i result=0
   REPLY=''
   [[ $selected == /* ]] || return 2
   case $action in
-    (copy) _file_search_copy "$selected" "$clipboard_binary" ;;
-    (insert)
-      _file_search_quote "$selected"
-      print -zr -- "$REPLY" ;;
     (directory|enter-link)
       REPLY=stale
       [[ -d $selected && -x $selected &&
@@ -614,10 +589,10 @@ _file_search_apply() {
       REPLY=''
       builtin cd -- "$selected" || { result=$?; REPLY=stale; }
       return $result ;;
-    (open|reveal)
+    (open)
       REPLY=unavailable
       (( ${+functions[_compozsh_effect_open]} )) || return 1
-      _compozsh_effect_open "$action" "$selected" "$open_binary" ;;
+      _compozsh_effect_open open "$selected" "$open_binary" ;;
     (*) return 2 ;;
   esac
 }
@@ -716,10 +691,6 @@ _file_search_choose() {
       [[ -n $exclusion ]] && summary+=" · exclude contains: $exclusion"
       (( capture_status == 2 )) && summary="Source failed or unavailable · $summary"
       _file_search_inspector_capture
-      for selected in "${_FILE_SEARCH_VALUES[@]}"; do
-        [[ ${_ZLE_PICKER_ACCEPT_LABELS[$selected]} == 'enter directory' ]] &&
-          _ZLE_PICKER_ACCEPT_LABELS[$selected]=insert
-      done
       bookmark=('' 1 0)
       _zle_picker_start_focus=0
       refresh=0

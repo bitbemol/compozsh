@@ -148,7 +148,7 @@ _test_file_finder_help_is_static_and_errors_stay_short() {
     _file_search_capture_git() { print -u2 -- unexpected-capture; return 99; }
     _file_search_capture_local() { print -u2 -- unexpected-capture; return 99; }
     _file_search_capture_spotlight() { print -u2 -- unexpected-capture; return 99; }
-    _file_search_copy() { print -u2 -- unexpected-copy; return 99; }
+    _compozsh_effect_copy() { print -u2 -- unexpected-copy; return 99; }
     compozsh --help > "$HOME/help.out" 2> "$HOME/help.err" || exit 10
     help_text=$(<"$HOME/help.out")
     [[ ! -s "$HOME/help.err" && $PWD == $HOME &&

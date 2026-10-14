@@ -84,7 +84,9 @@ test_run_noninteractive() {
 }
 
 # Native picker tests can start with a known query, bypassing only mode/query
-# entry (covered by files_workspace_test). Keep real shared ZLE and actions.
+# entry (covered by files_workspace_test). Keep real shared ZLE and actions:
+# the final action runs through the editor's production post-cleanup
+# dispatcher, so callers also source .zsh.addons/.zsh.editor.
 # Usage: test_search_session <query> [clipboard-binary] [open-binary]
 # Copy, Open and Reveal exist only when a test passes fakes; never the PATH's.
 test_search_session() {
@@ -97,5 +99,5 @@ test_search_session() {
   local result=$?
   (( result == 1 )) && return 0
   (( result == 0 )) || return $result
-  _file_search_apply "$_ZLE_PICKER_ACTION" "$_ZLE_PICKER_SELECTED_VALUE" "$_directory_browser_clipboard" "$_directory_browser_open"
+  _directory_browser_dispatch command "$mode" "$_ZLE_PICKER_ACTION" "$_ZLE_PICKER_SELECTED_VALUE"
 }

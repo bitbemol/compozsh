@@ -192,8 +192,7 @@ _test_details_native_actions() {
           [[ $copied == "$expected_path" ]] || passed=4 ;;
         (file-insert|file-enter)
           IFS= read -r -z inserted || passed=5
-          _file_search_quote "$expected_path"
-          [[ $inserted == "$REPLY" ]] || passed=6 ;;
+          [[ $inserted == "${(q)expected_path}" ]] || passed=6 ;;
       esac
       print -r -- "DONE:$passed:END-DETAIL-DONE"
     }
