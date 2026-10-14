@@ -37,6 +37,10 @@ beyond noise ([performance](../engineering/performance.md#measuring-latency)).
   the known real-FAT32 `hdiutil` round trip on macOS 27
   ([index](README.md#known-code-issues-found-2026-10-11-not-yet-fixed)); not
   investigated. The Xcode Logger cleanup timing tests passed on the first run.
+  *Since then:* `7541987` deleted that test and its index entry with the
+  retired Windows writer
+  ([OD3](#od3-delete-the-retired-windows-writer-usb-06)), so the index link
+  above no longer lists it and the suite has no standing failure.
 - `zsh tests/verify.zsh`: syntax ok, whitespace ok, re-source ok.
 
 ## Method
@@ -693,4 +697,33 @@ chosen.
 
 ## Proposed CLAUDE.md and .claude changes
 
-*Pending.*
+*Proposals* for the owner: this run may not edit CLAUDE.md or `.claude/`.
+
+### Suite note in CLAUDE.md (CON-C-03)
+
+*Proposal.* In CLAUDE.md, *Working in this repository*, the bullet on
+`zsh tests/run.zsh` still describes the suite before `7541987`:
+
+- It says the real-FAT32 `hdiutil` round trip fails on macOS 27 and is known
+  in `investigations/README.md`. That commit deleted the test with the
+  retired Windows writer
+  ([OD3](#od3-delete-the-retired-windows-writer-usb-06)) and removed its
+  entry from the
+  [index](README.md#known-code-issues-found-2026-10-11-not-yet-fixed), so
+  the sentence points to nothing and the suite has no standing failure.
+- It says the suite has about 950 cases. A full run at `258d2eb` passed all
+  1,022 cases in 228,806 ms, against 961 cases in the
+  [baseline](#suite-and-verification).
+
+Proposed wording for that bullet, which drops the FAT32 sentence, keeps the
+Xcode Logger flake note and makes CLAUDE.md two lines shorter:
+
+```markdown
+- `zsh tests/run.zsh 'fragment'` runs tests whose *descriptions* contain the
+  case-insensitive fragment. The full suite (about 1,020 cases, 3–4 minutes)
+  runs before handoff, in the background when possible. The Xcode Logger
+  cleanup timing test can flake under load (rerun it alone).
+```
+
+Nothing under `.claude/` mentions the FAT32 test or the case count, so this
+finding needs no `.claude/` change.
