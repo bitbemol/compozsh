@@ -1509,7 +1509,6 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/functions/.zsh.pure.matching_compile_fragments` | Unordered fragment compilation |
 | `support/functions/.zsh.pure.matching_decimal_limit` | Decimal validation |
 | `support/functions/.zsh.pure.matching_exclusion` | Exclusion compilation |
-| `support/functions/.zsh.pure.matching_search` | Captured-text search |
 | `support/functions/.zsh.pure.matching_select` | Ranked or ordered selection |
 | `support/functions/.zsh.pure.runtime_comparable_version` | Version normalization |
 | `support/functions/.zsh.pure.runtime_version_relation` | Version comparison |

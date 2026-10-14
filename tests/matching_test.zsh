@@ -6,7 +6,7 @@ _test_matching_scoped_contract() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    (( ${+functions[_matching_compile]} && ${+functions[_matching_filter]} )) || exit 2
+    (( ${+functions[_matching_compile]} && ${+functions[_matching_select]} )) || exit 2
     local -a reply=(caller)
     local REPLY=scalar before=""
     before="${(j:,:)${(ok)parameters}}"
@@ -127,36 +127,33 @@ _test_matching_generated_equivalence() {
 test_case 'matching component agrees with prior whole-query and word-gap semantics across generated inputs' \
   _test_matching_generated_equivalence
 
-_test_matching_filter_indexes() {
+_test_matching_source_indexes() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    local -a reply=() texts=("" "A*b" "a---*---b" "A*b" unrelated)
-    local pattern
-    _matching_compile "a*b" || exit 2
-    pattern=$reply[2]
-    _matching_filter "$pattern" 2 "${texts[@]}" || exit 3
-    [[ ${(j:,:)reply} == 2,3 ]] || exit 4
-    _matching_filter "$pattern" 9999999999999999999999999999999999999999 "${texts[@]}" || exit 5
-    [[ ${(j:,:)reply} == 2,3,4 ]] || exit 6
-    _matching_filter "*" 0003 "${texts[@]}" || exit 7
-    [[ ${(j:,:)reply} == 1,2,3 && ${#texts} == 5 && $texts[1] == "" ]] || exit 8
-    _matching_filter "*" 0 "${texts[@]}" || exit 9
-    (( ${#reply} == 0 )) || exit 10
-    _matching_filter "*" 5 || exit 11
-    (( ${#reply} == 0 )) || exit 12
-    _matching_filter "*" "1+2" "${texts[@]}" && exit 13
-    [[ $? == 2 && ${#reply} == 0 ]] || exit 14
-    _matching_filter "*" -1 "${texts[@]}" && exit 15
-    [[ $? == 2 && ${#reply} == 0 ]] || exit 16
+    local -a reply=() texts=("" "A*b" "a---*---b" "A*b" unrelated) empty=()
+    _matching_select source "a*b" 2 texts texts || exit 2
+    [[ ${(j:,:)reply} == 2,3 ]] || exit 3
+    _matching_select source "a*b" 9999999999999999999999999999999999999999 texts texts || exit 4
+    [[ ${(j:,:)reply} == 2,3,4 ]] || exit 5
+    _matching_select source "" 0003 texts texts || exit 6
+    [[ ${(j:,:)reply} == 1,2,3 && ${#texts} == 5 && $texts[1] == "" ]] || exit 7
+    _matching_select source "" 0 texts texts || exit 8
+    (( ${#reply} == 0 )) || exit 9
+    _matching_select source "" 5 empty empty || exit 10
+    (( ${#reply} == 0 )) || exit 11
+    _matching_select source "" "1+2" texts texts && exit 12
+    [[ $? == 2 && ${#reply} == 0 ]] || exit 13
+    _matching_select source "" -1 texts texts && exit 14
+    [[ $? == 2 && ${#reply} == 0 ]] || exit 15
     print indexes
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal indexes "$output"
 }
 test_case 'matching component returns stable captured indexes within validated result bounds' \
-  _test_matching_filter_indexes
+  _test_matching_source_indexes
 
 _test_matching_long_and_repeated_inputs() {
   test_make_temp_dir || return
@@ -165,23 +162,22 @@ _test_matching_long_and_repeated_inputs() {
     export LC_ALL=en_US.UTF-8
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    setopt EXTENDED_GLOB
     local -a reply=()
     local pattern label mode
     for mode in characters word; do
       _matching_compile xxxxxxxxz "$mode" || exit 2
       pattern=$reply[2]
-      _matching_filter "$pattern" 10 "feature/${(l:130::x:)}" "x-x-x-x-x-x-x-x-z" || exit 3
-      [[ ${(j:,:)reply} == 2 ]] || exit 4
+      [[ "feature/${(l:130::x:)}" != ${~pattern} ]] || exit 3
+      [[ "x-x-x-x-x-x-x-x-z" == ${~pattern} ]] || exit 4
     done
     for label in "${(l:262000::x:)}zyxz" "${(l:130000::é:)}zyxz"; do
       _matching_compile yz || exit 5
       pattern=$reply[2]
-      _matching_filter "$pattern" 10 "$label" || exit 6
-      [[ ${(j:,:)reply} == 1 ]] || exit 7
-      _matching_compile yaz || exit 8
+      [[ $label == ${~pattern} ]] || exit 6
+      _matching_compile yaz || exit 7
       pattern=$reply[2]
-      _matching_filter "$pattern" 10 "$label" || exit 9
-      (( ${#reply} == 0 )) || exit 10
+      [[ $label != ${~pattern} ]] || exit 8
     done
     print bounded
   ' "$TEST_REPO_ROOT") || return
@@ -197,30 +193,35 @@ _test_matching_unordered_data_interface() {
     export LC_ALL=en_US.UTF-8
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit 1
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    (( ${+functions[_matching_compile_fragments]} && ${+functions[_matching_search]} )) || exit 2
+    (( ${+functions[_matching_compile_fragments]} )) || exit 2
     setopt EXTENDED_GLOB
     local -a reply=() texts=("alpha/project" "Project/a-l-p-h-a" "alpha/else" "project/alpha")
-    local literal_pattern fuzzy_pattern
+    local literal_pattern fuzzy_pattern query text
     _matching_compile_fragments "alpha project" || exit 3
     [[ $reply[1] == "alpha project" && ${#reply} == 3 ]] || exit 4
     literal_pattern=$reply[2] fuzzy_pattern=$reply[3]
     [[ $texts[1] == ${~literal_pattern} && $texts[2] != ${~literal_pattern} &&
-       $texts[2] == ${~fuzzy_pattern} && $texts[3] != ${~fuzzy_pattern} ]] || exit 5
-    _matching_search "alpha project" 10 "${texts[@]}" || exit 6
-    [[ ${(j:,:)reply} == 1,2,4 ]] || exit 7
-    _matching_search "project alpha" 2 "${texts[@]}" || exit 8
-    [[ ${(j:,:)reply} == 1,2 ]] || exit 9
-    _matching_search "Äω *[" 10 "ä--Ω/\\*x\\[" "ä--Ω/plain" || exit 10
-    [[ ${(j:,:)reply} == 1 ]] || exit 11
-    _matching_search "" 3 "" one two three || exit 12
-    [[ ${(j:,:)reply} == 1,2,3 ]] || exit 13
-    _matching_search "   " 3 "" one two three || exit 14
-    [[ ${(j:,:)reply} == 1,2,3 ]] || exit 15
-    _matching_search "alpha" 0 "${texts[@]}" || exit 16
-    (( ${#reply} == 0 )) || exit 17
+       $texts[1] == ${~fuzzy_pattern} && $texts[2] == ${~fuzzy_pattern} &&
+       $texts[3] != ${~fuzzy_pattern} && $texts[4] == ${~fuzzy_pattern} ]] || exit 5
+    _matching_compile_fragments "project alpha" || exit 6
+    fuzzy_pattern=$reply[3]
+    [[ $texts[1] == ${~fuzzy_pattern} && $texts[2] == ${~fuzzy_pattern} &&
+       $texts[3] != ${~fuzzy_pattern} && $texts[4] == ${~fuzzy_pattern} ]] || exit 7
+    _matching_compile_fragments "Äω *[" || exit 8
+    fuzzy_pattern=$reply[3]
+    [[ "ä--Ω/\\*x\\[" == ${~fuzzy_pattern} && "ä--Ω/plain" != ${~fuzzy_pattern} ]] || exit 9
+    for query in "" "   "; do
+      _matching_compile_fragments "$query" || exit 10
+      [[ ${#reply} == 3 && $reply[2] == "(#i)*" && $reply[3] == "(#i)*" ]] || exit 11
+      for text in "" one two three; do
+        [[ $text == ${~reply[3]} ]] || exit 12
+      done
+    done
     local IFS=:
-    _matching_search "project alpha" 10 "${texts[@]}" || exit 18
-    [[ ${(j:,:)reply} == 1,2,4 && $IFS == : ]] || exit 19
+    _matching_compile_fragments "project alpha" || exit 13
+    fuzzy_pattern=$reply[3]
+    [[ $texts[1] == ${~fuzzy_pattern} && $texts[2] == ${~fuzzy_pattern} &&
+       $texts[3] != ${~fuzzy_pattern} && $texts[4] == ${~fuzzy_pattern} && $IFS == : ]] || exit 14
     print unordered
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal unordered "$output"
