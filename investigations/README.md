@@ -14,6 +14,7 @@ when work spans sessions (record progress and remaining steps there).
 
 | Record | What it establishes | Backs |
 | --- | --- | --- |
+| [architecture-2026-10-14](architecture-2026-10-14.md) | Structural pass after the excellence run: five review lenses, owner decisions on startup and shared Git reads, phased fixes and measurements | [architecture](../engineering/architecture.md), [performance](../engineering/performance.md#measuring-latency) |
 | [arithmetic-input-validation](arithmetic-input-validation.md) | Text that reached Zsh arithmetic, the sweep's site ledger and validation bounds | [Zsh conventions](../engineering/zsh.md#idioms), [security](../engineering/security.md#handling-sensitive-data) |
 | [composer-and-atlas](composer-and-atlas.md) | Command composer, help Compose example and change atlas boundaries | [interaction design](../engineering/interaction-design.md) |
 | [critical-path-performance](critical-path-performance.md) | Measured hot-path optimizations and deferred provider findings | [performance](../engineering/performance.md) |
