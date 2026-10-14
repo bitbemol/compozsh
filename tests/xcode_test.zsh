@@ -1204,6 +1204,24 @@ _test_xcode_test_report_contains_complete_retained_diagnostics() {
 test_case 'Xcode copy report retains target totals failures files and limits' \
   _test_xcode_test_report_contains_complete_retained_diagnostics
 
+_test_xcode_test_report_text_sanitizes_controls_keeping_layout() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _xcode_test_report_text $'\''a\tb\r\nc\rd\0e\x7ff\e[31mg\vh'\''
+    print -rn -- "$REPLY|"
+    export LC_ALL=en_US.UTF-8
+    _xcode_test_report_text $'\''c1 \xc2\x9b31m \xc3\xa9'\''
+    print -rn -- "$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal $'a\tb\nc\nd?e?f?[31mg?h|c1 ?31m \xc3\xa9' "$output" \
+    'Xcode copy report did not neutralize controls while keeping newlines and tabs'
+}
+test_case 'Xcode copy report sanitizes controls but keeps newlines and tabs' \
+  _test_xcode_test_report_text_sanitizes_controls_keeping_layout
+
 _test_xcode_test_result_screen_offers_report_only_with_clipboard() {
   test_make_temp_dir || return
   local fake_bin="$TEST_TMP_DIR/bin" output=''

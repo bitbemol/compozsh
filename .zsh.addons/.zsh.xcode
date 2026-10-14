@@ -407,18 +407,11 @@ _xcode_test_result_capture() {
 # carry useful compiler and assertion structure for the recipient.
 _xcode_test_report_text() {
   emulate -L zsh
-  local value=$1 character='' safe=''
+  setopt EXTENDED_GLOB
+  local value=$1
   value=${value//$'\r\n'/$'\n'}
   value=${value//$'\r'/$'\n'}
-  for character in "${(@s::)value}"; do
-    if [[ $character == $'\n' || $character == $'\t' ||
-          $character != [[:cntrl:]] ]]; then
-      safe+=$character
-    else
-      safe+='?'
-    fi
-  done
-  REPLY=$safe
+  REPLY=${value//([[:cntrl:]]~[$'\n\t'])/?}
 }
 
 # Compose an inert, bounded report only from the structured facts already
