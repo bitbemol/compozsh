@@ -2,9 +2,9 @@
 
 > **Status (2026-10-14): complete.** All five phases ran: baseline, audit and
 > adversarial verification, planning, fixes, and a final review with
-> before/after measurements. Open items are the owner's confirmation of OD1,
-> the skipped performance units, manual Terminal.app checks and proposed
-> CLAUDE.md changes, listed below.
+> before/after measurements. The owner confirmed OD1 and OD3 as shipped on
+> 2026-10-14. Open items are the skipped performance units, manual
+> Terminal.app checks and proposed CLAUDE.md changes, listed below.
 
 ## Summary
 
@@ -35,8 +35,8 @@
   scheme parsing and the search providers.
 - **Owner decisions.** OD1: recapture prompt facts after an in-widget `cd`.
   OD2: keep one help-capture fork per guide. OD3: delete the retired Windows
-  writer. The owner's own confirmation of OD1 is still pending
-  ([CON-A-01](#unresolved-and-skipped-findings)).
+  writer. The owner confirmed OD1 and OD3 as shipped on 2026-10-14, which
+  closes [CON-A-01](#unresolved-and-skipped-findings).
 
 ## Purpose
 
@@ -844,8 +844,12 @@ This record does not hold the owner's own words. The orchestrating session
 received the answer in chat. Its owner-answers file records it as
 `(a) Recapture -> unit U79`, and the implementing commit `677a473` states
 `Owner decision OD1, option (a) "Recapture", chosen by the owner in chat on 2026-10-12.`
-Owner confirmation is pending ([CON-A-01](#unresolved-and-skipped-findings);
-[open question 1](#open-owner-questions)).
+**Owner confirmation (2026-10-14).** In chat the orchestrating session asked
+"Do you confirm OD1 (prompt recapture after an in-widget cd, 677a473) and OD3
+(deleting the Windows writer, 7541987) as shipped?", and the owner answered
+"Confirm both". This closes [CON-A-01](#unresolved-and-skipped-findings) and
+[open question 1](#open-owner-questions). The orchestrating session wrote
+this entry, quoting the owner's answer.
 
 **How it landed.** The U79 fix agent implemented and verified the change. It
 did not commit, because the approval reached it only as orchestrator-written
@@ -1021,6 +1025,9 @@ As with OD1, this record does not hold the owner's own words. The
 owner-answers file records `(a) Delete the retired Windows writer -> unit
 U81`, and the implementing commit `7541987` states
 `Owner decision OD3, option (a) "Delete it", chosen by the owner in chat on 2026-10-12.`
+The owner confirmed it as shipped on 2026-10-14, answering "Confirm both" to
+the question quoted under
+[OD1](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03).
 
 **How it landed.** U81 was first scheduled before U71. It was moved to run
 last, after U71, in patch-only mode for the same reason as U79. U71 therefore
@@ -1076,6 +1083,9 @@ These fall under CLAUDE.md's owner-decision list. The run could not answer
 them, so it reports them with options and a recommendation.
 
 **1. Confirm OD1 (and OD3) in your own words (CON-A-01, final review).**
+*Resolved 2026-10-14:* the owner answered "Confirm both", option (a) below
+for OD1, and confirmed OD3
+([details](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03)).
 `677a473` changed two Essentials:
 
 - the performance Essential *Capture at defined boundaries*;
@@ -1168,9 +1178,13 @@ measured cost is still visible.
 
 ## Unresolved and skipped findings
 
-### Pending owner confirmation
+### Owner confirmation (resolved)
 
 - **CON-A-01: owner confirmation of OD1 (blocking review finding).**
+  *Resolved 2026-10-14:* the owner confirmed OD1 and OD3 as shipped
+  ("Confirm both"; see
+  [OD1](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03)).
+  The revert path below is kept for reference only.
   [OD1](#od1-in-widget-directory-change-recaptures-prompt-facts-prompt-03)
   rewrites two Essentials and adds an in-widget Git and project capture,
   which CLAUDE.md treats as owner decisions
