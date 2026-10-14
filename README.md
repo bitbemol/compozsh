@@ -643,9 +643,11 @@ Enter or an Option-digit inserts a directory. For files and links,
 | Insert path into command line | Return a quoted path to the prompt for review |
 | Enter linked directory | Follow a directory symlink and change directory |
 
-Actions run after the screen is restored and recheck the target; if it changed
-or disappeared, one short note below the prompt says so and your draft and
-directory stay as they were. Selection never executes a file. Walks inspect at
+Actions run after the screen is restored. Open, Reveal in Finder, Enter linked
+directory and Change directory recheck the target first; if it changed or
+disappeared, one short note below the prompt says so and your draft and
+directory stay as they were. Copy path and Insert path use the path as
+captured, without a recheck. Selection never executes a file. Walks inspect at
 most 20,000 entries, and every source keeps at most 2,000 matches:
 
 ```zsh
