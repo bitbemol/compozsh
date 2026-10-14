@@ -67,14 +67,13 @@ if [[ ${(t)_PROMPT_COMMAND_STARTED} != float* ]]; then
   unset -- _PROMPT_COMMAND_STARTED
   typeset -gF _PROMPT_COMMAND_STARTED=0
 fi
-# Legacy segment names remain private compatibility surfaces for focused tests
-# and existing internal callers; the unified context renderer composes them.
-typeset -g _PROMPT_EXIT_SEGMENT=''
-typeset -g _PROMPT_TIME_SEGMENT=''
+# Prompt state: facts captured at precmd (*_TEXT, *_KEY, *_ATTENTION, project
+# items), the segments _prompt_layout renders from them, and view and lens
+# state. _prompt_base composes PROMPT from the context, lens, interaction and
+# input segments only.
 typeset -g _PROMPT_ENV_SEGMENT=''
 typeset -g _PROMPT_ENV_TEXT=''
 typeset -g _PROMPT_ENV_KEY=''
-typeset -g _PROMPT_GIT_SEGMENT=''
 typeset -g _PROMPT_GIT_TEXT=''
 typeset -g _PROMPT_GIT_COLOR=''
 typeset -g _PROMPT_GIT_BRANCH_TEXT=''
@@ -84,7 +83,6 @@ typeset -g _PROMPT_GIT_ATTENTION=''
 typeset -g _PROMPT_PATH_SEGMENT=''
 typeset -g _PROMPT_PATH_TEXT=''
 typeset -g _PROMPT_FULL_PATH_TEXT=''
-typeset -g _PROMPT_PROJECT_SEGMENT=''
 typeset -g _PROMPT_PROJECT_NAME_TEXT=''
 typeset -g _PROMPT_PROJECT_ROOT_TEXT=''
 typeset -g _PROMPT_PROJECT_ATTENTION=''
@@ -117,7 +115,6 @@ typeset -g _PROMPT_LAST_GIT_BRANCH=''
 typeset -g _PROMPT_LAST_ENVIRONMENT=''
 typeset -g _PROMPT_LAST_GIT_ATTENTION=''
 typeset -g _PROMPT_LAST_PROJECT_ATTENTION=''
-typeset -gi _PROMPT_TOP_BASE_WIDTH=0
 typeset -ga _PROMPT_PROJECT_ITEMS=()
 typeset -ga _PROMPT_PROJECT_ITEM_WIDTHS=()
 typeset -gA _PROMPT_GIT_DIR_CACHE=()
@@ -1603,9 +1600,7 @@ _prompt_layout() {
 
   _PROMPT_CONTEXT_SEGMENT=''
   _PROMPT_PATH_SEGMENT=''
-  _PROMPT_GIT_SEGMENT=''
   _PROMPT_ENV_SEGMENT=''
-  _PROMPT_PROJECT_SEGMENT=''
 
   (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_PATH_TEXT" || REPLY=${(V)_PROMPT_PATH_TEXT}; path_text=$REPLY
   (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_GIT_TEXT" || REPLY=${(V)_PROMPT_GIT_TEXT}; git_text=$REPLY
@@ -1657,7 +1652,6 @@ _prompt_layout() {
     _prompt_render_abbreviated git "$git_text" "$git_budget" head
     git_rendered=$reply[1]
     git_plain=$reply[2]
-    _PROMPT_GIT_SEGMENT="  ${git_rendered}"
   fi
 
   [[ -n $identity_rendered ]] && _PROMPT_CONTEXT_SEGMENT+="${identity_rendered}  "
@@ -1666,7 +1660,6 @@ _prompt_layout() {
   used_width=$(( ${(m)#identity_plain} + ${(m)#path_plain} + ${(m)#git_plain} ))
   [[ -n $identity_plain ]] && (( used_width += 2 ))
   [[ -n $git_plain ]] && (( used_width += 2 ))
-  _PROMPT_TOP_BASE_WIDTH=$used_width
 
   if [[ -n $_PROMPT_ENV_TEXT ]]; then
     (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_ENV_TEXT" || REPLY=${(V)_PROMPT_ENV_TEXT}
@@ -1702,7 +1695,6 @@ _prompt_layout() {
       item_width=${_PROMPT_PROJECT_ITEM_WIDTHS[index]:-0}
       (( used_width + separator_width + item_width <= line_limit )) || break
       optional="${separator}${_PROMPT_PROJECT_ITEMS[index]}"
-      _PROMPT_PROJECT_SEGMENT+=$optional
       _PROMPT_CONTEXT_SEGMENT+=$optional
       (( used_width += separator_width + item_width ))
     done
@@ -1720,11 +1712,6 @@ _prompt_layout() {
   else
     _PROMPT_LENS_SEGMENT=''
   fi
-}
-
-# Compatibility entry used by existing resize callers and focused tests.
-_prompt_project_layout() {
-  _prompt_layout
 }
 
 # Project discovery stays at prompt capture; optional runtime capabilities are
@@ -1943,7 +1930,6 @@ _prompt_project_context() {
   local -a languages rendered rendered_widths wildcard_matches root_entries
   local -a tools frameworks environment warnings warning_widths attention
 
-  _PROMPT_PROJECT_SEGMENT=''
   _PROMPT_PROJECT_NAME_TEXT=''
   _PROMPT_PROJECT_ROOT_TEXT=''
   _PROMPT_PROJECT_ATTENTION=''
@@ -2747,8 +2733,6 @@ _prompt_update() {
 
   local -F 3 elapsed=0
 
-  _PROMPT_EXIT_SEGMENT=''
-  _PROMPT_TIME_SEGMENT=''
   REPLY=''
   (( ${+functions[_compozsh_palette_color]} )) && _compozsh_palette_color prompt symbol || :
   _PROMPT_SYMBOL_COLOR=$REPLY
@@ -2833,7 +2817,6 @@ _prompt_capture_context() {
     _PROMPT_PROJECT_ATTENTION=''
     _PROMPT_PROJECT_ITEMS=()
     _PROMPT_PROJECT_ITEM_WIDTHS=()
-    _PROMPT_PROJECT_SEGMENT=''
   fi
 
   _prompt_context_observe

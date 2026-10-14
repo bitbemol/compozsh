@@ -385,7 +385,7 @@ _prompt_test_emit "SOURCE|$(command tty)"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.prompt"
-    for capability in _prompt_editing_started _prompt_layout _prompt_project_layout \
+    for capability in _prompt_editing_started _prompt_layout \
         _prompt_git _prompt_project_context TRAPWINCH; do
       (( ${+functions[$capability]} )) || {
         print -u2 -r -- "missing living prompt resize capability: $capability"

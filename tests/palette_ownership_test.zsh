@@ -134,7 +134,6 @@ _test_palette_late_appearance_updates_existing_renderers() {
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.highlighting"
     _PROMPT_PATH_TEXT="sample%path"
-    _PROMPT_TOP_BASE_WIDTH=0
     _PROMPT_GIT_TEXT=""
     local -a region_highlight=()
     _zle_add_highlight 0 2 command || :
