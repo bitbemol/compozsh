@@ -5,11 +5,8 @@ _test_details_labels() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(main)
     _ZLE_PICKER_LABELS=(main)
     _ZLE_PICKER_RESULT_INDEXES=(0)
@@ -154,15 +151,10 @@ _test_details_native_actions() {
     fake_bin=$3
     path=("$fake_bin" "${path[@]}")
     source "$1/.zsh.addons/.zsh.navigation"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.find"
     source "$1/tests/support.zsh"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    test_source_support "$1" || exit
     builtin cd "$2"
     source "$1/tests/pty_support.zsh" || exit 20
     functions[_details_original_show]=$functions[_zle_picker_show]

@@ -113,9 +113,8 @@ _test_picker_paste_transport() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for f in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$f"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/tests/pty_support.zsh" || exit 16
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
@@ -297,9 +296,8 @@ _test_picker_paste_outer_editor() {
     print -r -- "_outer_root=${(q)root}" > "$HOME/outer.zsh"
     print -r -- '\''
       exec {_outer_event_fd}<> "$HOME/events"
-      for f in "$_outer_root/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$_outer_root/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$_outer_root/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$f"; done
-      source "$_outer_root/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-      source "$_outer_root/.zsh.addons/support/.zsh.appearance"
+      source "$_outer_root/tests/support.zsh"
+      test_source_support "$_outer_root" || exit
       _outer_collect() { _ZLE_PICKER_RESULTS=(alpha beta); _ZLE_PICKER_LABELS=(alpha beta); }
       functions[_outer_show]=$functions[_zle_picker_show]
       _zle_picker_show() {

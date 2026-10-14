@@ -34,10 +34,8 @@ _test_shared_data_action_contract() {
   test_make_temp_dir || return
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local -a reply=()
     local -a values=(one "exact [target]" three) labels=(Plain "[literal]" Other)
     _zle_ui_collect source "[" 10 values labels labels "" text source || exit 1
@@ -81,8 +79,8 @@ _test_shared_data_path_actions() {
   test_make_temp_dir || return
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local -a reply=()
     _zle_ui_path_actions 0 0 0 0 "Copy path" enter-link open reveal copy insert || exit 1
     [[ ${#reply} == 4 && $reply[1] == insert ]] || exit 2

@@ -4,14 +4,11 @@ _test_ui_feature_choice_scopes() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.git-worktree"
     source "$1/.zsh.addons/.zsh.git-review"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT_FOLLOW=1
@@ -86,11 +83,9 @@ _test_ui_feature_query_scopes() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.git-worktree"
     source "$1/.zsh.addons/.zsh.git-review"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT_FOLLOW=1
@@ -134,13 +129,10 @@ _test_ui_feature_passive_results() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local fixture="" result=0
     _zle_picker_loop() {
       if [[ $fixture == usb ]]; then
@@ -185,11 +177,9 @@ _test_ui_feature_xcode_reader_bookmark_scope() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_DIRECTORY_ACTIONS=1
     _ZLE_PICKER_HIERARCHY_ENABLED=1 _ZLE_PICKER_QUERY_SUBMIT=1
     _ZLE_PICKER_DOCUMENT_FOLLOW=1 _ZLE_PICKER_INSPECT_FIXED_KEY=outer
@@ -239,11 +229,9 @@ _test_ui_feature_usb_status_scope() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_IDLE_CALLBACK=outer
     _ZLE_PICKER_PASSIVE_LINES=(outer)
     _zle_picker_capture() {
@@ -267,15 +255,10 @@ _test_ui_feature_collectors_keep_matching_and_visible_digits() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_PICKER_VALUES=(fuzzy prefix substring)
     _XCODE_PICKER_LABELS=(l-a-t-e "late item" "unrelated late") _XCODE_PICKER_SEARCH=()
     _USB_PICKER_VALUES=("${_XCODE_PICKER_VALUES[@]}")

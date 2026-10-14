@@ -72,9 +72,8 @@ _test_branch_remote_native() {
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.editor"
     [[ $3 == review ]] && source "$1/.zsh.addons/.zsh.git-review"
-    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     builtin cd "$2"
     source "$1/tests/pty_support.zsh" || exit 10
     command mkfifo "$HOME/events"

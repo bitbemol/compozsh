@@ -8,14 +8,10 @@ _test_picker_resize_automatic_paint() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/tests/pty_support.zsh" || exit 22
     local prompt_mode=$2
     command mkfifo "$HOME/events" || exit 1
@@ -148,11 +144,8 @@ _test_picker_resize_mid_frame() {
     export LC_ALL=en_US.UTF-8
     local arm=$2
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/tests/pty_support.zsh" || exit 22
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
@@ -315,8 +308,8 @@ _test_picker_repaint_empty_ifs_spans() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local -a painted=() ordinary=()
     zle() { painted=("${region_highlight[@]}"); }
     BUFFER="" PREDISPLAY="" POSTDISPLAY="" region_highlight=()
@@ -373,11 +366,8 @@ _test_picker_resize_reader_keeps_syntax_spans() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/tests/pty_support.zsh" || exit 11
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events" || exit 2

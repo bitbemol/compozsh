@@ -5,11 +5,8 @@ _test_fullscreen_footer_contract() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_INSPECT_ACTION=switch
     _ZLE_PICKER_COPY_ENABLED=1 _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_INDEXES_VISIBLE=1
@@ -49,8 +46,8 @@ _test_fullscreen_option_number_hint() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$unit"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_INDEXES_VISIBLE=1 _ZLE_PICKER_EXCLUSION_ENABLED=1
     _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_COPY_ENABLED=1
@@ -101,8 +98,8 @@ _test_option_number_footer_c_locale() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=C
     source "$1/.zsh.addons/.zsh.editor"
-    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$unit"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_INSPECT_ACTION=stop _ZLE_PICKER_CANCEL_LABEL=stop
     _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_EXCLUSION_ENABLED=1
     _ZLE_PICKER_RESULTS=(stop read) _ZLE_PICKER_LABELS=(Stop Read)
@@ -126,11 +123,8 @@ _test_fullscreen_status_view_omits_input_and_bottom_footer() {
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.output"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     COLUMNS=140 LINES=32
     _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_STATUS_VIEW=1 _ZLE_PICKER_BUSY=1
     _ZLE_PICKER_TITLE="External device / Flash · Step 3 of 3"
@@ -160,11 +154,8 @@ _test_fullscreen_passive_rows_are_not_picker_actions() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     COLUMNS=140 LINES=24
     _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_TITLE="External device / Flash · Windows unsupported"
@@ -197,11 +188,8 @@ _test_files_primary_action_hints() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(/example/notes.txt) _ZLE_PICKER_SELECTED=1
     _ZLE_PICKER_ACCEPT_LABELS=(/example/notes.txt "file actions")
     _ZLE_PICKER_INSPECT_ACTION=insert _ZLE_PICKER_CANCEL_LABEL=back
@@ -236,11 +224,8 @@ _test_git_review_shortcut_label() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(main) _ZLE_PICKER_SELECTED=1
     _ZLE_PICKER_INSPECT_ACTION=switch _ZLE_PICKER_WORKSPACE_ACTIONS=1
     _ZLE_PICKER_OPTIONS_KIND=git
@@ -284,11 +269,8 @@ _test_fullscreen_guide_contract() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_GUIDE_ACTIVE=1
     _ZLE_PICKER_TITLE=Branches _ZLE_PICKER_SUBTITLE="Example repository"
     _ZLE_PICKER_INSPECT_ACTION=switch _ZLE_PICKER_COPY_ENABLED=1
@@ -322,11 +304,8 @@ _test_directory_workspace_snapshot() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$HOME/work/api"
     dirstack=("$HOME/personal/api" "$HOME/missing")
@@ -370,12 +349,8 @@ _test_directory_workspace_native() {
     export LC_ALL=en_US.UTF-8
     path=("$HOME/bin" "${path[@]}")
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.navigation"
     builtin cd "$HOME/work/api"
     dirstack=("$HOME/personal/api")

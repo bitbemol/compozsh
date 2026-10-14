@@ -7,14 +7,10 @@ _test_git_auto_refresh_native() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     ZSH_GIT_REVIEW_AUTO_REFRESH=1
     _GIT_REVIEW_AUTO_REFRESH_INTERVAL=0.12
     mkdir -p "$HOME/repo"
@@ -944,10 +940,9 @@ test_case 'Git auto-refresh cancellation is owned and reaped by its worker' \
 _test_git_auto_refresh_narrow_status() {
   local output
   output=$(/bin/zsh -fc '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.git-review"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
     local -i _git_auto_failed=0 _git_auto_checked_at=$EPOCHSECONDS _git_auto_updated_at=$EPOCHSECONDS

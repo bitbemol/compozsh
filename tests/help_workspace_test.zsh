@@ -31,8 +31,8 @@ _test_help_workspace_surface() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help"
     COLUMNS=120 LINES=30 _ZLE_PICKER_SCREEN_ACTIVE=1
     _zle_picker_loop() {
@@ -113,9 +113,8 @@ _test_help_workspace_argument_colors() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help"
     _zle_picker_loop() {
       local label="" id=""
@@ -164,8 +163,8 @@ _test_help_workspace_explanation_colors() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help"
     local -i _ZLE_PICKER_REFERENCE_VIEW=1 _ZLE_PICKER_DOCUMENT=0
     local -A _ZLE_PICKER_INSPECT_TEXTS=(topic "  --discard-all  Preview and confirm loss.")

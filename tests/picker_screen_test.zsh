@@ -5,10 +5,8 @@ _test_picker_screen_lifecycle() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
@@ -138,10 +136,8 @@ _test_picker_screen_ctrl_l_redraws_in_place() {
   local output='' exit_status=0
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
@@ -256,10 +252,8 @@ _test_picker_screen_releases_frame() {
   local output='' exit_status=0
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/tests/pty_support.zsh" || exit 12
     zmodload zsh/parameter
     command mkfifo "$HOME/events" || exit 1
@@ -344,7 +338,8 @@ _test_picker_limits_reject_overflowing_settings() {
   test_make_temp_dir || return
   local output='' exit_status=0
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     vared() { return 1; }
     local limit=""
     for limit in 99999999999999999999 15 99; do
@@ -384,7 +379,8 @@ _test_picker_engine_drops_inherited_view_state() {
       _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS)
     for name in "${names[@]}"; do export "$name=$substitution"; done
     export _ZLE_PICKER_IDLE_CALLBACK=_inherited_idle _ZLE_AUTOSUGGEST_SUSPENDED=$substitution
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.find"
     source "$1/.zsh.addons/.zsh.help"
     zmodload zsh/parameter

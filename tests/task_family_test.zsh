@@ -79,12 +79,9 @@ _test_task_family_device_cards() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_images_capture() { return 99; }
     _usb_disks_capture() { return 99; }
     _zle_picker_loop() {
@@ -141,12 +138,9 @@ _test_task_family_export_plan() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a agent_names=("Example agent") skill_dirs=("/example/literal [skills]")
     local agent_path="/example/Xcode/agent"
     _zle_picker_loop() {
@@ -170,10 +164,9 @@ _test_task_family_identity() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _zle_picker_loop() { print -r -- "$_ZLE_PICKER_TITLE"; }
     _usb_read_image_path
     _usb_read_volume_name

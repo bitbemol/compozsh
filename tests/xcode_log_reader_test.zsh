@@ -33,14 +33,9 @@ _test_xcode_log_reader_navigation() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_logs_snapshot=$'\''first\nERROR here\nlast\n'\'' _xcode_logs_query=ERROR
     local _xcode_logs_offset=4 _xcode_logs_row=2 _xcode_logs_trimmed=0 _xcode_logs_notice=""
     local _xcode_logs_follow=0
@@ -110,13 +105,9 @@ _test_xcode_log_reader_feedback() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_logs_notice="Copy failed: clipboard write failed"
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log=message _xcode_run_eof=0 _xcode_run_trimmed=0 _xcode_run_context=fixture
@@ -203,14 +194,9 @@ _test_xcode_logs_live_publication() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local _xcode_logs_snapshot="" _xcode_logs_query=ERROR _xcode_logs_notice=""
     local _xcode_logs_text="" _xcode_run_log="" _xcode_run_context=fixture _xcode_run_clipboard=/fixture/pbcopy
     local -a _xcode_run_pending=("" "")

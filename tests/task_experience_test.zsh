@@ -3,9 +3,8 @@ _test_task_action_surface() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     COLUMNS=120 LINES=30 _ZLE_PICKER_SCREEN_ACTIVE=1
     _check() {
       (( _ZLE_PICKER_ACTION_VIEW == 1 )) || return 11
@@ -42,9 +41,8 @@ _test_task_history_inspection() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     COLUMNS=120 LINES=30 _ZLE_PICKER_SCREEN_ACTIVE=1
     _ZLE_PICKER_VALUE_INSPECT=1
     _ZLE_PICKER_RESULTS=($'"'"'printf "%s" "$(never-run)"\nsecond literal line'"'"')
@@ -68,13 +66,9 @@ _test_task_xcode_resume() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_PICKER_VALUES=(scheme destination build)
     _XCODE_PICKER_LABELS=("Scheme · Demo" "Destination · Simulator" "Build · Incremental build")
     _XCODE_PICKER_SEARCH=(scheme destination build)
@@ -96,9 +90,8 @@ _test_task_consumers() {
   test_write_file "$TEST_TMP_DIR/target.txt" literal || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.find"
     source "$1/.zsh.addons/.zsh.git-review"
     local expected="files" target=$2
@@ -127,11 +120,8 @@ _test_task_draft_inspect() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.editor"
     BUFFER=$'"'"'git status; $(never-run)\nsecond line'"'"' CURSOR=4
     local original=$BUFFER
@@ -163,9 +153,8 @@ _test_task_captured_reader() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _zle_picker_loop() {
       (( _ZLE_PICKER_READER_ONLY && !_ZLE_PICKER_DIGIT_SELECT )) || return 10
       "$_ZLE_PICKER_COLLECTOR" "[literal]" 10
@@ -183,9 +172,8 @@ _test_task_tools_read_return() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help"
     _ZLE_PICKER_SESSION=1
     _COMPOZSH_TOOL_NAMES=(example)
@@ -224,11 +212,9 @@ _test_task_remaining_action_adapters() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.git-worktree"
     source "$1/.zsh.addons/.zsh.git-review"
     local expected=usb
@@ -262,12 +248,10 @@ _test_task_prompt_entry_and_logs() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     COLUMNS=100 LINES=30 _PROMPT_INTERACTION_KIND=ready
     _PROMPT_INTERACTION_LABELS=(PROJECT) _PROMPT_INTERACTION_VALUES=(Demo)
     _PROMPT_INTERACTION_ROLES=(project)
@@ -296,9 +280,8 @@ _test_task_discard_confirmation() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.tools"
     _zle_picker_run() {
       [[ $_ZLE_PICKER_TITLE == "Git / Discard confirmation" &&

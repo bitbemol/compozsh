@@ -32,6 +32,7 @@ test_case 'shared effects preserve exact clipboard bytes and revalidate app targ
 
 _test_shared_effects_runtime_capabilities() {
   test_make_temp_dir || return
+  # Support subset: compozsh_effect_* entries stay absent until sourced.
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.tools"

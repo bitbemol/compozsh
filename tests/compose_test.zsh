@@ -45,8 +45,8 @@ _test_compose_journey() {
     source "$1/.zsh.addons/.zsh.compose"
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.tools"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local _COMPOZSH_COMPOSE_RESULT="" visits=0
     _zle_picker_loop() {
       (( ++visits ))
@@ -89,8 +89,8 @@ _test_compose_help_entry() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.tools"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     [[ -f "$1/.zsh.addons/.zsh.compose" ]] || exit 1
     source "$1/.zsh.addons/.zsh.compose"
     local _COMPOZSH_COMPOSE_RESULT="" opened=0
@@ -131,8 +131,8 @@ _test_compose_literal_fallback() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.compose"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local _compose_scope=$PWD _compose_recipe=git-review _compose_method=exact
     local _compose_base=main _compose_head=HEAD _compose_field=head _compose_endpoint_label=""
     _zle_picker_loop() {

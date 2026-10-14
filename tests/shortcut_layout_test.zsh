@@ -46,8 +46,8 @@ _test_shortcut_shared_chrome() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_SCREEN_ACTIVE=1
     _ZLE_PICKER_RESULTS=(fixture) _ZLE_PICKER_SELECTED=1
     _ZLE_PICKER_INSPECT_ACTION=choose

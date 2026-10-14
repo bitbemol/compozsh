@@ -1,18 +1,13 @@
 # Worktree actions use disposable repositories and never the operator's state.
 _test_worktree_fixture() {
   source "$1/.zsh.addons/.zsh.editor"
-  for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-  source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-  for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-  source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-  source "$1/.zsh.addons/support/.zsh.appearance"
+  test_source_support "$1" || return
   source "$1/.zsh.addons/.zsh.navigation"
   [[ -f "$1/.zsh.addons/.zsh.git-worktree" ]] || {
     print -u2 'missing worktree workspace capability'
     return 1
   }
   source "$1/.zsh.addons/.zsh.git-worktree"
-  for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
   export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
   command git init -q -b main "$HOME/repo" || return
   builtin cd -- "$HOME/repo" || return
@@ -446,11 +441,8 @@ _test_worktree_shared_guide() {
   local output=''
   output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_OPTIONS_KIND=worktree
     _ZLE_PICKER_DIRECTORY_ACTIONS=0 _ZLE_PICKER_DOCUMENT=0
     LINES=60 _zle_picker_guide_render 100

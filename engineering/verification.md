@@ -62,6 +62,13 @@ assertion rule.
   `env -i` with a fresh temporary `HOME`/`ZDOTDIR`, a minimal fixed environment
   and locale, `-d -f` to skip startup files, and `-i` only when the behavior
   needs an interactive shell.
+- A child script loads shared support as the installed unit: it sources
+  `tests/support.zsh` and calls `test_source_support <repository-root>`, which
+  sources every regular `support/**/.zsh.?*` file in the bootstrap's lexical
+  order, skips `support/cache` and stops on the first failed source. Hand-pick
+  support files only when a test needs a support unit absent or loaded at a
+  chosen point, and name that unit in a `# Support subset:` comment in the
+  same test function; a harness check rejects an unnamed UI subset.
 - Interactive regressions drive an isolated terminal with Zsh's bundled
   `zsh/zpty` module, sending keys and real resize signals. The shell that owns
   the terminal sources `tests/pty_support.zsh`: `test_pty_start` opens a

@@ -169,11 +169,9 @@ while read -r -u $gate line; do :; done' || return
     path=("$HOME/bin" $path)
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.editor"
-    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     exec {events}<> "$HOME/events"
     functions[_device_show]=$functions[_zle_picker_show]
     functions[_device_screen]=$functions[_zle_picker_run]

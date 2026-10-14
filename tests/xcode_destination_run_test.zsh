@@ -236,10 +236,8 @@ _test_xcode_product_choice_native() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events"
@@ -298,9 +296,10 @@ _test_xcode_product_choice_native() {
     }
     {
       print -r -- "exec {events}<> ${(q)HOME}/events"
-      for unit in "$1/.zsh.addons/.zsh.editor" "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.) "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix" "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw" "$1/.zsh.addons/support/.zsh.appearance" "$1/.zsh.addons/.zsh.xcode"; do
+      for unit in "$1/.zsh.addons/.zsh.editor" "$1/tests/support.zsh" "$1/.zsh.addons/.zsh.xcode"; do
         print -r -- "source ${(q)unit}"
       done
+      print -r -- "test_source_support ${(q)1} || exit"
       functions _xcode_capture_command _product_show _zle_picker_show zle _driver
       print -r -- _driver
     } > "$HOME/session.zsh"

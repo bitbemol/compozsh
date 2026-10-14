@@ -47,14 +47,13 @@ _test_appearance_palette_composed_surfaces() {
   local scheme='' output=''
   for scheme in dark light; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home-$scheme" $'
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
       source "$1/tests/appearance_support.zsh"
       ZSH_COLOR_SCHEME=$2
       source "$1/.zsh.addons/support/.zsh.appearance"
       source "$1/.zsh.addons/.zsh.highlighting"
       source "$1/.zsh.addons/.zsh.editor"
-      for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-      source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+      source "$1/tests/support.zsh"
+      test_source_support "$1" || exit
       local -a backgrounds=(16 234) attributes=()
       [[ $2 == light ]] && backgrounds=(231 245,245,245)
       local role="" background="" row="" style="" token="" attribute=""
@@ -105,13 +104,12 @@ _test_appearance_palette_completion_surfaces() {
   local scheme='' output=''
   for scheme in dark light; do
     output=$(test_run_interactive "$TEST_TMP_DIR/home-$scheme" $'
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
       source "$1/tests/appearance_support.zsh"
       ZSH_COLOR_SCHEME=$2
       source "$1/.zsh.addons/support/.zsh.appearance"
       source "$1/.zsh.addons/.zsh.editor"
-      for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-      source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+      source "$1/tests/support.zsh"
+      test_source_support "$1" || exit
       local -a backgrounds=(16 234) colors=() fields=()
       [[ $2 == light ]] && backgrounds=(231 245,245,245)
       zstyle -a ":completion:*" list-colors colors

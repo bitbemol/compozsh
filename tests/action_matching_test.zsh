@@ -2,14 +2,10 @@ _test_action_matching_keeps_feature_order_and_literal_targets() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a _XCODE_PICKER_VALUES=("fuzzy [exact]" duplicate prefix duplicate metadata)
     local -a _XCODE_PICKER_LABELS=(a---b "in ab" AB "another ab" none)
     local -a _XCODE_PICKER_SEARCH=("" "" "" "" "a b")
@@ -48,14 +44,10 @@ _test_action_matching_missing_capability_fallbacks() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     path=("$2" $path)
     rehash
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     unfunction _matching_compile
     _xcode_container_discover() {
       _XCODE_CONTAINERS=(/synthetic/App.xcodeproj)

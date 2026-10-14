@@ -1,6 +1,7 @@
 # Fixed xterm selection colors must remain readable in both pane-focus states.
 _test_appearance_selection_metadata_contrast() {
   test_make_temp_dir || return
+  # Support subset: support/.zsh.appearance loads first or last (order test).
   local scheme='' order='' output=''
   for scheme in dark light; do
     for order in first last; do
@@ -84,7 +85,6 @@ _test_appearance_selection_metadata_customization() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     typeset -gA ZSH_HIGHLIGHT_STYLES=(
       picker-error-selected "fg=123,bg=40,underline"
@@ -93,8 +93,8 @@ _test_appearance_selection_metadata_customization() {
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _zle_picker_label_highlight_style picker-error 1 "fg=231,bg=25,bold"
     print -r -- "$REPLY"
     _zle_picker_label_highlight_style picker-error 2 "fg=236,bg=250"
@@ -109,12 +109,11 @@ _test_appearance_inactive_row_overlay_backgrounds() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     BUFFER="" PREDISPLAY="" POSTDISPLAY=""
     _ZLE_PICKER_HEADER="" _ZLE_PICKER_QUERY_ROW="" _ZLE_PICKER_QUERY=example
     _ZLE_PICKER_DISPLAY=("example context")
@@ -151,12 +150,10 @@ _test_appearance_native_selection_and_status() {
   test_make_temp_dir || return
   test_write_file "$TEST_TMP_DIR/session.zsh" '
     ZSH_COLOR_SCHEME=$2
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     [[ $3 == output ]] && source "$1/.zsh.addons/.zsh.output"
     PROMPT="fixture> " RPROMPT=""
     exec {event_fd}<> "$HOME/events"

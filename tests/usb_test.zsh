@@ -1486,13 +1486,9 @@ _test_usb_step_one_alone_has_secondary_image_details() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_PICKER_VALUES=(custom-path image:1)
     _USB_PICKER_LABELS=(Custom Linux)
     _USB_PICKER_HIGHLIGHTS=("" "7:12:picker-size")
@@ -1520,12 +1516,9 @@ _test_usb_long_image_path_stays_in_passive_details() {
   test_write_file "$image" "${(l:20000::i:)}" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor" || exit
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done || exit
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_image_add "$2" || exit 2
     typeset -A _ZLE_PICKER_INSPECT_TEXTS=()
     _ZLE_PICKER_INSPECT_TEXTS[image]=$_USB_IMAGE_DETAILS[1]
@@ -2107,12 +2100,9 @@ _test_usb_custom_path_matches_tab_navigation_contract() {
   test_write_file "$home/.hidden.img" "${(l:20000::h:)}" || return
   output=$(test_run_interactive "$home" '
     source "$1/.zsh.addons/.zsh.editor" || exit
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done || exit
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -a _USB_PICKER_VALUES=(middle exact fuzzy)
     typeset -a _USB_PICKER_LABELS=(my-linux.iso linux.iso lxinux.iso)
     typeset -a _USB_PICKER_SEARCH=("" "" "")
@@ -2159,13 +2149,9 @@ _test_usb_steps_use_clean_single_pane_choices() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_PICKER_VALUES=(one two)
     _USB_PICKER_LABELS=(One Two)
     _USB_PICKER_SEARCH=(one two)
@@ -2407,14 +2393,9 @@ _test_usb_step3_hashing_never_claims_early_success() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _zle_picker_capture() { print -r -- "lines:${(j:|:)_ZLE_PICKER_BUSY_LINES}"; }
     _usb_step3_checksum_progress /images/linux.iso disk7 external-target \
       ${(l:64::a:)} 256 x86_64
@@ -3550,13 +3531,9 @@ _test_usb_progress_uses_prominent_status_view() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_SELECTED_IMAGE=/Users/example/Downloads/linux.iso
     _USB_SELECTED_DISK=disk28
     _USB_SELECTED_DISK_LABEL="DataTraveler 3.0 · 57.7 GiB · USB · /dev/disk28"
@@ -4688,10 +4665,8 @@ _test_usb_diagnostics_and_help_name_current_support_components() {
   local components='the shared support/ui and support/functions components'
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) \
-        "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.{zle,matching}_*(N.); do
-      source "$support_component" || exit
-    done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     for request in "" --flash --format; do
       external-device ${request:+"$request"} </dev/null 2>&1 >/dev/null
       print -r -- "status:${request:-chooser}:$?"

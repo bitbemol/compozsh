@@ -273,7 +273,8 @@ _test_compozsh_explorer_titles_notices_with_the_selected_tool() {
 
   # Each loop visit consumes one step: a tool or topic to open, or back.
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.); do source "$support_component"; done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help" || exit
     _COMPOZSH_TOOL_NAMES=(demo-tool limited documented)
     typeset -ga titles=() steps=(demo-tool 1 back limited back documented back back)

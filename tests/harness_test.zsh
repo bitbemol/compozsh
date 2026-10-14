@@ -239,6 +239,55 @@ _test_search_session_uses_production_dispatch() {
 test_case 'shared search session inserts through the production file-action dispatcher' \
   _test_search_session_uses_production_dispatch
 
+# Child scripts load shared support as the installed unit, like .zshrc: every
+# regular support/**/.zsh.?* file in lexical order, never support/cache, and
+# the first failed source stops the load with its status.
+_test_source_support_mirrors_the_bootstrap() {
+  test_make_temp_dir || return
+  local support="$TEST_TMP_DIR/root/.zsh.addons/support" output=''
+  test_write_file "$support/.zsh.appearance" 'loaded+=(appearance)' || return
+  test_write_file "$support/functions/.zsh.pure.entry" 'loaded+=(pure.entry)' || return
+  test_write_file "$support/functions/notes.txt" 'loaded+=(notes)' || return
+  test_write_file "$support/cache/.zsh.owner.cache" 'loaded+=(cache)' || return
+  test_write_file "$support/ui/.zsh.ui.a" 'loaded+=(ui.a); typeset -g ui_global=kept' || return
+  test_write_file "$support/ui/.zsh.ui.b" 'loaded+=(ui.b); return 7' || return
+  test_write_file "$support/ui/.zsh.ui.c" 'loaded+=(ui.c)' || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    typeset -a loaded=()
+    test_source_support "$2"
+    print -r -- "status=$? ${(j:|:)loaded} ${ui_global:-lost}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/root") || return
+  test_assert_equal 'status=7 appearance|pure.entry|ui.a|ui.b kept' "$output" \
+    'test support loader diverged from the bootstrap support set, order or failure status'
+}
+test_case 'test support loader sources the shipped support set in bootstrap order and stops on failure' \
+  _test_source_support_mirrors_the_bootstrap
+
+# A hand-picked UI preamble tests a configuration that never ships. Keep one
+# only where a test needs a support unit absent or loaded at a chosen point,
+# and name that unit in a "# Support subset:" comment in the same test function.
+_test_ui_support_preambles_use_the_shared_loader() {
+  local file='' line='' trimmed='' offenders=''
+  local -i number=0 marked=0
+  for file in "$TEST_REPO_ROOT"/tests/*_test.zsh(N.); do
+    [[ ${file:t} == harness_test.zsh ]] && continue
+    number=0 marked=0
+    while IFS= read -r line || [[ -n $line ]]; do
+      (( ++number ))
+      [[ $line == _*'() {' ]] && marked=0
+      trimmed=${line#"${line%%[![:space:]]*}"}
+      [[ $trimmed == '# Support subset: '?* ]] && marked=1
+      [[ $line == *'support/ui"/.zsh.ui.*'* ]] && (( !marked )) &&
+        offenders+=" ${file:t}:$number"
+    done < "$file"
+  done
+  [[ -z $offenders ]] ||
+    test_fail "hand-picked UI support without a Support subset comment:$offenders"
+}
+test_case 'tests load shared UI support through test_source_support unless they name a support subset' \
+  _test_ui_support_preambles_use_the_shared_loader
+
 # PTY expectations (tests/pty_support.zsh). Each probe runs in an isolated
 # shell under a watchdog, so a wait that regresses into a hang fails its case
 # instead of hanging the suite. Probes print status:, elapsed: and detail:

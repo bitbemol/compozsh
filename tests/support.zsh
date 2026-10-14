@@ -83,6 +83,28 @@ test_run_noninteractive() {
   test_run_zsh "$home" -df "$script" "$@"
 }
 
+# Load shared support as the installed unit, mirroring the .zshrc bootstrap:
+# every regular support/**/.zsh.?* file in lexical order, never support/cache.
+# Discovery runs under fixed options; files are sourced under the caller's
+# options, as the bootstrap sources them at top level. Child scripts call it
+# after sourcing this file; a test that needs a support unit absent keeps an
+# explicit subset and names it in a "# Support subset:" comment.
+# Usage: test_source_support <repository-root>
+test_source_support() {
+  local -a _test_support_files=()
+  local _test_support_file=''
+  () {
+    emulate -LR zsh
+    local file=''
+    for file in "$1/.zsh.addons/support"/**/.zsh.?*(N.); do
+      [[ $file == "$1/.zsh.addons/support/cache/"* ]] || _test_support_files+=("$file")
+    done
+  } "$1"
+  for _test_support_file in "${_test_support_files[@]}"; do
+    source "$_test_support_file" || return
+  done
+}
+
 # Native picker tests can start with a known query, bypassing only mode/query
 # entry (covered by files_workspace_test). Keep real shared ZLE and actions:
 # the final action runs through the editor's production post-cleanup

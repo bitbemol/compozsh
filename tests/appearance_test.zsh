@@ -73,6 +73,7 @@ test_case 'automatic light palette converges in every peer load order' \
 
 _test_light_completion_colors_are_order_independent() {
   test_make_temp_dir || return
+  # Support subset: support/.zsh.appearance loads first or last (order test).
   local mode='' output='' expected=''
   local script=$'
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
@@ -120,13 +121,12 @@ _test_completion_colors_preserve_ls_colors() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     LS_COLORS="di=38;5;123:ex=38;5;124"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local -a colors=()
     zstyle -a ":completion:*" list-colors colors
     print -r -- "${(j:|:)colors}"
@@ -268,12 +268,11 @@ _test_editor_uses_light_output_roles_without_output_peer() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _compozsh_palette_color output heading 75
     heading=$REPLY
     _compozsh_palette_color output info 111
@@ -346,12 +345,11 @@ _test_status_header_uses_selected_output_palette() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     ZSH_COLOR_SCHEME=light
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     BUFFER="" PREDISPLAY="" POSTDISPLAY=""
     _ZLE_PICKER_STATUS_VIEW=1 _ZLE_PICKER_HEADER=Working
     _ZLE_PICKER_DISPLAY=()
@@ -450,11 +448,9 @@ _test_editor_review_fallback_contrast() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/tests/appearance_support.zsh"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local row="" token="" background="" row_style="" field=""
     for row in added removed; do
       _zle_picker_review_style "$row"

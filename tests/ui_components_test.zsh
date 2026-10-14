@@ -4,11 +4,10 @@ _test_ui_components_have_one_owner() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     (( !${+functions[_zle_picker_render]} && !${+functions[_zle_picker_run]} )) || exit 1
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     zmodload zsh/parameter
     for component owner in _zle_picker_titlebar zle_picker_render _zle_picker_footer zle_picker_footer \
         _zle_picker_guide_render zle_picker_guide_render _zle_picker_inspect_render zle_picker_inspect_render \
@@ -46,9 +45,8 @@ _test_ui_components_scoped_view_defaults() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT_FOLLOW=1
     _ZLE_PICKER_COPY_ENABLED=1 _ZLE_PICKER_REFRESH_ENABLED=1 _ZLE_PICKER_INSPECT_FALLBACK=secret-context
     _ZLE_PICKER_INSPECT_TEXTS=(outer "outer document")
@@ -84,6 +82,7 @@ test_case 'UI components scope view defaults while preserving operation and book
 
 _test_ui_components_neutral_palette_fallback() {
   test_make_temp_dir || return
+  # Support subset: support/.zsh.appearance is absent (neutral fallback).
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
@@ -107,6 +106,7 @@ test_case 'UI components retain neutral focus cues without a duplicate fallback 
 
 _test_ui_components_neutral_overlay() {
   test_make_temp_dir || return
+  # Support subset: support/.zsh.appearance is absent (neutral fallback).
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
@@ -156,9 +156,8 @@ _test_ui_command_views_clear_previous_reader() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_QUERY_SUBMIT=1

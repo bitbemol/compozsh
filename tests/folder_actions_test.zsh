@@ -5,12 +5,8 @@ _test_folder_actions_groups() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local _DIRECTORY_PICKER_LOCATION="$HOME/current/"
     local selected="$HOME/selected %F{red}; literal/" choice=""
     local _directory_browser_clipboard=available _directory_browser_open=available
@@ -78,8 +74,6 @@ _test_folder_actions_groups() {
     [[ $_ZLE_PICKER_ACTION == insert && $_ZLE_PICKER_SELECTED_VALUE == "$_DIRECTORY_PICKER_LOCATION" ]] || exit 9
     # The runtime peer supplies app dispatch, including for an empty folder.
     source "$1/.zsh.addons/.zsh.find"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     choice=open
     _directory_browser_actions "" insert || exit 10
     [[ $_ZLE_PICKER_ACTION == open && $_ZLE_PICKER_SELECTED_VALUE == "$_DIRECTORY_PICKER_LOCATION" ]] || exit 11
@@ -94,12 +88,8 @@ _test_folder_actions_optional_groups() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     local _DIRECTORY_PICKER_LOCATION="$HOME/"
     local _directory_browser_clipboard="" _directory_browser_open=""
     local -i _FILES_WORKSPACE=1
@@ -134,8 +124,8 @@ _test_folder_actions_metadata_contract() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     mkdir -p "$HOME/folder"
     ln -s "$HOME/folder" "$HOME/link"
     local _DIRECTORY_PICKER_LOCATION="$HOME/"

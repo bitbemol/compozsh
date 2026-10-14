@@ -4,8 +4,8 @@ _test_overhaul_dock() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     export LC_ALL=en_US.UTF-8
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
     BUFFER="" CURSOR=0 PREDISPLAY="" POSTDISPLAY=""
     local frame="" painted_prefix="" painted_styles=""
@@ -35,8 +35,8 @@ _test_overhaul_density() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
     _ZLE_PICKER_VIEW_LIMIT=10 _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_RESULTS=(item-{01..20}) _ZLE_PICKER_LABELS=(item-{01..20})
@@ -81,8 +81,8 @@ _test_overhaul_action_surface() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=240 LINES=30
     _ZLE_PICKER_RESULTS=(one) _ZLE_PICKER_LABELS=(One)
     _ZLE_PICKER_INSPECT_TEXTS=(one Details)
@@ -119,9 +119,8 @@ _test_workspace_overhaul_reader_action() {
   test_make_temp_dir || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     COLUMNS=120 LINES=30
     _ZLE_PICKER_SCREEN_ACTIVE=1
     _ZLE_PICKER_RESULTS=(one two) _ZLE_PICKER_LABELS=(one two)

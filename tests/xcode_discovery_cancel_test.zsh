@@ -42,11 +42,9 @@ exit 0' || return
   test_write_file "$TEST_TMP_DIR/home/session.zsh" '
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.editor"
-    for unit in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.) "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_job_reap"
     exec {events}<> "$HOME/events"
     functions[_discovery_show]=$functions[_zle_picker_show]
     _zle_picker_show() {

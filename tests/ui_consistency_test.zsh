@@ -2,9 +2,7 @@ _test_ui_consistency_authored_actions() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_choose() {
       [[ $_USB_PICKER_LABELS[1] == Done && $_USB_PICKER_VALUES[1] == done ]] || return 41
     }
@@ -16,8 +14,8 @@ _test_ui_consistency_authored_actions() {
     }
     _XCODE_TEST_RESULT=Passed _XCODE_TEST_REPORT=report _XCODE_TEST_CLIPBOARD_BINARY=$2
     _xcode_test_result_screen 0 || exit 2
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
     _ZLE_PICKER_RESULTS=(literal) _ZLE_PICKER_LABELS=("[ literal filename ]")
     _zle_picker_render "" 1
@@ -35,8 +33,8 @@ _test_ui_consistency_empty_palette() {
       source "$1/.zsh.addons/support/.zsh.appearance"
       [[ $ZSH_HIGHLIGHT_STYLES[picker-empty] == "$ZSH_HIGHLIGHT_STYLES[picker-muted]" ]] || exit 1
       [[ $ZSH_HIGHLIGHT_STYLES[picker-error] != "$ZSH_HIGHLIGHT_STYLES[picker-empty]" ]] || exit 2
-      for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-      source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+      source "$1/tests/support.zsh"
+      test_source_support "$1" || exit
       _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
       _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
       _zle_picker_render "unmatched" 0
@@ -54,8 +52,8 @@ test_case 'UI consistency treats empty matches as neutral while retaining errors
 _test_ui_consistency_tool_actions() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help"
     _COMPOZSH_TOOL_NAMES=(documented unknown limited)
     typeset -A _COMPOZSH_TOOL_HELPERS=(documented trusted-fixture limited limited-fixture)

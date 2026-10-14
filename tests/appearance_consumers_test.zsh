@@ -119,6 +119,7 @@ test_case 'appearance navigation prints semantic native colors with exact plain 
 
 _test_appearance_completion_chrome_uses_runtime_palette() {
   test_make_temp_dir || return
+  # Support subset: support/.zsh.appearance loads first or last (order test).
   local scheme='' order='' output=''
   for scheme in dark light; do
     for order in first last; do

@@ -702,13 +702,9 @@ _test_xcode_digit_select_choosers_limit_each_visible_page_to_ten() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_PICKER_VALUES=({1..11})
     _XCODE_PICKER_LABELS=({1..11})
     _XCODE_PICKER_SEARCH=({1..11})
@@ -731,13 +727,9 @@ _test_xcode_action_option_colors() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.editor"
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_CONTAINERS=(/example/Demo.xcodeproj)
     _XCODE_CONTAINER_KINDS=(project)
     _xcode_schemes_capture() { _XCODE_SCHEMES=("Demo · Scheme") }
@@ -1047,13 +1039,9 @@ _test_xcode_test_result_screen_uses_shared_semantic_roles() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="iPhone 18 Pro"
     _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=2 _XCODE_TEST_PASSED=1
     _XCODE_TEST_FAILED=1 _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
@@ -1093,13 +1081,9 @@ _test_xcode_test_success_screen_uses_shared_semantic_role() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Passed _XCODE_TEST_TOTAL=24 _XCODE_TEST_PASSED=24
     _XCODE_TEST_FAILED=0 _XCODE_TEST_SKIPPED=0 _XCODE_TEST_EXPECTED_FAILURES=0
@@ -1228,14 +1212,9 @@ _test_xcode_test_result_screen_offers_report_only_with_clipboard() {
   test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh -df\n/bin/cat >/dev/null' || return
   command chmod +x "$fake_bin/pbcopy" || return
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do source "$support_component"; done
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    source "$1/.zsh.addons/support/.zsh.appearance"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.xcode"
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _XCODE_TEST_SCHEME=App _XCODE_TEST_DESTINATION="My Mac"
     _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=1 _XCODE_TEST_FAILED=1
     _XCODE_TEST_FAILURE_NAMES=("AppTests.testLaunch()")

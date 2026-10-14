@@ -488,10 +488,8 @@ _test_ui_owns_command_picker_lifecycle() {
   local output=''
 
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
-    for support_component in "$1/.zsh.addons/support/ui"/.zsh.ui.*(N.) "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.zle_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
-    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     [[ ${widgets[compozsh-picker-init]} == user:_zle_picker_line_init ]] && registered=1
     print -r -- "${+functions[_zle_picker_run]}|${widgets[compozsh-picker]}|${registered:-0}"
   ' "$TEST_REPO_ROOT") || return
