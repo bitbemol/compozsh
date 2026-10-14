@@ -92,6 +92,29 @@ _test_initializer_precedes_peers_and_preserves_defaults() {
 test_case 'local initializer runs once before peers and its inputs survive' \
   _test_initializer_precedes_peers_and_preserves_defaults
 
+# Zsh owns the ordinary-prompt key timeout: the bootstrap keeps its default and
+# never replaces an initializer's choice, including an explicit unset.
+_test_bootstrap_keeps_zsh_keytimeout() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  output=$(test_run_interactive "$home" \
+    'ZSH_LOCAL_INIT=/dev/null; source "$1/.zshrc"; print -r -- "$KEYTIMEOUT"' \
+    "$TEST_REPO_ROOT") || return
+  test_assert_equal 40 "$output" \
+    'bootstrap changed the Zsh KEYTIMEOUT default' || return
+
+  test_write_file "$home/.zsh.addons/local/init.zsh" 'unset KEYTIMEOUT' ||
+    return
+  output=$(test_run_interactive "$home" \
+    'source "$1/.zshrc"; print -r -- "${+KEYTIMEOUT}"' \
+    "$TEST_REPO_ROOT") || return
+  test_assert_equal 0 "$output" \
+    'bootstrap replaced an initializer KEYTIMEOUT unset'
+}
+test_case 'local initializer can leave KEYTIMEOUT unset and the Zsh default stays' \
+  _test_bootstrap_keeps_zsh_keytimeout
+
 # BSD ls colors whenever CLICOLOR exists, even as 0 or empty, so the only
 # persistent opt-out is leaving it unset. The shell peer runs after the
 # initializer and must not undo a NO_COLOR choice, also when re-sourced.

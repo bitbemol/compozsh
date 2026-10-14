@@ -39,7 +39,6 @@ _zle_completion_colors() {
 # Emacs map as the primary, portable macOS editing layer; keep terminal escape
 # sequences below as optional aliases for full-size and Fn/Globe key chords.
 bindkey -e
-KEYTIMEOUT=${KEYTIMEOUT:-10}
 zmodload zsh/terminfo
 autoload -Uz up-line-or-beginning-search down-line-or-beginning-search edit-command-line
 zle -N up-line-or-beginning-search
