@@ -132,7 +132,7 @@ recoverable installer need local state.
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
 | External device captures | Invocation memory; released when `external-device --flash` or `--format` returns | Image and installer paths and stat identities, an optional user-supplied checksum and computed digests, disk identifiers, media names, sizes, protocols and device-tree paths, the filesystem catalog, and the writer's stage, byte counts and native error text that can name the image or device. Its files are the [external media temporary files](#external-media-temporary-files) |
-| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, progress, read-back, GPT headers and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, write and in-session verification progress and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
 | Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (Zsh writes the draft directly into that file); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
@@ -1011,23 +1011,14 @@ Bare `external-device` presents two fixed task choices without reading disks or
 images; choosing one closes that screen before its normal scoped capture. USB
 review and the flash and format modes keep their separate exact-device
 confirmations ([Administrator boundary](#administrator-boundary)). Shared pure
-USB readers validate supplied SHA/CRC text and native progress records without
+USB readers validate supplied SHA text and native progress records without
 consulting caller-local variables or reading devices; raw and Windows execution
 share digest validation, while media-specific preflight, checksum requirements
 and final verification stay with their effect owners. Progress byte counts,
-verification-phase totals, installer percentages, diskutil `TotalSize` and
-`DeviceBlockSize`, and GPT header fields read from images or devices are
+installer percentages, and diskutil `TotalSize` and `DeviceBlockSize` are
 validated as decimal text of at most 18 digits before arithmetic, and progress
 stage names are compared literally, so this text never reaches arithmetic as an
-expression or an out-of-range number. The GPT backup entry location is
-range-checked by subtraction against the image's last sector, and against the
-target's last sector during verification, before its byte offset is computed. Each verification progress poll reads its phase record with one
-no-follow, nonblocking native read of at most 1,025 bytes and ignores a record
-longer than 1 KiB; the raw-read progress capture it also polls is read only when
-it is at most 1 MiB, measured by `/usr/bin/stat`. Only the first
-line is parsed; it needs exactly three tab-separated fields, and anything else
-keeps the preparing message, and the metadata never reads or modifies caller variables or runs
-commands. Installer candidate labels
+expression or an out-of-range number. Installer candidate labels
 reuse captured metadata, but action-time identity checks acquire fresh
 observations. USB and Xcode scalar
 extraction share one fixed `/usr/bin/plutil` invocation over supplied document
@@ -1186,29 +1177,20 @@ leaving `--flash` or `--format` at drive selection and after a failed write.
 | `compozsh-usb-iso.*` | ISO classification | The selected ISO's `tar -tf` path listing, at most 16 MiB + 1 byte |
 | `compozsh-usb-inspect.*` | ISO classification when that listing is inconclusive | Read-only, `nobrowse` `hdiutil` mount point. While attached it presents the image's file tree with the mount's own permissions (observed `0755` with an ISO 9660 fixture; check with `stat -f %Lp` on the attached mount point), so other local users can read it only through a traversable parent such as `/tmp`; the default per-user macOS `TMPDIR` is owner-only. The mount path itself is visible to them in `mount` and `df` output |
 | `compozsh-usb-progress.*` | Raw image write, including `flash-verify` read-back inside the same privileged session | Standard error of that session: `dd` write and read-back progress and record counts, fixed `compozsh-write-*` stage and result markers, and native error text that can name the image or device. No size cap on disk; read in steps of at most 1 MiB |
-| `compozsh-usb-verify-progress.*`, `compozsh-usb-verify-meta.*`, `compozsh-usb-verify-result.*` | Only the post-write read-back fallback (below) | Privileged `dd` read progress and native error text (no size cap on disk; not read above 1 MiB, which fails the comparison); one fixed phase label with the compared byte count and the byte offset within the first read block; one `scope=` and one `error=` line from fixed vocabularies |
-| `compozsh-usb-primary-gpt.*`, `compozsh-usb-backup-gpt.*` | Only that fallback, for a hybrid GPT image whose full comparison differed | Raw 512-byte copies of the target's LBA 1 and final LBA: normally GPT headers carrying the written image's disk GUID, otherwise whatever those sectors held |
-| `compozsh-usb-read.*` | Only a read-back comparison outside that fallback's worker, which no shipped caller makes | `dd` read progress and native error text. No size cap on disk; not read above 1 MiB, which fails the comparison |
 | `compozsh-createinstallmedia.*` | Apple `createinstallmedia` | Its combined standard output and error. No size cap on disk; ignored above 1 MiB |
 | `compozsh-usb-windows.*`, `compozsh-windows-readonly.*`, `compozsh-windows-verify.*` | Only the retired `_usb_windows_execute` writer, which no public path reaches (`_usb_media_execute` refuses Windows media) | Read-only ISO and target mount points; per-file `dd` read progress |
 
-The post-write read-back fallback, `_usb_verify_payload`, runs only after a
-write that succeeded without in-session verification. Current `flash-verify`
-never produces one: `_usb_execute` requests verification inside the privileged
-write session, and `_usb_write_image` then reports success only after that
-session's `compozsh-write-verified` marker; `flash-only` skips read-back. When
-the fallback runs, its progress poll also reads the fixed phase label and two
-integers from `compozsh-usb-verify-meta.*` every 0.25 seconds with one bounded
-native read; no here-string or other temporary file is involved.
+`flash-verify` reads the drive back only inside the privileged write session,
+before that session releases the device. `_usb_execute` treats a write without
+that session's `compozsh-write-verified` evidence as an incomplete-evidence
+failure and never rereads the drive afterwards; `flash-only` skips read-back.
 
 Each capture file lives only inside the function that created it, whose
 `always` block removes the exact path `mktemp` returned on normal return,
 handled failure or an interrupt that unwinds Zsh. An interrupt in the instant
-between a `mktemp` call and the start of its `always` block, including between
-the fallback's consecutive `mktemp` calls, can leave that file. Most sites also
-recheck the
-`compozsh-` name and `${TMPDIR:-/tmp}` parent first; the verification, GPT and
-read files rely on the exact path alone. Progress views first wait for their
+between a `mktemp` call and the start of its `always` block can leave that
+file. Most sites also recheck the `compozsh-` name and `${TMPDIR:-/tmp}` parent
+first. Progress views first wait for their
 native worker to exit, because a command started with `&` while the `MONITOR`
 option is off ignores `SIGINT` (`man zshmisc`, SIGNALS). A second interrupt
 during that wait skips the rest of the `always` block: the privileged worker
@@ -1758,8 +1740,8 @@ server.
 | Worktrees | `worktree ` |
 | Xcode discovery | `Xcode discovery` |
 | Xcode Run, device console and logs | `Xcode run`, `Xcode monitor`, `Xcode device monitor`, `log reader`, `log copy`, `editor reader` |
-| Task routing and external-device modes | `task families`, `USB verification progress` |
-| USB progress, phase, disk-size and GPT number bounds | `USB numeric bounds`, `backup GPT entry` |
+| Task routing and external-device modes | `task families` |
+| USB progress, phase and disk-size number bounds | `USB numeric bounds` |
 | External media writes, read-back and temporary files | `USB raw`, `USB verification`, `USB temporary`, `ISO inspection`, `external-media temporary` |
 | External device captures released when the task returns | `USB invocation state` |
 | Apple signature before `createinstallmedia` runs as root | `USB Apple signature boundary`, `USB macOS` |

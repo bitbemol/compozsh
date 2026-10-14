@@ -1515,7 +1515,6 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/functions/.zsh.pure.runtime_version_relation` | Version comparison |
 | `support/functions/.zsh.pure.usb_checksum_output_read` | SHA output parsing |
 | `support/functions/.zsh.pure.usb_checksum_validate` | Digest validation |
-| `support/functions/.zsh.pure.usb_crc32_output_read` | CRC output parsing |
 | `support/functions/.zsh.pure.usb_dd_progress_bytes` | `dd` progress parsing |
 | `support/functions/.zsh.pure.usb_human_duration` | Duration formatting |
 | `support/functions/.zsh.pure.usb_human_size` | Size formatting |

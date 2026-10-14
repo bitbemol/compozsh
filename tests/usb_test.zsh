@@ -421,7 +421,7 @@ _test_usb_media_dispatcher_rejects_windows_execution() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_execute() { trace+=(raw); return 0; }
@@ -522,7 +522,7 @@ _test_usb_windows_copy_and_verification_cover_every_file() {
   test_write_file "$source/setup.exe" 'setup-payload' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_progress_stage() { return 0; }
     _usb_windows_tree_capture "$2" || exit 2
@@ -764,7 +764,7 @@ _test_usb_windows_copy_rejects_a_symlink_target() {
   command ln -s "$victim" "$target" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_progress_stage() { return 0; }
     _usb_windows_tree_capture "$2" || exit 2
@@ -789,7 +789,7 @@ _test_usb_windows_verification_distinguishes_mismatch_and_read_failure() {
   command /usr/bin/ditto "$source/" "$target" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _usb_progress_stage() { return 0; }
     _usb_windows_tree_capture "$2" || exit 2
@@ -837,7 +837,7 @@ _test_usb_windows_handler_revalidates_before_erase_and_verifies_after_copy() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -a trace=()
     _usb_progress_stage() { return 0; }
@@ -897,7 +897,7 @@ _test_usb_windows_authorization_swap_never_reaches_prepare() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local -i target_checks=0 prepared=0
     _usb_progress_stage() { return 0; }
@@ -1303,7 +1303,7 @@ _test_usb_windows_round_trip_on_a_real_fat32_image() {
   test_write_file "$source/boot/boot.sdi" 'sdi-payload' || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local source=$2 image=$3 target_mount=$4 verify_mount=$5
     local attach_output="" line="" device="" partition="" verify_device=""
@@ -1613,11 +1613,6 @@ _test_usb_helpers_keep_caller_path_and_command_hash() {
     probe _usb_image_source_disk_capture "$2"
     probe _usb_image_revalidate "$2" unknown 20000
     probe _usb_dd_bytes_observed "$3"
-    probe _usb_od_uint "$2" 0 4
-    probe _usb_od_hex "$2" 0 4
-    probe _usb_file_range_digest "$2" 0 512
-    probe _usb_file_range_crc32 "$2" 0 16
-    probe _usb_gpt_header_crc_validate "$2" 0 92
     probe _usb_windows_target_bytes_capture "$4"
     probe _usb_createinstallmedia_progress_read "$3"
     caller_path=$PATH child_path=unobserved
@@ -1633,8 +1628,7 @@ _test_usb_helpers_keep_caller_path_and_command_hash() {
   for helper in _usb_media_kind_capture _usb_image_stat_capture _usb_image_add \
       _usb_macos_installer_add _usb_media_add _usb_spotlight_images_capture \
       _usb_image_filesystem_device_capture _usb_image_source_disk_capture \
-      _usb_image_revalidate _usb_dd_bytes_observed _usb_od_uint _usb_od_hex \
-      _usb_file_range_digest _usb_file_range_crc32 _usb_gpt_header_crc_validate \
+      _usb_image_revalidate _usb_dd_bytes_observed \
       _usb_windows_target_bytes_capture _usb_createinstallmedia_progress_read; do
     test_assert_contains "$output" "hash:$helper:/bin/echo" \
       "$helper cleared the caller's command hash table" || return
@@ -1762,7 +1756,7 @@ _test_usb_apfs_source_run() {
     for effect in _usb_progress_stage _usb_authorize _usb_authorization_valid \
         _usb_macos_installer_revalidate _usb_image_revalidate _usb_target_revalidate \
         _usb_macos_prepare_volume _usb_createinstallmedia_run _usb_unmount \
-        _usb_write_image _usb_dd_run _usb_verify_payload _usb_eject \
+        _usb_write_image _usb_dd_run _usb_eject \
         _usb_diskutil_erase_run; do
       functions[$effect]="trace+=($effect); return 0"
     done
@@ -1941,9 +1935,6 @@ _test_usb_native_numbers_stay_text_until_validated() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     cd "$HOME" || exit
     TMPDIR=$HOME
-    print -rn -- $'"'"'\xff\xff\xff\xff\xff\xff\xff\xff'"'"' >| gpt-field
-    _usb_od_uint gpt-field 0 8
-    print -r -- "od:$?"
 
     print -r -- "123 bytes transferred in 1 secs" >| dd.log
     print -r -- "Copying 50%" >| installer.log
@@ -1995,7 +1986,6 @@ _test_usb_native_numbers_stay_text_until_validated() {
   ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
 
   test_assert_equal 'status:0
-od:1
 observed:1
 progress:0|Preparing the first write block…
 installer:0|Preparing Apple createinstallmedia…
@@ -2203,7 +2193,7 @@ _test_usb_workspace_requires_explicit_image_target_action() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _USB_IMAGE_PATHS=(/images/older.iso /images/newer.iso)
     _USB_IMAGE_LABELS=(older newer)
@@ -2272,7 +2262,7 @@ _test_usb_checksum_input_accepts_one_modern_digest() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     sha256=${(l:64::a:)}
     sha512=${(l:128::b:)}
@@ -2307,7 +2297,7 @@ _test_usb_workspace_retains_optional_checksum() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     digest=${(l:64::d:)}
     _USB_IMAGE_PATHS=(/images/linux.iso)
@@ -2364,7 +2354,7 @@ _test_usb_step3_blocks_a_mismatched_image_checksum() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     expected=${(l:64::d:)} actual=${(l:64::e:)}
     _USB_IMAGE_PATHS=(/images/linux.iso) _USB_IMAGE_LABELS=(linux)
@@ -2423,7 +2413,7 @@ _test_usb_step3_hashing_never_claims_early_success() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/.zsh.appearance"
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     _zle_picker_capture() { print -r -- "lines:${(j:|:)_ZLE_PICKER_BUSY_LINES}"; }
     _usb_step3_checksum_progress /images/linux.iso disk7 external-target \
@@ -2445,7 +2435,7 @@ _test_usb_native_image_checksum() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     print -rn -- abc >| "$HOME/abc"
     _usb_image_checksum "$HOME/abc" 256 || exit 2
@@ -2463,703 +2453,12 @@ _test_usb_native_image_checksum() {
 test_case 'USB native image checksum parses exact full-image evidence' \
   _test_usb_native_image_checksum
 
-_test_usb_compare_treats_cmp_as_authoritative() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_unmount() { return 0; }
-    typeset -ga statuses=() calls=()
-    _usb_cmp_run() {
-      calls+=("$*")
-      local rc=${statuses[1]:-0}
-      shift statuses
-      return $rc
-    }
-
-    statuses=(0)
-    _usb_compare_written_image /images/linux.iso disk7 20000
-    print -r -- "full:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-
-    calls=() statuses=(1 0 0)
-    _usb_compare_written_image /images/linux.iso disk7 20000
-    print -r -- "metadata:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-    print -r -- "metadata-calls:${(j:|:)calls}"
-
-    statuses=(1 1)
-    _usb_compare_written_image /images/linux.iso disk7 20000
-    print -r -- "payload:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-
-    statuses=(2)
-    _usb_compare_written_image /images/linux.iso disk7 20000
-    print -r -- "read:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" 'full:0|full|' \
-    'an exact full-image comparison was not retained as the strongest result' || return
-  test_assert_contains "$output" 'metadata:1||mismatch' \
-    'an unvalidated MBR partition-map change was accepted as bootable' || return
-  test_assert_contains "$output" 'metadata-calls:-n 20000 /dev/rdisk7 /images/linux.iso|-n 440 /dev/rdisk7 /images/linux.iso|-n 2 -i 510 /dev/rdisk7 /images/linux.iso' \
-    'the strict MBR boundary did not check boot code and signature before rejecting metadata changes' || return
-  [[ $output != *'-n 446 '* ]] || {
-    test_fail 'verification treated the mutable MBR disk signature as boot code'
-    return
-  }
-  test_assert_contains "$output" 'payload:1||mismatch' \
-    'a changed installer payload was accepted' || return
-  test_assert_contains "$output" 'read:2||drive-read-failed' \
-    'an operational compare failure was mislabeled as a data mismatch'
-}
-test_case 'USB verification rejects unvalidated MBR partition-map changes' \
-  _test_usb_compare_treats_cmp_as_authoritative
-
-_test_usb_compare_uses_real_byte_boundaries() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local output=''
-  test_write_file "$source_image" "${(l:20480::a:)}" || return
-  command /bin/cp "$source_image" "$target_image" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    source_image=$2 target_image=$3
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    mutate_byte() {
-      print -rn -- X | command /bin/dd of="$target_image" bs=1 seek="$1" conv=notrunc 2>/dev/null
-    }
-    reset_target() { command /bin/cp "$source_image" "$target_image"; }
-
-    _usb_compare_written_image "$source_image" disk7 20480
-    print -r -- "exact:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target; mutate_byte 440
-    _usb_compare_written_image "$source_image" disk7 20480
-    print -r -- "signature:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target; mutate_byte 500
-    _usb_compare_written_image "$source_image" disk7 20480
-    print -r -- "partition:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target; mutate_byte 439
-    _usb_compare_written_image "$source_image" disk7 20480
-    print -r -- "boot:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target; mutate_byte 17408
-    _usb_compare_written_image "$source_image" disk7 20480
-    print -r -- "payload:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image") || return
-
-  test_assert_contains "$output" 'exact:0|full|' \
-    'real cmp did not accept an exact image-sized copy' || return
-  test_assert_contains "$output" 'signature:1||mismatch' \
-    'a changed MBR disk signature was accepted without validating the partition map' || return
-  test_assert_contains "$output" 'partition:1||mismatch' \
-    'a changed MBR partition map was accepted as bootable' || return
-  test_assert_contains "$output" 'boot:1||mismatch' \
-    'real cmp accepted corruption in the preserved 440-byte boot-code region' || return
-  test_assert_contains "$output" 'payload:1||mismatch' \
-    'real cmp accepted corruption at the stable-payload boundary'
-}
-test_case 'USB verification proves strict MBR boot and partition-map boundaries' \
-  _test_usb_compare_uses_real_byte_boundaries
-
-_test_usb_write_le() {
-  emulate -L zsh
-  local file_path=$1 offset=$2 value=$3 count=$4 escaped='' byte=''
-  local -i index=0
-  for (( index = 0; index < count; ++index )); do
-    builtin printf -v byte '%02x' $(( value & 255 ))
-    escaped+="\\x$byte"
-    (( value >>= 8 ))
-  done
-  builtin printf '%b' "$escaped" |
-    command /bin/dd of="$file_path" bs=1 seek="$offset" conv=notrunc status=none 2>/dev/null
-}
-
-_test_usb_range_crc32() {
-  emulate -L zsh
-  local file_path=$1 offset=$2 count=$3 output=''
-  output=$(command /bin/dd if="$file_path" bs=1 skip="$offset" count="$count" \
-      status=none 2>/dev/null | command /usr/bin/cksum -o 3) || return
-  REPLY=${output%% *}
-  [[ $REPLY == <-> ]]
-}
-
-_test_usb_update_gpt_header_crc() {
-  emulate -L zsh
-  local file_path=$1 offset=$2
-  _test_usb_write_le "$file_path" $(( offset + 16 )) 0 4 || return
-  _test_usb_range_crc32 "$file_path" "$offset" 92 || return
-  _test_usb_write_le "$file_path" $(( offset + 16 )) "$REPLY" 4
-}
-
-_test_usb_make_hybrid_gpt_fixture() {
-  emulate -L zsh
-  local file_path=$1
-  command /bin/dd if=/dev/zero of="$file_path" bs=512 count=256 status=none || return
-  builtin printf 'EFI PART' |
-    command /bin/dd of="$file_path" bs=1 seek=512 conv=notrunc status=none 2>/dev/null || return
-  builtin printf 'EFI PART' |
-    command /bin/dd of="$file_path" bs=1 seek=130560 conv=notrunc status=none 2>/dev/null || return
-  builtin printf '%b' '\x55\xaa' |
-    command /bin/dd of="$file_path" bs=1 seek=510 conv=notrunc status=none 2>/dev/null || return
-  _test_usb_write_le "$file_path" 524 92 4 || return
-  _test_usb_write_le "$file_path" 520 65536 4 || return
-  _test_usb_write_le "$file_path" 536 1 8 || return
-  _test_usb_write_le "$file_path" 544 255 8 || return
-  _test_usb_write_le "$file_path" 552 64 8 || return
-  _test_usb_write_le "$file_path" 560 210 8 || return
-  _test_usb_write_le "$file_path" 584 20 8 || return
-  _test_usb_write_le "$file_path" 592 176 4 || return
-  _test_usb_write_le "$file_path" 596 128 4 || return
-  _test_usb_write_le "$file_path" 130572 92 4 || return
-  _test_usb_write_le "$file_path" 130568 65536 4 || return
-  _test_usb_write_le "$file_path" 130584 255 8 || return
-  _test_usb_write_le "$file_path" 130592 1 8 || return
-  _test_usb_write_le "$file_path" 130600 64 8 || return
-  _test_usb_write_le "$file_path" 130608 210 8 || return
-  _test_usb_write_le "$file_path" 130632 211 8 || return
-  _test_usb_write_le "$file_path" 130640 176 4 || return
-  _test_usb_write_le "$file_path" 130644 128 4 || return
-  builtin printf 'P' |
-    command /bin/dd of="$file_path" bs=1 seek=32768 conv=notrunc status=none 2>/dev/null || return
-  builtin printf 'Q' |
-    command /bin/dd of="$file_path" bs=1 seek=108031 conv=notrunc status=none 2>/dev/null || return
-  _test_usb_range_crc32 "$file_path" 10240 22528 || return
-  local entry_crc=$REPLY
-  _test_usb_write_le "$file_path" 600 "$entry_crc" 4 || return
-  _test_usb_write_le "$file_path" 130648 "$entry_crc" 4 || return
-  _test_usb_update_gpt_header_crc "$file_path" 512 || return
-  _test_usb_update_gpt_header_crc "$file_path" 130560
-}
-
-_test_usb_make_relocated_gpt_target() {
-  emulate -L zsh
-  local source=$1 target=$2
-  command /bin/cp "$source" "$target" || return
-  command /usr/bin/truncate -s 153600 "$target" || return
-  command /bin/dd if="$source" of="$target" bs=512 skip=211 seek=255 count=44 \
-    conv=notrunc status=none 2>/dev/null || return
-  command /bin/dd if="$source" of="$target" bs=512 skip=255 seek=299 count=1 \
-    conv=notrunc status=none 2>/dev/null || return
-  _test_usb_write_le "$target" 544 299 8 || return
-  _test_usb_write_le "$target" 560 254 8 || return
-  _test_usb_write_le "$target" 153112 299 8 || return
-  _test_usb_write_le "$target" 153136 254 8 || return
-  _test_usb_write_le "$target" 153160 255 8 || return
-  _test_usb_update_gpt_header_crc "$target" 512 || return
-  _test_usb_update_gpt_header_crc "$target" 153088
-}
-
-_test_usb_make_sparse_relocated_gpt_target() {
-  emulate -L zsh
-  local source=$1 target=$2
-  command /bin/cp "$source" "$target" || return
-  command /usr/bin/truncate -s 153600 "$target" || return
-  command /bin/dd if="$source" of="$target" bs=512 skip=255 seek=299 count=1 \
-    conv=notrunc status=none 2>/dev/null || return
-  command /bin/dd if=/dev/zero of="$target" bs=512 seek=255 count=1 \
-    conv=notrunc status=none 2>/dev/null || return
-  _test_usb_write_le "$target" 544 299 8 || return
-  _test_usb_write_le "$target" 153112 299 8 || return
-  _test_usb_write_le "$target" 153136 210 8 || return
-  _test_usb_write_le "$target" 153160 211 8 || return
-  _test_usb_update_gpt_header_crc "$target" 512 || return
-  _test_usb_update_gpt_header_crc "$target" 153088
-}
-
-_test_usb_compare_understands_real_hybrid_gpt_geometry() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local pristine_target="$TEST_TMP_DIR/pristine-target.img"
-  local output=''
-  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
-  _test_usb_make_relocated_gpt_target "$source_image" "$target_image" || return
-  command /bin/cp "$target_image" "$pristine_target" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    source_image=$2 target_image=$3 pristine_target=$4
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    mutate_byte() {
-      builtin printf X | command /bin/dd of="$target_image" bs=1 seek="$1" conv=notrunc status=none 2>/dev/null
-    }
-    reset_target() { command /bin/cp "$pristine_target" "$target_image"; }
-
-    mutate_byte 440
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "geometry:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-
-    reset_target; mutate_byte 439
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "boot:$?"
-    reset_target; mutate_byte 510
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "signature:$?"
-    reset_target; mutate_byte 32768
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "payload-start:$?"
-    reset_target; mutate_byte 108031
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "payload-end:$?"
-    reset_target; mutate_byte 10240
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "partition-entry:$?"
-    reset_target; mutate_byte 520
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "primary-header:$?"
-    reset_target; mutate_byte 130560
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "backup-entry:$?"
-    reset_target; mutate_byte 153120
-    _usb_compare_written_image "$source_image" disk7 131072 153600
-    print -r -- "backup-header:$?"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$pristine_target") || return
-
-  test_assert_contains "$output" 'geometry:0|boot-and-installer-payload|gpt-geometry-diff' \
-    'validated primary and backup GPT geometry changes caused a false USB failure' || return
-  for result in 'boot:1' 'signature:1' 'payload-start:1' 'payload-end:1' \
-      'partition-entry:1' 'primary-header:1' 'backup-entry:1' 'backup-header:1'; do
-    test_assert_contains "$output" "$result" \
-      'hybrid GPT verification accepted corruption outside validated geometry' || return
-  done
-}
-test_case 'USB verification parses hybrid GPT bounds and preserves every boot and payload byte' \
-  _test_usb_compare_understands_real_hybrid_gpt_geometry
-
-_test_usb_compare_accepts_nonadjacent_relocated_backup_entries() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local output=''
-  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
-  _test_usb_make_sparse_relocated_gpt_target "$source_image" "$target_image" || return
-  builtin printf X |
-    command /bin/dd of="$target_image" bs=1 seek=440 conv=notrunc status=none \
-      2>/dev/null || return
-
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    target_image=$3
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image") || return
-
-  test_assert_contains "$output" \
-    'result:0|boot-and-installer-payload|gpt-geometry-diff' \
-    'a valid relocated backup table ending before its header was rejected for not being adjacent'
-}
-test_case 'USB verification accepts nonadjacent relocated GPT backup entries' \
-  _test_usb_compare_accepts_nonadjacent_relocated_backup_entries
-
-_test_usb_compare_accepts_source_bounded_gpt_on_larger_media() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local pristine_target="$TEST_TMP_DIR/pristine-target.img"
-  local output=''
-  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
-  command /bin/cp "$source_image" "$target_image" || return
-  command /usr/bin/truncate -s 153600 "$target_image" || return
-  # Raw hybrid images retain their internally valid backup GPT at the end of
-  # the image extent. Exercise the metadata fallback without changing GPT.
-  builtin printf X |
-    command /bin/dd of="$target_image" bs=1 seek=440 conv=notrunc status=none \
-      2>/dev/null || return
-  command /bin/cp "$target_image" "$pristine_target" || return
-
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    target_image=$3 pristine_target=$4
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    mutate_byte() {
-      builtin printf X | command /bin/dd of="$target_image" bs=1 seek="$1" \
-        conv=notrunc status=none 2>/dev/null
-    }
-    reset_target() { command /bin/cp "$pristine_target" "$target_image"; }
-
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-
-    reset_target; mutate_byte 520
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "primary:$?|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target; mutate_byte 108032
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "backup-entries:$?|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target; mutate_byte 130568
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "backup-header:$?|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target; mutate_byte 446
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "hybrid-mbr:$?|$_USB_PAYLOAD_VERIFY_ERROR"
-    reset_target
-    builtin printf "EFI PART" | command /bin/dd of="$target_image" bs=1 \
-      seek=153088 conv=notrunc status=none 2>/dev/null
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "stale-tail:$?|$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$pristine_target") || return
-
-  test_assert_contains "$output" \
-    'result:0|boot-and-installer-payload|gpt-source-bounds' \
-    'a faithful image-sized GPT on larger media was rejected as an invalid device-wide GPT' || return
-  for result in 'primary:1|gpt-invalid' 'backup-entries:1|gpt-invalid' \
-      'backup-header:1|gpt-invalid' 'hybrid-mbr:1|mismatch'; do
-    test_assert_contains "$output" "$result" \
-      'source-bounded GPT verification accepted corrupt primary or backup metadata' || return
-  done
-  test_assert_contains "$output" 'stale-tail:1|stale-tail-gpt' \
-    'source-bounded verification accepted a competing old GPT at the physical device tail'
-}
-test_case 'USB verification accepts a faithful source-bounded GPT on larger raw media' \
-  _test_usb_compare_accepts_source_bounded_gpt_on_larger_media
-
-_test_usb_compare_rejects_wrapping_image_backup_entry_lba() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local control_image="$TEST_TMP_DIR/control.iso"
-  local output=''
-  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
-  command /bin/cp "$source_image" "$control_image" || return
-  # The same edit with the last in-range LBA proves the header stays valid.
-  _test_usb_write_le "$control_image" 130632 211 8 || return
-  _test_usb_update_gpt_header_crc "$control_image" 130560 || return
-  # 2^55 + 4 sectors: times 512 the byte offset wraps to 2048, which lies
-  # inside the image and holds the same zero bytes as the primary entries.
-  _test_usb_write_le "$source_image" 130632 36028797018963972 8 || return
-  _test_usb_update_gpt_header_crc "$source_image" 130560 || return
-  _test_usb_make_relocated_gpt_target "$source_image" "$target_image" || return
-  builtin printf X |
-    command /bin/dd of="$target_image" bs=1 seek=32768 conv=notrunc status=none \
-      2>/dev/null || return
-
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    target_image=$3
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    _usb_gpt_layout_capture "$4" 131072
-    print -r -- "control:$?|$_USB_GPT_STABLE_END"
-    _usb_gpt_layout_capture "$2" 131072
-    print -r -- "capture:$?|$_USB_GPT_STABLE_END"
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$control_image") || return
-
-  test_assert_contains "$output" 'control:0|108032' \
-    'the in-range backup entry LBA control did not capture' || return
-  test_assert_contains "$output" 'capture:1|0' \
-    'a backup entry LBA beyond the image was accepted as GPT geometry' || return
-  test_assert_contains "$output" 'result:1||mismatch' \
-    'a wrapped backup entry offset narrowed the GPT fallback and hid a payload change'
-}
-test_case 'USB verification rejects an image backup GPT entry LBA beyond the image' \
-  _test_usb_compare_rejects_wrapping_image_backup_entry_lba
-
-_test_usb_compare_rejects_overflowing_drive_backup_entry_lba() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local control_target="$TEST_TMP_DIR/control.img"
-  local output=''
-  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
-  _test_usb_make_relocated_gpt_target "$source_image" "$target_image" || return
-  command /bin/cp "$target_image" "$control_target" || return
-  # The same edit with the relocated in-range LBA proves the header stays valid.
-  _test_usb_write_le "$control_target" 153160 255 8 || return
-  _test_usb_update_gpt_header_crc "$control_target" 153088 || return
-  # INT64_MAX sectors: adding the entry sectors overflows to a negative sum.
-  _test_usb_write_le "$target_image" 153160 9223372036854775807 8 || return
-  _test_usb_update_gpt_header_crc "$target_image" 153088 || return
-
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    target_image=$3
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    functions[_usb_original_raw_range_digest]=$functions[_usb_raw_range_digest]
-    _usb_raw_range_digest() {
-      print -r -- "$run-range-offset:$2"
-      _usb_original_raw_range_digest "$@"
-    }
-    run=control target_image=$4
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "control:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-    run=crafted target_image=$3
-    _usb_compare_written_image "$2" disk7 131072 153600
-    print -r -- "result:$?|$_USB_PAYLOAD_VERIFY_SCOPE|$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$control_target") || return
-
-  test_assert_contains "$output" \
-    'control-range-offset:130560' \
-    'the in-range relocated backup entry LBA control did not reach its range read' || return
-  test_assert_contains "$output" \
-    'control:0|boot-and-installer-payload|gpt-geometry-diff' \
-    'the in-range relocated backup entry LBA control was rejected' || return
-  test_assert_contains "$output" 'result:1||gpt-invalid' \
-    'a drive backup GPT entry LBA beyond the drive passed geometry validation' || return
-  [[ $output != *'crafted-range-offset:'* ]] ||
-    test_fail 'an unbounded drive backup entry LBA reached the raw drive range read'
-}
-test_case 'USB verification rejects a drive backup GPT entry LBA beyond the drive' \
-  _test_usb_compare_rejects_overflowing_drive_backup_entry_lba
-
-_test_usb_readback_bypasses_cache_and_compares_exact_range() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local trace_file="$TEST_TMP_DIR/readback-args" output=''
-  test_write_file "$source_image" "${(l:2048::a:)}" || return
-  command /bin/cp "$source_image" "$target_image" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    target_image=$3 trace_file=$4
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      print -r -- "${(j: :)arguments}" >| "$trace_file"
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    _usb_cmp_run -n 2 -i 510 /dev/rdisk7 "$2"
-    print -r -- "unaligned:$?"
-    _usb_cmp_run -n 1024 -i 512 /dev/rdisk7 "$2"
-    print -r -- "exact:$?"
-    builtin printf X | command /bin/dd of="$target_image" bs=1 seek=700 conv=notrunc status=none 2>/dev/null
-    _usb_cmp_run -n 1024 -i 512 /dev/rdisk7 "$2" >/dev/null 2>&1
-    print -r -- "changed:$?"
-    short_image=$HOME/short.img
-    command /bin/dd if="$target_image" of="$short_image" bs=1 count=600 status=none
-    target_image=$short_image
-    _usb_cmp_run -n 1024 -i 512 /dev/rdisk7 "$2" >/dev/null 2>&1
-    print -r -- "short:$?"
-    print -r -- "args:$(<$trace_file)"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$trace_file") || return
-
-  test_assert_contains "$output" 'unaligned:0' \
-    'uncached read-back applied the wrong source offset to an unaligned range' || return
-  test_assert_contains "$output" 'exact:0' \
-    'uncached read-back rejected an exact range' || return
-  test_assert_contains "$output" 'changed:1' \
-    'uncached read-back accepted changed media' || return
-  test_assert_contains "$output" 'short:2' \
-    'a truncated raw read was reported as byte corruption instead of a read failure' || return
-  test_assert_contains "$output" 'if=/dev/rdisk7 bs=512 skip=1 count=2 iflag=direct' \
-    'finished-drive verification did not request an exact uncached raw read'
-}
-test_case 'USB verification reads exact raw ranges with the macOS cache disabled' \
-  _test_usb_readback_bypasses_cache_and_compares_exact_range
-
-_test_usb_large_readback_uses_aligned_multi_megabyte_blocks() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/large-source.iso"
-  local target_image="$TEST_TMP_DIR/large-target.img"
-  local trace_file="$TEST_TMP_DIR/large-readback-args" output=''
-  command /bin/dd if=/dev/zero of="$source_image" bs=1m count=8 status=none || return
-  command /bin/dd if=/dev/zero of="$source_image" bs=512 count=1 seek=16384 \
-    conv=notrunc status=none || return
-  command /bin/cp "$source_image" "$target_image" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    target_image=$3 trace_file=$4
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      print -r -- "${(j: :)arguments}" >| "$trace_file"
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-    _usb_cmp_run -n 8389120 /dev/rdisk7 "$2"
-    print -r -- "status:$?"
-    print -r -- "args:$(<$trace_file)"
-  ' "$TEST_REPO_ROOT" "$source_image" "$target_image" "$trace_file") || return
-
-  test_assert_contains "$output" 'status:0' \
-    'multi-megabyte raw comparison rejected identical media' || return
-  test_assert_contains "$output" \
-    'if=/dev/rdisk7 bs=4m skip=0 count=3 iflag=direct status=progress' \
-    'large raw comparison regressed to millions of uncached 512-byte reads'
-}
-test_case 'USB large verification reads use aligned multi-megabyte blocks' \
-  _test_usb_large_readback_uses_aligned_multi_megabyte_blocks
-
-_test_usb_verification_paints_live_read_progress() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
-    typeset -ga frames=()
-    _usb_unmount() { return 0; }
-    _usb_progress_stage() { frames+=("$*"); }
-    _usb_compare_written_image() {
-      if [[ -n ${_USB_VERIFY_META_FILE:-} && -n ${_USB_VERIFY_PROGRESS_FILE:-} ]]; then
-        builtin printf "%s\\t%s\\t%s\\n" "Full image comparison" 8388608 0 \
-          >| "$_USB_VERIFY_META_FILE"
-        print -r -- "4194304 bytes (4.2 MB) transferred in 1.0 secs (4.2 MB/sec)" \
-          >| "$_USB_VERIFY_PROGRESS_FILE"
-      fi
-      command /bin/sleep 0.6
-      _USB_PAYLOAD_VERIFY_SCOPE=full
-      _USB_PAYLOAD_VERIFY_ERROR=""
-      return 0
-    }
-    _usb_verify_payload /images/linux.iso disk7 8388608 16777216
-    print -r -- "status:$?|scope:$_USB_PAYLOAD_VERIFY_SCOPE"
-    print -r -- "frames:${(j:|:)frames}"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" 'status:0|scope:full' \
-    'progress supervision lost the finished-drive verification result' || return
-  test_assert_contains "$output" '50%' \
-    'finished-drive verification remained an unobservable static screen'
-}
-test_case 'USB verification paints live determinate read progress' \
-  _test_usb_verification_paints_live_read_progress
-
-# The metadata file exists empty from mktemp until the worker's first write.
-_test_usb_verification_progress_waits_for_numeric_metadata() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
-    probe() {
-      local -h SECONDS=7
-      local content=""
-      : >| "$HOME/progress"
-      for content in "" $'"'"'Reading raw blocks\tpending\t0'"'"' \
-          $'"'"'Reading raw blocks\t2048\tsoon'"'"' \
-          $'"'"'Reading raw blocks\t99999999999999999999999\t0'"'"' \
-          $'"'"'Reading raw blocks\treply[$(: >| $HOME/substituted)1]\t0'"'"' \
-          $'"'"'Reading raw blocks\t2048\t0'"'"'; do
-        print -rn -- "$content" >| "$HOME/meta"
-        _usb_verify_progress_read "$HOME/progress" "$HOME/meta" 7
-        print -r -- "$REPLY"
-      done
-      [[ ! -e $HOME/substituted ]] || print -r -- "metadata ran a command substitution"
-    }
-    probe
-  ' "$TEST_REPO_ROOT" 2>&1) || return
-
-  # Integer assignment evaluates arithmetic, including $(...) in a subscript.
-  test_assert_equal 'Preparing the first raw read block…
-Preparing the first raw read block…
-Preparing the first raw read block…
-Preparing the first raw read block…
-Preparing the first raw read block…
-Reading raw blocks · 0 bytes of 2.0 KiB · 0s elapsed' "$output" \
-    'verification progress evaluated or counted empty, nonnumeric or overflowing metadata'
-}
-test_case 'USB verification progress waits for numeric metadata before counting bytes' \
-  _test_usb_verification_progress_waits_for_numeric_metadata
-
-_test_usb_verification_progress_metadata_is_never_arithmetic() {
-  test_make_temp_dir || return
-  local output='' tab=$'\t' fallback='reply:Preparing the first raw read block…'
-  local -a records=(
-    "Phase${tab}sentinel=99${tab}0"
-    "Phase${tab}probe[\$(print -u2 ran)1]${tab}0"
-    "Phase${tab}8388608${tab}sentinel=98"
-    "Phase${tab}1234567890123456789${tab}0"
-    "Phase${tab}8388608"
-    "Phase${tab}8388608${tab}0${tab}extra"
-    "Phase${tab}${tab}8388608${tab}0"
-  )
-  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
-    work=$2
-    shift 2
-    typeset -g sentinel=kept
-    typeset -ga probe=(first second)
-    : >| "$work/stderr"
-    print -r -- "4194304 bytes (4.2 MB) transferred in 1.0 secs (4.2 MB/sec)" \
-      >| "$work/progress"
-    for record in "$@"; do
-      print -r -- "$record" >| "$work/meta"
-      _usb_verify_progress_read "$work/progress" "$work/meta" $SECONDS \
-        2>>| "$work/stderr"
-      print -r -- "reply:$REPLY"
-    done
-    builtin printf "%s\t%s\t%s\n" "Full image comparison" 8388608 0 >| "$work/meta"
-    _usb_verify_progress_read "$work/progress" "$work/meta" $SECONDS \
-      2>>| "$work/stderr"
-    print -r -- "valid:$_USB_VERIFY_PROGRESS_BAR|$REPLY"
-    print -r -- "sentinel:$sentinel|stderr:$(<$work/stderr)"
-  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" "${records[@]}") ||
-    test_fail "verify metadata aborted the progress reader: ${(qqq)output}" || return
-
-  test_assert_equal "${(F)${(@)records/*/$fallback}}" \
-    "${(F)${(@M)${(f)output}:#reply:*}}" \
-    'malformed verify metadata did not fall back to the preparing message' || return
-  test_assert_equal 'sentinel:kept|stderr:' "${(@M)${(f)output}:#sentinel:*}" \
-    'verify metadata assigned caller variables, ran code or reported arithmetic errors' || return
-  test_assert_contains "${(@M)${(f)output}:#valid:*}" '50%' \
-    'well-formed verify metadata lost determinate progress'
-}
-test_case 'USB verification progress never evaluates metadata as arithmetic' \
-  _test_usb_verification_progress_metadata_is_never_arithmetic
-
 _test_usb_unmounts_immediately_after_write() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { return 0; }
@@ -3168,8 +2467,10 @@ _test_usb_unmounts_immediately_after_write() {
     _usb_image_revalidate() { trace+=(image-revalidate); }
     _usb_target_revalidate() { trace+=(target-revalidate); }
     _usb_unmount() { trace+=(unmount); }
-    _usb_write_image() { trace+=(write); _USB_WRITE_BYTES_OBSERVED=$3; }
-    _usb_verify_payload() { trace+=(verify); }
+    _usb_write_image() {
+      trace+=(write)
+      _USB_WRITE_BYTES_OBSERVED=$3 _USB_WRITE_VERIFIED=1
+    }
     _usb_eject() { trace+=(eject); }
     _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
       8388608 flash-verify >/dev/null 2>&1
@@ -3177,45 +2478,23 @@ _test_usb_unmounts_immediately_after_write() {
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" \
-    'status:0|authorize,image-revalidate,target-revalidate,unmount,target-revalidate,write,unmount,image-revalidate,verify,eject' \
+    'status:0|authorize,image-revalidate,target-revalidate,unmount,target-revalidate,write,unmount,image-revalidate,eject' \
     'the target was not unmounted immediately after dd and before slower source checks'
 }
 test_case 'USB execution immediately unmounts after writing before source checks' \
   _test_usb_unmounts_immediately_after_write
-
-_test_usb_checksum_verification_keeps_cmp_authoritative() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_unmount() { return 0; }
-    _usb_compare_written_image() {
-      _USB_PAYLOAD_VERIFY_SCOPE=full _USB_PAYLOAD_VERIFY_ERROR=""
-      return 0
-    }
-    _usb_verify_payload_checksum /images/linux.iso disk7 20000 256
-    print -r -- "status:$?|scope:$_USB_PAYLOAD_VERIFY_SCOPE"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" 'status:0|scope:full' \
-    'a provided checksum displaced authoritative raw byte comparison'
-}
-test_case 'USB provided checksum keeps authoritative raw verification' \
-  _test_usb_checksum_verification_keeps_cmp_authoritative
 
 _test_usb_privileged_verification_never_hides_a_prompt() {
   test_make_temp_dir || return
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    print -r -- "read:${functions[_usb_dd_read_run]}"
+    print -r -- "session:${functions[_usb_raw_write_session_run]}"
   ' "$TEST_REPO_ROOT") || return
-  [[ $output == *'/usr/bin/sudo -n /bin/dd'* ]] || {
-    test_fail 'USB raw read-back can prompt invisibly after the sudo timestamp expires'
+  [[ $output == *'/usr/bin/sudo -n /bin/zsh'* ]] || {
+    test_fail 'USB in-session read-back can prompt invisibly after the sudo timestamp expires'
     return
   }
   return 0
@@ -3228,7 +2507,7 @@ _test_usb_expired_write_authorization_is_refreshed_before_unmount() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { trace+=("stage:$1"); }
@@ -3257,45 +2536,6 @@ _test_usb_expired_write_authorization_is_refreshed_before_unmount() {
 }
 test_case 'USB execution refreshes expired authorization before unmounting for write' \
   _test_usb_expired_write_authorization_is_refreshed_before_unmount
-
-_test_usb_expired_verification_authorization_is_explicit() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    typeset -ga trace=()
-    _usb_progress_stage() { trace+=("stage:$1"); }
-    _usb_image_revalidate() { return 0; }
-    _usb_target_revalidate() { return 0; }
-    _usb_unmount() { return 0; }
-    _usb_write_image() { _USB_WRITE_BYTES_OBSERVED=$3; return 0; }
-    auth_checks=0
-    _usb_authorization_valid() {
-      trace+=(auth-check)
-      (( ++auth_checks == 1 )) && return 0
-      return 1
-    }
-    _usb_authorize() { trace+=(auth-prompt); return 1; }
-    _usb_verify_payload() { trace+=(verify); return 0; }
-    _usb_eject() { trace+=(eject); return 0; }
-    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
-      8388608 flash-verify "" 1 >/dev/null 2>&1
-    print -r -- "status:$?|${(j:,:)trace}|$_USB_RESULT_ERROR"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" 'auth-check,stage:Authorization required for verification,auth-prompt,stage:Ejecting external drive,eject' \
-    'expired verification authorization did not become a visible named stage' || return
-  [[ $output != *',verify,'* ]] || {
-    test_fail 'verification ran after administrator reauthorization failed'
-    return
-  }
-  test_assert_contains "$output" 'Administrator authorization expired before USB verification' \
-    'authorization expiry was mislabeled as a drive read or payload mismatch'
-}
-test_case 'USB verification handles expired authorization before read-back' \
-  _test_usb_expired_verification_authorization_is_explicit
 
 _test_usb_workspace_retries_transient_target_permission() {
   test_make_temp_dir || return
@@ -4194,7 +3434,7 @@ _test_usb_execution_preserves_failures_and_ejects() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_authorize() { trace+=(authorize); }
@@ -4204,18 +3444,21 @@ _test_usb_execution_preserves_failures_and_ejects() {
     _usb_unmount() { trace+=(unmount); }
     _usb_write_image() {
       trace+=(write)
+      _USB_WRITE_STAGE=${write_stage:-image} _USB_WRITE_ERROR=''
       if (( ${write_status:-0} )); then
-        _USB_WRITE_ERROR="dd: /dev/rdisk7: Resource busy"
+        [[ $_USB_WRITE_STAGE == image ]] &&
+          _USB_WRITE_ERROR="dd: /dev/rdisk7: Resource busy"
+      else
+        _USB_WRITE_VERIFIED=1
       fi
       return ${write_status:-0}
     }
-    _usb_verify_payload() { trace+=(verify); return ${verify_status:-0}; }
     _usb_eject() { trace+=(eject); return ${eject_status:-0}; }
 
-    verify_status=9
+    write_status=5 write_stage=verify
     _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100352 flash-verify >/dev/null 2>&1
-    print -r -- "verify-status:$?|${(j:,:)trace}"
-    trace=() verify_status=0 write_status=7
+    print -r -- "verify-status:$?|${(j:,:)trace}|$_USB_RESULT_VERIFY_REASON"
+    trace=() write_status=7 write_stage=image
     _usb_execute /tmp/image.iso disk7 disk-fingerprint image-fingerprint 100352 flash-verify >/dev/null 2>&1
     print -r -- "write-status:$?|${(j:,:)trace}|$_USB_RESULT_ERROR"
     trace=() write_status=0
@@ -4223,7 +3466,7 @@ _test_usb_execution_preserves_failures_and_ejects() {
     print -r -- "source-status:$?|${(j:,:)trace}"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'verify-status:9|authorize,image-revalidate,revalidate,unmount,revalidate,write,unmount,image-revalidate,verify,eject' \
+  test_assert_contains "$output" 'verify-status:5|authorize,image-revalidate,revalidate,unmount,revalidate,write,eject|mismatch' \
     'verification failure or eject cleanup was lost' || return
   test_assert_contains "$output" \
     'write-status:7|authorize,image-revalidate,revalidate,unmount,revalidate,write,eject|Writing failed: dd: /dev/rdisk7: Resource busy.' \
@@ -4249,10 +3492,7 @@ _test_usb_checksum_gates_write_and_reuses_algorithm() {
     _usb_authorization_valid() { return 0; }
     _usb_target_revalidate() { trace+=(target-revalidate); }
     _usb_unmount() { trace+=(unmount); }
-    _usb_write_image() { trace+=(write); }
-    _usb_verify_payload_checksum() {
-      trace+=("raw-verify:$4")
-    }
+    _usb_write_image() { trace+=(write); _USB_WRITE_VERIFIED=1; }
     _usb_eject() { trace+=(eject); }
 
     actual=${(l:64::b:)}
@@ -4272,11 +3512,11 @@ _test_usb_checksum_gates_write_and_reuses_algorithm() {
     'a mismatched provided checksum reached the target or write boundary' || return
   test_assert_contains "$output" 'matched:0|' \
     'a matching provided checksum did not complete' || return
-  test_assert_contains "$output" 'image-sha:256,target-revalidate,stage:Unmounting external drive,unmount,target-revalidate,stage:Writing image,write,unmount,image-revalidate,stage:Rechecking image SHA-256,image-sha:256,stage:Verifying USB against image,raw-verify:256,stage:Ejecting external drive,eject|1|1' \
+  test_assert_contains "$output" 'image-sha:256,target-revalidate,stage:Unmounting external drive,unmount,target-revalidate,stage:Writing image,write,unmount,image-revalidate,stage:Rechecking image SHA-256,image-sha:256,stage:Ejecting external drive,eject|1|1' \
     'a matching source checksum did not retain authoritative raw USB verification' || return
   test_assert_contains "$output" 'summary:Done|Flash complete' \
     'checksum completion did not retain the normal success summary' || return
-  test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · Selected image bytes matched|Safe to remove' \
+  test_assert_contains "$output" 'Image integrity · Verified · SHA-256 matched|USB verification · Full image byte-for-byte matched|Safe to remove' \
     'completion summary omitted checksum and finished-drive validation'
 }
 test_case 'USB checksum mismatch prevents writing and a match verifies raw drive bytes' \
@@ -4351,7 +3591,7 @@ _test_usb_write_worker_is_bounded_and_cleaned() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     job_marker="$2/job-options-on"
@@ -4387,7 +3627,7 @@ _test_usb_write_rejects_successful_early_eof() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
@@ -4411,7 +3651,7 @@ _test_usb_raw_session_is_bounded_to_captured_sectors() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
@@ -4437,7 +3677,7 @@ _test_usb_write_clears_stale_physical_tail_gpt() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     trace_file=$2/write-calls
@@ -4671,7 +3911,7 @@ _test_usb_atomic_split_read_preserves_mismatch_status() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
@@ -4727,7 +3967,7 @@ _test_usb_execution_uses_atomic_premount_verification() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { trace+=("stage:$1"); }
@@ -4763,6 +4003,42 @@ _test_usb_execution_uses_atomic_premount_verification() {
 }
 test_case 'USB execution uses atomic pre-mount verification evidence' \
   _test_usb_execution_uses_atomic_premount_verification
+
+_test_usb_flash_verify_without_session_evidence_fails_closed() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    typeset -ga trace=()
+    _usb_progress_stage() { return 0; }
+    _usb_authorize() { return 0; }
+    _usb_authorization_valid() { return 0; }
+    _usb_image_revalidate() { return 0; }
+    _usb_target_revalidate() { return 0; }
+    _usb_unmount() { return 0; }
+    _usb_write_image() { _USB_WRITE_BYTES_OBSERVED=$3; return 0; }
+    _usb_verify_payload() { trace+=(late-reread); return 0; }
+    _usb_verify_payload_checksum() { trace+=(late-reread); return 0; }
+    _usb_dd_read_run() { trace+=(late-reread); return 0; }
+    _usb_eject() { trace+=(eject); return 0; }
+    _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+      8388608 flash-verify "" 1 >/dev/null 2>&1
+    result_status=$?
+    print -r -- "status:$result_status|${(j:,:)trace}|verified:$_USB_RESULT_VERIFIED|reason:$_USB_RESULT_VERIFY_REASON|outcome:$_USB_RESULT_OUTCOME"
+  ' "$TEST_REPO_ROOT") || return
+
+  [[ $output != *'late-reread'* ]] || {
+    test_fail 'flash-verify reread the drive after its write session closed'
+    return
+  }
+  test_assert_equal "$output" \
+    'status:9|eject|verified:0|reason:incomplete-evidence|outcome:failed' \
+    'flash-verify without in-session evidence did not fail closed'
+}
+test_case 'USB flash-verify without in-session evidence fails closed instead of rereading' \
+  _test_usb_flash_verify_without_session_evidence_fails_closed
 
 _test_usb_atomic_failure_retains_semantic_reason() {
   test_make_temp_dir || return
@@ -4806,7 +4082,7 @@ _test_usb_atomic_verification_distinguishes_short_reads() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
@@ -4834,7 +4110,7 @@ _test_usb_write_respects_target_logical_block_size() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
@@ -4884,7 +4160,7 @@ _test_usb_atomic_progress_is_incrementally_bounded() {
   local progress_file="$TEST_TMP_DIR/long-atomic-progress" output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     print -r -- "compozsh-write-stage:image" >| "$2" || exit
     command /bin/dd if=/dev/zero bs=600000 count=1 status=none |
@@ -4916,7 +4192,7 @@ _test_usb_execution_rejects_unaligned_target_before_unmount() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     _usb_progress_stage() { return 0; }
@@ -4947,7 +4223,7 @@ _test_usb_write_retains_a_bounded_native_failure() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     _usb_progress_stage() { return 0; }
@@ -4967,23 +4243,6 @@ _test_usb_write_retains_a_bounded_native_failure() {
 test_case 'USB raw writer retains the exact bounded native failure diagnostic' \
   _test_usb_write_retains_a_bounded_native_failure
 
-_test_usb_verification_owns_subprocess_output() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_unmount() { print -r -- "Unmount of all volumes was successful"; }
-    _usb_cmp_run() { return 0; }
-    _usb_verify_payload /images/linux.iso disk7 8388608
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_equal '' "$output" \
-    'verification leaked native subprocess output over the status screen'
-}
-test_case 'USB verification keeps native subprocess output out of the status frame' \
-  _test_usb_verification_owns_subprocess_output
-
 _test_usb_execution_reports_stages_and_completion_stats() {
   test_make_temp_dir || return
   local output=''
@@ -4997,9 +4256,8 @@ _test_usb_execution_reports_stages_and_completion_stats() {
     _usb_image_revalidate() { return 0; }
     _usb_target_revalidate() { return 0; }
     _usb_unmount() { return 0; }
-    _usb_write_image() { return 0; }
+    _usb_write_image() { _USB_WRITE_VERIFIED=1; return 0; }
     _usb_authorization_valid() { return 0; }
-    _usb_verify_payload() { return 0; }
     _usb_eject() { return 0; }
     _USB_SELECTED_DISK_LABEL="External SSD · 64.0 GiB · /dev/disk7"
     _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint 8388608 flash-verify || exit 2
@@ -5011,7 +4269,7 @@ _test_usb_execution_reports_stages_and_completion_stats() {
     _usb_media_result_screen raw-image 0
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" 'stages:Validating image and drive,Unmounting external drive,Writing image,Verifying USB against image,Ejecting external drive' \
+  test_assert_contains "$output" 'stages:Validating image and drive,Unmounting external drive,Writing image,Ejecting external drive' \
     'execution did not publish each destructive workflow stage' || return
   test_assert_contains "$output" 'result:complete|8388608|1|1' \
     'successful execution did not retain completion facts' || return
@@ -5019,7 +4277,7 @@ _test_usb_execution_reports_stages_and_completion_stats() {
     'completion screen omitted its success state' || return
   test_assert_contains "$output" '8.0 MiB written' \
     'completion screen omitted the exact written size' || return
-  test_assert_contains "$output" 'USB verification · Selected image bytes matched' \
+  test_assert_contains "$output" 'USB verification · Full image byte-for-byte matched' \
     'completion screen omitted verification status' || return
   test_assert_contains "$output" 'Safe to remove' \
     'completion screen omitted eject safety status'
@@ -5032,7 +4290,7 @@ _test_usb_execution_closes_image_and_target_races() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     typeset -ga trace=()
     image_checks=0 target_checks=0
@@ -5049,8 +4307,10 @@ _test_usb_execution_closes_image_and_target_races() {
       return 0
     }
     _usb_unmount() { trace+=(unmount); }
-    _usb_write_image() { trace+=(write); _USB_WRITE_BYTES_OBSERVED=$3; }
-    _usb_verify_payload() { trace+=(verify); }
+    _usb_write_image() {
+      trace+=(write)
+      _USB_WRITE_BYTES_OBSERVED=$3 _USB_WRITE_VERIFIED=1
+    }
     _usb_eject() { trace+=(eject); }
     _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
       8388608 flash-verify "" 1 >/dev/null 2>&1
@@ -5236,53 +4496,6 @@ _test_usb_write_stage_text_is_never_arithmetic() {
 test_case 'USB numeric bounds compare write stage text literally, never as arithmetic' \
   _test_usb_write_stage_text_is_never_arithmetic
 
-_test_usb_verify_progress_meta_is_bounded_literal_data() {
-  test_make_temp_dir || return
-  local output='' waiting='Preparing the first raw read block…'
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
-    local meta="$HOME/meta" progress="$HOME/progress" phase=""
-    local -i evaluated=0
-    : >| "$HOME/errors"
-    print -r -- "4194304 bytes transferred in 1.0 secs" >| "$progress"
-    builtin printf "%s\t%s\t%s\n" "Full image comparison" 8388608 512 >| "$meta"
-    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
-    print -r -- "valid:$REPLY"
-    builtin printf "%s\t%s\t%s\n" "Full image comparison" 12345678901234567890123 0 >| "$meta"
-    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
-    print -r -- "overlong:$REPLY"
-    builtin printf "%s\t%s\t%s\n" "Full image comparison" "1+1" 0 >| "$meta"
-    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
-    print -r -- "expression:$REPLY"
-    builtin printf "%s\t%s\t%s\n" "Full image comparison" \
-      '\''reply[$(print -r -- evaluated >| "$HOME/meta-evaluated")1]'\'' 0 >| "$meta"
-    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
-    [[ -e $HOME/meta-evaluated ]] && evaluated=1
-    print -r -- "planted:$REPLY|evaluated:$evaluated"
-    phase=${(l:2048::x:)}
-    builtin printf "%s\t%s\t%s\n" "$phase" 8388608 0 >| "$meta"
-    _usb_verify_progress_read "$progress" "$meta" $SECONDS 2>>| "$HOME/errors"
-    print -r -- "oversized:$REPLY"
-    print -r -- "errors:$(<"$HOME/errors")"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" 'valid:Full image comparison · 4.0 MiB of 8.0 MiB' \
-    'a well-formed verification phase record lost determinate progress' || return
-  test_assert_contains "$output" $'\n'"overlong:$waiting"$'\n' \
-    'an overlong verification total was accepted' || return
-  test_assert_contains "$output" $'\n'"expression:$waiting"$'\n' \
-    'a verification total was evaluated as an arithmetic expression' || return
-  test_assert_contains "$output" $'\n'"planted:$waiting|evaluated:0"$'\n' \
-    'verification phase metadata was evaluated as arithmetic' || return
-  test_assert_contains "$output" $'\n'"oversized:$waiting"$'\n' \
-    'an oversized verification phase record was accepted' || return
-  [[ $output == *$'\nerrors:' ]] ||
-    test_fail "verification phase metadata wrote a diagnostic: ${(qqq)output##*errors:}"
-}
-test_case 'USB numeric bounds keep verification progress metadata bounded literal data' \
-  _test_usb_verify_progress_meta_is_bounded_literal_data
-
 _test_usb_createinstallmedia_progress_bounds_percent() {
   test_make_temp_dir || return
   local output=''
@@ -5299,56 +4512,6 @@ _test_usb_createinstallmedia_progress_bounds_percent() {
 }
 test_case 'USB numeric bounds ignore createinstallmedia percentages beyond 18 digits' \
   _test_usb_createinstallmedia_progress_bounds_percent
-
-_test_usb_gpt_fields_beyond_native_range_are_rejected() {
-  test_make_temp_dir || return
-  local image="$TEST_TMP_DIR/oversized-gpt.img" output=''
-  command /bin/dd if=/dev/zero of="$image" bs=512 count=68 status=none || return
-  builtin printf 'EFI PART' |
-    command /bin/dd of="$image" bs=1 seek=512 conv=notrunc status=none 2>/dev/null || return
-  builtin printf '%b' '\xff\xff\xff\xff\xff\xff\xff\xff' |
-    command /bin/dd of="$image" bs=1 seek=536 conv=notrunc status=none 2>/dev/null || return
-
-  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    _usb_od_uint "$2" 520 4
-    print -r -- "revision:$?|$REPLY"
-    _usb_od_uint "$2" 536 8
-    print -r -- "current:$?"
-    _usb_gpt_layout_capture "$2" 34816 2>| "$HOME/errors"
-    print -r -- "layout:$?|errors:$(<"$HOME/errors")"
-  ' "$TEST_REPO_ROOT" "$image") || return
-
-  test_assert_equal $'revision:0|0\ncurrent:1\nlayout:1|errors:' "$output" \
-    'a 20-digit unsigned GPT field reached native integer arithmetic'
-}
-test_case 'USB numeric bounds reject image GPT fields beyond native integer range' \
-  _test_usb_gpt_fields_beyond_native_range_are_rejected
-
-_test_usb_gpt_backup_entry_offset_cannot_wrap() {
-  test_make_temp_dir || return
-  local image="$TEST_TMP_DIR/wrapping-gpt.img" output=''
-  _test_usb_make_hybrid_gpt_fixture "$image" || return
-  command /bin/cp "$image" "$image.valid" || return
-  # 2^55 + 20 sectors wraps to the primary entry array at byte 10240.
-  _test_usb_write_le "$image" 130632 36028797018963988 8 || return
-  _test_usb_update_gpt_header_crc "$image" 130560 || return
-
-  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    _usb_gpt_layout_capture "$2.valid" 131072
-    print -r -- "valid:$?|$_USB_GPT_STABLE_END"
-    _usb_gpt_layout_capture "$2" 131072 2>| "$HOME/errors"
-    print -r -- "wrapped:$?|$_USB_GPT_STABLE_END|errors:$(<"$HOME/errors")"
-  ' "$TEST_REPO_ROOT" "$image") || return
-
-  test_assert_equal $'valid:0|108032\nwrapped:1|0|errors:' "$output" \
-    'a GPT backup entry LBA whose byte offset wraps narrowed the verified stable range'
-}
-test_case 'USB numeric bounds reject a GPT backup entry LBA whose byte offset would wrap' \
-  _test_usb_gpt_backup_entry_offset_cannot_wrap
 
 _test_usb_disk_info_sizes_are_validated_before_integer_assignment() {
   test_make_temp_dir || return
@@ -5401,71 +4564,6 @@ _test_usb_temporary_observer_script() {
   }
 '
 }
-
-_test_usb_temporary_verification_captures_are_removed() {
-  test_make_temp_dir || return
-  local source_image="$TEST_TMP_DIR/source.iso" target_image="$TEST_TMP_DIR/target.img"
-  local pristine_target="$TEST_TMP_DIR/pristine-target.img"
-  local capture_root="$TEST_TMP_DIR/captures" observed_log="$TEST_TMP_DIR/observed"
-  local output='' observed='' expected='' REPLY=''
-  command mkdir -p "$capture_root" || return
-  _test_usb_make_hybrid_gpt_fixture "$source_image" || return
-  _test_usb_make_sparse_relocated_gpt_target "$source_image" "$target_image" || return
-  builtin printf X |
-    command /bin/dd of="$target_image" bs=1 seek=440 conv=notrunc status=none \
-      2>/dev/null || return
-  command /bin/cp "$target_image" "$pristine_target" || return
-
-  _test_usb_temporary_observer_script
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    TMPDIR=$2 source_image=$3 target_image=$4 pristine_target=$5 observed_log=$6
-    integer dd_fail=0
-    _usb_unmount() { return 0; }
-    _usb_progress_stage() { return 0; }
-    _usb_dd_read_run() {
-      local -a arguments=("$@")
-      local -i index=0
-      _test_usb_temporary_observe
-      (( dd_fail )) && return 1
-      for (( index = 1; index <= ${#arguments}; ++index )); do
-        [[ ${arguments[index]} == if=/dev/rdisk7 ]] && arguments[index]="if=$target_image"
-      done
-      command /bin/dd "${arguments[@]}"
-    }
-
-    _usb_verify_payload "$source_image" disk7 131072 153600
-    _test_usb_temporary_report verify-success "$?|$_USB_PAYLOAD_VERIFY_ERROR"
-    builtin printf X | command /bin/dd of="$target_image" bs=1 seek=153088 \
-      conv=notrunc status=none 2>/dev/null
-    _usb_verify_payload "$source_image" disk7 131072 153600
-    _test_usb_temporary_report verify-failure "$?|$_USB_PAYLOAD_VERIFY_ERROR"
-    command /bin/cp "$pristine_target" "$target_image"
-
-    _usb_cmp_run -n 512 -i 1024 /dev/rdisk7 "$source_image" >/dev/null 2>&1
-    _test_usb_temporary_report read-match "$?"
-    _usb_cmp_run -n 1 -i 440 /dev/rdisk7 "$source_image" >/dev/null 2>&1
-    _test_usb_temporary_report read-mismatch "$?"
-    dd_fail=1
-    _usb_cmp_run -n 512 -i 1024 /dev/rdisk7 "$source_image" >/dev/null 2>&1
-    _test_usb_temporary_report read-failure "$?"
-  ' "$TEST_REPO_ROOT" "$capture_root" "$source_image" "$target_image" \
-    "$pristine_target" "$observed_log") || return
-
-  for expected in 'verify-success:0|gpt-geometry-diff|leftovers:|end' \
-      'verify-failure:1|gpt-invalid|leftovers:|end' 'read-match:0|leftovers:|end' \
-      'read-mismatch:1|leftovers:|end' 'read-failure:2|leftovers:|end'; do
-    test_assert_contains "$output" "$expected" \
-      'a USB verification capture remained after success or handled failure' || return
-  done
-  observed=${(j:,:)${(ou)${(f)"$(<"$observed_log")"}}}
-  test_assert_equal 'compozsh-usb-backup-gpt:600,compozsh-usb-primary-gpt:600,compozsh-usb-read:600,compozsh-usb-verify-meta:600,compozsh-usb-verify-progress:600,compozsh-usb-verify-result:600' \
-    "$observed" 'USB verification did not create exactly its disclosed owner-only captures'
-}
-test_case 'USB temporary verification, read-back and GPT captures are owner-only and removed' \
-  _test_usb_temporary_verification_captures_are_removed
 
 _test_usb_temporary_capture_and_progress_files_are_removed() {
   test_make_temp_dir || return

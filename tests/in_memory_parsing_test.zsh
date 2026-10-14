@@ -316,37 +316,3 @@ Sparse, unmerged or assume-unchanged index entries prevent a complete removal ch
 }
 test_case 'in-memory parsing: Git worktree catalogs and removal checks need no here-string temporary file' \
   _test_in_memory_worktree_catalog
-
-_in_memory_usb_probe() {
-  local -h SECONDS=7
-  local meta="$HOME/compozsh-usb-verify-meta.fixture" progress="$HOME/progress"
-  : >| "$progress"
-  print -r -- $'Reading raw blocks\t2048\t512' >| "$meta"
-  _usb_verify_progress_read "$progress" "$meta" 7
-  print -r -- "$REPLY"
-  print -r -- $'Reading raw blocks\t2048\t512\nignored\t1\t1' >| "$meta"
-  _usb_verify_progress_read "$progress" "$meta" 7
-  print -r -- "$REPLY"
-}
-
-_in_memory_source_usb() {
-  local unit=''
-  for unit in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.usb_*(N.); do
-    source "$unit" || return
-  done
-  source "$1/.zsh.addons/.zsh.usb"
-}
-
-_test_in_memory_usb_progress() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/tests/support.zsh" && source "$1/tests/in_memory_parsing_test.zsh" && _in_memory_source_usb "$1" || exit 1
-    _in_memory_twice _in_memory_usb_probe
-  ' "$TEST_REPO_ROOT") || return
-  test_assert_equal 'Reading raw blocks · 0 bytes of 2.0 KiB · 0s elapsed
-Reading raw blocks · 0 bytes of 2.0 KiB · 0s elapsed' "$output" \
-    'USB verification progress depended on a here-string temporary file'
-}
-test_case 'in-memory parsing: USB verification progress needs no here-string temporary file' \
-  _test_in_memory_usb_progress

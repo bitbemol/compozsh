@@ -26,7 +26,7 @@ when work spans sessions (record progress and remaining steps there).
 | [shared-architecture-sign-off](shared-architecture-sign-off.md) | Decision record for the shared support/UI extraction | [architecture](../engineering/architecture.md) |
 | [terminal-startup-latency](terminal-startup-latency.md) | First-editable-prompt diagnosis, cache design and measurements; help-capture cost | [caching](../engineering/caching.md), [manual cache](../engineering/manual-cache.md) |
 | [tool-entry-points](tool-entry-points.md) | Task-family command consolidation and retired commands | [interaction design](../engineering/interaction-design.md#entry-points) |
-| [usb-progress-integer-bounds](usb-progress-integer-bounds.md) | USB progress, phase, disk-size and GPT numbers bounded before arithmetic; native capped read | [security](../engineering/security.md), [SECURITY.md](../SECURITY.md#external-devices-and-task-routing) |
+| [usb-progress-integer-bounds](usb-progress-integer-bounds.md) | USB progress, phase, disk-size and GPT numbers bounded before arithmetic; native capped read (GPT and verification-phase readers since removed as unreachable) | [security](../engineering/security.md), [SECURITY.md](../SECURITY.md#external-devices-and-task-routing) |
 | [xcode-destination-run](xcode-destination-run.md) | Native argument evidence for Run on every concrete destination | [Xcode workspace](../engineering/workspaces/xcode.md#run-targets) |
 | [xcode-discovery-performance](xcode-discovery-performance.md) | Where Xcode discovery waits; lazy destinations and cancellation | [Xcode workspace](../engineering/workspaces/xcode.md#dashboard) |
 | [xcode-log-monitor](xcode-log-monitor.md) | Shared log reader, device console lifecycle, bounded matching | [Xcode workspace](../engineering/workspaces/xcode.md#run-view-and-logs) |
@@ -95,9 +95,9 @@ measurement and design decision before implementation.
 - **Second reference Mac:** startup latency has not been measured directly on
   the second target Mac. ([startup](terminal-startup-latency.md))
 - **USB progress polling:** replace the per-tick `/usr/bin/stat` in
-  `_usb_dd_bytes_observed` with a bounded native read, and keep
-  `_usb_progress_model`'s percentage from wrapping for 17–18-digit totals
-  (display only). ([USB bounds](usb-progress-integer-bounds.md#proposals-not-implemented))
+  `_usb_dd_bytes_observed` with a bounded native read (now only the retired
+  Windows writer polls through it), and keep `_usb_progress_model`'s percentage
+  from wrapping for 17–18-digit totals (display only). ([USB bounds](usb-progress-integer-bounds.md#proposals-not-implemented))
 
 ### Known code issues (found 2026-10-11, not yet fixed)
 

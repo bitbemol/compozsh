@@ -62,6 +62,15 @@ Regression cases are in `tests/usb_test.zsh`; select them with
 `zsh tests/run.zsh 'USB numeric bounds'`. All eight fail on `00deab4` and pass
 with the change.
 
+*Superseded in part 2026-10-13 (separate change):* the post-write read-back
+fallback was unreachable, because `flash-verify` succeeds only with in-session
+verification evidence, and it was deleted; `_usb_execute` now fails closed
+without that evidence. `_usb_verify_progress_read`, `_usb_od_uint` and
+`_usb_gpt_layout_capture` went with it, so the verification-phase, GPT-field
+and backup-entry hardening above covered code that no longer ships, and their
+three cases were removed. The other five `USB numeric bounds` cases still
+apply.
+
 ## Measurements
 
 Each figure is the mean of 400 calls to `_usb_verify_progress_read` with a
@@ -87,9 +96,10 @@ old `$(<…)` read plus here-string. Most of the remaining tick is the
 
 - **Native progress-capture cap.** `_usb_dd_bytes_observed` could drop its
   `/usr/bin/stat` call in favor of the same bounded `sysopen`/`sysread`. It
-  would read at most 1 MiB + 1 byte and reject longer captures. That removes
-  one process per tick from write, raw-verify and Windows-verify polling. It
-  needs its own characterization and measurement.
+  would read at most 1 MiB + 1 byte and reject longer captures. Since the
+  read-back fallback's removal, only the retired Windows writer's verification
+  polls through it; raw-image write polling uses `_usb_dd_progress_read` and
+  is unaffected. It needs its own characterization and measurement.
 - **Remaining diskutil numbers.** *Implemented separately (`f17abf6`,
   [arithmetic validation](arithmetic-input-validation.md)):* the integer audit
   bounds the `AllDisks` count, the personality sizes (as int64 text) and FAT32

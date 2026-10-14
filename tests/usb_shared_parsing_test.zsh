@@ -29,16 +29,13 @@ _test_usb_shared_output_parser_inputs() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb"
-    for component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,crc32_output_read}(N.); do source "$component"; done
+    for component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_checksum_*(N.); do source "$component"; done
     local output=poison digest="" REPLY=""
     printf -v digest "%064d" 0
     _usb_checksum_output_read "$digest  -" 256 && [[ $REPLY == "$digest" ]] || exit 1
-    _usb_crc32_output_read "123 4" 4 && [[ $REPLY == 123 ]] || exit 2
     [[ $output == poison ]] || exit 3
     unset output
     _usb_checksum_output_read "$digest  -" 256 && [[ $REPLY == "$digest" ]] || exit 4
-    _usb_crc32_output_read "456 8" 8 && [[ $REPLY == 456 ]] || exit 5
-    _usb_crc32_output_read "456 8" 9 && exit 6
     _usb_checksum_output_read invalid 256 && exit 7
     digest=${digest//0/A}
     _usb_checksum_output_read "$digest  -" 256 && [[ $REPLY == "${digest:l}" ]] || exit 8
@@ -46,7 +43,7 @@ _test_usb_shared_output_parser_inputs() {
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal literal "$output"
 }
-test_case 'USB shared SHA and CRC output parsers ignore absent and poisoned caller output variables' _test_usb_shared_output_parser_inputs
+test_case 'USB shared SHA output parser ignores absent and poisoned caller output variables' _test_usb_shared_output_parser_inputs
 
 _test_usb_shared_checksum_validator() {
   test_make_temp_dir || return
