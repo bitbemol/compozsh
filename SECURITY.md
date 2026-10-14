@@ -1725,7 +1725,7 @@ server.
 | Installer rollback after failures and signals, copy staging name and cleanup | `installer` |
 | Matching and exclusion | `exclusion`, `matching component` |
 | Captured-data parsing without temporary files | `here-string`, `filter override builder`, `worktree removal` |
-| Captured, setting and inherited text kept out of arithmetic | `never splices text into arithmetic`, `stay text`, `overflowing`, `hostile`, `inherited`, `numeric metadata`, `stat numbers`, `dd parser`, `validates width text` |
+| Captured, setting and inherited text kept out of arithmetic | `never splices text into arithmetic`, `stay text`, `overflowing`, `hostile`, `inherited`, `stat numbers`, `dd parser`, `validates width text` |
 | Shared effects and data | `shared effects`, `shared data` |
 | Picker digits and slot acceptance | `numeric`, `detail panels preserve native` |
 | Path + Tab directory arguments | `directory argument` |

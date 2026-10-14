@@ -146,6 +146,52 @@ _test_security_contract_is_public_and_auditable() {
 test_case 'docs: security and privacy contract stays public and auditable' \
   _test_security_contract_is_public_and_auditable
 
+# Each filter in the table is a published audit command, so deleting a test
+# must not leave one that selects nothing. The runner sources every test file
+# before running any case, so TEST_CASE_NAMES is complete here. Column 1 holds
+# boundary labels, some of which also use code spans.
+_test_security_focused_filters_select_tests() {
+  local line='' cells='' remaining='' filter='' MATCH=''
+  local -i in_section=0 row=0 found=0
+  local -a match=() mbegin=() mend=() names=("${(@L)TEST_CASE_NAMES}") dead=()
+
+  while IFS= read -r line; do
+    if (( ! in_section )); then
+      [[ $line == '### Focused regression checks' ]] && in_section=1
+      continue
+    fi
+    [[ $line == '#'* ]] && break
+    [[ $line == '| '*' |' ]] || continue
+    (( ++row > 2 )) || continue
+    cells=${${line#'| '}%' |'}
+    [[ $cells == *' | '* ]] || {
+      test_fail "focused regression row has no filter column: $line"
+      return 1
+    }
+    remaining=${cells#*' | '}
+    found=0
+    while [[ $remaining =~ '`([^`]+)`' ]]; do
+      filter=${match[1]:l}
+      (( ${names[(I)*${(b)filter}*]} )) || dead+=("$match[1]")
+      remaining=${remaining#*"$MATCH"}
+      (( ++found ))
+    done
+    (( found )) || {
+      test_fail "focused regression row lists no filter: $line"
+      return 1
+    }
+  done < "$TEST_REPO_ROOT/SECURITY.md"
+
+  (( row > 2 )) || {
+    test_fail 'SECURITY.md has no Focused regression checks table'
+    return 1
+  }
+  (( ! ${#dead} )) ||
+    test_fail "SECURITY focused regression filters select no test: ${(j:, :)${(@qqq)dead}}"
+}
+test_case 'docs: every SECURITY focused regression filter selects at least one test' \
+  _test_security_focused_filters_select_tests
+
 _test_xcode_skill_export_residue_is_disclosed() {
   local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
 
