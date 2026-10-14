@@ -94,10 +94,8 @@ measurement and design decision before implementation.
   evidence. ([startup](terminal-startup-latency.md#broader-repeated-work-audit))
 - **Second reference Mac:** startup latency has not been measured directly on
   the second target Mac. ([startup](terminal-startup-latency.md))
-- **USB progress polling:** replace the per-tick `/usr/bin/stat` in
-  `_usb_dd_bytes_observed` with a bounded native read (now only the retired
-  Windows writer polls through it), and keep `_usb_progress_model`'s percentage
-  from wrapping for 17–18-digit totals (display only). ([USB bounds](usb-progress-integer-bounds.md#proposals-not-implemented))
+- **USB progress percentage:** keep `_usb_progress_model`'s percentage from
+  wrapping for 17–18-digit totals (display only). ([USB bounds](usb-progress-integer-bounds.md#proposals-not-implemented))
 
 ### Known code issues (found 2026-10-11, not yet fixed)
 
@@ -115,8 +113,6 @@ measurement and design decision before implementation.
 - Leftover `my-zsh` identifiers: highlight memo tags (`my-zsh-picker`,
   `my-zsh-autosuggestion`) and the test harness's `my-zsh-tests.*`
   temporary-directory prefix.
-- The real-FAT32 `hdiutil` round-trip test fails on the current macOS 27
-  host; cause not yet investigated.
 
 ## Archive
 

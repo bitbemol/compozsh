@@ -1012,8 +1012,8 @@ images; choosing one closes that screen before its normal scoped capture. USB
 review and the flash and format modes keep their separate exact-device
 confirmations ([Administrator boundary](#administrator-boundary)). Shared pure
 USB readers validate supplied SHA text and native progress records without
-consulting caller-local variables or reading devices; raw and Windows execution
-share digest validation, while media-specific preflight, checksum requirements
+consulting caller-local variables or reading devices; raw execution uses that
+shared digest validation, while media-specific preflight, checksum requirements
 and final verification stay with their effect owners. Progress byte counts,
 installer percentages, and diskutil `TotalSize` and `DeviceBlockSize` are
 validated as decimal text of at most 18 digits before arithmetic, and progress
@@ -1178,7 +1178,6 @@ leaving `--flash` or `--format` at drive selection and after a failed write.
 | `compozsh-usb-inspect.*` | ISO classification when that listing is inconclusive | Read-only, `nobrowse` `hdiutil` mount point. While attached it presents the image's file tree with the mount's own permissions (observed `0755` with an ISO 9660 fixture; check with `stat -f %Lp` on the attached mount point), so other local users can read it only through a traversable parent such as `/tmp`; the default per-user macOS `TMPDIR` is owner-only. The mount path itself is visible to them in `mount` and `df` output |
 | `compozsh-usb-progress.*` | Raw image write, including `flash-verify` read-back inside the same privileged session | Standard error of that session: `dd` write and read-back progress and record counts, fixed `compozsh-write-*` stage and result markers, and native error text that can name the image or device. No size cap on disk; read in steps of at most 1 MiB |
 | `compozsh-createinstallmedia.*` | Apple `createinstallmedia` | Its combined standard output and error. No size cap on disk; ignored above 1 MiB |
-| `compozsh-usb-windows.*`, `compozsh-windows-readonly.*`, `compozsh-windows-verify.*` | Only the retired `_usb_windows_execute` writer, which no public path reaches (`_usb_media_execute` refuses Windows media) | Read-only ISO and target mount points; per-file `dd` read progress |
 
 `flash-verify` reads the drive back only inside the privileged write session,
 before that session releases the device. `_usb_execute` treats a write without
@@ -1215,7 +1214,7 @@ until it exits. Confirm the traps with
 (only that screen session's comments, `LOCAL_TRAPS`, `TRAPINT` and `TRAPWINCH`
 lines).
 List residue in Zsh with
-`ls -ld "${TMPDIR:-/tmp}"/compozsh-(usb|windows|createinstallmedia)*` (no
+`ls -ld "${TMPDIR:-/tmp}"/compozsh-(usb|createinstallmedia)*` (no
 residue: `no matches found`, status 1) and `hdiutil info` (no residue: no
 `compozsh-usb-inspect.*` mount point); release an attachment with
 `hdiutil detach /dev/diskN`, then remove its empty directory with `rmdir`. Read
@@ -1224,8 +1223,8 @@ the creation and cleanup sites with
 `zsh tests/run.zsh 'USB temporary'` uses stand-ins for `diskutil`, `hdiutil`,
 `dd` and `createinstallmedia` to check removal after success and handled
 failure, and each name and mode while it exists, for every name except
-`compozsh-usb-iso.*` (removal only; `tar` has no stand-in seam) and the retired
-Windows names. `zsh tests/run.zsh 'ISO inspection'` covers the failed-detach
+`compozsh-usb-iso.*` (removal only; `tar` has no stand-in seam).
+`zsh tests/run.zsh 'ISO inspection'` covers the failed-detach
 retry and a later refused inspection.
 `zsh tests/run.zsh 'external-media temporary'` fails when a
 `command /usr/bin/mktemp` call in `.zsh.addons/.zsh.usb` lacks a literal

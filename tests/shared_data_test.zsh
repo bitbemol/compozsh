@@ -61,7 +61,7 @@ _test_shared_data_result_contract() {
     for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     local -a reply=()
     _USB_RESULT_OUTCOME=sentinel
-    _usb_result_model windows-installer 0 outcome complete verified 0 verify_scope windows-file-tree started 1 ejected 0 || exit 1
+    _usb_result_model raw 1 outcome failed verified 0 started 1 ejected 0 || exit 1
     [[ $reply[1] == *"Couldn’t complete"* && ${reply[-4]} == "Check the drive before removing it" ]] || exit 2
     _usb_result_model macos-installer 0 outcome complete verified 1 source_validated 1 started 1 ejected 1 || exit 3
     [[ $reply[1] == *Complete && ${(j:|:)reply} == *"Apple-signed full installer"* && ${(j:|:)reply} != *"byte-for-byte"* ]] || exit 4

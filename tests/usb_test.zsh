@@ -175,10 +175,6 @@ _test_usb_windows_detection_avoids_obsolete_tree_preflight() {
       print -r -- install >| "$2/SOURCES/INSTALL.WIM"
       _USB_INSPECT_DEVICE=disk98 _USB_INSPECT_MOUNT=$2
     }
-    _usb_windows_tree_capture() {
-      trace+=(obsolete-recursive-preflight)
-      return 77
-    }
     _usb_hdiutil_detach() {
       trace+=("detach:$1")
       command /bin/rm -f -- "$_USB_INSPECT_MOUNT/SOURCES/BOOT.WIM" \
@@ -217,63 +213,6 @@ _test_usb_windows_partial_attach_failure_stops_classification() {
 }
 test_case 'USB Windows classification stops after a partial ISO attach failure' \
   _test_usb_windows_partial_attach_failure_stops_classification
-
-_test_usb_windows_preflight_captures_a_fat32_compatible_tree() {
-  test_make_temp_dir || return
-  local root="$TEST_TMP_DIR/windows" output=''
-  command mkdir -p "$root/sources" "$root/EFI/BOOT" \
-    "$root/EFI/Microsoft/Boot" "$root/boot" || return
-  test_write_file "$root/sources/boot.wim" boot || return
-  test_write_file "$root/sources/install.esd" install || return
-  test_write_file "$root/EFI/BOOT/BOOTX64.EFI" uefi || return
-  test_write_file "$root/EFI/Microsoft/Boot/BCD" bcd || return
-  test_write_file "$root/boot/boot.sdi" sdi || return
-  test_write_file "$root/setup.exe" setup || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2"
-    print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|arch:$_USB_WINDOWS_ARCHITECTURE"
-    print -r -- "layout:$_USB_WINDOWS_LAYOUT|files:$_USB_WINDOWS_FILE_COUNT|minimum:$_USB_WINDOWS_REQUIRED_BYTES"
-    print -r -- "tree:${(j:,:)_USB_WINDOWS_FILES}"
-  ' "$TEST_REPO_ROOT" "$root") || return
-
-  test_assert_contains "$output" 'status:0|compatible:1|arch:x86_64' \
-    'a UEFI Windows tree with FAT32-safe files was not accepted' || return
-  test_assert_contains "$output" 'layout:install.esd|files:6|minimum:5000000000' \
-    'Windows preflight did not retain its layout, file count, or target minimum' || return
-  test_assert_contains "$output" 'EFI/BOOT/BOOTX64.EFI' \
-    'Windows preflight lost an exact source-tree path'
-}
-test_case 'USB Windows preflight captures a FAT32-compatible installer tree' \
-  _test_usb_windows_preflight_captures_a_fat32_compatible_tree
-
-_test_usb_windows_preflight_rejects_an_oversized_file_before_targeting() {
-  test_make_temp_dir || return
-  local root="$TEST_TMP_DIR/windows-large" output=''
-  command mkdir -p "$root/sources" "$root/EFI/BOOT" \
-    "$root/EFI/Microsoft/Boot" "$root/boot" || return
-  test_write_file "$root/sources/boot.wim" boot || return
-  command /usr/bin/truncate -s 4294967296 "$root/sources/install.wim" || return
-  test_write_file "$root/EFI/BOOT/BOOTX64.EFI" uefi || return
-  test_write_file "$root/EFI/Microsoft/Boot/BCD" bcd || return
-  test_write_file "$root/boot/boot.sdi" sdi || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2"
-    print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
-  ' "$TEST_REPO_ROOT" "$root") || return
-
-  test_assert_contains "$output" 'status:0|compatible:0' \
-    'an oversized Windows installer file was not recognized and refused safely' || return
-  test_assert_contains "$output" 'sources/install.wim' \
-    'the FAT32 refusal did not identify the exact oversized file' || return
-  test_assert_contains "$output" '4 GiB' \
-    'the FAT32 refusal did not explain the native file-size boundary'
-}
-test_case 'USB Windows preflight refuses a file beyond FAT32 before target selection' \
-  _test_usb_windows_preflight_rejects_an_oversized_file_before_targeting
 
 _test_usb_unmountable_iso_remains_raw_flashable() {
   test_make_temp_dir || return
@@ -457,8 +396,6 @@ _test_usb_workspace_ends_on_windows_media_before_target_capture() {
     local -a trace=()
     _usb_media_kind_capture() {
       REPLY=windows-installer
-      _USB_WINDOWS_COMPATIBLE=1
-      _USB_WINDOWS_ARCHITECTURE=x86_64
     }
     _usb_target_choose() { trace+=(TARGET_CAPTURE_CALLED); return 9; }
     _usb_choose() {
@@ -512,103 +449,28 @@ _test_usb_workspace_ends_on_windows_media_before_target_capture() {
 test_case 'USB workspace ends on all Windows media before target capture' \
   _test_usb_workspace_ends_on_windows_media_before_target_capture
 
-_test_usb_windows_copy_and_verification_cover_every_file() {
-  test_make_temp_dir || return
-  local source="$TEST_TMP_DIR/source" target="$TEST_TMP_DIR/target" output=''
-  command mkdir -p "$source/sources" "$source/EFI/BOOT" "$target" || return
-  test_write_file "$source/sources/boot.wim" 'boot-payload' || return
-  test_write_file "$source/sources/install.esd" 'installer-payload' || return
-  test_write_file "$source/EFI/BOOT/BOOTX64.EFI" 'uefi-payload' || return
-  test_write_file "$source/setup.exe" 'setup-payload' || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_progress_stage() { return 0; }
-    _usb_windows_tree_capture "$2" || exit 2
-    _usb_windows_copy_tree "$2" "$3" || exit 3
-    _usb_windows_verify_tree "$2" "$3"
-    print -r -- "verified:$?|scope:$_USB_RESULT_VERIFY_SCOPE|bytes:$_USB_RESULT_BYTES"
-    print -rn -- changed >> "$3/sources/install.esd"
-    _usb_windows_verify_tree "$2" "$3" >/dev/null 2>&1
-    print -r -- "corrupt:$?|error:$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT" "$source" "$target") || return
-
-  test_assert_contains "$output" 'verified:0|scope:windows-file-tree' \
-    'Windows verification did not validate the complete copied manifest' || return
-  test_assert_contains "$output" 'corrupt:1|error:mismatch:sources/install.esd' \
-    'Windows verification did not identify a corrupted installer file'
+_test_usb_ships_no_retired_windows_writer() {
+  local line='' retired=''
+  local -a retired_markers=(
+    _usb_windows_execute _usb_windows_source_open _usb_windows_tree_capture
+    compozsh-usb-windows compozsh-windows-readonly compozsh-windows-verify
+    /usr/bin/ditto /bin/sync
+  )
+  local -a found=()
+  local -i line_number=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    (( ++line_number ))
+    for retired in "${retired_markers[@]}"; do
+      if [[ $line == *"$retired"* ]]; then
+        found+=("$line_number:$retired")
+      fi
+    done
+  done < "$TEST_REPO_ROOT/.zsh.addons/.zsh.usb"
+  (( ${#found} == 0 )) ||
+    test_fail "the unreachable Windows writer still ships: ${(j:, :)found[1,8]}"
 }
-test_case 'USB Windows copy is followed by exact verification of every source file' \
-  _test_usb_windows_copy_and_verification_cover_every_file
-
-_test_usb_windows_prepare_uses_fat32_mbr_and_validates_the_mount() {
-  test_make_temp_dir || return
-  local volumes="$TEST_TMP_DIR/Volumes" output=''
-  command mkdir -p "$volumes" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _USB_VOLUME_ROOT=$2
-    local volume_root=$2
-    local -a trace=()
-    _usb_disk_info_capture() {
-      _USB_INFO_SIZE=64000000000 _USB_INFO_BLOCK_SIZE=512
-      _USB_INFO_EXTERNAL=1 _USB_INFO_PHYSICAL=1 _USB_INFO_WHOLE=1
-      _USB_INFO_WRITABLE=1
-    }
-    _usb_info_is_eligible() { return 0; }
-    _usb_diskutil_erase_run() {
-      trace+=("${(j:|:)@}")
-      command mkdir -p "$volume_root/WINSETUP"
-    }
-    _usb_windows_target_validate() { return 0; }
-    _usb_diskutil_plist_capture() { _USB_PLIST=plist; }
-    _usb_plist_optional() {
-      case $2 in
-        (ParentWholeDisk) REPLY=disk9 ;;
-        (DeviceIdentifier) REPLY=disk9s1 ;;
-        (*) REPLY=${3:-} ;;
-      esac
-    }
-    _usb_target_revalidate() { return 0; }
-    _usb_windows_prepare_volume disk9 disk-fingerprint 5000000000
-    print -r -- "status:$?|volume:$REPLY|trace:${(j:,:)trace}"
-  ' "$TEST_REPO_ROOT" "$volumes") || return
-
-  test_assert_contains "$output" \
-    "status:0|volume:$volumes/WINSETUP|trace:eraseDisk|MS-DOS FAT32|WINSETUP|MBR|/dev/disk9" \
-    'the Windows handler did not prepare and bind one FAT32 MBR volume'
-}
-test_case 'USB Windows preparation uses native FAT32 MBR and validates the mounted parent' \
-  _test_usb_windows_prepare_uses_fat32_mbr_and_validates_the_mount
-
-_test_usb_windows_prepare_revalidates_identity_inside_the_erase_boundary() {
-  test_make_temp_dir || return
-  local volumes="$TEST_TMP_DIR/Volumes" output=''
-  command mkdir -p "$volumes" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _USB_VOLUME_ROOT=$2
-    local -i erased=0
-    _usb_disk_info_capture() {
-      _USB_INFO_SIZE=64000000000 _USB_INFO_BLOCK_SIZE=512
-      _USB_INFO_EXTERNAL=1 _USB_INFO_PHYSICAL=1 _USB_INFO_WHOLE=1
-      _USB_INFO_WRITABLE=1
-    }
-    _usb_info_is_eligible() { return 0; }
-    _usb_target_revalidate() { return 1; }
-    _usb_diskutil_erase_run() { erased=1; }
-    _usb_windows_prepare_volume disk9 disk-fingerprint 5000000000 >/dev/null 2>&1
-    print -r -- "status:$?|erased:$erased"
-  ' "$TEST_REPO_ROOT" "$volumes") || return
-
-  test_assert_equal 'status:1|erased:0' "$output" \
-    'the Windows erase helper accepted a replacement disk at the final effect boundary'
-}
-test_case 'USB Windows preparation revalidates the captured disk inside the erase boundary' \
-  _test_usb_windows_prepare_revalidates_identity_inside_the_erase_boundary
+test_case 'USB ships no retired Windows writer' \
+  _test_usb_ships_no_retired_windows_writer
 
 _test_usb_windows_partial_family_fails_closed_in_dispatch() {
   test_make_temp_dir || return
@@ -649,66 +511,15 @@ _test_usb_generic_uefi_loader_does_not_claim_windows_family() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2" >/dev/null 2>&1
-    print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
+    _usb_windows_setup_markers_detect "$2" >/dev/null 2>&1
+    print -r -- "status:$?"
   ' "$TEST_REPO_ROOT" "$root") || return
 
-  test_assert_equal 'status:1|compatible:0|error:' "$output" \
+  test_assert_equal 'status:1' "$output" \
     'a generic UEFI removable-media loader was misclassified as partial Windows setup media'
 }
 test_case 'USB generic UEFI fallback loaders remain eligible for the raw image handler' \
   _test_usb_generic_uefi_loader_does_not_claim_windows_family
-
-_test_usb_windows_fat32_boundary_and_architecture_labels() {
-  test_make_temp_dir || return
-  local root="$TEST_TMP_DIR/windows" output=''
-  command mkdir -p "$root/sources" "$root/EFI/BOOT" \
-    "$root/EFI/Microsoft/Boot" "$root/boot" || return
-  test_write_file "$root/sources/boot.wim" boot || return
-  command /usr/bin/truncate -s 4294967295 "$root/sources/install.wim" || return
-  test_write_file "$root/EFI/BOOT/BOOTX64.EFI" x64 || return
-  test_write_file "$root/EFI/BOOT/BOOTAA64.EFI" arm64 || return
-  test_write_file "$root/EFI/Microsoft/Boot/BCD" bcd || return
-  test_write_file "$root/boot/boot.sdi" sdi || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2"
-    local capture_status=$?
-    _usb_image_architecture_short_label "$_USB_WINDOWS_ARCHITECTURE"
-    print -r -- "status:$capture_status|compatible:$_USB_WINDOWS_COMPATIBLE|arch:$_USB_WINDOWS_ARCHITECTURE|label:$REPLY"
-  ' "$TEST_REPO_ROOT" "$root") || return
-
-  test_assert_equal 'status:0|compatible:1|arch:multi-architecture|label:x64 + ARM64' "$output" \
-    'the exact FAT32 maximum or dual-architecture UEFI media was rejected or mislabeled'
-}
-test_case 'USB Windows accepts the exact FAT32 file maximum and labels dual-architecture media' \
-  _test_usb_windows_fat32_boundary_and_architecture_labels
-
-_test_usb_windows_non_install_wim_oversize_has_precise_recovery() {
-  test_make_temp_dir || return
-  local root="$TEST_TMP_DIR/windows" output=''
-  command mkdir -p "$root/sources" "$root/EFI/BOOT" \
-    "$root/EFI/Microsoft/Boot" "$root/boot" || return
-  command /usr/bin/truncate -s 4294967296 "$root/sources/boot.wim" || return
-  test_write_file "$root/sources/install.esd" install || return
-  test_write_file "$root/EFI/BOOT/BOOTX64.EFI" uefi || return
-  test_write_file "$root/EFI/Microsoft/Boot/BCD" bcd || return
-  test_write_file "$root/boot/boot.sdi" sdi || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2"
-    print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
-  ' "$TEST_REPO_ROOT" "$root") || return
-
-  test_assert_contains "$output" 'status:0|compatible:0|error:FAT32 cannot store sources/boot.wim' \
-    'an oversized non-install WIM did not receive a precise refusal' || return
-  [[ $output != *'split'* ]] || test_fail \
-    'the non-install WIM refusal incorrectly recommended splitting install.wim'
-}
-test_case 'USB Windows oversized non-install files do not recommend an invalid WIM split' \
-  _test_usb_windows_non_install_wim_oversize_has_precise_recovery
 
 _test_usb_windows_family_without_uefi_fails_closed() {
   test_make_temp_dir || return
@@ -719,268 +530,15 @@ _test_usb_windows_family_without_uefi_fails_closed() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2"
-    print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
+    _usb_windows_setup_markers_detect "$2"
+    print -r -- "status:$?"
   ' "$TEST_REPO_ROOT" "$root") || return
 
-  test_assert_contains "$output" 'status:0|compatible:0' \
-    'recognized Windows setup media without a UEFI loader escaped to raw flashing' || return
-  test_assert_contains "$output" 'UEFI' \
-    'the incompatible Windows result did not explain the UEFI-only boundary'
+  test_assert_equal 'status:0' "$output" \
+    'recognized Windows setup media without a UEFI loader escaped to raw flashing'
 }
 test_case 'USB Windows family detection refuses non-UEFI media instead of raw flashing' \
   _test_usb_windows_family_without_uefi_fails_closed
-
-_test_usb_windows_preflight_requires_the_uefi_boot_chain() {
-  test_make_temp_dir || return
-  local root="$TEST_TMP_DIR/windows" output=''
-  command mkdir -p "$root/sources" "$root/EFI/BOOT" || return
-  test_write_file "$root/sources/boot.wim" boot || return
-  test_write_file "$root/sources/install.esd" install || return
-  test_write_file "$root/EFI/BOOT/BOOTX64.EFI" uefi || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2"
-    print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|error:$_USB_WINDOWS_ERROR"
-  ' "$TEST_REPO_ROOT" "$root") || return
-
-  test_assert_contains "$output" 'status:0|compatible:0' \
-    'a Windows tree without its BCD and boot SDI was accepted as bootable' || return
-  test_assert_contains "$output" 'boot chain' \
-    'the incomplete Windows boot chain did not receive a precise refusal'
-}
-test_case 'USB Windows preflight requires BCD and boot SDI for UEFI media' \
-  _test_usb_windows_preflight_requires_the_uefi_boot_chain
-
-_test_usb_windows_copy_rejects_a_symlink_target() {
-  test_make_temp_dir || return
-  local source="$TEST_TMP_DIR/source" victim="$TEST_TMP_DIR/victim"
-  local target="$TEST_TMP_DIR/target" output=''
-  command mkdir -p "$source/sources" "$source/EFI/BOOT" "$victim" || return
-  test_write_file "$source/sources/boot.wim" boot || return
-  test_write_file "$source/sources/install.esd" install || return
-  test_write_file "$source/EFI/BOOT/BOOTX64.EFI" uefi || return
-  command ln -s "$victim" "$target" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_progress_stage() { return 0; }
-    _usb_windows_tree_capture "$2" || exit 2
-    _usb_windows_copy_tree "$2" "$3" >/dev/null 2>&1
-    print -r -- "status:$?|victim:${#${(f)$(command find "$4" -mindepth 1 -print)}}"
-  ' "$TEST_REPO_ROOT" "$source" "$target" "$victim") || return
-
-  test_assert_contains "$output" 'status:2|victim:0' \
-    'Windows copy followed a symlink outside the selected target volume'
-}
-test_case 'USB Windows copy rejects a symlinked target before any file effect' \
-  _test_usb_windows_copy_rejects_a_symlink_target
-
-_test_usb_windows_verification_distinguishes_mismatch_and_read_failure() {
-  test_make_temp_dir || return
-  local source="$TEST_TMP_DIR/source" target="$TEST_TMP_DIR/target" output=''
-  command mkdir -p "$source/sources" "$source/EFI/BOOT" "$target/sources" \
-    "$target/EFI/BOOT" || return
-  test_write_file "$source/sources/boot.wim" boot || return
-  test_write_file "$source/sources/install.esd" install || return
-  test_write_file "$source/EFI/BOOT/BOOTX64.EFI" uefi || return
-  command /usr/bin/ditto "$source/" "$target" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_progress_stage() { return 0; }
-    _usb_windows_tree_capture "$2" || exit 2
-    _usb_windows_cmp_run() { return 1; }
-    _usb_windows_verify_tree "$2" "$3" >/dev/null 2>&1
-    print -r -- "mismatch:$?|$_USB_PAYLOAD_VERIFY_ERROR"
-    _usb_windows_cmp_run() { return 2; }
-    _usb_windows_verify_tree "$2" "$3" >/dev/null 2>&1
-    print -r -- "read:$?|$_USB_PAYLOAD_VERIFY_ERROR"
-  ' "$TEST_REPO_ROOT" "$source" "$target") || return
-
-  test_assert_contains "$output" 'mismatch:1|mismatch:EFI/BOOT/BOOTX64.EFI' \
-    'Windows verification lost a true content mismatch' || return
-  test_assert_contains "$output" 'read:2|read-failed:EFI/BOOT/BOOTX64.EFI' \
-    'Windows verification misreported an I/O failure as corruption'
-}
-test_case 'USB Windows verification distinguishes mismatch from read failure' \
-  _test_usb_windows_verification_distinguishes_mismatch_and_read_failure
-
-_test_usb_windows_preflight_rejects_fat32_reserved_paths() {
-  test_make_temp_dir || return
-  local root="$TEST_TMP_DIR/windows" output=''
-  command mkdir -p "$root/sources" "$root/EFI/BOOT" || return
-  test_write_file "$root/sources/boot.wim" boot || return
-  test_write_file "$root/sources/install.esd" install || return
-  test_write_file "$root/EFI/BOOT/BOOTAA64.EFI" uefi || return
-  test_write_file "$root/CON.txt" reserved || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_windows_tree_capture "$2"
-    print -r -- "status:$?|compatible:$_USB_WINDOWS_COMPATIBLE|arch:$_USB_WINDOWS_ARCHITECTURE|error:$_USB_WINDOWS_ERROR"
-  ' "$TEST_REPO_ROOT" "$root") || return
-
-  test_assert_contains "$output" 'status:0|compatible:0|arch:arm64' \
-    'Windows ARM64 media with a reserved FAT32 path was accepted' || return
-  test_assert_contains "$output" 'FAT32-incompatible' \
-    'the FAT32 path refusal did not explain its compatibility boundary'
-}
-test_case 'USB Windows preflight rejects reserved FAT32 paths for ARM64 media' \
-  _test_usb_windows_preflight_rejects_fat32_reserved_paths
-
-_test_usb_windows_handler_revalidates_before_erase_and_verifies_after_copy() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    local -a trace=()
-    _usb_progress_stage() { return 0; }
-    _usb_windows_source_open() {
-      trace+=(source-open)
-      _USB_WINDOWS_COMPATIBLE=1 _USB_WINDOWS_REQUIRED_BYTES=5000000000
-      _USB_WINDOWS_TOTAL_BYTES=3000000000 _USB_WINDOWS_FILE_COUNT=20
-      _USB_WINDOWS_ARCHITECTURE=x86_64 _USB_WINDOWS_LAYOUT=install.esd
-      _USB_WINDOWS_SOURCE_DEVICE=disk88 _USB_WINDOWS_SOURCE_MOUNT=/Volumes/WINDOWSISO
-      REPLY=/Volumes/WINDOWSISO
-    }
-    _usb_windows_source_close() { trace+=(source-close); }
-    _usb_image_revalidate() { trace+=(image-check); return ${image_status:-0}; }
-    _usb_target_revalidate() { trace+=(target-check); return 0; }
-    _usb_authorization_valid() { trace+=(authorization-check); return 0; }
-    _usb_windows_prepare_volume() {
-      trace+=(prepare)
-      _USB_RESULT_STARTED=1
-      _USB_WINDOWS_TARGET_PARTITION=disk9s1
-      REPLY=/Volumes/WINSETUP
-    }
-    _usb_windows_target_validate() { trace+=(volume-check:$4); return 0; }
-    _usb_windows_copy_tree() { trace+=(copy); }
-    _usb_windows_sync_run() { trace+=(sync); }
-    _usb_windows_unmount_run() { trace+=(unmount); }
-    _usb_windows_verify_mount_open() {
-      trace+=(readonly-mount)
-      _USB_WINDOWS_VERIFY_MOUNT=/tmp/compozsh-windows-readonly.test
-      REPLY=$_USB_WINDOWS_VERIFY_MOUNT
-    }
-    _usb_windows_verify_mount_cleanup() { trace+=(mount-cleanup); }
-    _usb_windows_verify_tree() {
-      trace+=(verify)
-      _USB_RESULT_VERIFY_SCOPE=windows-file-tree _USB_RESULT_BYTES=3000000000
-    }
-    _usb_eject() { trace+=(eject); }
-    _usb_windows_execute /images/windows.iso disk9 disk-fingerprint image-fingerprint \
-      20000 flash-verify "" 1 "" "" 8000000000 || exit 2
-    print -r -- "success:${(j:,:)trace}|outcome:$_USB_RESULT_OUTCOME|verified:$_USB_RESULT_VERIFIED"
-    trace=() image_status=1
-    _usb_windows_execute /images/windows.iso disk9 disk-fingerprint image-fingerprint \
-      20000 flash-verify "" 1 "" "" 8000000000 >/dev/null 2>&1
-    print -r -- "changed:$?|${(j:,:)trace}|started:$_USB_RESULT_STARTED"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" \
-    'success:source-open,image-check,target-check,target-check,authorization-check,target-check,prepare,image-check,target-check,volume-check:writable,copy,sync,image-check,target-check,volume-check:writable,unmount,readonly-mount,target-check,verify,source-close,eject,mount-cleanup|outcome:complete|verified:1' \
-    'the Windows handler skipped a validation, copy, verification, cleanup, or eject boundary' || return
-  test_assert_contains "$output" 'changed:1|source-open,image-check,source-close|started:0' \
-    'a changed Windows ISO reached a destructive target effect'
-}
-test_case 'USB Windows handler closes source and target races around verified creation' \
-  _test_usb_windows_handler_revalidates_before_erase_and_verifies_after_copy
-
-_test_usb_windows_authorization_swap_never_reaches_prepare() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    local -i target_checks=0 prepared=0
-    _usb_progress_stage() { return 0; }
-    _usb_windows_source_open() {
-      _USB_WINDOWS_REQUIRED_BYTES=5000000000
-      _USB_WINDOWS_TOTAL_BYTES=100 _USB_WINDOWS_FILE_COUNT=5
-      _USB_WINDOWS_SOURCE_DEVICE=disk88 _USB_WINDOWS_SOURCE_MOUNT=/Volumes/WINDOWSISO
-      REPLY=/Volumes/WINDOWSISO
-    }
-    _usb_windows_source_close() { return 0; }
-    _usb_image_revalidate() { return 0; }
-    _usb_target_revalidate() {
-      (( ++target_checks ))
-      (( target_checks < 3 ))
-    }
-    _usb_authorization_valid() { return 0; }
-    _usb_windows_prepare_volume() { prepared=1; return 0; }
-    _usb_windows_execute /images/windows.iso disk9 disk-fingerprint image-fingerprint \
-      20000 flash-verify "" 1 "" "" 8000000000 >/dev/null 2>&1
-    print -r -- "status:$?|checks:$target_checks|prepared:$prepared|started:$_USB_RESULT_STARTED|error:$_USB_RESULT_ERROR"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" 'status:1|checks:3|prepared:0|started:0' \
-    'a disk swapped during authorization reached Windows target preparation' || return
-  test_assert_contains "$output" 'changed during authorization' \
-    'the authorization-time disk replacement did not receive a precise refusal'
-}
-test_case 'USB Windows handler rejects a disk replacement after authorization' \
-  _test_usb_windows_authorization_swap_never_reaches_prepare
-
-_test_usb_windows_source_cleanup_preserves_identity_until_detach_succeeds() {
-  test_make_temp_dir || return
-  local mount="$TEST_TMP_DIR/compozsh-usb-windows.test" output=''
-  command mkdir -p "$mount" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    TMPDIR=${2:h}
-    _USB_WINDOWS_SOURCE_DEVICE=disk88 _USB_WINDOWS_SOURCE_MOUNT=$2
-    local -i detach_status=1
-    _usb_hdiutil_detach() { return $detach_status; }
-    _usb_windows_source_close
-    print -r -- "failed:$?|device:$_USB_WINDOWS_SOURCE_DEVICE|mount:$_USB_WINDOWS_SOURCE_MOUNT"
-    detach_status=0
-    _usb_windows_source_close
-    print -r -- "retried:$?|device:$_USB_WINDOWS_SOURCE_DEVICE|mount:$_USB_WINDOWS_SOURCE_MOUNT|exists:$([[ -d $2 ]] && print yes || print no)"
-  ' "$TEST_REPO_ROOT" "$mount") || return
-
-  test_assert_contains "$output" "failed:1|device:disk88|mount:$mount" \
-    'failed Windows source cleanup discarded the identity required for retry' || return
-  test_assert_contains "$output" 'retried:0|device:|mount:|exists:no' \
-    'Windows source cleanup did not clear state after a successful retry'
-}
-test_case 'USB Windows source cleanup retains failed detach identity for retry' \
-  _test_usb_windows_source_cleanup_preserves_identity_until_detach_succeeds
-
-_test_usb_windows_partial_source_attach_retains_cleanup_identity() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    TMPDIR=$2
-    local -i detach_status=1
-    _usb_hdiutil_attach_readonly() {
-      _USB_INSPECT_DEVICE=disk88 _USB_INSPECT_MOUNT=$2
-      return 2
-    }
-    _usb_hdiutil_detach() { return $detach_status; }
-    _usb_windows_source_open /images/windows.iso >/dev/null 2>&1
-    print -r -- "open:$?|device:$_USB_WINDOWS_SOURCE_DEVICE|mount:${_USB_WINDOWS_SOURCE_MOUNT:t}"
-    detach_status=0
-    _usb_windows_source_close >/dev/null 2>&1
-    print -r -- "retry:$?|device:$_USB_WINDOWS_SOURCE_DEVICE|mount:$_USB_WINDOWS_SOURCE_MOUNT"
-  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
-
-  test_assert_contains "$output" 'open:2|device:disk88|mount:compozsh-usb-windows.' \
-    'a failed partial Windows source attach discarded cleanup ownership' || return
-  test_assert_contains "$output" 'retry:0|device:|mount:' \
-    'retained partial Windows source cleanup could not be retried successfully'
-}
-test_case 'USB Windows partial source attachment retains identity for outer cleanup retry' \
-  _test_usb_windows_partial_source_attach_retains_cleanup_identity
 
 _test_usb_partial_inspection_cleanup_is_retriable_and_wired_outermost() {
   test_make_temp_dir || return
@@ -1100,13 +658,13 @@ _test_usb_result_dispatch_preserves_media_and_status() {
     source "$1/.zsh.addons/.zsh.usb"
     _usb_result_present() { print -r -- "$1:$2"; return 7; }
     local kind="" result=0
-    for kind in macos-installer windows-installer raw-image unknown; do
+    for kind in macos-installer raw-image unknown; do
       _usb_media_result_screen "$kind" 4
       result=$?
       (( result == 7 )) || exit 1
     done
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal $'macos-installer:4\nwindows-installer:4\nraw:4\nraw:4' "$output"
+  test_assert_equal $'macos-installer:4\nraw:4\nraw:4' "$output"
 }
 test_case 'USB result dispatch preserves media, unknown raw fallback and presenter status' \
   _test_usb_result_dispatch_preserves_media_and_status
@@ -1146,69 +704,6 @@ _test_usb_macos_result_screen_reports_native_outcome() {
 test_case 'USB macOS result screen reports Apple-native completion and failure' \
   _test_usb_macos_result_screen_reports_native_outcome
 
-_test_usb_windows_result_screen_reports_file_tree_evidence() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
-    _usb_result_choose() {
-      print -r -- "title:$1|trail:$2"
-      print -r -- "labels:${(j:|:)_USB_PICKER_LABELS}"
-      print -r -- "styles:${(j:|:)_USB_PICKER_HIGHLIGHTS}"
-    }
-    _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=90 _USB_RESULT_WRITE_SECONDS=50
-    _USB_RESULT_VERIFY_SECONDS=40 _USB_RESULT_BYTES=3000000000
-    _USB_RESULT_RATE="60.0 MiB/s" _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
-    _USB_RESULT_SOURCE_VALIDATED=1 _USB_RESULT_VERIFIED=1
-    _USB_RESULT_VERIFY_SCOPE=windows-file-tree _USB_RESULT_CHECKSUM_VALIDATED=0
-    _usb_media_result_screen windows-installer 0
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" \
-    'Windows installer complete · complete FAT32 file tree verified' \
-    'Windows completion reused raw-image language' || return
-  test_assert_contains "$output" \
-    'USB verification · Every captured installer file byte-for-byte matched' \
-    'Windows completion omitted its file-tree verification scope' || return
-  [[ $output == *picker-success* ]] ||
-    test_fail 'Windows completion evidence lacked semantic success color'
-}
-test_case 'USB Windows result screen reports file-tree verification evidence' \
-  _test_usb_windows_result_screen_reports_file_tree_evidence
-
-_test_usb_windows_result_never_claims_a_failed_checksum_matched() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
-    _usb_result_choose() { print -rl -- "${_USB_PICKER_LABELS[@]}"; }
-    _USB_RESULT_OUTCOME=failed _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0
-    _USB_RESULT_CHECKSUM_ALGORITHM=256
-    _USB_RESULT_EXPECTED_CHECKSUM=${(l:64::a:)}
-    _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_CHECKSUM_ERROR=calculation-failed
-    _USB_RESULT_ERROR="The Windows ISO SHA-256 could not be calculated; nothing was written."
-    _usb_media_result_screen windows-installer 1
-    print -r -- ---
-    _USB_RESULT_CHECKSUM_VALIDATED=0 _USB_RESULT_CHECKSUM_ERROR=changed-or-unreadable
-    _USB_RESULT_STARTED=1 _USB_RESULT_EJECTED=1
-    _USB_RESULT_ERROR="The Windows ISO SHA-256 changed or could not be reread; the drive must not be used."
-    _usb_media_result_screen windows-installer 1
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" 'Image integrity · FAILED · SHA-256 could not be calculated' \
-    'a checksum read failure was falsely presented as a mismatch' || return
-  test_assert_contains "$output" 'Image integrity · FAILED · source changed or could not be reread' \
-    'a post-copy source failure retained a false verified checksum claim' || return
-  [[ $output != *'Verified · SHA-256 matched'* ]] ||
-    test_fail 'a failed checksum state rendered a green matched claim'
-}
-test_case 'USB Windows failure results keep checksum calculation and later source failures truthful' \
-  _test_usb_windows_result_never_claims_a_failed_checksum_matched
-
 _test_usb_result_screens_keep_facts_passive() {
   test_make_temp_dir || return
   local output='' line=''
@@ -1237,15 +732,6 @@ _test_usb_result_screens_keep_facts_passive() {
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="macOS failure"
     _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_SOURCE_VALIDATED=0
     _usb_media_result_screen macos-installer 1
-
-    _USB_RESULT_OUTCOME=complete _USB_RESULT_SECONDS=3 _USB_RESULT_STARTED=1
-    _USB_RESULT_EJECTED=1 _USB_RESULT_VERIFIED=1
-    _USB_RESULT_VERIFY_SCOPE=windows-file-tree _USB_RESULT_CHECKSUM_VALIDATED=0
-    _USB_RESULT_EXPECTED_CHECKSUM="" _USB_RESULT_CHECKSUM_ERROR=""
-    _usb_media_result_screen windows-installer 0
-    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR="Windows failure"
-    _USB_RESULT_STARTED=0 _USB_RESULT_EJECTED=0 _USB_RESULT_VERIFIED=0
-    _usb_media_result_screen windows-installer 1
   ' "$TEST_REPO_ROOT") || return
 
   for line in "${(@f)output}"; do
@@ -1259,7 +745,7 @@ _test_usb_result_screens_keep_facts_passive() {
       return
     }
   done
-  (( screens == 6 )) || test_fail "expected six USB result states, saw $screens"
+  (( screens == 4 )) || test_fail "expected four USB result states, saw $screens"
 }
 test_case 'USB result screens expose only Done as an action' \
   _test_usb_result_screens_keep_facts_passive
@@ -1287,96 +773,6 @@ _test_usb_attention_and_review_screens_index_only_actions() {
 }
 test_case 'USB attention and macOS review screens index only actions' \
   _test_usb_attention_and_review_screens_index_only_actions
-
-_test_usb_windows_round_trip_on_a_real_fat32_image() {
-  test_make_temp_dir || return
-  local source="$TEST_TMP_DIR/source" image="$TEST_TMP_DIR/windows-fat32.dmg"
-  local target_mount="$TEST_TMP_DIR/target" verify_mount="$TEST_TMP_DIR/verify"
-  local output=''
-  command mkdir -p "$source/sources" "$source/EFI/BOOT" \
-    "$source/EFI/Microsoft/Boot" "$source/boot" \
-    "$target_mount" "$verify_mount" || return
-  test_write_file "$source/sources/boot.wim" 'boot-payload' || return
-  test_write_file "$source/sources/install.esd" 'installer-payload' || return
-  test_write_file "$source/EFI/BOOT/BOOTX64.EFI" 'uefi-payload' || return
-  test_write_file "$source/EFI/Microsoft/Boot/BCD" 'bcd-payload' || return
-  test_write_file "$source/boot/boot.sdi" 'sdi-payload' || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    local source=$2 image=$3 target_mount=$4 verify_mount=$5
-    local attach_output="" line="" device="" partition="" verify_device=""
-    local -i integration_status=1
-    _usb_progress_stage() { return 0; }
-    {
-      if ! command /usr/bin/hdiutil create -quiet -size 512m -fs MS-DOS \
-          -volname WINTEST "$image" 2>/dev/null; then
-        print -r -- "integration-unavailable:DiskImages could not create the FAT32 fixture"
-        return 0
-      fi
-      attach_output=$(command /usr/bin/hdiutil attach -nobrowse -noautoopen \
-        -mountpoint "$target_mount" "$image" 2>/dev/null) || exit 3
-      for line in "${(f)attach_output}"; do
-        [[ ${line%%[[:space:]]*} == /dev/disk<-> ]] &&
-          device=${${line%%[[:space:]]*}#/dev/}
-        [[ ${line%%[[:space:]]*} == /dev/disk<->s<-> ]] &&
-          partition=${${line%%[[:space:]]*}#/dev/}
-      done
-      [[ $device == disk<-> && $partition == ${device}s<-> ]] || exit 4
-      _usb_windows_tree_capture "$source" || exit 5
-      _usb_windows_target_validate "$device" "$partition" "$target_mount" writable || exit 18
-      _usb_windows_copy_tree "$source" "$target_mount" || exit 6
-      _usb_windows_sync_run || exit 7
-      command /usr/bin/hdiutil detach "/dev/$device" >/dev/null 2>&1 || exit 8
-      device=""
-      _usb_hdiutil_attach_readonly "$image" "$verify_mount" || exit 9
-      verify_device=$_USB_INSPECT_DEVICE
-      _usb_windows_target_validate "$verify_device" "${verify_device}s1" \
-        "$verify_mount" readonly || exit 19
-      _usb_windows_verify_tree "$source" "$verify_mount" || exit 10
-      print -r -- "verified:$?|scope:$_USB_RESULT_VERIFY_SCOPE"
-      command /usr/bin/hdiutil detach "/dev/$verify_device" >/dev/null 2>&1 || exit 11
-      verify_device=""
-      command /bin/rmdir "$verify_mount" 2>/dev/null
-      command mkdir "$verify_mount" || exit 12
-      attach_output=$(command /usr/bin/hdiutil attach -nobrowse -noautoopen \
-        -mountpoint "$verify_mount" "$image" 2>/dev/null) || exit 13
-      for line in "${(f)attach_output}"; do
-        [[ ${line%%[[:space:]]*} == /dev/disk<-> ]] || continue
-        device=${${line%%[[:space:]]*}#/dev/}
-        break
-      done
-      print -rn -- changed >> "$verify_mount/sources/install.esd" || exit 14
-      command /usr/bin/hdiutil detach "/dev/$device" >/dev/null 2>&1 || exit 15
-      device=""
-      command /bin/rmdir "$verify_mount" 2>/dev/null
-      command mkdir "$verify_mount" || exit 16
-      _usb_hdiutil_attach_readonly "$image" "$verify_mount" || exit 17
-      verify_device=$_USB_INSPECT_DEVICE
-      _usb_windows_verify_tree "$source" "$verify_mount" >/dev/null 2>&1
-      print -r -- "corrupt:$?|error:$_USB_PAYLOAD_VERIFY_ERROR"
-      integration_status=0
-    } always {
-      [[ -n $verify_device ]] && command /usr/bin/hdiutil detach "/dev/$verify_device" >/dev/null 2>&1
-      [[ -n $device ]] && command /usr/bin/hdiutil detach "/dev/$device" >/dev/null 2>&1
-    }
-    return $integration_status
-  ' "$TEST_REPO_ROOT" "$source" "$image" "$target_mount" "$verify_mount") || return
-
-  # DiskImages can transiently refuse synthetic device creation while another
-  # macOS disk-image operation owns the service. Deterministic verifier tests
-  # above remain mandatory; this lane exercises the real FAT32 provider when
-  # the host can supply it.
-  [[ $output == integration-unavailable:* ]] && return 0
-
-  test_assert_contains "$output" 'verified:0|scope:windows-file-tree' \
-    'a durable FAT32 detach/read-only-remount rejected an exact Windows tree' || return
-  test_assert_contains "$output" 'corrupt:1|error:mismatch:sources/install.esd' \
-    'the real FAT32 round trip did not detect finished-media corruption'
-}
-test_case 'USB Windows verifier round-trips and detects corruption on real FAT32' \
-  _test_usb_windows_round_trip_on_a_real_fat32_image
 
 _test_usb_image_capture_is_bounded_and_exact() {
   test_make_temp_dir || return
@@ -1581,10 +977,9 @@ test_case 'USB image architecture is equal passive context without warnings' \
 _test_usb_helpers_keep_caller_path_and_command_hash() {
   test_make_temp_dir || return
   local image="$TEST_TMP_DIR/x.img" log="$TEST_TMP_DIR/progress.log"
-  local folder="$TEST_TMP_DIR/tree" output='' helper=''
+  local output='' helper=''
   test_write_file "$image" "${(l:20000::x:)}" || return
   test_write_file "$log" '20000 bytes transferred · 40%' || return
-  command mkdir -p "$folder" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
@@ -1605,8 +1000,6 @@ _test_usb_helpers_keep_caller_path_and_command_hash() {
     probe _usb_image_filesystem_device_capture "$2"
     probe _usb_image_source_disk_capture "$2"
     probe _usb_image_revalidate "$2" unknown 20000
-    probe _usb_dd_bytes_observed "$3"
-    probe _usb_windows_target_bytes_capture "$4"
     probe _usb_createinstallmedia_progress_read "$3"
     caller_path=$PATH child_path=unobserved
     _usb_macos_installer_tool() {
@@ -1616,13 +1009,12 @@ _test_usb_helpers_keep_caller_path_and_command_hash() {
     _usb_media_kind_capture "$2"
     [[ $child_path == "PATH=$caller_path" ]] && child_path=same
     print -r -- "child-path:$child_path"
-  ' "$TEST_REPO_ROOT" "$image" "$log" "$folder") || return
+  ' "$TEST_REPO_ROOT" "$image" "$log") || return
 
   for helper in _usb_media_kind_capture _usb_image_stat_capture _usb_image_add \
       _usb_macos_installer_add _usb_media_add _usb_spotlight_images_capture \
       _usb_image_filesystem_device_capture _usb_image_source_disk_capture \
-      _usb_image_revalidate _usb_dd_bytes_observed \
-      _usb_windows_target_bytes_capture _usb_createinstallmedia_progress_read; do
+      _usb_image_revalidate _usb_createinstallmedia_progress_read; do
     test_assert_contains "$output" "hash:$helper:/bin/echo" \
       "$helper cleared the caller's command hash table" || return
   done
@@ -1936,8 +1328,6 @@ _test_usb_native_numbers_stay_text_until_validated() {
       if [[ $1 == /usr/bin/stat ]]; then print -r -- "$stat_text"; else builtin command "$@"; fi
     }
     for stat_text in '"'"'path[$(: >| $HOME/stat-marker)1]'"'"' 99999999999999999999; do
-      _usb_dd_bytes_observed dd.log
-      print -r -- "observed:$?"
       _usb_dd_progress_read dd.log 1024 $SECONDS
       print -r -- "progress:$?|$REPLY"
       _usb_createinstallmedia_progress_read installer.log
@@ -1969,27 +1359,18 @@ _test_usb_native_numbers_stay_text_until_validated() {
     }
     _usb_formats_capture
     print -r -- "formats:$?|${(j:,:)_USB_FORMAT_PERSONALITIES}"
-    command mkdir -p mnt || exit
-    _usb_diskutil_plist_capture() {
-      _USB_PLIST="${head}<dict><key>ParentWholeDisk</key><string>disk7</string><key>DeviceIdentifier</key><string>disk7s1</string><key>Content</key><string>DOS_FAT_32</string><key>FilesystemType</key><string>msdos</string><key>WritableVolume</key><true/><key>FreeSpace</key><string>99999999999999999999</string></dict></plist>"
-    }
-    _usb_windows_target_validate disk7 disk7s1 "$HOME/mnt" writable
-    print -r -- "free:$?"
     local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
   ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
 
   test_assert_equal 'status:0
-observed:1
 progress:0|Preparing the first write block…
 installer:0|Preparing Apple createinstallmedia…
-observed:1
 progress:0|Preparing the first write block…
 installer:0|Preparing Apple createinstallmedia…
 percent:0
 write:1|0
 stage:1
 formats:0|JHFS+
-free:1
 markers:0' "status:$exit_status"$'\n'"$output" \
     'USB native numbers were evaluated, wrapped or treated as arithmetic words'
 }
@@ -3342,29 +2723,6 @@ _test_usb_confirmation_explains_exact_mismatch() {
 test_case 'USB confirmation explains mismatches without weakening target binding' \
   _test_usb_confirmation_explains_exact_mismatch
 
-_test_usb_windows_confirmation_names_filesystem_aware_action() {
-  test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _USB_SELECTED_MEDIA_KIND=windows-installer
-    _USB_SELECTED_IMAGE_ARCHITECTURE=x86_64
-    read() { answer="ERASE disk28"; }
-    _usb_confirm /images/windows.iso disk28 "DataTraveler · /dev/disk28" \
-      flash-verify 256 "${(l:64::a:)}"
-  ' "$TEST_REPO_ROOT") || return
-
-  test_assert_contains "$output" \
-    'Action: Validate ISO SHA-256, create a UEFI FAT32 installer, verify every file, and eject' \
-    'Windows confirmation described a raw flash instead of its filesystem-aware action' || return
-  test_assert_contains "$output" \
-    'UEFI only' \
-    'Windows confirmation omitted the supported firmware boundary'
-}
-test_case 'USB Windows confirmation names its UEFI FAT32 file-tree workflow' \
-  _test_usb_windows_confirmation_names_filesystem_aware_action
-
 _test_usb_confirmation_colors_only_exact_phrase() {
   test_make_temp_dir || return
   local output=''
@@ -4409,13 +3767,9 @@ _test_usb_dd_progress_bounds_byte_counts() {
     print -r -- "eighteen:$?|$REPLY"
     _usb_dd_progress_bytes "1000000000000000000 bytes (1.0 EB) transferred 1.0s"
     print -r -- "nineteen:$?|$REPLY"
-    print -r -- "456 bytes transferred in 0.2 secs" >| "$HOME/progress"
-    print -r -- "12345678901234567890 bytes transferred in 0.3 secs" >> "$HOME/progress"
-    _usb_dd_bytes_observed "$HOME/progress" 2>| "$HOME/errors"
-    print -r -- "observed:$?|$REPLY|errors:$(<"$HOME/errors")"
-  ' "$TEST_REPO_ROOT") || return
+  ' "$TEST_REPO_ROOT" 2>&1) || return
 
-  test_assert_equal $'eighteen:0|999999999999999999\nnineteen:1|\nobserved:0|456|errors:' \
+  test_assert_equal $'eighteen:0|999999999999999999\nnineteen:1|' \
     "$output" 'dd byte counts beyond 18 digits were accepted or wrote a diagnostic'
 }
 test_case 'USB numeric bounds reject dd byte counts beyond 18 digits without diagnostics' \

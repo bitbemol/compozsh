@@ -5,24 +5,19 @@ _test_usb_shared_checksum_execution() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb"
     for component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_checksum_*(N.); do source "$component"; done
-    local digest="" windows_seen=0 raw_seen=0
+    local digest="" raw_seen=0
     printf -v digest "%064d" 0
     _usb_progress_stage() { :; }
-    _usb_windows_source_open() { (( ++windows_seen )); return 1; }
     _usb_image_revalidate() { (( ++raw_seen )); return 1; }
-    _usb_windows_execute /fixture.iso disk9 diskfp imagefp 1 flash-verify "" 1 256 "$digest" 1
-    [[ $? == 1 && $windows_seen == 1 ]] || exit 1
     _usb_execute /fixture.iso disk9 diskfp imagefp 1 flash-verify "" 1 256 "$digest" 1
     [[ $? == 1 && $raw_seen == 1 ]] || exit 2
-    _usb_windows_execute /fixture.iso disk9 diskfp imagefp 1 flash-verify "" 1 256 invalid 1
-    [[ $? == 2 && $windows_seen == 1 ]] || exit 3
     _usb_execute /fixture.iso disk9 diskfp imagefp 1 flash-verify "" 1 512 "$digest" 1
     [[ $? == 2 && $raw_seen == 1 ]] || exit 4
     print validated
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal validated "$output"
 }
-test_case 'USB shared checksum validation accepts valid Windows and raw inputs before stubbed preflight' _test_usb_shared_checksum_execution
+test_case 'USB shared checksum validation accepts valid raw inputs before stubbed preflight' _test_usb_shared_checksum_execution
 
 _test_usb_shared_output_parser_inputs() {
   test_make_temp_dir || return
@@ -106,24 +101,6 @@ _test_usb_shared_dd_line_parser() {
   test_assert_equal native "$output"
 }
 test_case 'USB shared dd parser accepts both native byte records and rejects unrelated diagnostics' _test_usb_shared_dd_line_parser
-
-_test_usb_shared_dd_capture_characterization() {
-  test_make_temp_dir || return
-  local output
-  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.usb"
-    for component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_dd_progress_bytes(N.); do source "$component"; done
-    print -r -- "123 bytes (123 B) transferred 0.1s" > "$HOME/progress"
-    print -r -- "456 bytes transferred in 0.2 secs" >> "$HOME/progress"
-    print -r -- "12 records in" >> "$HOME/progress"
-    _usb_dd_bytes_observed "$HOME/progress" && [[ $REPLY == 456 ]] || exit 1
-    print -r -- "write failed" >| "$HOME/progress"
-    _usb_dd_bytes_observed "$HOME/progress" && exit 2
-    print observed
-  ' "$TEST_REPO_ROOT") || return
-  test_assert_equal observed "$output"
-}
-test_case 'USB shared dd capture retains the last native byte observation and ignores other records' _test_usb_shared_dd_capture_characterization
 
 _test_usb_shared_parser_absence() {
   test_make_temp_dir || return

@@ -94,12 +94,11 @@ old `$(<…)` read plus here-string. Most of the remaining tick is the
 
 ## Proposals (not implemented)
 
-- **Native progress-capture cap.** `_usb_dd_bytes_observed` could drop its
-  `/usr/bin/stat` call in favor of the same bounded `sysopen`/`sysread`. It
-  would read at most 1 MiB + 1 byte and reject longer captures. Since the
-  read-back fallback's removal, only the retired Windows writer's verification
-  polls through it; raw-image write polling uses `_usb_dd_progress_read` and
-  is unaffected. It needs its own characterization and measurement.
+- **Native progress-capture cap.** *Withdrawn (2026-10-13): `_usb_dd_bytes_observed`
+  was deleted with the unreachable Windows writer, its last caller.* It could
+  have dropped its `/usr/bin/stat` call in favor of the same bounded
+  `sysopen`/`sysread`; raw-image write polling uses `_usb_dd_progress_read`
+  and was never affected.
 - **Remaining diskutil numbers.** *Implemented separately (`f17abf6`,
   [arithmetic validation](arithmetic-input-validation.md)):* the integer audit
   bounds the `AllDisks` count, the personality sizes (as int64 text) and FAT32

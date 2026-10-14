@@ -346,7 +346,7 @@ _test_external_media_temporary_names_are_disclosed() {
       (( ++templates ))
     done < "$file"
   done
-  (( calls >= 8 && calls == templates )) || {
+  (( calls >= 5 && calls == templates )) || {
     test_fail "external-media mktemp calls ($calls) and literal compozsh-* names ($templates) differ"
     return 1
   }
