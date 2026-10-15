@@ -14,8 +14,9 @@ _git_worktree_fail() {
 }
 
 # Explicit roots own every Git invocation, including inherited selector state.
-# Transport, hooks, optional writes and filesystem monitors stay disabled for
-# capture and execution. Creation/removal additionally refuse configured filters.
+# Transport, hooks, optional writes, filesystem monitors and signature
+# verifiers stay disabled for capture and execution. Creation/removal
+# additionally refuse configured filters.
 _git_worktree_git() {
   emulate -L zsh
   local root=$1
@@ -30,7 +31,8 @@ _git_worktree_git() {
     -c core.hooksPath=/dev/null -c core.fsmonitor=false \
     -c core.untrackedCache=false -c maintenance.auto=false -c gc.auto=0 \
     -c submodule.recurse=false -c fetch.recurseSubmodules=false \
-    -c checkout.guess=false -c branch.autoSetupMerge=false "$@"
+    -c checkout.guess=false -c branch.autoSetupMerge=false \
+    -c log.showSignature=false "$@"
 }
 
 # Complete snapshots only: one lookahead byte and a trailing NUL/status protect

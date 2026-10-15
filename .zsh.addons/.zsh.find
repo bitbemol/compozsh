@@ -156,7 +156,8 @@ _file_search_sort_matches() {
 }
 
 # Git discovery belongs to the displayed folder. Keep inherited repository
-# selectors and configured monitor hooks from redirecting or executing a read.
+# selectors from redirecting a read, and repository-configured monitors, hooks
+# and replacement objects from running or changing it.
 _file_search_git() {
   emulate -L zsh
   local root=$1 git_binary=${commands[git]:-}
@@ -167,7 +168,8 @@ _file_search_git() {
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
   unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
   local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL=''
-  command "$git_binary" -C "$root" -c core.fsmonitor=false "$@"
+  command "$git_binary" --no-pager --no-replace-objects -C "$root" \
+    -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
 }
 
 # Hand a provider's NUL-terminated stream on stdin to a handler in batches of

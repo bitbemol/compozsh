@@ -613,3 +613,161 @@ _test_installer_temporary_names_are_disclosed() {
 }
 test_case 'security: installer temporary names are compozsh-named and disclosed' \
   _test_installer_temporary_names_are_disclosed
+
+# Every Git call Compozsh makes on its own (prompt, Search, branch, review,
+# worktree and discard reads) keeps one local-only read baseline, so a wrapper
+# copied into a new peer cannot silently drop a control. A `command git`,
+# `command "$git_binary"`, `exec git` or `exec "$git_binary"` call needs the
+# four variables inline or as `local -x` earlier in its function (opened by
+# `name() {` and closed by `}` at column 0), and the pager, replace-object,
+# fsmonitor and hooks controls in the call itself. Backslash-continued lines
+# form one statement; comment lines are ignored. Only the transparent `git` and
+# `g` arguments, which keep the user's own Git semantics, and explicit
+# switches after cleanup, which keep repository hooks by design, are exempt.
+_security_git_read_baseline() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local file='' line='' trimmed='' statement='' function_name='' environment=''
+  local rest='' setting='' missing='' MATCH='' MBEGIN='' MEND=''
+  local pattern='(^|[^[:alnum:]_-])(command|exec)[[:space:]]+(git|"\$git_binary")([[:space:]]|\)|$)'
+  local -a match=() mbegin=() mend=()
+  local -a variables=(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 "GIT_ALLOW_PROTOCOL=''")
+  local -a flags=(--no-pager --no-replace-objects '-c core.fsmonitor=false' '-c core.hooksPath=/dev/null')
+  local -i number=0 start=0 calls=0 count=0
+  for file in "$@"; do
+    number=0 statement='' function_name='' environment=''
+    while IFS= read -r line || [[ -n $line ]]; do
+      (( ++number ))
+      [[ -z $statement ]] && start=$number
+      trimmed=${line##[[:space:]]#}
+      [[ -z $statement && $trimmed == \#* ]] && continue
+      [[ -z $statement && $line == [A-Za-z_]*'() {'* ]] &&
+        function_name=${line%%'() {'*} environment=''
+      if [[ $line == *\\ ]]; then
+        statement+="${trimmed%\\} "
+        continue
+      fi
+      statement+=$trimmed
+      [[ $statement == local[[:space:]]##-x[[:space:]]* ]] && environment+=" $statement"
+      calls=0 rest=$statement
+      while [[ $rest =~ $pattern ]]; do
+        (( ++calls ))
+        rest=${rest[MEND+1,-1]}
+      done
+      if (( calls )); then
+        case $function_name:$statement in
+          ('git:command git "$@"'|'git:command git "${git_color_arguments[@]}" "$@"'|\
+           'g:command git "$@"'|'g:command git'|\
+           'g:command git -C "$root" switch --no-guess -- "$branch"'|\
+           '_git_branch_remote_switch:command git -C "$root" -c submodule.recurse=false switch --no-guess --track=direct --create "$name" -- "$ref"')
+            print -r -- "allow ${file#$TEST_REPO_ROOT/} $function_name: $statement"
+            ;;
+          (*)
+            missing=''
+            for setting in "${variables[@]}"; do
+              [[ " $environment $statement " == *[[:space:]\(]"$setting"[[:space:]]* ]] ||
+                missing+=" ${setting%%=*}"
+            done
+            for setting in "${flags[@]}"; do
+              count=0 rest=$statement
+              while [[ $rest == *"$setting"* ]]; do
+                rest=${rest#*"$setting"}
+                (( ++count ))
+              done
+              (( count >= calls )) || missing+=" ${setting#-c }"
+            done
+            if [[ -n $missing ]]; then
+              print -r -- "gap ${file#$TEST_REPO_ROOT/}:$start ${function_name:-<top level>}: missing${missing}"
+            else
+              print -r -- "ok ${file#$TEST_REPO_ROOT/} $function_name"
+            fi
+            ;;
+        esac
+      fi
+      [[ $line == \}* || ( $line == [A-Za-z_]*'() {'* && $line == *'}' ) ]] &&
+        function_name='' environment=''
+      statement=''
+    done < "$file"
+  done
+}
+
+_test_passive_git_calls_keep_the_read_baseline() {
+  emulate -L zsh
+  test_make_temp_dir || return
+  local fixture="$TEST_TMP_DIR/.zsh.fixture" shown='' found='' expected='' entry=''
+  local -a zsh_files=() lines=() checked=()
+  test_write_file "$fixture" 'read_inline() {
+  out=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+    GIT_ALLOW_PROTOCOL='"''"' command git --no-pager --no-replace-objects \
+    -c core.fsmonitor=false -c core.hooksPath=/dev/null status)
+}
+read_scoped() {
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
+  local -x GIT_ALLOW_PROTOCOL='"''"'
+  # command git log
+  exec "$git_binary" --no-pager --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+}
+no_hooks() {
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL='"''"'
+  command "$git_binary" -C "$root" -c core.fsmonitor=false "$@"
+}
+late_environment() {
+  dir=$(command git --no-pager --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse)
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL='"''"'
+}
+other_function() {
+  command git --no-pager --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null status
+}
+two_calls() {
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL='"''"'
+  a=$(command git --no-pager --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null status) && b=$(exec git rev-parse)
+}
+g() {
+  command git "$@"
+  command git status
+}' || return
+  found=$(_security_git_read_baseline "$fixture")
+  shown=${fixture#$TEST_REPO_ROOT/}
+  found=${found//"$shown"/fixture}
+  expected='ok fixture read_inline
+ok fixture read_scoped
+gap fixture:14 no_hooks: missing --no-pager --no-replace-objects core.hooksPath=/dev/null
+gap fixture:17 late_environment: missing GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH GIT_TERMINAL_PROMPT GIT_ALLOW_PROTOCOL
+gap fixture:21 other_function: missing GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH GIT_TERMINAL_PROMPT GIT_ALLOW_PROTOCOL
+gap fixture:25 two_calls: missing --no-pager --no-replace-objects core.fsmonitor=false core.hooksPath=/dev/null
+allow fixture g: command git "$@"
+gap fixture:29 g: missing GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH GIT_TERMINAL_PROMPT GIT_ALLOW_PROTOCOL --no-pager --no-replace-objects core.fsmonitor=false core.hooksPath=/dev/null'
+  test_assert_equal "$expected" "$found" 'Git read baseline scan reported the wrong sites' || return
+
+  _security_runtime_files
+  zsh_files=(${(M)_SECURITY_RUNTIME_FILES:#*/(.zshrc|*.zsh|.zsh.*)})
+  (( ${#zsh_files} > 20 )) || { test_fail 'runtime Zsh file inventory is unexpectedly small'; return 1; }
+  found=$(_security_git_read_baseline "${zsh_files[@]}")
+  lines=(${(M)${(f)found}:#gap *})
+  (( ${#lines} == 0 )) || {
+    test_fail "a passive Git call lacks the local-only read baseline (engineering/workspaces/git.md):"$'\n'"${(F)lines}"
+    return 1
+  }
+  # The exemptions stay exactly these transparent calls and explicit switches.
+  lines=(${(u)${(M)${(f)found}:#allow *}})
+  expected='allow .zsh.addons/.zsh.navigation _git_branch_remote_switch: command git -C "$root" -c submodule.recurse=false switch --no-guess --track=direct --create "$name" -- "$ref"
+allow .zsh.addons/.zsh.navigation g: command git
+allow .zsh.addons/.zsh.navigation g: command git "$@"
+allow .zsh.addons/.zsh.navigation g: command git -C "$root" switch --no-guess -- "$branch"
+allow .zsh.addons/.zsh.output git: command git "$@"
+allow .zsh.addons/.zsh.output git: command git "${git_color_arguments[@]}" "$@"'
+  for entry in "${(@f)expected}"; do
+    (( ${lines[(Ie)$entry]} )) || { test_fail "Git read baseline exemption is missing: $entry"; return 1; }
+  done
+  (( ${#lines} == ${#${(@f)expected}} )) ||
+    { test_fail "Git read baseline exemptions changed:"$'\n'"${(F)lines}"; return 1; }
+  # Guard against a vacuous scan: every known passive wrapper was checked.
+  lines=(${(M)${(f)found}:#ok *})
+  for entry in _compozsh_git_filter_config _file_search_git _git_branch_read \
+      _git_review_git _git_worktree_git _prompt_git _tools_git_discard_all; do
+    checked=(${(M)lines:#ok * $entry})
+    (( ${#checked} )) || { test_fail "Git read baseline scan did not check $entry"; return 1; }
+  done
+}
+test_case 'security: every passive Git call carries the local-only read baseline' \
+  _test_passive_git_calls_keep_the_read_baseline

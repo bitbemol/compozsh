@@ -308,7 +308,10 @@ _prompt_git() {
      [[ -d ${_PROMPT_GIT_DIR_CACHE[$cache_key]} ]]; then
     git_dir=${_PROMPT_GIT_DIR_CACHE[$cache_key]}
   else
-    git_dir=$(command git rev-parse --absolute-git-dir 2>/dev/null)
+    git_dir=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+      GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
+      -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+      rev-parse --absolute-git-dir 2>/dev/null)
     [[ -n $git_dir ]] && _PROMPT_GIT_DIR_CACHE[$cache_key]=$git_dir
   fi
   if [[ -n $git_dir ]]; then

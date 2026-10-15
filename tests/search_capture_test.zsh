@@ -2,7 +2,7 @@
 _test_search_default_sources() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/Repo/Sub" "$TEST_TMP_DIR/home/Ordinary" || return
-  test_write_file "$TEST_TMP_DIR/bin/git" $'#!/bin/zsh\nprint -rl -- "$@" >| "$HOME/git-args"\n[[ $2 == "$HOME/Repo" || $2 == "$HOME/Repo/"* ]] || exit 1\nprint true' || return
+  test_write_file "$TEST_TMP_DIR/bin/git" $'#!/bin/zsh\nprint -rl -- "$@" >| "$HOME/git-args"\nwhile [[ $1 == --no-* ]]; do shift; done\n[[ $2 == "$HOME/Repo" || $2 == "$HOME/Repo/"* ]] || exit 1\nprint true' || return
   command chmod +x "$TEST_TMP_DIR/bin/git" || return
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
@@ -46,7 +46,7 @@ _test_search_provider_failures() {
   test_make_temp_dir || return
   test_write_file "$TEST_TMP_DIR/home/needle.txt" fixture || return
   test_write_file "$TEST_TMP_DIR/home/needle-two.txt" fixture || return
-  test_write_file "$TEST_TMP_DIR/bin/git" $'#!/bin/zsh\nwhile [[ $1 == -C || $1 == -c ]]; do shift 2; done\n[[ $1 == rev-parse ]] && { print true; exit 0; }\n(( ${EMIT:-0} )) && printf "needle.txt\\0"\nexit "${FAILURE:-0}"' || return
+  test_write_file "$TEST_TMP_DIR/bin/git" $'#!/bin/zsh\nwhile [[ $1 == (-C|-c|--no-*) ]]; do [[ $1 == -[Cc] ]] && shift; shift; done\n[[ $1 == rev-parse ]] && { print true; exit 0; }\n(( ${EMIT:-0} )) && printf "needle.txt\\0"\nexit "${FAILURE:-0}"' || return
   test_write_file "$TEST_TMP_DIR/bin/mdfind" $'#!/bin/zsh\n(( ${EMIT:-0} )) && printf "%s\\0" "$HOME/needle.txt"\n(( ${EMIT:-0} > 1 )) && printf "%s\\0" "$HOME/needle-two.txt"\nexit "${FAILURE:-0}"' || return
   command chmod +x "$TEST_TMP_DIR/bin/git" "$TEST_TMP_DIR/bin/mdfind" || return
   local output

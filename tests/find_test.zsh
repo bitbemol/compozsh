@@ -335,7 +335,7 @@ _test_file_search_provider_stream_chunks() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''
 
-  test_write_file "$fake_bin/git" $'#!/bin/zsh\nwhile [[ $1 == -C || $1 == -c ]]; do shift 2; done\n[[ $1 == rev-parse ]] && exit 0\n/bin/cat -- "$FAKE_LIST"\nexit "${FAILURE:-0}"' || return
+  test_write_file "$fake_bin/git" $'#!/bin/zsh\nwhile [[ $1 == (-C|-c|--no-*) ]]; do [[ $1 == -[Cc] ]] && shift; shift; done\n[[ $1 == rev-parse ]] && exit 0\n/bin/cat -- "$FAKE_LIST"\nexit "${FAILURE:-0}"' || return
   test_write_file "$fake_bin/mdfind" $'#!/bin/zsh\n/bin/cat -- "$FAKE_LIST"\nexit "${FAILURE:-0}"' || return
   command chmod +x "$fake_bin/git" "$fake_bin/mdfind" || return
   command mkdir -p "$home/Notes" || return

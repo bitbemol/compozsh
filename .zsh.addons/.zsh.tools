@@ -184,16 +184,19 @@ _tools_git_discard_all() {
   local -a filter_config=() confirmed_filter_config=()
   local -i filter_config_changed=0 index=0 restore_tracked=0 confirm_status=0
 
-  root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
+  root=$(command git --no-pager --no-replace-objects -c core.fsmonitor=false \
+    -c core.hooksPath=/dev/null rev-parse --show-toplevel 2>/dev/null) || {
     print -u2 'g --discard-all: not inside a Git working tree'
     return 1
   }
-  head=$(command git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || {
+  head=$(command git --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
+    -c core.hooksPath=/dev/null rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || {
     print -u2 'g --discard-all: this repository has no commit to restore'
     return 1
   }
 
-  git_dir=$(command git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || {
+  git_dir=$(command git --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
+    -c core.hooksPath=/dev/null rev-parse --absolute-git-dir 2>/dev/null) || {
     print -u2 'g --discard-all: could not inspect repository state'
     return 1
   }
@@ -246,9 +249,15 @@ _tools_git_discard_all() {
     return 1
   fi
 
-  confirmed_root=$(command git -C "$root" rev-parse --show-toplevel 2>/dev/null) &&
-    confirmed_head=$(command git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) &&
-    confirmed_git_dir=$(command git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || {
+  confirmed_root=$(command git --no-pager --no-replace-objects -C "$root" \
+    -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+    rev-parse --show-toplevel 2>/dev/null) &&
+    confirmed_head=$(command git --no-pager --no-replace-objects -C "$root" \
+      -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+      rev-parse --verify 'HEAD^{commit}' 2>/dev/null) &&
+    confirmed_git_dir=$(command git --no-pager --no-replace-objects -C "$root" \
+      -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+      rev-parse --absolute-git-dir 2>/dev/null) || {
       print -u2 'g --discard-all: could not revalidate the repository after confirmation; nothing was discarded'
       return 1
     }

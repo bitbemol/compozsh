@@ -1407,8 +1407,9 @@ another remote operation.
 - **Files** discovery uses bounded filesystem reads, local Git metadata, or the
   local Spotlight index. Its Git detection and capture share one
   explicit-folder boundary with the same selector isolation and disabled
-  filesystem monitors, optional writes, lazy fetches and transport, so
-  repository-configured fsmonitor commands cannot run during `ls-files`.
+  filesystem monitors, hooks, replacement objects, optional writes, lazy
+  fetches and transport, so repository-configured fsmonitor commands cannot
+  run during `ls-files`.
   Inspect `.zsh.addons/.zsh.find`.
 
 ### Independently controlled network-capable software

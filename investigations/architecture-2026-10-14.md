@@ -87,6 +87,12 @@ directly, re-verifies and commits it.
 - Search, Recents and Git review no longer empty the shell's command hash
   table, so entries added with `hash name=/path` survive using them
   (P1-12, SEC-B-02).
+- Search's Git discovery, the prompt's Git-directory lookup and the
+  `g --discard-all` repository checks now carry the same local-only Git
+  controls as every other Compozsh Git read (no lazy fetch, prompts,
+  transport, optional locks, pager, replacement objects, fsmonitor or hooks),
+  and a static test keeps every such call on that baseline (P1-13, D-05,
+  A2-05).
 
 ## Performance results
 

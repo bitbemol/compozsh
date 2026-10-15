@@ -20,7 +20,11 @@ invocation. Disabling them keeps ordinary `g` switch/copy and Git delegation.
   refuses configured checkout filters. An explicit, confirmed branch switch or
   creation (`git switch`) deliberately keeps the repository's own checkout
   filters and hooks, as SECURITY.md discloses. Repository and global
-  configuration are never changed.
+  configuration are never changed. A `security:` static test holds every Git
+  call Compozsh makes on its own, Search discovery included, to one read
+  baseline (the local-only environment, no pager or replacement refs,
+  fsmonitor and hooks off); only transparent `g`/`git` arguments and explicit
+  switches are exempt.
 - **Review is read-only.** Review views dispatch no stage, discard, commit,
   checkout, clipboard or app action; adding a mutation shortcut needs a
   separately authorized design and behavioral tests. Worktree mutations happen
