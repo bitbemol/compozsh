@@ -454,6 +454,7 @@ _test_git_branch_recency_contract() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     _git_recent_branches "$2"
     print -r -- "${(j:|:)_GIT_RECENT_BRANCHES}"
   ' "$TEST_REPO_ROOT" "$repository") || return
@@ -482,6 +483,7 @@ _test_git_branch_recency_tolerates_unvisited_branches() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     _git_recent_branches "$2"
     result_status=$?
     print -r -- "$result_status|${(j:|:)_GIT_RECENT_BRANCHES}"

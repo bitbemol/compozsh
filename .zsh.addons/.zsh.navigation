@@ -211,19 +211,19 @@ _directory_recents_choose() {
 # Order all local branches using Git's own checkout reflog. Keeping this
 # derived avoids a second history file and also sees switches made by IDEs or
 # other shells. Deleted branches and detached commit IDs are filtered out.
-# Branch snapshots inspect local objects only. Keep these controls scoped to
-# providers so explicit switching and transparent Git arguments retain semantics.
-# Disabling log.showSignature keeps reflog reads from running a configured
-# signature verifier (gpg.program) for each signed entry.
+# Branch snapshots inspect local objects only, through the shared local-only
+# entry (which also keeps reflog reads from running a configured signature
+# verifier such as gpg.program). Keep these controls scoped to providers so
+# explicit switching and transparent Git arguments retain semantics. The
+# inherit policy keeps selectors: bare g shadows them before any snapshot, so
+# the root and the reads come from the same context. Without the shared entry
+# no snapshot runs; there is no inline fallback.
 _git_branch_read() {
   emulate -L zsh
   local root=$1
   shift
-  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
-  local -x GIT_ALLOW_PROTOCOL=''
-  command git --no-pager --no-replace-objects -C "$root" \
-    -c core.fsmonitor=false -c core.hooksPath=/dev/null \
-    -c maintenance.auto=false -c gc.auto=0 -c log.showSignature=false "$@"
+  (( ${+functions[_compozsh_git_local]} )) || return 2
+  _compozsh_git_local inherit "$root" -- -c maintenance.auto=false -c gc.auto=0 "$@"
 }
 
 _git_recent_branches() {

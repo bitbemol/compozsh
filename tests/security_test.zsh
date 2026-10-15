@@ -761,12 +761,34 @@ allow .zsh.addons/.zsh.output git: command git "${git_color_arguments[@]}" "$@"'
   done
   (( ${#lines} == ${#${(@f)expected}} )) ||
     { test_fail "Git read baseline exemptions changed:"$'\n'"${(F)lines}"; return 1; }
-  # Guard against a vacuous scan: every known passive wrapper was checked.
+  # Guard against a vacuous scan: every known passive Git call was checked.
   lines=(${(M)${(f)found}:#ok *})
-  for entry in _compozsh_git_filter_config _file_search_git _git_branch_read \
-      _git_review_git _git_worktree_git _prompt_git _tools_git_discard_all; do
+  for entry in _compozsh_git_filter_config _compozsh_git_local _prompt_git \
+      _tools_git_discard_all; do
     checked=(${(M)lines:#ok * $entry})
     (( ${#checked} )) || { test_fail "Git read baseline scan did not check $entry"; return 1; }
+  done
+  # Explicit-root wrappers reach Git only through the shared local-only entry,
+  # with their selector policy, and make no Git call or flag copy of their own.
+  local wrapper='' file='' policy='' body='' line='' MATCH='' MBEGIN='' MEND=''
+  local -a match=() mbegin=() mend=()
+  local call='(command|exec)[[:space:]]+(git|"\$git_binary")'
+  local controls='GIT_OPTIONAL_LOCKS|GIT_ALLOW_PROTOCOL|core\.fsmonitor|core\.hooksPath|--no-pager'
+  local -i inside=0
+  for entry in .zsh.git-review:_git_review_git:root .zsh.git-worktree:_git_worktree_git:root \
+      .zsh.navigation:_git_branch_read:inherit .zsh.find:_file_search_git:root; do
+    file=${entry%%:*} wrapper=${${entry#*:}%%:*} policy=${entry##*:} body='' inside=0
+    while IFS= read -r line || [[ -n $line ]]; do
+      [[ $line == "$wrapper() {"* ]] && inside=1
+      (( inside )) || continue
+      body+=$line$'\n'
+      [[ $line == \}* ]] && break
+    done < "$TEST_REPO_ROOT/.zsh.addons/$file"
+    [[ -n $body ]] || { test_fail "$wrapper is missing from $file"; return 1; }
+    [[ $body == *"_compozsh_git_local $policy \"\$root\" "* ]] ||
+      { test_fail "$wrapper does not call _compozsh_git_local with the $policy policy"; return 1; }
+    [[ ! $body =~ $call && ! $body =~ $controls ]] ||
+      { test_fail "$wrapper keeps its own Git call or local-only controls"; return 1; }
   done
 }
 test_case 'security: every passive Git call carries the local-only read baseline' \

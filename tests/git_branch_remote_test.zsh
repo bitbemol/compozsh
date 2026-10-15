@@ -18,6 +18,7 @@ _test_branch_remote_capture_and_filter() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
     for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_ui_collect "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded; do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     (( ${+functions[_git_branch_remote_capture]} )) || { print -u2 "Remote-tracking branch fallback missing"; exit 1; }
     _git_recent_branches "$2" || exit 2
     _git_branch_remote_capture "$2" || exit 3
@@ -48,6 +49,7 @@ _test_branch_remote_switch() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     (( ${+functions[_git_branch_remote_switch]} )) || { print -u2 "Confirmed remote branch switching missing"; exit 1; }
     _git_recent_branches "$2" && _git_branch_remote_capture "$2" || exit 2
     local chosen=remote:refs/remotes/origin/bug/1232-something
@@ -137,6 +139,7 @@ _test_branch_remote_stale_and_conflicting() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     cd "$2"
     command git switch -qc fixture-tip
     print -r -- remote > conflict

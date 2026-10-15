@@ -22,29 +22,20 @@ _git_review_git() {
   emulate -L zsh
   local root=$1
   shift
-  # Every provider reads the displayed root. Ambient selectors must not pair
-  # another repository's refs/index with this root's direct file previews.
-  local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
-  local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
-  local git_binary=${commands[git]:-git}
-  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
-  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
-  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
-  local -x GIT_ALLOW_PROTOCOL='' GIT_LITERAL_PATHSPECS=1
+  # Every provider reads the displayed root (the shared entry's root policy):
+  # ambient selectors must not pair another repository's refs/index with this
+  # root's direct file previews. The entry also keeps signature verifiers from
+  # running for history or root-commit reads or mixing into captured IDs.
+  # Without it no provider runs; there is no inline fallback.
+  (( ${+functions[_compozsh_git_local]} )) || return 2
+  local -x GIT_LITERAL_PATHSPECS=1
   local -x GIT_GLOB_PATHSPECS=0 GIT_NOGLOB_PATHSPECS=0 GIT_ICASE_PATHSPECS=0
-  # log.showSignature=false: a configured verifier (gpg.program and variants)
-  # must not run for history or root-commit reads, or mix into captured IDs.
-  if (( ${_GIT_REVIEW_WORKER_EXEC:-0} )); then
-    # The automatic worker launches this function as a direct asynchronous
-    # child, records that PID, then replaces it with Git. Cancellation can
-    # therefore terminate the actual provider before reaping its Zsh parent.
-    exec "$git_binary" --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
-      -c core.untrackedCache=false -c core.hooksPath=/dev/null -c log.showSignature=false \
-      "${_GIT_REVIEW_CONFIG[@]}" "$@"
-  fi
-  command git --no-pager --no-replace-objects -C "$root" -c core.fsmonitor=false \
-    -c core.untrackedCache=false -c core.hooksPath=/dev/null -c log.showSignature=false \
-    "${_GIT_REVIEW_CONFIG[@]}" "$@"
+  local -a replace=()
+  # The automatic worker launches this function as a direct asynchronous
+  # child, records that PID, then replaces it with Git. Cancellation can
+  # therefore terminate the actual provider before reaping its Zsh parent.
+  (( ${_GIT_REVIEW_WORKER_EXEC:-0} )) && replace=(--exec)
+  _compozsh_git_local root "$root" "${replace[@]}" -- "${_GIT_REVIEW_CONFIG[@]}" "$@"
 }
 
 # Automatic providers stream through a private coprocess pipe so the worker

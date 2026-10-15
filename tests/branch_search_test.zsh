@@ -84,6 +84,7 @@ _test_branch_complete_catalog() {
     source "$1/.zsh.addons/.zsh.navigation"
     for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     command git init -qb main "$HOME/repository" || exit 1
     builtin cd "$HOME/repository"
     command git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit --allow-empty -qm initial || exit 2

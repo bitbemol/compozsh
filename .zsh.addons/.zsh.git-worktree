@@ -13,26 +13,21 @@ _git_worktree_fail() {
   return 1
 }
 
-# Explicit roots own every Git invocation, including inherited selector state.
-# Transport, hooks, optional writes, filesystem monitors and signature
-# verifiers stay disabled for capture and execution. Creation/removal
-# additionally refuse configured filters.
+# Explicit roots own every Git invocation, including inherited selector state
+# (the shared entry's root policy). Transport, hooks, optional writes,
+# filesystem monitors and signature verifiers stay disabled for capture and
+# execution; this peer adds its maintenance, submodule and guessing controls.
+# Creation/removal additionally refuse configured filters. Without the shared
+# entry no Git call runs; there is no inline fallback.
 _git_worktree_git() {
   emulate -L zsh
   local root=$1
   shift
-  local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
-  local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
-  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
-  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
-  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
-  local -x GIT_ALLOW_PROTOCOL='' GIT_LITERAL_PATHSPECS=1
-  command git --no-pager --no-replace-objects -C "$root" \
-    -c core.hooksPath=/dev/null -c core.fsmonitor=false \
-    -c core.untrackedCache=false -c maintenance.auto=false -c gc.auto=0 \
+  (( ${+functions[_compozsh_git_local]} )) || return 2
+  local -x GIT_LITERAL_PATHSPECS=1
+  _compozsh_git_local root "$root" -- -c maintenance.auto=false -c gc.auto=0 \
     -c submodule.recurse=false -c fetch.recurseSubmodules=false \
-    -c checkout.guess=false -c branch.autoSetupMerge=false \
-    -c log.showSignature=false "$@"
+    -c checkout.guess=false -c branch.autoSetupMerge=false "$@"
 }
 
 # Complete snapshots only: one lookahead byte and a trailing NUL/status protect

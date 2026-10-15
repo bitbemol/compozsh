@@ -55,6 +55,7 @@ _test_search_provider_failures() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     local provider=""
     export EMIT=0 FAILURE=0
     for provider in git spotlight; do

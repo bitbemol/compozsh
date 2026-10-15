@@ -1488,6 +1488,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/functions/.zsh.impure.compozsh_effect_copy` | Clipboard writes |
 | `support/functions/.zsh.impure.compozsh_effect_open` | File Open/Reveal |
 | `support/functions/.zsh.impure.compozsh_git_filter_config` | Git filter-name reads |
+| `support/functions/.zsh.impure.compozsh_git_local` | Local-only Git calls for explicit roots |
 | `support/functions/.zsh.impure.compozsh_git_operation` | Git operation-marker reads |
 | `support/functions/.zsh.impure.compozsh_job_reap` | Owned child reaping without job-table sweeps |
 | `support/functions/.zsh.impure.compozsh_palette_color` | Palette-role resolution |

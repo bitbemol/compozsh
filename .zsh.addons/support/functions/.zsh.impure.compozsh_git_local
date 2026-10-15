@@ -1,0 +1,38 @@
+# Entry point: _compozsh_git_local
+# Impure: runs the stock Git on one explicit directory with Compozsh's
+# local-only boundary. It owns the environment (no optional locks, lazy fetch,
+# terminal prompts or transport protocols) and the read-safety flags (no pager
+# or replacement objects; fsmonitor, untracked cache, hooks and signature
+# verifiers off). The root policy also shadows inherited repository selectors
+# so the directory alone chooses the repository; inherit keeps them for callers
+# that already chose. Callers add their own -c flags and exported variables;
+# --exec replaces the calling process, as the review worker requires.
+# Usage: _compozsh_git_local <root|inherit> <dir> [--exec] [--] <git-arguments...>
+_compozsh_git_local() {
+  emulate -L zsh
+  (( $# >= 2 )) && [[ $1 == (root|inherit) ]] || return 2
+  local policy=$1 dir=$2 git_binary=${commands[git]:-}
+  local -i replace=0
+  shift 2
+  [[ ${1:-} == --exec ]] && { replace=1; shift; }
+  [[ ${1:-} == -- ]] && shift
+  [[ -n $git_binary ]] || return 127
+  if [[ $policy == root ]]; then
+    local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+    local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+    unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+  fi
+  local -x GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0
+  local -x GIT_ALLOW_PROTOCOL=''
+  if (( replace )); then
+    exec "$git_binary" --no-pager --no-replace-objects -C "$dir" \
+      -c core.fsmonitor=false -c core.untrackedCache=false \
+      -c core.hooksPath=/dev/null -c log.showSignature=false "$@"
+  fi
+  command "$git_binary" --no-pager --no-replace-objects -C "$dir" \
+    -c core.fsmonitor=false -c core.untrackedCache=false \
+    -c core.hooksPath=/dev/null -c log.showSignature=false "$@"
+}
+
+:

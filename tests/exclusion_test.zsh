@@ -391,6 +391,7 @@ _test_exclusion_sources() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     source "$1/.zsh.addons/.zsh.find"
     mkdir -p "$HOME/repo" "$HOME/limited" "$HOME/bin"
     git init -q "$HOME/repo" || exit 1
@@ -422,6 +423,7 @@ _test_exclusion_git_parent_folders() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     source "$1/.zsh.addons/.zsh.find"
     mkdir -p "$HOME/repo/Tests/Unit"
     git init -q "$HOME/repo" || exit 1

@@ -95,6 +95,7 @@ _test_files_git_capture_no_monitor() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     command git init -q "$HOME/repository" || exit 1
     print -r -- fixture > "$HOME/repository/note.txt"
     command git -C "$HOME/repository" add note.txt || exit 2
@@ -121,6 +122,7 @@ _test_files_git_explicit_folder_scope() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     local name="" root=""
     for name in current foreign; do
       command git init -qb main "$HOME/$name" || exit 1

@@ -81,6 +81,7 @@ _test_files_workspace_scope() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     root=${2:A}
     _file_search_capture "$root/inside" needle local || exit 1
     [[ ${#_FILE_SEARCH_VALUES} == 1 && $_FILE_SEARCH_VALUES[1] == "$root/inside/deeper/needle.txt" ]] || exit 2

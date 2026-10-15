@@ -24,7 +24,8 @@ invocation. Disabling them keeps ordinary `g` switch/copy and Git delegation.
   call Compozsh makes on its own, Search discovery included, to one read
   baseline (the local-only environment, no pager or replacement refs,
   fsmonitor and hooks off); only transparent `g`/`git` arguments and explicit
-  switches are exempt.
+  switches are exempt. The same test requires the branch, Search, review and
+  worktree wrappers to reach Git only through the shared local-only entry.
 - **Review is read-only.** Review views dispatch no stage, discard, commit,
   checkout, clipboard or app action; adding a mutation shortcut needs a
   separately authorized design and behavioral tests. Worktree mutations happen
@@ -131,6 +132,16 @@ focus.
 
 ### Git invocation safety
 
+- One impure support entry, `_compozsh_git_local <root|inherit> <dir>
+  [--exec] [--] args…`, owns the local-only environment, the read-safety
+  flags (no pager or replacement objects; fsmonitor, untracked cache, hooks
+  and `log.showSignature` off) and the selector policy: `root` shadows
+  inherited Git directory, worktree, common-directory, index, object-store,
+  alternate-object and namespace selectors; `inherit` keeps them for the
+  branch reads, whose `g` caller already shadowed them. `--exec` replaces the
+  process for the review worker. Wrappers add only their own `-c` flags and
+  exported variables and fail closed without the entry; the prompt, filter
+  discovery and discard keep their own calls under the static baseline.
 - Disable optional index writes, fsmonitor, hooks, lazy fetch, network
   protocols, external diffs, textconv and commit-signature verification
   (`-c log.showSignature=false`: no configured verifier such as `gpg.program`
