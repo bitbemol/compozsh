@@ -518,6 +518,8 @@ after the view closes, Ctrl-K and Ctrl-D regain their shell meanings.
 | Ctrl-R | Refresh where supported; otherwise select the next result |
 
 Plain digits always edit the filter. Typed fragments are underlined in results.
+Keys a view doesn't use, such as Left/Right, Home/End or function keys in a
+plain list or text field, beep and keep what you typed; they never cancel.
 Resizing repaints captured results without rediscovery, and the normal screen
 and scrollback are never cleared.
 

@@ -6,7 +6,7 @@ _zle_picker_loop() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local query=$1 raw_limit=$2 key='' sequence='' suffix='' collected_query=''
+  local query=$1 raw_limit=$2 key='' sequence='' suffix='' byte='' collected_query=''
   local collector=$_ZLE_PICKER_COLLECTOR
   local _ZLE_PICKER_EXCLUDE=${5:-} collected_exclude='' input=''
   local -i _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0 editing_exclude=0
@@ -524,13 +524,21 @@ _zle_picker_loop() {
                   continue
                 else
                   suffix=$REPLY
+                  # Complete the key through its final byte: parameter and
+                  # intermediate bytes (space through ?) continue it. One
+                  # bounded read per byte, so an unbound key stays whole and
+                  # never leaks a trailing byte or swallows the next key.
+                  while [[ $suffix[-1] == [\ -?] ]] && (( ${#suffix} < 32 )) &&
+                        IFS= read -r -t 0.1 -k 1 byte; do
+                    suffix+=$byte
+                  done
                 fi
               elif ! IFS= read -r -t 0.1 -k 1 suffix; then
                 cancelled=1
                 continue
               fi
               sequence+=$suffix
-              if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != ('[A'|'OA'|'[B'|'OB'|'[5'|'[6'|'[200~'|'[1') ]]; then
+              if (( _ZLE_PICKER_GUIDE_ACTIVE )) && [[ $sequence != ('[A'|'OA'|'[B'|'OB'|'[5~'|'[6~'|'[200~'|'[1;3A'|'[1;3B') ]]; then
                 zle beep
                 continue
               fi
@@ -587,7 +595,7 @@ _zle_picker_loop() {
                       zle beep
                     fi
                   else
-                    cancelled=1
+                    zle beep
                   fi
                   ;;
                 ('[B'|'OB')
@@ -598,72 +606,29 @@ _zle_picker_loop() {
                   fi
                   selected=$REPLY
                   ;;
-                ('[H'|'OH'|'[F'|'OF')
+                ('[H'|'OH'|'[1~'|'[F'|'OF'|'[4~')
                   local -i edge=1
-                  [[ $sequence == ('[H'|'OH') ]] && edge=-1
+                  [[ $sequence == ('[H'|'OH'|'[1~') ]] && edge=-1
                   if _zle_picker_document_edge $edge $selected $count; then
                     selected=$REPLY
                   else
-                    cancelled=1
-                  fi
-                  ;;
-                ('[5'|'[6')
-                  suffix=''
-                  if IFS= read -r -t 0.1 -k 1 suffix && [[ $suffix == '~' ]]; then
-                    if [[ $sequence == '[6' ]]; then
-                      _zle_picker_page 1 $selected $count
-                    else
-                      _zle_picker_page -1 $selected $count
-                    fi
-                    selected=$REPLY
-                  else
                     zle beep
                   fi
                   ;;
-                ('[1')
+                ('[5~'|'[6~')
+                  [[ $sequence == '[6~' ]] && _zle_picker_page 1 $selected $count ||
+                    _zle_picker_page -1 $selected $count
+                  selected=$REPLY
+                  ;;
+                ('[1;3A'|'[1;3B')
                   # Option-Up/Down with Terminal.app's Option-as-Meta setting.
                   # xterm names these kUP3/kDN3: ESC [ 1 ; 3 A/B.
-                  suffix=''
-                  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
-                    IFS= read -r -t 0.1 -k 1 suffix
-                    if [[ $suffix == '~' ]]; then
-                      if _zle_picker_document_edge -1 $selected $count; then
-                        selected=$REPLY
-                      else
-                        zle beep
-                      fi
-                      continue
-                    fi
-                    if [[ $suffix == ';' ]]; then
-                      local remainder=''
-                      IFS= read -r -t 0.1 -k 2 remainder
-                      suffix+=$remainder
-                    fi
-                  else
-                    IFS= read -r -t 0.1 -k 3 suffix
-                  fi
-                  if [[ $suffix == (';3A'|';3B') ]]; then
-                    [[ $suffix == ';3B' ]] && _zle_picker_page 1 $selected $count ||
-                      _zle_picker_page -1 $selected $count
-                    selected=$REPLY
-                  else
-                    zle beep
-                  fi
+                  [[ $sequence == '[1;3B' ]] && _zle_picker_page 1 $selected $count ||
+                    _zle_picker_page -1 $selected $count
+                  selected=$REPLY
                   ;;
-                ('[4')
-                  suffix=''
-                  if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )) &&
-                     IFS= read -r -t 0.1 -k 1 suffix && [[ $suffix == '~' ]] &&
-                     _zle_picker_document_edge 1 $selected $count; then
-                    selected=$REPLY
-                  else
-                    cancelled=1
-                  fi
-                  ;;
-                ('[3')
-                  suffix=''
-                  IFS= read -r -t 0.1 -k 1 suffix
-                  if [[ $suffix == '~' && -n $input ]]; then
+                ('[3~')
+                  if [[ -n $input ]]; then
                     _ZLE_PICKER_INSPECT_FOCUS=0
                     input=${input[1,-2]}
                     selected=1
@@ -679,7 +644,9 @@ _zle_picker_loop() {
                   fi
                   ;;
                 (*)
-                  cancelled=1
+                  # A complete cursor or function key without a meaning here
+                  # is inert, like a missing capability's Control key.
+                  zle beep
                   ;;
               esac
               ;;

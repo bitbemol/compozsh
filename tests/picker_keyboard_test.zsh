@@ -119,6 +119,101 @@ _test_picker_keyboard_escape() {
 }
 test_case 'picker keyboard gives Escape a short decoding allowance and keeps terminal sequences safe' _test_picker_keyboard_escape
 
+# A complete cursor or function key without a meaning in the current view is
+# inert: it neither cancels nor edits the field, none of its bytes reaches the
+# filter and it never swallows the next key. Escape, Ctrl-G and Meta-letters
+# still cancel.
+_test_picker_keyboard_inert_keys() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    source "$1/tests/pty_support.zsh" || exit 2
+    command mkfifo "$HOME/events" || exit 3
+    exec {efd}<> "$HOME/events"
+    local view="" key="" trace=""
+    local -i index=0
+    # Left/Right in normal and application cursor mode, Home and End in three
+    # encodings each, F1, Insert, F5, Ctrl-Delete and Shift-Right.
+    local -a keys=(
+      $'\''\e[D'\'' $'\''\e[C'\'' $'\''\eOD'\'' $'\''\eOC'\''
+      $'\''\e[H'\'' $'\''\eOH'\'' $'\''\e[1~'\'' $'\''\e[F'\'' $'\''\eOF'\'' $'\''\e[4~'\''
+      $'\''\eOP'\'' $'\''\e[2~'\'' $'\''\e[15~'\'' $'\''\e[3;5~'\'' $'\''\e[1;2C'\'')
+    functions -c _zle_picker_show _inert_real_show
+    _zle_picker_show() {
+      _inert_real_show
+      print -r -u $efd -- "FRAME|$_ZLE_PICKER_TITLE|$_ZLE_PICKER_QUERY"
+    }
+    _inert_collect() { _ZLE_PICKER_RESULTS=(alpha beta) _ZLE_PICKER_LABELS=(alpha beta) }
+    _inert_query() { _ZLE_PICKER_TITLE=Name; _zle_picker_loop "" 10 }
+    _inert_choice() {
+      _ZLE_PICKER_TITLE=Choice _ZLE_PICKER_COLLECTOR=_inert_collect
+      _zle_picker_loop "" 10
+    }
+    _inert_controller() {
+      local kind=""
+      for kind in query choice query; do
+        _zle_ui_view $kind _inert_$kind
+        print -r -u $efd -- "RESULT|$kind|$?|$_ZLE_PICKER_ACCEPTED"
+      done
+      return 1
+    }
+    _inert_driver() {
+      command stty rows 24 cols 100
+      _zle_picker_run 10 "" 1 0 _inert_controller
+      print -r -u $efd -- "DONE|$?|${_ZLE_PICKER_SCREEN_ACTIVE:-0}"
+    }
+    _inert_expect() {
+      {
+        test_pty_expect -s "RESULT*" inert $efd "$1"
+      } always { trace+=$TEST_PTY_OUTPUT }
+    }
+    test_pty_start inert _inert_driver || exit 4
+    {
+      for view in Name Choice; do
+        _inert_expect "FRAME|$view|" || exit 5
+        zpty -w -n inert abc
+        _inert_expect "FRAME|$view|abc" || exit 6
+        for (( index=1; index<=${#keys}; ++index )); do
+          key=$keys[index]
+          # The next key follows at once: it must arrive as typed text.
+          zpty -w -n inert "${key}x"
+          _inert_expect "FRAME|$view|abcx" || {
+            print -u2 -r -- "$view: ${(V)key} was not inert"; exit 7; }
+          zpty -w -n inert $'\''\x7f'\''
+          _inert_expect "FRAME|$view|abc" || exit 8
+        done
+        if [[ $view == Name ]]; then
+          # Meta-letters remain cancellation, not commands.
+          zpty -w -n inert $'\''\eq'\''
+          _inert_expect "RESULT|query|1|0" || exit 9
+        else
+          zpty -w -n inert $'\''\e'\''
+          _inert_expect "RESULT|choice|1|0" || exit 10
+        fi
+      done
+      _inert_expect "FRAME|Name|" || exit 11
+      # An endless parameter run is not a key: decoding stops at its bound and
+      # the view stays open for the next key.
+      zpty -w -n inert "abc"$'\''\e['\''"${(l:40::;:):-}x"
+      test_pty_expect -g -s "RESULT*" inert $efd "FRAME[|]Name[|]abc*x" || exit 15
+      trace+=$TEST_PTY_OUTPUT
+      zpty -w -n inert $'\''\x07'\''
+      _inert_expect "RESULT|query|1|0" || exit 12
+      _inert_expect "DONE|1|0" || exit 13
+      [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 14
+    } always {
+      zpty -d inert
+    }
+    print inert
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal inert "$output"
+}
+test_case 'picker keys without a meaning stay inert in query and choice views' _test_picker_keyboard_inert_keys
+
 _test_picker_keyboard_help() {
   test_make_temp_dir || return
   local output

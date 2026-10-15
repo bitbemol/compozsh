@@ -58,6 +58,13 @@ Ctrl-X Ctrl-E to command editing.
   as the same Option-Up/Down gesture; a second Escape may extend transport only
   when followed by a cursor introducer. Optional Meta aliases
   (Option-Up/Down, Option-V/W/Delete) must not increase Escape latency.
+- Read each CSI key through its final byte, one bounded read per byte, then
+  dispatch the complete sequence. A complete cursor or function key without a
+  meaning in the current view (Left/Right, Home/End or F-keys where the view
+  enables none of them) is inert: it may beep, never cancels, leaves the
+  fields unchanged and consumes no later key. This is the
+  [same key, same action](full-screen.md#essentials) rule; it leaves Escape,
+  Ctrl-G and Option-chord cancellation unchanged.
 - After a bracketed-paste opening prefix, keep input ownership until the
   closing marker. Timeout or overflow discards the whole paste in the existing
   screen, with bounded suffix storage and visible recovery instructions.
