@@ -1556,11 +1556,111 @@ _test_usb_custom_path_matches_tab_navigation_contract() {
     'custom image browser did not publish image-size presentation metadata' || return
   test_assert_contains "$output" 'picker-size' \
     'custom image browser size did not use the shared semantic size role' || return
-  test_assert_contains "$output" 'nav:1|1|Hidden: on · ← parent · → open folder · Return select' \
-    'custom image browser did not expose the Tab hierarchy and hidden-item controls'
+  test_assert_contains "$output" 'nav:1|0|Hidden: on · ← parent · → open folder · Return select' \
+    'custom image browser did not expose only the Tab hierarchy and hidden-item controls'
 }
 test_case 'USB custom image browser matches Tab fuzzy and hierarchy navigation' \
   _test_usb_custom_path_matches_tab_navigation_contract
+
+# The real shared loop drives the browser: folder-only keys stay inert on an
+# image (same key, same action), and only Return chooses it.
+_test_usb_custom_path_keeps_folder_keys_inert_on_images() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+  command mkdir -p "$home/folder" || return
+  test_write_file "$home/test.iso" "${(l:20000::v:)}" || return
+  output=$(test_run_interactive "$home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/tests/pty_support.zsh" || exit 2
+    command mkfifo "$HOME/events" || exit 3
+    exec {efd}<> "$HOME/events"
+    local name="" bel=$'\''\a'\''
+    local -i bells=0
+    local -A keys=(
+      ctrl-x $'\''\x18'\'' ctrl-o $'\''\x0f'\'' right $'\''\e[C'\'' tab $'\''\t'\''
+      left $'\''\e[D'\'' up $'\''\e[A'\'' down $'\''\e[B'\'' guide $'\''\x0b'\''
+      enter $'\''\r'\'')
+    functions[_inert_show]=$functions[_zle_picker_show]
+    _zle_picker_show() {
+      setopt LOCAL_OPTIONS EXTENDED_GLOB
+      _inert_show
+      local shown=""
+      # Painted footer and guide text: hints present, folder-only actions absent.
+      [[ $_ZLE_PICKER_POSTDISPLAY == *(\^K\ all\ keys|Right\ /\ Tab*Enter\ selected\ folder)* ]] &&
+        shown=hints
+      [[ $_ZLE_PICKER_POSTDISPLAY == *(#i)(\^[XO]|ctrl-[XOE]|preview|folder\ actions)* ]] &&
+        print -r -- "advertised:$_ZLE_PICKER_GUIDE_ACTIVE" >> "$HOME/advertised"
+      print -r -u $efd -- "FRAME|$_ZLE_PICKER_SUBTITLE|$_ZLE_PICKER_SELECTED|${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]:t}|$_ZLE_PICKER_GUIDE_ACTIVE|$shown"
+    }
+    _inert_browse() {
+      _usb_browse_image_path
+      local -i browse_status=$?
+      print -r -u $efd -- "RESULT|$browse_status|$_ZLE_PICKER_ACTION|$REPLY"
+      return $browse_status
+    }
+    _inert_driver() {
+      command stty rows 60 cols 120
+      _zle_picker_run 20 "" 1 0 _inert_browse
+      print -r -u $efd -- "DONE|$?"
+    }
+    # Count terminal bells in all output, so none depends on read timing.
+    _inert_expect() {
+      local rest=""
+      {
+        test_pty_expect "$@" || return
+      } always {
+        rest=$TEST_PTY_OUTPUT
+        while [[ $rest == *$bel* ]]; do rest=${rest#*$bel}; (( ++bells )); done
+      }
+    }
+    test_pty_start usb-inert _inert_driver || exit 4
+    {
+      _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/|1|paste-path|0|hints" || exit 5
+      zpty -w -n usb-inert "$keys[guide]"
+      _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/|1|paste-path|1|hints" || exit 6
+      # Right on the paste row is inert too; only Return opens the paste field.
+      zpty -w -n usb-inert "$keys[guide]$keys[right]$keys[down]"
+      _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/|2|folder|0|hints" || exit 7
+      zpty -w -n usb-inert "$keys[down]"
+      _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/|3|test.iso|0|hints" || exit 7
+      for name in ctrl-x ctrl-o right tab; do
+        zpty -w -n usb-inert "$keys[$name]$keys[up]"
+        _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/|2|folder|0|hints" || {
+          print -u2 -r -- "$name chose or moved the highlighted image"; exit 8; }
+        zpty -w -n usb-inert "$keys[down]"
+        _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/|3|test.iso|0|hints" || exit 9
+      done
+      zpty -w -n usb-inert "$keys[up]$keys[right]"
+      _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/folder/|1|paste-path|0|hints" || exit 10
+      zpty -w -n usb-inert "$keys[left]"
+      _inert_expect -s "RESULT*" usb-inert $efd "FRAME|~/|2|folder|0|hints" || exit 11
+      zpty -w -n usb-inert "$keys[down]$keys[enter]"
+      _inert_expect -g usb-inert $efd "RESULT[|]0[|]*[|]*/test.iso" || exit 12
+      _inert_expect usb-inert $efd "DONE|0" || exit 13
+    } always {
+      zpty -d usb-inert 2>/dev/null
+    }
+    print -r -- "bells:$bells"
+    if [[ -f $HOME/advertised ]]; then
+      print -r -- "advertised:${(j:,:)${(f)"$(<"$HOME/advertised")"}}"
+    else
+      print -r -- advertised:
+    fi
+    print -r -- inert-journey-complete
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'inert-journey-complete' \
+    'the custom image browser journey did not finish' || return
+  test_assert_contains "$output" 'bells:5'$'\n' \
+    'each inert folder-only key did not signal once that it is inert' || return
+  test_assert_contains "$output" $'advertised:\n' \
+    'the custom image browser footer or guide advertised folder-only actions'
+}
+test_case 'USB custom image browser keeps folder keys inert on an image' \
+  _test_usb_custom_path_keeps_folder_keys_inert_on_images
 
 _test_usb_steps_use_clean_single_pane_choices() {
   test_make_temp_dir || return
