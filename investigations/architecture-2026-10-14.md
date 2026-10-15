@@ -165,6 +165,29 @@ battery power. Run alone, it passed 3 times out of 3.
 
 *Filled in by performance units and the final comparison.*
 
+### P2-03: static README and network-client scans (U70, CROSS-02, D-03)
+
+Metric: wall time of `zsh tests/run.zsh '<description>'`, before tree
+`git archive 6e0c652`, after tree the working tree, alternating order. The
+machine was loaded during the README runs, so absolute "before" numbers vary
+widely; the gain is far beyond that noise.
+
+| Test | Locale | Runs (before/after) | Before median (range) | After median (range) | Delta |
+| --- | --- | --- | --- | --- | --- |
+| security: runtime source contains no direct network-client invocation | en_US.UTF-8 | 10/10 | 2154.2 ms (1375.2–25375.0) | 427.8 ms (292.2–501.8) | −80.1 % |
+| docs: README and agent contract inventory exactly match repository skills | C | 7/8 | 34198.8 ms (15774.4–117461.0) | 92.9 ms (64.5–108.9) | −99.7 % |
+| docs: README and agent contract inventory exactly match repository skills | en_US.UTF-8 | 1/2 | 948750.7 ms | 66.8 ms (66.0–67.5) | −99.99 % |
+
+The README scan was quadratic (`${remaining#*"$MATCH"}` re-matched every
+prefix), far worse in a UTF-8 locale; it now slices at `MEND`. The README
+"before" runs were cut short (7 C runs, 1 UTF-8 run) by the time box. The
+network-client scan now matches each file's uncommented text once and runs the
+per-line diagnostic loop only for a candidate file; NULs become line breaks
+and a file with an invalid or incomplete character falls back to the line
+scan, so the pre-filter never hides a line the old loop would report (pinned
+by `security: network-client scan names the offending line of a fixture
+file`, which passes against both scans in C and UTF-8).
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*

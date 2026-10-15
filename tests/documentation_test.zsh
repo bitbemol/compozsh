@@ -25,6 +25,7 @@ test_case 'docs: README inventory exactly matches the shipped peer files' \
 
 _test_repository_skill_inventory_is_documented() {
   local directory='' MATCH=''
+  local -i MBEGIN=0 MEND=0
   local readme="$(<"$TEST_REPO_ROOT/README.md")"
   local agents="$(<"$TEST_REPO_ROOT/CLAUDE.md")"
   local remaining=$readme
@@ -39,7 +40,7 @@ _test_repository_skill_inventory_is_documented() {
   (( ${#actual} )) || { test_fail 'no repository skills found in .claude/skills'; return 1; }
   while [[ $remaining =~ '\.claude/skills/(compozsh-[a-z0-9-]+)/' ]]; do
     documented+=("$match[1]")
-    remaining=${remaining#*"$MATCH"}
+    remaining=${remaining[MEND+1,-1]}
   done
 
   actual=(${(ou)actual})
@@ -354,6 +355,7 @@ test_case 'docs: root agent guidance stays within its context budget' \
 _test_engineering_contracts_are_discoverable() {
   local remaining="$(<"$TEST_REPO_ROOT/CLAUDE.md")"
   local MATCH='' file='' relative=''
+  local -i MBEGIN=0 MEND=0
   local -a match=() mbegin=() mend=() routed=()
   while [[ $remaining =~ '\]\((engineering/[^)#]+\.md)(#[^)]*)?\)' ]]; do
     routed+=("$match[1]")
@@ -361,7 +363,7 @@ _test_engineering_contracts_are_discoverable() {
       test_fail "agent guidance links a missing contract: $match[1]"
       return 1
     }
-    remaining=${remaining#*"$MATCH"}
+    remaining=${remaining[MEND+1,-1]}
   done
   (( ${#routed} )) || { test_fail 'agent guidance has no engineering routes'; return 1; }
   for file in "$TEST_REPO_ROOT"/engineering/**/*.md(N.); do

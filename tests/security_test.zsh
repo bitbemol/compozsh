@@ -14,11 +14,22 @@ _security_runtime_files() {
 _test_runtime_has_no_network_client_invocation() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local file='' line='' trimmed=''
+  local file='' line='' trimmed='' text=''
+  local -a lines=()
   local pattern='(^|[;&|[:space:]])((builtin|command|exec|noglob|env)[[:space:]]+)*(/[^[:space:]]*/)?(curl|wget|ssh|scp|sftp|nc|netcat|socat|telnet|rsync)([[:space:]]|$)'
   _security_runtime_files
 
   for file in "${_SECURITY_RUNTIME_FILES[@]}"; do
+    # One match over the file's uncommented lines finds every line the loop
+    # below would (line breaks are [[:space:]]), so only a candidate file is
+    # scanned line by line for the diagnostic. A NUL would end the regex
+    # subject, so it becomes a line break; an invalid or incomplete character
+    # (a regex error in a UTF-8 locale) sends the file to the line scan.
+    lines=("${(@f)$(<"$file")}")
+    text=${(F)lines:#[[:space:]]#\#*}
+    text=${text//$'\0'/$'\n'}
+    [[ $text == *[[:INVALID:][:INCOMPLETE:]]* || $text =~ $pattern ]] ||
+      continue
     while IFS= read -r line; do
       trimmed=${line##[[:space:]]#}
       [[ $trimmed == \#* ]] && continue
@@ -31,6 +42,48 @@ _test_runtime_has_no_network_client_invocation() {
 }
 test_case 'security: runtime source contains no direct network-client invocation' \
   _test_runtime_has_no_network_client_invocation
+
+# The scan itself: a commented client is ignored, and an uncommented one fails
+# with the file and the offending line, wherever it sits in the file.
+_test_network_client_scan_names_offending_line() {
+  emulate -L zsh
+  local output=''
+  test_make_temp_dir || return
+  test_write_file "$TEST_TMP_DIR/fixture/.zsh.ok" $'# command curl ignored\nprint ok' || return
+  test_write_file "$TEST_TMP_DIR/fixture/.zsh.bad" \
+    $'# command curl ignored\nprint ok\n  command curl -s x' || return
+  _security_runtime_files() {
+    typeset -ga _SECURITY_RUNTIME_FILES=("$TEST_TMP_DIR/fixture/.zsh.ok")
+  }
+  output=$(_test_runtime_has_no_network_client_invocation 2>&1) ||
+    test_fail "scan rejected a file with only a commented client: $output" || return
+  _security_runtime_files() {
+    typeset -ga _SECURITY_RUNTIME_FILES=(
+      "$TEST_TMP_DIR/fixture/.zsh.ok" "$TEST_TMP_DIR/fixture/.zsh.bad"
+    )
+  }
+  if output=$(_test_runtime_has_no_network_client_invocation 2>&1); then
+    test_fail 'scan accepted an uncommented network client'
+    return 1
+  fi
+  test_assert_contains "$output" '.zsh.bad: command curl -s x' \
+    'scan diagnostic does not name the offending line' || return
+  # A NUL or an invalid UTF-8 byte earlier in the file must not hide a later
+  # line from the scan.
+  test_write_file "$TEST_TMP_DIR/fixture/.zsh.bytes" \
+    $'print \xff\0 ok\n  command curl -s y' || return
+  _security_runtime_files() {
+    typeset -ga _SECURITY_RUNTIME_FILES=("$TEST_TMP_DIR/fixture/.zsh.bytes")
+  }
+  if output=$(_test_runtime_has_no_network_client_invocation 2>&1); then
+    test_fail 'scan accepted a network client after a NUL or invalid byte'
+    return 1
+  fi
+  test_assert_contains "$output" '.zsh.bytes: command curl -s y' \
+    'scan diagnostic does not name the line after a NUL or invalid byte'
+}
+test_case 'security: network-client scan names the offending line of a fixture file' \
+  _test_network_client_scan_names_offending_line
 
 _test_privilege_and_credential_surface_stays_bounded() {
   emulate -L zsh
