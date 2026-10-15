@@ -779,8 +779,14 @@ submodules; moving reads operation markers and committed-tree modes and
 validates source/destination directory identities without scanning contents.
 Captures stay in invocation memory, bounded to 256 KiB each and 1,000
 worktrees, branches or child folders per catalog; failed or oversized safety
-captures refuse the action. Compozsh writes no worktree catalog or navigation
-history. Git may take longer than these output bounds suggest on slow storage.
+captures refuse the action. The committed-tree mode and index-flag checks,
+whose listings grow with the repository, instead stream Git's NUL-terminated
+output through a pipe in 64-KiB chunks, holding at most one chunk and one
+partial record, and keep only whether a submodule or a non-ordinary index
+entry appears, so repository size alone never refuses them; a Git failure, or
+an empty, unterminated or longer-than-one-chunk record, still refuses.
+Compozsh writes no worktree catalog or navigation history. Git may take longer
+than these output bounds suggest on slow storage.
 
 **Git policy.** Every workspace Git call disables transport, lazy fetch, hooks,
 fsmonitor, automatic maintenance, optional index writes and submodule
@@ -1577,10 +1583,10 @@ git show HEAD:.zsh.addons/.zsh.navigation
 zsh tests/run.zsh 'worktree '
 ```
 
-Read the fixed Git policy in `_git_worktree_git`, complete-capture checks,
-creation/removal validation and post-screen dispatch. The tests cover
-aliases/fallbacks, exact targets, refusals, move preservation of local files,
-branch preservation and native keyboard/screen behavior.
+Read the fixed Git policy in `_git_worktree_git`, complete-capture and
+streamed-listing checks, creation/removal validation and post-screen dispatch.
+The tests cover aliases/fallbacks, exact targets, refusals, move preservation
+of local files, branch preservation and native keyboard/screen behavior.
 
 Audit the living prompt's local presentation boundary:
 

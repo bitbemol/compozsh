@@ -587,8 +587,10 @@ _compozsh_help_g() {
     '  only there can leave a registered, empty checkout when refused.' \
     '  Hooks, fsmonitor, lazy fetch and Git transport are disabled. No fetch.' \
     '  Captures are limited to 256 KiB, 1,000 worktrees / local branches and' \
-    '  1,000 child folders per parent. Exceeding a bound refuses that capture;' \
-    '  limits bound retained output, not Git or filesystem response time.' \
+    '  1,000 child folders per parent. Exceeding a bound refuses that capture.' \
+    '  Submodule and index-flag checks stream Git output in 64-KiB chunks and' \
+    '  keep only the answer, so repository size alone never refuses them.' \
+    '  Limits bound retained output, not Git or filesystem response time.' \
     '  Ten visible rows at most; arrows and paging reach later matches.' \
     '  Matching is the same case-insensitive, character-ordered fuzzy search' \
     '  as g, with prefix/substring priority. Worktrees match branch and path.' \

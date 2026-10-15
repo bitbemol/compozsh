@@ -228,6 +228,20 @@ _git_worktree_gitlink_batch() {
   _git_worktree_fail 'This checkout contains submodules; use explicit Git worktree handling.'
 }
 
+# Every index entry must be an ordinary `H ` record: with sparse (S), unmerged
+# (M) or assume-unchanged (lowercase) entries, status cannot prove the checkout
+# clean. The scanner refuses empty, unterminated or oversized records.
+_git_worktree_index_safe() {
+  emulate -L zsh
+  _git_worktree_scan _git_worktree_index_batch "$1" ls-files -v -z
+}
+
+_git_worktree_index_batch() {
+  local -a other=("${(@)argv:#H *}")
+  (( ${#other} )) || return 0
+  _git_worktree_fail 'Sparse, unmerged or assume-unchanged index entries prevent a complete removal check.'
+}
+
 _git_worktree_name_valid() {
   emulate -L zsh
   [[ -n $1 && $1 != -* && $1 != *[[:cntrl:]]* ]] && (( ${#1} <= 512 )) &&
@@ -358,8 +372,7 @@ _git_worktree_move_plan() {
 
 _git_worktree_remove_check() {
   emulate -L zsh
-  local target=$1 flag=''
-  local -a flags=()
+  local target=$1
   local -i index=0
   _GWT_ERROR=''
   _git_worktree_target_current "$target" && _git_worktree_snapshot || return
@@ -375,17 +388,7 @@ _git_worktree_remove_check() {
   _git_worktree_filters_safe "$target" || return
   _git_worktree_idle_check "$target" || return
   _git_worktree_tree_safe "$target" "$_GWT_OIDS[index]" || return
-  _git_worktree_capture "$target" ls-files -v -z || return
-  # Split in memory: Zsh backs here-strings with temporary files. Every record
-  # must be a NUL-terminated `H ` entry: empty records fail the check, and text
-  # after the last NUL is checked as one more (malformed) record.
-  flags=("${(@0)_GWT_DATA}")
-  for flag in "${(@)flags[1,-2]}" ${flags[-1]:+unterminated}; do
-    [[ $flag == 'H '* ]] || {
-      _git_worktree_fail 'Sparse, unmerged or assume-unchanged index entries prevent a complete removal check.'
-      return 1
-    }
-  done
+  _git_worktree_index_safe "$target" || return
   _git_worktree_capture "$target" status --porcelain=v1 -z --no-renames \
     --untracked-files=all --ignored --ignore-submodules=none || return
   [[ -z $_GWT_DATA ]] || {

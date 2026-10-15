@@ -143,7 +143,8 @@ _test_worktree_remove_safety() {
 }
 test_case 'worktree removal protects tracked untracked ignored locked main and hidden-index data' _test_worktree_remove_safety
 
-# The index listing must be NUL-terminated `H ` records; anything else blocks.
+# The index listing must be NUL-terminated `H ` records; anything else blocks,
+# also after a prefix of valid records longer than one read chunk.
 _test_worktree_remove_index_records() {
   test_make_temp_dir || return
   local output=''
@@ -151,25 +152,37 @@ _test_worktree_remove_index_records() {
     source "$1/tests/support.zsh"
     source "$1/tests/git_worktree_test.zsh"
     _test_worktree_fixture "$1" || exit 1
-    functions[_test_worktree_real_capture]=$functions[_git_worktree_capture]
-    _git_worktree_capture() {
-      if [[ $2 == ls-files ]]; then _GWT_DATA=$test_listing; return 0; fi
-      _test_worktree_real_capture "$@"
+    functions[_test_worktree_real_git]=$functions[_git_worktree_git]
+    _git_worktree_git() {
+      if [[ $2 == ls-files ]]; then
+        repeat $test_prefix print -rn -- $'"'"'H file\0'"'"'
+        print -rn -- "$test_listing"
+        return 0
+      fi
+      _test_worktree_real_git "$@"
     }
     local test_listing=""
-    for test_listing in $'"'"'H file\0'"'"' "" $'"'"'H file\0\0H other\0'"'"' $'"'"'H file\0H cut'"'"' garbage; do
-      if _git_worktree_remove_check "$HOME/occupied"; then
-        print -r -- "${(qqqq)test_listing}: removable"
-      else
-        print -r -- "${(qqqq)test_listing}: blocked"
-      fi
+    local -i test_prefix=0
+    for test_prefix in 0 30000; do
+      for test_listing in $'"'"'H file\0'"'"' "" $'"'"'H file\0\0H other\0'"'"' $'"'"'H file\0H cut'"'"' garbage; do
+        if _git_worktree_remove_check "$HOME/occupied"; then
+          print -r -- "$test_prefix ${(qqqq)test_listing}: removable"
+        else
+          print -r -- "$test_prefix ${(qqqq)test_listing}: blocked"
+        fi
+      done
     done
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal "\$'H file\\0': removable
-\$'': removable
-\$'H file\\0\\0H other\\0': blocked
-\$'H file\\0H cut': blocked
-\$'garbage': blocked" "$output" 'worktree removal accepted an empty, unterminated or malformed index record'
+  test_assert_equal "0 \$'H file\\0': removable
+0 \$'': removable
+0 \$'H file\\0\\0H other\\0': blocked
+0 \$'H file\\0H cut': blocked
+0 \$'garbage': blocked
+30000 \$'H file\\0': removable
+30000 \$'': removable
+30000 \$'H file\\0\\0H other\\0': blocked
+30000 \$'H file\\0H cut': blocked
+30000 \$'garbage': blocked" "$output" 'worktree removal accepted an empty, unterminated or malformed index record'
 }
 test_case 'worktree removal blocks empty unterminated or malformed index records' _test_worktree_remove_index_records
 
@@ -762,6 +775,49 @@ failed listing: 2 Git could not read the selected local repository.
     'worktree tree-mode safety scan did not stream a large tree or accepted a failed or malformed listing'
 }
 test_case 'worktree safety checks stream large trees and still refuse gitlinks' _test_worktree_large_tree_scan
+
+# Removal streams the index flags too, so an index beyond one bounded capture
+# is checked completely, and a sparse, assume-unchanged or unmerged entry after
+# the first chunk still refuses. Git checks out the files in one call.
+_test_worktree_large_index_scan() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
+    source "$1/tests/support.zsh"
+    source "$1/tests/git_worktree_test.zsh"
+    _test_worktree_fixture "$1" || exit 1
+    local blob=$(git hash-object -w file) tree="" large="" last=d24/f24999 kind=""
+    local -i index=0
+    for (( index = 0; index < 25000; index++ )); do
+      print -r -- "100644 $blob"$'"'"'\t'"'"'"d$(( index / 1000 ))/f$index"
+    done | GIT_INDEX_FILE="$HOME/scan.index" git update-index --add --index-info || exit 2
+    tree=$(GIT_INDEX_FILE="$HOME/scan.index" git write-tree) &&
+      large=$(git commit-tree -p "$_GWT_HEAD" -m large "$tree") || exit 3
+    git branch feature/large "$large" &&
+      git worktree add -q "$HOME/large" feature/large && _git_worktree_snapshot || exit 4
+    (( $(git -C "$HOME/large" ls-files -v -z | wc -c) > 262144 )) || exit 5
+    _GWT_ERROR=""; _git_worktree_remove_check "$HOME/large"
+    print -r -- "large index: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    for kind in skip-worktree assume-unchanged; do
+      git -C "$HOME/large" update-index "--$kind" "$last" || exit 6
+      _GWT_ERROR=""; _git_worktree_remove_check "$HOME/large"
+      print -r -- "$kind: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+      git -C "$HOME/large" update-index "--no-$kind" "$last" || exit 7
+    done
+    print -rl -- "0 0000000000000000000000000000000000000000"$'"'"'\t'"'"'"$last" \
+      "100644 $blob 1"$'"'"'\t'"'"'"$last" "100644 $blob 2"$'"'"'\t'"'"'"$last" |
+      git -C "$HOME/large" update-index --index-info || exit 8
+    _GWT_ERROR=""; _git_worktree_remove_check "$HOME/large"
+    print -r -- "unmerged: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    [[ -d "$HOME/large/d24" ]] || print -r -- "a check removed files"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'large index: 0
+skip-worktree: 1 Sparse, unmerged or assume-unchanged index entries prevent a complete removal check.
+assume-unchanged: 1 Sparse, unmerged or assume-unchanged index entries prevent a complete removal check.
+unmerged: 1 Sparse, unmerged or assume-unchanged index entries prevent a complete removal check.' "$output" \
+    'worktree removal did not stream a large index or accepted a sparse, assume-unchanged or unmerged entry'
+}
+test_case 'worktree removal checks index flags across tens of thousands of entries' _test_worktree_large_index_scan
 
 _test_worktree_parent_bookmark() {
   test_make_temp_dir || return

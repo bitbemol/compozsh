@@ -63,6 +63,10 @@ signed reflog never runs a configured verifier.
 - Capture registered worktrees from NUL-delimited porcelain and all local
   branches within explicit bounds — not recent checkout history. Filtering and
   painting read no providers; refresh is explicit.
+- Safety checks whose listing grows with the repository (committed-tree modes,
+  removal's index flags) stream Git's NUL-terminated output in bounded chunks
+  and keep only the answer, so size alone never refuses them; a Git failure or
+  an empty, unterminated or oversized record still refuses.
 - Transport, lazy fetch, hooks, fsmonitor, automatic maintenance and submodule
   recursion stay disabled. Creation and removal refuse configured checkout
   filters and submodule trees. Register new worktrees without checkout, then
