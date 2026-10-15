@@ -1568,7 +1568,7 @@ _git_review_tree_rows() {
   for value in "${order[@]}"; do
     if [[ $value == d:* ]]; then
       directory=${value#d:}
-      members=(${=groups[$directory]})
+      members=(${(s: :)groups[$directory]})
       common=${_GIT_REVIEW_PATHS[members[1]]:h}/
       # A captured trailing-slash entry is a leaf, never a traversable folder.
       [[ ${_GIT_REVIEW_PATHS[members[1]]} == */ ]] && common=$directory
@@ -2203,7 +2203,7 @@ _git_review_auto_candidate_changed() {
     '_GIT_REVIEW_DETAILS _git_auto_candidate_details'
     '_GIT_REVIEW_PARENTS _git_auto_candidate_parents')
   for pair in "${pairs[@]}"; do
-    _git_review_arrays_equal ${=pair} || return 0
+    _git_review_arrays_equal ${(s: :)pair} || return 0
   done
   [[ $_GIT_REVIEW_SUMMARY == "$_git_auto_candidate_summary" &&
      $_GIT_REVIEW_NOTICE == "$_git_auto_candidate_notice" ]] || return 0
@@ -2758,13 +2758,13 @@ _git_review_atlas_rows() {
   for directory in "${(@k)_atlas_groups}"; do
     members=${_atlas_groups[$directory]# }
     _atlas_groups[$directory]=$members
-    indexes=(${=members})
+    indexes=(${(s: :)members})
     (( ${#indexes} > maximum )) && maximum=${#indexes}
   done
   for value in "${order[@]}"; do
     if [[ $value == d:* ]]; then
       directory=${value#d:} members=${_atlas_groups[$directory]}
-      indexes=(${=members}) count=${#indexes}
+      indexes=(${(s: :)members}) count=${#indexes}
       cells=$(( (12 * count + maximum - 1) / maximum ))
       bar=''
       repeat $cells; do bar+='▰'; done

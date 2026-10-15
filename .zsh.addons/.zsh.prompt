@@ -270,7 +270,7 @@ _prompt_git() {
       '# branch.ab '*)
         # Validate Git's counts as text: integer assignment evaluates
         # arithmetic, including $(...) in a subscript.
-        fields=(${=line})
+        fields=(${(s: :)line})
         ahead_text=${fields[3]-} behind_text=${fields[4]-}
         if [[ $ahead_text == +<-> && ${#ahead_text} -le 19 &&
               $behind_text == -<-> && ${#behind_text} -le 19 ]]; then

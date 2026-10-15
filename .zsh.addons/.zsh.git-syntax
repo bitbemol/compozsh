@@ -349,7 +349,7 @@ _git_syntax_apply() {
   emulate -L zsh
   local record='' role=''
   local payload=${1%$'\n'}
-  local -a records=("${(@f)payload}") fields=() match=() mbegin=() mend=()
+  local -a records=("${(@f)payload}") match=() mbegin=() mend=()
   local -A spans=() ends=()
   local -i row=0 start=0 end=0 length=0
   _ZLE_PICKER_DOCUMENT_SYNTAX=()
@@ -358,8 +358,8 @@ _git_syntax_apply() {
   [[ $records[1] == compozsh-syntax-1 && $records[-1] == done ]] || return 1
   for record in "${records[@][2,-2]}"; do
     [[ $record =~ '^([1-9][0-9]{0,4}) (0|[1-9][0-9]{0,4}) ([1-9][0-9]{0,4}) (keyword|string|number|comment|type|function|variable)$' ]] || return 1
-    fields=( ${=record} )
-    row=$fields[1] start=$fields[2] end=$fields[3] role=$fields[4]
+    # The validated captures are the fields: no split on the caller's IFS.
+    row=$match[1] start=$match[2] end=$match[3] role=$match[4]
     (( row <= ${#_ZLE_PICKER_DOCUMENT_LINES} )) || return 1
     (( ${_GIT_REVIEW_DOCUMENT_OLD[row]:-0} || ${_GIT_REVIEW_DOCUMENT_NEW[row]:-0} )) || return 1
     length=$(( ${#_ZLE_PICKER_DOCUMENT_LINES[row]} - 15 ))
