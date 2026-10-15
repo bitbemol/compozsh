@@ -855,12 +855,12 @@ compozsh() {
 
   if (( $# == 1 )) && [[ $1 == --help ]]; then
     _compozsh_help_show _compozsh_help_compozsh
-    return 0
+    return $?
   fi
   if [[ ${1:-} == --sudo-touch-id ]]; then
     if (( $# == 2 )) && [[ $2 == --help ]]; then
       _compozsh_help_show _compozsh_help_compozsh sudo-touch-id
-      return 0
+      return $?
     fi
     if (( $# > 2 )) || [[ ${2:-status} != (status|enable|disable) || ( $# == 2 && -z $2 ) ]]; then
       print -u2 -r -- 'usage: compozsh --sudo-touch-id [status|enable|disable]'
@@ -876,7 +876,7 @@ compozsh() {
   if [[ ${1:-} == --refresh ]]; then
     if (( $# == 2 )) && [[ $2 == --help ]]; then
       _compozsh_help_show _compozsh_help_compozsh
-      return 0
+      return $?
     fi
     (( $# == 1 )) || {
       print -u2 -r -- 'usage: compozsh [--list | --refresh | --sudo-touch-id [status|enable|disable] | help command]'

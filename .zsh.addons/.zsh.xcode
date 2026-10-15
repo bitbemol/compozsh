@@ -645,10 +645,9 @@ _xcode_discovery_capture() {
       fi
     fi
   } always {
-    # Native ZLE send-break unwinds the view rather than returning normally.
-    # Keep that abort distinct from a provider's own nonzero exit status.
+    # Ctrl-C unwinds the view rather than returning normally; _zle_picker_run
+    # reports that abort as 130. Drop any partial result before cleanup.
     if (( _xcode_discovery_pid > 1 && !view_finished )); then
-      _XCODE_DISCOVERY_CANCELLED=130
       _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR='Xcode discovery cancelled'
     fi
     if (( _xcode_discovery_pid > 1 )); then
@@ -3087,14 +3086,14 @@ xcode() {
     local -a help=(_compozsh_help_xcode)
     (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
     "${help[@]}"
-    return 0
+    return $?
   fi
   if [[ ${1:-} == --export-skills ]]; then
     if (( $# == 2 )) && [[ $2 == --help ]]; then
       local -a help=(_compozsh_help_xcode export-skills)
       (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
       "${help[@]}"
-      return 0
+      return $?
     fi
     (( $# == 1 )) || {
       print -u2 -r -- 'usage: xcode [xcodebuild-arguments ...]'
@@ -3166,6 +3165,7 @@ xcode() {
         action_status=$?
         _XCODE_TEST_ACTION_STATUS=$action_status
         _zle_picker_run 20 '' 1 0 _xcode_test_result_controller
+        (( $? == 130 )) && return 130
         _xcode_test_result_apply "$action_status" "$_ZLE_PICKER_SELECTED_VALUE" \
           "$_XCODE_TEST_CLIPBOARD_BINARY"
         return $? ;;

@@ -84,7 +84,7 @@ These are Compozsh controls, not claims about macOS-wide standards.
 | Key | Shared meaning |
 | --- | --- |
 | Escape / Ctrl-G | Cancel, or return from a secondary view |
-| Ctrl-C | Abort the interaction |
+| Ctrl-C | Abort the interaction; the command returns 130 |
 | Enter | Apply the visibly named primary action |
 | Ctrl-K | Open/close the keyboard guide |
 | Up/Down, Ctrl-P/N | Move results or scroll the focused view |
@@ -321,6 +321,14 @@ bare `external-device` selection reads no provider and dispatches its task
 after screen restoration. Help's Compose action follows the draft-insertion
 contract. Shared interaction never turns insertion or a preview into
 execution.
+
+Every entry reports one status vocabulary. The shared run returns 0 for an
+accepted choice, 1 for a cancel (Escape or Ctrl-G), 130 when Ctrl-C aborts the
+screen and 2 when the nested editor fails; the screen session records the
+abort, whether it arrives as SIGINT or as the byte the loop reads, and the run
+ends the interrupt after cleanup. Public commands pass 130 and 2 through
+unchanged and no peer maps Ctrl-C privately; a cancelled workspace normally
+returns 0, usage errors stay 2 and a chosen action keeps its own status.
 
 ## Testing
 

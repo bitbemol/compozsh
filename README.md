@@ -508,7 +508,7 @@ after the view closes, Ctrl-K and Ctrl-D regain their shell meanings.
 | Enter | Apply the action named in the footer |
 | Option + visible digit | Apply that visible row (both filter fields empty) |
 | Escape / Ctrl-G | Cancel, or go back from a secondary view |
-| Ctrl-C | Abort the whole view |
+| Ctrl-C | Abort the whole view; the command returns status 130 |
 | Ctrl-U / Ctrl-W | Clear the active field / delete its last word |
 | Ctrl-] | Switch between the filter and **Exclude contains** |
 | Fn or Option-Up/Down, Ctrl-V/Ctrl-D | Page the focused pane |

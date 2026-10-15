@@ -78,6 +78,13 @@ directly, re-verifies and commits it.
 
 *Filled in per phase.*
 
+## Release notes
+
+- Ctrl-C in a Compozsh workspace now exits with status 130 from every
+  command (`g`, `compozsh`, `g --review`, `g --worktree`, `xcode`,
+  `external-device` and the `--help` workspaces), instead of 2, 0 or 130
+  depending on the tool (P1-11, B-04).
+
 ## Performance results
 
 *Filled in by performance units and the final comparison.*

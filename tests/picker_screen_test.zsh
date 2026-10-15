@@ -96,9 +96,8 @@ _test_picker_screen_lifecycle() {
           print -u2 -r -- "$scenario: failed to restore editor state ($event)"
           exit 5
         }
-        if [[ $scenario != abort ]]; then
-          _screen_event && [[ $event == DONE ]] || exit 6
-        fi
+        # Every scenario, Ctrl-C included, returns to its caller.
+        _screen_event && [[ $event == DONE ]] || exit 6
         if [[ $scenario == no-screen || $scenario == redirected ]]; then
           [[ $trace != *"$enter"* && $trace != *"$leave"* &&
              $trace != *$'\''\e[2J'\''* ]] || exit 7
@@ -324,7 +323,7 @@ accept|0|first|rows=0|holders=
 cancel painted:2|1
 cancel|1||rows=0|holders=
 abort painted:2|1
-abort|-1||rows=0|holders=
+abort|130||rows=0|holders=
 capture-failure painted:0|1
 capture-failure|1||rows=0|holders=' "status:$exit_status"$'\n'"$output" \
     'the painted picker frame outlived its screen session'
@@ -427,3 +426,56 @@ markers:0' "status:$exit_status"$'\n'"$output" \
 }
 test_case 'picker engine drops inherited view state without evaluating it' \
   _test_picker_engine_drops_inherited_view_state
+
+# Ctrl-C aborts a workspace with the conventional interrupted status, the same
+# from every entry; Escape and Ctrl-G keep their cancel statuses. A real
+# interactive shell runs each public command, and precmd reports its status.
+_test_picker_screen_status_matrix() {
+  test_make_temp_dir || return
+  local shell_home=$TEST_TMP_DIR/home/shell
+  command mkdir -p "$shell_home/repo" || return
+  command ln -s "$TEST_REPO_ROOT/.zshrc" "$shell_home/.zshrc" || return
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -C "$shell_home/repo" init -q || return
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -C "$shell_home/repo" \
+    -c user.name=Test -c user.email=test@example.invalid commit -q --allow-empty -m init || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/tests/pty_support.zsh" || exit 18
+    command mkfifo "$HOME/events" || exit 1
+    exec {efd}<> "$HOME/events" || exit 2
+    local zsh_bin=$2 shell_home=$HOME/shell
+    _status_shell() {
+      command env -i PATH="$PATH" HOME="$shell_home" ZDOTDIR="$shell_home" \
+        TERM=xterm-256color LC_ALL=en_US.UTF-8 TMPDIR="$TMPDIR" \
+        ZSH_LOCAL_INIT=/dev/null GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+        STATUS_EVENTS="$HOME/events" "$zsh_bin" -di
+    }
+    local cmd="" key="" name="" trace="" result=""
+    local -A keys=(escape $'\''\e'\'' ctrl-g $'\''\x07'\'' ctrl-c $'\''\x03'\'')
+    local -A expected=(escape 0 ctrl-g 0 ctrl-c 130)
+    test_pty_start status _status_shell || exit 3
+    {
+      zpty -w status '\'' _status_event() { print -r -- "PROMPT:$?" >> $STATUS_EVENTS; }; precmd_functions=(_status_event $precmd_functions); stty rows 30 cols 120; cd -q ~/repo'\''
+      test_pty_expect -p status $efd PROMPT: 20 || exit 4
+      for cmd in g compozsh "g --review" "g --worktree" external-device "g --help"; do
+        for name in escape ctrl-g ctrl-c; do
+          zpty -w status "$cmd"
+          { test_pty_expect status "" "all keys" 20 } always { trace=$TEST_PTY_OUTPUT }
+          (( $? == 0 )) || { print -r -- "$cmd $name: no workspace frame"; continue; }
+          zpty -w -n status $keys[$name]
+          test_pty_expect -p status $efd PROMPT: 20 || { print -r -- "$cmd $name: no prompt"; exit 5; }
+          result=${REPLY#PROMPT:}
+          [[ $result == $expected[$name] ]] || print -r -- "$cmd $name: status $result"
+        done
+      done
+    } always {
+      zpty -d status
+    }
+    exec {efd}>&-
+    print matrix
+  ' "$TEST_REPO_ROOT" "$TEST_ZSH_BIN") || return
+  test_assert_equal matrix "$output"
+}
+test_case 'picker screen Ctrl-C returns 130 from every workspace entry' \
+  _test_picker_screen_status_matrix

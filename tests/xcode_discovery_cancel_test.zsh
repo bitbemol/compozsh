@@ -86,7 +86,6 @@ exit 0' || return
         _zle_picker_run 10 "" 1 0 _discovery_controller
         result=$?
       } always {
-        (( ${_XCODE_DISCOVERY_CANCELLED:-0} == 130 )) && result=130
         (( audit_marker == 0 )) || result=92
         kill -0 $unrelated 2>/dev/null || result=93
         kill -TERM $unrelated 2>/dev/null

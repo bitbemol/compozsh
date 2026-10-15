@@ -727,6 +727,7 @@ _zle_picker_loop() {
   }
 
   if (( aborted )); then
+    (( ${+_zle_picker_aborted} )) && _zle_picker_aborted=1
     zle .send-break
     return 130
   fi

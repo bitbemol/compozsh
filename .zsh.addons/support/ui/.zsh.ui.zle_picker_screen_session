@@ -33,8 +33,12 @@ _zle_picker_screen_session() {
   # default abort handler for the whole screen, through restoration, instead.
   # The modal screen owns abort behavior; LOCAL_TRAPS restores the caller's
   # function, static or ignored registration when that ownership finishes.
+  # _zle_picker_run declares the abort record; a widget-owned screen has none.
   setopt LOCAL_TRAPS
-  TRAPINT() { return 130 }
+  TRAPINT() {
+    (( ${+_zle_picker_aborted} )) && _zle_picker_aborted=1
+    return 130
+  }
   if (( ! ${+functions[TRAPWINCH]} )); then
     TRAPWINCH() { zle compozsh-picker-redraw }
   fi

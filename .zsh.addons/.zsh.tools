@@ -77,7 +77,7 @@ mkcd() {
     local -a help=(_compozsh_help_mkcd)
     (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
     "${help[@]}"
-    return 0
+    return $?
   fi
   (( $# == 2 )) && [[ $1 == -- ]] && shift
   (( $# == 1 )) || { print -u2 'usage: mkcd [--] <directory>'; return 2; }
@@ -98,7 +98,7 @@ cpdir() {
     local -a help=(_compozsh_help_cpdir)
     (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
     "${help[@]}"
-    return 0
+    return $?
   fi
   (( $# == 0 )) || {
     print -u2 'usage: cpdir'
@@ -162,7 +162,7 @@ _tools_discard_confirm_view() {
   _ZLE_PICKER_INSPECT_FIXED_KEY=changes
   _ZLE_PICKER_INSPECT_TEXTS=(changes "${2[1,32768]}")
   (( ${#2} > 32768 )) && _ZLE_PICKER_INSPECT_TEXTS[changes]+=$'\n[Preview limited to 32,768 characters; full status is in scrollback.]'
-  _zle_picker_run 10 '' || return 1
+  _zle_picker_run 10 '' || return
   [[ $_ZLE_PICKER_SELECTED_VALUE == [yY] ]]
 }
 
@@ -182,7 +182,7 @@ _tools_git_discard_all() {
   local operation='' head='' confirmed_head=''
   local changes='' confirmed_changes='' remaining='' answer='' change=''
   local -a filter_config=() confirmed_filter_config=()
-  local -i filter_config_changed=0 index=0 restore_tracked=0
+  local -i filter_config_changed=0 index=0 restore_tracked=0 confirm_status=0
 
   root=$(command git rev-parse --show-toplevel 2>/dev/null) || {
     print -u2 'g --discard-all: not inside a Git working tree'
@@ -236,12 +236,13 @@ _tools_git_discard_all() {
 
   if [[ -t 0 && -t 1 && $TERM != dumb ]] &&
      (( ${+functions[_zle_ui_view]} && ${+functions[_zle_picker_run]} )); then
-    _tools_discard_confirm "$root" "$changes" && answer=y
+    _tools_discard_confirm "$root" "$changes" && answer=y || confirm_status=$?
   else
     read -r "answer?Discard everything listed above? [y/N] "
   fi
   if [[ $answer != [yY] ]]; then
     print -- 'Cancelled; nothing was changed.'
+    (( confirm_status == 130 )) && return 130
     return 1
   fi
 

@@ -124,13 +124,16 @@ Idioms, naming and the public command/help interface.
   branch delegates to it. The companion is also the capability marker the live
   `compozsh` explorer uses — don't duplicate its text, move it to another peer
   or replace it with a central registry.
-- A help request normally returns 0, writes nothing to stderr, and performs no
-  project/configuration reads, mutations, navigation, clipboard access,
-  operational tool detection or network access. Presentation may inspect only
-  stdin/stdout, `TERM`, `NO_COLOR` and native terminfo.
+- A help request normally returns 0 (130 when Ctrl-C aborts its help
+  workspace), writes nothing to stderr, and performs no project/configuration
+  reads, mutations, navigation, clipboard access, operational tool detection
+  or network access. Presentation may inspect only stdin/stdout, `TERM`,
+  `NO_COLOR` and native terminfo.
 - Invalid invocations print the same usage line to stderr and return 2.
-  Operational failures keep their meaningful status and diagnostics. Keep
-  usage errors short instead of dumping the whole guide, and make diagnostics
+  Operational failures keep their meaningful status and diagnostics. Ctrl-C
+  in a full-screen workspace returns 130 from every command, never the usage
+  status ([task semantics](full-screen.md#task-semantics)). Keep usage errors
+  short instead of dumping the whole guide, and make diagnostics
   actionable: name current components (for example "the shared
   `support/ui` components"), never retired peer names.
 - A transparent wrapper keeps the wrapped tool's help. A wrapper that adds a

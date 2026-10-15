@@ -56,7 +56,7 @@ external-device() {
     local -a help=(_compozsh_help_external-device)
     (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
     "${help[@]}"
-    return 0
+    return $?
   fi
   case ${1:-} in
     --flash|--format)
@@ -65,7 +65,7 @@ external-device() {
         local -a help=(_compozsh_help_external-device "$selected")
         (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
         "${help[@]}"
-        return 0
+        return $?
       fi
       if { [[ $selected == flash && ${2:-} != --* ]] && (( $# <= 2 )); } ||
          { [[ $selected == format ]] && (( $# == 1 )); }; then

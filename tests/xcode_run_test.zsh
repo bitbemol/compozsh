@@ -850,7 +850,7 @@ command cat > "$HOME/copied"' || return
       zpty -w -n run private-log-filter
       _frame "VIEW:Xcode / Logs:private-log-filter:0:69:1" || exit 37
       zpty -w -n run $'\''\x03'\''
-      _frame ABORT:0 || exit 20
+      _frame ABORT:130 || exit 20
       [[ $trace != *"bad math"* && $trace != *"read-only variable"* &&
          $trace != *"command not found"* && $trace != *"_xcode_run_drain"* ]] || {
         print -u2 -r -- "unexpected runtime diagnostic or helper job notice"

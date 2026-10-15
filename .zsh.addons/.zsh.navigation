@@ -950,7 +950,7 @@ g() {
     local -a help=(_compozsh_help_g)
     (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
     "${help[@]}"
-    return 0
+    return $?
   fi
 
   if [[ ${1:-} == --review ]]; then
