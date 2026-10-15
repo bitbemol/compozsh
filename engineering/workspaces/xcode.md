@@ -36,7 +36,8 @@ same-source help companion; any other arguments delegate directly to
 - Request machine-readable JSON where the CLI offers it and parse it with the
   system `plutil`; accept the documented destination listing only after
   validating a fixed platform vocabulary and a literal stable identifier.
-- Bound every retained capture (currently 256 KiB), diagnostic and item count,
+- Bound every retained capture (currently 256 KiB; Run's build settings
+  5 MiB, see [Run targets](#run-targets)), diagnostic and item count,
   enforcing byte bounds during capture — including temporary files — rather
   than checking size afterward. Keep every validated scheme within bounds; an
   exceeded scheme bound fails with no partial catalog, while the destination
@@ -114,7 +115,11 @@ same-source help companion; any other arguments delegate directly to
 
 - Resolve runnable `.app` bundles (with validated bundle identifiers) or
   native Mac command-line products from bounded
-  `xcodebuild -showBuildSettings -json` over at most 100 targets. Several
+  `xcodebuild -showBuildSettings -json` over at most 100 targets. Xcode
+  reports about 42 KiB of settings per target, so this one capture has its own
+  5 MiB bound (or the user limit when larger), held in invocation memory and
+  released on return; beyond it, Run fails with guidance that names the bound
+  and `ZSH_XCODE_CAPTURE_MAX_BYTES`. Several
   runnable products require an explicit shared Run product choice after
   building; without interactive UI, ambiguity fails. Revalidate the chosen
   leaf. Never infer products by recursive filesystem search.

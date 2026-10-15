@@ -132,7 +132,7 @@ recoverable installer need local state.
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
 | External device captures | Invocation memory; released when `external-device --flash` or `--format` returns | Image and installer paths and stat identities, an optional user-supplied checksum and computed digests, disk identifiers, media names, sizes, protocols and device-tree paths, the filesystem catalog, and the writer's stage, byte counts and native error text that can name the image or device. Its files are the [external media temporary files](#external-media-temporary-files) |
-| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, write and in-session verification progress and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, write and in-session verification progress and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery and Build & Run settings output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
 | Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (Zsh writes the draft directly into that file); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
@@ -843,13 +843,14 @@ Interaction details are specified in [the Xcode
 workspace contract](engineering/workspaces/xcode.md).
 
 **Captures.** Provider stdout keeps at most `ZSH_XCODE_CAPTURE_MAX_BYTES`
-(262,144 by default, minimum 4,096) and diagnostics at most 8,192 bytes,
-enforced while the command runs, including bytes in temporary files; readers
-hold one 8-KiB chunk while discarding excess. Two-byte completion records
-identify finished synchronous streams; incomplete captures and stdout overflow
-are rejected unparsed. Streams stay separate, the native status is kept within
-the limit, and byte bounds impose no duration limit. Cleanup removes the private
-capture directory. **Scheme and destination discovery** streams through three
+(262,144 by default, minimum 4,096; the Build & Run settings capture keeps
+5,242,880 bytes when that limit is smaller, as under Run targets) and
+diagnostics at most 8,192 bytes, enforced while the command runs, including
+bytes in temporary files; readers hold one 8-KiB chunk while discarding
+excess. Two-byte completion records identify finished synchronous streams;
+incomplete captures and stdout overflow are rejected unparsed. Streams stay
+separate, the native status is kept within the limit, and byte bounds impose
+no duration limit. Cleanup removes the private capture directory. **Scheme and destination discovery** streams through three
 mode-0600 FIFOs in a mode-0700 directory into the same budgets, writing only an
 atomically published exit-status record of at most four bytes. After exit,
 queued output is consumed without waiting for inherited writers, and at most
@@ -871,13 +872,17 @@ leave it under the identifiable `compozsh-xcode-test.*` temporary directory.
 
 **Run targets.** Build & Run and Rebuild & Run keep the captured destination's
 platform, device ID, architecture and variant. Build settings are bounded to 100
-targets; product paths and validated bundle identifiers stay in invocation
-memory. Several qualifying products require an explicit choice, no filesystem
-search infers one, and a symlink leaf or vanished product is rejected before
-handoff, not atomically. A Mac app opens as a new instance through native
-`open`, with the chosen architecture and no process monitor; a command-line
-product runs in the restored terminal with native output and status. App code
-has its own access and network behavior.
+targets and 5,242,880 bytes (about 100 targets at Xcode's roughly 42 KiB each),
+or `ZSH_XCODE_CAPTURE_MAX_BYTES` when larger; up to that many bytes sit in the
+private capture files while the command runs and in invocation memory until
+product resolution returns, and a larger capture fails unparsed with guidance
+naming the bound. Product paths and validated bundle identifiers stay in
+invocation memory. Several qualifying products require an explicit choice, no
+filesystem search infers one, and a symlink leaf or vanished product is
+rejected before handoff, not atomically. A Mac app opens as a new instance
+through native `open`, with the chosen architecture and no process monitor; a
+command-line product runs in the restored terminal with native output and
+status. App code has its own access and network behavior.
 
 **Physical devices.** `devicectl` receives the selected app and device ID and
 reaches that device over its configured wired or wireless connection, an

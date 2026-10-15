@@ -1327,7 +1327,9 @@ supplies all build settings.
   Simulator app. If one is already running with a different architecture, shut
   it down and retry.
 - If the build reports several runnable products, **Run product** asks which
-  to launch.
+  to launch. Run reads build settings for schemes of up to about 100 targets
+  (5 MiB, or `ZSH_XCODE_CAPTURE_MAX_BYTES` when larger); a larger scheme stops
+  with that guidance.
 
 **Logs and LLDB.** Simulator and device runs open **Xcode / Logs**, a live reader
 of the app's output (and, on Simulator, its unified logs). Scroll up to pause,

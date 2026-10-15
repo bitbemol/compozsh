@@ -117,6 +117,8 @@ _xcode_capture_limit() {
 
 # Capture first-party output through native bounded stream sinks. Excess bytes
 # are drained without retention; no partial stdout is returned for parsing.
+# Stdout keeps the user limit unless the caller declares its own validated
+# stdout bound in a caller-local _XCODE_CAPTURE_BOUND (Build & Run settings).
 _xcode_capture_command() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -126,7 +128,7 @@ _xcode_capture_command() {
   local max_bytes='' REPLY=''
   local -i command_status=0
   _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
-  _xcode_capture_limit "${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}"
+  _xcode_capture_limit "${_XCODE_CAPTURE_BOUND:-${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}}"
   max_bytes=$REPLY
 
   capture_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode.XXXXXX") || {
@@ -1104,8 +1106,19 @@ _xcode_build_settings_capture() {
   _XCODE_COMMAND=(xcodebuild "${_XCODE_CONTAINER_ARGUMENTS[@]}" -scheme "$scheme"
     -destination "$spec"
     "${_XCODE_SAFE_ARGUMENTS[@]}" -showBuildSettings -json)
-  _xcode_capture_command "${_XCODE_COMMAND[@]}" || return
-  json=$_XCODE_CAPTURE
+  # Xcode reports about 42 KiB of settings per target, so this one capture is
+  # bounded for 100 targets (5 MiB) unless the user limit is larger. The
+  # document stays in this invocation's memory and is released on return.
+  _xcode_capture_limit "${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}"
+  local _XCODE_CAPTURE_BOUND=$REPLY _XCODE_CAPTURE=''
+  (( _XCODE_CAPTURE_BOUND >= 5242880 )) || _XCODE_CAPTURE_BOUND=5242880
+  _xcode_capture_command "${_XCODE_COMMAND[@]}" || {
+    result=$?
+    [[ $_XCODE_CAPTURE_ERROR == "output exceeded the ${_XCODE_CAPTURE_BOUND}-byte capture limit" ]] &&
+      _XCODE_CAPTURE_ERROR="build settings exceeded the ${_XCODE_CAPTURE_BOUND}-byte Build & Run bound (about 100 targets); choose a scheme with fewer targets or raise ZSH_XCODE_CAPTURE_MAX_BYTES"
+    return $result
+  }
+  json=$_XCODE_CAPTURE _XCODE_CAPTURE=''
   # The root is an array. Probe a bounded number of target dictionaries;
   # plutil intentionally has no empty-key extraction for the root count.
   for (( index = 0; index < 100; ++index )); do

@@ -100,3 +100,70 @@ _test_xcode_capture_limit_helper_normalizes_explicit_text() {
 }
 test_case 'Xcode capture limit helper normalizes explicit decimal text without arithmetic' \
   _test_xcode_capture_limit_helper_normalizes_explicit_text
+
+_test_xcode_build_settings_capture_bounds_targets() {
+  test_make_temp_dir || return
+  local output='' error_file="$TEST_TMP_DIR/stderr" expected=''
+  local -i result=0
+  # Xcode reports about 42 KiB of settings per target. The stub emits about
+  # 40 KiB per framework target and puts the one app last, so resolution must
+  # parse every index; COMPOZSH_TEST_KEYS enlarges each target instead.
+  test_write_file "$TEST_TMP_DIR/bin/xcodebuild" '#!/bin/zsh -df
+emulate zsh
+local -i targets=${COMPOZSH_TEST_TARGETS:-1} keys=${COMPOZSH_TEST_KEYS:-500} index=0
+local filler=${(l:64::x:)} products=${COMPOZSH_TEST_PRODUCTS:?} body=""
+local -a settings=("\"SETTING_"{1..$keys}"\":\"$filler\"")
+body=${(j:,:)settings}
+print -rn -- "["
+for (( index = 1; index <= targets; ++index )); do
+  (( index > 1 )) && print -rn -- ","
+  if (( index == targets )); then
+    print -rn -- "{\"target\":\"App\",\"buildSettings\":{$body,\"WRAPPER_EXTENSION\":\"app\",\"PRODUCT_BUNDLE_IDENTIFIER\":\"com.example.app\",\"TARGET_BUILD_DIR\":\"$products\",\"FULL_PRODUCT_NAME\":\"App.app\"}}"
+  else
+    print -rn -- "{\"target\":\"Kit$index\",\"buildSettings\":{$body,\"WRAPPER_EXTENSION\":\"framework\",\"TARGET_BUILD_DIR\":\"$products\",\"FULL_PRODUCT_NAME\":\"Kit$index.framework\"}}"
+  fi
+done
+print -r -- "]"' || return
+  command chmod 700 "$TEST_TMP_DIR/bin/xcodebuild" || return
+  command mkdir -p "$TEST_TMP_DIR/products/App.app" "$TEST_TMP_DIR/capture" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    export TMPDIR=$2/capture PATH="$2/bin:$PATH" COMPOZSH_TEST_PRODUCTS=$2/products
+    export COMPOZSH_TEST_TARGETS="" COMPOZSH_TEST_KEYS=""
+    local limit=""
+    # Cases: user limit, targets, settings keys per target. The 4,096-byte
+    # user limit cannot lower the settings bound; an 8-MiB one raises it. The
+    # settings document must not outlive the call in the shared capture global.
+    local -a cases=("" 7 500 "" 10 500 "" 100 500 4096 7 500 "" 140 500
+      8388608 2 37000)
+    for limit COMPOZSH_TEST_TARGETS COMPOZSH_TEST_KEYS in "${cases[@]}"; do
+      ZSH_XCODE_CAPTURE_MAX_BYTES=$limit _XCODE_CAPTURE=""
+      _xcode_build_settings_capture project /example/App.xcodeproj App macOS MAC-123
+      print -r -- "$COMPOZSH_TEST_TARGETS:$?:${#_XCODE_CAPTURE}:${_XCODE_APP_PATH#$2/}:$_XCODE_BUNDLE_ID:$_XCODE_CAPTURE_ERROR"
+    done
+    # Every other capture keeps the ordinary user bound.
+    ZSH_XCODE_CAPTURE_MAX_BYTES="" COMPOZSH_TEST_TARGETS=7 COMPOZSH_TEST_KEYS=500
+    _xcode_capture_command xcodebuild -showBuildSettings -json
+    print -r -- "other:$?:${#_XCODE_CAPTURE}:$_XCODE_CAPTURE_ERROR"
+    local -a leftovers=("$2"/capture/*(DN))
+    print -r -- "leftovers:${#leftovers}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2> "$error_file") || result=$?
+  test_assert_equal '' "$(<"$error_file")" \
+    'Build & Run settings capture emitted diagnostics' || return
+  test_assert_equal 0 "$result" 'Build & Run settings capture aborted' || return
+  expected=$'7:0:0:products/App.app:com.example.app:\n'
+  expected+=$'10:0:0:products/App.app:com.example.app:\n'
+  expected+=$'100:0:0:products/App.app:com.example.app:\n'
+  expected+=$'7:0:0:products/App.app:com.example.app:\n'
+  expected+='140:1:0:::build settings exceeded the 5242880-byte Build & Run bound'
+  expected+=' (about 100 targets); choose a scheme with fewer targets or raise'
+  expected+=$' ZSH_XCODE_CAPTURE_MAX_BYTES\n'
+  expected+=$'2:0:0:products/App.app:com.example.app:\n'
+  expected+=$'other:1:0:output exceeded the 262144-byte capture limit\n'
+  expected+='leftovers:0'
+  test_assert_equal "$expected" "$output" \
+    'Build & Run settings did not resolve up to 100 targets within an explained bound'
+}
+test_case 'Xcode Build & Run resolves products for schemes up to 100 targets and explains a larger capture' \
+  _test_xcode_build_settings_capture_bounds_targets
