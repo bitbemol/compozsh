@@ -1434,6 +1434,42 @@ _test_usb_plist_capture_ignores_custom_path() {
 test_case 'USB plist capture uses absolute native tool paths' \
   _test_usb_plist_capture_ignores_custom_path
 
+_test_usb_diskutil_capture_reports_empty_output() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/capture" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _usb_diskutil_run() { return 0; }
+    _usb_disk_list_read
+    print -r -- "empty:$?|error:[$_USB_CAPTURE_ERROR]|plist:[$_USB_PLIST]"
+    _USB_PLIST_MAX_BYTES=16
+    _usb_diskutil_run() { print -rn -- "<?xml version=\"1.0\"?><plist/>"; }
+    _usb_disk_list_read
+    print -r -- "oversized:$?|error:[$_USB_CAPTURE_ERROR]|plist:[$_USB_PLIST]"
+    # Losing the capture file leaves its size unknown, which is neither case.
+    _usb_diskutil_run() { command /bin/rm -f -- "$TMPDIR"/compozsh-usb.*(N); }
+    _usb_disk_list_read
+    print -r -- "unmeasured:$?|error:[$_USB_CAPTURE_ERROR]|plist:[$_USB_PLIST]"
+    leftovers=("$2"/compozsh-usb.*(N))
+    print -r -- "leftovers:${#leftovers}"
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  test_assert_contains "$output" 'empty:1|error:[diskutil returned no output]|plist:[]' \
+    'empty diskutil output was not reported as missing data' || return
+  test_assert_contains "$output" \
+    'oversized:1|error:[diskutil output exceeded the 16-byte capture limit]|plist:[]' \
+    'oversized diskutil output lost its capture-limit diagnostic' || return
+  test_assert_contains "$output" \
+    'unmeasured:1|error:[cannot measure the bounded diskutil capture file]|plist:[]' \
+    'an unmeasurable diskutil capture was misreported' || return
+  test_assert_contains "$output" 'leftovers:0' \
+    'a refused diskutil capture left its temporary file behind'
+}
+test_case 'USB diskutil capture reports empty output as no data' \
+  _test_usb_diskutil_capture_reports_empty_output
+
 _test_usb_custom_path_browses_from_home() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" output=''
@@ -1769,6 +1805,67 @@ _test_usb_step3_blocks_a_mismatched_image_checksum() {
 }
 test_case 'USB Step 3 blocks a mismatched image checksum' \
   _test_usb_step3_blocks_a_mismatched_image_checksum
+
+# A refused flash returns to the same review screen, so the refusal itself
+# must be visible there, and only until the user's next action.
+_test_usb_step3_shows_the_checksum_refusal() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    expected=${(l:64::d:)} actual=${(l:64::e:)}
+    _USB_IMAGE_PATHS=(/images/linux.iso) _USB_IMAGE_LABELS=(linux)
+    _USB_IMAGE_DETAILS=(image-details) _USB_IMAGE_SIZES=(30000)
+    _USB_IMAGE_FINGERPRINTS=(image-fingerprint)
+    _usb_image_source_disk_capture() { _USB_IMAGE_SOURCE_DISK=""; }
+    _usb_disks_capture() {
+      _USB_DISK_IDS=(disk7) _USB_DISK_LABELS=(external-target)
+      _USB_DISK_DETAILS=(target-details) _USB_DISK_SIZES=(90000)
+      _USB_DISK_FINGERPRINTS=(disk-fingerprint)
+    }
+    _usb_image_revalidate() { return 0; }
+    _usb_image_checksum() { REPLY=$actual; }
+    _usb_progress_stage() { return 0; }
+    _usb_read_checksum() { _ZLE_PICKER_SELECTED_VALUE=$expected; }
+    call=0
+    _usb_choose() {
+      (( ++call ))
+      print -r -- "view$call:${(j:|:)${_USB_PICKER_PASSIVE_LINES[@]-}}|style:${(j:|:)${_USB_PICKER_PASSIVE_STYLES[@]-}}"
+      case $call in
+        (1) _ZLE_PICKER_SELECTED_VALUE=image:1 ;;
+        (2) _ZLE_PICKER_SELECTED_VALUE=1 ;;
+        (3) _ZLE_PICKER_SELECTED_VALUE=checksum ;;
+        (4) _ZLE_PICKER_SELECTED_VALUE=flash-only ;;
+        (5) _ZLE_PICKER_SELECTED_VALUE=image ;;
+        (6) _ZLE_PICKER_SELECTED_VALUE=image:1 ;;
+        (7) _ZLE_PICKER_SELECTED_VALUE=1 ;;
+        (8) _ZLE_PICKER_SELECTED_VALUE=flash-only ;;
+        (*) return 2 ;;
+      esac
+    }
+    _usb_workspace_controller
+    print -r -- "end:$?|$call|${_USB_REQUEST:-none}"
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" 'view4:|style:' \
+    'Step 3 showed a refusal before any flash action was chosen' || return
+  test_assert_contains "$output" \
+    'view5:The image integrity check must match before flashing' \
+    'Step 3 silently ignored a flash action refused by the checksum' || return
+  test_assert_contains "$output" \
+    'view5:The image integrity check must match before flashing; correct or remove the checksum|style:picker-error' \
+    'the Step 3 refusal did not use the shared error role' || return
+  test_assert_contains "$output" 'view6:|style:' \
+    'the Step 3 refusal leaked into the next screen' || return
+  test_assert_contains "$output" 'view8:|style:' \
+    'the Step 3 refusal outlived the action that caused it' || return
+  test_assert_contains "$output" 'end:0|8|flash-only' \
+    'choosing the image again did not clear the refused checksum'
+}
+test_case 'USB Step 3 shows the checksum refusal before flashing' \
+  _test_usb_step3_shows_the_checksum_refusal
 
 _test_usb_step3_hashing_never_claims_early_success() {
   test_make_temp_dir || return

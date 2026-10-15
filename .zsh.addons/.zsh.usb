@@ -1139,8 +1139,13 @@ _usb_diskutil_plist_capture() {
     command_status=$?
     if (( command_status == 0 )); then
       raw_size=$(command /usr/bin/stat -f '%z' "$capture_file" 2>/dev/null)
-      [[ $raw_size == <-> ]] || raw_size=0
-      if (( raw_size == 0 || raw_size > _USB_PLIST_MAX_BYTES )); then
+      if [[ $raw_size != <-> ]]; then
+        command_status=1
+        _USB_CAPTURE_ERROR='cannot measure the bounded diskutil capture file'
+      elif (( raw_size == 0 )); then
+        command_status=1
+        _USB_CAPTURE_ERROR='diskutil returned no output'
+      elif (( raw_size > _USB_PLIST_MAX_BYTES )); then
         command_status=1
         _USB_CAPTURE_ERROR="diskutil output exceeded the ${_USB_PLIST_MAX_BYTES}-byte capture limit"
       else
@@ -1800,6 +1805,20 @@ _usb_macos_review_choose() {
     'Filter choices' 1 0 1 '' '' '' action
 }
 
+# A refused flash returns here, so its reason is passive context on this one
+# view; scoped here so later screens never inherit it.
+_usb_flash_review_choose() {
+  emulate -L zsh
+  local breadcrumb=$1 refusal=$2
+  local -a _USB_PICKER_PASSIVE_LINES=() _USB_PICKER_PASSIVE_STYLES=()
+  if [[ -n $refusal ]]; then
+    _USB_PICKER_PASSIVE_LINES=("$refusal")
+    _USB_PICKER_PASSIVE_STYLES=(picker-error)
+  fi
+  _usb_choose 'External device / Flash · Step 3 of 3' "$breadcrumb" \
+    'Filter choices' 1 0 1 '' '' '' action
+}
+
 _usb_step3_checksum_progress() {
   emulate -L zsh
   local image=$1 disk=$2 disk_label=$3 checksum=$4 algorithm=$5 architecture=$6
@@ -1819,7 +1838,7 @@ _usb_workspace_controller() {
   local image_query='' image_initial_value='' refresh_path=''
   local -a image_exclusion=()
   local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
-  local media_kind=raw-image media_error='' review_breadcrumb=''
+  local media_kind=raw-image media_error='' review_breadcrumb='' review_refusal=''
   local checksum_state=not-provided checksum_actual='' integrity_label='' integrity_detail=''
   local integrity_role=''
   local _USB_CHECKSUM_ALGORITHM=''
@@ -2026,10 +2045,8 @@ _usb_workspace_controller() {
       _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
       architecture_label=$REPLY
       review_breadcrumb="Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk"
-      _usb_choose 'External device / Flash · Step 3 of 3' \
-        "$review_breadcrumb" \
-        'Filter choices' 1 0 1 '' '' '' action
-      result=$?
+      _usb_flash_review_choose "$review_breadcrumb" "$review_refusal"
+      result=$? review_refusal=''
       (( result == 1 )) && break
       (( result == 0 )) || return $result
       selected=$_ZLE_PICKER_SELECTED_VALUE
@@ -2076,7 +2093,7 @@ _usb_workspace_controller() {
           disk=${_USB_DISK_IDS[disk_index]} ;;
         (flash-verify|flash-only)
           if [[ -n $checksum && $checksum_state != matched ]]; then
-            checksum_subtitle='The image integrity check must match before flashing; paste the correct checksum or go back and remove it'
+            review_refusal='The image integrity check must match before flashing; correct or remove the checksum'
             continue
           fi
           _usb_workspace_request "$selected" "$image_index" "$disk_index" "$image" "$disk" \
