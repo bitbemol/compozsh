@@ -915,6 +915,57 @@ _test_living_prompt_interaction_lenses_cover_remote_flow_and_caution() {
 test_case 'living prompt interaction lenses qualify remote pipeline redirection and caution intent' \
   _test_living_prompt_interaction_lenses_cover_remote_flow_and_caution
 
+_test_living_prompt_interaction_precommand_heads() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    local draft=""
+
+    # Every pipeline and chain command skips the same leading assignments,
+    # precommand modifiers (env with its options and NAME=value operands
+    # included), and redirections before naming its head.
+    for draft in "env rm -rf build" "true && env rm -rf build" \
+      "ls | env rm -rf build" "true && env -i rm -rf build" \
+      "ls | time rm -rf build" "true && command rm -rf build" \
+      "true && env -u HOME -i rm -rf build" "ls |& nocorrect rm -rf build" \
+      "true && 2>/dev/null rm -rf build" "true; env API_TOKEN=never-shown rm -rf build"; do
+      _prompt_interaction_model "$draft"
+      [[ $_PROMPT_INTERACTION_KIND == caution &&
+         ${_PROMPT_INTERACTION_LABELS[1]} == "COMMAND TEXT" &&
+         ${_PROMPT_INTERACTION_VALUES[1]} == rm &&
+         ${(j:|:)_PROMPT_INTERACTION_VALUES} != *never-shown* ]] || {
+        print -u2 -r -- "precommand head missed for ${(qqq)draft}: $_PROMPT_INTERACTION_KIND ${(j:|:)_PROMPT_INTERACTION_VALUES}"
+        exit 1
+      }
+    done
+
+    _prompt_interaction_model "git status && env -i npm test | time -p sort"
+    [[ $_PROMPT_INTERACTION_KIND == chain &&
+       ${_PROMPT_INTERACTION_VALUES[1]} == "git → npm → sort" ]] || {
+      print -u2 -r -- "flow heads kept a precommand: ${(j:|:)_PROMPT_INTERACTION_VALUES}"
+      exit 2
+    }
+
+    # A redirection alone still reads as a redirection. Only assignments alone
+    # read as an environment update, without disclosing their values.
+    _prompt_interaction_model "> out.txt"
+    [[ $_PROMPT_INTERACTION_KIND == redirect ]] || exit 3
+    _prompt_interaction_model "API_TOKEN=never-shown"
+    [[ $_PROMPT_INTERACTION_KIND == environment &&
+       ${(j:|:)_PROMPT_INTERACTION_VALUES} != *never-shown* ]] || exit 4
+    _prompt_interaction_model "env -i"
+    [[ $_PROMPT_INTERACTION_KIND != environment ]] || exit 5
+    print -r -- precommand-heads
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal precommand-heads "$output"
+}
+test_case 'living prompt interaction lens finds precommand heads after chains and pipelines' \
+  _test_living_prompt_interaction_precommand_heads
+
 _test_living_prompt_interaction_edits_are_inert_and_reuse_autosuggestion_state() {
   test_make_temp_dir || return
   local bin="$TEST_TMP_DIR/forbidden-bin"

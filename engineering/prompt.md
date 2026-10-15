@@ -116,6 +116,15 @@ short windows use bounded omission.
   `external-device` (task entry, help, destructive flash/format modes),
   `xcode --export-skills` (export), `compozsh --refresh` (refresh). Bare
   `xcode` is not a build.
+- Every pipeline and chain command finds its head by one lexical rule:
+  leading assignments, the precommand modifiers `command`, `builtin`, `exec`,
+  `noglob`, `nocorrect`, `time` and `env` (with its options and `NAME=value`
+  operands) and their options, redirections with their targets and comments
+  never name it, so a head-only `CAUTION` cue such as `rm` reads the same in
+  any position. The first head names the draft, except that a literal alias
+  of a modifier's name in first position is itself the head. Only a draft of
+  assignments alone is the environment update; another headless draft, such
+  as a bare redirection or modifier, keeps its first literal word.
 - A leading assignment's value is never copied into lens state; its name may
   help locate or describe the command. This avoids a second display of a
   possibly sensitive value but doesn't redact the buffer, transcript, history

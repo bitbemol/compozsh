@@ -583,6 +583,62 @@ _prompt_alias_expansions() {
   done
 }
 
+# Return each pipeline or chain command's head word index in order, 0 when a
+# command has none. Leading assignments, native precommand modifiers (env with
+# its options and NAME=value operands included) and their options, redirections
+# with their targets, and comments never name the command. Pure: lexer words
+# in, reply out; nothing is expanded, resolved or evaluated.
+_prompt_command_heads() {
+  emulate -L zsh
+  local word='' plain=''
+  local -i index=0 head=0 precommand=0 env_options=0 skip_word=0
+  reply=()
+  for word in "$@"; do
+    (( ++index ))
+    plain=${(Q)word}
+    case $plain in
+      '|'|'|&'|'&&'|'||'|';'|'&')
+        reply+=("$head")
+        head=0 precommand=0 env_options=0 skip_word=0
+        continue
+        ;;
+    esac
+    (( head )) && continue
+    if (( skip_word )); then
+      skip_word=0
+      continue
+    fi
+    [[ $word == \#* ]] && continue
+    # Cheap literal guards keep predicate calls off most keystroke words.
+    if [[ $plain == *[\<\>]* ]] && _compozsh_is_redirection "$plain"; then
+      skip_word=1
+      continue
+    fi
+    [[ $word == *=* ]] && _compozsh_is_assignment "$word" && continue
+    if (( env_options )); then
+      case $plain in
+        -u|--unset|-C|--chdir|-S|--split-string)
+          skip_word=1
+          continue
+          ;;
+      esac
+    fi
+    case $plain in
+      command|builtin|exec|noglob|nocorrect|time)
+        precommand=1
+        continue
+        ;;
+      env)
+        precommand=1 env_options=1
+        continue
+        ;;
+    esac
+    (( precommand )) && [[ $plain == -* ]] && continue
+    head=$index
+  done
+  reply+=("$head")
+}
+
 # Derive an interaction model from literal editor text and already-captured
 # prompt/editor facts. Zsh's lexer identifies structure without evaluating,
 # expanding, resolving, or executing anything from BUFFER.
@@ -603,10 +659,10 @@ _prompt_interaction_model() {
   local redirect_label='OUTPUT TEXT'
   local redirect_action='likely redirect command output'
   local -a tokens=() plain_tokens=() flow_heads=() flow_operators=() alias_records=()
+  local -a command_heads=()
   local -i index=0 command_index=0 operation_index=0 token_count=0
-  local -i pipe_count=0 chain_count=0 expect_flow=0
-  local -i caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0
-  local -i precommand_options=0 env_precommand=0 autocd=0
+  local -i pipe_count=0 chain_count=0
+  local -i caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0 autocd=0
   [[ -n ${_ZLE_AUTOCD_BUFFER:-} &&
      ${_ZLE_AUTOCD_BUFFER:-} == "$buffer" &&
      ${_ZLE_AUTOCD_PWD:-} == "$PWD" ]] && autocd=1
@@ -686,59 +742,35 @@ _prompt_interaction_model() {
     return 0
   fi
 
-  # Leading assignments and native precommand modifiers do not define the
-  # command. Assignment values are never copied into presentation state.
-  for (( index = 1; index <= token_count; index++ )); do
-    token=${tokens[index]}
+  # Every pipeline and chain command finds its head by the same lexical rule.
+  # The first head names the draft. Assignment values are never copied into
+  # presentation state.
+  _prompt_command_heads "${tokens[@]}"
+  command_heads=("${reply[@]}")
+  plain=${plain_tokens[1]}
+  # A literal alias named env/command/etc. is the head itself, not evidence
+  # that the draft uses the native precommand form. Read its definition below.
+  if [[ $alias_enabled == on && ${tokens[1]} == "$plain" ]] &&
+     (( ${+aliases[$plain]} || ${+galiases[$plain]} )); then
+    command_index=1
+  else
+    for index in "${command_heads[@]}"; do
+      (( index )) || continue
+      command_index=$index
+      break
+    done
+  fi
+  # Without a head, a draft other than assignments alone keeps its first
+  # literal word (such as a bare redirection) as the command.
+  for (( index = 1; !command_index && index <= token_count; index++ )); do
     plain=${plain_tokens[index]}
-    if _compozsh_is_assignment "$token"; then
+    if _compozsh_is_assignment "${tokens[index]}"; then
       [[ -z $assignment_name ]] && assignment_name=${plain%%=*}
       continue
     fi
-    # A literal alias named env/command/etc. is the head itself, not evidence
-    # that the draft uses the native precommand form. Read its definition below.
-    if (( index == 1 && (${+aliases[$plain]} || ${+galiases[$plain]}) )) &&
-       [[ $alias_enabled == on && $token == "$plain" ]]; then
-      command_name=$plain
-      command_index=$index
-      break
-    fi
-    if (( env_precommand )); then
-      if (( skip_next )); then
-        skip_next=0
-        continue
-      fi
-      case $plain in
-        -u|--unset|-C|--chdir|-S|--split-string)
-          skip_next=1
-          continue
-          ;;
-        -*)
-          continue
-          ;;
-      esac
-    fi
-    case $plain in
-      command|builtin|exec|noglob|nocorrect|time)
-        precommand_options=1
-        continue
-        ;;
-      env)
-        env_precommand=1
-        precommand_options=1
-        continue
-        ;;
-      '|'|'|&'|'&&'|'||'|';'|'&')
-        continue
-        ;;
-    esac
-    if (( precommand_options )) && [[ $plain == -* ]]; then
-      continue
-    fi
-    command_name=$plain
-    command_index=$index
-    break
+    [[ $plain == ('|'|'|&'|'&&'|'||'|';'|'&') ]] || command_index=$index
   done
+  (( command_index )) && command_name=${plain_tokens[command_index]}
 
   if (( ! command_index )); then
     _PROMPT_INTERACTION_KIND=environment
@@ -819,33 +851,22 @@ _prompt_interaction_model() {
   # and conditional/sequential chains. Mixed forms retain the whole visible
   # plan instead of dropping everything after the first pipeline.
   flow_heads=("$command_name")
+  for index in "${command_heads[@]:1}"; do
+    (( index )) && flow_heads+=("${plain_tokens[index]}")
+  done
   for (( index = 1; index <= token_count; index++ )); do
     plain=${plain_tokens[index]}
     if [[ $plain == ('|'|'|&') ]]; then
       (( ++pipe_count ))
       flow_operators+=("$plain")
-      expect_flow=1
       continue
     fi
     if [[ $plain == ('&&'|'||'|';'|'&') ]]; then
       (( ++chain_count ))
       flow_operators+=("$plain")
-      expect_flow=1
       continue
     fi
-    if (( expect_flow )); then
-      if _compozsh_is_assignment "${tokens[index]}"; then
-        continue
-      fi
-      case $plain in
-        command|builtin|exec|noglob|nocorrect|time) continue ;;
-        -*|'#'*) continue ;;
-      esac
-      _compozsh_is_redirection "$plain" && continue
-      flow_heads+=("$plain")
-      expect_flow=0
-    fi
-    if _compozsh_is_redirection "$plain"; then
+    if [[ $plain == *[\<\>]* ]] && _compozsh_is_redirection "$plain"; then
       redirect_operator=$plain
       if (( index < token_count )); then
         redirect_text=${plain_tokens[index + 1]}
