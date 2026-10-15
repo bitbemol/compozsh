@@ -21,6 +21,14 @@ Idioms, naming and the public command/help interface.
   change options); enable extra options locally.
 - Declare function variables with typed `local` (`-i`, `-F`, `-a`, `-A`).
   Declare intentional globals with `typeset -g`, `-gi`, `-gF`, `-ga` or `-gA`.
+- Never name a variable after an array Zsh ties to a colon-separated special:
+  `path`, `cdpath`, `fpath`, `manpath`, `module_path`, `mailpath`, `fignore`,
+  `psvar`, `watch` or `zsh_eval_context`. A `local path=$file` or a
+  `for path in` loop stays tied, so it rebinds `PATH` for every callee and
+  child and empties the shell's command hash table, dropping the user's
+  `hash name=/path` entries. Use a descriptive name such as `file_path`
+  (`local -h` would hide the special, but a clear name is simpler); a
+  `security:` test scans shipped code.
 - Return a helper's scalar in `REPLY` and a short list in `reply` to avoid a
   subshell; pure entries return only this way. Use a clearly named typed
   global only when several results or shared widget state need it.

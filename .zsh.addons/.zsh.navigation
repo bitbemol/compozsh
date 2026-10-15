@@ -99,7 +99,7 @@ _stack_print_entry() {
 _directory_stack_capture() {
   emulate -L zsh
 
-  local path='' display=''
+  local location='' display=''
   local -a entries=("$PWD" "${dirstack[@]}")
   local -i index=0
   _NAVIGATION_PICKER_VALUES=()
@@ -107,13 +107,13 @@ _directory_stack_capture() {
   _NAVIGATION_PICKER_INDEXES=()
   _NAVIGATION_PICKER_SEARCH_LABELS=()
 
-  for path in "${entries[@]}"; do
-    if [[ $path == $HOME || $path == $HOME/* ]]; then
-      display="~${path#$HOME}"
+  for location in "${entries[@]}"; do
+    if [[ $location == $HOME || $location == $HOME/* ]]; then
+      display="~${location#$HOME}"
     else
-      display=$path
+      display=$location
     fi
-    _NAVIGATION_PICKER_VALUES+=("$path")
+    _NAVIGATION_PICKER_VALUES+=("$location")
     _NAVIGATION_PICKER_LABELS+=("$display")
     _NAVIGATION_PICKER_INDEXES+=($index)
     (( ++index ))

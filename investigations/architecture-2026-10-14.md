@@ -84,6 +84,9 @@ directly, re-verifies and commits it.
   command (`g`, `compozsh`, `g --review`, `g --worktree`, `xcode`,
   `external-device` and the `--help` workspaces), instead of 2, 0 or 130
   depending on the tool (P1-11, B-04).
+- Search, Recents and Git review no longer empty the shell's command hash
+  table, so entries added with `hash name=/path` survive using them
+  (P1-12, SEC-B-02).
 
 ## Performance results
 

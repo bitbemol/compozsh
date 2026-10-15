@@ -101,10 +101,10 @@ _file_search_limit() {
 _file_search_consider() {
   emulate -L zsh
 
-  local path=$1 display=$2 match_text=$3 label='' kind=''
+  local candidate_path=$1 display=$2 match_text=$3 label='' kind=''
   local -i max_candidates=2000 rank=0
-  [[ -n $path && -z ${_FILE_SEARCH_SEEN[$path]-} ]] || return 1
-  [[ -f $path || -d $path || -L $path ]] || return 1
+  [[ -n $candidate_path && -z ${_FILE_SEARCH_SEEN[$candidate_path]-} ]] || return 1
+  [[ -f $candidate_path || -d $candidate_path || -L $candidate_path ]] || return 1
 
   _file_search_match_rank "$match_text" || return 1
   rank=$REPLY
@@ -115,20 +115,20 @@ _file_search_consider() {
     return 2
   fi
 
-  if [[ -L $path ]]; then
+  if [[ -L $candidate_path ]]; then
     kind='↗'
-  elif [[ -d $path ]]; then
+  elif [[ -d $candidate_path ]]; then
     kind='▸'
     display=${display%/}/
   else
     kind='·'
   fi
   label="$kind $display"
-  _FILE_SEARCH_VALUES+=("$path")
+  _FILE_SEARCH_VALUES+=("$candidate_path")
   _FILE_SEARCH_LABELS+=("$label")
   _FILE_SEARCH_MATCH_TEXTS+=("$match_text")
   _FILE_SEARCH_RANKS+=($rank)
-  _FILE_SEARCH_SEEN[$path]=1
+  _FILE_SEARCH_SEEN[$candidate_path]=1
 }
 
 _file_search_sort_matches() {

@@ -1047,7 +1047,7 @@ _git_review_document_load() {
 # independent of literal path values (one file may have two change rows).
 _git_review_rows() {
   local -i index=0
-  local context='' path=''
+  local context='' file_path=''
   _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_INDEXES=()
   _NAVIGATION_PICKER_LABELS=("${_GIT_REVIEW_LABELS[@]}")
   _NAVIGATION_PICKER_SEARCH_LABELS=()
@@ -1064,11 +1064,11 @@ _git_review_rows() {
     fi
     _ZLE_PICKER_CONTEXTS[$index]=$context
     if (( ${_ZLE_PICKER_DOCUMENT:-0} )); then
-      path=${_GIT_REVIEW_PATHS[index]}
-      if [[ ${_GIT_REVIEW_KINDS[index]-} == untracked && $path == */* && $path != */ ]]; then
-        _NAVIGATION_PICKER_LABELS[index]=$path
+      file_path=${_GIT_REVIEW_PATHS[index]}
+      if [[ ${_GIT_REVIEW_KINDS[index]-} == untracked && $file_path == */* && $file_path != */ ]]; then
+        _NAVIGATION_PICKER_LABELS[index]=$file_path
       else
-        _NAVIGATION_PICKER_LABELS[index]=${path:t}
+        _NAVIGATION_PICKER_LABELS[index]=${file_path:t}
       fi
     fi
     _ZLE_PICKER_INSPECT_TEXTS[$index]=${_GIT_REVIEW_DETAILS[index]-}

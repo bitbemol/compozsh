@@ -292,6 +292,145 @@ words=(${=after_redirect})' || return
 test_case 'security: shipped code word-splits only under a local IFS or an explicit separator' \
   _test_runtime_splits_without_caller_ifs
 
+# Zsh ties `path` to PATH (and `fpath`, `cdpath`... to theirs), and a local of
+# that name stays tied: `local path=$file` rebinds PATH for every callee and
+# child and empties the command hash table on entry and exit. The lexer strips
+# comments and keeps continued lines and array values whole, so only names that
+# a declaration or `for` loop at command position binds are reported; `-h`
+# hides the special and is allowed.
+_security_tied_special_names() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local file='' token='' contents='' mode='' keyword='' options=''
+  local tied='(path|cdpath|fpath|manpath|module_path|mailpath|fignore|psvar|watch|zsh_eval_context)'
+  local -i command_position=0 names_started=0
+  for file in "$@"; do
+    contents=$(<"$file")
+    command_position=1 mode=''
+    for token in ${(Z+C+)contents}; do
+      if [[ $token == (';'|';;'|';&'|';|'|'&'|'&!'|'&|'|'&&'|'||'|'|'|'|&'|'('|')'|'()'|'{'|'}') ]]; then
+        command_position=1 mode=''
+        continue
+      fi
+      if (( command_position )); then
+        command_position=0
+        case $token in
+          (then|do|else|elif|if|while|until|time|'!'|builtin|noglob) command_position=1 ;;
+          (local|typeset|declare|integer|float|readonly|export|private)
+            mode=declare keyword=$token options='' names_started=0 ;;
+          (for|foreach) mode=loop keyword=$token ;;
+        esac
+        continue
+      fi
+      case $mode in
+        (declare)
+          if (( !names_started )) && [[ $token == [-+]* ]]; then
+            [[ $token == -- ]] && names_started=1
+            [[ $token == -[^-]# ]] && options+=${token#-}
+            continue
+          fi
+          names_started=1
+          [[ ${token%%[=\[]*} == ${~tied} && $options != *h* ]] &&
+            print -r -- "${file#$TEST_REPO_ROOT/}: $keyword $token"
+          ;;
+        (loop)
+          [[ $token == (in|'(('*) ]] && { mode=''; continue; }
+          [[ $token == ${~tied} ]] && print -r -- "${file#$TEST_REPO_ROOT/}: $keyword $token"
+          ;;
+      esac
+    done
+  done
+}
+
+_test_runtime_never_binds_tied_special_names() {
+  emulate -L zsh
+  test_make_temp_dir || return
+  local fixture="$TEST_TMP_DIR/.zsh.fixture" found=''
+  local -a zsh_files=()
+  test_write_file "$fixture" 'local path=$1 display=$2
+f() {
+  local context="" path=""
+  integer count=1; local -a cdpath=(a b)
+  local first=1 \
+    manpath=2
+  if true; then builtin typeset -g fpath; fi
+  for path in a b; do :; done
+  for (( i = 0; i < 2; ++i )); do declare module_path; done
+  { readonly mailpath=x }
+}
+# local path=commented
+hidden() { local -h path=1; typeset -ah fpath=(x) }
+named() { local file_path=1 path_text=2 my_path= PATH=/usr/bin:/bin; }
+arguments() { print -r -- local path; _append $limit path "$pattern" }
+values() { local -a modes=(basename path) words=("for path in") }
+case $x in (path) print path ;; esac
+for name in path fpath; do :; done' || return
+  found=$(_security_tied_special_names "$fixture")
+  found=${(F)${(f)found}#"${fixture#$TEST_REPO_ROOT/}: "}
+  test_assert_equal 'local path=$1
+local path=""
+local cdpath=(a b)
+local manpath=2
+typeset fpath
+for path
+declare module_path
+readonly mailpath=x' "$found" 'tied special name scan reported the wrong bindings' || return
+  _security_runtime_files
+  zsh_files=(${(M)_SECURITY_RUNTIME_FILES:#*/(.zshrc|*.zsh|.zsh.*)})
+  (( ${#zsh_files} > 20 )) || { test_fail 'runtime Zsh file inventory is unexpectedly small'; return 1; }
+  found=$(_security_tied_special_names "${zsh_files[@]}")
+  [[ -z $found ]] || test_fail "shipped Zsh binds a name Zsh ties to PATH or another colon-separated special; rename it (engineering/zsh.md#idioms):"$'\n'"$found"
+}
+test_case 'security: shipped code never declares locals tied to PATH-like specials' \
+  _test_runtime_never_binds_tied_special_names
+
+# The helpers that once declared `local path` must leave callees a resolvable
+# PATH and the interactive shell's `hash name=/path` entries in place.
+_test_view_helpers_keep_path_and_command_hash() {
+  test_make_temp_dir || return
+  local tree="$TEST_TMP_DIR/tree" output=''
+  command mkdir -p "$tree/sub" || return
+  test_write_file "$tree/file" x || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.find" || exit
+    source "$1/.zsh.addons/.zsh.navigation" || exit
+    source "$1/.zsh.addons/.zsh.git-review" || exit
+    probe() {
+      hash compozsh-probe=/bin/echo
+      "$@" >/dev/null 2>&1
+      print -r -- "hash:$1:${commands[compozsh-probe]-gone}"
+    }
+    _file_search_match_rank() { callee_ls=${commands[ls]:-unresolved}; REPLY=1; }
+    probe _file_search_consider "$2/file" file file
+    print -r -- "callee-ls:$callee_ls values:${(j:,:)_FILE_SEARCH_VALUES}"
+    builtin cd "$2/sub" || exit
+    dirstack=("$2")
+    probe _directory_stack_capture
+    print -r -- "stack:${(j:,:)_NAVIGATION_PICKER_VALUES}"
+    typeset -a _GIT_REVIEW_LABELS=(file item) _GIT_REVIEW_CONTEXTS=("Unstaged M" Untracked)
+    typeset -a _GIT_REVIEW_KINDS=(unstaged untracked) _GIT_REVIEW_PATHS=(dir/file new/item)
+    typeset -a _GIT_REVIEW_DETAILS=(changed new)
+    typeset -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+    typeset -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+    typeset -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
+    _ZLE_PICKER_DOCUMENT=1
+    probe _git_review_rows
+    print -r -- "rows:${(j:,:)_NAVIGATION_PICKER_LABELS}"
+  ' "$TEST_REPO_ROOT" "$tree") || return
+  test_assert_contains "$output" "values:$tree/file" 'Search did not record the candidate' || return
+  test_assert_contains "$output" "stack:$tree/sub,$tree" 'Recents did not capture the directory stack' || return
+  test_assert_contains "$output" 'rows:file,new/item' 'Git review did not project the file rows' || return
+  test_assert_contains "$output" 'callee-ls:/' \
+    'a Search callee saw PATH rebound to the candidate path' || return
+  local helper=''
+  for helper in _file_search_consider _directory_stack_capture _git_review_rows; do
+    test_assert_contains "$output" "hash:$helper:/bin/echo" \
+      "$helper cleared the caller's command hash table" || return
+  done
+}
+test_case 'security: Search, Recents and Git review rows keep PATH and the command hash (no locals tied to PATH-like specials)' \
+  _test_view_helpers_keep_path_and_command_hash
+
 # SECURITY.md's completion-dump row assumes a bare compinit call: no -d path,
 # -C/-i/-u audit bypass, fpath entry, compiled dump or completion cache.
 _test_completion_dump_call_matches_disclosure() {
