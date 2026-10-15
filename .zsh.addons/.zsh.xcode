@@ -3448,9 +3448,6 @@ _xcode_export_help() {
     '  xcode --export-skills    Export from the currently selected Xcode.'
 }
 
-unfunction update-xcode-skills _compozsh_help_update-xcode-skills 2>/dev/null
-unalias update-xcode-skills 2>/dev/null
-
 _xcode_export_review() {
   emulate -L zsh
   local -a _XCODE_PICKER_VALUES=(export)

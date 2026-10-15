@@ -1050,9 +1050,4 @@ g() {
   command git -C "$root" switch --no-guess -- "$branch"
 }
 
-# Remove the former static branch-list helper when re-sourcing an older shell.
-# `g` is now the single branch navigation interface.
-unfunction b 2>/dev/null
-unalias b 2>/dev/null
-
 :

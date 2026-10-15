@@ -1,10 +1,4 @@
 # Small commands and the optional guarded discard capability for g.
-# Remove the former owned entry when re-sourcing; g is the only public route.
-unfunction git-discard-all 2>/dev/null
-unfunction _compozsh_help_git-discard-all 2>/dev/null
-unalias git-discard-all 2>/dev/null
-unfunction prompt-refresh _compozsh_help_prompt-refresh 2>/dev/null
-unalias prompt-refresh 2>/dev/null
 
 _tools_print_help() {
   emulate -L zsh

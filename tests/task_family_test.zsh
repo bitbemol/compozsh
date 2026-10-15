@@ -14,7 +14,7 @@ _test_task_family_entries() {
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     for retired in flash-usb format-external-device update-xcode-skills prompt-refresh; do
-      (( ! ${+functions[$retired]} && ! ${+functions[_compozsh_help_$retired]} && ! ${+aliases[$retired]} )) || exit 1
+      (( ${+functions[$retired]} && ${+functions[_compozsh_help_$retired]} && ${+aliases[$retired]} )) || exit 1
     done
     (( ${+functions[external-device]} )) || exit 2
     _usb_flash() { [[ $# == 1 && $1 == "literal [a] text.iso" ]] || return 90; print flash; return 17; }

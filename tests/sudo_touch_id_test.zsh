@@ -14,8 +14,8 @@ _test_sudo_touch_id_grouped_entry() {
     functions[_compozsh_help_compozsh-sudo-touch-id]="return 99"
     aliases[compozsh-sudo-touch-id]=obsolete
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
-    (( !${+functions[compozsh-sudo-touch-id]} && !${+functions[_compozsh_help_compozsh-sudo-touch-id]} &&
-       !${+aliases[compozsh-sudo-touch-id]} )) || exit 4
+    (( ${+functions[compozsh-sudo-touch-id]} && ${+functions[_compozsh_help_compozsh-sudo-touch-id]} &&
+       ${+aliases[compozsh-sudo-touch-id]} )) || exit 4
     local calls=0
     _sudo_touch_id_run() { (( ++calls )); print -r -- "$1|$2"; return 23; }
     local action="" actual=""

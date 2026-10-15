@@ -1,10 +1,6 @@
 # Native bootable external-media creation. This peer unit is loaded by the .zshrc
 # bootstrap only while its name matches .zsh.<name> inside an add-on directory.
 
-# Retire the former public entries on re-source; there is one task family.
-unfunction flash-usb format-external-device _compozsh_help_flash-usb _compozsh_help_format-external-device 2>/dev/null
-unalias flash-usb format-external-device external-device 2>/dev/null
-
 _compozsh_help_external-device() {
   emulate -L zsh
   case ${1:-} in
@@ -49,6 +45,7 @@ _usb_task_choose() {
   _usb_choose 'External device / Tasks' 'Choose a task · no device selected' 'Filter tasks' 1 0 0 '' '' '' action
 }
 
+unalias external-device 2>/dev/null
 external-device() {
   emulate -L zsh
   local selected='' result=0

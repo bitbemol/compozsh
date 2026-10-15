@@ -9,9 +9,9 @@ _test_git_discard_entry() {
     source "$1/.zsh.addons/.zsh.tools"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.help"
-    [[ ${+aliases[git-discard-all]} == 0 &&
-       ${+functions[git-discard-all]} == 0 &&
-       ${+functions[_compozsh_help_git-discard-all]} == 0 ]] || exit 1
+    [[ ${+aliases[git-discard-all]} == 1 &&
+       ${+functions[git-discard-all]} == 1 &&
+       ${+functions[_compozsh_help_git-discard-all]} == 1 ]] || exit 1
     local -x GIT_DIR=/unrelated GIT_WORK_TREE=/unrelated-tree
     _tools_git_discard_all() {
       [[ -z ${GIT_DIR-} && -z ${GIT_WORK_TREE-} ]] || return 91

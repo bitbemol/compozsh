@@ -114,6 +114,12 @@ Idioms, naming and the public command/help interface.
   peer after a same-name alias. Keep orchestration public only when users invoke it; detectors,
   renderers, installers and state get `_`. Document every public command in
   README.
+- Retiring a public name removes its definition and help companion from the
+  source, nothing more. Loading never `unfunction`s or `unalias`es a name the
+  same file doesn't define: users may reuse a retired name, and a running shell
+  keeps an earlier version's definitions until `exec zsh`. The guard above is
+  the only top-level `unalias`; a peer may `unfunction` only a one-shot helper
+  it defined earlier in the same file.
 - Use descriptive long options (`--help`, `--worktree`) without single-letter
   aliases. Transparent wrappers keep the underlying executable's options.
 - Documented extension APIs such as `prompt_add_project_segment` keep their

@@ -1,9 +1,5 @@
 # Explicit, reversible macOS Touch ID configuration for sudo.
 
-# Retire definitions from an already-loaded previous version when re-sourced.
-unfunction compozsh-sudo-touch-id _compozsh_help_compozsh-sudo-touch-id _sudo_touch_id_print_help 2>/dev/null
-unalias compozsh-sudo-touch-id 2>/dev/null
-
 _sudo_touch_id_managed_text() {
   REPLY=$'# sudo_local: local config file which survives system update and is included for sudo\n# Managed by Compozsh; use compozsh --sudo-touch-id disable to remove this exact file.\nauth       sufficient     pam_tid.so'
 }

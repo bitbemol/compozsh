@@ -302,3 +302,75 @@ bindkey "^E"'
 }
 test_case 'all supported peer traversal orders converge on the same state' \
   _test_peer_order_converges
+
+# Retiring a public name removes only Compozsh's own definition. A user's alias
+# or function that reuses a retired name stays theirs in every load order, and
+# a peer's top-level unalias is only the guard before its own public command.
+_test_retired_names_stay_user_owned() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" mode='' output='' file='' line='' name=''
+  local definition=''
+  local -a peers=() lines=() words=() found=()
+  local -i index=0 defined_at=0 status_code=0
+  local script=$'retired=(b git-discard-all prompt-refresh flash-usb format-external-device compozsh-sudo-touch-id update-xcode-skills)
+for name in "${retired[@]}"; do
+  aliases[$name]="mine-$name"
+  functions[$name]="print -r -- mine-$name"
+done
+aliases[external-device]=mine-external-device
+files=("$1"/.zsh.addons/**/.zsh.?*(N.))
+[[ $2 == reverse ]] && files=(${(Oa)files})
+for file in "${files[@]}"; do source "$file" || exit; done
+for name in "${retired[@]}"; do
+  [[ ${aliases[$name]-} == "mine-$name" ]] || print -r -- "lost alias $name"
+  [[ ${functions[$name]-} == *"mine-$name"* ]] || print -r -- "lost function $name"
+done
+(( ! ${+aliases[external-device]} && ${+functions[external-device]} &&
+   ! ${+functions[mine-external-device]} )) || print -r -- "external-device guard failed"
+print -r -- kept'
+
+  for mode in lexical reverse; do
+    status_code=0
+    output=$(test_run_interactive "$home" "$script" "$TEST_REPO_ROOT" "$mode" \
+      2> "$TEST_TMP_DIR/errors-$mode") || status_code=$?
+    (( ! status_code )) && [[ ! -s "$TEST_TMP_DIR/errors-$mode" ]] ||
+      test_fail "peers failed to load over user-owned names in $mode order (status $status_code): $output $(<"$TEST_TMP_DIR/errors-$mode")" ||
+      return
+    test_assert_equal kept "$output" \
+      "loading peers in $mode order removed user-owned names" || return
+  done
+
+  peers=("$TEST_REPO_ROOT"/.zsh.addons/**/.zsh.?*(N.))
+  (( $#peers )) || test_fail 'no peers found' || return
+  for file in "${peers[@]}"; do
+    lines=("${(@f)$(<"$file")}")
+    for (( index = 1; index <= $#lines; index++ )); do
+      line=$lines[index]
+      # Top-level statements start in column one; function bodies are indented.
+      [[ $line == (unalias|unfunction)' '* ]] || continue
+      words=(${=line})
+      case $line in
+        ('unalias '*)
+          [[ $#words == 3 && $words[3] == '2>/dev/null' &&
+             $lines[index+1] == "$words[2]() {" ]] ||
+            found+=("${file#$TEST_REPO_ROOT/}:$index: $line")
+          ;;
+        ('unfunction '*)
+          # A peer may drop a one-shot helper it defined above, nothing else.
+          for name in "${(@)words[2,-1]}"; do
+            [[ $name == '2>/dev/null' ]] && continue
+            definition="$name() {"
+            defined_at=${lines[(ie)$definition]}
+            (( defined_at < index )) && continue
+            found+=("${file#$TEST_REPO_ROOT/}:$index: $line")
+            break
+          done
+          ;;
+      esac
+    done
+  done
+  (( ! $#found )) ||
+    test_fail "peers remove names they do not define: ${(j:; :)found}"
+}
+test_case 'retired command names stay user-owned when peers load in any order' \
+  _test_retired_names_stay_user_owned
