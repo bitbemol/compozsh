@@ -791,7 +791,7 @@ _usb_image_path_view() {
 
 _usb_checksum_parse() {
   emulate -L zsh
-  local input=$1 scrubbed='' token='' digest=''
+  local IFS=$' \t\n' input=$1 scrubbed='' token='' digest=''
   local -a tokens=()
   local -i matches=0
   _USB_CHECKSUM_ALGORITHM=''

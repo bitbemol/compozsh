@@ -8,7 +8,7 @@
 _prompt_runtime_version() {
   setopt localoptions noglobsubst
 
-  local language=$1 project_root=$2
+  local IFS=$' \t\n' language=$1 project_root=$2
   local binary='' output='' first_line='' version=''
   local separator=$'\x1f'
   local cache_key="${language}${separator}${project_root}${separator}${PATH}"

@@ -634,6 +634,7 @@ _manual_summary_parse() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   unsetopt MULTIBYTE
+  local IFS=$' \t\n'
   local text=$'\n'"${1[1,8192]}" body='' line='' description='' name=''
   local pattern=$'\n[.](Sh NAME|SH "NAME"|SH NAME)[[:blank:]]*(\\\\"[^\n]*)?\n'
   local MATCH='' MBEGIN=0 MEND=0

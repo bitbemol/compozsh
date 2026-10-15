@@ -331,7 +331,7 @@ _file_search_capture_local() {
 _file_search_spotlight_seed() {
   emulate -L zsh
 
-  local query=$1 fragment='' seed=''
+  local IFS=$' \t\n' query=$1 fragment='' seed=''
   local -a fragments=( ${=query} )
   for fragment in "${fragments[@]}"; do
     (( ${#fragment} > ${#seed} )) && seed=$fragment

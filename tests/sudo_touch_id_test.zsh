@@ -263,9 +263,9 @@ _test_sudo_touch_id_privileged_routines_execute_in_isolated_fixture() {
   # /private/tmp, so set the group the rewritten ownership check expects.
   command chgrp -- "$(command /usr/bin/id -g)" "$pam_dir" || return
   test_write_file "$pam_dir/sudo" \
-    $'auth include sudo_local\nauth required pam_opendirectory.so' || return
+    $'auth       include        sudo_local\nauth\trequired\tpam_opendirectory.so' || return
   test_write_file "$pam_dir/sudo_local.template" \
-    $'#auth sufficient pam_tid.so' || return
+    $'#auth       sufficient     pam_tid.so' || return
   command chmod 0444 "$pam_dir/sudo" "$pam_dir/sudo_local.template" || return
 
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '

@@ -33,6 +33,7 @@ _sudo_touch_id_state() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
+  local IFS=$' \t\n'
   local target="$1/sudo_local" contents='' line='' trimmed='' metadata=''
   local previous=''
   local -i expected_size=0
@@ -127,6 +128,7 @@ _sudo_touch_id_enable_preflight() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
+  local IFS=$' \t\n'
   local pam_dir=$1 sudo_policy="$1/sudo" template="$1/sudo_local.template"
   local contents='' line='' trimmed=''
   local -a fields=()
@@ -181,10 +183,14 @@ _sudo_touch_id_authorize() {
   command /usr/bin/sudo -v
 }
 
+# The routine starts in a fresh shell, which already has the default IFS; it
+# still declares its PAM field delimiters, as every shipped split does. In
+# this single-quoted literal, '\'' stands for one quote.
 _sudo_touch_id_privileged_install_script() {
   REPLY='
     emulate -LR zsh
     setopt EXTENDED_GLOB
+    local IFS=$'\'' \t\n'\''
     local temp_file=""
     local expected_one="# sudo_local: local config file which survives system update and is included for sudo"
     local expected_two="# Managed by Compozsh; use compozsh --sudo-touch-id disable to remove this exact file."

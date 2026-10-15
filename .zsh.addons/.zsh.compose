@@ -16,7 +16,7 @@ _compozsh_compose_capability() {
 _compozsh_compose_seed() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local draft=$1
+  local IFS=$' \t\n' draft=$1
   local -a words=()
   _compose_recipe='' _compose_method=exact _compose_base=main _compose_head=HEAD _compose_path=''
   # Deliberately narrow prefill: complicated shell syntax stays in the editor.

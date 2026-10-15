@@ -217,6 +217,81 @@ print '"'"'$(( quoted[$x] ))'"'"'' || return
 test_case 'security: shipped Zsh never splices text into arithmetic subscripts' \
   _test_runtime_never_splices_text_into_arithmetic_subscripts
 
+# `emulate -L zsh` keeps the caller's IFS, so ${=text} and $=text split on
+# whatever a line loop or `IFS= read` left. Each such split must follow a
+# `local IFS=` declaration in the same function, which opens with `name() {`
+# and closes with `}` at column 0; otherwise split on an explicit separator
+# such as ${(s: :)text}. Comment lines are ignored.
+_security_caller_ifs_splits() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local file='' line='' trimmed=''
+  local -i number=0 in_function=0 local_ifs=0
+  for file in "$@"; do
+    number=0 in_function=0 local_ifs=0
+    while IFS= read -r line || [[ -n $line ]]; do
+      (( ++number ))
+      trimmed=${line##[[:space:]]#}
+      [[ $trimmed == \#* ]] && continue
+      [[ $line == [A-Za-z_]*'() {'* ]] && in_function=1 local_ifs=0
+      [[ $line == (|*[[:space:]\{\;])local[[:space:]]##([^\;]#[[:space:]])#IFS=* ]] &&
+        local_ifs=1
+      [[ $line == *('${='|'$='[A-Za-z_])* ]] && (( !in_function || !local_ifs )) &&
+        print -r -- "${file#$TEST_REPO_ROOT/}:$number: $trimmed"
+      [[ $line == \}* || ( $line == [A-Za-z_]*'() {'* && $line == *'}' ) ]] &&
+        in_function=0 local_ifs=0
+    done < "$file"
+  done
+}
+
+_test_runtime_splits_without_caller_ifs() {
+  emulate -L zsh
+  test_make_temp_dir || return
+  local fixture="$TEST_TMP_DIR/.zsh.fixture" found='' expected=''
+  local -a zsh_files=()
+  test_write_file "$fixture" 'words=(${=top})
+# words=(${=commented})
+unset_first() {
+  words=(${=early})
+  local IFS=$'"'"' \t\n'"'"'
+}
+declared() {
+  local count=0 IFS=$'"'"' \t\n'"'"'
+  words=(${=fine} $=also_fine ${(s: :)explicit})
+}
+reset_after() {
+  words=($=bare)
+}
+not_a_declaration() {
+  local x='"''"'; IFS= read -r x
+  words=(${=read_only})
+}
+one_line() { local IFS=$'"'"'\n'"'"'; words=(${=one}); }
+after_one_line() { words=(${=next}); }
+explicit() { words=(${(s: :)separator}); }
+redirected() {
+  local IFS=$'"'"' \t\n'"'"'
+} 2>/dev/null
+words=(${=after_redirect})' || return
+  found=$(_security_caller_ifs_splits "$fixture")
+  found=${(F)${(f)found}#"${fixture#$TEST_REPO_ROOT/}:"}
+  for expected in '1: words=(${=top})' '4: words=(${=early})' '12: words=($=bare)' \
+      '16: words=(${=read_only})' '19: after_one_line() { words=(${=next}); }' \
+      '24: words=(${=after_redirect})'; do
+    [[ $'\n'$found$'\n' == *$'\n'"$expected"$'\n'* ]] ||
+      { test_fail "caller IFS split scan missed: $expected"$'\n'"$found"; return 1; }
+  done
+  [[ $found != *(commented|fine|explicit|\{=one\}|separator)* ]] ||
+    { test_fail "caller IFS split scan flagged a comment, a declared IFS or an explicit separator:"$'\n'"$found"; return 1; }
+  _security_runtime_files
+  zsh_files=(${(M)_SECURITY_RUNTIME_FILES:#*/(.zshrc|*.zsh|.zsh.*)})
+  (( ${#zsh_files} > 20 )) || { test_fail 'runtime Zsh file inventory is unexpectedly small'; return 1; }
+  found=$(_security_caller_ifs_splits "${zsh_files[@]}")
+  [[ -z $found ]] || test_fail "shipped Zsh word-splits on the caller's IFS; declare local IFS first or use an explicit separator (engineering/zsh.md#idioms):"$'\n'"$found"
+}
+test_case 'security: shipped code word-splits only under a local IFS or an explicit separator' \
+  _test_runtime_splits_without_caller_ifs
+
 # SECURITY.md's completion-dump row assumes a bare compinit call: no -d path,
 # -C/-i/-u audit bypass, fpath entry, compiled dump or completion cache.
 _test_completion_dump_call_matches_disclosure() {

@@ -30,6 +30,13 @@ Idioms, naming and the public command/help interface.
   splitting, globbing or array flag is intentional and evident.
 - `--` before user-controlled path operands when the command supports it;
   `IFS= read -r` for input.
+- Define splitting delimiters locally in all shipped code, not only pure
+  entries. `emulate -L zsh` keeps the caller's `IFS`, such as a newline from
+  a line loop or an empty one from `IFS= read`. Split single-space internal
+  records with `${(s: :)text}`; where runs of blanks and tabs must collapse
+  (typed queries, tool output, policy lines), declare `local IFS=$' \t\n'`
+  before `${=text}` in the same function. A `security:` test scans shipped
+  code.
 - Split captured text with parameter flags, never through `<<<`, a
   here-document or `=(...)` ([security](security.md#handling-sensitive-data)).
   Each split is equivalent, record for record, to a read loop over

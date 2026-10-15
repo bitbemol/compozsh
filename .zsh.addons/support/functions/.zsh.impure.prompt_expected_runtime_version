@@ -7,7 +7,7 @@
 _prompt_expected_runtime_version() {
   emulate -L zsh
   setopt extendedglob
-  local language=$1 project_root=$2 file='' name line wanted rest expected='' text=''
+  local IFS=$' \t\n' language=$1 project_root=$2 file='' name line wanted rest expected='' text=''
   local value_policy=''
   local tool_name=${_RUNTIME_TOOL_NAMES[$1]:-$1}
   local -a names

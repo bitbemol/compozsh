@@ -161,7 +161,7 @@ _history_search_collect() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  local query=$1 raw_limit=$2 literal='' pattern='' fragment=''
+  local IFS=$' \t\n' query=$1 raw_limit=$2 literal='' pattern='' fragment=''
   local seed_pattern='' longest_fragment=''
   local -i limit=8 seed_index=1 _history_search_tier_matches=0
   local -a fragments=() literal_patterns=() fuzzy_patterns=() reply=()
