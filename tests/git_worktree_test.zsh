@@ -711,6 +711,58 @@ _test_worktree_bounds_and_submodules() {
 }
 test_case 'worktree oversized captures retain the previous catalog and submodule creation is refused' _test_worktree_bounds_and_submodules
 
+# The tree-mode safety check streams Git's listing instead of capturing it, so
+# trees beyond one bounded capture are checked completely. A gitlink after the
+# first chunk still refuses, and so do a Git failure, an unterminated record
+# and a record longer than one chunk. The index is built from one blob in a
+# private index file, so no working files are created.
+_test_worktree_large_tree_scan() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
+    source "$1/tests/support.zsh"
+    source "$1/tests/git_worktree_test.zsh"
+    _test_worktree_fixture "$1" || exit 1
+    local blob=$(git hash-object -w file) tree="" large="" deep="" test_listing=""
+    local -i index=0
+    for (( index = 0; index < 38000; index++ )); do
+      print -r -- "100644 $blob"$'"'"'\t'"'"'"d$(( index / 1000 ))/f$index"
+    done | GIT_INDEX_FILE="$HOME/scan.index" git update-index --add --index-info || exit 2
+    tree=$(GIT_INDEX_FILE="$HOME/scan.index" git write-tree) &&
+      large=$(git commit-tree -p "$_GWT_HEAD" -m large "$tree") || exit 3
+    GIT_INDEX_FILE="$HOME/scan.index" git update-index --add \
+      --cacheinfo "160000,$_GWT_HEAD,z/y/x/w/nested" || exit 4
+    tree=$(GIT_INDEX_FILE="$HOME/scan.index" git write-tree) &&
+      deep=$(git commit-tree -p "$_GWT_HEAD" -m deep "$tree") || exit 5
+    _GWT_ERROR=""; _git_worktree_tree_safe "$_GWT_ROOT" "$large"
+    print -r -- "large tree: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    _GWT_ERROR=""; _git_worktree_plan new feature/large "$large" "$HOME/large"
+    print -r -- "large plan: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    _GWT_ERROR=""; _git_worktree_plan new feature/deep "$deep" "$HOME/deep"
+    print -r -- "deep gitlink: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    _GWT_ERROR=""; _git_worktree_tree_safe "$_GWT_ROOT" 1111111111111111111111111111111111111111
+    print -r -- "missing commit: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    _git_worktree_git() { print -rn -- $'"'"'100644\0'"'"'; return 128; }
+    _GWT_ERROR=""; _git_worktree_tree_safe "$_GWT_ROOT" "$large"
+    print -r -- "failed listing: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    _git_worktree_git() { print -rn -- "$test_listing"; }
+    for test_listing in 100644$'"'"'\0'"'"'100644 ${(pl:70000::1:)}; do
+      _GWT_ERROR=""; _git_worktree_tree_safe "$_GWT_ROOT" "$large"
+      print -r -- "${#test_listing}-byte malformed listing: $?${_GWT_ERROR:+ $_GWT_ERROR}"
+    done
+    [[ ! -e "$HOME/large" && ! -e "$HOME/deep" ]] || print -r -- "a plan created a folder"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'large tree: 0
+large plan: 0
+deep gitlink: 1 This checkout contains submodules; use explicit Git worktree handling.
+missing commit: 2 Git could not read the selected local repository.
+failed listing: 2 Git could not read the selected local repository.
+13-byte malformed listing: 2 Git listing was incomplete or malformed; no action applied.
+70000-byte malformed listing: 2 Git listing was incomplete or malformed; no action applied.' "$output" \
+    'worktree tree-mode safety scan did not stream a large tree or accepted a failed or malformed listing'
+}
+test_case 'worktree safety checks stream large trees and still refuse gitlinks' _test_worktree_large_tree_scan
+
 _test_worktree_parent_bookmark() {
   test_make_temp_dir || return
   local output=''

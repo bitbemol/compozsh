@@ -55,6 +55,63 @@ _git_worktree_capture() {
   return 2
 }
 
+# A safety check whose Git listing grows with the repository streams it rather
+# than capturing it, so repository size never refuses the action: the handler
+# receives every complete NUL-terminated record in batches and keeps only its
+# answer. An empty record and Git's exit status end the listing. A Git
+# failure, a missing terminator or a record longer than one chunk refuses with
+# status 2; the handler refuses with status 1 after setting _GWT_ERROR.
+# Retained output stays bounded; wall time does not.
+# Usage: _git_worktree_scan <handler> <root> <git-arguments...>
+_git_worktree_scan() {
+  emulate -L zsh
+  local handler=$1 root=$2
+  shift 2
+  _GWT_DATA=''
+  zmodload -F zsh/system b:sysread 2>/dev/null || {
+    _git_worktree_fail 'Git listing could not be read; no action applied.'
+    return 2
+  }
+  # The reader is the last pipeline element, so it runs in this shell.
+  { _git_worktree_git "$root" "$@" 2>/dev/null
+    print -rn -- $'\0'"$?"$'\0' 2>/dev/null
+  } | _git_worktree_scan_records "$handler"
+}
+
+# Reads stdin in sysread chunks of at most 64 KiB and splits them in memory,
+# carrying one cut-off record (`read -d ''` would cost a read(2) per byte), so
+# at most one chunk and one record shorter than a chunk are held. Byte
+# semantics keep that bound exact in any locale.
+_git_worktree_scan_records() {
+  emulate -L zsh
+  local LC_ALL=C handler=$1 chunk='' carry='' empty=''
+  local -a records=() trailer=()
+  local -i index=0 ended=0
+  while sysread -s 65536 chunk; do
+    chunk=$carry$chunk
+    records=("${(@0)chunk}")
+    carry=$records[-1]
+    records[-1]=()
+    if (( ! ended )); then
+      index=${records[(ie)$empty]}
+      if (( index > 1 )); then
+        "$handler" "${(@)records[1,index-1]}" || return 1
+      fi
+      (( index <= ${#records} )) && ended=1
+      records[1,index]=()
+    fi
+    trailer+=("${records[@]}")
+    (( ${#carry} < 65536 && ${#trailer} <= 1 )) || break
+  done
+  if (( ended && ${#trailer} == 1 )) && [[ -z $carry && $trailer[1] == <-> && ${#trailer[1]} -le 3 ]]; then
+    [[ $trailer[1] == 0 ]] && return 0
+    _git_worktree_fail 'Git could not read the selected local repository.'
+    return 2
+  fi
+  _git_worktree_fail 'Git listing was incomplete or malformed; no action applied.'
+  return 2
+}
+
 _git_worktree_identity() {
   emulate -L zsh
   local -A info=()
@@ -159,10 +216,15 @@ _git_worktree_filters_safe() {
   _git_worktree_fail 'Configured checkout filters require explicit Git handling; this workspace will not run or bypass them.'
 }
 
+# Refuses a committed tree that contains a gitlink (mode 160000) at any depth.
 _git_worktree_tree_safe() {
   emulate -L zsh
-  _git_worktree_capture "$1" ls-tree -r '--format=%(objectmode)' "$2" || return
-  [[ $'\n'$_GWT_DATA$'\n' != *$'\n160000\n'* ]] && return 0
+  _git_worktree_scan _git_worktree_gitlink_batch "$1" \
+    ls-tree -r -z '--format=%(objectmode)' "$2"
+}
+
+_git_worktree_gitlink_batch() {
+  (( ${argv[(Ie)160000]} )) || return 0
   _git_worktree_fail 'This checkout contains submodules; use explicit Git worktree handling.'
 }
 
