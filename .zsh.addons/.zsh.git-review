@@ -2931,6 +2931,9 @@ _git_review_view() {
   local -F _git_syntax_session_deadline=0
   local _git_syntax_active_key='' _git_syntax_active_note=''
   local _git_syntax_status_note=''
+  # The adapter's request and response buffers belong to this session, so
+  # neither outlives the workspace in the user's shell.
+  local _GIT_SYNTAX_INPUT='' _GIT_SYNTAX_DATA=''
   local _git_auto_session_dir='' _git_auto_session_fifo='' _git_auto_session_buffer=''
   local _git_auto_request_name='' _git_auto_request_kind='' _git_auto_request_context=''
   local _git_auto_candidate_summary='' _git_auto_candidate_notice=''

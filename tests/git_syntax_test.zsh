@@ -1173,6 +1173,41 @@ _test_git_syntax_atomic_window() {
 }
 test_case 'Git syntax publishes a resident viewport asynchronously and cleans it' _test_git_syntax_atomic_window
 
+# A received span response and its request are review-session buffers
+# (git.md: release them on exit); none may outlive the workspace in the shell.
+_test_git_syntax_response_released() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.git-review"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    source "$1/.zsh.addons/.zsh.git-syntax"
+    _git_review_load() {
+      _GIT_REVIEW_SUMMARY=ready _GIT_REVIEW_NOTICE=""
+      _GIT_REVIEW_LABELS=()
+      return 0
+    }
+    _git_review_rows() { return 0; }
+    # Resident-helper stub: no process; its framed response is already read.
+    _git_syntax_session_start() { return 0; }
+    _zle_picker_loop() {
+      _GIT_REVIEW_DATA=$'\''@@ -1 +1 @@\n-let old = 1\n+let new = 2\n'\''
+      _git_review_document_parse
+      _git_syntax_prepare_input sample.swift
+      _git_syntax_session_active_id=7
+      _git_syntax_session_buffer=$'\''compozsh-response-1:7\ncompozsh-syntax-1\n1 0 6 keyword\ndone\ncompozsh-response-end-1:7\n'\''
+      _git_syntax_session_poll || print -r -- "poll:$?"
+      [[ -n $_GIT_SYNTAX_INPUT && $_GIT_SYNTAX_DATA == compozsh-syntax-1* ]] ||
+        print -r -- "session:${#_GIT_SYNTAX_INPUT}:${#_GIT_SYNTAX_DATA}"
+      return 1
+    }
+    _git_review_view /fixture working
+    print -r -- "released:${#_GIT_SYNTAX_DATA}:${#_GIT_SYNTAX_INPUT}"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal released:0:0 "$output"
+}
+test_case 'Git syntax response is released when the review session ends' _test_git_syntax_response_released
+
 _test_git_syntax_job_scope() {
   test_make_temp_dir || return
   local output
