@@ -70,13 +70,63 @@ answers below are quoted as given:
 - **Not chosen:** deferring `compinit`, native `autoload`, splitting peers
   into several files, and caching Git filter names.
 
+A second round of questions came out of planning. The planner produced 87
+units rather than about 45, and raised four new owner questions. The answers
+below are quoted as given (2026-10-14):
+
+- **Plan size.** Answer: "Drop the 9 low-value units (Recommended)". The
+  dropped units are a second Git-fixture migration, a shared bookmark stack,
+  golden frames and a row-append helper, promotion of two parsers, and three
+  micro-optimizations (U63, U66, U67). That leaves 80 units.
+- **Compiled startup in the symlink layout.** Answer: "Rerun the installer
+  (Recommended)". The installer regenerates the compiled code;
+  `compozsh --refresh` does not. After a repository update, startup falls
+  back to sourcing text until `./install.zsh` runs again.
+- **USB sources on a virtual disk** (mounted disk image, sparsebundle, RAID
+  set). Answer: "Refuse such sources (Recommended)". This fails closed, with
+  a message to copy the image to a regular drive first.
+- **Bare `g` branch catalog.** Answer: "Bound it with a notice
+  (Recommended)". It becomes a bounded read with the standard partial
+  notice, and inspector text is built only for the selected branch.
+- **History size:** unchanged (stock values), per the recommendation.
+
 Owner-approved units run in patch-only mode. The implementing agent builds and
 verifies the change, then the orchestrator, who received these answers
 directly, re-verifies and commits it.
 
 ## Commits
 
-*Filled in per phase.*
+### Phase 1: breakage and safety
+
+All 16 units landed, each on its first attempt (9–24 minutes each). Every
+unit ran the full suite with zero failures. P1-14 to P1-16 are owner-approved
+patch units: their agents built and verified them, and the orchestrator
+re-verified each one (red at the prior HEAD, then green), reran the focused
+filters and committed it.
+
+The full suite over the three patch commits passed 1,044 cases. One case
+failed: *PTY expectation fails at its deadline while output never stops*
+measured 248 s against a 2–3 s window, because the Mac slept mid-run on
+battery power. Run alone, it passed 3 times out of 3.
+
+| Commit | Unit | Subject |
+| --- | --- | --- |
+| `d6c2070` | P1-01 (D-01, D-02) | Isolate test children's TMPDIR and fix two TMPDIR-sensitive tests |
+| `3fed5a8` | P1-02 (A2-01, B-03) | Split Git review, syntax and prompt records on explicit separators |
+| `26d6e60` | P1-03 (A2-01, B-03) | Split remaining peer and support text without the caller's IFS |
+| `f4144af` | P1-04 (A2-02) | Apply precommand heads after chains and pipes in the prompt lens |
+| `d62d5e7` | P1-05 (A2-03) | Release the Git syntax response when a review session ends |
+| `564e61d` | P1-06 (A2-04) | Stream the worktree submodule scan so large repositories work |
+| `e7b9ab6` | P1-07 (A2-04) | Stream the worktree removal index scan and disclose its bound |
+| `5d6a1f4` | P1-08 (A1-02, A1-03) | Show USB Step 3 refusals and report empty diskutil output |
+| `32f1f4e` | P1-09 (B-01) | Keep folder-only keys inert on images in the USB image browser |
+| `95795de` | P1-10 (B-02) | Keep unbound cursor and function keys inert in picker views |
+| `5ba73f2` | P1-11 (B-04) | Return status 130 from every workspace on Ctrl-C |
+| `d3450e9` | P1-12 (SEC-B-02) | Stop locals named path from emptying PATH in Find and Git views |
+| `a638476` | P1-13 (D-05) | Require the Git read-safety baseline at every passive Git call |
+| `05991b0` | P1-14 (A1-01), patch | Bound the Build & Run settings capture for 100 targets |
+| `8319374` | P1-15 (D-06), patch | Stop deleting user aliases and functions that reuse retired names |
+| `e38fb40` | P1-16 (A2-05), patch | Route explicit-root Git reads through one local-only entry |
 
 ## Release notes
 
@@ -93,6 +143,23 @@ directly, re-verifies and commits it.
   transport, optional locks, pager, replacement objects, fsmonitor or hooks),
   and a static test keeps every such call on that baseline (P1-13, D-05,
   A2-05).
+- Xcode Build & Run and Rebuild & Run now work for schemes with up to about
+  100 targets. Build settings are read within a 5 MiB bound, or
+  `ZSH_XCODE_CAPTURE_MAX_BYTES` when that is larger. Before, a scheme with
+  about 7 or more targets failed with a capture-limit error. A larger scheme
+  now stops with guidance that names the bound (P1-14, A1-01).
+- Loading Compozsh no longer removes aliases or functions named
+  `git-discard-all`, `prompt-refresh`, `flash-usb`, `format-external-device`,
+  `compozsh-sudo-touch-id`, `update-xcode-skills` or `b`, so your own
+  definitions with those names are kept. After updating from a release that
+  defined these commands, open a new shell: re-sourcing a running shell no
+  longer removes the old definitions (P1-15, D-06).
+- Search's Git discovery also turns off Git's untracked cache and
+  commit-signature verification, and bare `g` branch reads turn off the
+  untracked cache. Git review and the worktree workspace already did both.
+  All four go through one shared entry,
+  `support/functions/.zsh.impure.compozsh_git_local`. Without it they run no
+  Git command, and Search falls back to a non-Git provider (P1-16, A2-05).
 
 ## Performance results
 
