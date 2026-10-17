@@ -166,18 +166,21 @@ _directory_stack_describe() {
 # An optional caller notice (a display label, never a path to act on) replaces
 # the status label once, e.g. after Ctrl-O found the location unavailable.
 _directory_recents_choose() {
+  _zle_ui_view choice _directory_recents_view "$@"
+}
+
+# Its configuration and stack snapshot end with the view; each pass re-arms the
+# capabilities the loop clears. Search is the filter label README documents.
+_directory_recents_view() {
   emulate -L zsh
   local notice=${1-}
-  local _ZLE_PICKER_TITLE='Recent directories' _ZLE_PICKER_SUBTITLE='This shell · native directory stack'
-  local _ZLE_PICKER_INSPECT_TITLE=Location _ZLE_PICKER_INSPECT_ACTION=${mode:-insert}
-  local _ZLE_PICKER_CANCEL_LABEL=back
+  _ZLE_PICKER_SUBTITLE='This shell · native directory stack' _ZLE_PICKER_QUERY_LABEL=Search
+  _ZLE_PICKER_INSPECT_TITLE=Location _ZLE_PICKER_INSPECT_ACTION=${mode:-insert}
+  [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
   # Slots match the stack: [0] is the current directory, as in dirs -v.
-  local -i _ZLE_PICKER_ZERO_BASED=1
+  _ZLE_PICKER_ZERO_BASED=1
   local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
   local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
-  local _ZLE_PICKER_INSPECT_FALLBACK=''
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
   local -a bookmark=("${_FILES_RECENTS_BOOKMARK[@]}")
   (( ${#bookmark} >= 3 )) || bookmark=('' 1 0)
   local -i result=0

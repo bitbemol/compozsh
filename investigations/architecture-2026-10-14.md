@@ -192,6 +192,11 @@ focused filters.
   All four go through one shared entry,
   `support/functions/.zsh.impure.compozsh_git_local`. Without it they run no
   Git command, and Search falls back to a non-Git provider (P1-16, A2-05).
+- Browse (path + Tab) and Recents (Option-Tab) now release their view state
+  when they close: the title, the status label (which can carry a folder
+  name or a typed path), the empty-list label, the collector name, the
+  selected path and the bookmark no longer stay in the shell, and `$REPLY`
+  keeps the value it had before (P3-02, B-06, CON-B-02, CON-B-03).
 
 ## Performance results
 

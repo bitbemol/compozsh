@@ -1007,12 +1007,12 @@ _directory_browser_session() {
   local -a _DIRECTORY_PICKER_VALUES=() _DIRECTORY_PICKER_LABELS=() _DIRECTORY_PICKER_STACK=()
   local -a _DIRECTORY_PICKER_CONTENT_COUNTS=(0 0 0) _DIRECTORY_PICKER_FILE_SAMPLE=()
   local _DIRECTORY_PICKER_INPUT='' _DIRECTORY_PICKER_LOCATION='' _DIRECTORY_PICKER_PATH_QUERY=''
-  local _ZLE_PICKER_SUBTITLE='' _ZLE_PICKER_INSPECT_ACTION=$mode _ZLE_PICKER_CANCEL_LABEL=''
-  local _ZLE_PICKER_INSPECT_TITLE='Preview'
-  local _ZLE_PICKER_INSPECT_EXPAND_KEY=''
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
-  local _ZLE_PICKER_INSPECT_FALLBACK=''
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  # Each view scopes its own configuration (_zle_ui_view). The final action
+  # and value leave the views for the dispatch below; they, the argument
+  # probe's candidates, the last bookmark and REPLY end with this journey.
+  local _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE='' REPLY=''
+  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_ACCEPTED=0 _ZLE_PICKER_BOOKMARK_FOCUS=0
   # Inspect AUTO_CD before `emulate` localizes the widget's option state.
   # Explicit path arguments and internal navigation do not require AUTO_CD.
   local -i internal=0
@@ -1131,12 +1131,20 @@ _directory_browser_dispatch() {
 # Uses the invoking browser's scoped snapshots and bookmarks. Every view runs
 # in the same ZLE/screen session; only the chosen final action leaves it.
 _directory_browser_choose() {
+  _zle_ui_view choice _directory_browser_view "$@"
+}
+
+# Its configuration, preview and start focus end with the view; each pass
+# re-arms the capabilities the loop clears.
+_directory_browser_view() {
   local notice='' location='' component='' indent='' file_label=''
-  local _ZLE_PICKER_QUERY_LABEL='Filter folders' _ZLE_PICKER_SEARCH_ACTION=''
+  _ZLE_PICKER_QUERY_LABEL='Filter folders'
   (( ${+functions[_file_search_choose]} )) && _ZLE_PICKER_SEARCH_ACTION=search-auto
+  _ZLE_PICKER_INSPECT_TITLE=Preview _ZLE_PICKER_INSPECT_ACTION=$mode _ZLE_PICKER_CANCEL_LABEL=''
+  [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
   local _directory_browser_preview_value='' _directory_browser_preview_text=''
   local -a components=() bookmark=()
-  local -i result=0 transition_status=0 _zle_picker_start_focus=0 return_focus=0
+  local -i result=0 transition_status=0 return_focus=0
   while true; do
     _ZLE_PICKER_TITLE='Directory browser'
     _directory_browser_absolute "${_DIRECTORY_PICKER_LOCATION:-.}"
