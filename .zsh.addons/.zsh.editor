@@ -1305,7 +1305,7 @@ _files_workspace_choose() {
 _files_recents_widget() {
   emulate -L zsh
   if (( ! ${+functions[_directory_recents_choose]} || !${+functions[_zle_picker_run]} || !${+functions[_matching_compile]} )); then
-    zle -M 'Recents unavailable: keep navigation, UI and matching add-ons installed.'
+    zle -M 'Recents unavailable: keep .zsh.navigation and the shared support/ui and support/functions components installed.'
     return 1
   fi
   _directory_browser_session ./ insert widget recents

@@ -50,8 +50,8 @@ Sensitive values are handled as literal, bounded data and are never evaluated
 as shell code. That includes Zsh arithmetic, which expands `$(...)` inside a
 subscript: numbers from files, Git, tools, settings, the terminal and the
 inherited environment are validated as decimal text before any arithmetic use,
-with a digit bound unless the fixed output format of `/usr/bin/stat` or
-`/usr/bin/cksum` already bounds the field; names such as paths and branches
+with a digit bound unless the fixed output format of `/usr/bin/stat` already
+bounds the field; names such as paths and branches
 never enter arithmetic text; and private state names inherited from the
 environment are discarded or read only as text. Compozsh does not collect
 information merely because it is available in the environment, filesystem, Git

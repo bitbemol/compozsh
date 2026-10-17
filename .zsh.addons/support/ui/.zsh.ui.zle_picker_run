@@ -45,8 +45,9 @@ _zle_picker_run() {
 }
 
 # Public commands launch the same picker through a short-lived nested ZLE.
-# The UI peer owns this lifecycle so navigation and search peers can detect it
-# at runtime without depending on each other or duplicating terminal handling.
+# Shared UI support owns this lifecycle so navigation and search peers can
+# detect it at runtime without depending on each other or duplicating terminal
+# handling.
 _zle_picker_widget() {
   emulate -L zsh
   if [[ -n ${_zle_picker_session_callback:-} ]]; then

@@ -271,8 +271,8 @@ short windows use bounded omission.
   resolves trusted installed tools through `PATH`.
 - Runtime support is an optional capability resolved at invocation; without
   it the prompt keeps project identity and tool markers. Don't duplicate
-  probes or readers in prompt or UI peers. Reading external state is an
-  observation boundary even when nothing is mutated.
+  probes or readers in the prompt peer or shared UI support. Reading external
+  state is an observation boundary even when nothing is mutated.
 - Version probes cache in memory only, keyed by every environment selector
   that can change the answer, and `compozsh --refresh` invalidates them.
   Preserve neutral-directory probes, trust checks and normal/reverse/rotated/

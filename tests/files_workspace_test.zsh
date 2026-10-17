@@ -34,7 +34,8 @@ _test_files_recents_missing_peer() {
     local BUFFER=sentinel CURSOR=5 message="" initial_pwd=$PWD
     zle() { [[ $1 == -M ]] && message=$2; }
     _files_recents_widget
-    [[ $? == 1 && $message == *navigation* && $message == *UI* &&
+    [[ $? == 1 && $message == *.zsh.navigation* && $message == *support/ui* &&
+       $message == *support/functions* && $message != *add-ons* &&
        $BUFFER == sentinel && $CURSOR == 5 && $PWD == "$initial_pwd" ]] || exit 1
     print unavailable
   ' "$TEST_REPO_ROOT") || return

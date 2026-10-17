@@ -6,9 +6,9 @@ input decoding and screen lifecycle follow [keyboard and ZLE](keyboard-zle.md).
 
 ## Essentials
 
-- **One system.** Every tool uses the shared UI peer's renderer, input loop,
-  guide and cleanup. Callers supply captured content, capabilities and the
-  meaning of acceptance. Never fork a renderer, key parser or hand-written
+- **One system.** Every tool uses the shared `support/ui` renderer, input
+  loop, guide and cleanup. Callers supply captured content, capabilities and
+  the meaning of acceptance. Never fork a renderer, key parser or hand-written
   shortcut bar for one tool.
 - **Same key, same action.** A missing capability leaves its key inert and
   hides its hint; never repurpose it for an unrelated per-tool action.

@@ -1,6 +1,6 @@
 # Read-only Git review. Source-time work is definitions only; navigation opts
-# into these views at runtime. Providers capture, collectors filter, and the
-# UI peer owns every key, frame and screen transition.
+# into these views at runtime. Providers capture, collectors filter, and shared
+# UI support owns every key, frame and screen transition.
 typeset -ga _GIT_REVIEW_CONFIG=() _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=()
 typeset -ga _GIT_REVIEW_KINDS=() _GIT_REVIEW_CONTEXTS=() _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=()
 typeset -g _GIT_REVIEW_DATA='' _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''

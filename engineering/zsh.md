@@ -89,7 +89,7 @@ Idioms, naming and the public command/help interface.
   Use `[[ $n == <-> && ${#n} -le 18 ]]` or a small range pattern such as
   `<0-65536>`; when a producer legitimately reports 19 digits, compare that
   text with `9223372036854775807` as text. `<->` alone suffices only for a
-  field whose fixed tool format bounds it (`/usr/bin/stat`, `/usr/bin/cksum`).
+  field whose fixed tool format bounds it (`/usr/bin/stat`).
 - Never splice text into arithmetic text. `(( h[$key] ))` and
   `(( a[(Ie)$text] ))` reparse the subscript, so `]` or `$(...)` in the text
   becomes expression or command. Expand first (`${h[$key]}`,
@@ -210,9 +210,9 @@ Idioms, naming and the public command/help interface.
   terminfo support the alternate screen. Capture the static companion once
   through a bounded native Zsh pipe before entering ZLE; paint, filter and
   resize launch no subprocess or provider. Pipes, redirects, `NO_COLOR`,
-  missing help/UI peers and unsupported terminals keep printable help.
-  Companions always print and never open a workspace themselves. Never launch
-  an external pager.
+  a missing help peer or shared UI support, and unsupported terminals keep
+  printable help. Companions always print and never open a workspace
+  themselves. Never launch an external pager.
 - Ordinary help topics only read. The separately labeled Compose example
   action may hand off to the [Command composer](prompt.md#command-composer);
   only its explicit Replace draft inserts text, after cleanup, and never

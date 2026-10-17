@@ -1,5 +1,5 @@
 # Git worktree action workspace. Definitions only at source time. Navigation
-# supplies g; the UI peer owns fuzzy interaction and screen restoration.
+# supplies g; shared UI support owns fuzzy interaction and screen restoration.
 typeset -g _GWT_ROOT='' _GWT_COMMON='' _GWT_ROOT_ID='' _GWT_COMMON_ID=''
 typeset -g _GWT_DATA='' _GWT_ERROR='' _GWT_HEAD='' _GWT_HEAD_REF=''
 typeset -ga _GWT_PATHS=() _GWT_BRANCHES=() _GWT_OIDS=() _GWT_STATES=()

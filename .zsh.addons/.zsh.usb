@@ -3015,7 +3015,7 @@ _usb_execute() {
     _usb_unmount "$identifier" >/dev/null 2>&1 || {
       action_status=1
       _USB_RESULT_OUTCOME=failed
-      _USB_RESULT_ERROR='The image was written, but macOS could not immediately unmount the target for verification.'
+      _USB_RESULT_ERROR='The image was written, but macOS could not immediately unmount the target.'
     }
   fi
   if (( action_status == 0 )); then
@@ -3510,8 +3510,9 @@ _usb_help_flash() {
     '  The workspace excludes internal, virtual, read-only, partition-slice,' \
     '  and undersized targets. USB, Thunderbolt, and other external transports' \
     '  are eligible; protocol, media name, exact /dev/diskN, and size are shown.' \
-    '  The parent whole disk containing the selected image is also excluded, so' \
-    '  a target can never destroy its own source during dd.' \
+    '  The whole disk holding the selected image is also excluded, so a target' \
+    '  can never destroy its own source during dd. For an APFS volume, that is' \
+    '  the whole disk of every physical store behind its container.' \
     '  Step 2 Ctrl-R performs a fresh target capture without losing the selected' \
     '  image, including after a newly connected drive becomes available.' \
     '  A drive macOS ejected can remain physically plugged in while absent from' \
