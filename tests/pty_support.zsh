@@ -4,7 +4,8 @@
 # for a line, and every wait ends by an absolute deadline: a marker that never
 # arrives or a command that never stops painting fails instead of hanging the
 # suite, silence alone never fails, and a finished command fails at once after
-# its last output and events are read.
+# its last output and events are read. test_pty_screen_sessions checks the
+# alternate-screen sessions in a trace the caller kept.
 # While a session is live, never run a command substitution or other subshell
 # in its owner shell: zpty hangs up the session when that subshell exits.
 
@@ -117,4 +118,62 @@ test_pty_expect() {
   print -u2 -r -- "test_pty_expect: $session: $reason while waiting for ${(qqq)wanted};" \
     "${event:+last event ${(qqq)event}; }output read: ${(V)TEST_PTY_OUTPUT[-800,-1]}"
   return 1
+}
+
+# Check that <trace> holds exactly <expected> alternate-screen sessions of the
+# caller's terminal: each terminfo smcup is closed by one rmcup before the next
+# smcup, and no rmcup or full-screen clear (\e[2J) appears outside a session.
+# On success reply holds each session's output between its smcup and rmcup; a
+# failure prints a diagnostic, empties reply and returns 1; misuse returns 2.
+# It splits the trace once per marker instead of stripping one marker at a
+# time, so long traces take linear time.
+# Usage: test_pty_screen_sessions <trace> <expected>
+test_pty_screen_sessions() {
+  emulate -L zsh
+  # Terminal output is bytes.
+  setopt NO_MULTIBYTE
+  local enter=${terminfo[smcup]-} leave=${terminfo[rmcup]-} clear=$'\e[2J'
+  local part='' reason=''
+  local -a parts=() pieces=() sessions=()
+  local -i index=0
+  reply=()
+  if (( $# != 2 )) || [[ $2 != <-> ]]; then
+    print -u2 -r -- 'usage: test_pty_screen_sessions <trace> <expected>'
+    return 2
+  fi
+  # Without both capabilities no session can start.
+  if [[ -n $enter && -n $leave ]]; then
+    parts=("${(@ps:$enter:)1}")
+  else
+    parts=("$1")
+  fi
+  for (( index = 1; index <= $#parts; index++ )); do
+    part=$parts[index]
+    if (( index > 1 )); then
+      pieces=("${(@ps:$leave:)part}")
+      if (( $#pieces < 2 )); then
+        reason='a screen session was not left before the next one or the end'
+        break
+      elif (( $#pieces > 2 )); then
+        reason='the screen was left outside a session'
+        break
+      fi
+      sessions+=("$pieces[1]")
+      part=$pieces[2]
+    elif [[ -n $leave && $part == *"$leave"* ]]; then
+      reason='the screen was left outside a session'
+      break
+    fi
+    if [[ $part == *"$clear"* ]]; then
+      reason='the screen was cleared outside a session'
+      break
+    fi
+  done
+  [[ -n $reason ]] || (( $#sessions == $2 )) ||
+    reason="found $#sessions screen sessions, expected $2"
+  if [[ -n $reason ]]; then
+    print -u2 -r -- "test_pty_screen_sessions: $reason; output: ${(V)1[-800,-1]}"
+    return 1
+  fi
+  reply=("${sessions[@]}")
 }

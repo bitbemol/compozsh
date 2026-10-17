@@ -97,18 +97,13 @@ _test_picker_resize_automatic_paint() {
       [[ $trace != *"read-only variable"* && $trace != *"PANEL-ERROR"* ]] || exit 18
       # A dedicated screen gives resize a safe repaint boundary. Clear only
       # that screen, never the restored main screen or the users scrollback.
-      local enter=$terminfo[smcup] leave=$terminfo[rmcup]
-      [[ -n $enter && -n $leave && $trace == *"$enter"*"$leave"* ]] || {
-        print -u2 -r -- "picker did not enter and restore its alternate screen"
+      test_pty_screen_sessions "$trace" 1 || {
+        print -u2 -r -- "picker did not enter and restore its alternate screen once"
         exit 19
       }
-      (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 20
-      local before=${trace%%"$enter"*} after=${trace##*"$leave"}
-      local screen=${${trace#*"$enter"}%%"$leave"*}
-      [[ $before != *$'\''\e[2J'\''* && $after != *$'\''\e[2J'\''* &&
-         $trace != *$'\''\e[3J'\''* && $screen != *"$enter"* &&
-         $after != *"$leave"* ]] || exit 20
+      [[ $trace != *$'\''\e[3J'\''* ]] || exit 20
       # One clear on entry plus one for each of the seven real resizes.
+      local screen=$reply[1]
       local without_clears=${screen//$'\''\e[2J'\''/}
       (( ${#screen} - ${#without_clears} == 8 * 4 )) || {
         print -u2 -- "expected eight alternate-screen clears"

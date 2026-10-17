@@ -10,7 +10,6 @@ _test_picker_screen_lifecycle() {
     source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events" || exit 1
     exec {event_fd}<> "$HOME/events" || exit 2
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_screen_original_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _screen_original_show
@@ -80,7 +79,7 @@ _test_picker_screen_lifecycle() {
         event=$REPLY
       } always { trace+=$TEST_PTY_OUTPUT }
     }
-    local scenario="" trace="" event="" before="" after="" screen=""
+    local scenario="" trace="" event=""
     for scenario in accept cancel abort read-fail no-screen redirected; do
       trace="" event=""
       test_pty_start screen _screen_driver || exit 3
@@ -99,20 +98,13 @@ _test_picker_screen_lifecycle() {
         # Every scenario, Ctrl-C included, returns to its caller.
         _screen_event && [[ $event == DONE ]] || exit 6
         if [[ $scenario == no-screen || $scenario == redirected ]]; then
-          [[ $trace != *"$enter"* && $trace != *"$leave"* &&
-             $trace != *$'\''\e[2J'\''* ]] || exit 7
+          test_pty_screen_sessions "$trace" 0 || exit 7
           if [[ $scenario == redirected ]]; then
             [[ $(<"$HOME/redirected") != *$'\''\e'\''* ]] || exit 8
           fi
         else
-          [[ $trace == *"$enter"*"$leave"* ]] || exit 9
-          before=${trace%%"$enter"*}
-          screen=${${trace#*"$enter"}%%"$leave"*}
-          (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 10
-          after=${trace##*"$leave"}
-          [[ $before != *$'\''\e[2J'\''* && $after != *$'\''\e[2J'\''* &&
-             $screen == *$'\''\e[2J'\''* && $screen != *"$enter"* &&
-             $after != *"$leave"* ]] || exit 10
+          test_pty_screen_sessions "$trace" 1 || exit 9
+          [[ $reply[1] == *$'\''\e[2J'\''* ]] || exit 10
         fi
         [[ $trace != *$'\''\e[3J'\''* && $trace != *"read-only variable"* ]] || exit 11
       } always {
@@ -198,7 +190,6 @@ _test_picker_screen_ctrl_l_redraws_in_place() {
       return $painted
     }
     local trace="" post="" redrawn="" enter="" leave="" clear="" placement=""
-    local before="" after=""
     local -i user_clears=0 repainted=0
     for terminal in xterm-256color vt100; do
       trace="" post="" redrawn="" user_clears=0 repainted=0
@@ -220,10 +211,11 @@ _test_picker_screen_ctrl_l_redraws_in_place() {
         placement=none
         if [[ $redrawn == *"$clear"* ]]; then
           placement=main
-          if [[ -n $enter && -n $leave && $trace == *"$enter"*"$leave"* ]]; then
-            before=${trace%%"$enter"*} after=${trace##*"$leave"}
-            [[ $before != *"$clear"* && $after != *"$clear"* &&
-               $redrawn != *"$enter"* && $redrawn != *"$leave"* ]] && placement=screen
+          # The helper reads this shell'\''s xterm-256color capabilities, and
+          # only that terminal has a screen ($enter is empty for vt100).
+          if [[ -n $enter && -n $leave ]] && test_pty_screen_sessions "$trace" 1 &&
+             [[ $redrawn != *"$enter"* && $redrawn != *"$leave"* ]]; then
+            placement=screen
           fi
         fi
         print -r -- "$terminal|user-clears=$user_clears|repainted=$repainted|clear=$placement"

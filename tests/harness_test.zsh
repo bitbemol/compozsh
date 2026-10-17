@@ -614,3 +614,54 @@ _test_pty_expect_continues_a_caller_line() {
 }
 test_case 'PTY expectation continues a line the caller already read' \
   _test_pty_expect_continues_a_caller_line
+
+# Screen sessions (tests/pty_support.zsh). The helper reads only the trace it
+# is given, so these probes need no terminal.
+_test_pty_screen_sessions_counts_linearly() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/tests/pty_support.zsh" || exit 91
+    local enter=$terminfo[smcup] leave=$terminfo[rmcup] clear=$'\''\e[2J'\'' big=""
+    [[ -n $enter && -n $leave ]] || exit 92
+    _probe() {
+      test_pty_screen_sessions "$2" "$3" 2>> "$HOME/stderr"
+      print -r -- "$1:$?:${#reply}:${(Vj:|:)reply}"
+    }
+    _probe one "a${enter}x${clear}y${leave}b" 1
+    _probe two "${enter}x${leave}${enter}y${leave}" 2
+    _probe none plain 0
+    _probe count "a${enter}x${leave}b" 2
+    _probe before "${clear}${enter}x${leave}" 1
+    _probe after "${enter}x${leave}${clear}" 1
+    _probe nested "${enter}a${enter}b${leave}c${leave}" 1
+    _probe unclosed "${enter}a" 1
+    _probe stray "${leave}${enter}a${leave}" 1
+    _probe extra "${enter}a${leave}b${leave}" 1
+    _probe misuse plain x
+    # A 37-KB trace, where stripping one marker at a time took seconds.
+    big=${(l:12500::x:)}
+    local -F started=$EPOCHREALTIME
+    test_pty_screen_sessions "${enter}${big}${leave}${big}${enter}${big}${leave}" 2
+    print -r -- "big:$?:${#reply}:${#reply[1]}:${#reply[2]}"
+    print -r -- "elapsed:$(( EPOCHREALTIME - started ))"
+    print -r -- "detail:$(<"$HOME/stderr")"
+  ' "$TEST_REPO_ROOT" 2>&1) || { test_fail "screen-session probe failed: $output"; return; }
+  local expected='one:0:1:x^[[2Jy
+two:0:2:x|y
+none:0:0:
+count:1:0:
+before:1:0:
+after:1:0:
+nested:1:0:
+unclosed:1:0:
+stray:1:0:
+extra:1:0:
+misuse:2:0:
+big:0:2:12500:12500'
+  test_assert_equal "$expected" "${(F)${(f)output}[1,12]}" 'screen sessions were miscounted' || return
+  _test_pty_assert_elapsed "$output" 0 1 'a large trace was not checked in linear time' || return
+  test_assert_contains "$output" 'found 1 screen session' 'a wrong count was not reported'
+}
+test_case 'PTY expectation counts screen sessions in a trace linearly' \
+  _test_pty_screen_sessions_counts_linearly

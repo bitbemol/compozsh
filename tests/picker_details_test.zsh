@@ -194,9 +194,7 @@ _test_details_native_actions() {
       { test_pty_expect details "" "$1" } always { trace+=$TEST_PTY_OUTPUT } || return
       frame=$REPLY
     }
-    local trace="" remaining="" before="" screen=""
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
-    local -i sessions=0 expected_sessions=0
+    local trace=""
     for scenario in branch-copy branch-switch branch-enter branch-numeric file-copy file-insert file-enter file-cancel; do
       trace=""
       test_pty_start details _details_driver || exit 1
@@ -236,20 +234,8 @@ _test_details_native_actions() {
         _details_read END-DETAIL-DONE || exit 7
         [[ $frame == *"DONE:0:"* ]] || { print -u2 -r -- "$scenario: $frame"; exit 8; }
         # Search and file actions share one screen, restored before dispatch.
-        remaining=$trace sessions=0 expected_sessions=1
-        while [[ $remaining == *"$enter"* ]]; do
-          before=${remaining%%"$enter"*}
-          remaining=${remaining#*"$enter"}
-          [[ $before != *$'\''\e[2J'\''* && $before != *"$leave"* &&
-             $remaining == *"$leave"* ]] || exit 15
-          screen=${remaining%%"$leave"*}
-          [[ $screen != *"$enter"* ]] || exit 16
-          remaining=${remaining#*"$leave"}
-          (( ++sessions ))
-        done
-        (( sessions == expected_sessions )) || exit 17
-        [[ $remaining != *"$leave"* && $remaining != *$'\''\e[2J'\''* &&
-           $trace != *$'\''\e[3J'\''* ]] || exit 18
+        test_pty_screen_sessions "$trace" 1 || exit 15
+        [[ $trace != *$'\''\e[3J'\''* ]] || exit 18
       } always {
         zpty -d details
       }

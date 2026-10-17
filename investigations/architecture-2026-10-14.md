@@ -165,6 +165,23 @@ battery power. Run alone, it passed 3 times out of 3.
 
 *Filled in by performance units and the final comparison.*
 
+### P2-01: picker screen-session trace checks (D-03)
+
+Metric: wall time of `zsh tests/run.zsh 'detail panels preserve native branch
+switches'` (the slowest picker case; its description does not contain
+"picker"), before tree `git archive e026df7`, after tree the working tree,
+alternating order, the case's own en_US.UTF-8 locale.
+
+| Test | Runs (before/after) | Before median (range) | After median (range) | Delta |
+| --- | --- | --- | --- | --- |
+| detail panels preserve native branch switches, path insertion, copying, and cleanup | 10/10 | 12955.95 ms (12748.7–13719.5) | 924.05 ms (877.1–1273.7) | −92.9 % |
+
+The trace check stripped one screen marker at a time
+(`${remaining%%"$leave"*}`), quadratic in the trace length; the shared
+`test_pty_screen_sessions` splits the trace once per marker. A single before
+run of 768 s from the unit's first attempt, during which the laptop slept on
+battery, is excluded.
+
 ### P2-03: static README and network-client scans (U70, CROSS-02, D-03)
 
 Metric: wall time of `zsh tests/run.zsh '<description>'`, before tree

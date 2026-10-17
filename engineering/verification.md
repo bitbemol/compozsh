@@ -83,7 +83,9 @@ assertion rule.
   event under one absolute deadline, reporting what it read. A missing marker
   or an endless repaint fails instead of hanging the suite, silence alone never
   fails, and a finished command fails at once. Don't hand-roll blocking reads
-  or per-wake timeouts.
+  or per-wake timeouts. `test_pty_screen_sessions` checks the alternate-screen
+  sessions in a kept trace in linear time and returns each session's output;
+  don't strip a trace one marker at a time, which is quadratic in its length.
 
 Adding a test — arrange, act, assert, guarding each step with `|| return` so a
 later success cannot hide an earlier failure:
