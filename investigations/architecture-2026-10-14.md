@@ -128,6 +128,38 @@ battery power. Run alone, it passed 3 times out of 3.
 | `8319374` | P1-15 (D-06), patch | Stop deleting user aliases and functions that reuse retired names |
 | `e38fb40` | P1-16 (A2-05), patch | Route explicit-root Git reads through one local-only entry |
 
+### Phase 2: test helpers and harness
+
+The first run of phase 2 landed only P2-03. The laptop was on battery and
+slept between maintenance wakes: the power log shows 1,187 sleep entries,
+and one full-suite gate took 9,104 s instead of about 225 s. Each other unit
+reached its wall-clock time box while the machine slept, so its work was
+discarded with notes and, for P2-01, a saved patch.
+
+That gate's five failures were PTY deadlines that stalled during sleep. Each
+passed when rerun alone, and the tree stayed clean.
+
+On AC power the retry landed all 11 remaining units on their first attempt,
+at 7–17 minutes each, about 2.4 hours in all. Every unit kept each
+migrated assertion's meaning or made it stricter. Nine units ran the full
+suite with zero failures (P2-01: 1,047 passed); P2-06 and P2-08 needed only
+focused filters.
+
+| Commit | Unit | Subject |
+| --- | --- | --- |
+| `e026df7` | P2-03 (U70, D-03) | Remove the quadratic README scan and regex loop from static tests |
+| `d75ec44` | P2-01 (D-03) | Add a linear screen-session trace helper for picker PTY tests |
+| `b8cdf99` | P2-02 (D-03) | Use the screen-session helper in the remaining PTY tests |
+| `029b8c9` | P2-04 (D-04) | Add a picker scripting helper and migrate five pilot stubs |
+| `883b643` | P2-05 (D-04) | Script Xcode picker stubs through the shared helper |
+| `079b98b` | P2-06 (D-04) | Script Git picker stubs through the shared helper |
+| `f0c2ae1` | P2-07 (D-04) | Script filesystem picker stubs through the shared helper |
+| `063eebf` | P2-08 (D-04) | Script task, composer, help and USB picker stubs via the helper |
+| `da55abf` | P2-11 (C-10) | Compare full shell state across peer orders and re-sourcing |
+| `72a9548` | P2-12 (D-11) | Apply the emulate rule by entry kind and check it statically |
+| `b360a64` | P2-13 (D-12) | Correct stale UI-peer, cksum, Recents and USB help wording |
+| `4964137` | P2-14 (D-07, A2-14) | Move test-only Git syntax wrappers to tests and drop dead prompt state |
+
 ## Release notes
 
 - Ctrl-C in a Compozsh workspace now exits with status 130 from every
