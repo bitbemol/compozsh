@@ -893,19 +893,18 @@ _usb_browser_capture() {
   done
 }
 
+# One pass of the browser view: its configuration lives in the view's scope.
 _usb_browse_choose() {
   emulate -L zsh
-  local _ZLE_PICKER_QUERY_LABEL='Filter this folder'
-  local _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
   local hidden_label='Hidden: off'
   (( ${_USB_BROWSER_SHOW_HIDDEN:-0} )) && hidden_label='Hidden: on'
-  local _ZLE_PICKER_BROWSE_LABEL="$hidden_label · ← parent · → open folder · Return select"
-  local _ZLE_PICKER_COLLECTOR=_usb_picker_collect
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=0 _ZLE_PICKER_COPY_ENABLED=0
-  local -i _ZLE_PICKER_DIGIT_SELECT=0 _ZLE_PICKER_HIERARCHY_ENABLED=1
-  local -i _ZLE_PICKER_DIRECTORY_ACTIONS=0
-  local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
-  local -A _ZLE_PICKER_LABEL_HIGHLIGHTS=()
+  _ZLE_PICKER_QUERY_LABEL='Filter this folder'
+  _ZLE_PICKER_INSPECT_ACTION=choose _ZLE_PICKER_CANCEL_LABEL=back
+  _ZLE_PICKER_BROWSE_LABEL="$hidden_label · ← parent · → open folder · Return select"
+  _ZLE_PICKER_COLLECTOR=_usb_picker_collect
+  _ZLE_PICKER_DIGIT_SELECT=0 _ZLE_PICKER_HIERARCHY_ENABLED=1
+  _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  _ZLE_PICKER_LABEL_HIGHLIGHTS=()
   local -i index=0
   for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
     [[ -n ${_USB_PICKER_HIGHLIGHTS[index]-} ]] &&
@@ -916,18 +915,23 @@ _usb_browse_choose() {
     "${_USB_BROWSER_RESUME[4]-}" "${_USB_BROWSER_RESUME[5]:-0}" "${_USB_BROWSER_RESUME[6]:-0}"
 }
 
+# The browser is one view: its title, location, trail and capabilities end
+# with it. REPLY, the final action, value and bookmark go to the caller.
 _usb_browse_image_path() {
+  _zle_ui_view choice _usb_browse_image_path_view "$@"
+}
+
+_usb_browse_image_path_view() {
   emulate -L zsh
   local location=${HOME:A} selected='' display_path='' path_subtitle=''
-  local _ZLE_PICKER_TITLE='External device / Flash · Step 1 of 3'
-  local _ZLE_PICKER_SUBTITLE=''
+  _ZLE_PICKER_TITLE='External device / Flash · Step 1 of 3'
   local -i _USB_BROWSER_PARTIAL=0 _USB_BROWSER_SHOW_HIDDEN=0
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
   local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
   local -a _USB_BROWSER_RESUME=('' 1 0) _USB_BROWSER_LOCATION_STACK=()
   local -a _USB_BROWSER_QUERY_STACK=() _USB_BROWSER_INDEX_STACK=() _USB_BROWSER_OFFSET_STACK=()
   local -a exclusion_stack=() exclusion_focus_stack=() exclusion_shown_stack=()
-  local -a _ZLE_PICKER_TRAIL=() components=() bookmark=()
+  local -a components=() bookmark=()
   local component='' indent=''
   local -i result=0
   while true; do

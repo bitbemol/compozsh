@@ -3084,9 +3084,11 @@ unalias xcode 2>/dev/null
 xcode() {
   emulate -L zsh
   local kind='' container='' request='' picker_status=0
-  local REPLY=''
-  local -a _ZLE_PICKER_BOOKMARK=()
-  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
+  # The views' final action, value, results and bookmark end with this call,
+  # as does REPLY.
+  local REPLY='' _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=''
+  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_ACCEPTED=0 _ZLE_PICKER_BOOKMARK_FOCUS=0
   local -i action_status=0
   local _XCODE_REQUEST='' _XCODE_WORKSPACE_ERROR=''
   local _XCODE_SELECTED_KIND='' _XCODE_SELECTED_CONTAINER=''

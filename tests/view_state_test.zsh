@@ -165,3 +165,104 @@ help-direct:0:released' "$output"
 }
 test_case 'view state: Search, branches and help browse leave no picker state behind' \
   _test_view_state_search_branch_help_journeys
+
+# The USB image browser, Git review (its menu and the working-changes document)
+# and xcode run with the same scripted engine and snapshots. The browser's
+# caller owns its REPLY and loop results, as the external-device task does;
+# xcode's controller is replaced by one accepting view, so the snapshot pins
+# what the xcode invocation owns. g --review and xcode require a terminal.
+_test_view_state_usb_review_xcode_journeys() {
+  test_make_temp_dir || return
+  command mkdir -p "$TEST_TMP_DIR/home/Downloads" "$TEST_TMP_DIR/bin" || return
+  test_write_file "$TEST_TMP_DIR/home/Downloads/linux.iso" "${(l:20000::i:)}" || return
+  test_write_file "$TEST_TMP_DIR/bin/xcodebuild" $'#!/bin/zsh -f\nexit 0' || return
+  command chmod +x "$TEST_TMP_DIR/bin/xcodebuild" || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    path=("$2" $path)
+    rehash
+    source "$1/.zshrc"
+    source "$1/tests/picker_support.zsh"
+    source "$1/tests/pty_support.zsh" || exit
+    local repo="$HOME/repository"
+    command git init -qb main "$repo" || exit
+    command git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
+      -c commit.gpgsign=false commit --allow-empty -qm first || exit
+    print -r -- changed >| "$repo/notes.txt"
+    builtin cd -- "$HOME" || exit
+    _view_state_snapshot() {
+      local -a lines=("${(@f)$(typeset -p -m "_ZLE_PICKER_*")}")
+      print -rl -- "${(@o)lines}"
+      typeset -p REPLY
+    }
+    _view_state_compare() {
+      local after=$(_view_state_snapshot)
+      local -a old=("${(@f)before}") new=("${(@f)after}")
+      local -a changed=("${(@)new:|old}") dropped=("${(@)old:|new}")
+      if [[ $after == "$before" ]]; then
+        print -r -- "${journey}:${result}:released"
+      else
+        print -r -- "${journey}:${result}:kept ${(j: | :)changed} dropped ${(j: | :)dropped}"
+      fi
+    }
+    # The task that opens the browser owns what it reads afterwards.
+    _view_state_usb_task() {
+      local REPLY="" _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=""
+      local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_BOOKMARK=()
+      local -i _ZLE_PICKER_ACCEPTED=0 _ZLE_PICKER_BOOKMARK_FOCUS=0
+      _usb_browse_image_path
+    }
+    _view_state_xcode_collect() { _ZLE_PICKER_RESULTS=(build) _ZLE_PICKER_LABELS=(Build); }
+    _view_state_xcode_view() {
+      _ZLE_PICKER_TITLE=Xcode _ZLE_PICKER_COLLECTOR=_view_state_xcode_collect
+      _zle_picker_loop "" 10
+    }
+    _xcode_container_discover() {
+      _XCODE_CONTAINERS=(/synthetic/App.xcodeproj) _XCODE_CONTAINER_KINDS=(project)
+    }
+    _xcode_container_is_current() { return 0; }
+    _xcode_workspace_controller() { _zle_ui_view choice _view_state_xcode_view; }
+    _view_state_journeys() {
+      local REPLY=unchanged before="" journey=""
+      local -i result=0
+      test_picker_script cancel
+      before=$(_view_state_snapshot)
+      for journey in $@; do
+        case $journey in
+          (usb-cancel|review-cancel|xcode-cancel) test_picker_script cancel ;;
+          (usb-accept)
+            test_picker_script select "${HOME:A}/Downloads/" -- \
+              select "${HOME:A}/Downloads/linux.iso" ;;
+          (review-working) test_picker_script select working -- cancel -- cancel ;;
+          (xcode-accept) test_picker_script select build ;;
+        esac
+        result=0
+        case $journey in
+          (usb-*) _view_state_usb_task || result=$? ;;
+          (review-*) builtin cd -- "$repo" && { g --review || result=$?; }; builtin cd -- "$HOME" ;;
+          (xcode-*) xcode || result=$? ;;
+        esac
+        _view_state_compare
+      done
+    }
+    _view_state_journeys usb-cancel usb-accept
+    _view_state_terminal() {
+      _view_state_journeys review-cancel review-working xcode-cancel xcode-accept
+      print -r -- VIEW-STATE-DONE
+    }
+    test_pty_start view-state _view_state_terminal || exit
+    {
+      test_pty_expect view-state "" VIEW-STATE-DONE 20 || exit
+    } always { zpty -d view-state; }
+    print -rl -- ${(M)${(f)TEST_PTY_OUTPUT//$'\''\r'\''}:#(review|xcode)-*}
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" 2>&1) || return
+  test_assert_equal 'usb-cancel:1:released
+usb-accept:0:released
+review-cancel:0:released
+review-working:0:released
+xcode-cancel:0:released
+xcode-accept:0:released' "$output"
+}
+test_case 'view state: USB browse, Git review and xcode leave no picker state behind' \
+  _test_view_state_usb_review_xcode_journeys

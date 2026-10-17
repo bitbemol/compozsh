@@ -399,6 +399,8 @@ _test_git_review_empty_states() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.git-review"
+    # Support subset: the review document is one shared view; the scripted engine replaces the loop.
+    source "$1/.zsh.addons/support/ui/.zsh.ui.zle_ui_view"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     _zle_picker_capture() { shift 3; "$@"; }
     _git_review_changes_capture() {

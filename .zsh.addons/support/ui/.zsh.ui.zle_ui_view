@@ -3,9 +3,11 @@
 # Ordinary support peer; no cross-peer calls at source time.
 
 # Scope common view configuration around its feature-owned setup and loop.
-# Snapshots stay in the caller; operation/selection/bookmark outputs escape this
-# scope intentionally. A view can therefore return without leaking its reader,
-# clipboard, hierarchy or live-stream capabilities into the next view.
+# Snapshots stay in the caller; operation, selection and bookmark outputs escape
+# this scope intentionally, to the caller that reads them. A view can therefore
+# return without leaking its reader, clipboard, hierarchy or live-stream
+# capabilities, or its labels, into the next view, and the loop leaves the
+# capabilities a view sets in place for its next pass.
 _zle_ui_view() {
   emulate -L zsh
   (( $# >= 2 )) || return 2
@@ -44,6 +46,7 @@ _zle_ui_view() {
   local -F _ZLE_PICKER_IDLE_WAIT=0 _ZLE_PICKER_DEADLINE_AT=0
   local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
   local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_PASSIVE_STYLES=()
+  local _ZLE_PICKER_BUSY_LABEL=''
   local -a _ZLE_PICKER_BUSY_LINES=() _ZLE_PICKER_BUSY_STYLES=()
   local -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
   local -A _ZLE_PICKER_ACCEPT_LABELS=() _ZLE_PICKER_LABEL_HIGHLIGHTS=()

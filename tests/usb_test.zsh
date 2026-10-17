@@ -1479,8 +1479,9 @@ _test_usb_custom_path_browses_from_home() {
   command mkdir -p "$home/Downloads" || return
   test_write_file "$home/Downloads/linux.iso" "${(l:20000::i:)}" || return
   output=$(test_run_interactive "$home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb" || exit
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     choose_call=0
     _usb_browse_choose() {
       (( ++choose_call ))

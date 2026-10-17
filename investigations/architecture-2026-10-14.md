@@ -203,6 +203,12 @@ focused filters.
   catalog, choices, selected branch and bookmark, and the picker run's result
   limit no longer stay in the shell, and `$REPLY` (which `g` set to the
   repository root) keeps the value it had before (P3-03, B-06, CON-B-02).
+- The external-device image browser, `g --review` (its menu and every review
+  document) and `xcode` now release their view state too: the review
+  document's capabilities (such as Option-number selection) no longer stay
+  set in the shell, `g --review` no longer leaves the last resolved object ID
+  in `$REPLY` or its final action and acceptance, and `xcode` no longer
+  leaves the chosen value or acceptance behind (P3-04, B-06, SEC-C-02).
 
 ## Performance results
 
