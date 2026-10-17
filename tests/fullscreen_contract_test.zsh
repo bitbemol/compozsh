@@ -55,8 +55,8 @@ _test_fullscreen_option_number_hint() {
     _ZLE_PICKER_INSPECT_TEXTS=(main details)
     local action kind width
     for kind in git generic; do
-      _ZLE_PICKER_OPTIONS_KIND=$kind
-      [[ $kind == git ]] && action=switch || action=choose
+      _ZLE_PICKER_OPTIONS_KIND=$kind _ZLE_PICKER_OPTIONS_LABEL=''
+      [[ $kind == git ]] && action=switch _ZLE_PICKER_OPTIONS_LABEL=review || action=choose
       _ZLE_PICKER_INSPECT_ACTION=$action
       for width in 79 119 179 299; do
         _zle_picker_footer $width ""
@@ -68,7 +68,7 @@ _test_fullscreen_option_number_hint() {
       done
     done
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1 _ZLE_PICKER_AUTO_REFRESH=1
-    _ZLE_PICKER_OPTIONS_KIND=file-views
+    _ZLE_PICKER_OPTIONS_KIND=file-views _ZLE_PICKER_OPTIONS_LABEL=views
     _zle_picker_footer 119 ""
     [[ $REPLY == *"Option-0–9"* && $REPLY == *"^A pause auto"* && $REPLY == *"^R refresh"* ]] || exit 8
     _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_DOCUMENT_REFRESH=0 _ZLE_PICKER_AUTO_REFRESH=-1
@@ -227,7 +227,7 @@ _test_git_review_shortcut_label() {
     test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(main) _ZLE_PICKER_SELECTED=1
     _ZLE_PICKER_INSPECT_ACTION=switch _ZLE_PICKER_WORKSPACE_ACTIONS=1
-    _ZLE_PICKER_OPTIONS_KIND=git
+    _ZLE_PICKER_OPTIONS_KIND=git _ZLE_PICKER_OPTIONS_LABEL=review
     for width in 49 69 119 179; do
       _zle_picker_footer $width ""
       [[ $REPLY == *"^X review"* && $REPLY != *"^X options"* &&
@@ -244,13 +244,14 @@ _test_git_review_shortcut_label() {
     _zle_picker_footer 119 ""
     [[ $REPLY != *"^X"* ]] || exit 4
     # Reader disclosure is direct; filesystem menus retain their own labels.
+    # A document offers Ctrl-X only under a caller-named destination.
     _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_DOCUMENT=1
     _ZLE_PICKER_DOCUMENT_REFRESH=1 _ZLE_PICKER_DOCUMENT_MODE=focused
-    _ZLE_PICKER_OPTIONS_KIND=git-document
+    _ZLE_PICKER_OPTIONS_KIND=git-document _ZLE_PICKER_OPTIONS_LABEL=''
     _ZLE_PICKER_RESULTS=(1) _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_INSPECT_ACTION=read
     _zle_picker_footer 119 ""
     [[ $REPLY == *"→ read"* && $REPLY == *"^R refresh"* && $REPLY != *"^X"* ]] || exit 5
-    _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_OPTIONS_KIND=""
+    _ZLE_PICKER_DOCUMENT=0 _ZLE_PICKER_OPTIONS_KIND="" _ZLE_PICKER_OPTIONS_LABEL=""
     _zle_picker_footer 119 ""
     [[ $REPLY == *"^X options"* && $REPLY != *"^X review"* ]] || exit 6
     _ZLE_PICKER_WORKSPACE_ACTIONS=0

@@ -201,11 +201,14 @@ These are Compozsh controls, not claims about macOS-wide standards.
   labels before dropping guide access.
 - The context-specific Ctrl-X hint comes after acceptance, Escape and guide
   access and names its destination: `^X review` on Branches, `^X options` for
-  filesystem menus, `^X views` only with the Git file-view capability. Readers
-  show available arrow disclosure steps and `^R refresh`; others keep Ctrl-X
-  inert and hide it. Derive hints from the same capability state as key
-  dispatch, including per-result actions; never imply an actionable selection
-  when there is none, and don't offer expansion for single-level previews.
+  filesystem menus, `^X views` only with the Git file-view capability. The
+  caller supplies that word (`_ZLE_PICKER_OPTIONS_LABEL`, default `options`);
+  the engine decides availability, and a document workspace offers Ctrl-X only
+  under a caller-named destination. Readers show available arrow disclosure
+  steps and `^R refresh`; others keep Ctrl-X inert and hide it. Derive hints
+  from the same capability state as key dispatch, including per-result
+  actions; never imply an actionable selection when there is none, and don't
+  offer expansion for single-level previews.
 - Ordinary file Open/Reveal/Copy/Insert never require a modified shortcut;
   Enter remains the file/link action-menu route.
 - Ctrl-K opens the guide in the same session; it scrolls, is
@@ -238,9 +241,12 @@ These are Compozsh controls, not claims about macOS-wide standards.
   LIMIT`); the engine validates the name, reads the fields before declaring
   its own locals and writes the recorded bookmark back after its scope ends,
   so Back restores all seven and a view that records none leaves the array
-  unchanged. A view with nothing to restore opens with `_zle_picker_loop
-  QUERY LIMIT`; the loop takes no other arguments and reads no start-focus
-  variable, so pane focus travels only in the bookmark.
+  unchanged. The loop records it on acceptance, in a reader, and on Escape
+  only when the caller sets `_ZLE_PICKER_CANCEL_BOOKMARK` because it restores
+  its own scope there (Git file views return from a folder). A view with
+  nothing to restore opens with `_zle_picker_loop QUERY LIMIT`; the loop
+  takes no other arguments and reads no start-focus variable, so pane focus
+  travels only in the bookmark.
 
 ## Inspectors and readers
 

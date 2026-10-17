@@ -185,8 +185,7 @@ _test_picker_loop() {
       esac
     done
   } always {
-    if (( accepted || ${_ZLE_PICKER_READER_ONLY:-0} )) ||
-       [[ ${_ZLE_PICKER_OPTIONS_KIND-} == file-views ]]; then
+    if (( accepted || ${_ZLE_PICKER_READER_ONLY:-0} || ${_ZLE_PICKER_CANCEL_BOOKMARK:-0} )); then
       _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$offset")
       (( _ZLE_PICKER_EXCLUDE_SHOWN )) &&
         _ZLE_PICKER_BOOKMARK+=("$_ZLE_PICKER_EXCLUDE" "$_ZLE_PICKER_EXCLUDE_FOCUS" "$_ZLE_PICKER_EXCLUDE_SHOWN")

@@ -1,0 +1,20 @@
+# Entry point: _zle_picker_options_label
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Chrome and Ctrl-X share one options rule. REPLY is the caller-named
+# destination, or empty and status 1 when Ctrl-X is inert: a document offers
+# options only under a caller-named label; other workspaces default to options.
+_zle_picker_options_label() {
+  emulate -L zsh
+  REPLY=''
+  if (( _ZLE_PICKER_DOCUMENT )); then
+    (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )) && REPLY=${_ZLE_PICKER_OPTIONS_LABEL:-}
+  elif (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )); then
+    REPLY=${_ZLE_PICKER_OPTIONS_LABEL:-options}
+  fi
+  [[ -n $REPLY ]]
+}
+
+
+:

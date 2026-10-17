@@ -79,7 +79,7 @@ _test_git_tree_reader() {
     _ZLE_PICKER_DOCUMENT_BRANCHES=(d:src/ 1)
     _ZLE_PICKER_INSPECT_TEXTS=(d:src/ folder 1 ready)
     _ZLE_PICKER_ACCEPT_LABELS=(d:src/ collapse)
-    _ZLE_PICKER_OPTIONS_KIND=file-views _ZLE_PICKER_WORKSPACE_ACTIONS=1
+    _ZLE_PICKER_OPTIONS_KIND=file-views _ZLE_PICKER_OPTIONS_LABEL=views _ZLE_PICKER_WORKSPACE_ACTIONS=1
     _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=120 LINES=30
     _zle_picker_render "" 1
     [[ ${(F)_ZLE_PICKER_DISPLAY} == *"Folder summary"* &&

@@ -86,8 +86,6 @@ _zle_picker_guide_render() {
             'Line numbers         Old file on the left; new file on the right'
             'Reading              Scroll stays within this file; Escape returns'
             'Snapshot             Read-only captured content; scope is shown above')
-    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == atlas ]] && lines+=(
-      'Ctrl-X               Change atlas: captured folders → files → diff; Escape returns')
     [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && lines+=(
       'Ctrl-X               View options: All files / Tree / Jump to ancestor / Change atlas'
       'Enter on a folder    Expand or collapse; Open folder at the fourth directory level'

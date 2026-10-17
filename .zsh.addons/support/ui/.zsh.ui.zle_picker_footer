@@ -13,7 +13,7 @@ _zle_picker_footer() {
   local mode=$_ZLE_PICKER_DOCUMENT_MODE
   [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$value]-} ]] && mode=summary
   (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_INSPECT_FOCUS )) && action=$_ZLE_PICKER_INSPECT_ACTION
-  local cancel=${_ZLE_PICKER_CANCEL_LABEL:-cancel} hint='' options_label=options direction='' arrow=''
+  local cancel=${_ZLE_PICKER_CANCEL_LABEL:-cancel} hint='' footer='' direction='' arrow=''
   local -a hints=()
   if (( ${_ZLE_PICKER_BUSY:-0} )); then
     _zle_picker_fit "${_ZLE_PICKER_BUSY_LABEL:-Waiting for the search source…}" $width
@@ -47,10 +47,13 @@ _zle_picker_footer() {
     if (( _ZLE_PICKER_AUTO_REFRESH >= 0 )); then
       (( _ZLE_PICKER_AUTO_REFRESH )) && hints+=('^A pause auto') || hints+=('^A resume auto')
     fi
-    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == file-views ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )) && hints+=('^X views')
+    # Ctrl-X names the caller's destination under the same rule as dispatch.
+    footer=$REPLY
+    _zle_picker_options_label && hints+=("^X ${(V)REPLY}")
+    REPLY=$footer
     # Put the available disclosure steps ahead of convenience shortcuts.
     if (( _ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY )) && [[ -n $value ]]; then
-      local footer=$REPLY
+      footer=$REPLY
       for direction in right left; do
         [[ $direction == right ]] && arrow=→ || arrow=←
         _zle_picker_document_direction "$direction" "$_ZLE_PICKER_INSPECT_FOCUS" "$mode"
@@ -63,12 +66,7 @@ _zle_picker_footer() {
         esac
       done
       REPLY=$footer
-    elif (( !_ZLE_PICKER_DOCUMENT &&
-            (_ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0}) )); then
-      [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == git ]] && options_label=review
-      hints+=("^X $options_label")
     fi
-    [[ ${_ZLE_PICKER_OPTIONS_KIND:-} == atlas ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )) && hints+=('^X atlas')
     [[ -n ${_ZLE_PICKER_SEARCH_ACTION:-} ]] && hints+=('^F search')
     if (( _ZLE_PICKER_DIRECTORY_ACTIONS == 1 )); then
       hints+=('^O preview')

@@ -13,7 +13,8 @@ unset -- _ZLE_PICKER_SESSION _ZLE_PICKER_SCREEN_ACTIVE _ZLE_PICKER_BUSY \
   _ZLE_PICKER_QUERY_EMPTY_CANCEL _ZLE_PICKER_INSPECT_STACKED \
   _ZLE_PICKER_INSPECT_CLIP_LINES _ZLE_PICKER_IDLE_PREPAINT \
   _ZLE_PICKER_WORKSPACE_ACTIONS _ZLE_PICKER_ZERO_BASED \
-  _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS _ZLE_PICKER_IDLE_CALLBACK
+  _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS _ZLE_PICKER_IDLE_CALLBACK \
+  _ZLE_PICKER_CANCEL_BOOKMARK
 
 # Shared state for the native history and navigation pickers. Collection stays
 # feature-specific; rendering, input, resize, and cleanup use this one contract.
@@ -55,6 +56,9 @@ typeset -gi _ZLE_PICKER_GUIDE_ACTIVE=0
 typeset -gi _ZLE_PICKER_GUIDE_OFFSET=0
 typeset -gi _ZLE_PICKER_GUIDE_PAGE=1
 typeset -g _ZLE_PICKER_CANCEL_LABEL=''
+# Caller-named Ctrl-X destination (`review`, `views`); outside a document an
+# empty label means `options`. _zle_picker_options_label owns the rule.
+typeset -g _ZLE_PICKER_OPTIONS_LABEL=''
 typeset -g _ZLE_PICKER_COLLECTOR=''
 typeset -g _ZLE_PICKER_HEADER=''
 typeset -g _ZLE_PICKER_TITLEBAR=''

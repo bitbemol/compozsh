@@ -1508,6 +1508,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/functions/.zsh.impure.zle_picker_document_position` | Saved reading-position access |
 | `support/functions/.zsh.impure.zle_picker_inspect_invalidate` | Reading-pane rewrap requests |
 | `support/functions/.zsh.impure.zle_picker_inspect_tail` | Newest-page placement |
+| `support/functions/.zsh.impure.zle_picker_options_label` | Ctrl-X options capability |
 | `support/functions/.zsh.impure.zle_ui_collect` | Matching results to UI state |
 | `support/functions/.zsh.impure.zle_ui_collect_choices` | Ranked captured choices |
 | `support/functions/.zsh.pure.compozsh_cell_prefix` | Display-cell clipping |

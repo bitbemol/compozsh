@@ -355,9 +355,7 @@ _zle_picker_loop() {
           fi
           ;;
         ($'\x18')
-          if { (( !_ZLE_PICKER_DOCUMENT &&
-                (_ZLE_PICKER_DIRECTORY_ACTIONS == 1 || ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0}) )); } ||
-             { [[ $_ZLE_PICKER_OPTIONS_KIND == (atlas|file-views) ]] && (( _ZLE_PICKER_WORKSPACE_ACTIONS )); }; then
+          if _zle_picker_options_label; then
             _ZLE_PICKER_ACTION=actions
             accepted=1
           else
@@ -723,7 +721,8 @@ _zle_picker_loop() {
     fi
   } always {
     _ZLE_PICKER_ACTIVE=0
-    if (( accepted || _ZLE_PICKER_READER_ONLY )) || [[ $_ZLE_PICKER_OPTIONS_KIND == file-views ]]; then
+    # A caller that restores its own scope on Escape asks for the cancel bookmark.
+    if (( accepted || _ZLE_PICKER_READER_ONLY || ${_ZLE_PICKER_CANCEL_BOOKMARK:-0} )); then
       _ZLE_PICKER_BOOKMARK=("$query" "$selected" "$_ZLE_PICKER_VIEW_OFFSET")
       (( _ZLE_PICKER_EXCLUDE_SHOWN )) && _ZLE_PICKER_BOOKMARK+=("$_ZLE_PICKER_EXCLUDE" "$_ZLE_PICKER_EXCLUDE_FOCUS" "$_ZLE_PICKER_EXCLUDE_SHOWN")
       _ZLE_PICKER_BOOKMARK_FOCUS=$_ZLE_PICKER_INSPECT_FOCUS
