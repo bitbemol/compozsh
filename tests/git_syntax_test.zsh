@@ -34,6 +34,7 @@ _test_git_syntax_native() {
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
+    source "$1/tests/git_syntax_support.zsh"
     # Removed comments must not contaminate the new side. Gaps reset context.
     _GIT_REVIEW_DATA=$'\''@@ -1,3 +1,3 @@\n-/* comment\n-let old = 1\n-*/\n+let new = 42 // note\n+let text = "é界"\n+// vim: set exrc:\n@@ -90 +90 @@\n let last = 7\n'\''
     _git_review_document_parse
@@ -940,6 +941,7 @@ _test_git_syntax_resident_session() {
     export LC_ALL=en_US.UTF-8 TMPDIR="$HOME/tmp"
     command mkdir -p "$TMPDIR"
     source "$1/.zsh.addons/.zsh.git-syntax"
+    source "$1/tests/git_syntax_support.zsh"
     local _git_syntax_session_dir="" _git_syntax_session_request_fifo=""
     local _git_syntax_session_response_fifo="" _git_syntax_session_buffer=""
     local -i _git_syntax_session_fd=-1 _git_syntax_session_pid=0
@@ -1275,6 +1277,7 @@ _test_git_syntax_failure() {
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
+    source "$1/tests/git_syntax_support.zsh"
     _GIT_REVIEW_DATA=$'\''@@ -0,0 +1 @@\n+let value = 1\n'\''
     _git_review_document_parse
     local _GIT_SYNTAX_SCRIPT="$HOME/slow.vim"
@@ -1297,6 +1300,7 @@ _test_git_syntax_languages() {
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     source "$1/.zsh.addons/.zsh.git-syntax"
+    source "$1/tests/git_syntax_support.zsh"
     local name
     for name in sample.zsh sample.sh sample.json sample.py; do
       case $name in
@@ -1333,6 +1337,7 @@ _test_git_syntax_zle() {
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.git-review"
     source "$1/.zsh.addons/.zsh.git-syntax"
+    source "$1/tests/git_syntax_support.zsh"
     _GIT_REVIEW_DATA=$'\''@@ -1 +1,32 @@\n-let value = 1 // old\n'\''
     repeat 32; do _GIT_REVIEW_DATA+=$'\''+let value = 42 // new\n'\''; done
     _git_review_document_parse

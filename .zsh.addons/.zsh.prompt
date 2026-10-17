@@ -71,7 +71,6 @@ fi
 # items), the segments _prompt_layout renders from them, and view and lens
 # state. _prompt_base composes PROMPT from the context, lens, interaction and
 # input segments only.
-typeset -g _PROMPT_ENV_SEGMENT=''
 typeset -g _PROMPT_ENV_TEXT=''
 typeset -g _PROMPT_ENV_KEY=''
 typeset -g _PROMPT_GIT_TEXT=''
@@ -80,7 +79,6 @@ typeset -g _PROMPT_GIT_BRANCH_TEXT=''
 typeset -g _PROMPT_GIT_UPSTREAM_TEXT=''
 typeset -g _PROMPT_GIT_OPERATION_TEXT=''
 typeset -g _PROMPT_GIT_ATTENTION=''
-typeset -g _PROMPT_PATH_SEGMENT=''
 typeset -g _PROMPT_PATH_TEXT=''
 typeset -g _PROMPT_FULL_PATH_TEXT=''
 typeset -g _PROMPT_PROJECT_NAME_TEXT=''
@@ -1623,8 +1621,6 @@ _prompt_layout() {
   local -i path_width=0 git_width=0 identity_width=0 separator_width=0
 
   _PROMPT_CONTEXT_SEGMENT=''
-  _PROMPT_PATH_SEGMENT=''
-  _PROMPT_ENV_SEGMENT=''
 
   (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_PATH_TEXT" || REPLY=${(V)_PROMPT_PATH_TEXT}; path_text=$REPLY
   (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$_PROMPT_GIT_TEXT" || REPLY=${(V)_PROMPT_GIT_TEXT}; git_text=$REPLY
@@ -1671,7 +1667,6 @@ _prompt_layout() {
   _prompt_render_abbreviated path "$path_text" "$path_budget" tail
   path_rendered=$reply[1]
   path_plain=$reply[2]
-  _PROMPT_PATH_SEGMENT=$path_rendered
   if [[ -n $git_text ]] && (( git_budget > 0 )); then
     _prompt_render_abbreviated git "$git_text" "$git_budget" head
     git_rendered=$reply[1]
@@ -1693,8 +1688,7 @@ _prompt_layout() {
     env_rendered=$REPLY
     item_width=$(( 3 + ${(m)#env_text} ))
     if (( used_width + separator_width + item_width <= line_limit )); then
-      _PROMPT_ENV_SEGMENT="${separator}${env_rendered}"
-      _PROMPT_CONTEXT_SEGMENT+=$_PROMPT_ENV_SEGMENT
+      _PROMPT_CONTEXT_SEGMENT+="${separator}${env_rendered}"
       (( used_width += separator_width + item_width ))
     else
       optional_open=0
@@ -2657,11 +2651,6 @@ _prompt_interaction_update() {
      $_PROMPT_LENS_SEGMENT != "$old_lens" ||
      $_PROMPT_VIEW != "$old_view" ||
      $_PROMPT_INTERACTION_KIND != "$old_kind" ]]
-}
-
-_prompt_editing_started() {
-  _prompt_interaction_update "${BUFFER:-}"
-  return $?
 }
 
 # Manual disclosure has three intuitive states: automatic becomes pinned,

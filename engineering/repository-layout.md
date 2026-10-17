@@ -34,7 +34,7 @@ compozsh/
 ├── tests/
 │   ├── run.zsh, support.zsh, verify.zsh   runner, harness, handoff baseline
 │   ├── *_support.zsh      focused helpers: PTY expectations, picker scripts,
-│   │                      palette contrast
+│   │                      palette contrast, synchronous Git syntax capture
 │   ├── *_test.zsh         behavioral specifications
 │   ├── fixtures/          sourced by PTY tests
 │   └── site*.mjs          optional Node and browser checks for docs/

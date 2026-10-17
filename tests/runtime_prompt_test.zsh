@@ -48,7 +48,7 @@ _test_runtime_prompt_ready_toolchain() {
     _prompt_update
     [[ $_PROMPT_VIEW == lens ]] || exit 2
     BUFFER=ls
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     _prompt_prepare_transcript
     BUFFER=""
     _prompt_update

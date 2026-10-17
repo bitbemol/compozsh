@@ -134,12 +134,14 @@ _test_palette_late_appearance_updates_existing_renderers() {
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.highlighting"
     _PROMPT_PATH_TEXT="sample%path"
-    _PROMPT_GIT_TEXT=""
+    # With no other facts, the rendered context row is exactly the path.
+    _PROMPT_GIT_TEXT="" _PROMPT_ENV_TEXT="" _PROMPT_JOBS_TEXT=""
+    _PROMPT_PROJECT_ITEMS=()
     local -a region_highlight=()
     _zle_add_highlight 0 2 command || :
     (( !${#region_highlight} )) || exit 1
     _prompt_layout || :
-    [[ $_PROMPT_PATH_SEGMENT == "sample%%path" ]] || exit 2
+    [[ $_PROMPT_CONTEXT_SEGMENT == "sample%%path" ]] || exit 2
     _prompt_base
     [[ $PROMPT != *"%F{}"* && $PROMPT != *%F\{[0-9]* ]] || exit 3
     ZSH_COLOR_SCHEME=light
@@ -147,12 +149,12 @@ _test_palette_late_appearance_updates_existing_renderers() {
     _zle_add_highlight 0 2 command
     [[ $region_highlight == "0 2 fg=22,bold memo=compozsh" ]] || exit 4
     _prompt_layout || :
-    [[ $_PROMPT_PATH_SEGMENT == "%F{25}sample%%path%f" ]] || exit 5
+    [[ $_PROMPT_CONTEXT_SEGMENT == "%F{25}sample%%path%f" ]] || exit 5
     unset "ZSH_PROMPT_COLORS[frame]" "ZSH_PROMPT_COLORS[path]"
     ZSH_PROMPT_COLORS[identity]="%F{red}"
     _prompt_layout || :
     _prompt_base
-    [[ $_PROMPT_PATH_SEGMENT == "%F{25}sample%%path%f" &&
+    [[ $_PROMPT_CONTEXT_SEGMENT == "%F{25}sample%%path%f" &&
        $PROMPT == *'${_PROMPT_CONTEXT_SEGMENT}'* &&
        $PROMPT == *'${_PROMPT_INPUT_SEGMENT}'* &&
        $PROMPT != *"%F{red}"* && -z $RPROMPT ]] || exit 6

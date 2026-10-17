@@ -96,7 +96,7 @@ _prompt_test_emit "SOURCE|$(command tty)"
     # a direct capability failure rather than an event timeout.
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.prompt"
-    for capability in _prompt_editing_started _prompt_prepare_transcript _prompt_toggle_lens \
+    for capability in _prompt_interaction_update _prompt_prepare_transcript _prompt_toggle_lens \
         _zle_prompt_pre_redraw _zle_prompt_line_finish _zle_prompt_toggle_widget; do
       (( ${+functions[$capability]} )) || {
         print -u2 -r -- "missing living prompt capability: $capability"
@@ -384,7 +384,7 @@ _prompt_test_emit "SOURCE|$(command tty)"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/.zsh.addons/.zsh.prompt"
-    for capability in _prompt_editing_started _prompt_layout \
+    for capability in _prompt_interaction_update _prompt_layout \
         _prompt_git _prompt_project_context TRAPWINCH; do
       (( ${+functions[$capability]} )) || {
         print -u2 -r -- "missing living prompt resize capability: $capability"

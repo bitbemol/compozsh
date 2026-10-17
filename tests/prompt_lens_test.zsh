@@ -18,7 +18,7 @@ _test_living_prompt_auto_lens_tracks_exact_project_context() {
     source "$1/.zsh.addons/.zsh.shell"
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.editor"
-    (( ${+functions[_prompt_editing_started]} )) || {
+    (( ${+functions[_prompt_interaction_update]} )) || {
       print -u2 -r -- "living prompt editing transition is unavailable"
       exit 90
     }
@@ -34,10 +34,10 @@ _test_living_prompt_auto_lens_tracks_exact_project_context() {
     true; _prompt_update
     [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED == 0 ]] || exit 4
     BUFFER=x
-    _prompt_editing_started || exit 5
+    _prompt_interaction_update || exit 5
     [[ $_PROMPT_VIEW == compact && $_PROMPT_LENS_PINNED == 0 ]] || exit 6
     BUFFER=""
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     [[ $_PROMPT_VIEW == compact ]] || exit 7
     true; _prompt_update
     [[ $_PROMPT_VIEW == compact ]] || exit 8
@@ -95,13 +95,13 @@ _test_living_prompt_fingerprint_uses_only_high_signal_changes() {
     source "$1/.zsh.addons/.zsh.shell"
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.editor"
-    (( ${+functions[_prompt_editing_started]} )) || exit 90
+    (( ${+functions[_prompt_interaction_update]} )) || exit 90
 
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
 
     _consume_lens() {
       BUFFER=x
-      _prompt_editing_started || return 1
+      _prompt_interaction_update || return 1
       BUFFER=""
       [[ $_PROMPT_VIEW == compact ]]
     }
@@ -253,20 +253,20 @@ _test_living_prompt_manual_lens_and_transcript_state() {
     source "$1/.zsh.addons/.zsh.shell"
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.editor"
-    for capability in _prompt_editing_started _prompt_toggle_lens _prompt_prepare_transcript; do
+    for capability in _prompt_interaction_update _prompt_toggle_lens _prompt_prepare_transcript; do
       (( ${+functions[$capability]} )) || exit 90
     done
 
     builtin cd -- "$2" || exit 1
     true; _prompt_update
-    BUFFER=x; _prompt_editing_started || exit 2
+    BUFFER=x; _prompt_interaction_update || exit 2
 
     BUFFER="draft value" CURSOR=3 MARK=1
     PREDISPLAY=prefix POSTDISPLAY=suffix
     region_highlight=("0 1 bold memo=fixture")
     _prompt_toggle_lens || exit 3
     [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED == 1 ]] || exit 4
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED == 1 &&
        $BUFFER == "draft value" && $CURSOR == 3 && $MARK == 1 &&
        $PREDISPLAY == prefix && $POSTDISPLAY == suffix &&
@@ -550,7 +550,7 @@ _test_living_prompt_interaction_lens_ready_morphs_and_returns_to_base() {
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
 
     _focus_render() {
-      _prompt_editing_started || :
+      _prompt_interaction_update || :
       print -P -v REPLY -r -- "$PROMPT"
     }
     _focus_has_row() {
@@ -593,7 +593,7 @@ _test_living_prompt_interaction_lens_ready_morphs_and_returns_to_base() {
     true; _prompt_update
     [[ $_PROMPT_VIEW == lens ]] || exit 2
     BUFFER=x; CURSOR=1
-    _prompt_editing_started || exit 3
+    _prompt_interaction_update || exit 3
 
     # The base interaction lens retains the last command outcome as captured
     # prompt state. It does not need to poll after the command has completed.
@@ -649,7 +649,7 @@ _test_living_prompt_interaction_lens_ready_morphs_and_returns_to_base() {
 
     # Pinning Context does not freeze the interaction portion of the prompt.
     BUFFER='"'"'git diff --stat'"'"'; CURSOR=${#BUFFER}
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     [[ $_PROMPT_VIEW == lens && $_PROMPT_LENS_PINNED == 1 ]] || exit 26
     print -P -v disclosed -r -- "$PROMPT"
     [[ $disclosed == *CONTEXT* && $disclosed == *diff* &&
@@ -711,7 +711,7 @@ _test_living_prompt_interaction_lenses_cover_local_work_intents() {
 
     _focus_render() {
       BUFFER=$1 CURSOR=${#1}
-      _prompt_editing_started || :
+      _prompt_interaction_update || :
       print -P -v REPLY -r -- "$PROMPT"
     }
     _focus_row() {
@@ -802,7 +802,7 @@ _test_living_prompt_interaction_lenses_cover_remote_flow_and_caution() {
 
     _focus_render() {
       BUFFER=$1 CURSOR=${#1}
-      _prompt_editing_started || :
+      _prompt_interaction_update || :
       print -P -v REPLY -r -- "$PROMPT"
     }
     _focus_row() {
@@ -1088,7 +1088,7 @@ exit 97" || return
 
     _focus_edit() {
       BUFFER=$1 CURSOR=${#1}
-      _prompt_editing_started || :
+      _prompt_interaction_update || :
       print -P -v REPLY -r -- "$PROMPT"
     }
     local candidate=''
@@ -1118,7 +1118,7 @@ exit 97" || return
     printf -v escape "\\033"
     BUFFER="deploy%!${escape}command \$(printf pwned > \"$4\") \`printf pwned > \"$5\"\`"
     CURSOR=${#BUFFER}
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     local hostile_buffer=$BUFFER hostile=''
     print -P -v hostile -r -- "$PROMPT"
     local -a hostile_rows=("${(@f)hostile}")
@@ -1138,7 +1138,7 @@ exit 97" || return
     # Leading assignments may help locate the command token, but their values
     # are potentially credentials and must never become prompt presentation.
     BUFFER="API_TOKEN=never-display-this git status" CURSOR=${#BUFFER}
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     local assigned=''
     print -P -v assigned -r -- "$PROMPT"
     [[ $assigned == *"╭─ GIT"* && $assigned != *never-display-this* ]] || {
@@ -1148,7 +1148,7 @@ exit 97" || return
     (( _PROMPT_TEST_FORBIDDEN_READS == 0 )) || exit 11
 
     BUFFER="env API_TOKEN=also-never-display-this git status" CURSOR=${#BUFFER}
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     print -P -v assigned -r -- "$PROMPT"
     [[ $assigned == *"╭─ GIT"* &&
        $assigned != *also-never-display-this* ]] || {
@@ -1160,7 +1160,7 @@ exit 97" || return
     # a long draft must never masquerade as the empty READY state.
     local blank_prefix=${(l:512:: :)}
     BUFFER="${blank_prefix}rm -rf /" CURSOR=${#BUFFER}
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     local bounded=''
     print -P -v bounded -r -- "$PROMPT"
     [[ $bounded == *"╭─ RUN"* && $bounded == *ANALYSIS*"512"* &&
@@ -1182,7 +1182,7 @@ exit 97" || return
     _ZLE_AUTOSUGGEST_DISPLAY=$_ZLE_AUTOSUGGEST_SUFFIX
     POSTDISPLAY=$_ZLE_AUTOSUGGEST_DISPLAY
     local suggestion_display=$POSTDISPLAY suggested=''
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     print -P -v suggested -r -- "$PROMPT"
     [[ $suggested == *SUGGESTION*"atus --short"* &&
        $suggested != *PRIVATE-TAIL* &&
@@ -1195,7 +1195,7 @@ exit 97" || return
     _ZLE_AUTOSUGGEST_SUFFIX=""
     _ZLE_AUTOSUGGEST_DISPLAY=""
     POSTDISPLAY=""
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     local without_suggestion=''
     print -P -v without_suggestion -r -- "$PROMPT"
     [[ $without_suggestion != *SUGGESTION* ]] || exit 14
@@ -1234,7 +1234,7 @@ _test_living_prompt_interaction_lens_unicode_rows_fit_terminal_cells() {
     _prompt_base
 
     BUFFER="rg 針を探す 非常に長い資料" CURSOR=${#BUFFER}
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     local rendered='' row=''
     print -P -v rendered -r -- "$PROMPT"
     local -a rows=("${(@f)rendered}")
@@ -1275,7 +1275,7 @@ _test_living_prompt_interaction_lens_unicode_rows_fit_terminal_cells() {
     # because the terminal is narrower than "ENVIRONMENT".
     COLUMNS=12
     BUFFER="conda activate x" CURSOR=${#BUFFER}
-    _prompt_editing_started || :
+    _prompt_interaction_update || :
     print -P -v rendered -r -- "$PROMPT"
     rows=("${(@f)rendered}")
     for row in "${rows[@]}"; do
@@ -1391,7 +1391,7 @@ _test_living_prompt_peer_hooks_converge_and_missing_capabilities_noop() {
 
       # Hook adapters must return success when their optional prompt provider is
       # absent, or add-zle-hook-widget would stop the remaining hook chain.
-      unfunction _prompt_editing_started _prompt_prepare_transcript 2>/dev/null
+      unfunction _prompt_interaction_update _prompt_prepare_transcript 2>/dev/null
       _zle_prompt_pre_redraw || exit 5
       _zle_prompt_line_finish || exit 6
       print -r -- "${(j:,:)pre_redraw_hooks}|${(j:,:)finish_hooks}|${widgets[compozsh-context-lens]}|$(bindkey $'"'"'\ei'"'"')"

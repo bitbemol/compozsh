@@ -1587,10 +1587,6 @@ _zle_prompt_pre_redraw() {
   if (( ${+functions[_prompt_interaction_update]} )); then
     _prompt_interaction_update "$BUFFER"
     frame_changed=$?
-  elif [[ -n $BUFFER ]] &&
-       (( ${+functions[_prompt_editing_started]} )); then
-    _prompt_editing_started
-    frame_changed=$?
   fi
 
   if (( frame_changed == 0 )); then
