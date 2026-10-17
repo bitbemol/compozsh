@@ -919,12 +919,12 @@ _git_branch_view() {
   emulate -L zsh
   local root=$1 clipboard_binary=$2 repo=''
   local -i index=0
-  local -a _NAVIGATION_PICKER_SEARCH_LABELS=()
+  # The choices end with the view, like its configuration.
+  local -a _NAVIGATION_PICKER_SEARCH_LABELS=() _NAVIGATION_PICKER_INDEXES=()
+  local -a _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+  local -a _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
   _ZLE_PICKER_INSPECT_TITLE=Branch _ZLE_PICKER_INSPECT_ACTION=switch
   _ZLE_PICKER_CANCEL_LABEL=''
-  typeset -ga _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
-  typeset -ga _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
-  typeset -ga _NAVIGATION_PICKER_INDEXES=()
   for (( index = 0; index < ${#_GIT_RECENT_BRANCHES}; ++index )); do
     _NAVIGATION_PICKER_INDEXES+=($index)
   done
@@ -1025,6 +1025,13 @@ g() {
   unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
 
   local root='' branch='' clipboard_binary=${commands[pbcopy]:-}
+  # The branch catalog and the final action and value that the switch below
+  # reads end with this call, as do the last results, bookmark and REPLY.
+  local REPLY='' _GIT_RECENT_CURRENT=''
+  local _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=''
+  local -a _GIT_RECENT_BRANCHES=() _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
+  local -a _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_ACCEPTED=0 _ZLE_PICKER_BOOKMARK_FOCUS=0
   local -a _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
   local -A _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
   local _GIT_BRANCH_REMOTE_NOTICE=''

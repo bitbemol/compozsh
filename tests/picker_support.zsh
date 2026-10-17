@@ -63,7 +63,7 @@ _test_picker_run() {
   [[ $raw_limit == <-> && ${#raw_limit} -le 18 ]] || raw_limit=10
   (( raw_limit < 1 )) && raw_limit=1
   (( raw_limit > 20 )) && raw_limit=20
-  _ZLE_PICKER_RUN_LIMIT=$raw_limit
+  local -i _ZLE_PICKER_RUN_LIMIT=$raw_limit
   if [[ -n $_zle_picker_session_callback ]]; then
     _zle_picker_screen_session "$_zle_picker_session_callback"
     _zle_picker_session_status=$?

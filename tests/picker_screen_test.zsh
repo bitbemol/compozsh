@@ -328,11 +328,12 @@ _test_picker_limits_reject_overflowing_settings() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
-    vared() { return 1; }
-    local limit=""
+    # The nested editor reads the run limit; it ends with the run.
+    local limit="" seen=""
+    vared() { seen=$_ZLE_PICKER_RUN_LIMIT; return 1; }
     for limit in 99999999999999999999 15 99; do
       _zle_picker_run "$limit"
-      print -r -- "run:$?|$_ZLE_PICKER_RUN_LIMIT"
+      print -r -- "run:$?|$seen"
     done
     _limit_collect() { :; }
     _ZLE_PICKER_COLLECTOR=_limit_collect

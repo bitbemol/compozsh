@@ -197,6 +197,12 @@ focused filters.
   name or a typed path), the empty-list label, the collector name, the
   selected path and the bookmark no longer stay in the shell, and `$REPLY`
   keeps the value it had before (P3-02, B-06, CON-B-02, CON-B-03).
+- Search, bare `g` and `compozsh` (the tool explorer and every `--help`
+  workspace) now release their view state too: Search's status label (which
+  carries the submitted query), collector and capabilities, `g`'s branch
+  catalog, choices, selected branch and bookmark, and the picker run's result
+  limit no longer stay in the shell, and `$REPLY` (which `g` set to the
+  repository root) keeps the value it had before (P3-03, B-06, CON-B-02).
 
 ## Performance results
 

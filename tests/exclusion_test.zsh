@@ -443,6 +443,8 @@ _test_exclusion_capture_display() {
   test_make_temp_dir || return
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.find"
     local capture_fields="" result_fields="" displayed_summary=""
     _files_read_query() { _ZLE_PICKER_SELECTED_VALUE=""; _ZLE_PICKER_BOOKMARK=("" 1 0 nod 1 1); }

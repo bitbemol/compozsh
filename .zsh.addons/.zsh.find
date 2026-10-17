@@ -640,22 +640,25 @@ _file_search_default_provider() {
 # Called only inside the filesystem workspace's owned screen. Query submission
 # captures once; refinement and paging operate solely on that snapshot.
 _file_search_choose() {
+  _zle_ui_view choice _file_search_view "$@"
+}
+
+# Its configuration, captured results and start focus end with the view; each
+# pass re-arms the capabilities the loop clears.
+_file_search_view() {
   emulate -L zsh
   local root=$1 query=${2:-} provider=${3:-auto} exclusion='' selected='' action='' kind=''
   if [[ $provider == auto ]]; then
     _file_search_default_provider "$root"
     provider=$REPLY
   fi
-  local -i result=0 capture_status=0 refresh=1 _zle_picker_start_focus=0 return_focus=0
+  local -i result=0 capture_status=0 refresh=1 return_focus=0
   local -a bookmark=('' 1 0)
-  local _ZLE_PICKER_QUERY_LABEL='Filter results' _ZLE_PICKER_SEARCH_ACTION="search-$provider"
   local summary=''
-  local _ZLE_PICKER_TITLE=Files _ZLE_PICKER_SUBTITLE="$provider · $root"
-  local _ZLE_PICKER_INSPECT_TITLE=Path _ZLE_PICKER_INSPECT_ACTION=insert
-  local _ZLE_PICKER_CANCEL_LABEL=back
-  local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
-  local _ZLE_PICKER_INSPECT_FALLBACK=''
-  local -A _ZLE_PICKER_INSPECT_TEXTS=() _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_ACCEPT_LABELS=()
+  _ZLE_PICKER_QUERY_LABEL='Filter results' _ZLE_PICKER_SEARCH_ACTION="search-$provider"
+  _ZLE_PICKER_TITLE=Files _ZLE_PICKER_SUBTITLE="$provider · $root"
+  _ZLE_PICKER_INSPECT_TITLE=Path _ZLE_PICKER_INSPECT_ACTION=insert
+  [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
   local -a _FILE_SEARCH_VALUES=() _FILE_SEARCH_LABELS=() _FILE_SEARCH_MATCH_TEXTS=() _FILE_SEARCH_RANKS=()
   local -A _FILE_SEARCH_SEEN=()
   local _FILE_SEARCH_ROOT='' _FILE_SEARCH_SOURCE=''

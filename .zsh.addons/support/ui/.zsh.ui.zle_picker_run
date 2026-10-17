@@ -21,7 +21,8 @@ _zle_picker_run() {
   (( raw_limit < 1 )) && raw_limit=1
   (( raw_limit > 20 )) && raw_limit=20
 
-  _ZLE_PICKER_RUN_LIMIT=$raw_limit
+  # The nested editor's widget reads the limit; it ends with this run.
+  local -i _ZLE_PICKER_RUN_LIMIT=$raw_limit
   _ZLE_PICKER_BOOTSTRAP='compozsh-picker'
   # The interrupt ends here, after the session's cleanup has run: a function
   # trap's nonzero return unwinds this anonymous scope only, and the caller
