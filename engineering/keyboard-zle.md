@@ -111,6 +111,11 @@ Ctrl-X Ctrl-E to command editing.
   pinned/consumed disclosure state and derive the right compact or lens
   presentation for the restored buffer; a picker transition never becomes a
   transcript receipt. Keep a spare terminal row so the frame never scrolls.
+  The inline fallback paints below the shell's own prompt and draft: at entry
+  the session captures only the display width of each of their lines (prompt
+  % escapes expanded, never its substitutions), and the height budget gives up
+  every row they take beyond the one standing in for the title bar, rewrapped
+  at the current width, so a resize reads nothing new.
 - Test the emitted enter/leave control stream across complete journeys,
   including cancellation, input failures, interrupts and fallbacks.
 

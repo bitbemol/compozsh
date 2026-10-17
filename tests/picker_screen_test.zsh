@@ -232,6 +232,92 @@ vt100|user-clears=0|repainted=1|clear=none' "status:$exit_status"$'\n'"$output" 
 test_case 'picker screen Ctrl-L redraws in place without user clear-screen widgets or main-screen clears' \
   _test_picker_screen_ctrl_l_redraws_in_place
 
+# Without an alternate screen the frame paints below the shell's own prompt.
+# Prompt and frame together keep a spare row, or the main screen scrolls the
+# prompt and the frame's first rows away; a resize lays out for the new height.
+_test_picker_inline_fallback_fits_prompt() {
+  test_make_temp_dir || return
+  test_write_file "$TEST_TMP_DIR/home/session.zsh" '
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    TERM=vt100 HISTSIZE=100
+    local -i entry=0
+    for (( entry = 1; entry <= 30; ++entry )); do print -s -- "echo history-$entry"; done
+    # Seven prompt rows with colour and zero-width escapes, like the living prompt.
+    PROMPT=$'\''%F{blue}context one%f\ncontext two\n%{\e[1m%}context three%{\e[0m%}\ncontext four\ncontext five\ncontext six\n%F{green}>%f '\''
+    exec {event_fd}<> "$HOME/events"
+    functions[_inline_original_show]=$functions[_zle_picker_show]
+    _zle_picker_show() {
+      _inline_original_show || return
+      # Seven prompt rows (the last holds the draft) plus one per frame line;
+      # BUFFERLINES counts from the last prompt row.
+      local newlines=${_ZLE_PICKER_POSTDISPLAY//[^$'\''\n'\'']}
+      print -r -u $event_fd -- "FRAME:$LINES:$BUFFERLINES:$(( 7 + ${#newlines} ))"
+    }
+    command stty rows 16 cols 80
+    print -r -u $event_fd -- "READY:$(command tty)"
+  ' || return
+  local output='' exit_status=0
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/tests/pty_support.zsh" || exit 12
+    command mkfifo "$HOME/events" || exit 1
+    exec {event_fd}<> "$HOME/events" || exit 2
+    _inline_event() {
+      {
+        test_pty_expect -p inline $event_fd "$1" || return
+        event=$REPLY
+      } always { trace+=$TEST_PTY_OUTPUT }
+    }
+    # Report whether a frame event fits its terminal with a spare row.
+    _inline_fits() {
+      local -a fields=("${(@s.:.)event}")
+      rows=$fields[4]
+      if (( fields[3] <= fields[2] - 1 && fields[4] <= fields[2] - 1 )); then
+        print -r -- "$fields[2]:fits"
+      else
+        print -r -- "$fields[2]:overflow:$fields[3]:$fields[4]"
+      fi
+    }
+    local event="" trace="" device=""
+    local -i rows=0 small=0
+    test_pty_start inline "$2" -dfi || exit 3
+    {
+      zpty -w inline "source ${(q)HOME}/session.zsh ${(q)1}"
+      _inline_event READY: || exit 4
+      device=${event#READY:}
+      # Type only once ZLE reads: the terminal driver would take Ctrl-R itself.
+      { test_pty_expect inline "" $'\''\e[?2004h'\'' } always { trace+=$TEST_PTY_OUTPUT }
+      (( $? == 0 )) || exit 11
+      zpty -w -n inline $'\''\x12'\''
+      _inline_event FRAME:16: || exit 5
+      _inline_fits
+      small=$rows
+      command stty rows 24 cols 80 < "$device" || exit 6
+      _inline_event FRAME:24: || exit 7
+      _inline_fits
+      (( rows > small )) && print -r -- grew || print -r -- "kept:$small:$rows"
+      zpty -w -n inline $'\''\x07'\''
+      zpty -w inline '\''print -r -u $event_fd -- DONE'\''
+      _inline_event DONE || exit 8
+      test_pty_screen_sessions "$trace" 0 || exit 9
+      [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 10
+    } always {
+      zpty -d inline
+      exec {event_fd}>&-
+    }
+  ' "$TEST_REPO_ROOT" "$TEST_ZSH_BIN" 2>&1) || exit_status=$?
+
+  test_assert_equal 'status:0
+16:fits
+24:fits
+grew' "status:$exit_status"$'\n'"$output" \
+    'the inline frame and shell prompt overflowed the terminal height'
+}
+test_case 'picker inline fallback keeps the frame and prompt within the terminal height' \
+  _test_picker_inline_fallback_fits_prompt
+
 # The painted frame copies labels, inspector, query and location text. The
 # screen owner must release it on every exit path, including a capture status
 # that ends the session, or the last view would outlive its lifetime in shell
@@ -365,7 +451,7 @@ _test_picker_engine_drops_inherited_view_state() {
       _ZLE_PICKER_QUERY_EMPTY_CANCEL _ZLE_PICKER_INSPECT_STACKED
       _ZLE_PICKER_INSPECT_CLIP_LINES _ZLE_PICKER_IDLE_PREPAINT
       _ZLE_PICKER_WORKSPACE_ACTIONS
-      _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS)
+      _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS _ZLE_PICKER_INLINE_WIDTHS)
     for name in "${names[@]}"; do export "$name=$substitution"; done
     export _ZLE_PICKER_IDLE_CALLBACK=_inherited_idle _ZLE_AUTOSUGGEST_SUSPENDED=$substitution
     source "$1/tests/support.zsh"

@@ -493,7 +493,8 @@ History, directories, branches, files, the tool explorer, Git review, Xcode and
 external-device tools open on the terminal's **alternate screen**, like `less`.
 Your output and unfinished command are hidden while you work and restored when
 the view closes, before any copy, directory change or Finder action. Terminals
-without alternate-screen support keep an inline picker.
+without alternate-screen support keep an inline picker sized to fit below the
+prompt.
 
 Every view has a title bar, a status row, a navigation strip such as
 **Results → Preview**, the results and details, a filter field, and a bottom

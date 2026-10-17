@@ -183,8 +183,11 @@ screen restoration. Layout, resize, disclosure navigation, rewrapping (with a
 bounded source-row map), row spacing, focus expansion and per-paint styles
 derive only from captured facts, the current palette and terminal dimensions:
 they discover, capture and execute nothing and keep no copy of the user's draft
-beyond screen-restoration state. The input dock places the caret through ZLE's
-PREDISPLAY/POSTDISPLAY, restored by paint, without putting query text in the
+beyond screen-restoration state. Without an alternate screen, a session keeps
+only the display width of each prompt and draft line, measured at entry from
+the prompt's % escapes without running its substitutions. The input dock
+places the caret through ZLE's PREDISPLAY/POSTDISPLAY, restored by paint,
+without putting query text in the
 caller's buffer. View state is scoped to the feature callback and the painted
 frame to its screen session, released on every exit; secondary menus
 and notices scope their own labels and capabilities and return exact action

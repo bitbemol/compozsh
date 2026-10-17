@@ -19,7 +19,10 @@ _zle_picker_screen_session() {
   local -i _ZLE_PICKER_SESSION=1 _ZLE_PICKER_SCREEN_ACTIVE=0 result=0
   local saved_postdisplay=$POSTDISPLAY saved_buffer=$BUFFER saved_predisplay=$PREDISPLAY
   local saved_prompt=$PROMPT saved_rprompt=$RPROMPT
-  local PROMPT=$PROMPT RPROMPT=$RPROMPT screen_exit=''
+  local PROMPT=$PROMPT RPROMPT=$RPROMPT screen_exit='' inline_text='' inline_line=''
+  # Inline, the frame paints below the shell's prompt and draft. The session
+  # keeps only the display width of each of their lines, never their text.
+  local -a _ZLE_PICKER_INLINE_WIDTHS=()
   local -i saved_cursor=$CURSOR saved_mark=$MARK
   # The optional editor owns this flag; validate its text before restoring it,
   # because an inherited value would otherwise be evaluated as arithmetic.
@@ -59,6 +62,24 @@ _zle_picker_screen_session() {
       PROMPT='' RPROMPT='' region_highlight=()
       zle reset-prompt
       zle .clear-screen
+    else
+      # Measure once the prompt this editor shows; vared shows none of these.
+      # Drop declared zero-width %{...%} text, expand % escapes only (never the
+      # prompt's substitutions, which ZLE alone performs) and drop the colour
+      # and attribute sequences that expansion produced.
+      case ${CONTEXT-} in
+        (start) inline_text=$PROMPT ;;
+        (cont) inline_text=$PROMPT2 ;;
+        (select) inline_text=$PROMPT3 ;;
+      esac
+      inline_text=${(S)inline_text//\%\{*\%\}}
+      inline_text=${(%)inline_text}
+      inline_text=${(S)inline_text//$'\e'\[*[@-~]}
+      inline_text+=$PREDISPLAY$BUFFER
+      for inline_line in "${(@f)inline_text}"; do
+        _ZLE_PICKER_INLINE_WIDTHS+=(${(m)#inline_line})
+      done
+      inline_text='' inline_line=''
     fi
     "$@"
     result=$?
