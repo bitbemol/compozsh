@@ -160,6 +160,37 @@ focused filters.
 | `b360a64` | P2-13 (D-12) | Correct stale UI-peer, cksum, Recents and USB help wording |
 | `4964137` | P2-14 (D-07, A2-14) | Move test-only Git syntax wrappers to tests and drop dead prompt state |
 
+### Phase 3: engine API and scoping
+
+All 12 units landed on their first attempt, at 12–27 minutes each, about 4
+hours in all. Every unit touched the shared UI engine, so every unit ran the
+full suite, all with zero failures (P3-01: 1,051 passed).
+
+Views now:
+- reach the engine only through `_zle_ui_view`, so their state ends when they
+  close;
+- pass bookmarks by name;
+- use one choice adapter and one shared ranked collector;
+- reposition documents through an explicit API;
+- supply their own options label, guide facts and plan-heading roles.
+
+The inline fallback frame now fits below the living prompt.
+
+| Commit | Unit | Subject |
+| --- | --- | --- |
+| `6673c31` | P3-01 (B-09) | Replace the result-index array with an explicit zero-based flag |
+| `12c88bf` | P3-02 (B-06) | Route Browse and Recents through _zle_ui_view so view state ends |
+| `d190046` | P3-03 (B-06) | Route Search through _zle_ui_view and scope g and help view state |
+| `0351913` | P3-04 (B-06) | Route USB browse and Git review through _zle_ui_view |
+| `7f2e63e` | P3-05 (B-11) | Promote the generic ranked collector into shared UI support |
+| `f091f14` | P3-06 (B-10) | Pass picker bookmarks by name, with focus as field seven |
+| `26dce74` | P3-07 (B-10) | Move remaining loop callers to named bookmarks; drop positional form |
+| `a24b8bc` | P3-09 (B-10) | Add one choice adapter for value, detail and label lists |
+| `00500ab` | P3-10 (B-12) | Give documents an invalidate and position API instead of raw maps |
+| `c156e96` | P3-11 (B-07, B-08) | Let callers supply the options label and drop the dead atlas kind |
+| `15d4e36` | P3-12 (B-07) | Move Files guide facts and plan heading roles out of the engine |
+| `4ed0cfe` | P3-13 (B-05) | Fit the inline fallback frame below the living prompt |
+
 ## Release notes
 
 - Ctrl-C in a Compozsh workspace now exits with status 130 from every
