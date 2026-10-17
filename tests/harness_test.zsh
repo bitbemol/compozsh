@@ -682,9 +682,14 @@ _test_picker_script_helper() {
     _probe_view() {
       _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE="$1 subtitle" _ZLE_PICKER_COLLECTOR=_probe_collect
       _zle_picker_start_focus=${2:-0}
-      _zle_picker_loop "" 10 1 0 "${3:-}" 0 "${4:-0}"
+      _zle_picker_loop "" 10 "${5:-1}" 0 "${3:-}" 0 "${4:-0}"
     }
-    _probe_seen() { print -r -- "seen:${#_ZLE_PICKER_RESULTS}:$_ZLE_PICKER_TITLE:$_ZLE_PICKER_EXCLUDE"; }
+    # An observe function keeps its own names, such as a step counter.
+    local -i step=0
+    _probe_seen() {
+      (( ++step ))
+      print -r -- "seen:${#_ZLE_PICKER_RESULTS}:$_ZLE_PICKER_TITLE:$_ZLE_PICKER_EXCLUDE"
+    }
     _probe_fail() { return 7; }
     _probe_session() { _zle_ui_view choice _probe_view five; }
     _probe_run() {
@@ -699,7 +704,7 @@ _test_picker_script_helper() {
     test_picker_script select b -- observe _probe_seen -- select "c d" inspect -- cancel -- \
       observe _probe_fail -- abort -- select a -- cancel -- select zzz
     _probe one choice
-    _probe two choice 1 x 1
+    _probe two choice 1 x 1 2
     _probe three reader
     _probe four choice
     _zle_picker_run 10 "" 1 0 _probe_session
@@ -712,6 +717,8 @@ _test_picker_script_helper() {
     _probe nine choice
     print -r -- "titles:${(j:|:)TEST_PICKER_TITLES}"
     print -r -- "limits:${(j:|:)TEST_PICKER_LIMITS}"
+    print -r -- "starts:${(j:|:)TEST_PICKER_STARTS}"
+    print -r -- "steps:$step"
     print -r -- "subtitle:$TEST_PICKER_SUBTITLES[2]"
     print -r -- "labels:${(V)TEST_PICKER_LABELS[1]}"
     print -r -- "detail:$(<"$HOME/stderr")"
@@ -728,9 +735,11 @@ eight:2:0::select::0:0
 nine:2:0::select::0:0
 titles:one|two|three|four|five|six|six|eight|nine
 limits:10|10|10|10|10|5|5|10|10
+starts:1|2|1|1|1|1|1|1|1
+steps:1
 subtitle:two subtitle
 labels:Alpha\nBeta\nGamma delta'
-  test_assert_equal "$expected" "${(F)${(f)output}[1,14]}" 'scripted views received the wrong outcomes' || return
+  test_assert_equal "$expected" "${(F)${(f)output}[1,16]}" 'scripted views received the wrong outcomes' || return
   test_assert_contains "$output" "not among the view's results" 'an uncollected selection was not reported' || return
   test_assert_contains "$output" 'no step left' 'an exhausted script was not reported'
 }

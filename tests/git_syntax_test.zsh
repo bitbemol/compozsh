@@ -1190,7 +1190,8 @@ _test_git_syntax_response_released() {
     _git_review_rows() { return 0; }
     # Resident-helper stub: no process; its framed response is already read.
     _git_syntax_session_start() { return 0; }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _syntax_response() {
       _GIT_REVIEW_DATA=$'\''@@ -1 +1 @@\n-let old = 1\n+let new = 2\n'\''
       _git_review_document_parse
       _git_syntax_prepare_input sample.swift
@@ -1199,8 +1200,8 @@ _test_git_syntax_response_released() {
       _git_syntax_session_poll || print -r -- "poll:$?"
       [[ -n $_GIT_SYNTAX_INPUT && $_GIT_SYNTAX_DATA == compozsh-syntax-1* ]] ||
         print -r -- "session:${#_GIT_SYNTAX_INPUT}:${#_GIT_SYNTAX_DATA}"
-      return 1
     }
+    test_picker_script observe _syntax_response -- cancel
     _git_review_view /fixture working
     print -r -- "released:${#_GIT_SYNTAX_DATA}:${#_GIT_SYNTAX_INPUT}"
   ' "$TEST_REPO_ROOT") || return

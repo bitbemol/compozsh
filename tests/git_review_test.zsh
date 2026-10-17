@@ -322,19 +322,17 @@ _test_git_review_failures() {
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     _ZLE_PICKER_TITLE=Branches
-    _zle_picker_loop() {
+    _NAVIGATION_PICKER_VALUES=(feature) _NAVIGATION_PICKER_LABELS=(feature) _NAVIGATION_PICKER_INDEXES=(1)
+    source "$1/tests/picker_support.zsh"
+    _count_view() { (( ++step )); }
+    _unavailable_notice() {
       (( ++step ))
-      _ZLE_PICKER_BOOKMARK=("filter" 2 0) _ZLE_PICKER_BOOKMARK_FOCUS=1
-      case $step in
-        (1) _ZLE_PICKER_ACTION=actions _ZLE_PICKER_SELECTED_VALUE=feature ;;
-        (2) _ZLE_PICKER_SELECTED_VALUE=commits ;;
-        (3) [[ $_ZLE_PICKER_TITLE == "Git review" && $_ZLE_PICKER_BROWSE_LABEL == unavailable ]] || return 77; return 130 ;;
-        (*) return 88 ;;
-      esac
-      return 0
+      [[ $_ZLE_PICKER_TITLE == "Git review" && $_ZLE_PICKER_BROWSE_LABEL == unavailable ]] || return 77
     }
     for scenario in config revision; do
       step=0
+      test_picker_script observe _count_view -- select feature actions -- \
+        observe _count_view -- select commits -- observe _unavailable_notice -- abort
       _git_review_prepare() { [[ $scenario == revision ]]; }
       _git_review_capture() { return 2; }
       _git_review_branch_choose

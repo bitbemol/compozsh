@@ -93,12 +93,12 @@ assertion rule.
   `test_picker_script`, whose steps (`select VALUE [ACTION]`, `cancel`,
   `abort`, `observe FUNCTION`, separated by `--`) give successive views the
   engine's outcomes, statuses and bookmarks and log each view's title,
-  subtitle, page size and visible labels. An observe function runs in the
-  view's scope, so it can check the view's state, render it or call its idle
-  callback; a later step ends the view. A session callback given to
-  `_zle_picker_run` runs for real, so a lifecycle test scripts the session's
-  views rather than replacing the screen. New tests script outcomes through
-  it instead of redefining `_zle_picker_loop`, `_zle_picker_run` or
+  subtitle, page size, requested start row and visible labels. An observe
+  function runs in the view's scope, so it can check the view's state, render
+  it or call its idle callback; a later step ends the view. A session callback
+  given to `_zle_picker_run` runs for real, so a lifecycle test scripts the
+  session's views rather than replacing the screen. New tests script outcomes
+  through it instead of redefining `_zle_picker_loop`, `_zle_picker_run` or
   `_zle_picker_screen_session`, so the engine's result and bookmark protocol
   is restated in one place; tests of the engine's own keys, painting, idle
   work or documents keep the real loop.

@@ -57,18 +57,19 @@ _test_git_comparison_ui_missing_endpoint() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     _git_review_load() { "$@"; }
     _git_review_resolve() { return 1; }
     _git_review_endpoint_choose() { REPLY=${(l:40::a:)}; _git_compare_label=main; }
     local -i step=0
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _missing_check() {
       (( ++step ))
-      _ZLE_PICKER_BOOKMARK=("" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
-      if (( step == 1 )); then _ZLE_PICKER_SELECTED_VALUE=from; return 0; fi
-      [[ $3 == 1 && $_ZLE_PICKER_BROWSE_LABEL == *"Choose Compare"* && ${_NAVIGATION_PICKER_VALUES[(Ie)open]} == 0 ]] || exit 1
-      return 1
+      (( step == 1 )) && return 0
+      [[ $TEST_PICKER_STARTS[-1] == 1 && $_ZLE_PICKER_BROWSE_LABEL == *"Choose Compare"* && ${_NAVIGATION_PICKER_VALUES[(Ie)open]} == 0 ]] || exit 1
     }
+    test_picker_script observe _missing_check -- select from -- observe _missing_check -- cancel
     _git_review_compare_choose /repository ""
     [[ $? == 1 && $step == 2 ]] || exit 2
     print missing
@@ -83,6 +84,7 @@ _test_git_comparison_ui_draft_ancestor() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     _git_review_load() { "$@"; }
     _git_review_resolve() { REPLY=${(l:40::b:)}; }
@@ -94,27 +96,22 @@ _test_git_comparison_ui_draft_ancestor() {
     local -i step=0 captures=0
     _git_review_compare_base() { (( ++captures )); REPLY=${(l:40::c:)}; }
     _git_review_view() { return 1; }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _draft_check() {
       (( ++step ))
-      _ZLE_PICKER_BOOKMARK=("" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
       case $step in
-        (1) _ZLE_PICKER_SELECTED_VALUE=from;;
-        (2) _ZLE_PICKER_SELECTED_VALUE=method;;
-        (3) _ZLE_PICKER_SELECTED_VALUE=ancestor;;
-        (4) [[ $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Common ancestor of main and topic"* && $captures == 0 ]] || exit 1
-            _ZLE_PICKER_SELECTED_VALUE=open;;
-        (5) [[ $_git_compare_before == ${(l:40::c:)} && $captures == 1 ]] || exit 2
-            _ZLE_PICKER_SELECTED_VALUE=to;;
-        (6) [[ -z $_git_compare_before && $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Common ancestor of main and other-topic"* && $_ZLE_PICKER_INSPECT_TEXTS[open] != *cccccccccccc* ]] || exit 3
-            _ZLE_PICKER_SELECTED_VALUE=open;;
-        (7) _ZLE_PICKER_SELECTED_VALUE=method;;
-        (8) _ZLE_PICKER_SELECTED_VALUE=exact;;
-        (9) [[ -z $_git_compare_before && $captures == 2 && $_ZLE_PICKER_INSPECT_TEXTS[open] != *Ancestor* ]] || exit 4
-            return 1;;
-        (*) exit 5;;
+        (4) [[ $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Common ancestor of main and topic"* && $captures == 0 ]] || exit 1;;
+        (5) [[ $_git_compare_before == ${(l:40::c:)} && $captures == 1 ]] || exit 2;;
+        (6) [[ -z $_git_compare_before && $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Common ancestor of main and other-topic"* && $_ZLE_PICKER_INSPECT_TEXTS[open] != *cccccccccccc* ]] || exit 3;;
+        (9) [[ -z $_git_compare_before && $captures == 2 && $_ZLE_PICKER_INSPECT_TEXTS[open] != *Ancestor* ]] || exit 4;;
       esac
       return 0
     }
+    test_picker_script observe _draft_check -- select from -- observe _draft_check -- select method -- \
+      observe _draft_check -- select ancestor -- observe _draft_check -- select open -- \
+      observe _draft_check -- select to -- observe _draft_check -- select open -- \
+      observe _draft_check -- select method -- observe _draft_check -- select exact -- \
+      observe _draft_check -- cancel
     _git_review_compare_choose /repository topic
     [[ $? == 1 && $step == 9 ]] || exit 6
     print draft
@@ -138,7 +135,8 @@ _test_git_comparison_ui_guide() {
     _git_review_comparison_files_capture() { return 0; }
     _git_review_rows() { return 0; }
     _git_review_syntax_cleanup() { return 0; }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _guide_check() {
       [[ -n $_ZLE_PICKER_SUBTITLE_RENDERER ]] || exit 1
       "$_ZLE_PICKER_SUBTITLE_RENDERER" 119 || exit 1
       [[ $REPLY == *"Captured comparison"* ]] || exit 1
@@ -148,8 +146,8 @@ _test_git_comparison_ui_guide() {
       [[ $guide == *"$_git_compare_before"* && $guide == *"$_git_compare_to"* && $guide == *"$_git_compare_from"* ]] || exit 2
       [[ $guide != *"staged and unstaged"* && $guide != *"another tool edits files"* ]] || exit 3
       [[ $guide == *"same IDs"* ]] || exit 4
-      return 1
     }
+    test_picker_script observe _guide_check -- cancel
     _git_review_view /repository comparison "" "$_git_compare_to" "$_git_compare_before"
     [[ $? == 1 && -z $_ZLE_PICKER_SUBTITLE_RENDERER ]] || exit 5
     print guide
@@ -181,30 +179,26 @@ _test_git_comparison_ui_pair_choices() {
       (( ++views ))
       return 1
     }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _pair_check() {
+      local start=$TEST_PICKER_STARTS[-1]
       (( ++step ))
-      _ZLE_PICKER_BOOKMARK=("" 2 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
       case $step in
-        (1) [[ $_NAVIGATION_PICKER_VALUES[1] == to && $_NAVIGATION_PICKER_VALUES[2] == from && $3 == 2 ]] || exit 1
+        (1) [[ $_NAVIGATION_PICKER_VALUES[1] == to && $_NAVIGATION_PICKER_VALUES[2] == from && $start == 2 ]] || exit 1
             [[ $_NAVIGATION_PICKER_LABELS[1] == "Compare · topic" && $_NAVIGATION_PICKER_LABELS[2] == "Against · Choose branch or commit…" ]] || exit 2
-            [[ $_ZLE_PICKER_INSPECT_TEXTS[to] == *"Enter changes"* && $_ZLE_PICKER_INSPECT_TEXTS[from] == *topic* ]] || exit 3
-            _ZLE_PICKER_SELECTED_VALUE=from ;;
-        (2) [[ $3 == 4 && $_NAVIGATION_PICKER_LABELS[2] == "Against · release/next" && $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Compare topic against release/next"* ]] || exit 4
-            _ZLE_PICKER_SELECTED_VALUE=to ;;
-        (3) [[ $_NAVIGATION_PICKER_LABELS[1] == "Compare · feature/search" && $_NAVIGATION_PICKER_LABELS[2] == "Against · release/next" ]] || exit 5
-            _ZLE_PICKER_SELECTED_VALUE=method ;;
-        (4) [[ $_NAVIGATION_PICKER_LABELS[1] == "All differences" && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *feature/search* && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *release/next* ]] || exit 6
-            _ZLE_PICKER_SELECTED_VALUE=ancestor ;;
-        (5) _ZLE_PICKER_SELECTED_VALUE=method ;;
-        (6) [[ $3 == 2 ]] || exit 11
-            _ZLE_PICKER_SELECTED_VALUE=ancestor ;;
-        (7) _ZLE_PICKER_SELECTED_VALUE=open ;;
-        (8) [[ $_NAVIGATION_PICKER_LABELS[1] == *feature/search* && $_NAVIGATION_PICKER_LABELS[2] == *release/next* ]] || exit 7
-            return 1 ;;
-        (*) exit 8 ;;
+            [[ $_ZLE_PICKER_INSPECT_TEXTS[to] == *"Enter changes"* && $_ZLE_PICKER_INSPECT_TEXTS[from] == *topic* ]] || exit 3 ;;
+        (2) [[ $start == 4 && $_NAVIGATION_PICKER_LABELS[2] == "Against · release/next" && $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Compare topic against release/next"* ]] || exit 4 ;;
+        (3) [[ $_NAVIGATION_PICKER_LABELS[1] == "Compare · feature/search" && $_NAVIGATION_PICKER_LABELS[2] == "Against · release/next" ]] || exit 5 ;;
+        (4) [[ $_NAVIGATION_PICKER_LABELS[1] == "All differences" && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *feature/search* && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *release/next* ]] || exit 6 ;;
+        (6) [[ $start == 2 ]] || exit 11 ;;
+        (8) [[ $_NAVIGATION_PICKER_LABELS[1] == *feature/search* && $_NAVIGATION_PICKER_LABELS[2] == *release/next* ]] || exit 7 ;;
       esac
       return 0
     }
+    test_picker_script observe _pair_check -- select from -- observe _pair_check -- select to -- \
+      observe _pair_check -- select method -- observe _pair_check -- select ancestor -- \
+      observe _pair_check -- select method -- observe _pair_check -- select ancestor -- \
+      observe _pair_check -- select open -- observe _pair_check -- cancel
     _git_review_compare_choose /repository topic
     [[ $? == 1 && $step == 8 && $views == 1 ]] || exit 10
     print pair
@@ -249,6 +243,7 @@ _test_git_comparison_ui_ref_identity() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     _git_review_load() { "$@"; }
     _git_review_refs_capture() {
@@ -258,19 +253,15 @@ _test_git_comparison_ui_ref_identity() {
     }
     _git_review_capture() { _GIT_REVIEW_DATA=${(l:40::a:)}; }
     local _git_compare_to_label=topic _git_compare_label=""
-    local -i selection=1
-    _zle_picker_loop() {
-      [[ $_ZLE_PICKER_SUBTITLE == *"Compare: topic"* ]] || exit 1
-      _ZLE_PICKER_SELECTED_VALUE=$selection
-      _ZLE_PICKER_BOOKMARK=("" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
-      return 0
-    }
+    source "$1/tests/picker_support.zsh"
+    _subtitle_check() { [[ $_ZLE_PICKER_SUBTITLE == *"Compare: topic"* ]] || exit 1; }
+    test_picker_script observe _subtitle_check -- select 1
     _git_review_endpoint_choose /repository From || exit 2
     [[ $_git_compare_label == release ]] || exit 3
-    selection=2
+    test_picker_script observe _subtitle_check -- select 2
     _git_review_endpoint_choose /repository From || exit 4
     [[ $_git_compare_label == "release · tag" ]] || exit 5
-    selection=3
+    test_picker_script observe _subtitle_check -- select 3
     _git_review_endpoint_choose /repository From || exit 6
     [[ $_git_compare_label == "origin/release · remote-tracking" ]] || exit 7
     print identity

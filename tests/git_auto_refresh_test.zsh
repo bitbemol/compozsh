@@ -590,9 +590,12 @@ test_case 'Git manual refresh preserves an intentional auto-refresh pause' \
 _test_git_auto_refresh_manual_retry_controller() {
   local output
   output=$(/bin/zsh -fc '
+    source "$1/.zsh.addons/.zsh.navigation"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i turns=0 refreshes=0
+    local -i refreshes=0
     _git_review_load() {
       _GIT_REVIEW_PATHS=(file) _GIT_REVIEW_LABELS=(file)
       _GIT_REVIEW_KINDS=(unstaged) _GIT_REVIEW_CONTEXTS=("Unstaged M")
@@ -605,20 +608,16 @@ _test_git_auto_refresh_manual_retry_controller() {
       _git_review_refresh_succeeded=1
       return 0
     }
-    _zle_picker_loop() {
-      (( ++turns ))
-      if (( turns == 1 )); then
-        _git_auto_failed=1
-        _ZLE_PICKER_AUTO_REFRESH=0
-        _ZLE_PICKER_ACTION=document-refresh
-        _ZLE_PICKER_BOOKMARK=("" 1 0)
-        _ZLE_PICKER_BOOKMARK_FOCUS=0
-        _ZLE_PICKER_SELECTED_VALUE=1
-        return 0
-      fi
-      print -r -- "$_ZLE_PICKER_AUTO_REFRESH|$_git_auto_failed|$refreshes"
-      return 1
+    source "$1/tests/picker_support.zsh"
+    _automatic_failure() {
+      _git_auto_failed=1
+      _ZLE_PICKER_AUTO_REFRESH=0
     }
+    _retry_state() {
+      print -r -- "$_ZLE_PICKER_AUTO_REFRESH|$_git_auto_failed|$refreshes"
+    }
+    test_picker_script observe _automatic_failure -- select 1 document-refresh -- \
+      observe _retry_state -- cancel
     _git_review_view /fixture working
     [[ $? == 1 ]] || exit 2
   ' zsh "$TEST_REPO_ROOT") || return
@@ -1149,10 +1148,11 @@ _test_git_auto_refresh_starts_paused() {
     ZSH_GIT_REVIEW_AUTO_REFRESH=0
     _zle_picker_capture() { shift 3; "$@"; }
     _git_review_changes_capture() { return 2; }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _paused_state() {
       print -r -- "$_ZLE_PICKER_AUTO_REFRESH|$_git_auto_failed|$_ZLE_PICKER_BROWSE_LABEL"
-      return 1
     }
+    test_picker_script observe _paused_state -- cancel
     _git_review_view /fixture working
     [[ $? == 1 ]] || exit 1
     print complete

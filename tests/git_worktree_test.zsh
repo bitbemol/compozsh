@@ -215,10 +215,11 @@ _test_worktree_controller_ignores_inherited_view_flags() {
     source "$1/tests/support.zsh"
     source "$1/tests/git_worktree_test.zsh"
     _test_worktree_fixture "$1" || exit 1
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _view_flags() {
       print -r -- "view:$_ZLE_PICKER_HIERARCHY_ENABLED|$_ZLE_PICKER_WORKSPACE_ACTIONS|$_ZLE_PICKER_INSPECT_FOCUS"
-      return 1
     }
+    test_picker_script observe _view_flags -- cancel
     _git_worktree_controller
     print -r -- "controller:$?"
     local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
@@ -337,12 +338,13 @@ _test_worktree_remove_menu_empty() {
     _test_worktree_fixture "$1" || exit 1
     builtin cd "$HOME/occupied"
     local -A _GWT_DETAILS=() _GWT_LABELS=()
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _empty_catalog() {
       [[ ${#_NAVIGATION_PICKER_VALUES} == 1 &&
          $_NAVIGATION_PICKER_VALUES[1] == back &&
          $_ZLE_PICKER_INSPECT_TEXTS[back] == *"No eligible worktrees"* ]] || return 72
-      return 130
     }
+    test_picker_script observe _empty_catalog -- abort
     _git_worktree_target_pick remove
     [[ $? == 130 && -d "$HOME/occupied" ]] || exit 2
     print empty
@@ -691,7 +693,8 @@ _test_worktree_notice_abort() {
     _test_worktree_fixture "$1" || exit 1
     local -A _GWT_DETAILS=() _GWT_LABELS=()
     _git_worktree_branches() { _GWT_ERROR="failed capture"; return 2; }
-    _zle_picker_loop() { return 130; }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script abort
     _git_worktree_create_choose
     [[ $? == 130 ]] || exit 2
     print aborted

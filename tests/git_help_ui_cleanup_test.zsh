@@ -13,7 +13,8 @@ _test_git_notice_scoped_content() {
     _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
     _ZLE_PICKER_INSPECT_ACTION=switch
     _NAVIGATION_PICKER_VALUES=(main) _NAVIGATION_PICKER_LABELS=(main)
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _notice_labels() {
       "$_ZLE_PICKER_COLLECTOR" "" 10
       (( !${#_ZLE_PICKER_RESULTS} )) || return 71
       [[ $_ZLE_PICKER_TITLE == "Git review" &&
@@ -23,8 +24,8 @@ _test_git_notice_scoped_content() {
         print -u2 -- "Git notice retained parent task labels: $_ZLE_PICKER_QUERY_LABEL; $_ZLE_PICKER_SUBTITLE"
         return 72
       }
-      return 130
     }
+    test_picker_script observe _notice_labels -- abort
     _git_review_unavailable
     [[ $? == 130 && $_ZLE_PICKER_TITLE == Branches &&
        $_ZLE_PICKER_QUERY_LABEL == "Filter branches" &&

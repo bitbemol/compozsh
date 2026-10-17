@@ -14,20 +14,25 @@
 #
 # Each call replaces the engine entry points (call it once the support and
 # peers under test are loaded), sets the script and clears the observation log.
-# Every view appends its title, subtitle, page size and visible labels (one per
-# line) to TEST_PICKER_TITLES, TEST_PICKER_SUBTITLES, TEST_PICKER_LIMITS and
-# TEST_PICKER_LABELS. A view with no step left, an unknown step or a selection
-# its collector did not return fails with status 2 and a diagnostic on stderr.
-# Outputs and bookmarks are set as the engine sets them; the stubs read no keys
-# and do not paint, run idle or deadline callbacks, preview documents or keep
-# document positions. Tests of those engine behaviors keep the real loop.
+# Every view appends its title, subtitle, page size, requested start row and
+# visible labels (one per line) to TEST_PICKER_TITLES, TEST_PICKER_SUBTITLES,
+# TEST_PICKER_LIMITS, TEST_PICKER_STARTS and TEST_PICKER_LABELS. A view with no
+# step left, an unknown step or a selection its collector did not return fails
+# with status 2 and a diagnostic on stderr. Outputs and bookmarks are set as the
+# engine sets them; the stubs read no keys and do not paint, run idle or
+# deadline callbacks, preview documents or keep document positions. Tests of
+# those engine behaviors keep the real loop. An observe function also sees the
+# loop stub's locals, which keep the engine's names (query, limit, selected,
+# offset, count, focus); only the step words use a prefixed name, so a test's
+# own step counter is not shadowed.
 
 typeset -ga TEST_PICKER_STEPS=() TEST_PICKER_TITLES=() TEST_PICKER_SUBTITLES=()
-typeset -ga TEST_PICKER_LIMITS=() TEST_PICKER_LABELS=()
+typeset -ga TEST_PICKER_LIMITS=() TEST_PICKER_STARTS=() TEST_PICKER_LABELS=()
 
 test_picker_script() {
   TEST_PICKER_STEPS=("$@")
-  TEST_PICKER_TITLES=() TEST_PICKER_SUBTITLES=() TEST_PICKER_LIMITS=() TEST_PICKER_LABELS=()
+  TEST_PICKER_TITLES=() TEST_PICKER_SUBTITLES=() TEST_PICKER_LIMITS=()
+  TEST_PICKER_STARTS=() TEST_PICKER_LABELS=()
   _zle_picker_loop() { _test_picker_loop "$@"; }
   _zle_picker_run() { _test_picker_run "$@"; }
   _zle_picker_screen_session() { _test_picker_screen_session "$@"; }
@@ -87,7 +92,7 @@ _test_picker_loop() {
     _ZLE_PICKER_EXCLUDE='' _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0
   fi
   local -i limit=8 selected=1 offset=0 count=0 index=0 focus=0 accepted=0 result=2
-  local -a reply=() step=()
+  local -a reply=() _test_picker_step=()
   [[ $raw_limit == <-> && ${#raw_limit} -le 18 ]] && limit=$raw_limit
   (( limit < 1 )) && limit=1
   (( limit > 20 )) && limit=20
@@ -112,22 +117,23 @@ _test_picker_loop() {
     TEST_PICKER_TITLES+=("${_ZLE_PICKER_TITLE-}")
     TEST_PICKER_SUBTITLES+=("${_ZLE_PICKER_SUBTITLE-}")
     TEST_PICKER_LIMITS+=($limit)
+    TEST_PICKER_STARTS+=("${3-}")
     TEST_PICKER_LABELS+=("${(pj:\n:)_ZLE_PICKER_LABELS[offset+1,offset+limit]}")
     while _test_picker_next_step; do
-      step=("${reply[@]}")
-      case $step[1] in
+      _test_picker_step=("${reply[@]}")
+      case $_test_picker_step[1] in
         (select)
-          (( ${#step} == 2 || ${#step} == 3 )) || {
+          (( ${#_test_picker_step} == 2 || ${#_test_picker_step} == 3 )) || {
             print -ru2 -- "test_picker_script: usage: select VALUE [ACTION]"; break
           }
-          index=${_ZLE_PICKER_RESULTS[(Ie)$step[2]]}
+          index=${_ZLE_PICKER_RESULTS[(Ie)$_test_picker_step[2]]}
           (( index )) || {
-            print -ru2 -- "test_picker_script: ${(qq)step[2]} is not among the view's results"; break
+            print -ru2 -- "test_picker_script: ${(qq)_test_picker_step[2]} is not among the view's results"; break
           }
           selected=$index
           (( selected <= offset )) && offset=$(( selected - 1 ))
           (( selected > offset + limit )) && offset=$(( selected - limit ))
-          _ZLE_PICKER_SELECTED_VALUE=$step[2] _ZLE_PICKER_ACTION=${step[3]:-select}
+          _ZLE_PICKER_SELECTED_VALUE=$_test_picker_step[2] _ZLE_PICKER_ACTION=${_test_picker_step[3]:-select}
           _ZLE_PICKER_ACCEPTED=1 accepted=1 result=0
           break ;;
         (cancel)
@@ -138,12 +144,12 @@ _test_picker_loop() {
           result=130
           break ;;
         (observe)
-          (( ${#step} >= 2 )) || {
+          (( ${#_test_picker_step} >= 2 )) || {
             print -ru2 -- "test_picker_script: usage: observe FUNCTION [ARG]..."; break
           }
-          "${(@)step[2,-1]}" || { result=$?; break; } ;;
+          "${(@)_test_picker_step[2,-1]}" || { result=$?; break; } ;;
         (*)
-          print -ru2 -- "test_picker_script: unknown step ${(qq)step[1]}"
+          print -ru2 -- "test_picker_script: unknown step ${(qq)_test_picker_step[1]}"
           break ;;
       esac
     done
