@@ -88,6 +88,16 @@ assertion rule.
   Check sessions with it, appending the caller's `rmcup` while a screen is
   still open, instead of hand-written marker patterns or stripping a trace one
   marker at a time, which is quadratic in its length.
+- A test that drives a workspace's own views without a terminal sources
+  `tests/picker_support.zsh` and, once the code under test is loaded, calls
+  `test_picker_script`, whose steps (`select VALUE [ACTION]`, `cancel`,
+  `abort`, `observe FUNCTION`, separated by `--`) give successive views the
+  engine's outcomes, statuses and bookmarks and log each view's title,
+  subtitle and visible labels. New tests script outcomes through it instead of
+  redefining `_zle_picker_loop`, `_zle_picker_run` or
+  `_zle_picker_screen_session`, so the engine's result and bookmark protocol
+  is restated in one place; tests of the engine's own keys, painting, idle
+  work or documents keep the real loop.
 
 Adding a test — arrange, act, assert, guarding each step with `|| return` so a
 later success cannot hide an earlier failure:

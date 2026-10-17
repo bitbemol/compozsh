@@ -407,13 +407,14 @@ _test_git_review_empty_states() {
       _GIT_REVIEW_PATHS=(file) _GIT_REVIEW_LABELS=(file) _GIT_REVIEW_KINDS=(unstaged)
       _GIT_REVIEW_CONTEXTS=("Unstaged M") _GIT_REVIEW_DETAILS=(file)
     }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _review_empty_check() {
       # A nonempty snapshot can have zero filter matches. Its empty-state
       # caption must come from the filter, not claim the worktree is clean.
       (( ${#_ZLE_PICKER_EMPTY_LINES} == 0 )) || return 78
       [[ $_ZLE_PICKER_EMPTY_LABEL == "no matching entries" ]] || return 79
-      return 1
     }
+    test_picker_script observe _review_empty_check -- cancel
     _git_review_view /fixture working
     [[ $? == 1 ]] || exit 1
     print accurate

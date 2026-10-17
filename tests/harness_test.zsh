@@ -665,3 +665,72 @@ big:0:2:12500:12500'
 }
 test_case 'PTY expectation counts screen sessions in a trace linearly' \
   _test_pty_screen_sessions_counts_linearly
+
+# Picker scripts (tests/picker_support.zsh) stand in for the engine's entry
+# points, so these probes drive real views without a terminal.
+_test_picker_script_helper() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh" || exit 91
+    test_source_support "$1" || exit 92
+    source "$1/tests/picker_support.zsh" || exit 93
+    _probe_collect() {
+      _ZLE_PICKER_RESULTS=(a b "c d") _ZLE_PICKER_LABELS=(Alpha Beta "Gamma delta")
+      _ZLE_PICKER_RESULT_INDEXES=(1 2 3)
+    }
+    _probe_view() {
+      _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE="$1 subtitle" _ZLE_PICKER_COLLECTOR=_probe_collect
+      _zle_picker_start_focus=${2:-0}
+      _zle_picker_loop "" 10 1 0 "${3:-}" 0 "${4:-0}"
+    }
+    _probe_seen() { print -r -- "seen:${#_ZLE_PICKER_RESULTS}:$_ZLE_PICKER_TITLE:$_ZLE_PICKER_EXCLUDE"; }
+    _probe_fail() { return 7; }
+    _probe_session() { _zle_ui_view choice _probe_view five; }
+    _probe_run() {
+      local _ZLE_PICKER_TITLE=six _ZLE_PICKER_SUBTITLE="six subtitle" _ZLE_PICKER_COLLECTOR=_probe_collect
+      _zle_picker_run 5
+    }
+    _probe() {
+      local -i result=0
+      _zle_ui_view "$2" _probe_view "$1" "${@[3,-1]}" 2>> "$HOME/stderr" || result=$?
+      print -r -- "$1:$result:$_ZLE_PICKER_ACCEPTED:$_ZLE_PICKER_SELECTED_VALUE:$_ZLE_PICKER_ACTION:${(j:|:)_ZLE_PICKER_BOOKMARK}:$_ZLE_PICKER_BOOKMARK_FOCUS:${#_ZLE_PICKER_RESULTS}"
+    }
+    test_picker_script select b -- observe _probe_seen -- select "c d" inspect -- cancel -- \
+      observe _probe_fail -- abort -- select a -- cancel -- select zzz
+    _probe one choice
+    _probe two choice 1 x 1
+    _probe three reader
+    _probe four choice
+    _zle_picker_run 10 "" 1 0 _probe_session
+    print -r -- "run-abort:$?"
+    _probe_run
+    print -r -- "run-select:$?:$_ZLE_PICKER_SELECTED_VALUE"
+    _probe_run
+    print -r -- "run-cancel:$?"
+    _probe eight choice
+    _probe nine choice
+    print -r -- "titles:${(j:|:)TEST_PICKER_TITLES}"
+    print -r -- "subtitle:$TEST_PICKER_SUBTITLES[2]"
+    print -r -- "labels:${(V)TEST_PICKER_LABELS[1]}"
+    print -r -- "detail:$(<"$HOME/stderr")"
+  ' "$TEST_REPO_ROOT" 2>&1) || { test_fail "picker script probe failed: $output"; return; }
+  local expected='one:0:1:b:select:|2|0:0:0
+seen:3:two:x
+two:0:1:c d:inspect:|3|0|x|0|1:1:0
+three:1:0::select:|1|0:1:0
+four:7:0::select::0:0
+run-abort:130
+run-select:0:a
+run-cancel:1
+eight:2:0::select::0:0
+nine:2:0::select::0:0
+titles:one|two|three|four|five|six|six|eight|nine
+subtitle:two subtitle
+labels:Alpha\nBeta\nGamma delta'
+  test_assert_equal "$expected" "${(F)${(f)output}[1,13]}" 'scripted views received the wrong outcomes' || return
+  test_assert_contains "$output" "not among the view's results" 'an uncollected selection was not reported' || return
+  test_assert_contains "$output" 'no step left' 'an exhausted script was not reported'
+}
+test_case 'picker script helper selects, cancels, aborts and observes views' \
+  _test_picker_script_helper

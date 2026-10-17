@@ -33,15 +33,11 @@ _test_git_atlas_blocked_reads() {
     test_source_support "$1" || exit
     local -a _GIT_REVIEW_PATHS=(file) _GIT_REVIEW_KINDS=(unstaged)
     local -a _GIT_REVIEW_LABELS=(file) _GIT_REVIEW_CONTEXTS=(Modified)
-    local -i _git_review_reads_blocked=1 visits=0 notices=0
+    source "$1/tests/picker_support.zsh"
+    local -i _git_review_reads_blocked=1 notices=0
     _git_review_view() { print -u2 unsafe-atlas-read; return 81; }
     _zle_ui_read_text() { (( ++notices )); return 1; }
-    _zle_picker_loop() {
-      (( ++visits ))
-      (( visits == 1 )) || return 1
-      _ZLE_PICKER_SELECTED_VALUE=f:1 _ZLE_PICKER_BOOKMARK=("" 1 0)
-      return 0
-    }
+    test_picker_script select f:1 -- cancel
     _git_review_atlas /example/repo
     [[ $? == 1 && $notices == 1 ]] || exit 1
   ' "$TEST_REPO_ROOT"
@@ -58,12 +54,13 @@ _test_git_atlas_comparison_scope() {
     local -a _GIT_REVIEW_LABELS=(file) _GIT_REVIEW_CONTEXTS=(Modified) _GIT_REVIEW_DETAILS=()
     local _ZLE_PICKER_SUBTITLE="Against main @ aaaa → Compare topic @ bbbb"
     local -a _ZLE_PICKER_GUIDE_CONTEXT=("Full endpoint aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _atlas_scope_check() {
       [[ $_ZLE_PICKER_SUBTITLE == *"Against main @ aaaa"* && $_ZLE_PICKER_SUBTITLE == *"Compare topic @ bbbb"* &&
          ${(j:|:)_ZLE_PICKER_GUIDE_CONTEXT} == *aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa* &&
          ${(j:|:)_ZLE_PICKER_INSPECT_TEXTS} == *"1 committed"* ]] || return 12
-      return 1
     }
+    test_picker_script observe _atlas_scope_check -- cancel
     _git_review_atlas /repo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     [[ $? == 1 ]] || exit 1
   ' "$TEST_REPO_ROOT"

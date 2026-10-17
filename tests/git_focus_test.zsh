@@ -6,22 +6,20 @@ _test_git_focus_default() {
     source "$1/.zsh.addons/.zsh.editor"
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     _git_review_load() {
       _GIT_REVIEW_PATHS=(file) _GIT_REVIEW_LABELS=(file)
       _GIT_REVIEW_KINDS=(unstaged) _GIT_REVIEW_CONTEXTS=(M) _GIT_REVIEW_DETAILS=(ready)
     }
-    local -i captures=0 loops=0
+    local -i captures=0
     _git_review_diff_capture() {
       [[ $6 == 3 ]] || { print -u2 "default review must request three context lines, got $6"; return 2; }
       (( ++captures ))
       _GIT_REVIEW_DATA=$'\''@@ -30 +30 @@\n-old\n+new\n'\''
     }
-    _zle_picker_loop() {
-      (( ++loops == 1 )) || return 1
-      _ZLE_PICKER_SELECTED_VALUE=1 _ZLE_PICKER_ACTION=inspect
-      _ZLE_PICKER_BOOKMARK=("" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
-    }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script select 1 inspect -- cancel
     _git_review_view /fixture working
     (( captures == 1 )) || exit 1
     print focused

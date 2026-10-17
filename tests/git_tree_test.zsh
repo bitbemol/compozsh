@@ -263,12 +263,14 @@ _test_git_file_view_order() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zshrc"
     local _git_file_view=flat
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _file_view_order_check() {
       [[ ${(j:,:)_NAVIGATION_PICKER_VALUES} == flat,tree,ancestor,atlas &&
          ${_NAVIGATION_PICKER_LABELS[1]} == "All files" &&
          ${_NAVIGATION_PICKER_LABELS[2]} == Tree &&
          $_ZLE_PICKER_CONTEXTS[flat] == current ]] || return 2
     }
+    test_picker_script observe _file_view_order_check -- select flat
     _git_review_file_options_view src/file.swift || exit 1
   ' "$TEST_REPO_ROOT"
 }
