@@ -29,6 +29,7 @@ _test_worktree_routes() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     _git_worktree_session() { print workspace; }
     [[ $(g --worktree) == workspace ]] || exit 1
     command git -w > "$HOME/native-out" 2> "$HOME/native-err"
@@ -248,7 +249,7 @@ _test_worktree_controller_contract() {
       _ZLE_PICKER_BOOKMARK=("" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
       _ZLE_PICKER_ACTION=select
       case $steps in
-        (1) [[ $_ZLE_PICKER_COLLECTOR == _navigation_picker_collect ]] || return 72
+        (1) [[ $_ZLE_PICKER_COLLECTOR == _zle_ui_collect_choices ]] || return 72
             _ZLE_PICKER_SELECTED_VALUE=create ;;
         (2) _ZLE_PICKER_SELECTED_VALUE=new ;;
         (3) [[ $_ZLE_PICKER_QUERY_SUBMIT == 1 && $_ZLE_PICKER_DIGIT_SELECT == 0 ]] || return 73
@@ -289,16 +290,16 @@ _test_worktree_remove_menu() {
       _ZLE_PICKER_BOOKMARK=("ocpd" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
       _ZLE_PICKER_ACTION=select
       case $steps in
-        (1) [[ ${(j:,:)_NAVIGATION_PICKER_VALUES} == create,enter,move,remove,refresh &&
-               $_NAVIGATION_PICKER_LABELS[4] == "Remove worktree…" &&
+        (1) [[ ${(j:,:)_ZLE_UI_CHOICE_VALUES} == create,enter,move,remove,refresh &&
+               $_ZLE_UI_CHOICE_LABELS[4] == "Remove worktree…" &&
                $_ZLE_PICKER_WORKSPACE_ACTIONS == 0 ]] || return 71
             _ZLE_PICKER_BOOKMARK=("remove" 1 0)
             _ZLE_PICKER_SELECTED_VALUE=remove ;;
         (2|4|6)
             [[ $_ZLE_PICKER_TITLE == "Choose worktree to remove" &&
-               $_ZLE_PICKER_COLLECTOR == _navigation_picker_collect &&
-               ${#_NAVIGATION_PICKER_VALUES} == 1 &&
-               $_NAVIGATION_PICKER_VALUES[1] == "$HOME/occupied" &&
+               $_ZLE_PICKER_COLLECTOR == _zle_ui_collect_choices &&
+               ${#_ZLE_UI_CHOICE_VALUES} == 1 &&
+               $_ZLE_UI_CHOICE_VALUES[1] == "$HOME/occupied" &&
                $_ZLE_PICKER_ACCEPT_LABELS[$HOME/occupied] == "check removal" ]] || return 72
             if (( steps == 4 )); then
               [[ $1 == ocpd ]] || return 73
@@ -340,8 +341,8 @@ _test_worktree_remove_menu_empty() {
     local -A _GWT_DETAILS=() _GWT_LABELS=()
     source "$1/tests/picker_support.zsh"
     _empty_catalog() {
-      [[ ${#_NAVIGATION_PICKER_VALUES} == 1 &&
-         $_NAVIGATION_PICKER_VALUES[1] == back &&
+      [[ ${#_ZLE_UI_CHOICE_VALUES} == 1 &&
+         $_ZLE_UI_CHOICE_VALUES[1] == back &&
          $_ZLE_PICKER_INSPECT_TEXTS[back] == *"No eligible worktrees"* ]] || return 72
     }
     test_picker_script observe _empty_catalog -- abort

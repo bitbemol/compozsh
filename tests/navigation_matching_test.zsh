@@ -7,29 +7,28 @@ _test_navigation_matching_literals() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    _NAVIGATION_PICKER_VALUES=(fuzzy substring prefix short)
-    _NAVIGATION_PICKER_LABELS=(f-o-o aFoo FooBar f-o)
-    _NAVIGATION_PICKER_INDEXES=(1 2 3 4)
-    _navigation_picker_collect FOO 10
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
+    _ZLE_UI_CHOICE_VALUES=(fuzzy substring prefix short)
+    _ZLE_UI_CHOICE_LABELS=(f-o-o aFoo FooBar f-o)
+    _zle_ui_collect_choices FOO 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == prefix,substring,fuzzy ]] || exit 1
-    _navigation_picker_collect FOO 2
+    _zle_ui_collect_choices FOO 2
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == prefix,substring ]] || exit 2
-    _NAVIGATION_PICKER_VALUES=(literal unicode reversed)
-    _NAVIGATION_PICKER_LABELS=("a*b[c?d" "ä---Ω" "Ω---ä")
-    _NAVIGATION_PICKER_INDEXES=(1 2 3)
-    _navigation_picker_collect "*[?" 10
+    _ZLE_UI_CHOICE_VALUES=(literal unicode reversed)
+    _ZLE_UI_CHOICE_LABELS=("a*b[c?d" "ä---Ω" "Ω---ä")
+    _zle_ui_collect_choices "*[?" 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == literal ]] || exit 3
-    _navigation_picker_collect Äω 10
+    _zle_ui_collect_choices Äω 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == unicode ]] || exit 4
-    _NAVIGATION_PICKER_SEARCH_LABELS=("hidden/x---y" "" "")
-    _navigation_picker_collect xy 10
+    _ZLE_UI_CHOICE_SEARCH_LABELS=("hidden/x---y" "" "")
+    _zle_ui_collect_choices xy 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == literal && $_ZLE_PICKER_LABELS[1] == "a*b[c?d" ]] || exit 5
-    _NAVIGATION_PICKER_VALUES=(spaced escaped reversed)
-    _NAVIGATION_PICKER_LABELS=("a path" "a path\\b*literal" "*b\\path a")
-    _NAVIGATION_PICKER_INDEXES=(1 2 3) _NAVIGATION_PICKER_SEARCH_LABELS=()
-    _navigation_picker_collect " \\*" 10
+    _ZLE_UI_CHOICE_VALUES=(spaced escaped reversed)
+    _ZLE_UI_CHOICE_LABELS=("a path" "a path\\b*literal" "*b\\path a")
+    _ZLE_UI_CHOICE_SEARCH_LABELS=()
+    _zle_ui_collect_choices " \\*" 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == escaped ]] || exit 6
-    _navigation_picker_collect "a h" 10
+    _zle_ui_collect_choices "a h" 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == spaced,escaped ]] || exit 7
     print matched
   ' "$TEST_REPO_ROOT") || return
@@ -44,13 +43,13 @@ _test_navigation_matching_repeated_characters() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    _NAVIGATION_PICKER_VALUES=(long repeated)
-    _NAVIGATION_PICKER_LABELS=("feature/${(l:130::x:)}" "x-x-x-x-x-x-x-x-z")
-    _NAVIGATION_PICKER_INDEXES=(1 2)
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
+    _ZLE_UI_CHOICE_VALUES=(long repeated)
+    _ZLE_UI_CHOICE_LABELS=("feature/${(l:130::x:)}" "x-x-x-x-x-x-x-x-z")
     # Many possible earlier character alignments must not cause backtracking.
-    _navigation_picker_collect xxxxxxxxz 10
+    _zle_ui_collect_choices xxxxxxxxz 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == repeated ]] || exit 1
-    _navigation_picker_collect xxxxxxxxxz 10
+    _zle_ui_collect_choices xxxxxxxxxz 10
     (( !${#_ZLE_PICKER_RESULTS} )) || exit 2
     print bounded
   ' "$TEST_REPO_ROOT") || return
@@ -66,14 +65,15 @@ _test_navigation_matching_long_labels() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    _NAVIGATION_PICKER_VALUES=(long) _NAVIGATION_PICKER_INDEXES=(1)
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
+    _ZLE_UI_CHOICE_VALUES=(long)
     # Each label fits the ref capture byte bound. Near-end matches require
     # character-order matching rather than the earlier substring rank.
     for label in "${(l:262000::x:)}zyxz" "${(l:130000::é:)}zyxz"; do
-      _NAVIGATION_PICKER_LABELS=("$label")
-      _navigation_picker_collect yz 10
+      _ZLE_UI_CHOICE_LABELS=("$label")
+      _zle_ui_collect_choices yz 10
       [[ ${(j:,:)_ZLE_PICKER_RESULTS} == long ]] || exit 1
-      _navigation_picker_collect yaz 10
+      _zle_ui_collect_choices yaz 10
       (( !${#_ZLE_PICKER_RESULTS} )) || exit 2
     done
     print long-labels

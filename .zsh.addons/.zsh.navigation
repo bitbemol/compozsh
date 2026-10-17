@@ -26,24 +26,10 @@ _navigation_alias_description() {
 # Directory and branch selectors share the same bounded ZLE picker. Their
 # source data is captured once before opening; refinement launches no commands.
 typeset -g ZSH_NAVIGATION_PICKER_MAX_RESULTS=${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}
-typeset -ga _NAVIGATION_PICKER_VALUES=()
-typeset -ga _NAVIGATION_PICKER_LABELS=()
-typeset -ga _NAVIGATION_PICKER_INDEXES=()
-typeset -ga _NAVIGATION_PICKER_SEARCH_LABELS=()
+typeset -ga _NAVIGATION_STACK_INDEXES=()
 typeset -ga _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
 typeset -gA _GIT_BRANCH_REMOTE_NAMES=() _GIT_BRANCH_REMOTE_OIDS=()
 typeset -g _GIT_BRANCH_REMOTE_NOTICE=''
-
-# Display calculations are optional runtime support capabilities.
-# Rank literal prefix and substring matches before character-ordered fuzzy ones.
-_navigation_picker_collect() {
-  (( ${+functions[_zle_ui_collect]} )) || {
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
-    return 1
-  }
-  _zle_ui_collect ranked "$1" "$2" _NAVIGATION_PICKER_VALUES _NAVIGATION_PICKER_LABELS \
-    _NAVIGATION_PICKER_LABELS _NAVIGATION_PICKER_SEARCH_LABELS fallback
-}
 
 # Shared support validates colors at invocation. Preserve the optional Output
 # gate so standalone stacks stay plain without a source-time dependency.
@@ -102,10 +88,10 @@ _directory_stack_capture() {
   local location='' display=''
   local -a entries=("$PWD" "${dirstack[@]}")
   local -i index=0
-  _NAVIGATION_PICKER_VALUES=()
-  _NAVIGATION_PICKER_LABELS=()
-  _NAVIGATION_PICKER_INDEXES=()
-  _NAVIGATION_PICKER_SEARCH_LABELS=()
+  _ZLE_UI_CHOICE_VALUES=()
+  _ZLE_UI_CHOICE_LABELS=()
+  _NAVIGATION_STACK_INDEXES=()
+  _ZLE_UI_CHOICE_SEARCH_LABELS=()
 
   for location in "${entries[@]}"; do
     if [[ $location == $HOME || $location == $HOME/* ]]; then
@@ -113,9 +99,9 @@ _directory_stack_capture() {
     else
       display=$location
     fi
-    _NAVIGATION_PICKER_VALUES+=("$location")
-    _NAVIGATION_PICKER_LABELS+=("$display")
-    _NAVIGATION_PICKER_INDEXES+=($index)
+    _ZLE_UI_CHOICE_VALUES+=("$location")
+    _ZLE_UI_CHOICE_LABELS+=("$display")
+    _NAVIGATION_STACK_INDEXES+=($index)
     (( ++index ))
   done
 }
@@ -126,10 +112,10 @@ _directory_stack_describe() {
   emulate -L zsh
   local value='' display='' name='' parent='' role='' availability='' kind=''
   local -i index=0
-  _NAVIGATION_PICKER_SEARCH_LABELS=("${_NAVIGATION_PICKER_LABELS[@]}")
-  for value in "${_NAVIGATION_PICKER_VALUES[@]}"; do
+  _ZLE_UI_CHOICE_SEARCH_LABELS=("${_ZLE_UI_CHOICE_LABELS[@]}")
+  for value in "${_ZLE_UI_CHOICE_VALUES[@]}"; do
     (( ++index ))
-    display=${_NAVIGATION_PICKER_SEARCH_LABELS[index]}
+    display=${_ZLE_UI_CHOICE_SEARCH_LABELS[index]}
     name=${display:t}
     [[ $display == / ]] && name=/
     [[ $display == '~' ]] && name='~'
@@ -150,10 +136,10 @@ _directory_stack_describe() {
       kind=Directory
       [[ -L $value ]] && kind='Linked directory'
     fi
-    _NAVIGATION_PICKER_LABELS[index]=$name
+    _ZLE_UI_CHOICE_LABELS[index]=$name
     _ZLE_PICKER_CONTEXTS[$value]="${role} · ${parent}"
     [[ $availability == Unavailable ]] && _ZLE_PICKER_CONTEXTS[$value]="unavailable · ${parent}"
-    _ZLE_PICKER_INSPECT_TEXTS[$value]="${(C)role} location · ~${_NAVIGATION_PICKER_INDEXES[index]}"$'\n'"${kind}"
+    _ZLE_PICKER_INSPECT_TEXTS[$value]="${(C)role} location · ~${_NAVIGATION_STACK_INDEXES[index]}"$'\n'"${kind}"
     if [[ $availability == Unavailable ]]; then
       _ZLE_PICKER_INSPECT_TEXTS[$value]+=$'\n\nUnavailable: checked when opened.'
     fi
@@ -179,8 +165,8 @@ _directory_recents_view() {
   [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
   # Slots match the stack: [0] is the current directory, as in dirs -v.
   _ZLE_PICKER_ZERO_BASED=1
-  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
-  local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
+  local -a _NAVIGATION_STACK_INDEXES=() _ZLE_UI_CHOICE_SEARCH_LABELS=()
   local -a bookmark=("${_FILES_RECENTS_BOOKMARK[@]}")
   (( ${#bookmark} >= 3 )) || bookmark=('' 1 0)
   local -i result=0
@@ -191,7 +177,7 @@ _directory_recents_view() {
     _ZLE_PICKER_BROWSE_LABEL=${notice:-this shell}
     notice=''
     _ZLE_PICKER_EMPTY_LABEL='no matching visited locations'
-    _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+    _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_HIERARCHY_ENABLED=0
     _ZLE_PICKER_COPY_ENABLED=$(( ${#_directory_browser_clipboard} > 0 ))
@@ -340,7 +326,7 @@ _git_branch_remote_capture() {
 # request to review creation, never an implicit switch or network lookup.
 _git_branch_collect() {
   emulate -L zsh
-  _navigation_picker_collect "$@"
+  _zle_ui_collect_choices "$@"
   # Recent local branches number from zero, current (or newest) first.
   _ZLE_PICKER_ZERO_BASED=1
   _ZLE_PICKER_INSPECT_ACTION=switch
@@ -348,14 +334,10 @@ _git_branch_collect() {
   _ZLE_PICKER_EMPTY_LABEL='no matching branches'
   _ZLE_PICKER_WORKSPACE_ACTIONS=$(( ${+functions[_git_review_branch_choose]} ))
   if (( !${#_ZLE_PICKER_RESULTS} )); then
-    local -a _NAVIGATION_PICKER_VALUES=("${_GIT_BRANCH_REMOTE_VALUES[@]}")
-    local -a _NAVIGATION_PICKER_LABELS=("${_GIT_BRANCH_REMOTE_LABELS[@]}")
-    local -a _NAVIGATION_PICKER_SEARCH_LABELS=() _NAVIGATION_PICKER_INDEXES=()
-    local -i index=0
-    for (( index=1; index<=${#_NAVIGATION_PICKER_VALUES}; ++index )); do
-      _NAVIGATION_PICKER_INDEXES+=($index)
-    done
-    _navigation_picker_collect "$@"
+    local -a _ZLE_UI_CHOICE_VALUES=("${_GIT_BRANCH_REMOTE_VALUES[@]}")
+    local -a _ZLE_UI_CHOICE_LABELS=("${_GIT_BRANCH_REMOTE_LABELS[@]}")
+    local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
+    _zle_ui_collect_choices "$@"
     _ZLE_PICKER_INSPECT_ACTION='review creation'
     _ZLE_PICKER_ZERO_BASED=0
     _ZLE_PICKER_BROWSE_LABEL='known remote-tracking refs · captured locally'
@@ -367,14 +349,14 @@ _git_branch_collect() {
 _git_branch_remote_confirm_view() {
   emulate -L zsh
   local key=$1 name=${_GIT_BRANCH_REMOTE_NAMES[$1]} ref=${1#remote:}
-  local -a _NAVIGATION_PICKER_VALUES=(back create)
-  local -a _NAVIGATION_PICKER_LABELS=('Back to branches' 'Create local branch and switch')
-  local -a _NAVIGATION_PICKER_INDEXES=(1 2) _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=(back create)
+  local -a _ZLE_UI_CHOICE_LABELS=('Back to branches' 'Create local branch and switch')
+  local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
   _ZLE_PICKER_TITLE='Create local branch'
   _ZLE_PICKER_SUBTITLE=${root:t}
   _ZLE_PICKER_QUERY_LABEL='Filter actions'
   _ZLE_PICKER_BROWSE_LABEL='confirmation · existing local Git data'
-  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_INSPECT_ACTION=choose
   _ZLE_PICKER_ACTION_CONTEXT="LOCAL BRANCH"$'\n'"$name"$'\n\nFROM REMOTE-TRACKING REF\n'"${ref#refs/remotes/}"$'\n\nCOMMIT\n'"${_GIT_BRANCH_REMOTE_OIDS[$key]}"$'\n\nCreates a tracking branch and switches this working tree.\nNo fetch, pull, merge, force or automatic stash.\nGit refuses conflicting changes or an existing local branch.'
   _ZLE_PICKER_ACCEPT_LABELS=(back back create 'create and switch')
@@ -918,16 +900,12 @@ _git_branch_session() {
 _git_branch_view() {
   emulate -L zsh
   local root=$1 clipboard_binary=$2 repo=''
-  local -i index=0
   # The choices end with the view, like its configuration.
-  local -a _NAVIGATION_PICKER_SEARCH_LABELS=() _NAVIGATION_PICKER_INDEXES=()
-  local -a _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
-  local -a _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
+  local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+  local -a _ZLE_UI_CHOICE_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
   _ZLE_PICKER_INSPECT_TITLE=Branch _ZLE_PICKER_INSPECT_ACTION=switch
   _ZLE_PICKER_CANCEL_LABEL=''
-  for (( index = 0; index < ${#_GIT_RECENT_BRANCHES}; ++index )); do
-    _NAVIGATION_PICKER_INDEXES+=($index)
-  done
 
   repo=${root:t}
   _ZLE_PICKER_TITLE=Branches

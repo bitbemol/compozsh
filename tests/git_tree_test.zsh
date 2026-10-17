@@ -265,9 +265,9 @@ _test_git_file_view_order() {
     local _git_file_view=flat
     source "$1/tests/picker_support.zsh"
     _file_view_order_check() {
-      [[ ${(j:,:)_NAVIGATION_PICKER_VALUES} == flat,tree,ancestor,atlas &&
-         ${_NAVIGATION_PICKER_LABELS[1]} == "All files" &&
-         ${_NAVIGATION_PICKER_LABELS[2]} == Tree &&
+      [[ ${(j:,:)_ZLE_UI_CHOICE_VALUES} == flat,tree,ancestor,atlas &&
+         ${_ZLE_UI_CHOICE_LABELS[1]} == "All files" &&
+         ${_ZLE_UI_CHOICE_LABELS[2]} == Tree &&
          $_ZLE_PICKER_CONTEXTS[flat] == current ]] || return 2
     }
     test_picker_script observe _file_view_order_check -- select flat

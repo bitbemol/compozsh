@@ -6,6 +6,7 @@ _test_git_comparison_providers() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     (( ${+functions[_git_review_resolve]} )) || { print -u2 "missing revision comparison"; exit 1; }
@@ -90,6 +91,7 @@ _test_git_comparison_entry() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     # Operational helper fails if help probes it; the existing g provider owns help.
     _git_review_session() { print -u2 unexpected-session; return 71; }
     g --review --help > "$HOME/help" 2> "$HOME/error"
@@ -153,18 +155,18 @@ _test_git_comparison_navigation() {
       (( ++step ))
       _ZLE_PICKER_BOOKMARK=("" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
       case $step in
-        (1) [[ ${_NAVIGATION_PICKER_VALUES[(Ie)open]} == 0 ]] || exit 2
+        (1) [[ ${_ZLE_UI_CHOICE_VALUES[(Ie)open]} == 0 ]] || exit 2
             _ZLE_PICKER_SELECTED_VALUE=from ;;
-        (2) [[ $3 == 4 && ${_NAVIGATION_PICKER_VALUES[(Ie)open]} == 4 ]] || exit 3
+        (2) [[ $3 == 4 && ${_ZLE_UI_CHOICE_VALUES[(Ie)open]} == 4 ]] || exit 3
             _ZLE_PICKER_SELECTED_VALUE=open ;;
-        (3) [[ $_NAVIGATION_PICKER_LABELS[2] == *other* ]] || exit 4
+        (3) [[ $_ZLE_UI_CHOICE_LABELS[2] == *other* ]] || exit 4
             return 1 ;;
         (*) exit 5 ;;
       esac
     }
     _git_review_compare_choose /repository selected
     [[ $? == 1 && $views == 1 && $step == 3 ]] || exit 6
-    _NAVIGATION_PICKER_VALUES=(ref) _NAVIGATION_PICKER_LABELS=(main) _NAVIGATION_PICKER_INDEXES=(1)
+    _ZLE_UI_CHOICE_VALUES=(ref) _ZLE_UI_CHOICE_LABELS=(main)
     _git_review_ref_collect nonexistent 5
     [[ $_ZLE_PICKER_RESULTS[1] == enter && $_ZLE_PICKER_LABELS[1] == *commit* ]] || exit 7
     print navigation

@@ -12,6 +12,7 @@ source "$repo/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
 source "$repo/.zsh.addons/support/.zsh.appearance"
 for support_component in "$repo/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
 source "$repo/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+source "$repo/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
 command git init -qb main "$HOME/repo"
 print -r -- base > "$HOME/repo/file"
 command git -C "$HOME/repo" add file

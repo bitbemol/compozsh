@@ -152,6 +152,7 @@ _test_compozsh_help_providers_are_the_direct_help_source() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.tools"
@@ -255,6 +256,7 @@ _test_compozsh_picker_fuzzily_filters_the_live_catalog() {
     source "$1/.zsh.addons/.zsh.help" || exit
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done || exit
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$2" || exit
     _compozsh_tool_capture || exit
     _compozsh_tool_picker_collect msrch 10

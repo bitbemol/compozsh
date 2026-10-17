@@ -25,6 +25,7 @@ _test_git_missing_object_reads() {
       source "$1/.zsh.addons/.zsh.navigation"
       for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
       source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+      source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
       source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
       builtin cd "$repo" || exit 4
       _git_branch_stack_load || exit 5
@@ -88,6 +89,7 @@ _test_git_signature_verifier_never_runs() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     typeset -a _GIT_REVIEW_CONFIG=()

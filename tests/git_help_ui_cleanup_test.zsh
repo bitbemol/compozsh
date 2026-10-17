@@ -10,9 +10,9 @@ _test_git_notice_scoped_content() {
     local root=/fixture/repository
     _ZLE_PICKER_TITLE=Branches _ZLE_PICKER_SUBTITLE="repository · local branches"
     _ZLE_PICKER_QUERY_LABEL="Filter branches"
-    _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+    _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
     _ZLE_PICKER_INSPECT_ACTION=switch
-    _NAVIGATION_PICKER_VALUES=(main) _NAVIGATION_PICKER_LABELS=(main)
+    _ZLE_UI_CHOICE_VALUES=(main) _ZLE_UI_CHOICE_LABELS=(main)
     source "$1/tests/picker_support.zsh"
     _notice_labels() {
       "$_ZLE_PICKER_COLLECTOR" "" 10
@@ -30,7 +30,7 @@ _test_git_notice_scoped_content() {
     [[ $? == 130 && $_ZLE_PICKER_TITLE == Branches &&
        $_ZLE_PICKER_QUERY_LABEL == "Filter branches" &&
        $_ZLE_PICKER_SUBTITLE == "repository · local branches" &&
-       $_NAVIGATION_PICKER_VALUES[1] == main ]] || exit 1
+       $_ZLE_UI_CHOICE_VALUES[1] == main ]] || exit 1
     print restored
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal restored "$output"

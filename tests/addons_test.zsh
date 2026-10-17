@@ -421,11 +421,11 @@ _test_navigation_fuzzy_ranking() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
-    typeset -ga _NAVIGATION_PICKER_VALUES=(/tmp/swift-project /tmp/git-tools /tmp/project-swift)
-    typeset -ga _NAVIGATION_PICKER_LABELS=(swift-project git-tools project-swift)
-    typeset -ga _NAVIGATION_PICKER_INDEXES=(1 2 3)
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
+    typeset -ga _ZLE_UI_CHOICE_VALUES=(/tmp/swift-project /tmp/git-tools /tmp/project-swift)
+    typeset -ga _ZLE_UI_CHOICE_LABELS=(swift-project git-tools project-swift)
     typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
-    _navigation_picker_collect swift 10
+    _zle_ui_collect_choices swift 10
     print -r -- "${(j:|:)_ZLE_PICKER_LABELS}"
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal 'swift-project|project-swift' "$output" \
@@ -455,6 +455,7 @@ _test_git_branch_recency_contract() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     _git_recent_branches "$2"
     print -r -- "${(j:|:)_GIT_RECENT_BRANCHES}"
@@ -484,6 +485,7 @@ _test_git_branch_recency_tolerates_unvisited_branches() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     _git_recent_branches "$2"
     result_status=$?

@@ -5,6 +5,7 @@ _test_shared_data_matching_contract() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     local -a reply=() values=("literal [target]" duplicate prefix duplicate metadata)
     local -a texts=(a---b "in ab" AB "another ab" "a b")
     _matching_select ranked ab 10 values texts || exit 1

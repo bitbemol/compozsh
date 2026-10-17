@@ -44,12 +44,12 @@ _test_git_untracked_nested_discovery() {
     _ZLE_PICKER_DOCUMENT=1
     _git_review_rows
     [[ $_ZLE_PICKER_CONTEXTS[$selected] == New &&
-       $_NAVIGATION_PICKER_LABELS[selected] == "$name" &&
+       $_ZLE_UI_CHOICE_LABELS[selected] == "$name" &&
        $_GIT_REVIEW_CONTEXTS[selected] == "Untracked · new dir/inner/" ]] || exit 18
-    _navigation_picker_collect "new dir/inner" 10
+    _zle_ui_collect_choices "new dir/inner" 10
     # Literal full-path matches rank ahead of other legitimate fuzzy matches.
     [[ $_ZLE_PICKER_RESULTS[1] == "$selected" &&
-       $_NAVIGATION_PICKER_SEARCH_LABELS[selected] == "$name "* ]] || exit 10
+       $_ZLE_UI_CHOICE_SEARCH_LABELS[selected] == "$name "* ]] || exit 10
     [[ $(git hash-object --no-filters .git/index) == "$index_before" &&
        $(git hash-object --no-filters .git/config) == "$config_before" ]] || exit 11
     # An embedded repository is still a separate boundary, not a folder crawl.

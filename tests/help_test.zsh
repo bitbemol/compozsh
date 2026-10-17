@@ -14,6 +14,7 @@ _test_public_commands_support_help() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
@@ -79,6 +80,7 @@ _test_public_command_names_use_kebab_case() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
     source "$1/.zsh.addons/.zsh.tools"
     source "$1/.zsh.addons/.zsh.usb"
@@ -140,6 +142,7 @@ _test_file_finder_help_is_static_and_errors_stay_short() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.help"
     builtin cd -- "$HOME" || exit
     path=()
@@ -182,6 +185,7 @@ _test_tool_help_explains_real_boundaries() {
       source "$1/.zsh.addons/.zsh.navigation"
       for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
       source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+      source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
       source "$1/.zsh.addons/.zsh.sudo-touch-id"
       source "$1/.zsh.addons/.zsh.usb"
       source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
@@ -294,6 +298,7 @@ _test_all_tool_help_is_static_without_optional_tools() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"
@@ -344,6 +349,7 @@ _test_help_terminal_colors_and_plain_fallbacks() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.help"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.sudo-touch-id"

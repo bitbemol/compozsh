@@ -82,13 +82,12 @@ _test_picker_scroll_navigation_and_tools() {
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.help"
     # d and g share navigation capture; compozsh owns the tool catalog.
-    _NAVIGATION_PICKER_VALUES=(fixture-{01..35})
-    _NAVIGATION_PICKER_LABELS=("${_NAVIGATION_PICKER_VALUES[@]}")
-    _NAVIGATION_PICKER_INDEXES=({0..34})
-    _COMPOZSH_TOOL_NAMES=("${_NAVIGATION_PICKER_VALUES[@]}")
+    _ZLE_UI_CHOICE_VALUES=(fixture-{01..35})
+    _ZLE_UI_CHOICE_LABELS=("${_ZLE_UI_CHOICE_VALUES[@]}")
+    _COMPOZSH_TOOL_NAMES=("${_ZLE_UI_CHOICE_VALUES[@]}")
     _COMPOZSH_TOOL_LABELS=("${_COMPOZSH_TOOL_NAMES[@]}")
     _COMPOZSH_TOOL_SEARCH_TEXTS=("${_COMPOZSH_TOOL_NAMES[@]}")
-    for collector in _navigation_picker_collect _compozsh_tool_picker_collect; do
+    for collector in _zle_ui_collect_choices _compozsh_tool_picker_collect; do
       for query in "" fixture fxtr; do
         "$collector" "$query" 10
         first_page=("${_ZLE_PICKER_RESULTS[@]}")

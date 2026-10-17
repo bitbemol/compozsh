@@ -1506,6 +1506,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/functions/.zsh.impure.zle_picker_can_select_digit` | Option-digit capability |
 | `support/functions/.zsh.impure.zle_picker_document_bookmark` | Reading positions |
 | `support/functions/.zsh.impure.zle_ui_collect` | Matching results to UI state |
+| `support/functions/.zsh.impure.zle_ui_collect_choices` | Ranked captured choices |
 | `support/functions/.zsh.pure.compozsh_cell_prefix` | Display-cell clipping |
 | `support/functions/.zsh.pure.compozsh_git_filter_overrides` | Git filter overrides |
 | `support/functions/.zsh.pure.compozsh_git_valid_oid` | Git object-ID validation |

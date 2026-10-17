@@ -47,14 +47,13 @@ _test_picker_numeric_filter() {
     zle() { :; }
     _zle_picker_show() { :; }
     _numeric_collect() {
-      _navigation_picker_collect "$@"
+      _zle_ui_collect_choices "$@"
       # Model the caller supplying the selected document before reading keys.
       _ZLE_PICKER_DOCUMENT_KEY=${_ZLE_PICKER_RESULTS[1]-}
     }
     _numeric_view() {
-      _NAVIGATION_PICKER_VALUES=(other folder/1232 file1232.txt)
-      _NAVIGATION_PICKER_LABELS=("${_NAVIGATION_PICKER_VALUES[@]}")
-      _NAVIGATION_PICKER_INDEXES=(1 2 3)
+      _ZLE_UI_CHOICE_VALUES=(other folder/1232 file1232.txt)
+      _ZLE_UI_CHOICE_LABELS=("${_ZLE_UI_CHOICE_VALUES[@]}")
       _ZLE_PICKER_COLLECTOR=_numeric_collect
       _zle_picker_loop "" 10
     }
@@ -84,6 +83,7 @@ _test_branch_complete_catalog() {
     source "$1/.zsh.addons/.zsh.navigation"
     for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     command git init -qb main "$HOME/repository" || exit 1
     builtin cd "$HOME/repository"
@@ -100,14 +100,13 @@ _test_branch_complete_catalog() {
     [[ $_GIT_RECENT_BRANCHES[1] == main && $_GIT_RECENT_BRANCHES[-1] == topic-450 ]] || exit 7
     _git_branch_inspector_capture "$PWD" || exit 8
     [[ $_ZLE_PICKER_INSPECT_TEXTS[topic-450] == *"unavailable"* ]] || exit 9
-    _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
-    _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
-    _NAVIGATION_PICKER_INDEXES=({1..452})
-    _navigation_picker_collect 450 10
+    _ZLE_UI_CHOICE_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+    _ZLE_UI_CHOICE_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
+    _zle_ui_collect_choices 450 10
     [[ $_ZLE_PICKER_RESULTS[1] == topic-450 ]] || exit 10
-    _navigation_picker_collect 1232 10
+    _zle_ui_collect_choices 1232 10
     [[ $_ZLE_PICKER_RESULTS[1] == bug/1232-something ]] || exit 11
-    _navigation_picker_collect remote-only 10
+    _zle_ui_collect_choices remote-only 10
     (( !${#_ZLE_PICKER_RESULTS} )) || exit 12
     print complete
   ' "$TEST_REPO_ROOT") || return

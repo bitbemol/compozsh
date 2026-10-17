@@ -6,6 +6,7 @@ _test_git_review_capture() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     [[ -f "$1/.zsh.addons/.zsh.git-review" ]] || { print -u2 "missing Git review capability"; exit 1; }
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
@@ -31,10 +32,10 @@ _test_git_review_capture() {
     [[ ${_GIT_REVIEW_KINDS[(Ie)staged]} -gt 0 && ${_GIT_REVIEW_KINDS[(Ie)unstaged]} -gt 0 && ${_GIT_REVIEW_KINDS[(Ie)untracked]} -gt 0 ]] || exit 4
     (( ${#_GIT_REVIEW_PATHS} == 4 )) || exit 5
     [[ ${_GIT_REVIEW_LABELS[(Ie)tracked]} -gt 0 && ${_GIT_REVIEW_CONTEXTS[(Ie)Staged M]} -gt 0 ]] || exit 13
-    typeset -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+    typeset -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=() _ZLE_UI_CHOICE_SEARCH_LABELS=()
     typeset -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
     _git_review_rows
-    _navigation_picker_collect unstaged 10
+    _zle_ui_collect_choices unstaged 10
     (( ${#_ZLE_PICKER_RESULTS} == 2 )) || exit 14
     _git_review_diff_capture "$PWD" staged tracked || exit 6
     [[ $_GIT_REVIEW_DATA == *+staged* && $_GIT_REVIEW_DATA != *+unstaged* ]] || exit 7
@@ -92,6 +93,7 @@ _test_git_review_history() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     [[ -f "$1/.zsh.addons/.zsh.git-review" ]] || { print -u2 "missing commit review capability"; exit 1; }
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
@@ -322,7 +324,7 @@ _test_git_review_failures() {
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     _ZLE_PICKER_TITLE=Branches
-    _NAVIGATION_PICKER_VALUES=(feature) _NAVIGATION_PICKER_LABELS=(feature) _NAVIGATION_PICKER_INDEXES=(1)
+    _ZLE_UI_CHOICE_VALUES=(feature) _ZLE_UI_CHOICE_LABELS=(feature)
     source "$1/tests/picker_support.zsh"
     _count_view() { (( ++step )); }
     _unavailable_notice() {
@@ -398,6 +400,7 @@ _test_git_review_empty_states() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.git-review"
     # Support subset: the review document is one shared view; the scripted engine replaces the loop.
     source "$1/.zsh.addons/support/ui/.zsh.ui.zle_ui_view"

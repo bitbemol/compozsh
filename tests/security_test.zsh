@@ -459,16 +459,16 @@ _test_view_helpers_keep_path_and_command_hash() {
     builtin cd "$2/sub" || exit
     dirstack=("$2")
     probe _directory_stack_capture
-    print -r -- "stack:${(j:,:)_NAVIGATION_PICKER_VALUES}"
+    print -r -- "stack:${(j:,:)_ZLE_UI_CHOICE_VALUES}"
     typeset -a _GIT_REVIEW_LABELS=(file item) _GIT_REVIEW_CONTEXTS=("Unstaged M" Untracked)
     typeset -a _GIT_REVIEW_KINDS=(unstaged untracked) _GIT_REVIEW_PATHS=(dir/file new/item)
     typeset -a _GIT_REVIEW_DETAILS=(changed new)
-    typeset -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
-    typeset -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+    typeset -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
+    typeset -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
     typeset -A _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
     _ZLE_PICKER_DOCUMENT=1
     probe _git_review_rows
-    print -r -- "rows:${(j:,:)_NAVIGATION_PICKER_LABELS}"
+    print -r -- "rows:${(j:,:)_ZLE_UI_CHOICE_LABELS}"
   ' "$TEST_REPO_ROOT" "$tree") || return
   test_assert_contains "$output" "values:$tree/file" 'Search did not record the candidate' || return
   test_assert_contains "$output" "stack:$tree/sub,$tree" 'Recents did not capture the directory stack' || return

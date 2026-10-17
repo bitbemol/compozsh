@@ -176,7 +176,7 @@ _test_ui_command_views_clear_previous_reader() {
         [[ $_ZLE_PICKER_TITLE == "Tool explorer" && ${_ZLE_PICKER_INSPECT_TEXTS[tool]} == help ]] || return 33
       else
         [[ $_ZLE_PICKER_TITLE == Branches && ${_ZLE_PICKER_INSPECT_TEXTS[branch]} == details &&
-           $_NAVIGATION_PICKER_VALUES[1] == branch ]] || return 34
+           $_ZLE_UI_CHOICE_VALUES[1] == branch ]] || return 34
       fi
       _ZLE_PICKER_SELECTED_VALUE=literal _ZLE_PICKER_ACTION=select
       return 17
@@ -251,8 +251,8 @@ _test_ui_digit_labels_follow_view_numbering() {
     print -r -- "worktree:${(j: :)digit_log}"
     digit_log=() digit_queries=("" zzz)
     local -A _git_compare_details=() _git_compare_actions=()
-    _NAVIGATION_PICKER_VALUES=(1 2) _NAVIGATION_PICKER_LABELS=(main feature)
-    _NAVIGATION_PICKER_SEARCH_LABELS=()
+    _ZLE_UI_CHOICE_VALUES=(1 2) _ZLE_UI_CHOICE_LABELS=(main feature)
+    _ZLE_UI_CHOICE_SEARCH_LABELS=()
     # A child view opened from a zero-based view starts with its own numbering.
     () {
       local -i _ZLE_PICKER_ZERO_BASED=1
@@ -274,11 +274,11 @@ _test_ui_ref_chooser_manual_entry_digit() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" "$_TEST_UI_DIGIT_FIXTURE"'
     local -A _git_compare_details=() _git_compare_actions=()
-    _NAVIGATION_PICKER_VALUES=(1) _NAVIGATION_PICKER_LABELS=(main)
-    _NAVIGATION_PICKER_SEARCH_LABELS=()
+    _ZLE_UI_CHOICE_VALUES=(1) _ZLE_UI_CHOICE_LABELS=(main)
+    _ZLE_UI_CHOICE_SEARCH_LABELS=()
     digit_queries=(zzz)
     _git_compare_collector=_git_review_ref_collect _git_review_pick Compare /example "Branch or commit"
-    _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+    _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
     digit_queries=("")
     _git_compare_collector=_git_review_ref_collect _git_review_pick Compare /example "Branch or commit"
     print -r -- "${(j: :)digit_log}"

@@ -79,10 +79,11 @@ _test_exclusion_collectors() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     for unit in editor navigation find help git-review; do source "$1/.zsh.addons/.zsh.$unit"; done
     local _ZLE_PICKER_EXCLUDE=nod
-    local -a _NAVIGATION_PICKER_VALUES=(a b c) _NAVIGATION_PICKER_LABELS=(node good noddy) _NAVIGATION_PICKER_SEARCH=()
-    _navigation_picker_collect "" 1
+    local -a _ZLE_UI_CHOICE_VALUES=(a b c) _ZLE_UI_CHOICE_LABELS=(node good noddy) _ZLE_UI_CHOICE_SEARCH_LABELS=()
+    _zle_ui_collect_choices "" 1
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == b ]] || exit 1
     local -A _history_search_source=(3 "echo nod" 2 "echo safe" 1 "echo node")
     _history_search_collect "" 1
@@ -134,7 +135,7 @@ _test_exclusion_input() {
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.navigation"
-    local -a _NAVIGATION_PICKER_VALUES=(node good good2) _NAVIGATION_PICKER_LABELS=(node good good2) _NAVIGATION_PICKER_SEARCH=()
+    local -a _ZLE_UI_CHOICE_VALUES=(node good good2) _ZLE_UI_CHOICE_LABELS=(node good good2) _ZLE_UI_CHOICE_SEARCH_LABELS=()
     local -a keys=( $'\''\x1d'\'' n o d $'\''\x1d'\'' 2 $'\''\r'\'' )
     local frame="" initial="" renders=0
     read() { (( ${#keys} )) || return 1; key=$keys[1]; keys[1]=(); }
@@ -143,7 +144,7 @@ _test_exclusion_input() {
       (( ++renders ))
       [[ -n $_ZLE_PICKER_EXCLUDE ]] && frame=$_ZLE_PICKER_QUERY_ROW
     }
-    _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+    _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
     _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_SESSION=1 _ZLE_PICKER_SCREEN_ACTIVE=1
     COLUMNS=80 LINES=24
     _zle_picker_loop "" 10 || exit 1
@@ -152,7 +153,7 @@ _test_exclusion_input() {
     [[ $frame == *"Exclude contains"*nod* && $frame == *$'\''\n'\''* ]] || exit 4
     [[ -z ${_ZLE_PICKER_EXCLUDE:-} ]] || exit 5
     keys=($'\''\x1d'\'' 2 $'\''\r'\'')
-    _ZLE_PICKER_COLLECTOR=_navigation_picker_collect _ZLE_PICKER_DIGIT_SELECT=1
+    _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices _ZLE_PICKER_DIGIT_SELECT=1
     _zle_picker_loop "" 10 || exit 6
     [[ $_ZLE_PICKER_BOOKMARK[1] == "" && $_ZLE_PICKER_BOOKMARK[4] == 2 && $_ZLE_PICKER_SELECTED_VALUE == node ]] || exit 7
     print input
@@ -215,21 +216,21 @@ _test_exclusion_native() {
       print -r -u $efd -- "FRAME|$_ZLE_PICKER_TITLE|$_ZLE_PICKER_QUERY|${_ZLE_PICKER_EXCLUDE:-}|${_ZLE_PICKER_EXCLUDE_FOCUS:-0}|$value|$COLUMNS|$LINES|$_ZLE_PICKER_GUIDE_ACTIVE"
     }
     _exclusion_choices() {
-      _ZLE_PICKER_TITLE=Choices _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+      _ZLE_PICKER_TITLE=Choices _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
       _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}"
     }
     _exclusion_menu() {
-      local -a _NAVIGATION_PICKER_VALUES=(done) _NAVIGATION_PICKER_LABELS=(Done)
-      _ZLE_PICKER_TITLE=Actions _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+      local -a _ZLE_UI_CHOICE_VALUES=(done) _ZLE_UI_CHOICE_LABELS=(Done)
+      _ZLE_PICKER_TITLE=Actions _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
       _zle_picker_loop "" 10
     }
     _exclusion_controller() {
       local -a bookmark=("" 1 0)
-      local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+      local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=() _ZLE_UI_CHOICE_SEARCH_LABELS=()
       local -i result=0 index=0
-      for (( index=1; index<=20; ++index )); do _NAVIGATION_PICKER_VALUES+=("node$index"); done
-      _NAVIGATION_PICKER_VALUES+=(good1 good2)
-      _NAVIGATION_PICKER_LABELS=("${_NAVIGATION_PICKER_VALUES[@]}")
+      for (( index=1; index<=20; ++index )); do _ZLE_UI_CHOICE_VALUES+=("node$index"); done
+      _ZLE_UI_CHOICE_VALUES+=(good1 good2)
+      _ZLE_UI_CHOICE_LABELS=("${_ZLE_UI_CHOICE_VALUES[@]}")
       while true; do
         _zle_ui_view choice _exclusion_choices "${bookmark[@]}"
         result=$?
@@ -305,7 +306,7 @@ _test_exclusion_empty_and_literal_entry() {
     _DIRECTORY_PICKER_CONTENT_COUNTS=(1 0 0) _DIRECTORY_PICKER_PATH_QUERY=""
     _directory_browser_collect "" 10
     [[ ${_ZLE_PICKER_EMPTY_LINES[1]} == *"match"* ]] || exit 1
-    local -a _NAVIGATION_PICKER_VALUES=(main) _NAVIGATION_PICKER_LABELS=(main) _NAVIGATION_PICKER_SEARCH_LABELS=()
+    local -a _ZLE_UI_CHOICE_VALUES=(main) _ZLE_UI_CHOICE_LABELS=(main) _ZLE_UI_CHOICE_SEARCH_LABELS=()
     _ZLE_PICKER_EXCLUDE=enter
     _git_review_ref_collect "" 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == main ]] || exit 2
@@ -323,14 +324,14 @@ _test_exclusion_view_boundaries() {
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.navigation"
-    local -a keys=() _NAVIGATION_PICKER_VALUES=(node) _NAVIGATION_PICKER_LABELS=(node) _NAVIGATION_PICKER_SEARCH_LABELS=()
+    local -a keys=() _ZLE_UI_CHOICE_VALUES=(node) _ZLE_UI_CHOICE_LABELS=(node) _ZLE_UI_CHOICE_SEARCH_LABELS=()
     local frame="" saved_buffer=unchanged
     BUFFER=$saved_buffer CURSOR=4
     zle() { :; }
     read() { (( ${#keys} )) || return 1; key=$keys[1]; keys[1]=(); }
     _zle_picker_show() { frame=$_ZLE_PICKER_QUERY_ROW; }
     _exclusion_query_fixture() { _zle_picker_loop "" 10; }
-    _exclusion_choice_fixture() { _ZLE_PICKER_COLLECTOR=_navigation_picker_collect; _zle_picker_loop "" 10; }
+    _exclusion_choice_fixture() { _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices; _zle_picker_loop "" 10; }
     _ZLE_PICKER_SESSION=1 _ZLE_PICKER_SCREEN_ACTIVE=1 COLUMNS=80 LINES=24
     keys=($'\''\x1d'\'' n o d $'\''\r'\'')
     _zle_ui_view query _exclusion_query_fixture || exit 1

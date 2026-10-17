@@ -292,6 +292,47 @@ _test_ui_feature_collectors_keep_matching_and_visible_digits() {
 test_case 'UI feature collectors retain distinct ranking and shared visible digit slots' \
   _test_ui_feature_collectors_keep_matching_and_visible_digits
 
+_test_ui_feature_shared_choice_collector() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    _ZLE_UI_CHOICE_VALUES=(fuzzy prefix substring)
+    _ZLE_UI_CHOICE_LABELS=(l-a-t-e "late item" "unrelated late") _ZLE_UI_CHOICE_SEARCH_LABELS=()
+    _zle_ui_collect_choices late 10 || exit 1
+    [[ ${(j:|:)_ZLE_PICKER_RESULTS} == "prefix|substring|fuzzy" &&
+       ${(j:|:)_ZLE_PICKER_LABELS} == "late item|unrelated late|l-a-t-e" ]] || exit 2
+    # Searchable text can hold the exact path behind a short display label.
+    _ZLE_UI_CHOICE_VALUES=(/tmp/api /tmp/web) _ZLE_UI_CHOICE_LABELS=(api/ web/)
+    _ZLE_UI_CHOICE_SEARCH_LABELS=("~/work/api" "~/personal/web")
+    _zle_ui_collect_choices personal 10 || exit 3
+    [[ ${(j:|:)_ZLE_PICKER_RESULTS} == /tmp/web && ${(j:|:)_ZLE_PICKER_LABELS} == web/ ]] || exit 4
+    _ZLE_UI_CHOICE_VALUES=({1..12}) _ZLE_UI_CHOICE_LABELS=(row{1..12}) _ZLE_UI_CHOICE_SEARCH_LABELS=()
+    COLUMNS=80 LINES=24
+    _ZLE_PICKER_VIEW_LIMIT=10 _ZLE_PICKER_DIGIT_SELECT=1
+    _zle_ui_collect_choices "" 12
+    _ZLE_PICKER_VIEW_OFFSET=2
+    _zle_picker_render "" 12
+    [[ ${(j:|:)_ZLE_PICKER_VISIBLE_KEYS} == "1|2|3|4|5|6|7|8|9|0" &&
+       $_ZLE_PICKER_VIEW_OFFSET == 2 && $_ZLE_PICKER_SELECTED == 12 ]] || exit 5
+    # Domain peers reuse the shared entry; none keeps a forwarding copy.
+    local peer=""
+    for peer in navigation git-review git-worktree compose editor; do
+      source "$1/.zsh.addons/.zsh.$peer" || exit 6
+    done
+    (( !${+functions[_navigation_picker_collect]} )) || exit 7
+    unfunction _zle_ui_collect
+    _ZLE_PICKER_RESULTS=(stale) _ZLE_PICKER_LABELS=(stale)
+    _zle_ui_collect_choices late 10 && exit 8
+    (( !${#_ZLE_PICKER_RESULTS} && !${#_ZLE_PICKER_LABELS} )) || exit 9
+    print shared
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal shared "$output"
+}
+test_case 'UI feature collectors share one ranked choice entry without the navigation peer' \
+  _test_ui_feature_shared_choice_collector
+
 _test_ui_usb_output_without_optional_palette() {
   test_make_temp_dir || return
   local output=''

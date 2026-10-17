@@ -212,8 +212,8 @@ _test_git_document_labels() {
     _GIT_REVIEW_CONTEXTS=("Staged M" "Unstaged M")
     _GIT_REVIEW_DETAILS=(ready ready)
     _git_review_rows
-    [[ $_NAVIGATION_PICKER_LABELS[1] == Model.swift ]] || { print -u2 "navigator should show recognizable filenames"; exit 1; }
-    _navigation_picker_collect Tests 20
+    [[ $_ZLE_UI_CHOICE_LABELS[1] == Model.swift ]] || { print -u2 "navigator should show recognizable filenames"; exit 1; }
+    _zle_ui_collect_choices Tests 20
     [[ $_ZLE_PICKER_RESULTS[1] == 2 && ${#_ZLE_PICKER_RESULTS} == 1 ]] || exit 2
     _ZLE_PICKER_RESULTS=() _ZLE_PICKER_SELECTED=0 _ZLE_PICKER_WORKSPACE_ACTIONS=1
     _zle_picker_footer 160 ""

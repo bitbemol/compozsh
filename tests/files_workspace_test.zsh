@@ -58,7 +58,7 @@ _test_files_recents_acceptance() {
     _recents_check() {
       (( ++input_calls ))
       [[ $_ZLE_PICKER_INSPECT_ACTION == insert ]] || return 21
-      [[ $_NAVIGATION_PICKER_VALUES[2] == "$expected_path" ]] || return 22
+      [[ $_ZLE_UI_CHOICE_VALUES[2] == "$expected_path" ]] || return 22
     }
     test_picker_script observe _recents_check -- select "$expected_path"
     _files_recents_widget
@@ -80,6 +80,7 @@ _test_files_workspace_scope() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     root=${2:A}
     _file_search_capture "$root/inside" needle local || exit 1

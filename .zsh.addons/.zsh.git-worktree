@@ -489,18 +489,17 @@ _git_worktree_apply() {
   esac
 }
 
-# The following presentation helpers populate the existing navigation collector.
+# The following presentation helpers populate the shared choice collector.
 # No second matcher, renderer or input parser is introduced.
 _git_worktree_rows_reset() {
-  _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
-  _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
+  _ZLE_UI_CHOICE_SEARCH_LABELS=()
   _GWT_DETAILS=() _GWT_LABELS=()
 }
 
 _git_worktree_row() {
-  _NAVIGATION_PICKER_VALUES+=("$1") _NAVIGATION_PICKER_LABELS+=("$2")
-  _NAVIGATION_PICKER_INDEXES+=($(( ${#_NAVIGATION_PICKER_VALUES} - 1 )))
-  _NAVIGATION_PICKER_SEARCH_LABELS+=("${5:-$2}")
+  _ZLE_UI_CHOICE_VALUES+=("$1") _ZLE_UI_CHOICE_LABELS+=("$2")
+  _ZLE_UI_CHOICE_SEARCH_LABELS+=("${5:-$2}")
   _GWT_LABELS[$1]=$3 _GWT_DETAILS[$1]=${4:-}
 }
 
@@ -510,7 +509,7 @@ _git_worktree_bookmark() {
   emulate -L zsh
   local query=$1 value=$2 _ZLE_PICKER_EXCLUDE=${4:-}
   local -i offset=${3:-0} index=1
-  _navigation_picker_collect "$query" ${#_NAVIGATION_PICKER_VALUES}
+  _zle_ui_collect_choices "$query" ${#_ZLE_UI_CHOICE_VALUES}
   index=${_ZLE_PICKER_RESULTS[(Ie)$value]}
   (( index )) || { index=1; offset=0; }
   (( offset < index )) || offset=$(( index - 1 ))
@@ -530,7 +529,7 @@ _git_worktree_choice_view() {
   _ZLE_PICKER_OPTIONS_KIND=worktree
   _ZLE_PICKER_BROWSE_LABEL=${_GWT_NOTICE:-local snapshot}
   _ZLE_PICKER_EMPTY_LABEL='no matching choices'
-  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_WORKSPACE_ACTIONS=${_GWT_OPTIONS:-0}
   _ZLE_PICKER_HIERARCHY_ENABLED=${_GWT_HIERARCHY:-0}
   _zle_picker_start_focus=${_GWT_FOCUS:-0}
@@ -882,7 +881,7 @@ _git_worktree_target_pick() {
         "$target"$'\n'"${_GWT_BRANCHES[index]:-detached HEAD} · $_GWT_OIDS[index]"$'\n\n'"$detail" \
         "$_GWT_BRANCHES[index] $target"
     done
-    if (( ! ${#_NAVIGATION_PICKER_VALUES} )); then
+    if (( ! ${#_ZLE_UI_CHOICE_VALUES} )); then
       detail='No eligible worktrees in this snapshot. Main/current, locked and missing worktrees are excluded.'
       [[ $operation == remove ]] && detail+=' Removal also excludes detached worktrees.'
       _git_worktree_notice "$detail Go Back and choose Refresh worktrees after changes."
@@ -947,8 +946,8 @@ _git_worktree_controller() {
   # Scope every view flag here so no reader falls back to an inherited value.
   local -i result=0 _GWT_OPTIONS=0 _GWT_FOCUS=0 _GWT_HIERARCHY=0
   local -a bookmark=('' 1 0)
-  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
-  local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
+  local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
   local -A _GWT_DETAILS=() _GWT_LABELS=()
   while true; do
     _git_worktree_rows_reset
@@ -1005,7 +1004,7 @@ _git_worktree_session() {
   {
     _git_worktree_context "$PWD" && _git_worktree_snapshot || return 1
     if [[ ! -t 0 || ! -t 1 || $TERM == dumb ]] ||
-        (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_navigation_picker_collect]} || !${+functions[_matching_compile]} )); then
+        (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_zle_ui_collect_choices]} || !${+functions[_matching_compile]} )); then
       for (( index=1; index<=${#_GWT_PATHS}; ++index )); do
         print -r -- "${(V)_GWT_PATHS[index]} · ${(V)${_GWT_BRANCHES[index]:-detached HEAD}} ${_GWT_STATES[index]}"
       done

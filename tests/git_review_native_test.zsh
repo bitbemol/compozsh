@@ -41,7 +41,7 @@ _test_git_review_native() {
           if [[ $scenario == journey ]]; then
             [[ $_ZLE_PICKER_DOCUMENT_TITLE == new-dir/new.txt &&
                $_ZLE_PICKER_CONTEXTS[$_ZLE_PICKER_DOCUMENT_KEY] == New &&
-               $_NAVIGATION_PICKER_LABELS[$_ZLE_PICKER_DOCUMENT_KEY] == new-dir/new.txt ]] ||
+               $_ZLE_UI_CHOICE_LABELS[$_ZLE_PICKER_DOCUMENT_KEY] == new-dir/new.txt ]] ||
               print -r -u $efd BAD-NEW-PATH
           fi
           [[ ${(F)_ZLE_PICKER_DOCUMENT_LINES} == *"+review-new-content"* &&

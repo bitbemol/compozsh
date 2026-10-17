@@ -19,6 +19,9 @@ unset -- _ZLE_PICKER_SESSION _ZLE_PICKER_SCREEN_ACTIVE _ZLE_PICKER_BUSY \
 # feature-specific; rendering, input, resize, and cleanup use this one contract.
 typeset -ga _ZLE_PICKER_RESULTS=()
 typeset -ga _ZLE_PICKER_LABELS=()
+# Captured choices that _zle_ui_collect_choices ranks: exact values, display
+# labels and optional searchable text. Views declare local copies when they can.
+typeset -ga _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=() _ZLE_UI_CHOICE_SEARCH_LABELS=()
 # Optional secondary labels, keyed by the unchanged action value.
 typeset -gA _ZLE_PICKER_CONTEXTS=()
 # Optional second-line explanations and a fixed target for action workspaces.

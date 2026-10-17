@@ -173,7 +173,7 @@ _compozsh_compose_endpoint() {
   local _git_compare_from_label=${_compose_base_label:-$_compose_base} _git_compare_to_label=${_compose_head_label:-$_compose_head} _git_compare_label=''
   local -i result=0
   _compose_endpoint_label=''
-  if (( ${+functions[_git_review_endpoint_choose]} && ${+functions[_navigation_picker_collect]} &&
+  if (( ${+functions[_git_review_endpoint_choose]} && ${+functions[_zle_ui_collect_choices]} &&
         ${+functions[_matching_compile]} )); then
     if _git_review_capture "$_compose_scope" rev-parse --show-toplevel && (( !_GIT_REVIEW_TRUNCATED )); then
       root=${_GIT_REVIEW_DATA%$'\n'}

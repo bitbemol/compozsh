@@ -310,25 +310,25 @@ _test_directory_workspace_snapshot() {
     dirstack=("$HOME/personal/api" "$HOME/missing")
     _directory_stack_capture
     _directory_stack_describe
-    [[ ${_NAVIGATION_PICKER_LABELS[1]} == api/ && ${_NAVIGATION_PICKER_LABELS[2]} == api/ ]] || exit 1
+    [[ ${_ZLE_UI_CHOICE_LABELS[1]} == api/ && ${_ZLE_UI_CHOICE_LABELS[2]} == api/ ]] || exit 1
     [[ ${_ZLE_PICKER_CONTEXTS[$HOME/work/api]} == *"current"* &&
        ${_ZLE_PICKER_CONTEXTS[$HOME/personal/api]} == *"~/personal"* ]] || exit 2
     [[ ${_ZLE_PICKER_INSPECT_TEXTS[$HOME/missing]} == *"Unavailable"* ]] || exit 3
     _zle_picker_inspect_prepare "$HOME/missing" 48
     [[ ${(j:,:)_ZLE_PICKER_INSPECT_ROLES} == *warning* ]] || exit 7
-    _navigation_picker_collect personal 10
+    _zle_ui_collect_choices personal 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == "$HOME/personal/api" ]] || exit 4
-    _navigation_picker_collect api 10
+    _zle_ui_collect_choices api 10
     (( ${#_ZLE_PICKER_RESULTS} == 2 )) || exit 5
     # The captured view is stable even if a directory disappears while open.
     command rmdir "$HOME/personal/api"
-    _navigation_picker_collect personal 10
+    _zle_ui_collect_choices personal 10
     [[ ${(j:,:)_ZLE_PICKER_RESULTS} == "$HOME/personal/api" ]] || exit 6
-    _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=()
+    _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=() _NAVIGATION_STACK_INDEXES=()
     for i in {1..201}; do
-      _NAVIGATION_PICKER_VALUES+=("$HOME/entry-$i")
-      _NAVIGATION_PICKER_LABELS+=("~/entry-$i")
-      _NAVIGATION_PICKER_INDEXES+=($i)
+      _ZLE_UI_CHOICE_VALUES+=("$HOME/entry-$i")
+      _ZLE_UI_CHOICE_LABELS+=("~/entry-$i")
+      _NAVIGATION_STACK_INDEXES+=($i)
     done
     _directory_stack_describe
     [[ ${_ZLE_PICKER_INSPECT_TEXTS[$HOME/entry-201]} == *"Not checked"* ]] || exit 8
@@ -373,7 +373,7 @@ _test_directory_workspace_native() {
       print -r -u $efd -- "READY:$(command tty)"
       _directory_browser_session ./ cd command recents
       local result=$?
-      (( result == 0 && !${#_ZLE_PICKER_INSPECT_TEXTS} && !${#_NAVIGATION_PICKER_SEARCH_LABELS} )) || {
+      (( result == 0 && !${#_ZLE_PICKER_INSPECT_TEXTS} && !${#_ZLE_UI_CHOICE_SEARCH_LABELS} )) || {
         print -r -u $efd BAD-CLEANUP; return 1
       }
       if [[ $scenario == copy ]]; then

@@ -67,7 +67,7 @@ _test_git_comparison_ui_missing_endpoint() {
     _missing_check() {
       (( ++step ))
       (( step == 1 )) && return 0
-      [[ $TEST_PICKER_STARTS[-1] == 1 && $_ZLE_PICKER_BROWSE_LABEL == *"Choose Compare"* && ${_NAVIGATION_PICKER_VALUES[(Ie)open]} == 0 ]] || exit 1
+      [[ $TEST_PICKER_STARTS[-1] == 1 && $_ZLE_PICKER_BROWSE_LABEL == *"Choose Compare"* && ${_ZLE_UI_CHOICE_VALUES[(Ie)open]} == 0 ]] || exit 1
     }
     test_picker_script observe _missing_check -- select from -- observe _missing_check -- cancel
     _git_review_compare_choose /repository ""
@@ -184,14 +184,14 @@ _test_git_comparison_ui_pair_choices() {
       local start=$TEST_PICKER_STARTS[-1]
       (( ++step ))
       case $step in
-        (1) [[ $_NAVIGATION_PICKER_VALUES[1] == to && $_NAVIGATION_PICKER_VALUES[2] == from && $start == 2 ]] || exit 1
-            [[ $_NAVIGATION_PICKER_LABELS[1] == "Compare · topic" && $_NAVIGATION_PICKER_LABELS[2] == "Against · Choose branch or commit…" ]] || exit 2
+        (1) [[ $_ZLE_UI_CHOICE_VALUES[1] == to && $_ZLE_UI_CHOICE_VALUES[2] == from && $start == 2 ]] || exit 1
+            [[ $_ZLE_UI_CHOICE_LABELS[1] == "Compare · topic" && $_ZLE_UI_CHOICE_LABELS[2] == "Against · Choose branch or commit…" ]] || exit 2
             [[ $_ZLE_PICKER_INSPECT_TEXTS[to] == *"Enter changes"* && $_ZLE_PICKER_INSPECT_TEXTS[from] == *topic* ]] || exit 3 ;;
-        (2) [[ $start == 4 && $_NAVIGATION_PICKER_LABELS[2] == "Against · release/next" && $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Compare topic against release/next"* ]] || exit 4 ;;
-        (3) [[ $_NAVIGATION_PICKER_LABELS[1] == "Compare · feature/search" && $_NAVIGATION_PICKER_LABELS[2] == "Against · release/next" ]] || exit 5 ;;
-        (4) [[ $_NAVIGATION_PICKER_LABELS[1] == "All differences" && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *feature/search* && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *release/next* ]] || exit 6 ;;
+        (2) [[ $start == 4 && $_ZLE_UI_CHOICE_LABELS[2] == "Against · release/next" && $_ZLE_PICKER_INSPECT_TEXTS[open] == *"Compare topic against release/next"* ]] || exit 4 ;;
+        (3) [[ $_ZLE_UI_CHOICE_LABELS[1] == "Compare · feature/search" && $_ZLE_UI_CHOICE_LABELS[2] == "Against · release/next" ]] || exit 5 ;;
+        (4) [[ $_ZLE_UI_CHOICE_LABELS[1] == "All differences" && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *feature/search* && $_ZLE_PICKER_INSPECT_TEXTS[ancestor] == *release/next* ]] || exit 6 ;;
         (6) [[ $start == 2 ]] || exit 11 ;;
-        (8) [[ $_NAVIGATION_PICKER_LABELS[1] == *feature/search* && $_NAVIGATION_PICKER_LABELS[2] == *release/next* ]] || exit 7 ;;
+        (8) [[ $_ZLE_UI_CHOICE_LABELS[1] == *feature/search* && $_ZLE_UI_CHOICE_LABELS[2] == *release/next* ]] || exit 7 ;;
       esac
       return 0
     }
@@ -214,11 +214,11 @@ _test_git_comparison_ui_ref_acceptance() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    _NAVIGATION_PICKER_VALUES=(1 2 3)
-    _NAVIGATION_PICKER_LABELS=("main · branch" "release/next · branch" "release/old · branch")
-    _NAVIGATION_PICKER_INDEXES=(1 2 3)
+    _ZLE_UI_CHOICE_VALUES=(1 2 3)
+    _ZLE_UI_CHOICE_LABELS=("main · branch" "release/next · branch" "release/old · branch")
     _git_review_ref_collect release/next 3
     [[ $_ZLE_PICKER_RESULTS[1] == 2 && $_ZLE_PICKER_RESULTS[2] == enter ]] || exit 1
     _git_review_ref_collect release 2

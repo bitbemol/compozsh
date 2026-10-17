@@ -41,6 +41,7 @@ _test_shared_effects_runtime_capabilities() {
     source "$1/.zsh.addons/support/functions/.zsh.pure.compozsh_cell_prefix"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     print -rn -- fixture > "$HOME/target"
     local captured=""
     _zle_picker_run() { captured="${(j:|:)_file_action_values}"; }

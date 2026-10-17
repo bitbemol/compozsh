@@ -1,0 +1,19 @@
+# Entry point: _zle_ui_collect_choices
+# Impure: rank the shared choice arrays into the caller's UI state.
+
+# The ranked collector for captured choices: exact values in
+# _ZLE_UI_CHOICE_VALUES, display labels in _ZLE_UI_CHOICE_LABELS and optional
+# searchable text in _ZLE_UI_CHOICE_SEARCH_LABELS (labels otherwise). Views keep
+# local copies so their choices end with them. Literal prefix and substring
+# matches rank before character-ordered fuzzy ones.
+_zle_ui_collect_choices() {
+  emulate -L zsh
+  (( ${+functions[_zle_ui_collect]} )) || {
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
+    return 1
+  }
+  _zle_ui_collect ranked "$1" "$2" _ZLE_UI_CHOICE_VALUES _ZLE_UI_CHOICE_LABELS \
+    _ZLE_UI_CHOICE_LABELS _ZLE_UI_CHOICE_SEARCH_LABELS fallback
+}
+
+:

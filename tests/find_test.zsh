@@ -18,6 +18,7 @@ _test_file_search_git_provider() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     _file_search_capture_git "$2" "net cli" || exit
     print -r -- "labels:${(j:|:)_FILE_SEARCH_LABELS}"
@@ -44,6 +45,7 @@ _test_file_search_picker_ranking() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     typeset -ga _FILE_SEARCH_VALUES=(/tmp/one /tmp/two /tmp/three)
     typeset -ga _FILE_SEARCH_LABELS=(
       "· notes/alpha-project.md"
@@ -78,6 +80,7 @@ _test_file_search_candidate_summary() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     typeset -ga _FILE_SEARCH_VALUES=(/tmp/one)
     _FILE_SEARCH_TRUNCATED=0
     _file_search_candidate_summary needle
@@ -110,6 +113,7 @@ _test_file_search_local_boundaries() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     _file_search_capture_local "$2" hidden || exit
     print -r -- "hidden:${(j:|:)_FILE_SEARCH_LABELS}"
     _file_search_capture_local "$2" secret
@@ -145,6 +149,7 @@ _test_file_search_local_skips_nested_git() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     _file_search_capture "$2" hooks local
     print -r -- "hooks:$?|${(j:|:)_FILE_SEARCH_LABELS}|$_FILE_SEARCH_VISITED"
     _file_search_capture "$2" git local
@@ -169,6 +174,7 @@ _test_file_search_limits_reject_overflowing_settings() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     local limit=\'\'
     for limit in 99999999999999999999 2147483647 999999999; do
       ZSH_FILE_SEARCH_MAX_VISITED=$limit ZSH_FILE_SEARCH_MAX_CANDIDATES=$limit
@@ -208,6 +214,7 @@ _test_file_search_spotlight_boundary() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     export FAKE_MDFIND_LOG="$4"
     export FAKE_MDFIND_INSIDE="$HOME/Documents/Final Report.txt"
     export FAKE_MDFIND_OUTSIDE="$3"
@@ -251,6 +258,7 @@ _test_file_search_spotlight_root_scope() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     export FAKE_MDFIND_LOG="$4"
     export FAKE_MDFIND_INSIDE="$HOME/Documents/Final Report.txt"
     export FAKE_MDFIND_OUTSIDE="$3"
@@ -282,6 +290,7 @@ _test_file_search_command_contract() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     _file_search_capture "$2" "final ready" local
     list_status=$?
     print -rl -- "${_FILE_SEARCH_VALUES[@]}"
@@ -317,6 +326,7 @@ _test_file_search_path_fidelity() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     command git -C "$2" init -q || exit
     for provider in local git; do
@@ -347,6 +357,7 @@ _test_file_search_provider_stream_chunks() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     local root=${HOME:A} name="" git_list="" spot_list="" provider="" locale=""
     local accent=$'"'"'\xc3\xa9'"'"' newline=$'"'"'\n'"'"' nul=$'"'"'\0'"'"'
@@ -475,6 +486,7 @@ _test_file_search_spotlight_display_match() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     _file_search_capture_spotlight "$HOME" "~/doc report" "$2/mdfind"
     print -r -- "tilde:$?:${(j:|:)_FILE_SEARCH_LABELS}"
     _file_search_capture_spotlight "$HOME" "${HOME:t} report" "$2/mdfind"

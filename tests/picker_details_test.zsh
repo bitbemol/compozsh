@@ -61,6 +61,7 @@ _test_branch_details_snapshot() {
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     _git_recent_branches "$2" || exit 1
     _git_branch_inspector_capture "$2" || exit 2
@@ -90,6 +91,7 @@ print -rn -- "refs/heads/topic"$\'\\0\'$\'\\0\'"def456"$\'\\0\'${(l:300000::y:)}
     source "$1/.zsh.addons/.zsh.navigation"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     path=("$2" "${path[@]}")
     _GIT_RECENT_BRANCHES=(main topic)
@@ -112,6 +114,7 @@ _test_path_details_snapshot() {
     source "$1/.zsh.addons/.zsh.find"
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/tests/support.zsh"
     _FILE_SEARCH_ROOT=/snapshot
     _FILE_SEARCH_SOURCE=local

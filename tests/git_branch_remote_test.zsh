@@ -17,22 +17,20 @@ _test_branch_remote_capture_and_filter() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
-    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_ui_collect "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded; do source "$unit"; done
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_ui_collect{,_choices} "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded; do source "$unit"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
     (( ${+functions[_git_branch_remote_capture]} )) || { print -u2 "Remote-tracking branch fallback missing"; exit 1; }
     _git_recent_branches "$2" || exit 2
     _git_branch_remote_capture "$2" || exit 3
     [[ ${#_GIT_BRANCH_REMOTE_VALUES} == 2 && ${_GIT_BRANCH_REMOTE_NAMES[remote:refs/remotes/origin/bug/1232-something]} == bug/1232-something ]] || exit 4
-    _NAVIGATION_PICKER_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
-    _NAVIGATION_PICKER_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
-    _NAVIGATION_PICKER_INDEXES=(0)
+    _ZLE_UI_CHOICE_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+    _ZLE_UI_CHOICE_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
     path=()
     _git_branch_collect 1232 10
     [[ ${#_ZLE_PICKER_RESULTS} == 2 && $_ZLE_PICKER_RESULTS[1] == remote:refs/remotes/origin/bug/1232-something &&
        $_ZLE_PICKER_INSPECT_ACTION == "review creation" && $_ZLE_PICKER_BROWSE_LABEL == *"remote-tracking"* ]] || exit 5
-    _NAVIGATION_PICKER_VALUES+=(bug/1232-local)
-    _NAVIGATION_PICKER_LABELS+=(bug/1232-local)
-    _NAVIGATION_PICKER_INDEXES+=(1)
+    _ZLE_UI_CHOICE_VALUES+=(bug/1232-local)
+    _ZLE_UI_CHOICE_LABELS+=(bug/1232-local)
     _git_branch_collect 1232 10
     [[ ${#_ZLE_PICKER_RESULTS} == 1 && $_ZLE_PICKER_RESULTS[1] == bug/1232-local && $_ZLE_PICKER_INSPECT_ACTION == switch ]] || exit 6
     _git_branch_collect "" 10

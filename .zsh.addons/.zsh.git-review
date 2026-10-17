@@ -1034,18 +1034,18 @@ _git_review_document_load() {
   return 0
 }
 
-# Adapt a view snapshot to the existing navigation ranker. Numeric IDs remain
+# Adapt a view snapshot to the shared choice ranker. Numeric IDs remain
 # independent of literal path values (one file may have two change rows).
 _git_review_rows() {
   local -i index=0
   local context='' file_path=''
-  _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_INDEXES=()
-  _NAVIGATION_PICKER_LABELS=("${_GIT_REVIEW_LABELS[@]}")
-  _NAVIGATION_PICKER_SEARCH_LABELS=()
+  _ZLE_UI_CHOICE_VALUES=()
+  _ZLE_UI_CHOICE_LABELS=("${_GIT_REVIEW_LABELS[@]}")
+  _ZLE_UI_CHOICE_SEARCH_LABELS=()
   _ZLE_PICKER_CONTEXTS=() _ZLE_PICKER_INSPECT_TEXTS=()
   for (( index=1; index<=${#_GIT_REVIEW_LABELS}; ++index )); do
-    _NAVIGATION_PICKER_VALUES+=("$index") _NAVIGATION_PICKER_INDEXES+=("$index")
-    _NAVIGATION_PICKER_SEARCH_LABELS+=("${_GIT_REVIEW_LABELS[index]} ${_GIT_REVIEW_CONTEXTS[index]-}")
+    _ZLE_UI_CHOICE_VALUES+=("$index")
+    _ZLE_UI_CHOICE_SEARCH_LABELS+=("${_GIT_REVIEW_LABELS[index]} ${_GIT_REVIEW_CONTEXTS[index]-}")
     context=${_GIT_REVIEW_CONTEXTS[index]-}
     if [[ ${_GIT_REVIEW_KINDS[index]-} == untracked ]]; then
       # Keep identity and state separate. File projections supply the final
@@ -1057,9 +1057,9 @@ _git_review_rows() {
     if (( ${_ZLE_PICKER_DOCUMENT:-0} )); then
       file_path=${_GIT_REVIEW_PATHS[index]}
       if [[ ${_GIT_REVIEW_KINDS[index]-} == untracked && $file_path == */* && $file_path != */ ]]; then
-        _NAVIGATION_PICKER_LABELS[index]=$file_path
+        _ZLE_UI_CHOICE_LABELS[index]=$file_path
       else
-        _NAVIGATION_PICKER_LABELS[index]=${file_path:t}
+        _ZLE_UI_CHOICE_LABELS[index]=${file_path:t}
       fi
     fi
     _ZLE_PICKER_INSPECT_TEXTS[$index]=${_GIT_REVIEW_DETAILS[index]-}
@@ -1070,7 +1070,7 @@ _git_review_rows() {
 # flat navigator. No provider reads: even deleted folders are captured prefixes.
 _git_review_file_collect() {
   emulate -L zsh
-  (( ${+functions[_navigation_picker_collect]} )) || return 1
+  (( ${+functions[_zle_ui_collect_choices]} )) || return 1
   local query=$1 exclusion=${_ZLE_PICKER_EXCLUDE:-} value='' name='' parent=''
   local -i limit=$2 index=0
   local -i _git_tree_summary_limit=${3:-$2}
@@ -1085,7 +1085,7 @@ _git_review_file_collect() {
   for value in "${(@k)_ZLE_PICKER_DOCUMENT_BRANCHES}"; do
     unset "_ZLE_PICKER_CONTEXTS[$value]" "_ZLE_PICKER_INSPECT_TEXTS[$value]"
   done
-  _navigation_picker_collect "$query" 1001
+  _zle_ui_collect_choices "$query" 1001
   local -a matches=("${_ZLE_PICKER_RESULTS[@]}")
   _ZLE_PICKER_DOCUMENT_BRANCHES=() _ZLE_PICKER_ACCEPT_LABELS=() _git_tree_depths=()
   _ZLE_PICKER_LABEL_PREFIXES=()
@@ -1446,11 +1446,11 @@ _git_review_file_options_view() {
   local captured_path=$1 option=''
   _ZLE_PICKER_TITLE='Git / View options'
   _ZLE_PICKER_SUBTITLE='Same captured changes · read-only'
-  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_INSPECT_ACTION=choose
-  local -a _NAVIGATION_PICKER_VALUES=(flat tree ancestor atlas)
-  local -a _NAVIGATION_PICKER_LABELS=('All files' Tree 'Jump to ancestor' 'Change atlas')
-  local -a _NAVIGATION_PICKER_INDEXES=(1 2 3 4) _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=(flat tree ancestor atlas)
+  local -a _ZLE_UI_CHOICE_LABELS=('All files' Tree 'Jump to ancestor' 'Change atlas')
+  local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
   _ZLE_PICKER_CONTEXTS=("$_git_file_view" current)
   _ZLE_PICKER_INSPECT_TEXTS=(
     tree 'Three expanded directory levels, including their files. Enter expands or collapses folders; fourth-level folders open in the same panel.'
@@ -1466,26 +1466,25 @@ _git_review_file_options_view() {
 _git_review_tree_ancestor_view() {
   local directory=$1 prefix='' component='' total=0
   local -a parts=("${(@s:/:)${directory%/}}")
-  local -a _NAVIGATION_PICKER_VALUES=(root) _NAVIGATION_PICKER_LABELS=(Repository)
-  local -a _NAVIGATION_PICKER_INDEXES=(1) _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=(root) _ZLE_UI_CHOICE_LABELS=(Repository)
+  local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
   _ZLE_PICKER_INSPECT_TEXTS=(root Repository)
   _ZLE_PICKER_INSPECT_TITLE='Captured path'
   # Bound both retained prefix text and choices, even for hostile Git paths.
   for component in "${parts[@]}"; do
     prefix+="$component/"
     (( total += ${#prefix} ))
-    (( total <= 262144 && ${#_NAVIGATION_PICKER_VALUES} < 200 )) || break
-    _NAVIGATION_PICKER_VALUES+=("d:$prefix")
-    _NAVIGATION_PICKER_LABELS+=("$prefix")
+    (( total <= 262144 && ${#_ZLE_UI_CHOICE_VALUES} < 200 )) || break
+    _ZLE_UI_CHOICE_VALUES+=("d:$prefix")
+    _ZLE_UI_CHOICE_LABELS+=("$prefix")
     _ZLE_PICKER_INSPECT_TEXTS[d:$prefix]=$prefix
-    _NAVIGATION_PICKER_INDEXES+=("${#_NAVIGATION_PICKER_VALUES}")
   done
   _ZLE_PICKER_TITLE='Git / Jump to ancestor'
   _ZLE_PICKER_SUBTITLE=$directory
-  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_INSPECT_ACTION='open folder'
   _ZLE_PICKER_BROWSE_LABEL='Captured path · Repository always available'
-  (( ${#_NAVIGATION_PICKER_VALUES} <= ${#parts} )) && _ZLE_PICKER_BROWSE_LABEL+=' · partial ancestor list'
+  (( ${#_ZLE_UI_CHOICE_VALUES} <= ${#parts} )) && _ZLE_PICKER_BROWSE_LABEL+=' · partial ancestor list'
   _zle_picker_loop '' 20
 }
 
@@ -2571,7 +2570,7 @@ _git_review_auto_publish() {
   done
   _git_review_rows
   local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
-  _navigation_picker_collect "${bookmark[1]}" 1000
+  _zle_ui_collect_choices "${bookmark[1]}" 1000
   (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
   if (( rank )); then
     bookmark[2]=$rank
@@ -2675,7 +2674,7 @@ _git_review_refresh() {
   # Re-rank the bounded captured list using the unchanged filter. A status
   # change may also remove a surviving path/kind from this query's results.
   local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
-  _navigation_picker_collect "${bookmark[1]}" 1000
+  _zle_ui_collect_choices "${bookmark[1]}" 1000
   (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
   if (( rank )); then
     bookmark[2]=$rank
@@ -2895,7 +2894,7 @@ _git_review_document_view() {
   local -a _git_tree_scopes=() _git_tree_returns=() _git_tree_filter_scopes=() _git_tree_filter_returns=()
   _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
   _ZLE_PICKER_INSPECT_ACTION=diff _ZLE_PICKER_CANCEL_LABEL=back
-  _ZLE_PICKER_QUERY_LABEL='Filter files' _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_QUERY_LABEL='Filter files' _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_BROWSE_LABEL='' _ZLE_PICKER_EMPTY_LABEL='no matching entries'
   _ZLE_PICKER_IDLE_CALLBACK=_git_review_idle
   # List selection may outrun preview capture: settle for four input-idle ticks.
@@ -2946,8 +2945,8 @@ _git_review_document_view() {
   local -a _git_auto_candidate_parents=()
   local _GIT_REVIEW_DATA='' _GIT_REVIEW_SUMMARY='' _GIT_REVIEW_NOTICE=''
   local -i _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DOCUMENT_HAS_CODE=0
-  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
-  local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
+  local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
   local -a bookmark=('' 1 0)
   case $kind in
     (atlas-file)
@@ -3138,7 +3137,7 @@ _git_review_choice_view() {
   emulate -L zsh
   _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
   _ZLE_PICKER_BROWSE_LABEL=${_git_compare_status:-read-only comparison}
-  _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_navigation_picker_collect}
+  _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_zle_ui_collect_choices}
   _zle_picker_start_focus=${7:-0}
   _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_git_compare_details}")
   _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_git_compare_actions}")
@@ -3159,13 +3158,13 @@ _git_review_ref_collect() {
     (( ${+functions[_matching_exclusion]} )) || return 1
     _matching_exclusion "$_ZLE_PICKER_EXCLUDE" || return
     if [[ 'Enter branch or commit…' != ${~REPLY} ]]; then
-      _navigation_picker_collect "$@"
+      _zle_ui_collect_choices "$@"
       return $?
     fi
   fi
   # Enter accepts the best ref. Keep literal input in a stable second slot;
   # appending it to a growing result prefix would move it during pagination.
-  _navigation_picker_collect "$1" "$(( $2 > 1 ? $2 - 1 : 1 ))"
+  _zle_ui_collect_choices "$1" "$(( $2 > 1 ? $2 - 1 : 1 ))"
   (( $2 > 1 )) || { _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=(); }
   if (( ${#_ZLE_PICKER_RESULTS} )); then
     _ZLE_PICKER_RESULTS=("$_ZLE_PICKER_RESULTS[1]" enter "${_ZLE_PICKER_RESULTS[@]:1}")
@@ -3210,15 +3209,15 @@ _git_review_endpoint_choose() {
   [[ $endpoint == From ]] && { purpose=Against; opposite="Compare: ${_git_compare_to_label:-not chosen}"; }
   local -i index=0 result=0 focus=0
   local -a _GIT_REVIEW_REFS=() _GIT_REVIEW_REF_OIDS=() _GIT_REVIEW_REF_LABELS=() bookmark=('' 1 0)
-  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=() _ZLE_UI_CHOICE_SEARCH_LABELS=()
   local -A _git_compare_details=() _git_compare_actions=(enter enter)
   if _git_review_load _git_review_refs_capture "$root"; then
     _git_compare_status="${#_GIT_REVIEW_REFS} local refs · Enter chooses this side · no checkout"
     (( _GIT_REVIEW_TRUNCATED )) && _git_compare_status+=' · partial at 1,000 refs / 256 KiB'
     for (( index=1; index<=${#_GIT_REVIEW_REFS}; ++index )); do
       value=$_GIT_REVIEW_REFS[index]
-      _NAVIGATION_PICKER_VALUES+=("$index") _NAVIGATION_PICKER_INDEXES+=("$index")
-      _NAVIGATION_PICKER_LABELS+=("$_GIT_REVIEW_REF_LABELS[index]")
+      _ZLE_UI_CHOICE_VALUES+=("$index")
+      _ZLE_UI_CHOICE_LABELS+=("$_GIT_REVIEW_REF_LABELS[index]")
       _git_compare_details[$index]="$value"$'\n'"$_GIT_REVIEW_REF_OIDS[index]"$'\n\nCaptured locally; no checkout or fetch.'
       _git_compare_actions[$index]=use
     done
@@ -3315,7 +3314,7 @@ _git_review_compare_choose() {
   local _git_compare_method=exact _git_compare_before='' _git_compare_method_label='' _git_compare_context='' _git_compare_label=''
   local exact_text='' ancestor_text='' pair=''
   local -i result=0 focus=0 method_index=1
-  local -a bookmark=('' 1 0) _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=() _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a bookmark=('' 1 0) _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=() _ZLE_UI_CHOICE_SEARCH_LABELS=()
   local -A _git_compare_details=() _git_compare_actions=()
   if _git_review_load _git_review_resolve "$root" "${selected:+refs/heads/}${selected:-HEAD}"; then
     _git_compare_to=$REPLY _git_compare_to_label=${selected:-HEAD}
@@ -3328,16 +3327,15 @@ _git_review_compare_choose() {
     pair="Compare $_git_compare_to_label against $_git_compare_from_label"
     exact_text="Compare the committed content of $_git_compare_from_label and $_git_compare_to_label."$'\n'"Additions are in $_git_compare_to_label; removals are from $_git_compare_from_label."
     ancestor_text="Show changes toward $_git_compare_to_label since its common ancestor with $_git_compare_from_label."$'\n'"Later changes only on $_git_compare_from_label are excluded. This does not simulate a merge."
-    _NAVIGATION_PICKER_VALUES=(to from method)
-    _NAVIGATION_PICKER_LABELS=("Compare · $_git_compare_to_label" "Against · $_git_compare_from_label" "Show · $_git_compare_method_label")
-    _NAVIGATION_PICKER_INDEXES=(1 2 3)
+    _ZLE_UI_CHOICE_VALUES=(to from method)
+    _ZLE_UI_CHOICE_LABELS=("Compare · $_git_compare_to_label" "Against · $_git_compare_from_label" "Show · $_git_compare_method_label")
     _git_compare_actions=(from change to change method change open review)
     _git_compare_details=(from "Against: $_git_compare_from_label"$'\n'"$_git_compare_from"$'\n\n'"Enter changes the branch or commit used as the baseline for $_git_compare_to_label."
       to "Compare: $_git_compare_to_label"$'\n'"$_git_compare_to"$'\n\nEnter changes the branch or commit you want to review.\nThe highlighted branch is a starting choice; no checkout occurs.'
       method "$exact_text")
     [[ $_git_compare_method == ancestor ]] && _git_compare_details[method]=$ancestor_text
     if [[ -n $_git_compare_from && -n $_git_compare_to ]]; then
-      _NAVIGATION_PICKER_VALUES+=(open) _NAVIGATION_PICKER_LABELS+=('Review differences') _NAVIGATION_PICKER_INDEXES+=(4)
+      _ZLE_UI_CHOICE_VALUES+=(open) _ZLE_UI_CHOICE_LABELS+=('Review differences')
       _git_compare_details[open]="$pair"$'\n'"$_git_compare_method_label"$'\n\n'"$_git_compare_context"$'\n\nRead-only · captured commits. Ctrl-R keeps their IDs.'
     fi
     _git_review_pick 'Compare branches or commits' "${root:t} · $pair" 'Filter choices' "${bookmark[@][1,3]}" "$focus" action "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
@@ -3361,7 +3359,7 @@ _git_review_compare_choose() {
           fi
         fi ;;
       (method)
-        _NAVIGATION_PICKER_VALUES=(exact ancestor) _NAVIGATION_PICKER_LABELS=('All differences' 'Changes since common ancestor') _NAVIGATION_PICKER_INDEXES=(1 2)
+        _ZLE_UI_CHOICE_VALUES=(exact ancestor) _ZLE_UI_CHOICE_LABELS=('All differences' 'Changes since common ancestor')
         _git_compare_details=(exact "$exact_text" ancestor "$ancestor_text")
         _git_compare_actions=(exact use ancestor use)
         method_index=1
@@ -3409,7 +3407,7 @@ _git_review_session() {
     print -u2 -r -- 'g --review: requires an interactive terminal; use git diff for plain output.'
     return 1
   fi
-  if (( !${+functions[_zle_picker_run]} || !${+functions[_zle_picker_capture]} || !${+functions[_navigation_picker_collect]} || !${+functions[_matching_compile]} )); then
+  if (( !${+functions[_zle_picker_run]} || !${+functions[_zle_picker_capture]} || !${+functions[_zle_ui_collect_choices]} || !${+functions[_matching_compile]} )); then
     print -u2 -r -- 'g --review: shared picker unavailable; keep .zsh.navigation and the shared support/ui and support/functions components installed.'
     return 1
   fi
@@ -3461,21 +3459,18 @@ _git_review_options_view() {
   _ZLE_PICKER_ACCEPT_LABELS=(working review commits 'browse commits' compare configure)
   _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_SUBTITLE="${root:t} · choose a read-only view"
   _ZLE_PICKER_QUERY_LABEL='Filter views' _ZLE_PICKER_INSPECT_ACTION=open
-  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
+  _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_INSPECT_TITLE=Scope _ZLE_PICKER_BROWSE_LABEL='read-only review'
-  local -a _NAVIGATION_PICKER_VALUES=(working) _NAVIGATION_PICKER_LABELS=('Working tree · Review working changes')
-  local -a _NAVIGATION_PICKER_INDEXES=(1) _NAVIGATION_PICKER_SEARCH_LABELS=()
+  local -a _ZLE_UI_CHOICE_VALUES=(working) _ZLE_UI_CHOICE_LABELS=('Working tree · Review working changes')
+  local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
   _ZLE_PICKER_INSPECT_TEXTS=(working $'Current working tree\nStaged, unstaged and untracked\n\nReviews the currently checked-out tree.\nRead-only · no fetch or writes')
   [[ -n $branch ]] && {
-    _NAVIGATION_PICKER_VALUES+=(commits) _NAVIGATION_PICKER_LABELS+=("Selected branch · Commits in $branch")
-    _NAVIGATION_PICKER_INDEXES+=(2)
+    _ZLE_UI_CHOICE_VALUES+=(commits) _ZLE_UI_CHOICE_LABELS+=("Selected branch · Commits in $branch")
     _ZLE_PICKER_INSPECT_TEXTS[commits]="$branch"$'\nLocal branch history\n\nCommits → files → diff\nNo checkout; selected tip is resolved once.'
   }
-  _NAVIGATION_PICKER_VALUES+=(compare) _NAVIGATION_PICKER_LABELS+=('Compare branches or commits…')
-  _NAVIGATION_PICKER_INDEXES+=("${#_NAVIGATION_PICKER_VALUES}")
+  _ZLE_UI_CHOICE_VALUES+=(compare) _ZLE_UI_CHOICE_LABELS+=('Compare branches or commits…')
   _ZLE_PICKER_INSPECT_TEXTS[compare]="Compare: ${branch:-HEAD}"$'\nAgainst: choose another branch or commit\n\nBoth choices can be changed. Review differences opens the two-pane reader.\nNo checkout or fetch.'
-  _NAVIGATION_PICKER_VALUES+=(atlas) _NAVIGATION_PICKER_LABELS+=('Change atlas · Explore working changes by folder')
-  _NAVIGATION_PICKER_INDEXES+=("${#_NAVIGATION_PICKER_VALUES}")
+  _ZLE_UI_CHOICE_VALUES+=(atlas) _ZLE_UI_CHOICE_LABELS+=('Change atlas · Explore working changes by folder')
   _ZLE_PICKER_DESCRIPTIONS[atlas]='Captured change entries → folders → files → focused diff'
   _ZLE_PICKER_ACCEPT_LABELS[atlas]='open atlas'
   _ZLE_PICKER_INSPECT_TEXTS[atlas]='Map the current working-tree snapshot by folder. Bars show file-entry counts; staged and unstaged changes remain distinct. No content is read until a file is chosen.'
@@ -3526,11 +3521,11 @@ _git_review_branch_choose() {
   local -i _ZLE_PICKER_WORKSPACE_ACTIONS=1 focus=${7:-0} result=0
   local _ZLE_PICKER_OPTIONS_KIND=git selected=''
   local -a bookmark=("${1:-}" "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}") _GIT_REVIEW_CONFIG=()
-  local collector=${_ZLE_PICKER_COLLECTOR:-_navigation_picker_collect}
+  local collector=${_ZLE_PICKER_COLLECTOR:-_zle_ui_collect_choices}
   local -a _ZLE_PICKER_EMPTY_LINES=()
   local _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
   local -i _GIT_REVIEW_TRUNCATED=0 _zle_picker_start_focus=0
-  if (( !${#_NAVIGATION_PICKER_VALUES} )); then
+  if (( !${#_ZLE_UI_CHOICE_VALUES} )); then
     _ZLE_PICKER_EMPTY_LINES=('No local branches'
       'Ctrl-X reviews the current working tree, including before its first commit.')
   fi
@@ -3559,8 +3554,8 @@ _git_review_unavailable_view() {
   emulate -L zsh
   _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_BROWSE_LABEL='unavailable'
   _ZLE_PICKER_SUBTITLE="${root:t} · read-only" _ZLE_PICKER_QUERY_LABEL='Filter notice'
-  _ZLE_PICKER_COLLECTOR=_navigation_picker_collect
-  local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+  _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
+  local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
   _ZLE_PICKER_EMPTY_LINES=('Unable to establish safe local Git inspection.' 'The branch or configuration may have changed. Escape returns.')
   _zle_picker_loop '' 10
 }
