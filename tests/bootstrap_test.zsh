@@ -254,53 +254,190 @@ _test_copy_layout_deduplicates_addons() {
 test_case 'copied installation scans its combined add-on directory once' \
   _test_copy_layout_deduplicates_addons
 
+# Print the complete source-time shell state that the peer configuration
+# algebra compares (engineering/architecture.md): options, every alias, function
+# and disabled table, keymaps and their bindings, effective styles, widgets,
+# modules, traps, umask, and every parameter's name, type and value. Lines are
+# sorted wherever order cannot change behavior; hook arrays and bindings keep
+# their order, so a duplicate registration is never hidden by sorting. The
+# child shell receives this function's text and calls it after the peers load,
+# so it observes their top-level state; options are captured before emulate
+# changes them.
+#
+# zstyle lookup order matters only between patterns that can match one context.
+# A pattern without glob characters matches only its own text and is strictly
+# more specific than any wildcard pattern matching that text, so its rank among
+# equally specific patterns never changes a lookup: those lines are sorted,
+# while wildcard lines keep zsh's lookup order.
+#
+# Parameter values deliberately left out (their names and types are compared):
+# - _MANUAL_SOURCE_GENERATION and _MANUAL_ASYNC_GENERATION advance on every
+#   re-source by design, so in-flight manual capture results are invalidated;
+# - names that are not identifiers ($, !, #, 0, ...) and _, argv, ARGC, status,
+#   pipestatus, LINENO and the func* traces describe this dump's own call;
+# - PPID, RANDOM, SRANDOM, SECONDS, EPOCHSECONDS, EPOCHREALTIME, epochtime,
+#   TTYIDLE, ERRNO, HISTCMD and sysparams are per-process or clock values;
+# - parameters, options, the alias, function, builtin, reserved-word and
+#   pattern-character tables, modules, widgets and keymaps are views of the
+#   tables printed above;
+# - commands, userdirs, usergroups, termcap, terminfo, history, historywords
+#   and mapfile are system databases, history or file contents.
+_test_shell_state_dump() {
+  local -A __state_options=("${(@kv)options}")
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  zmodload zsh/parameter || return
+  local __state_name='' __state_table='' __state_key='' __state_line=''
+  local -a __state_array=() __state_words=()
+  local -A __state_map=() __state_skip=()
+
+  __state_skip=(
+    _MANUAL_SOURCE_GENERATION 1 _MANUAL_ASYNC_GENERATION 1
+    _ 1 argv 1 ARGC 1 status 1 pipestatus 1 LINENO 1 funcstack 1
+    funcfiletrace 1 funcsourcetrace 1 functrace 1
+    PPID 1 RANDOM 1 SRANDOM 1 SECONDS 1 EPOCHSECONDS 1 EPOCHREALTIME 1
+    epochtime 1 TTYIDLE 1 ERRNO 1 HISTCMD 1 sysparams 1
+    parameters 1 options 1 aliases 1 galiases 1 saliases 1 dis_aliases 1
+    dis_galiases 1 dis_saliases 1 functions 1 dis_functions 1
+    functions_source 1 dis_functions_source 1 builtins 1 dis_builtins 1
+    reswords 1 dis_reswords 1 patchars 1 dis_patchars 1 modules 1
+    widgets 1 keymaps 1
+    commands 1 userdirs 1 usergroups 1 termcap 1 terminfo 1 history 1
+    historywords 1 mapfile 1
+  )
+
+  for __state_name in ${(ko)__state_options}; do
+    print -r -- "option $__state_name=$__state_options[$__state_name]"
+  done
+  for __state_table in aliases galiases saliases dis_aliases dis_galiases \
+      dis_saliases builtins dis_builtins modules widgets; do
+    __state_map=("${(@Pkv)__state_table}")
+    for __state_key in ${(ko)__state_map}; do
+      print -r -- "$__state_table ${(qq)__state_key}=${(qq)__state_map[$__state_key]}"
+    done
+  done
+  for __state_table in reswords dis_reswords patchars dis_patchars; do
+    print -r -- "$__state_table ${(j: :)${(@o)${(@P)__state_table}}}"
+  done
+  for __state_table in functions dis_functions; do
+    __state_map=("${(@Pkv)__state_table}")
+    for __state_key in ${(ko)__state_map}; do
+      __state_line="$__state_table ${(qq)__state_key}"
+      print -rl -- "$__state_line" \
+        "${(@)${(@f)__state_map[$__state_key]}/#/$__state_line: }"
+    done
+  done
+  bindkey -lL
+  for __state_key in ${(o)keymaps}; do
+    bindkey -M "$__state_key" -L
+  done
+  for __state_key in "${(@f)$(zstyle -L)}"; do
+    __state_words=(${(z)__state_key})
+    __state_name=${(Q)__state_words[2]}
+    [[ $__state_name != -e ]] || __state_name=${(Q)__state_words[3]}
+    if [[ $__state_name == *[\(\|\*\[\<\?\#\^]* ]]; then
+      print -r -- "$__state_key"
+    else
+      __state_array+=("$__state_key")
+    fi
+  done
+  print -rl -- "${(@o)__state_array}"
+  zmodload -L
+  zmodload -La
+  trap
+  umask
+  for __state_name in ${(ko)parameters}; do
+    [[ $__state_name != __state_* ]] || continue
+    __state_line="parameter ${(qq)__state_name} $parameters[$__state_name]"
+    if [[ $__state_name != [[:alpha:]_][[:alnum:]_]# ]] ||
+        (( ${+__state_skip[$__state_name]} )); then
+      print -r -- "$__state_line"
+      continue
+    fi
+    case $parameters[$__state_name] in
+      association*)
+        print -r -- "$__state_line"
+        __state_map=("${(@Pkv)__state_name}")
+        for __state_key in ${(ko)__state_map}; do
+          print -r -- "parameter ${(qq)__state_name}[${(qq)__state_key}]=${(qq)__state_map[$__state_key]}"
+        done
+        ;;
+      array*)
+        __state_array=("${(@P)__state_name}")
+        print -r -- "$__state_line (${(j: :)${(@qq)__state_array}})"
+        ;;
+      *)
+        print -r -- "$__state_line ${(qq)${(P)__state_name}}"
+        ;;
+    esac
+  done
+}
+
+# Every supported traversal must reach the same complete state without load
+# diagnostics: lexical, reverse, both rotations (each owner before and after
+# its consumers), forward then reverse (every peer repeated with others
+# between), and .zshrc sourced twice (the bootstrap's own re-source path, which
+# tests/verify.zsh checks for diagnostics only). Discovery mirrors the
+# bootstrap's, support/cache excluded. The anchors prove the reference dump
+# reaches each main table, so an empty or truncated dump cannot pass.
 _test_peer_order_converges() {
   test_make_temp_dir || return
-  local home="$TEST_TMP_DIR/home" mode='' output='' expected=''
-  local script=$'files=("$1"/.zsh.addons/**/.zsh.?*(N.))
+  local home="$TEST_TMP_DIR/home" mode='' anchor='' state=''
+  local reference="$TEST_TMP_DIR/state-lexical"
+  local script=$'files=()
+for file in "$1"/.zsh.addons/**/.zsh.?*(N.); do
+  [[ $file == "$1"/.zsh.addons/support/cache/* ]] || files+=("$file")
+done
 case $2 in
   reverse) files=(${(Oa)files}) ;;
   rotate-left) files=(${files[2,-1]} $files[1]) ;;
   rotate-right) files=($files[-1] ${files[1,-2]}) ;;
+  forward-reverse) files=($files ${(Oa)files}) ;;
+  bootstrap-twice) files=("$1/.zshrc" "$1/.zshrc") ;;
 esac
 for file in "${files[@]}"; do source "$file" || exit; done
-zmodload zsh/parameter
-typeset -a prompt_pre_redraw_hooks=() prompt_finish_hooks=()
-zstyle -a zle-line-pre-redraw widgets prompt_pre_redraw_hooks
-zstyle -a zle-line-finish widgets prompt_finish_hooks
-prompt_pre_redraw_hooks=("${(@)prompt_pre_redraw_hooks#<->:}")
-prompt_finish_hooks=("${(@)prompt_finish_hooks#<->:}")
-print -r -- "history:$HISTSIZE,$SAVEHIST,$HISTFILE"
-print -r -- "options:${options[noclobber]},${options[sharehistory]},${options[autopushd]}"
-print -r -- "aliases:${aliases[ll]}|${aliases[la]}|${aliases[c]}|${aliases[..]}"
-print -r -- "styles:${ZSH_HIGHLIGHT_STYLES[command]}|${ZSH_HIGHLIGHT_STYLES[argument]}|${ZSH_HIGHLIGHT_STYLES[operator]}|${ZSH_HIGHLIGHT_STYLES[autosuggestion]}"
-print -r -- "prompt-colors:${ZSH_PROMPT_COLORS[identity]}|${ZSH_PROMPT_COLORS[path]}|${ZSH_PROMPT_COLORS[git]}|${ZSH_PROMPT_COLORS[warning]}"
-print -r -- "output-colors:${ZSH_OUTPUT_COLORS[success]}|${ZSH_OUTPUT_COLORS[warning]}|${ZSH_OUTPUT_COLORS[error]}|${ZSH_OUTPUT_COLORS[match]}"
-print -r -- "hooks:${precmd_functions[*]}|${preexec_functions[*]}|${zle_line_init_functions[*]}|${zle_line_pre_redraw_functions[*]}"
-print -r -- "zle-hooks:${(j:,:)prompt_pre_redraw_hooks}|${(j:,:)prompt_finish_hooks}|${widgets[compozsh-context-lens]-}"
-print -r -- "prompts:$PROMPT|$RPROMPT"
-print -r -- "public:${+functions[mkcd]},${+functions[cpdir]},${+functions[git-discard-all]},${+functions[external-device]},${+functions[d]},${+functions[g]},${+functions[f]},${+functions[xcode]},${+functions[compozsh]}"
-bindkey "^R"
-bindkey "^F"
-bindkey "^[f"
-bindkey "^[i"
-bindkey "^E"'
+unset files file
+set --
+'"$(typeset -f _test_shell_state_dump)"$'
+_test_shell_state_dump'
+  local -a anchors=(
+    'option sharehistory=on'
+    "aliases 'll'='ls -lah'"
+    "functions 'mkcd'"
+    'bindkey -A emacs main'
+    'bindkey "^[i" compozsh-context-lens'
+    "zstyle ':completion:*' menu select"
+    "parameter 'precmd_functions' array"
+  )
 
-  for mode in lexical reverse rotate-left rotate-right; do
-    output=$(test_run_interactive "$home" "$script" "$TEST_REPO_ROOT" "$mode" \
-      2> "$TEST_TMP_DIR/errors-$mode") || return
+  # compinit writes .zcompdump in a fresh home and later shells load it, which
+  # defines slightly different completion-system globals. A discarded warm-up
+  # gives every compared order the same, ordinary later-shell start.
+  test_run_interactive "$home" 'source "$1/.zshrc"' "$TEST_REPO_ROOT" \
+    > /dev/null 2>&1 || test_fail 'the warm-up shell failed to load' || return
+  for mode in lexical reverse rotate-left rotate-right forward-reverse \
+      bootstrap-twice; do
+    test_run_interactive "$home" "$script" "$TEST_REPO_ROOT" "$mode" \
+      > "$TEST_TMP_DIR/state-$mode" 2> "$TEST_TMP_DIR/errors-$mode" ||
+      test_fail "peer order $mode failed to load" || return
     [[ ! -s "$TEST_TMP_DIR/errors-$mode" ]] ||
       test_fail "peer order $mode produced load diagnostics: $(<"$TEST_TMP_DIR/errors-$mode")" ||
       return
-    if [[ -z $expected ]]; then
-      expected=$output
-    else
-      test_assert_equal "$expected" "$output" \
-        "peer order produced different state for $mode" || return
+    if [[ $mode == lexical ]]; then
+      state=$'\n'$(<"$reference")$'\n'
+      for anchor in "${anchors[@]}"; do
+        [[ $state == *$'\n'"$anchor"[$'\n'\ ]* ]] ||
+          test_fail "the state dump lacks: $anchor" || return
+      done
+    elif ! command cmp -s -- "$reference" "$TEST_TMP_DIR/state-$mode"; then
+      test_fail "peer order $mode produced a different shell state:"$'\n'"$(
+        command diff -a -- "$reference" "$TEST_TMP_DIR/state-$mode" |
+          command head -n 40)"
+      return 1
     fi
   done
 }
-test_case 'all supported peer traversal orders converge on the same state' \
+test_case 'all supported peer traversal orders converge on the same complete shell state' \
   _test_peer_order_converges
 
 # Retiring a public name removes only Compozsh's own definition. A user's alias
