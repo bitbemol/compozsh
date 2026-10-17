@@ -1,0 +1,20 @@
+# Entry point: _zle_picker_inspect_tail
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# A taller or shorter pane moves the newest page without new text. Place
+# already prepared rows at that page using the renderer's published geometry.
+# Status 0 means the position moved and needs a repaint; 1 means it was
+# already there or rows are pending, when the next render places them.
+_zle_picker_inspect_tail() {
+  emulate -L zsh
+  (( _ZLE_PICKER_INSPECT_WIDTH > 0 )) || return 1
+  local -i max_offset=$(( ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE ))
+  (( max_offset < 0 )) && max_offset=0
+  (( _ZLE_PICKER_INSPECT_OFFSET != max_offset )) || return 1
+  _ZLE_PICKER_INSPECT_OFFSET=$max_offset
+  return 0
+}
+
+
+:

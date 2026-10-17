@@ -883,3 +883,48 @@ command cat > "$HOME/copied"' || return
   test_assert_equal native-run "$output"
 }
 test_case 'Xcode run native screen supports live filtered logs pause copy return resize Stop LLDB and abort cleanup' _test_xcode_run_native_screen
+
+# The run monitor follows its newest rows when the pane grows or shrinks,
+# without new bytes, and asks for a repaint only when the position moved.
+_test_xcode_run_monitor_tail_resize() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.xcode"
+    local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
+    local _xcode_run_log=$(print -rl -- row-{001..100})
+    local _xcode_run_eof=1 _xcode_run_trimmed=0 _xcode_run_context=fixture
+    local _xcode_run_publish=1 _xcode_run_read_error=0
+    _zle_picker_loop() {
+      local -i result=0 lines=0 step=0
+      local -a expected=(2 0 2)
+      _xcode_picker_collect "" 10
+      COLUMNS=120 LINES=30 _ZLE_PICKER_INSPECT_FOCUS=0
+      _zle_picker_render "" 1
+      _xcode_run_idle
+      _zle_picker_render "" 1
+      for lines in 30 12 30; do
+        (( ++step ))
+        LINES=$lines
+        _zle_picker_render "" 1
+        _xcode_run_idle
+        result=$?
+        _zle_picker_render "" 1
+        (( _ZLE_PICKER_INSPECT_OFFSET == ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE )) &&
+          [[ ${_ZLE_PICKER_INSPECT_LINES[-1]} == row-100 ]] || {
+          print -u2 "monitor at $lines lines lost the tail"; return 3; }
+        (( result == expected[step] )) || {
+          print -u2 "monitor at $lines lines returned $result"; return 4; }
+      done
+      _ZLE_PICKER_SELECTED_VALUE=stop
+      return 0
+    }
+    _xcode_run_controller || exit $?
+    print monitor-tail
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal monitor-tail "$output"
+}
+test_case 'Xcode run monitor keeps the newest rows when the pane resizes' _test_xcode_run_monitor_tail_resize

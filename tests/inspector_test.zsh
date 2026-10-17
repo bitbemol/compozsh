@@ -321,3 +321,92 @@ _test_document_wrapping_ascii_path() {
 }
 test_case 'document wrapping takes the byte path for printable ASCII outside the reader' \
   _test_document_wrapping_ascii_path
+
+# A captured document keeps its anchored source row across resizes, a
+# following document keeps its tail, and a top invalidation stays at the top.
+# Saved positions survive re-entry at another width through the source row.
+_test_document_rewrap_positions() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    local -i _ZLE_PICKER_READER_ONLY=1 _ZLE_PICKER_DOCUMENT=1
+    local -i _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_DOCUMENT_FOLLOW=0
+    local _ZLE_PICKER_TITLE=Reader _ZLE_PICKER_INSPECT_ACTION=options
+    local _ZLE_PICKER_DOCUMENT_KEY=logs _ZLE_PICKER_INSPECT_FIXED_KEY=logs
+    local -A _ZLE_PICKER_INSPECT_TEXTS=(logs "")
+    local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+    local -A _ZLE_PICKER_DOCUMENT_WIDTHS=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
+    local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
+    local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+    local -a reply=()
+    local -i index=0 offset=0
+    for (( index=1; index<=60; ++index )); do
+      _ZLE_PICKER_DOCUMENT_LINES+=("record $index ${(l:150::x:)}")
+    done
+    LINES=30 COLUMNS=60
+    _zle_picker_render "" 0
+    _ZLE_PICKER_INSPECT_OFFSET=$(( ${_ZLE_PICKER_INSPECT_SOURCE_LINES[(i)20]} - 1 ))
+    _zle_picker_render "" 0
+    for COLUMNS in 140 60; do
+      _zle_picker_render "" 0
+      (( _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST == 20 )) || {
+        print -u2 "resize to $COLUMNS lost the anchor: $_ZLE_PICKER_DOCUMENT_VISIBLE_FIRST"; exit 1; }
+    done
+    offset=$_ZLE_PICKER_INSPECT_OFFSET
+    _zle_picker_inspect_invalidate keep || exit 2
+    (( _ZLE_PICKER_INSPECT_WIDTH == 0 )) || exit 2
+    _zle_picker_render "" 0
+    (( _ZLE_PICKER_INSPECT_OFFSET == offset && _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST == 20 )) || exit 2
+    _zle_picker_inspect_invalidate tail || exit 2
+    _zle_picker_render "" 0
+    (( _ZLE_PICKER_DOCUMENT_VISIBLE_LAST == 60 )) || { print -u2 "tail invalidation missed the tail"; exit 2; }
+    _ZLE_PICKER_INSPECT_OFFSET=$offset
+    _zle_picker_render "" 0
+    _ZLE_PICKER_DOCUMENT_FOLLOW=1
+    for COLUMNS in 60 140 60; do
+      _zle_picker_render "" 0
+      (( _ZLE_PICKER_DOCUMENT_VISIBLE_LAST == 60 &&
+         _ZLE_PICKER_INSPECT_OFFSET == ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE )) || {
+        print -u2 "follow at $COLUMNS lost the tail"; exit 3; }
+    done
+    _ZLE_PICKER_DOCUMENT_FOLLOW=0
+    _zle_picker_document_position set logs 9 9 9
+    _zle_picker_inspect_invalidate top || exit 4
+    _zle_picker_document_position get logs
+    [[ "$reply[*]" == "0 0 0" ]] || { print -u2 "top kept a saved position: $reply"; exit 4; }
+    for COLUMNS in 60 140; do
+      _zle_picker_render "" 0
+      (( _ZLE_PICKER_INSPECT_OFFSET == 0 && _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST == 1 )) || exit 4
+    done
+    COLUMNS=60
+    _zle_picker_render "" 0
+    _ZLE_PICKER_INSPECT_OFFSET=$(( ${_ZLE_PICKER_INSPECT_SOURCE_LINES[(i)30]} - 1 ))
+    _zle_picker_render "" 0
+    _zle_picker_document_bookmark
+    _zle_picker_document_position get logs
+    [[ "$reply[*]" == "$_ZLE_PICKER_INSPECT_OFFSET 30 59" ]] || exit 5
+    _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0 COLUMNS=140
+    _zle_picker_render "" 0
+    (( _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST == 30 )) || exit 6
+    # Saved positions are replaced only through validated fields; path keys
+    # with subscript syntax survive retention literally.
+    _zle_picker_document_position set "d:a]b[c" 4 2 && _zle_picker_document_position set 7 5 3 &&
+      ! _zle_picker_document_position set 8 "1+1" || exit 7
+    _zle_picker_document_position set 7 6 || exit 7
+    _zle_picker_document_position get 7
+    [[ "$reply[*]" == "6 3 0" ]] || exit 7
+    _zle_picker_document_position retain "d:a]b[c"
+    _zle_picker_document_position keys
+    [[ "$reply[*]" == "d:a]b[c" ]] || { print -u2 "retained keys: $reply"; exit 8; }
+    _zle_picker_document_position get "d:a]b[c"
+    [[ "$reply[*]" == "4 2 0" ]] || exit 8
+    print rewrap-positions
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal rewrap-positions "$output"
+}
+test_case 'document rewrap keeps the anchor, follow keeps the tail and top resets after resize' \
+  _test_document_rewrap_positions

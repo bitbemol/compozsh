@@ -1,0 +1,29 @@
+# Entry point: _zle_picker_inspect_invalidate
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# A caller whose captured text or presentation metadata changed asks the next
+# render to rebuild the reading pane's rows from that text. The mode says where
+# reading continues: keep the current position, show the newest rows, or start
+# at the first row and forget the current document's saved position. Wrapping
+# and clamping stay in the renderer; no provider runs here.
+_zle_picker_inspect_invalidate() {
+  emulate -L zsh
+  case $1 in
+    (keep) ;;
+    (tail)
+      # Beyond the 20,000-row prepare bound; the renderer clamps to the last page.
+      _ZLE_PICKER_INSPECT_OFFSET=100000 ;;
+    (top)
+      _ZLE_PICKER_INSPECT_OFFSET=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+      [[ -n $_ZLE_PICKER_DOCUMENT_KEY ]] &&
+        _zle_picker_document_position set "$_ZLE_PICKER_DOCUMENT_KEY" 0 0 0
+      ;;
+    (*) return 2 ;;
+  esac
+  _ZLE_PICKER_INSPECT_WIDTH=0
+  return 0
+}
+
+
+:

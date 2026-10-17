@@ -253,6 +253,7 @@ _test_git_auto_refresh_pending_identity() {
     for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_picker_document_position"
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
@@ -681,7 +682,7 @@ _test_git_auto_refresh_other_bookmarks() {
   local output
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_picker_document_position(N.); do source "$git_support_component"; done
     local context=3
     local -i _ZLE_PICKER_SELECTED=1
     local -a _ZLE_PICKER_RESULTS=(1)
@@ -695,9 +696,9 @@ _test_git_auto_refresh_other_bookmarks() {
     local -A _ZLE_PICKER_DOCUMENT_OFFSETS=(1 5 2 8) _ZLE_PICKER_DOCUMENT_ROWS=(1 7 2 11)
     local -a _git_document_order=(1:3 2:3)
     _git_review_auto_forget_other_documents
-    print -r -- "${(j:,:)${(ok)_git_document_cache}}|${(j:,:)${(ok)_git_document_contexts}}|${_git_document_anchors[1]}|${_ZLE_PICKER_DOCUMENT_OFFSETS[1]}|${_ZLE_PICKER_DOCUMENT_ROWS[1]}"
+    print -r -- "${(j:,:)${(ok)_git_document_cache}}|${(j:,:)${(ok)_git_document_contexts}}|${_git_document_anchors[1]}|${_ZLE_PICKER_DOCUMENT_OFFSETS[1]}|${_ZLE_PICKER_DOCUMENT_ROWS[1]}|${+_ZLE_PICKER_DOCUMENT_OFFSETS[2]}${+_ZLE_PICKER_DOCUMENT_ROWS[2]}"
   ' zsh "$TEST_REPO_ROOT") || return
-  test_assert_equal '1:3|1|new:4|5|7' "$output"
+  test_assert_equal '1:3|1|new:4|5|7|00' "$output"
 }
 test_case 'Git unchanged checks retire every non-selected document bookmark' \
   _test_git_auto_refresh_other_bookmarks

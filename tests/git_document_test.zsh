@@ -77,7 +77,7 @@ _test_git_document_cache() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_picker_document_position(N.); do source "$git_support_component"; done
     local -A _git_document_cache=() _git_document_partial=() _git_document_contexts=() _git_document_anchors=()
     local -a _git_document_order=() _GIT_REVIEW_PATHS=(one two three four five)
     local -a _GIT_REVIEW_KINDS=(unstaged unstaged unstaged staged commit)
@@ -134,7 +134,7 @@ _test_git_document_context() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_picker_document_position(N.); do source "$git_support_component"; done
     mkdir -p "$HOME/repo"
     cd "$HOME/repo"
     git init -q
@@ -164,7 +164,7 @@ _test_git_document_suppress_blank_empty() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_picker_document_position(N.); do source "$git_support_component"; done
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$HOME/fixture.gitconfig"
     git config --file "$GIT_CONFIG_GLOBAL" diff.suppressBlankEmpty true || exit 1
     mkdir -p "$HOME/repo"

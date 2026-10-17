@@ -628,6 +628,14 @@ _git_review_document_anchor() {
   return 0
 }
 
+# The source anchor of a document's saved reading position, in REPLY.
+_git_review_saved_anchor() {
+  emulate -L zsh
+  local -a reply=()
+  _zle_picker_document_position get "$1"
+  _git_review_document_anchor "$reply[2]"
+}
+
 # Find the closest retained source line on the same side of the diff. Ordered
 # traversal with strict improvement makes exact ties prefer earlier context.
 _git_review_document_seek() {
@@ -699,7 +707,7 @@ _git_review_syntax_status() {
   _ZLE_PICKER_SUBTITLE=${_ZLE_PICKER_SUBTITLE% · syntax retry pending}
   [[ -n $note && $_ZLE_PICKER_SUBTITLE != *"$note"* ]] && _ZLE_PICKER_SUBTITLE+=" · $note"
   _git_syntax_status_note=$note
-  _ZLE_PICKER_INSPECT_WIDTH=0
+  (( ${+functions[_zle_picker_inspect_invalidate]} )) && _zle_picker_inspect_invalidate keep
   return 0
 }
 
@@ -963,7 +971,7 @@ _git_review_document_load() {
   # The old document still owns these coordinates after the input loop returns
   # a new exact selection and before its replacement document is installed.
   if [[ -n $previous ]]; then
-    _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$previous]:-0}"
+    _git_review_saved_anchor "$previous"
     [[ -n $REPLY ]] && _git_document_anchors[$previous]=$REPLY
   fi
   if [[ -z ${_git_document_cache[$cache_key]+present} ]]; then
@@ -1012,7 +1020,7 @@ _git_review_document_load() {
     anchor=${_git_document_anchors[$index]-}
     _git_review_document_seek "$anchor"
     _ZLE_PICKER_DOCUMENT_TARGET_ROW=$REPLY
-    _ZLE_PICKER_DOCUMENT_OFFSETS[$index]=0
+    _zle_picker_document_position set "$index" 0
     if (( REPLY )); then
       local coordinate=$_GIT_REVIEW_DOCUMENT_NEW[REPLY]
       [[ $anchor == old:* ]] && coordinate=$_GIT_REVIEW_DOCUMENT_OLD[REPLY]
@@ -1161,7 +1169,7 @@ _git_review_file_collect() {
   # A refinement can change a folder summary without changing its exact key.
   # Rewrap its new captured text while retaining independent scroll offsets.
   if [[ -n $prepared_branch && $prepared_text != "${_ZLE_PICKER_INSPECT_TEXTS[$prepared_branch]-}" ]]; then
-    _ZLE_PICKER_INSPECT_WIDTH=0
+    (( ${+functions[_zle_picker_inspect_invalidate]} )) && _zle_picker_inspect_invalidate keep
   fi
   return 0
 }
@@ -2235,24 +2243,19 @@ _git_review_auto_forget_other_documents() {
   local current=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} keep='' key='' failure=''
   [[ $current == d:* ]] && current=$_ZLE_PICKER_DOCUMENT_KEY
   local saved_context='' saved_anchor=''
-  local -i saved_offset=0 saved_row=0
-  local -A folder_offsets=() folder_rows=()
+  local -a reply=() retained=()
   if [[ $_ZLE_PICKER_INSPECT_KEY == d:* ]] && (( ${+functions[_zle_picker_document_bookmark]} )); then
     _zle_picker_document_bookmark
   fi
   # An unchanged capture leaves literal folder identities intact. Numeric file
   # bookmarks still follow the existing active-reader invalidation rule below.
-  for key in "${(@k)_ZLE_PICKER_DOCUMENT_OFFSETS}"; do
-    [[ $key == d:* ]] || continue
-    folder_offsets[$key]=${_ZLE_PICKER_DOCUMENT_OFFSETS[$key]}
-    folder_rows[$key]=${_ZLE_PICKER_DOCUMENT_ROWS[$key]:-0}
-  done
+  _zle_picker_document_position keys
+  retained=("${(@M)reply:#d:*}")
   [[ $current == <-> ]] && { _git_review_document_cache_key "$current" "$context"; keep=$REPLY; }
   if [[ $current == <-> ]]; then
     saved_context=${_git_document_contexts[$current]-}
     saved_anchor=${_git_document_anchors[$current]-}
-    saved_offset=${_ZLE_PICKER_DOCUMENT_OFFSETS[$current]:-0}
-    saved_row=${_ZLE_PICKER_DOCUMENT_ROWS[$current]:-0}
+    retained+=("$current")
   fi
   for key in ${(k)_git_document_cache}; do
     [[ $key == "$keep" ]] && continue
@@ -2268,13 +2271,10 @@ _git_review_auto_forget_other_documents() {
   # even when labels and the selected diff compare equal. Only the active
   # reader can prove that its source anchor still belongs to retained bytes.
   _git_document_contexts=() _git_document_anchors=()
-  _ZLE_PICKER_DOCUMENT_OFFSETS=("${(@kv)folder_offsets}")
-  _ZLE_PICKER_DOCUMENT_ROWS=("${(@kv)folder_rows}")
+  _zle_picker_document_position retain "${retained[@]}"
   if [[ $current == <-> ]]; then
     [[ -n $saved_context ]] && _git_document_contexts[$current]=$saved_context
     [[ -n $saved_anchor ]] && _git_document_anchors[$current]=$saved_anchor
-    _ZLE_PICKER_DOCUMENT_OFFSETS[$current]=$saved_offset
-    _ZLE_PICKER_DOCUMENT_ROWS[$current]=$saved_row
   fi
 }
 
@@ -2321,27 +2321,26 @@ _git_review_auto_schedule_context_check() {
 # Invalidate derived document state only after a replacement snapshot is ready.
 _git_review_document_reset() {
   local key='' pattern=''
-  local -A folder_offsets=() folder_rows=()
+  local -a reply=() retained=()
   if [[ $_ZLE_PICKER_INSPECT_KEY == d:* ]] && (( ${+functions[_zle_picker_document_bookmark]} )); then
     _zle_picker_document_bookmark
   fi
   # Snapshot indices are obsolete, but exact surviving directory prefixes can
   # retain summary positions. Test each saved prefix once against captured paths;
   # no traversal or prefix catalog is needed even for deeply nested paths.
-  for key in "${(@k)_ZLE_PICKER_DOCUMENT_OFFSETS}"; do
+  _zle_picker_document_position keys
+  for key in "${reply[@]}"; do
     [[ $key == d:* ]] || continue
     pattern="${(b)${key#d:}}*"
     (( ${_GIT_REVIEW_PATHS[(I)${~pattern}]} )) || continue
-    folder_offsets[$key]=${_ZLE_PICKER_DOCUMENT_OFFSETS[$key]}
-    folder_rows[$key]=${_ZLE_PICKER_DOCUMENT_ROWS[$key]:-0}
+    retained+=("$key")
   done
   _git_document_cache=() _git_document_partial=() _git_document_order=()
   _git_document_syntax_cache=() _git_document_syntax_notes=()
   _git_document_syntax_first=() _git_document_syntax_last=()
   _git_document_syntax_failures=()
   _git_document_contexts=() _git_document_anchors=()
-  _ZLE_PICKER_DOCUMENT_OFFSETS=("${(@kv)folder_offsets}")
-  _ZLE_PICKER_DOCUMENT_ROWS=("${(@kv)folder_rows}")
+  _zle_picker_document_position retain "${retained[@]}"
   _ZLE_PICKER_DOCUMENT_KEY='' _ZLE_PICKER_DOCUMENT_TITLE='' _ZLE_PICKER_DOCUMENT_MODE=''
   _ZLE_PICKER_DOCUMENT_PENDING=0
   (( ++_git_review_snapshot_epoch ))
@@ -2539,7 +2538,7 @@ _git_review_auto_publish() {
 
   if [[ $selected == <-> && ${_GIT_REVIEW_PATHS[selected]-} == "$name" &&
         ${_GIT_REVIEW_KINDS[selected]-} == "$change_kind" ]]; then
-    _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$selected]:-0}"
+    _git_review_saved_anchor "$selected"
     anchor=$REPLY
   fi
 
@@ -2637,7 +2636,7 @@ _git_review_refresh() {
   local -i result=0 match=0 rank=0 row=0 old_slot=$(( bookmark[2] - bookmark[3] ))
   _git_review_refresh_succeeded=0
   if [[ -n $selected && $selected == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
-    _git_review_document_anchor "${_ZLE_PICKER_DOCUMENT_ROWS[$selected]:-0}"
+    _git_review_saved_anchor "$selected"
     anchor=$REPLY
   fi
   # Configuration may have changed while an AI or editor was working too.

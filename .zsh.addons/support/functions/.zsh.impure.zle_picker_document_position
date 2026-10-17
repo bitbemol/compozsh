@@ -1,0 +1,50 @@
+# Entry point: _zle_picker_document_position
+# Impure: may observe external or shared state, or apply effects.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Saved document positions are engine state: a wrapped offset, its source row
+# and, for readers, the width it was wrapped at. Callers read and replace them
+# through these operations instead of the maps:
+#   get KEY                        reply=(offset row width), zero when unsaved
+#   set KEY OFFSET [ROW [WIDTH]]   omitted fields keep their saved values
+#   keys                           reply=(saved keys)
+#   retain [KEY...]                forget every other saved position
+_zle_picker_document_position() {
+  emulate -L zsh
+  local operation=$1 key=${2-} field=''
+  case $operation in
+    (get)
+      reply=("${_ZLE_PICKER_DOCUMENT_OFFSETS[$key]:-0}"
+        "${_ZLE_PICKER_DOCUMENT_ROWS[$key]:-0}" "${_ZLE_PICKER_DOCUMENT_WIDTHS[$key]:-0}")
+      ;;
+    (set)
+      (( $# >= 3 && $# <= 5 )) || return 2
+      for field in "${@:3}"; do
+        [[ $field == <-> ]] || return 2
+      done
+      _ZLE_PICKER_DOCUMENT_OFFSETS[$key]=$3
+      (( $# >= 4 )) && _ZLE_PICKER_DOCUMENT_ROWS[$key]=$4
+      (( $# >= 5 )) && _ZLE_PICKER_DOCUMENT_WIDTHS[$key]=$5
+      ;;
+    (keys)
+      reply=("${(@k)_ZLE_PICKER_DOCUMENT_OFFSETS}")
+      ;;
+    (retain)
+      # Rebuild instead of unsetting: path keys may contain subscript syntax.
+      local -A offsets=() rows=() widths=()
+      for key in "${@:2}"; do
+        (( ${+_ZLE_PICKER_DOCUMENT_OFFSETS[$key]} )) && offsets[$key]=${_ZLE_PICKER_DOCUMENT_OFFSETS[$key]}
+        (( ${+_ZLE_PICKER_DOCUMENT_ROWS[$key]} )) && rows[$key]=${_ZLE_PICKER_DOCUMENT_ROWS[$key]}
+        (( ${+_ZLE_PICKER_DOCUMENT_WIDTHS[$key]} )) && widths[$key]=${_ZLE_PICKER_DOCUMENT_WIDTHS[$key]}
+      done
+      _ZLE_PICKER_DOCUMENT_OFFSETS=("${(@kv)offsets}")
+      _ZLE_PICKER_DOCUMENT_ROWS=("${(@kv)rows}")
+      _ZLE_PICKER_DOCUMENT_WIDTHS=("${(@kv)widths}")
+      ;;
+    (*) return 2 ;;
+  esac
+  return 0
+}
+
+
+:

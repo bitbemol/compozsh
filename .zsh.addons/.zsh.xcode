@@ -1615,7 +1615,7 @@ _xcode_run_idle() {
   emulate -L zsh
   local previous_subtitle=$_ZLE_PICKER_SUBTITLE
   local previous_title=${_ZLE_PICKER_INSPECT_TITLE:-} output_state='' source_state=''
-  local -i changed=0 max_offset=0
+  local -i changed=0
   local -i reading=$(( _ZLE_PICKER_INSPECT_FOCUS || _ZLE_PICKER_GUIDE_ACTIVE ))
   local -i open_reader=${_xcode_run_open_reader:-0}
   _xcode_run_read_sources
@@ -1654,8 +1654,7 @@ _xcode_run_idle() {
     _xcode_run_empty_snapshot=0
     [[ -z $output ]] && _xcode_run_empty_snapshot=1
     _ZLE_PICKER_INSPECT_TEXTS[run]=${output:-${_xcode_run_empty_output:-'Waiting for app output.'}}
-    _ZLE_PICKER_INSPECT_WIDTH=0
-    _ZLE_PICKER_INSPECT_OFFSET=100000
+    (( ${+functions[_zle_picker_inspect_invalidate]} )) && _zle_picker_inspect_invalidate tail
     _xcode_run_publish=0
     changed=1
   elif (( reading )); then
@@ -1684,7 +1683,7 @@ _xcode_run_idle() {
     fi
     if [[ ${_ZLE_PICKER_INSPECT_TEXTS[run]} != "$empty_output" ]]; then
       _ZLE_PICKER_INSPECT_TEXTS[run]=$empty_output
-      _ZLE_PICKER_INSPECT_WIDTH=0
+      (( ${+functions[_zle_picker_inspect_invalidate]} )) && _zle_picker_inspect_invalidate keep
       changed=1
     fi
   fi
@@ -1701,16 +1700,9 @@ _xcode_run_idle() {
     (( reading )) && _ZLE_PICKER_INSPECT_TITLE="$source_state · Paused"
   fi
   (( open_reader )) && _xcode_run_open_reader=0
-  if (( !changed && _ZLE_PICKER_INSPECT_WIDTH > 0 &&
-        !_ZLE_PICKER_INSPECT_FOCUS && !_ZLE_PICKER_GUIDE_ACTIVE )); then
-    # A taller or shorter pane changes the tail position even without new
-    # bytes. The shared renderer has already supplied its current geometry.
-    max_offset=$(( ${#_ZLE_PICKER_INSPECT_LINES} - _ZLE_PICKER_INSPECT_PAGE ))
-    (( max_offset < 0 )) && max_offset=0
-    if (( _ZLE_PICKER_INSPECT_OFFSET != max_offset )); then
-      _ZLE_PICKER_INSPECT_OFFSET=$max_offset
-      changed=1
-    fi
+  # A taller or shorter pane changes the tail position even without new bytes.
+  if (( !changed && !_ZLE_PICKER_INSPECT_FOCUS && !_ZLE_PICKER_GUIDE_ACTIVE )); then
+    (( ${+functions[_zle_picker_inspect_tail]} )) && _zle_picker_inspect_tail && changed=1
   fi
   (( _xcode_run_trimmed )) && _ZLE_PICKER_SUBTITLE+=' · older output dropped'
   [[ $previous_subtitle != "$_ZLE_PICKER_SUBTITLE" ||
@@ -1863,13 +1855,11 @@ _xcode_logs_collect() {
       fi
       _ZLE_PICKER_DOCUMENT_ROLES=(info text)
     fi
-    _ZLE_PICKER_INSPECT_WIDTH=0
+    (( ${+functions[_zle_picker_inspect_invalidate]} )) && _zle_picker_inspect_invalidate keep
   fi
   if [[ $query != "$_xcode_logs_query" || ${_ZLE_PICKER_EXCLUDE:-} != "${_xcode_logs_exclude:-}" ]]; then
     _xcode_logs_notice=''
-    _ZLE_PICKER_INSPECT_OFFSET=0
-    _ZLE_PICKER_DOCUMENT_OFFSETS[logs]=0 _ZLE_PICKER_DOCUMENT_ROWS[logs]=0
-    _ZLE_PICKER_DOCUMENT_WIDTHS[logs]=0
+    (( ${+functions[_zle_picker_inspect_invalidate]} )) && _zle_picker_inspect_invalidate top
   fi
   _xcode_logs_query=$query
   _xcode_logs_exclude=${_ZLE_PICKER_EXCLUDE:-}
@@ -1975,21 +1965,19 @@ _xcode_logs_reader_view() {
     'Scroll up to pause; return to the bottom or choose Follow latest to resume.'
     'Copy uses complete displayed matching source lines, including offscreen text.'
     'Options and the guide keep displayed text stable while capture continues.')
-  local -A _ZLE_PICKER_DOCUMENT_OFFSETS=(logs "${_xcode_logs_offset:-100000}")
-  local -A _ZLE_PICKER_DOCUMENT_ROWS=(logs "${_xcode_logs_row:-0}")
-  local -A _ZLE_PICKER_DOCUMENT_WIDTHS=(logs "${_xcode_logs_width:-0}")
-  local -A _ZLE_PICKER_DOCUMENT_SYNTAX=()
+  # Positions end with this view; the Run owner keeps its own reading bookmark.
+  local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=()
+  local -A _ZLE_PICKER_DOCUMENT_WIDTHS=() _ZLE_PICKER_DOCUMENT_SYNTAX=()
   _ZLE_PICKER_INSPECT_TEXTS=(logs '')
   local _xcode_logs_text='' action=''
-  local -a view_bookmark=()
+  local -a view_bookmark=() reply=()
   local -i _xcode_logs_total=0 _xcode_logs_matches=0 _xcode_logs_errors=0 _xcode_logs_faults=0 _xcode_logs_native=0 result=0
   while true; do
     if (( _ZLE_PICKER_DOCUMENT_FOLLOW == 1 )); then
       _xcode_logs_capture
     fi
-    _ZLE_PICKER_DOCUMENT_OFFSETS[logs]=${_xcode_logs_offset:-100000}
-    _ZLE_PICKER_DOCUMENT_ROWS[logs]=${_xcode_logs_row:-0}
-    _ZLE_PICKER_DOCUMENT_WIDTHS[logs]=${_xcode_logs_width:-0}
+    _zle_picker_document_position set logs "${_xcode_logs_offset:-100000}" \
+      "${_xcode_logs_row:-0}" "${_xcode_logs_width:-0}"
     # The reader opens focused on the log document.
     view_bookmark=("$_xcode_logs_query" 1 0 "${_xcode_logs_exclude:-}" \
       "${_xcode_logs_exclude_focus:-0}" "${_xcode_logs_exclude_shown:-0}" 1)
@@ -2000,9 +1988,8 @@ _xcode_logs_reader_view() {
     _xcode_logs_exclude=${_ZLE_PICKER_BOOKMARK[4]-}
     _xcode_logs_exclude_focus=${_ZLE_PICKER_BOOKMARK[5]:-0}
     _xcode_logs_exclude_shown=${_ZLE_PICKER_BOOKMARK[6]:-0}
-    _xcode_logs_offset=${_ZLE_PICKER_DOCUMENT_OFFSETS[logs]:-0}
-    _xcode_logs_row=${_ZLE_PICKER_DOCUMENT_ROWS[logs]:-0}
-    _xcode_logs_width=${_ZLE_PICKER_DOCUMENT_WIDTHS[logs]:-0}
+    _zle_picker_document_position get logs
+    _xcode_logs_offset=$reply[1] _xcode_logs_row=$reply[2] _xcode_logs_width=$reply[3]
     (( result == 0 )) || return $result
     action=$_ZLE_PICKER_ACTION
     if [[ $action == select ]]; then

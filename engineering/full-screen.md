@@ -273,6 +273,15 @@ These are Compozsh controls, not claims about macOS-wide standards.
   caller requests that still work with zero matching lines. Static text
   readers filter literal lines case-insensitively and release their maps on
   exit.
+- The shared UI owns prepared rows, scroll offsets and saved document
+  positions. A caller whose captured text or presentation metadata changed
+  requests a rewrap with `_zle_picker_inspect_invalidate keep|tail|top`
+  (keep the position, show the newest rows, or start at the first row and
+  forget the document's saved position); a live pane that follows its newest
+  rows uses `_zle_picker_inspect_tail` after a resize, which reports whether
+  the position moved. Callers read, replace, list or retain saved positions
+  only through `_zle_picker_document_position`, never by writing the offset,
+  width or position maps; wrapping and clamping stay in the renderer.
 - Primary document workspaces follow the [Git review contract](workspaces/git.md#git-review-workspace-boundary).
 
 ## Action workspaces
