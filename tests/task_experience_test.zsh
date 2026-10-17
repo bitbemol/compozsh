@@ -94,9 +94,10 @@ _test_task_consumers() {
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.find"
     source "$1/.zsh.addons/.zsh.git-review"
+    source "$1/.zsh.addons/.zsh.navigation"
     local expected="files" target=$2
     _ZLE_PICKER_SESSION=1
-    _zle_picker_loop() {
+    _check() {
       (( _ZLE_PICKER_ACTION_VIEW )) || return 10
       case $expected in
         files) [[ $_ZLE_PICKER_ACTION_CONTEXT == *"$target"* &&
@@ -108,6 +109,8 @@ _test_task_consumers() {
       esac
       print "$expected"
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _check -- select insert -- observe _check -- select working
     _file_search_actions "$target" "" "" || exit $?
     expected=git
     _git_review_options /example/repo "feature/literal %" || exit $?
@@ -127,19 +130,22 @@ _test_task_draft_inspect() {
     local original=$BUFFER
     _ZLE_PICKER_BOOKMARK=(outer 1 0) _ZLE_PICKER_SELECTED_VALUE=outer
     [[ $(bindkey $'"'"'\e\r'"'"') == *compozsh-inspect* ]] || exit 1
-    _zle_picker_screen_session() { "$1"; }
-    _zle_picker_loop() {
+    # The widget always returns 0, so the checked view records that it passed.
+    local -i checked=0
+    _check() {
       (( _ZLE_PICKER_ACTION_VIEW )) || return 11
       [[ $_ZLE_PICKER_ACTION_CONTEXT == *"Cursor 4"* ]] || return 12
       [[ ${_DRAFT_INSPECT_VALUES[(Ie)read]} != 0 ]] || return 13
       [[ ${_DRAFT_INSPECT_VALUES[(Ie)files]} != 0 ]] || return 14
-      _ZLE_PICKER_SELECTED_VALUE=back
-      _ZLE_PICKER_BOOKMARK=(private-filter 1 0)
       _ZLE_PICKER_DISPLAY=(private-draft-frame)
-      return 0
+      checked=1
     }
+    # Back leaves its own selection and bookmark, which must not escape.
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _check -- select back
     zle() { :; }
     _draft_inspect_widget || exit $?
+    (( checked )) || exit 5
     [[ $BUFFER == "$original" && $CURSOR == 4 && -z ${_DRAFT_INSPECT_BUFFER-} ]] || exit 2
     [[ $_ZLE_PICKER_BOOKMARK[1] == outer && $_ZLE_PICKER_SELECTED_VALUE == outer &&
        ${_ZLE_PICKER_DISPLAY[1]-} != private-draft-frame ]] || exit 3
@@ -264,12 +270,14 @@ _test_task_prompt_entry_and_logs() {
     _prompt_interaction_layout
     [[ $_PROMPT_INTERACTION_SEGMENT != *"inspect draft"* ]] || exit 3
     _xcode_logs_matches=5 _xcode_logs_total=8 _xcode_logs_follow=1
-    _zle_picker_loop() {
+    _check() {
       (( _ZLE_PICKER_ACTION_VIEW )) || return 10
       [[ $_ZLE_PICKER_INSPECT_TEXTS[last] == *"new output"* &&
          $_ZLE_PICKER_ACCEPT_LABELS[last] == "follow latest" ]] || return 11
       print connected
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _check -- select last
     _xcode_logs_options
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal connected "$output"

@@ -116,7 +116,7 @@ _test_help_workspace_argument_colors() {
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help"
-    _zle_picker_loop() {
+    _check() {
       local label="" id=""
       for label in "--review [base head]" "<directory>" status; do
         id=${_HELP_TOPIC_LABELS[(Ie)$label]}
@@ -136,8 +136,9 @@ _test_help_workspace_argument_colors() {
       _zle_picker_render "--review" "$row"
       [[ $_ZLE_PICKER_DISPLAY_HIGHLIGHTS[row] == *:picker-header &&
          $_ZLE_PICKER_DISPLAY[row] != *$'\''\e'\''* ]] || return 11
-      return 1
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _check -- cancel
     _compozsh_help_workspace $'\''usage: example\nRead the guide.\n\nOptions:\n  --review [base head]  Review changes.\n  <directory>  Select a folder.\n  status  Read status.\n\nSafety:\n  No writes.'\''
     [[ $? == 1 && ${#_ZLE_PICKER_LABEL_HIGHLIGHTS} == 0 ]] || exit 1
     _zle_picker_label_highlight_style picker-header 0
@@ -201,7 +202,7 @@ _test_help_workspace_explanation_colors() {
     (( ${#reply} == 128 )) || exit 6
     [[ $MATCH == preserved && $MBEGIN == 7 && $MEND == 9 &&
        $match[1] == preserved && $mbegin[1] == 7 && $mend[1] == 9 ]] || exit 7
-    _zle_picker_loop() {
+    _check() {
       [[ $_ZLE_PICKER_REFERENCE_VIEW == "$expected" ]] || return 10
       _zle_ui_text_collect --help 10
       _zle_picker_inspect_prepare text 20
@@ -210,8 +211,9 @@ _test_help_workspace_explanation_colors() {
       else
         [[ -z ${(j::)_ZLE_PICKER_INSPECT_SYNTAX} ]] || return 12
       fi
-      return 1
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _check -- cancel -- observe _check -- cancel
     local expected=1
     _zle_ui_read_text Help Captured "$text" reference
     [[ $? == 1 ]] || exit 4

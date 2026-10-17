@@ -84,7 +84,7 @@ _test_task_family_device_cards() {
     source "$1/.zsh.addons/.zsh.usb"
     _usb_images_capture() { return 99; }
     _usb_disks_capture() { return 99; }
-    _zle_picker_loop() {
+    _check() {
       (( _ZLE_PICKER_ACTION_VIEW )) || return 10
       [[ $_ZLE_PICKER_TITLE == "External device / Tasks" &&
          $_ZLE_PICKER_ACCEPT_LABELS[flash] == "choose media" &&
@@ -92,8 +92,9 @@ _test_task_family_device_cards() {
          $_ZLE_PICKER_INSPECT_TEXTS[format] == *"ERASE diskN"* ]] || return 11
       _usb_picker_collect "format" 10
       [[ ${(j:|:)_ZLE_PICKER_RESULTS} == format ]] || return 12
-      _ZLE_PICKER_SELECTED_VALUE=format
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _check -- select format
     _usb_task_choose || exit $?
     [[ $_ZLE_PICKER_SELECTED_VALUE == format ]] || exit 13
     print cards
@@ -143,7 +144,7 @@ _test_task_family_export_plan() {
     source "$1/.zsh.addons/.zsh.xcode"
     local -a agent_names=("Example agent") skill_dirs=("/example/literal [skills]")
     local agent_path="/example/Xcode/agent"
-    _zle_picker_loop() {
+    _check() {
       (( _ZLE_PICKER_ACTION_VIEW )) || return 10
       [[ $_ZLE_PICKER_TITLE == "Xcode / Export skills" &&
          $_ZLE_PICKER_ACTION_CONTEXT == *"/example/literal [skills]"* &&
@@ -151,9 +152,10 @@ _test_task_family_export_plan() {
          $_ZLE_PICKER_ACCEPT_LABELS[export] == "export skills" ]] || return 11
       _xcode_picker_collect "update" 10
       [[ ${(j:|:)_ZLE_PICKER_RESULTS} == export ]] || return 12
-      _ZLE_PICKER_SELECTED_VALUE=export
       print plan
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _check -- select export
     _xcode_export_review || exit $?
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal plan "$output"
@@ -167,9 +169,11 @@ _test_task_family_identity() {
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.usb"
-    _zle_picker_loop() { print -r -- "$_ZLE_PICKER_TITLE"; }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script cancel -- cancel
     _usb_read_image_path
     _usb_read_volume_name
+    print -rl -- "${TEST_PICKER_TITLES[@]}"
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal $'External device / Flash / Add media\nExternal device / Format / Volume name' "$output"
 }

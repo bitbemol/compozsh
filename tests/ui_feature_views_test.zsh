@@ -93,7 +93,7 @@ _test_ui_feature_query_scopes() {
     _ZLE_PICKER_PASSIVE_LINES=(outer) _ZLE_PICKER_INSPECT_TEXTS=(outer detail)
     _GWT_ROOT=/example
     local fixture="" result=0
-    _zle_picker_loop() {
+    _check() {
       (( _ZLE_PICKER_QUERY_SUBMIT && !_ZLE_PICKER_DIGIT_SELECT &&
           !_ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY && !_ZLE_PICKER_COPY_ENABLED &&
           _ZLE_PICKER_DOCUMENT_FOLLOW == -1 )) || return 30
@@ -104,9 +104,10 @@ _test_ui_feature_query_scopes() {
       _ZLE_PICKER_RESULTS=(stale) _ZLE_PICKER_LABELS=(stale)
       "$_ZLE_PICKER_COLLECTOR" query 10
       (( !${#_ZLE_PICKER_RESULTS} && !${#_ZLE_PICKER_LABELS} )) || return 32
-      return 1
     }
+    source "$1/tests/picker_support.zsh"
     for fixture in image checksum volume worktree revision; do
+      test_picker_script observe _check -- cancel
       case $fixture in
         image) _usb_read_image_path Scope ;;
         checksum) _usb_read_checksum Scope draft ;;
@@ -134,7 +135,7 @@ _test_ui_feature_passive_results() {
     source "$1/.zsh.addons/.zsh.usb"
     source "$1/.zsh.addons/.zsh.xcode"
     local fixture="" result=0
-    _zle_picker_loop() {
+    _check() {
       if [[ $fixture == usb ]]; then
         [[ ${(j:|:)_ZLE_PICKER_PASSIVE_LINES} == "Verified|Issue" &&
            ${(j:|:)_ZLE_PICKER_PASSIVE_STYLES} == "picker-success|picker-error" &&
@@ -147,9 +148,10 @@ _test_ui_feature_passive_results() {
         [[ ${(j:|:)_ZLE_PICKER_PASSIVE_LINES} == "Passed" &&
            ${_ZLE_PICKER_ACCEPT_LABELS[copy-report]} == "copy report and done" ]] || return 33
       fi
-      return 1
     }
+    source "$1/tests/picker_support.zsh"
     for fixture in usb windows xcode; do
+      test_picker_script observe _check -- cancel
       case $fixture in
         usb)
           _USB_PICKER_VALUES=(done verified issue) _USB_PICKER_LABELS=(Done Verified Issue)

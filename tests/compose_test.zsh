@@ -74,7 +74,8 @@ _test_compose_journey() {
     _zle_picker_screen_session() { return 1; }
     _draft_inspect_widget
     [[ $BUFFER == original && $CURSOR == 2 ]] || exit 4
-    _zle_picker_loop() { _ZLE_PICKER_SELECTED_VALUE=apply; return 0; }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script select apply
     _compozsh_compose_open " mkcd ./example" "$PWD" || exit 5
     [[ $_COMPOZSH_COMPOSE_RESULT == " mkcd -- ./example" ]] || exit 6
     print journey
@@ -107,7 +108,9 @@ _test_compose_help_entry() {
     _compozsh_help_workspace "$(_compozsh_help_mkcd)" mkcd || exit $?
     [[ $opened == 1 && $_COMPOZSH_COMPOSE_RESULT == "mkcd -- ./example" ]] || exit 2
     # Prose that names a real command is not template authority.
-    _zle_picker_loop() { (( _HELP_COMPOSE_INDEX == 0 )) || return 14; return 1; }
+    _no_compose() { (( _HELP_COMPOSE_INDEX == 0 )) || return 14; }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _no_compose -- cancel
     _compozsh_help_workspace "$(_compozsh_help_mkcd)"
     [[ $? == 1 ]] || exit 3
     print help

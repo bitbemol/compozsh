@@ -271,13 +271,13 @@ _test_compozsh_explorer_titles_notices_with_the_selected_tool() {
   test_make_temp_dir || return
   local output=''
 
-  # Each loop visit consumes one step: a tool or topic to open, or back.
+  # Each view records its title, then opens a tool or topic, or goes back.
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.help" || exit
     _COMPOZSH_TOOL_NAMES=(demo-tool limited documented)
-    typeset -ga titles=() steps=(demo-tool 1 back limited back documented back back)
+    typeset -ga titles=()
     _compozsh_tool_inspector_capture() {
       _ZLE_PICKER_INSPECT_TEXTS=(
         demo-tool "No Compozsh help is available for demo-tool.
@@ -286,16 +286,14 @@ Defined in: .zsh.fixture"
         documented "usage: documented [name]
 Explain a documented tool.")
     }
-    _zle_picker_run() { "${@[-1]}" }
     _zle_ui_read_text() { titles+=("$1"); return 1 }
-    _zle_picker_loop() {
-      local step=${steps[1]-back}
-      (( ${#steps} )) && steps[1]=()
-      [[ $_ZLE_PICKER_TITLE == "Tool explorer" ]] || titles+=("$_ZLE_PICKER_TITLE")
-      [[ $step == back ]] && return 1
-      _ZLE_PICKER_SELECTED_VALUE=$step _ZLE_PICKER_BOOKMARK=("" 1 0)
-      return 0
-    }
+    _record_title() { [[ $_ZLE_PICKER_TITLE == "Tool explorer" ]] || titles+=("$_ZLE_PICKER_TITLE"); }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _record_title -- select demo-tool -- \
+      observe _record_title -- select 1 -- observe _record_title -- cancel -- \
+      observe _record_title -- select limited -- observe _record_title -- cancel -- \
+      observe _record_title -- select documented -- observe _record_title -- cancel -- \
+      observe _record_title -- cancel
     _compozsh_choose
     print -r -- "${(j:|:)titles}"
   ' "$TEST_REPO_ROOT") || return

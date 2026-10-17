@@ -890,10 +890,12 @@ _test_usb_step_one_alone_has_secondary_image_details() {
     _USB_PICKER_HIGHLIGHTS=("" "7:12:picker-size")
     _USB_PICKER_SEARCH=(custom linux)
     _USB_PICKER_DETAILS=("Browse from home" $'\''Linux image\n\nPath · /images/linux.iso'\'')
-    _zle_picker_loop() {
+    _show_view() {
       print -r -- "details:${#_ZLE_PICKER_INSPECT_TEXTS}|${_ZLE_PICKER_INSPECT_TEXTS[image:1]-}"
       print -r -- "row-style:${_ZLE_PICKER_LABEL_HIGHLIGHTS[image:1]-}"
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _show_view -- select image:1
     _usb_choose "External device / Flash · Step 1 of 3" "IMAGE  ›  Drive  ›  Flash" "Filter images" 1 0 1
   ' "$TEST_REPO_ROOT") || return
 
@@ -1673,11 +1675,13 @@ _test_usb_steps_use_clean_single_pane_choices() {
     _USB_PICKER_LABELS=(One Two)
     _USB_PICKER_SEARCH=(one two)
     _USB_PICKER_DETAILS=(secret-one secret-two)
-    _zle_picker_loop() {
+    _show_view() {
       print -r -- "title:${_ZLE_PICKER_TITLE}"
       print -r -- "subtitle:${_ZLE_PICKER_SUBTITLE}"
       print -r -- "details:${#_ZLE_PICKER_INSPECT_TEXTS}"
     }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script observe _show_view -- select one
     _usb_choose "External device / Flash · Step 1 of 3" "IMAGE  ›  Drive  ›  Flash" "Filter images"
   ' "$TEST_REPO_ROOT") || return
 
@@ -2521,7 +2525,9 @@ _test_usb_format_catalog_failure_is_not_a_cancel() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$HOME
     _matching_compile() { :; }
-    _zle_picker_run() { "$5"; }
+    # The format session runs for real; it opens no view before the catalog.
+    source "$1/tests/picker_support.zsh"
+    test_picker_script
     _usb_external_device_choose() {
       _USB_DISK_IDS=(disk9) _USB_DISK_LABELS=(external-drive)
       _USB_DISK_SIZES=(9000000000) _USB_DISK_FINGERPRINTS=(disk-fingerprint)
