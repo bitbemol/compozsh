@@ -14,20 +14,20 @@
 #
 # Each call replaces the engine entry points (call it once the support and
 # peers under test are loaded), sets the script and clears the observation log.
-# Every view appends its title, subtitle and visible labels (one per line) to
-# TEST_PICKER_TITLES, TEST_PICKER_SUBTITLES and TEST_PICKER_LABELS. A view with
-# no step left, an unknown step or a selection its collector did not return
-# fails with status 2 and a diagnostic on stderr. Outputs and bookmarks are set
-# as the engine sets them; the stubs read no keys and do not paint, run idle or
-# deadline callbacks, preview documents or keep document positions. Tests of
-# those engine behaviors keep the real loop.
+# Every view appends its title, subtitle, page size and visible labels (one per
+# line) to TEST_PICKER_TITLES, TEST_PICKER_SUBTITLES, TEST_PICKER_LIMITS and
+# TEST_PICKER_LABELS. A view with no step left, an unknown step or a selection
+# its collector did not return fails with status 2 and a diagnostic on stderr.
+# Outputs and bookmarks are set as the engine sets them; the stubs read no keys
+# and do not paint, run idle or deadline callbacks, preview documents or keep
+# document positions. Tests of those engine behaviors keep the real loop.
 
 typeset -ga TEST_PICKER_STEPS=() TEST_PICKER_TITLES=() TEST_PICKER_SUBTITLES=()
-typeset -ga TEST_PICKER_LABELS=()
+typeset -ga TEST_PICKER_LIMITS=() TEST_PICKER_LABELS=()
 
 test_picker_script() {
   TEST_PICKER_STEPS=("$@")
-  TEST_PICKER_TITLES=() TEST_PICKER_SUBTITLES=() TEST_PICKER_LABELS=()
+  TEST_PICKER_TITLES=() TEST_PICKER_SUBTITLES=() TEST_PICKER_LIMITS=() TEST_PICKER_LABELS=()
   _zle_picker_loop() { _test_picker_loop "$@"; }
   _zle_picker_run() { _test_picker_run "$@"; }
   _zle_picker_screen_session() { _test_picker_screen_session "$@"; }
@@ -111,6 +111,7 @@ _test_picker_loop() {
     (( selected > count )) && selected=$count
     TEST_PICKER_TITLES+=("${_ZLE_PICKER_TITLE-}")
     TEST_PICKER_SUBTITLES+=("${_ZLE_PICKER_SUBTITLE-}")
+    TEST_PICKER_LIMITS+=($limit)
     TEST_PICKER_LABELS+=("${(pj:\n:)_ZLE_PICKER_LABELS[offset+1,offset+limit]}")
     while _test_picker_next_step; do
       step=("${reply[@]}")

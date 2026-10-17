@@ -711,6 +711,7 @@ _test_picker_script_helper() {
     _probe eight choice
     _probe nine choice
     print -r -- "titles:${(j:|:)TEST_PICKER_TITLES}"
+    print -r -- "limits:${(j:|:)TEST_PICKER_LIMITS}"
     print -r -- "subtitle:$TEST_PICKER_SUBTITLES[2]"
     print -r -- "labels:${(V)TEST_PICKER_LABELS[1]}"
     print -r -- "detail:$(<"$HOME/stderr")"
@@ -726,9 +727,10 @@ run-cancel:1
 eight:2:0::select::0:0
 nine:2:0::select::0:0
 titles:one|two|three|four|five|six|six|eight|nine
+limits:10|10|10|10|10|5|5|10|10
 subtitle:two subtitle
 labels:Alpha\nBeta\nGamma delta'
-  test_assert_equal "$expected" "${(F)${(f)output}[1,13]}" 'scripted views received the wrong outcomes' || return
+  test_assert_equal "$expected" "${(F)${(f)output}[1,14]}" 'scripted views received the wrong outcomes' || return
   test_assert_contains "$output" "not among the view's results" 'an uncollected selection was not reported' || return
   test_assert_contains "$output" 'no step left' 'an exhausted script was not reported'
 }

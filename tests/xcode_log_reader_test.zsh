@@ -112,15 +112,16 @@ _test_xcode_log_reader_feedback() {
     local _xcode_run_lldb=/fixture/lldb _xcode_run_identity=fixture
     local _xcode_run_log=message _xcode_run_eof=0 _xcode_run_trimmed=0 _xcode_run_context=fixture
     local _xcode_run_unified_status=following _xcode_run_read_error=0
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _copy_failure_check() {
       COLUMNS=70 LINES=11 _ZLE_PICKER_SCREEN_ACTIVE=1
       _xcode_picker_collect "" 10
       _zle_picker_render "" 1
       [[ $_ZLE_PICKER_HEADER == *"Copy failed: clipboard write failed"* ]] || {
         print -u2 "copy failure hidden in short Run screen"; return 9;
       }
-      _ZLE_PICKER_SELECTED_VALUE=stop
     }
+    test_picker_script observe _copy_failure_check -- select stop
     _xcode_run_controller || exit $?
     local _xcode_logs_snapshot=message _xcode_logs_query="" _xcode_run_clipboard=""
     local _xcode_logs_trimmed=1 _xcode_logs_notice="" _xcode_logs_text=""

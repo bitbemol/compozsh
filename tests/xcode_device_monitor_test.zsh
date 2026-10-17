@@ -52,7 +52,10 @@ while read -r -u $gate line; do :; done' || return
     source "$1/.zsh.addons/.zsh.xcode"
     path=("$2/bin" $path)
     export TMPDIR=$HOME
-    _zle_picker_run() {
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/tests/picker_support.zsh"
+    _console_ready() {
       local -i attempts=0
       while (( attempts++ < 100 )); do
         _xcode_run_read_sources
@@ -61,8 +64,10 @@ while read -r -u $gate line; do :; done' || return
       done
       [[ $_xcode_run_log == *ready* && ! -f $HOME/stopped ]] || return 91
       print restored > "$HOME/restored"
-      _ZLE_PICKER_SELECTED_VALUE=stop
     }
+    test_picker_script observe _console_ready -- cancel -- select stop -- \
+      observe _console_ready -- cancel -- select stop -- \
+      observe _console_ready -- cancel -- select stop
     _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV" || exit 1
     [[ $(<"$HOME/stopped") == stopped ]] || exit 2
     command rm "$HOME/restored" "$HOME/stopped"

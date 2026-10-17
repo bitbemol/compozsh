@@ -148,7 +148,8 @@ _test_xcode_log_paused_source_failure_visibility() {
       [[ $scenario == failed && $2 == $source_fd ]] && return $failure
       return 4
     }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _paused_source_check() {
       local seed="" expected="" before="" visible="" prepared="" source_name=""
       COLUMNS=70 LINES=18 _ZLE_PICKER_SCREEN_ACTIVE=1
       _xcode_picker_collect "" 10
@@ -200,9 +201,8 @@ _test_xcode_log_paused_source_failure_visibility() {
           done
         done
       done
-      _ZLE_PICKER_SELECTED_VALUE=stop
-      return 0
     }
+    test_picker_script observe _paused_source_check -- select stop
     _xcode_run_controller || exit $?
     print visible-source-state
   ' "$TEST_REPO_ROOT") || return

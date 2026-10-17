@@ -568,7 +568,8 @@ _test_xcode_lazy_destination_view_accept_labels() {
     local -a _XCODE_PICKER_VALUES=(1 2) _XCODE_PICKER_LABELS=("My Mac" "My Phone")
     local -a _XCODE_PICKER_SEARCH=("My Mac" "My Phone") _XCODE_PICKER_DETAILS=("Mac details" "Phone details")
     local _XCODE_PENDING_ACTION_LABEL=""
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _destination_labels_check() {
       (( ++seen ))
       if [[ $mode == action ]]; then
         [[ $_ZLE_PICKER_BROWSE_LABEL == "Choose destination for $label" &&
@@ -585,14 +586,15 @@ _test_xcode_lazy_destination_view_accept_labels() {
           print -u2 "read-only destination choice inherited pending execution labels"; return 10
         }
       fi
-      return 1
     }
     for label in Build Rebuild Test "Rebuild & Test" Analyze Clean "Build & Run" "Rebuild & Run"; do
       _XCODE_PENDING_ACTION_LABEL=$label
+      test_picker_script observe _destination_labels_check -- cancel
       _xcode_choose "Xcode / Destination" App "Filter destinations" action-destination
       [[ $? == 1 ]] || exit 11
     done
     mode=choice
+    test_picker_script observe _destination_labels_check -- cancel
     _xcode_choose "Xcode / Destination" App "Filter destinations"
     [[ $? == 1 && $seen == 9 ]] || exit 12
     print labeled

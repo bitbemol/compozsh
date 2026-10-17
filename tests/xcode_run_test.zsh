@@ -132,7 +132,11 @@ _test_xcode_run_pipe_mapping() {
       return 0
     }
     _xcode_run_identity() { return 1; }
-    _zle_picker_run() { _ZLE_PICKER_SELECTED_VALUE=stop; return 0; }
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/tests/picker_support.zsh"
+    # Only the valid root opens Run: its first log reader, then actions.
+    test_picker_script cancel -- select stop
     for scenario in relative "$HOME/missing" "$HOME/link" "$HOME/link/" "$HOME/link/." "$HOME/linked-child" "$root"$'\''\nextra'\'' "$root"$'\''\t'\''; do
       _xcode_run_live SIM-456 com.example.app fixture
       [[ $? != 0 && $launches == 0 ]] || { print -u2 "invalid Simulator root reached launch"; exit 1; }
@@ -257,7 +261,8 @@ _test_xcode_run_quiet_feedback() {
     local _xcode_run_publish=1 _xcode_run_read_error=0 _xcode_run_fd=-1
     local _xcode_run_unified_status=following _xcode_run_unified_fd=-1
     sysread() { return 4; }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _quiet_feedback_check() {
       _ZLE_PICKER_INSPECT_FOCUS=0 _ZLE_PICKER_GUIDE_ACTIVE=0
       _xcode_run_idle
       [[ $_ZLE_PICKER_INSPECT_TITLE == "App output · Following" &&
@@ -280,9 +285,8 @@ _test_xcode_run_quiet_feedback() {
       _xcode_run_idle
       [[ $_ZLE_PICKER_INSPECT_TITLE == "App output · Following" &&
          ${_ZLE_PICKER_INSPECT_TEXTS[run]} == received ]] || return 12
-      _ZLE_PICKER_SELECTED_VALUE=stop
-      return 0
     }
+    test_picker_script observe _quiet_feedback_check -- select stop
     _xcode_run_controller || exit $?
     print feedback
   ' "$TEST_REPO_ROOT") || return
@@ -303,7 +307,8 @@ _test_xcode_run_narrow_layout() {
     local _xcode_run_log=$(print -rl -- row-{001..100})
     local _xcode_run_eof=1 _xcode_run_trimmed=0 _xcode_run_context=fixture
     local _xcode_run_publish=1 _xcode_run_read_error=0
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _narrow_layout_check() {
       local columns=0 lines=0 query="" index=0
       _ZLE_PICKER_SCREEN_ACTIVE=1
       for columns in 80 70 40; do
@@ -328,9 +333,9 @@ _test_xcode_run_narrow_layout() {
           done
         done
       done
-      _ZLE_PICKER_SELECTED_VALUE=stop
-      return 0
     }
+    # The last check filters out every action; clear the filter before Stop.
+    test_picker_script observe _narrow_layout_check -- observe _xcode_picker_collect "" 10 -- select stop
     _xcode_run_controller || exit $?
     print visible
   ' "$TEST_REPO_ROOT") || return
@@ -360,11 +365,12 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _zle_picker_run() {
-      _ZLE_PICKER_SELECTED_VALUE=stop
-      command rm -f -- "$HOME/identity"
-      return 0
-    }
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/tests/picker_support.zsh"
+    _forget_identity() { command rm -f -- "$HOME/identity"; }
+    test_picker_script observe _forget_identity -- cancel -- select stop -- \
+      observe _forget_identity -- cancel -- select stop
     _xcode_run_live SIM-456 com.example.app fixture
     [[ $? == 1 && ! -e $HOME/effects ]] || { print -u2 "initial identity failure silently succeeded"; exit 2; }
     print identity > "$HOME/identity"
@@ -405,7 +411,12 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
     export TMPDIR=$HOME SCENARIO=failed
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _zle_picker_run() { print screen >> "$HOME/effects"; _ZLE_PICKER_SELECTED_VALUE=stop; }
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/tests/picker_support.zsh"
+    _mark_screen() { print screen >> "$HOME/effects"; }
+    # Only the stop-failed launch opens Run: its first log reader, then actions.
+    test_picker_script observe _mark_screen -- cancel -- select stop
     _xcode_run_live SIM-456 com.example.app fixture
     [[ $? == 65 && ! -f $HOME/effects ]] || exit 1
     SCENARIO=malformed
@@ -460,18 +471,17 @@ exit 23' || return
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     (( ${+functions[_xcode_run_live]} )) || { print -u2 "missing run view"; exit 1; }
-    _zle_picker_run() {
-      [[ -p $_xcode_run_fifo && $_xcode_run_pid == 12345 ]] || return 8
-      _ZLE_PICKER_SELECTED_VALUE=$choice
-      [[ $choice == replaced ]] && { print replaced > "$HOME/replaced"; _ZLE_PICKER_SELECTED_VALUE=lldb; }
-      return 0
-    }
-    choice=stop
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/tests/picker_support.zsh"
+    _launched_check() { [[ -p $_xcode_run_fifo && $_xcode_run_pid == 12345 ]] || return 8; }
+    _replace_process() { print replaced > "$HOME/replaced"; }
+    test_picker_script observe _launched_check -- cancel -- select stop
     _xcode_run_live SIM-456 com.example.app "App · Simulator" || exit 2
-    choice=lldb
+    test_picker_script observe _launched_check -- cancel -- select lldb
     _xcode_run_live SIM-456 com.example.app "App · Simulator"
     [[ $? == 23 ]] || exit 3
-    choice=replaced
+    test_picker_script observe _launched_check -- observe _replace_process -- cancel -- select lldb
     _xcode_run_live SIM-456 com.example.app "App · Simulator"
     [[ $? != 0 ]] || exit 4
     [[ -z $(print -rl -- "$HOME/simulator data/tmp"/compozsh-xcode-run.*(N)) ]] || exit 5
@@ -520,11 +530,14 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _zle_picker_run() {
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/tests/picker_support.zsh"
+    _device_state() {
       _xcode_logs_status
       print -r -- "device:$_xcode_run_device|$_xcode_device_done|$_xcode_device_pid|$_xcode_device_status"
-      _ZLE_PICKER_SELECTED_VALUE=stop
     }
+    test_picker_script observe _device_state -- cancel -- select stop
     _xcode_run_live SIM-456 com.example.app "App · Simulator"
     print -r -- "run:$?"
     local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"

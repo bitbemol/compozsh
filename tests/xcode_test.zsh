@@ -730,11 +730,13 @@ _test_xcode_digit_select_choosers_limit_each_visible_page_to_ten() {
     _XCODE_PICKER_LABELS=({1..11})
     _XCODE_PICKER_SEARCH=({1..11})
     _XCODE_PICKER_DETAILS=({1..11})
-    _zle_picker_loop() { print -r -- "limit:$2"; return 1 }
+    source "$1/tests/picker_support.zsh"
+    test_picker_script cancel -- cancel
     _xcode_choose Xcode Scope Filter
     _XCODE_TEST_PASSIVE_LINES=() _XCODE_TEST_PASSIVE_STYLES=()
     _XCODE_PICKER_HIGHLIGHTS=()
     _xcode_test_result_choose Result Scope
+    print -rl -- "limit:"${^TEST_PICKER_LIMITS}
   ' "$TEST_REPO_ROOT") || true
 
   test_assert_equal $'limit:10\nlimit:10' "$output" \
@@ -759,44 +761,37 @@ _test_xcode_action_option_colors() {
       _XCODE_DESTINATION_PLATFORMS=("iOS Simulator")
       _XCODE_DESTINATION_NAMES=("iPad · iOS 27")
     }
-    local -i action_step=0
-    _zle_picker_loop() {
-      if [[ $_ZLE_PICKER_TITLE == "Xcode / Actions" ]]; then
-        (( ++action_step ))
-        if (( action_step == 1 )); then
-          _ZLE_PICKER_SELECTED_VALUE=destination
-          return 0
-        fi
-        local -i index=0
-        local prefix="" value=""
-        for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
-          value=${_XCODE_PICKER_VALUES[index]}
-          prefix=${_XCODE_PICKER_LABELS[index]%% · *}
-          [[ ${_ZLE_PICKER_LABEL_HIGHLIGHTS[$value]-} == "0:${#prefix}:picker-header" ]] || {
-            print -u2 -- "missing option color: $value"; return 8
-          }
-        done
-        _xcode_picker_collect Destination 10
-        [[ $_ZLE_PICKER_RESULTS[1] == destination &&
-           $_ZLE_PICKER_LABELS[1] == Destination &&
-           $_ZLE_PICKER_DESCRIPTIONS[destination] == "iPad · iOS 27" &&
-           $_ZLE_PICKER_ACTION_CONTEXT == *SIM-123* ]] || return 9
-        COLUMNS=36 LINES=18
-        _zle_picker_render Destination 1
-        [[ ${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[1]} == "7:18:picker-header" &&
-           ${_ZLE_PICKER_DISPLAY[1]} != *$'\''\e'\''* ]] || return 10
-        print colored
-      elif [[ $_ZLE_PICKER_TITLE == "Xcode / Destination" ]]; then
-        _ZLE_PICKER_SELECTED_VALUE=1
-        return 0
-      else
-        (( !${#_ZLE_PICKER_LABEL_HIGHLIGHTS} )) || return 11
-        print unstyled
-      fi
-      return 1
+    source "$1/tests/picker_support.zsh"
+    _action_colors_check() {
+      local -i index=0
+      local prefix="" value=""
+      for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
+        value=${_XCODE_PICKER_VALUES[index]}
+        prefix=${_XCODE_PICKER_LABELS[index]%% · *}
+        [[ ${_ZLE_PICKER_LABEL_HIGHLIGHTS[$value]-} == "0:${#prefix}:picker-header" ]] || {
+          print -u2 -- "missing option color: $value"; return 8
+        }
+      done
+      _xcode_picker_collect Destination 10
+      [[ $_ZLE_PICKER_RESULTS[1] == destination &&
+         $_ZLE_PICKER_LABELS[1] == Destination &&
+         $_ZLE_PICKER_DESCRIPTIONS[destination] == "iPad · iOS 27" &&
+         $_ZLE_PICKER_ACTION_CONTEXT == *SIM-123* ]] || return 9
+      COLUMNS=36 LINES=18
+      _zle_picker_render Destination 1
+      [[ ${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[1]} == "7:18:picker-header" &&
+         ${_ZLE_PICKER_DISPLAY[1]} != *$'\''\e'\''* ]] || return 10
+      print colored
     }
+    _unstyled_check() {
+      (( !${#_ZLE_PICKER_LABEL_HIGHLIGHTS} )) || return 11
+      print unstyled
+    }
+    test_picker_script select destination -- select 1 -- observe _action_colors_check -- cancel -- \
+      observe _unstyled_check -- cancel
     _xcode_workspace_controller
     [[ $? == 1 ]] || exit 1
+    [[ ${(j:|:)TEST_PICKER_TITLES} == "Xcode / Actions|Xcode / Destination|Xcode / Actions" ]] || exit 6
     _XCODE_PICKER_VALUES=(1) _XCODE_PICKER_LABELS=("Scheme · Literal name")
     _XCODE_PICKER_DETAILS=() _XCODE_PICKER_SEARCH=()
     _xcode_choose "Xcode / Scheme" Demo Filter
@@ -1071,14 +1066,15 @@ _test_xcode_test_result_screen_uses_shared_semantic_roles() {
     _XCODE_TEST_FAILURE_TEXTS=("Expected matching output")
     _XCODE_TEST_FAILURE_FILES=("/project/Tests/WidgetTests.swift:42")
     _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=() _XCODE_TEST_BUILD_FILES=()
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _result_view_state() {
       print -r -- "title:$_ZLE_PICKER_TITLE"
       print -r -- "subtitle:$_ZLE_PICKER_SUBTITLE"
       print -r -- "labels:${(j:|:)_XCODE_PICKER_LABELS}"
       print -r -- "failure-style:${_ZLE_PICKER_LABEL_HIGHLIGHTS[failure:1]}"
       print -r -- "details:${_ZLE_PICKER_INSPECT_TEXTS[failure:1]}"
-      return 0
     }
+    test_picker_script observe _result_view_state -- select done
     _xcode_test_result_screen 65
   ' "$TEST_REPO_ROOT") || return
 
@@ -1111,12 +1107,13 @@ _test_xcode_test_success_screen_uses_shared_semantic_role() {
     _XCODE_TEST_FAILURE_NAMES=() _XCODE_TEST_FAILURE_TARGETS=()
     _XCODE_TEST_FAILURE_TEXTS=() _XCODE_TEST_FAILURE_FILES=()
     _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=() _XCODE_TEST_BUILD_FILES=()
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _result_view_state() {
       print -r -- "title:$_ZLE_PICKER_TITLE"
       print -r -- "summary:${_ZLE_PICKER_PASSIVE_LINES[1]}"
       print -r -- "style:${_ZLE_PICKER_PASSIVE_STYLES[1]}"
-      return 0
     }
+    test_picker_script observe _result_view_state -- select done
     _xcode_test_result_screen 0
   ' "$TEST_REPO_ROOT") || return
 
@@ -1245,11 +1242,13 @@ _test_xcode_test_result_screen_offers_report_only_with_clipboard() {
     _XCODE_TEST_BUILD_NAMES=() _XCODE_TEST_BUILD_TEXTS=() _XCODE_TEST_BUILD_FILES=()
     local _XCODE_TEST_CLIPBOARD_BINARY=$2/pbcopy
     local scenario=available
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _result_view_state() {
       print -r -- "$scenario-labels:${(j:|:)_XCODE_PICKER_LABELS}"
       print -r -- "copy-action:${_ZLE_PICKER_ACCEPT_LABELS[copy-report]}"
-      return 0
     }
+    test_picker_script observe _result_view_state -- select done -- \
+      observe _result_view_state -- select done
     _xcode_test_result_screen 65
     scenario=unavailable
     _XCODE_TEST_CLIPBOARD_BINARY=
