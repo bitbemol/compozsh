@@ -12,7 +12,7 @@ unset -- _ZLE_PICKER_SESSION _ZLE_PICKER_SCREEN_ACTIVE _ZLE_PICKER_BUSY \
   _ZLE_PICKER_EXCLUSION_ENABLED _ZLE_PICKER_QUERY_SUBMIT \
   _ZLE_PICKER_QUERY_EMPTY_CANCEL _ZLE_PICKER_INSPECT_STACKED \
   _ZLE_PICKER_INSPECT_CLIP_LINES _ZLE_PICKER_IDLE_PREPAINT \
-  _ZLE_PICKER_WORKSPACE_ACTIONS _zle_picker_start_focus \
+  _ZLE_PICKER_WORKSPACE_ACTIONS _zle_picker_start_focus _ZLE_PICKER_ZERO_BASED \
   _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS _ZLE_PICKER_IDLE_CALLBACK
 
 # Shared state for the native history and navigation pickers. Collection stays
@@ -30,7 +30,6 @@ typeset -gi _ZLE_PICKER_ACTION_VIEW=0 _ZLE_PICKER_VALUE_INSPECT=0 _ZLE_PICKER_RE
 # value. Each `start:end:picker-role` token describes presentation metadata;
 # labels remain plain text and retain exact width and matching semantics.
 typeset -gA _ZLE_PICKER_LABEL_HIGHLIGHTS=()
-typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
 typeset -ga _ZLE_PICKER_DISPLAY=()
 typeset -ga _ZLE_PICKER_DISPLAY_STYLES=()
 typeset -ga _ZLE_PICKER_DISPLAY_INDEX_ENDS=()

@@ -31,7 +31,7 @@ _zle_ui_text_view() {
 _zle_ui_text_collect() {
   emulate -L zsh
   local query=$1 line=''
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
   for line in "${_zle_text_lines[@]}"; do
     [[ ${line:l} == *"${query:l}"* ]] || continue

@@ -236,7 +236,6 @@ _history_search_picker_collect() {
   _history_search_collect "$1" "$2"
   typeset -ga _ZLE_PICKER_RESULTS=("${_HISTORY_SEARCH_RESULTS[@]}")
   typeset -ga _ZLE_PICKER_LABELS=("${_HISTORY_SEARCH_RESULTS[@]}")
-  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
   _HISTORY_SEARCH_RESULTS=()
 }
 
@@ -335,7 +334,7 @@ _draft_inspect_collect() {
     exclusion_pattern=$REPLY
   fi
   local query=${1:l} value='' label=''
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   for value in "${_DRAFT_INSPECT_VALUES[@]}"; do
     case $value in
       read) label='Read this draft' ;;
@@ -450,10 +449,9 @@ _directory_picker_collect() {
   fi
 
   local -a reply=()
-  local -i limit=10 index=0 result_index=0
+  local -i limit=10 index=0
   typeset -ga _ZLE_PICKER_RESULTS=()
   typeset -ga _ZLE_PICKER_LABELS=()
-  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
 
   [[ $raw_limit == <-> ]] && limit=$raw_limit
   (( limit < 1 )) && limit=1
@@ -491,11 +489,6 @@ _directory_picker_collect() {
     fi
   fi
 
-  for (( index = 1; index <= ${#_ZLE_PICKER_RESULTS}; ++index )); do
-    result_index=$index
-    (( result_index == 10 )) && result_index=0
-    _ZLE_PICKER_RESULT_INDEXES+=($result_index)
-  done
 }
 
 # Parse only the exact context where a path is Zsh's command-position AUTO_CD
@@ -854,11 +847,11 @@ _directory_browser_pick() {
 
 _directory_browser_actions_collect() {
   (( ${+functions[_zle_ui_collect]} )) || {
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     return 1
   }
   _zle_ui_collect source "$1" "$2" _directory_action_values _directory_action_labels \
-    _directory_action_labels "" text visible
+    _directory_action_labels "" text
 }
 
 _directory_browser_actions() {

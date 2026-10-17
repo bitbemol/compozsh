@@ -1361,11 +1361,11 @@ _usb_format_disks_capture() {
 
 _usb_picker_collect() {
   (( ${+functions[_zle_ui_collect]} )) || {
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     return 1
   }
   _zle_ui_collect ranked "$1" "$2" _USB_PICKER_VALUES _USB_PICKER_LABELS \
-    _USB_PICKER_LABELS _USB_PICKER_SEARCH append none
+    _USB_PICKER_LABELS _USB_PICKER_SEARCH append
 }
 
 _usb_choose() {

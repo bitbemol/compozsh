@@ -219,7 +219,9 @@ _zle_picker_render() {
     fi
     row_width=$left_width
   fi
-  [[ ${_ZLE_PICKER_RESULT_INDEXES[1]-} == 0 && -z $query ]] && zero_based=1
+  # A view that opts in (the directory stack's ~N, recent branches, worktree
+  # menus) numbers its unfiltered slots from zero; a filtered list from one.
+  (( ${_ZLE_PICKER_ZERO_BASED:-0} )) && [[ -z $query ]] && zero_based=1
   (( count && row_width >= index_width + 7 )) && _ZLE_PICKER_INDEXES_VISIBLE=1
 
   if (( _ZLE_PICKER_READER_ONLY )); then

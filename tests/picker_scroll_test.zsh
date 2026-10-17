@@ -9,7 +9,6 @@ _test_picker_scroll_viewport() {
     test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(item-{01..25})
     _ZLE_PICKER_LABELS=("${_ZLE_PICKER_RESULTS[@]}")
-    _ZLE_PICKER_RESULT_INDEXES=({1..25})
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_VIEW_LIMIT=10
     COLUMNS=80 LINES=30
@@ -89,7 +88,6 @@ _test_picker_scroll_navigation_and_tools() {
     _COMPOZSH_TOOL_NAMES=("${_NAVIGATION_PICKER_VALUES[@]}")
     _COMPOZSH_TOOL_LABELS=("${_COMPOZSH_TOOL_NAMES[@]}")
     _COMPOZSH_TOOL_SEARCH_TEXTS=("${_COMPOZSH_TOOL_NAMES[@]}")
-    _COMPOZSH_TOOL_INDEXES=({1..35})
     for collector in _navigation_picker_collect _compozsh_tool_picker_collect; do
       for query in "" fixture fxtr; do
         "$collector" "$query" 10

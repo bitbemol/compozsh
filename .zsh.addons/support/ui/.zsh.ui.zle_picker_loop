@@ -716,7 +716,6 @@ _zle_picker_loop() {
     _ZLE_PICKER_VISIBLE_KEYS=()
     _ZLE_PICKER_RESULTS=()
     _ZLE_PICKER_LABELS=()
-    _ZLE_PICKER_RESULT_INDEXES=()
     _ZLE_PICKER_INSPECT_FOCUS=0
     _ZLE_PICKER_INSPECT_OFFSET=0
     _ZLE_PICKER_INSPECT_KEY=''
@@ -834,7 +833,7 @@ _zle_picker_paste_discard() {
   local _ZLE_PICKER_TITLE='Paste discarded' _ZLE_PICKER_QUERY=''
   local _ZLE_PICKER_BUSY_LABEL='Resume: Escape then [201~'
   local _ZLE_PICKER_BROWSE_LABEL='The previous filter is unchanged'
-  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   local -a _ZLE_PICKER_EMPTY_LINES=(
     'Resume: Escape then [201~'
     'The paste paused too long or exceeded 1,048,576 characters.'

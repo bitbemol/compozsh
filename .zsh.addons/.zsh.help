@@ -6,7 +6,7 @@
 typeset -g ZSH_TOOL_PICKER_MAX_RESULTS=${ZSH_TOOL_PICKER_MAX_RESULTS:-10}
 # The tool catalog lives only as long as the invocation that captured it:
 # compozsh and _compozsh_tool_explore declare it, so it has no global value.
-unset _COMPOZSH_TOOL_NAMES _COMPOZSH_TOOL_LABELS _COMPOZSH_TOOL_INDEXES \
+unset _COMPOZSH_TOOL_NAMES _COMPOZSH_TOOL_LABELS \
   _COMPOZSH_TOOL_SEARCH_TEXTS _COMPOZSH_TOOL_HELPERS _COMPOZSH_TOOL_SOURCES
 
 # Public commands opt into presentation at invocation time. Companions remain
@@ -268,7 +268,7 @@ _compozsh_help_collect() {
   fi
 
   local -i index=0 limit=$2
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   local -i compose_first=0
   if [[ -n $query ]] && (( ${_HELP_COMPOSE_INDEX:-0} > 0 )) &&
      [[ ${_HELP_TOPIC_LABELS[_HELP_COMPOSE_INDEX]:l} == *"$query"* &&
@@ -666,10 +666,8 @@ _compozsh_tool_capture() {
   fi
 
   local name='' source='' helper='' source_label='' help_label='— no help'
-  local -i index=0
   typeset -ga _COMPOZSH_TOOL_NAMES=()
   typeset -ga _COMPOZSH_TOOL_LABELS=()
-  typeset -ga _COMPOZSH_TOOL_INDEXES=()
   typeset -ga _COMPOZSH_TOOL_SEARCH_TEXTS=()
   typeset -gA _COMPOZSH_TOOL_HELPERS=()
   typeset -gA _COMPOZSH_TOOL_SOURCES=()
@@ -690,10 +688,8 @@ _compozsh_tool_capture() {
       help_label='✓ help'
     fi
 
-    (( ++index ))
     _COMPOZSH_TOOL_NAMES+=("$name")
     _COMPOZSH_TOOL_LABELS+=("${name} · ${help_label} · ${source_label}")
-    _COMPOZSH_TOOL_INDEXES+=($index)
     _COMPOZSH_TOOL_SEARCH_TEXTS+=("${name} ${source_label}")
     _COMPOZSH_TOOL_SOURCES[$name]=$source_label
   done
@@ -764,11 +760,11 @@ _compozsh_tool_show_help() {
 }
 _compozsh_tool_picker_collect() {
   (( ${+functions[_zle_ui_collect]} )) || {
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     return 1
   }
   _zle_ui_collect ranked "$1" "$2" _COMPOZSH_TOOL_NAMES _COMPOZSH_TOOL_LABELS \
-    _COMPOZSH_TOOL_SEARCH_TEXTS "" text _COMPOZSH_TOOL_INDEXES
+    _COMPOZSH_TOOL_SEARCH_TEXTS "" text
 }
 
 _compozsh_choose() {
@@ -779,7 +775,7 @@ _compozsh_choose() {
 # catalog is captured for this call and released when it returns.
 _compozsh_tool_explore() {
   emulate -L zsh
-  local -a _COMPOZSH_TOOL_NAMES=() _COMPOZSH_TOOL_LABELS=() _COMPOZSH_TOOL_INDEXES=()
+  local -a _COMPOZSH_TOOL_NAMES=() _COMPOZSH_TOOL_LABELS=()
   local -a _COMPOZSH_TOOL_SEARCH_TEXTS=()
   local -A _COMPOZSH_TOOL_HELPERS=() _COMPOZSH_TOOL_SOURCES=()
   _compozsh_tool_capture || return
@@ -849,7 +845,7 @@ compozsh() {
   emulate -L zsh
   local _COMPOZSH_COMPOSE_RESULT=''
   # The catalog that --list, help and the explorer capture ends with this call.
-  local -a _COMPOZSH_TOOL_NAMES=() _COMPOZSH_TOOL_LABELS=() _COMPOZSH_TOOL_INDEXES=()
+  local -a _COMPOZSH_TOOL_NAMES=() _COMPOZSH_TOOL_LABELS=()
   local -a _COMPOZSH_TOOL_SEARCH_TEXTS=()
   local -A _COMPOZSH_TOOL_HELPERS=() _COMPOZSH_TOOL_SOURCES=()
 

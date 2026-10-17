@@ -1121,7 +1121,7 @@ _git_review_file_collect() {
       scope=$_git_tree_filter_scope
       expanded=("${(@kv)_git_tree_filter_expanded}")
     fi
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     if [[ -n $scope ]]; then
       value="d:$scope"
       local -i scoped_count=0
@@ -1158,7 +1158,6 @@ _git_review_file_collect() {
   fi
   _ZLE_PICKER_RESULTS=("${_ZLE_PICKER_RESULTS[@]:0:$limit}")
   _ZLE_PICKER_LABELS=("${_ZLE_PICKER_LABELS[@]:0:$limit}")
-  _ZLE_PICKER_RESULT_INDEXES=("${_ZLE_PICKER_RESULTS[@]/*/1}")
   # A refinement can change a folder summary without changing its exact key.
   # Rewrap its new captured text while retaining independent scroll offsets.
   if [[ -n $prepared_branch && $prepared_text != "${_ZLE_PICKER_INSPECT_TEXTS[$prepared_branch]-}" ]]; then
@@ -2791,7 +2790,7 @@ _git_review_atlas_collect() {
     exclusion_pattern=$REPLY
   fi
   local -i index=0
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   for (( index=1; index<=${#_atlas_values}; ++index )); do
     [[ ${_atlas_labels[index]:l} == *"$query"* && ${_atlas_labels[index]} == ${~exclusion_pattern} ]] || continue
     _ZLE_PICKER_RESULTS+=("$_atlas_values[index]") _ZLE_PICKER_LABELS+=("$_atlas_labels[index]")
@@ -2888,7 +2887,7 @@ _git_review_view() {
   local -A _git_tree_expanded=() _git_tree_filter_expanded=() _git_tree_depths=()
   local -A _ZLE_PICKER_DOCUMENT_BRANCHES=()
   local -A _ZLE_PICKER_LABEL_PREFIXES=()
-  local -i _ZLE_PICKER_CONTEXT_MIN_WIDTH=0
+  local -i _ZLE_PICKER_CONTEXT_MIN_WIDTH=0 _ZLE_PICKER_ZERO_BASED=0
   local -a _git_tree_scopes=() _git_tree_returns=() _git_tree_filter_scopes=() _git_tree_filter_returns=()
   local _ZLE_PICKER_TITLE='' _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
   local _ZLE_PICKER_OPTIONS_KIND=''
@@ -3176,13 +3175,12 @@ _git_review_ref_collect() {
   # Enter accepts the best ref. Keep literal input in a stable second slot;
   # appending it to a growing result prefix would move it during pagination.
   _navigation_picker_collect "$1" "$(( $2 > 1 ? $2 - 1 : 1 ))"
-  (( $2 > 1 )) || { _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=(); }
+  (( $2 > 1 )) || { _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=(); }
   if (( ${#_ZLE_PICKER_RESULTS} )); then
     _ZLE_PICKER_RESULTS=("$_ZLE_PICKER_RESULTS[1]" enter "${_ZLE_PICKER_RESULTS[@]:1}")
     _ZLE_PICKER_LABELS=("$_ZLE_PICKER_LABELS[1]" 'Enter branch or commit…' "${_ZLE_PICKER_LABELS[@]:1}")
-    _ZLE_PICKER_RESULT_INDEXES=("$_ZLE_PICKER_RESULT_INDEXES[1]" 0 "${_ZLE_PICKER_RESULT_INDEXES[@]:1}")
   else
-    _ZLE_PICKER_RESULTS=(enter) _ZLE_PICKER_LABELS=('Enter branch or commit…') _ZLE_PICKER_RESULT_INDEXES=(0)
+    _ZLE_PICKER_RESULTS=(enter) _ZLE_PICKER_LABELS=('Enter branch or commit…')
   fi
 }
 

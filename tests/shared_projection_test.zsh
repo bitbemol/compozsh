@@ -24,33 +24,35 @@ _test_shared_projection() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     for unit in "$1"/.zsh.addons/support/functions/.zsh.*(N.); do source "$unit"; done
     local -a values=("literal [one]" two two) labels=(First Second Third)
-    local -a search=(ab "a---b" AB) indexes=(9 4 7)
-    _zle_ui_collect ranked ab 10 values labels search "" text indexes || exit 1
+    local -a search=(ab "a---b" AB)
+    _zle_ui_collect ranked ab 10 values labels search "" text || exit 1
     [[ ${(j:|:)_ZLE_PICKER_RESULTS} == "literal [one]|two" &&
-       ${(j:|:)_ZLE_PICKER_LABELS} == "First|Third" &&
-       ${(j:,:)_ZLE_PICKER_RESULT_INDEXES} == 9,7 ]] || exit 2
-    _zle_ui_collect source Second 10 values labels labels "" text source || exit 3
-    [[ $_ZLE_PICKER_RESULTS == two && $_ZLE_PICKER_RESULT_INDEXES == 2 ]] || exit 4
-    _zle_ui_collect source Second 10 values labels labels "" text visible || exit 5
-    [[ $_ZLE_PICKER_RESULT_INDEXES == 1 ]] || exit 6
-    _zle_ui_collect source "" 10 values labels labels "" text none || exit 7
-    [[ ${#_ZLE_PICKER_RESULTS} == 3 && ${#_ZLE_PICKER_RESULT_INDEXES} == 0 ]] || exit 8
-    _zle_ui_collect source "" 10 values "labels[1]" labels "" text none && exit 9
+       ${(j:|:)_ZLE_PICKER_LABELS} == "First|Third" ]] || exit 2
+    _zle_ui_collect source Second 10 values labels labels "" text || exit 3
+    [[ $_ZLE_PICKER_RESULTS == two && $_ZLE_PICKER_LABELS == Second ]] || exit 4
+    # Numbering belongs to the view: a ninth argument is refused, and the
+    # collector neither publishes indexes nor chooses zero-based slots.
+    _zle_ui_collect source Second 10 values labels labels "" text visible && exit 5
+    (( !${#_ZLE_PICKER_RESULTS} && !${+_ZLE_PICKER_ZERO_BASED} &&
+       !${+_ZLE_PICKER_RESULT_INDEXES} )) || exit 6
+    _zle_ui_collect source "" 10 values labels labels "" text || exit 7
+    [[ ${#_ZLE_PICKER_RESULTS} == 3 ]] || exit 8
+    _zle_ui_collect source "" 10 values "labels[1]" labels "" text && exit 9
     [[ ${(j:|:)labels} == "First|Second|Third" ]] || exit 10
     local -a REPLY=(ab beta)
     _matching_select source beta 10 values REPLY
     [[ $? == 2 ]] || exit 11
-    _zle_ui_collect source beta 10 values labels REPLY "" text source
+    _zle_ui_collect source beta 10 values labels REPLY "" text
     [[ $? == 2 ]] || exit 12
     [[ ${(j:|:)REPLY} == "ab|beta" ]] || exit 13
     _ZLE_PICKER_RESULTS=(sentinel)
-    _zle_ui_collect source "" 10 _ZLE_PICKER_RESULTS labels labels "" text source
+    _zle_ui_collect source "" 10 _ZLE_PICKER_RESULTS labels labels "" text
     [[ $? == 2 && $_ZLE_PICKER_RESULTS == sentinel ]] || exit 14
     print projected
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal projected "$output"
 }
-test_case 'shared projection retains literal targets ordering labels and caller numbering' _test_shared_projection
+test_case 'shared projection retains literal targets ordering and labels and leaves numbering to the view' _test_shared_projection
 
 _test_shared_usb_progress() {
   test_make_temp_dir || return

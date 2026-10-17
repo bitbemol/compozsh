@@ -38,11 +38,11 @@ typeset -g _GIT_BRANCH_REMOTE_NOTICE=''
 # Rank literal prefix and substring matches before character-ordered fuzzy ones.
 _navigation_picker_collect() {
   (( ${+functions[_zle_ui_collect]} )) || {
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     return 1
   }
   _zle_ui_collect ranked "$1" "$2" _NAVIGATION_PICKER_VALUES _NAVIGATION_PICKER_LABELS \
-    _NAVIGATION_PICKER_LABELS _NAVIGATION_PICKER_SEARCH_LABELS fallback _NAVIGATION_PICKER_INDEXES
+    _NAVIGATION_PICKER_LABELS _NAVIGATION_PICKER_SEARCH_LABELS fallback
 }
 
 # Shared support validates colors at invocation. Preserve the optional Output
@@ -171,6 +171,8 @@ _directory_recents_choose() {
   local _ZLE_PICKER_TITLE='Recent directories' _ZLE_PICKER_SUBTITLE='This shell · native directory stack'
   local _ZLE_PICKER_INSPECT_TITLE=Location _ZLE_PICKER_INSPECT_ACTION=${mode:-insert}
   local _ZLE_PICKER_CANCEL_LABEL=back
+  # Slots match the stack: [0] is the current directory, as in dirs -v.
+  local -i _ZLE_PICKER_ZERO_BASED=1
   local -a _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
   local -a _NAVIGATION_PICKER_INDEXES=() _NAVIGATION_PICKER_SEARCH_LABELS=()
   local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=()
@@ -336,6 +338,8 @@ _git_branch_remote_capture() {
 _git_branch_collect() {
   emulate -L zsh
   _navigation_picker_collect "$@"
+  # Recent local branches number from zero, current (or newest) first.
+  _ZLE_PICKER_ZERO_BASED=1
   _ZLE_PICKER_INSPECT_ACTION=switch
   _ZLE_PICKER_BROWSE_LABEL='local branches · recent first'
   _ZLE_PICKER_EMPTY_LABEL='no matching branches'
@@ -350,6 +354,7 @@ _git_branch_collect() {
     done
     _navigation_picker_collect "$@"
     _ZLE_PICKER_INSPECT_ACTION='review creation'
+    _ZLE_PICKER_ZERO_BASED=0
     _ZLE_PICKER_BROWSE_LABEL='known remote-tracking refs · captured locally'
     _ZLE_PICKER_EMPTY_LABEL=${_GIT_BRANCH_REMOTE_NOTICE:-no matching branches}
     (( ${#_ZLE_PICKER_RESULTS} )) && _ZLE_PICKER_WORKSPACE_ACTIONS=0

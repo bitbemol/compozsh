@@ -24,7 +24,6 @@ _test_inspector_layout() {
     _ZLE_PICKER_TITLE="Tools"
     _ZLE_PICKER_RESULTS=(sample other)
     _ZLE_PICKER_LABELS=(sample other)
-    _ZLE_PICKER_RESULT_INDEXES=(1 2)
     typeset -gA _ZLE_PICKER_INSPECT_TEXTS=(
       sample "$(print -rl -- "usage: sample" "Sample guide." {1..80})"
       other "usage: other")
@@ -83,7 +82,6 @@ _test_inspector_bounds_and_literals() {
     (( ${#_ZLE_PICKER_INSPECT_LINES} == 256 )) || exit 11
     [[ ${_ZLE_PICKER_INSPECT_LINES[-1]} == *truncated* ]] || exit 12
     _ZLE_PICKER_RESULTS=(safe-tool)
-    _ZLE_PICKER_RESULT_INDEXES=(1)
     _ZLE_PICKER_LABELS=("界界界界界界界界界界界界界界界界界界界界")
     _ZLE_PICKER_INSPECT_TEXTS[safe-tool]=$'\''usage: safe-tool\nLiteral %F{red} $(never-run)\n\e]52;c;invalid\a\n界界界界界界界界界界界界界界界界界界界界界界界界界界界界'\''
     setopt PROMPT_SUBST
@@ -104,7 +102,6 @@ _test_inspector_bounds_and_literals() {
     COLUMNS=120 LINES=10
     _ZLE_PICKER_RESULTS=({1..20})
     _ZLE_PICKER_LABELS=({1..20})
-    _ZLE_PICKER_RESULT_INDEXES=({1..20})
     _zle_picker_render "" 20
     (( ${#_ZLE_PICKER_DISPLAY} <= LINES - 5 )) || exit 8
     _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()

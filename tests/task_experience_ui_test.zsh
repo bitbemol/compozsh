@@ -10,7 +10,7 @@ _test_task_native_draft_journey() {
     source "$1/.zsh.addons/.zsh.help"
     _compozsh_tool_capture() {
       _COMPOZSH_TOOL_NAMES=(example) _COMPOZSH_TOOL_LABELS=(example)
-      _COMPOZSH_TOOL_SEARCH_TEXTS=(example) _COMPOZSH_TOOL_INDEXES=(1)
+      _COMPOZSH_TOOL_SEARCH_TEXTS=(example)
     }
     _compozsh_tool_inspector_capture() {
       _ZLE_PICKER_INSPECT_TEXTS=(example $'"'"'usage: example\nRead a synthetic guide.'"'"')

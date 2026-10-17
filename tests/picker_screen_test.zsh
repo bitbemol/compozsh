@@ -22,7 +22,6 @@ _test_picker_screen_lifecycle() {
     _screen_collect() {
       _ZLE_PICKER_RESULTS=(first second)
       _ZLE_PICKER_LABELS=(first second)
-      _ZLE_PICKER_RESULT_INDEXES=(1 2)
     }
     _screen_assert_state() {
       [[ $BUFFER == draft && $CURSOR == 2 && $PREDISPLAY == prefix &&
@@ -149,7 +148,6 @@ _test_picker_screen_ctrl_l_redraws_in_place() {
     _redraw_collect() {
       _ZLE_PICKER_RESULTS=(first second)
       _ZLE_PICKER_LABELS=(first second)
-      _ZLE_PICKER_RESULT_INDEXES=(1 2)
     }
     # A dotfile or plugin may replace the clear-screen widget by name.
     _user_clear() {
@@ -259,7 +257,6 @@ _test_picker_screen_releases_frame() {
     _frame_collect() {
       _ZLE_PICKER_RESULTS=(first second)
       _ZLE_PICKER_LABELS=("export API_TOKEN=$marker" second)
-      _ZLE_PICKER_RESULT_INDEXES=(1 2)
     }
     _frame_capture() {
       _zle_picker_capture Search "$HOME/$marker" "$marker" false

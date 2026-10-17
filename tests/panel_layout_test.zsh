@@ -9,7 +9,7 @@ _test_panel_layout_hierarchy() {
     test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(first second third)
     _ZLE_PICKER_LABELS=(feature/first feature/second feature/third)
-    _ZLE_PICKER_RESULT_INDEXES=(0 1 2)
+    _ZLE_PICKER_ZERO_BASED=1
     _ZLE_PICKER_INSPECT_TEXTS[first]="$(print -rl -- "Fixture title" "Description" "" "Safety:" "  Be careful." detail-{01..60})"
     _ZLE_PICKER_VIEW_LIMIT=10
     for _ZLE_PICKER_INSPECT_TITLE in Help Branch Path Action; do
@@ -63,7 +63,7 @@ _test_panel_layout_small_windows() {
     test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(first second third)
     _ZLE_PICKER_LABELS=(first second third)
-    _ZLE_PICKER_RESULT_INDEXES=(0 1 2)
+    _ZLE_PICKER_ZERO_BASED=1
     _ZLE_PICKER_INSPECT_TEXTS[second]="$(print -rl -- detail-{01..80})"
     for COLUMNS in 120 99 60 30; do
       for LINES in 30 18 10 8; do
@@ -158,7 +158,7 @@ _test_panel_layout_native_resize() {
       (( ++collections ))
       _ZLE_PICKER_RESULTS=(first second third)
       _ZLE_PICKER_LABELS=(feature/first feature/second feature/third)
-      _ZLE_PICKER_RESULT_INDEXES=(0 1 2)
+      _ZLE_PICKER_ZERO_BASED=1
     }
     _panel_driver() {
       COLUMNS=120 LINES=30

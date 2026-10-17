@@ -235,7 +235,7 @@ _test_editor_reader_keys() {
     local bindings=$(bindkey -L)
     _reader_collect() {
       local query=$1 row=""
-      _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+      _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
       _ZLE_PICKER_DOCUMENT_LINES=()
       for row in "${snapshot[@]}"; do
         [[ $row == *"$query"* ]] && _ZLE_PICKER_DOCUMENT_LINES+=("$row")

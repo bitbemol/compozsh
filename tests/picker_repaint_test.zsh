@@ -38,7 +38,7 @@ _test_picker_resize_automatic_paint() {
       (( ++collections ))
       _ZLE_PICKER_RESULTS=(first second third fourth fifth sixth)
       _ZLE_PICKER_LABELS=(feature/first feature/second feature/third feature/fourth feature/fifth feature/sixth)
-      _ZLE_PICKER_RESULT_INDEXES=(0 1 2 3 4 5)
+      _ZLE_PICKER_ZERO_BASED=1
     }
     _resize_driver() {
       command stty rows 50 cols 180
@@ -175,7 +175,7 @@ _test_picker_resize_mid_frame() {
     fi
     _layout_collect() {
       _ZLE_PICKER_RESULTS=(alpha beta) _ZLE_PICKER_LABELS=(alpha/ beta/)
-      _ZLE_PICKER_RESULT_INDEXES=(0 1)
+      _ZLE_PICKER_ZERO_BASED=1
     }
     _layout_capture() {
       : > "$HOME/resize-now"

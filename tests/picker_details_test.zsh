@@ -9,7 +9,7 @@ _test_details_labels() {
     test_source_support "$1" || exit
     _ZLE_PICKER_RESULTS=(main)
     _ZLE_PICKER_LABELS=(main)
-    _ZLE_PICKER_RESULT_INDEXES=(0)
+    _ZLE_PICKER_ZERO_BASED=1
     _ZLE_PICKER_INSPECT_TEXTS=(main "main\nCurrent branch")
     _ZLE_PICKER_INSPECT_TITLE=Branch
     _ZLE_PICKER_INSPECT_ACTION=switch

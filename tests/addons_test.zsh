@@ -242,7 +242,8 @@ _test_contextual_directory_picker_contract() {
     _directory_picker_prepare "~/D" 3
     prepared=$?
     _directory_picker_collect "" 10
-    print -r -- "visible:$prepared|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_ZLE_PICKER_LABELS}|${(j:,:)_ZLE_PICKER_RESULTS}|${(j:,:)_ZLE_PICKER_RESULT_INDEXES}"
+    _zle_picker_render "" 1
+    print -r -- "visible:$prepared|$_DIRECTORY_PICKER_LOCATION|${(j:,:)_ZLE_PICKER_LABELS}|${(j:,:)_ZLE_PICKER_RESULTS}|${(j:,:)_ZLE_PICKER_VISIBLE_KEYS}"
 
     _directory_picker_prepare "~/." 3
     hidden=$?
@@ -423,7 +424,7 @@ _test_navigation_fuzzy_ranking() {
     typeset -ga _NAVIGATION_PICKER_VALUES=(/tmp/swift-project /tmp/git-tools /tmp/project-swift)
     typeset -ga _NAVIGATION_PICKER_LABELS=(swift-project git-tools project-swift)
     typeset -ga _NAVIGATION_PICKER_INDEXES=(1 2 3)
-    typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    typeset -ga _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     _navigation_picker_collect swift 10
     print -r -- "${(j:|:)_ZLE_PICKER_LABELS}"
   ' "$TEST_REPO_ROOT") || return

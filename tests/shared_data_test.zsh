@@ -38,10 +38,11 @@ _test_shared_data_action_contract() {
     test_source_support "$1" || exit
     local -a reply=()
     local -a values=(one "exact [target]" three) labels=(Plain "[literal]" Other)
-    _zle_ui_collect source "[" 10 values labels labels "" text source || exit 1
-    [[ $_ZLE_PICKER_RESULTS == "exact [target]" && $_ZLE_PICKER_RESULT_INDEXES == 2 ]] || exit 2
-    _zle_ui_collect source "[" 10 values labels labels "" text visible || exit 3
-    [[ $_ZLE_PICKER_RESULT_INDEXES == 1 && $_ZLE_PICKER_LABELS == "[literal]" ]] || exit 4
+    _zle_ui_collect source "[" 10 values labels labels "" text || exit 1
+    [[ $_ZLE_PICKER_RESULTS == "exact [target]" && $_ZLE_PICKER_LABELS == "[literal]" ]] || exit 2
+    COLUMNS=80 LINES=24 _ZLE_PICKER_VIEW_OFFSET=0
+    _zle_picker_render "[" 1 || exit 3
+    [[ ${(j:,:)_ZLE_PICKER_VISIBLE_KEYS} == 1 ]] || exit 4
     _zle_ui_descriptions one "first
 second" "literal [key]" "" || exit 5
     [[ ${#reply} == 4 && $reply[2] == first && $reply[3] == "literal [key]" && -z $reply[4] ]] || exit 6
@@ -49,7 +50,7 @@ second" "literal [key]" "" || exit 5
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal preserved "$output"
 }
-test_case 'shared data action rows preserve source and visible indexes and literal descriptions' \
+test_case 'shared data action rows keep literal targets, visible slots and literal descriptions' \
   _test_shared_data_action_contract
 
 _test_shared_data_result_contract() {

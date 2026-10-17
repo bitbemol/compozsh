@@ -15,11 +15,10 @@ _test_picker_workspace_layout() {
     for COLUMNS in 40 120 180; do
       for LINES in 10 30 50; do
         for count in 0 1 10 20; do
-          _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+          _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
           for (( i=1; i<=count; ++i )); do
             _ZLE_PICKER_RESULTS+=("branch-$i")
             _ZLE_PICKER_LABELS+=("branch-$i")
-            _ZLE_PICKER_RESULT_INDEXES+=($i)
           done
           _zle_picker_render branch 1
           (( ${#_ZLE_PICKER_DISPLAY} == LINES - 4 )) || {
@@ -157,7 +156,6 @@ _test_picker_workspace_semantic_label_highlights() {
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_RESULTS=(image)
     _ZLE_PICKER_LABELS=("disk.iso · ARM64 · 2.0 GiB")
-    _ZLE_PICKER_RESULT_INDEXES=(1)
     _ZLE_PICKER_LABEL_HIGHLIGHTS=(image "11:16:picker-architecture 19:26:picker-size 0:4:not-a-role")
     _zle_picker_render "" 1
     print -r -- "spans:${_ZLE_PICKER_DISPLAY_HIGHLIGHTS[1]}"

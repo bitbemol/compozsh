@@ -103,7 +103,7 @@ _test_option_number_footer_c_locale() {
     _ZLE_PICKER_INSPECT_ACTION=stop _ZLE_PICKER_CANCEL_LABEL=stop
     _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_EXCLUSION_ENABLED=1
     _ZLE_PICKER_RESULTS=(stop read) _ZLE_PICKER_LABELS=(Stop Read)
-    _ZLE_PICKER_RESULT_INDEXES=(1 2) _ZLE_PICKER_INSPECT_TEXTS=(stop details read details)
+    _ZLE_PICKER_INSPECT_TEXTS=(stop details read details)
     COLUMNS=120 LINES=30
     local repaint
     for repaint in {1..10}; do
@@ -131,7 +131,7 @@ _test_fullscreen_status_view_omits_input_and_bottom_footer() {
     _ZLE_PICKER_SUBTITLE="Image  ›  Drive  ›  FLASH"
     _ZLE_PICKER_BROWSE_LABEL="● WRITING IMAGE"
     _ZLE_PICKER_QUERY_LABEL=Query _ZLE_PICKER_QUERY=""
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     _ZLE_PICKER_EMPTY_LINES=("" IMAGE "  linux.iso" "" "[========········] 50%" "KEEP THE EXTERNAL DRIVE CONNECTED")
     _ZLE_PICKER_BUSY_STYLES=(picker-text picker-status-heading picker-status-info picker-text picker-status-progress picker-status-warning)
     _zle_picker_render "" 0 || exit 1
@@ -162,7 +162,6 @@ _test_fullscreen_passive_rows_are_not_picker_actions() {
     _ZLE_PICKER_BROWSE_LABEL="captured choices · no action yet"
     _ZLE_PICKER_QUERY_LABEL=Done
     _ZLE_PICKER_RESULTS=(done) _ZLE_PICKER_LABELS=(Done)
-    _ZLE_PICKER_RESULT_INDEXES=(1)
     _ZLE_PICKER_PASSIVE_LINES=(
       "Windows USB creation is unavailable on stock macOS"
       "Boot requirement · Windows Setup requires FAT32")

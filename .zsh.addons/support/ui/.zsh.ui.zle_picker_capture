@@ -19,7 +19,7 @@ _zle_picker_capture() {
   local -i _ZLE_PICKER_BUSY=1 _ZLE_PICKER_ACTIVE=0 _ZLE_PICKER_GUIDE_ACTIVE=0
   local -i _ZLE_PICKER_SELECTED=0 _ZLE_PICKER_INSPECT_FOCUS=0
   local -i _ZLE_PICKER_VIEW_OFFSET=0 _ZLE_PICKER_VIEW_LIMIT=10 _ZLE_PICKER_HAS_MORE=0
-  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  local -a _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=(
     'Waiting for the selected source to return results'
     'The scope and query above remain unchanged.'

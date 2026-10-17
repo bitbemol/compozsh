@@ -677,7 +677,6 @@ _test_picker_script_helper() {
     source "$1/tests/picker_support.zsh" || exit 93
     _probe_collect() {
       _ZLE_PICKER_RESULTS=(a b "c d") _ZLE_PICKER_LABELS=(Alpha Beta "Gamma delta")
-      _ZLE_PICKER_RESULT_INDEXES=(1 2 3)
     }
     _probe_view() {
       _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE="$1 subtitle" _ZLE_PICKER_COLLECTOR=_probe_collect

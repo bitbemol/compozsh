@@ -40,7 +40,7 @@ _zle_ui_view() {
   local -i _ZLE_PICKER_HIERARCHY_ENABLED=0 _ZLE_PICKER_QUERY_SUBMIT=0
   local -i _ZLE_PICKER_QUERY_EMPTY_CANCEL=0 _ZLE_PICKER_EXCLUSION_ENABLED=1
   local -i _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_STATUS_VIEW=0 _ZLE_PICKER_BUSY=0
-  local -i _ZLE_PICKER_IDLE_PREPAINT=1 _zle_picker_start_focus=0
+  local -i _ZLE_PICKER_IDLE_PREPAINT=1 _zle_picker_start_focus=0 _ZLE_PICKER_ZERO_BASED=0
   local -F _ZLE_PICKER_IDLE_WAIT=0 _ZLE_PICKER_DEADLINE_AT=0
   local -a _ZLE_PICKER_TRAIL=() _ZLE_PICKER_EMPTY_LINES=() _ZLE_PICKER_GUIDE_CONTEXT=()
   local -a _ZLE_PICKER_PASSIVE_LINES=() _ZLE_PICKER_PASSIVE_STYLES=()
@@ -67,7 +67,7 @@ _zle_ui_view() {
 # Query entry uses the same editor and renderer. Enter submits literal text;
 # movement, typing and resize cannot trigger discovery.
 _zle_picker_query_collect() {
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
 }
 
 

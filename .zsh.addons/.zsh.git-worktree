@@ -526,6 +526,7 @@ _git_worktree_pick() {
 _git_worktree_choice_view() {
   emulate -L zsh
   _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
+  _ZLE_PICKER_ZERO_BASED=1
   _ZLE_PICKER_OPTIONS_KIND=worktree
   _ZLE_PICKER_BROWSE_LABEL=${_GWT_NOTICE:-local snapshot}
   _ZLE_PICKER_EMPTY_LABEL='no matching choices'

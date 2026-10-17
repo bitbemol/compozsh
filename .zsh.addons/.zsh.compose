@@ -78,7 +78,7 @@ _compozsh_compose_collect() {
     exclusion_pattern=$REPLY
   fi
   local value='' label='' query=${1:l}
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   for value in "${_compose_values[@]}"; do
     label=${_compose_labels[$value]}
     [[ ${label:l} == *"$query"* && $label == ${~exclusion_pattern} ]] || continue
@@ -133,7 +133,7 @@ _compozsh_compose_field_collect() {
     base) _compose_base=${1[1,4096]} ;;
     head) _compose_head=${1[1,4096]} ;;
   esac
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   if _compozsh_compose_build; then
     _ZLE_PICKER_BROWSE_LABEL="Draft · ${(V)REPLY}"
   else

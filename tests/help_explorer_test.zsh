@@ -77,10 +77,10 @@ _test_compozsh_tool_catalog_is_invocation_scoped() {
       _compozsh_choose() { (( ${#_COMPOZSH_TOOL_NAMES} == 2 )) || return 7; }
       _compozsh_tool_explore || exit $?
     fi
-    print -r -- "${#_COMPOZSH_TOOL_NAMES}|${#_COMPOZSH_TOOL_LABELS}|${#_COMPOZSH_TOOL_SOURCES}|${#_COMPOZSH_TOOL_HELPERS}|${#_COMPOZSH_TOOL_INDEXES}|${#_COMPOZSH_TOOL_SEARCH_TEXTS}|$(( ${+_COMPOZSH_TOOL_NAMES} + ${+_COMPOZSH_TOOL_LABELS} + ${+_COMPOZSH_TOOL_SOURCES} + ${+_COMPOZSH_TOOL_HELPERS} + ${+_COMPOZSH_TOOL_INDEXES} + ${+_COMPOZSH_TOOL_SEARCH_TEXTS} ))"
+    print -r -- "${#_COMPOZSH_TOOL_NAMES}|${#_COMPOZSH_TOOL_LABELS}|${#_COMPOZSH_TOOL_SOURCES}|${#_COMPOZSH_TOOL_HELPERS}|${#_COMPOZSH_TOOL_SEARCH_TEXTS}|$(( ${+_COMPOZSH_TOOL_NAMES} + ${+_COMPOZSH_TOOL_LABELS} + ${+_COMPOZSH_TOOL_SOURCES} + ${+_COMPOZSH_TOOL_HELPERS} + ${+_COMPOZSH_TOOL_SEARCH_TEXTS} ))"
   ' "$TEST_REPO_ROOT" "$addon") || return
 
-  test_assert_equal '0|0|0|0|0|0|0' "$output" \
+  test_assert_equal '0|0|0|0|0|0' "$output" \
     'tool catalog outlived the compozsh invocation that captured it'
 }
 test_case 'Compozsh tool catalog is released when the compozsh invocation returns' \

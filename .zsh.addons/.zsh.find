@@ -417,7 +417,6 @@ _file_search_picker_add_result() {
   fi
   _ZLE_PICKER_RESULTS+=("$value")
   _ZLE_PICKER_LABELS+=("$label")
-  _ZLE_PICKER_RESULT_INDEXES+=(${#_ZLE_PICKER_RESULTS})
 }
 
 _file_search_picker_append_matches() {
@@ -454,7 +453,6 @@ _file_search_picker_collect() {
   local -i limit=$raw_limit index=0
   typeset -ga _ZLE_PICKER_RESULTS=()
   typeset -ga _ZLE_PICKER_LABELS=()
-  typeset -ga _ZLE_PICKER_RESULT_INDEXES=()
 
   if [[ -z $query ]]; then
     for (( index = 1; index <= ${#_FILE_SEARCH_VALUES}; ++index )); do
@@ -518,11 +516,11 @@ _file_search_inspector_capture() {
 # filtered in memory; dispatch happens only after the line editor is closed.
 _file_search_actions_collect() {
   (( ${+functions[_zle_ui_collect]} )) || {
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     return 1
   }
   _zle_ui_collect source "$1" "$2" _file_action_values _file_action_labels \
-    _file_action_labels "" text source
+    _file_action_labels "" text
 }
 
 _file_search_actions() {

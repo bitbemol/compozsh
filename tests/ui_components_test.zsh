@@ -195,6 +195,99 @@ _test_ui_command_views_clear_previous_reader() {
 test_case 'UI direct tool and branch views clear prior reader capabilities before entry' \
   _test_ui_command_views_clear_previous_reader
 
+# Drive real views with a loop that collects and renders each fixture query,
+# recording the visible digit slots their numbering policy produces.
+_TEST_UI_DIGIT_FIXTURE='
+    export LC_ALL=en_US.UTF-8
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
+    source "$1/.zsh.addons/.zsh.git-worktree"
+    source "$1/.zsh.addons/.zsh.git-review"
+    COLUMNS=120 LINES=30
+    local -a digit_queries=() digit_log=()
+    _zle_picker_loop() {
+      local query=""
+      for query in "${digit_queries[@]}"; do
+        "$_ZLE_PICKER_COLLECTOR" "$query" 10
+        _ZLE_PICKER_VIEW_OFFSET=0 _ZLE_PICKER_VIEW_LIMIT=10
+        _zle_picker_render "$query" 1
+        digit_log+=("${query:-all}=${(j:,:)_ZLE_PICKER_VISIBLE_KEYS}")
+      done
+      return 1
+    }
+    _zle_picker_run() { "${@[-1]}"; }
+    _zle_picker_inspect_render() { :; }
+    _git_branch_inspector_capture() { :; }
+'
+
+_test_ui_digit_labels_follow_view_numbering() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$_TEST_UI_DIGIT_FIXTURE"'
+    digit_queries=("" fix)
+    _GIT_RECENT_BRANCHES=(main feature fix) _GIT_RECENT_CURRENT=main
+    _GIT_BRANCH_REMOTE_VALUES=() _GIT_BRANCH_REMOTE_LABELS=()
+    _git_branch_choose /example ""
+    print -r -- "branches:${(j: :)digit_log}"
+    digit_log=() digit_queries=("")
+    _GIT_RECENT_BRANCHES=() _GIT_RECENT_CURRENT=""
+    _GIT_BRANCH_REMOTE_VALUES=(remote:refs/remotes/origin/one remote:refs/remotes/origin/two)
+    _GIT_BRANCH_REMOTE_LABELS=("origin/one · remote-tracking" "origin/two · remote-tracking")
+    _git_branch_choose /example ""
+    print -r -- "remote:${(j: :)digit_log}"
+    digit_log=() digit_queries=("" usr)
+    typeset -ga _FILES_RECENTS_BOOKMARK=()
+    cd / && dirstack=(/usr /usr/bin)
+    _directory_recents_choose
+    print -r -- "recents:${(j: :)digit_log}"
+    digit_log=() digit_queries=("" worktree)
+    typeset -gA _GWT_DETAILS=() _GWT_LABELS=()
+    _git_worktree_rows_reset
+    _git_worktree_row create "Create worktree…" configure "Create one."
+    _git_worktree_row enter "Enter worktree…" choose "Enter one."
+    _git_worktree_row back "Back" back "Return."
+    _git_worktree_pick Worktrees /example "Filter actions"
+    print -r -- "worktree:${(j: :)digit_log}"
+    digit_log=() digit_queries=("" zzz)
+    local -A _git_compare_details=() _git_compare_actions=()
+    _NAVIGATION_PICKER_VALUES=(1 2) _NAVIGATION_PICKER_LABELS=(main feature)
+    _NAVIGATION_PICKER_SEARCH_LABELS=()
+    # A child view opened from a zero-based view starts with its own numbering.
+    () {
+      local -i _ZLE_PICKER_ZERO_BASED=1
+      _git_compare_collector=_git_review_ref_collect _git_review_pick Compare /example "Branch or commit"
+    }
+    print -r -- "refs:${(j: :)digit_log}"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'branches:all=0,1,2 fix=1
+remote:all=1,2
+recents:all=0,1,2 usr=1,2
+worktree:all=0,1,2 worktree=1,2
+refs:all=1,2,3 zzz=1' "$output"
+}
+test_case 'UI components keep each view'"'"'s digit labels for Branches, Recents, worktrees and review refs' \
+  _test_ui_digit_labels_follow_view_numbering
+
+_test_ui_ref_chooser_manual_entry_digit() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$_TEST_UI_DIGIT_FIXTURE"'
+    local -A _git_compare_details=() _git_compare_actions=()
+    _NAVIGATION_PICKER_VALUES=(1) _NAVIGATION_PICKER_LABELS=(main)
+    _NAVIGATION_PICKER_SEARCH_LABELS=()
+    digit_queries=(zzz)
+    _git_compare_collector=_git_review_ref_collect _git_review_pick Compare /example "Branch or commit"
+    _NAVIGATION_PICKER_VALUES=() _NAVIGATION_PICKER_LABELS=()
+    digit_queries=("")
+    _git_compare_collector=_git_review_ref_collect _git_review_pick Compare /example "Branch or commit"
+    print -r -- "${(j: :)digit_log}"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'zzz=1 all=1' "$output"
+}
+test_case 'UI components number the review ref chooser'"'"'s manual-entry row the same with and without refs' \
+  _test_ui_ref_chooser_manual_entry_digit
+
 _test_ui_palette_source_order_and_resource_convergence() {
   test_make_temp_dir || return
   local scheme='' overrides='' order='' output='' expected=''

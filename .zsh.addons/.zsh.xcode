@@ -736,7 +736,7 @@ _xcode_discovery_idle() {
 }
 
 _xcode_discovery_collect() {
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
 }
 
 _xcode_discovery_view() {
@@ -1816,7 +1816,7 @@ _xcode_logs_collect() {
   fi
   _xcode_logs_total=${#lines} _xcode_logs_matches=0 _xcode_logs_text=''
   _xcode_logs_errors=0 _xcode_logs_faults=0 _xcode_logs_native=0
-  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+  _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
   for line in "${lines[@]}"; do
     (( ++index ))
     _xcode_logs_format_line "$line"
@@ -2398,11 +2398,11 @@ _xcode_run_live() {
 # screen lifecycle, focus language, filtering and resize behavior.
 _xcode_picker_collect() {
   (( ${+functions[_zle_ui_collect]} )) || {
-    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_RESULT_INDEXES=()
+    _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=()
     return 1
   }
   _zle_ui_collect source "$1" "$2" _XCODE_PICKER_VALUES _XCODE_PICKER_LABELS \
-    _XCODE_PICKER_LABELS _XCODE_PICKER_SEARCH append none
+    _XCODE_PICKER_LABELS _XCODE_PICKER_SEARCH append
 }
 
 _xcode_choose() {
