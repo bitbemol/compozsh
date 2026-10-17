@@ -1546,6 +1546,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/ui/.zsh.ui.zle_picker_screen_session` | Screen ownership and restoration |
 | `support/ui/.zsh.ui.zle_picker_show` | Painting and styles |
 | `support/ui/.zsh.ui.zle_picker_workspace` | Pane layout |
+| `support/ui/.zsh.ui.zle_ui_choices` | Choice details, labels and opening row |
 | `support/ui/.zsh.ui.zle_ui_read_text` | Text reader |
 | `support/ui/.zsh.ui.zle_ui_view` | Per-view capabilities |
 

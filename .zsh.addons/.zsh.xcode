@@ -2419,21 +2419,19 @@ _xcode_choose() {
 _xcode_choice_view() {
   emulate -L zsh
   local title=$1 subtitle=$2 query_label=$3
-  local label_kind=${4:-} label_prefix=''
-  local initial_query=${5:-} initial_value=${6:-} value=''
-  local _ZLE_PICKER_EXCLUDE=${9:-}
-  local -i initial_index=1
+  local label_kind=${4:-} label_prefix='' value=''
   local -a _XCODE_PICKER_LABELS=("${_XCODE_PICKER_LABELS[@]}")
   local -a _XCODE_PICKER_SEARCH=("${_XCODE_PICKER_SEARCH[@]}")
+  local -a view_bookmark=("${5:-}" 1 "${7:-0}" "${9:-}" "${10:-0}" "${11:-0}" "${8:-0}")
+  local -a choices=(--details _XCODE_PICKER_DETAILS)
   _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
   _ZLE_PICKER_QUERY_LABEL=$query_label
   _ZLE_PICKER_BROWSE_LABEL='read-only selection'
   _ZLE_PICKER_COLLECTOR=_xcode_picker_collect
   local -i index=0
-  for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
-    _ZLE_PICKER_INSPECT_TEXTS[${_XCODE_PICKER_VALUES[index]}]=${_XCODE_PICKER_DETAILS[index]-}
-    if [[ $label_kind == options ]]; then
-      # Only Actions owns this separator: names in other views stay literal.
+  if [[ $label_kind == options ]]; then
+    # Only Actions owns this separator: names in other views stay literal.
+    for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
       label_prefix=${_XCODE_PICKER_LABELS[index]%% · *}
       value=${_XCODE_PICKER_VALUES[index]}
       _XCODE_PICKER_SEARCH[index]+=" ${_XCODE_PICKER_LABELS[index]}"
@@ -2444,10 +2442,8 @@ _xcode_choice_view() {
         (refresh-destinations) _ZLE_PICKER_ACCEPT_LABELS[$value]=refresh ;;
         (*) _ZLE_PICKER_ACCEPT_LABELS[$value]=${label_prefix:l} ;;
       esac
-      _ZLE_PICKER_LABEL_HIGHLIGHTS[${_XCODE_PICKER_VALUES[index]}]="0:${#label_prefix}:picker-header"
-    fi
-  done
-  if [[ $label_kind == options ]]; then
+      _ZLE_PICKER_LABEL_HIGHLIGHTS[$value]="0:${#label_prefix}:picker-header"
+    done
     _ZLE_PICKER_ACTION_CONTEXT=${_XCODE_ACTION_CONTEXT:-$subtitle}
     _ZLE_PICKER_BROWSE_LABEL='Choose an action · inspect before applying'
   elif [[ $label_kind == run-products ]]; then
@@ -2459,13 +2455,8 @@ _xcode_choice_view() {
       _ZLE_PICKER_ACCEPT_LABELS[$value]=${_XCODE_PENDING_ACTION_LABEL:l}
     done
   fi
-  if [[ -n $initial_value ]]; then
-    _xcode_picker_collect "$initial_query" 1000
-    initial_index=${_ZLE_PICKER_RESULTS[(Ie)$initial_value]}
-    (( initial_index > 0 )) || initial_index=1
-  fi
-  local -a view_bookmark=("$initial_query" "$initial_index" "${7:-0}" "${9:-}" "${10:-0}" "${11:-0}" "${8:-0}")
-  _zle_picker_loop --bookmark view_bookmark 10
+  [[ -n ${6:-} ]] && choices+=(--select "$6")
+  _zle_ui_choices "${choices[@]}" _XCODE_PICKER_VALUES view_bookmark 10
 }
 
 _xcode_test_result_choose() {

@@ -17,7 +17,8 @@ _test_ui_feature_choice_scopes() {
     _ZLE_PICKER_PASSIVE_LINES=(outer) _ZLE_PICKER_GUIDE_CONTEXT=(outer)
     _ZLE_PICKER_INSPECT_TEXTS=(outer "outer details")
     local fixture="" result=0
-    local -A _git_compare_details=() _git_compare_actions=()
+    # Both Git peers declare these per-value maps as associations.
+    local -A _git_compare_details=() _git_compare_actions=() _GWT_DETAILS=() _GWT_LABELS=()
     _zle_picker_loop() {
       (( !_ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY &&
           _ZLE_PICKER_DOCUMENT_FOLLOW == -1 && !_ZLE_PICKER_INSPECT_STACKED &&

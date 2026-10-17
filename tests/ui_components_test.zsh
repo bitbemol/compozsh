@@ -388,3 +388,76 @@ _test_ui_components_named_bookmark() {
 }
 test_case 'UI components picker loop reads and writes a validated named bookmark' \
   _test_ui_components_named_bookmark
+
+# Each feature's choice adapter maps its captured values to inspector text,
+# Enter labels, action descriptions, highlights and the opening bookmark.
+_test_ui_components_choice_adapters_map_values() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/.zsh.usb"
+    source "$1/.zsh.addons/.zsh.git-worktree"
+    source "$1/.zsh.addons/.zsh.git-review"
+    local fixture="" key=""
+    local -A _git_compare_details=() _git_compare_actions=()
+    _zle_picker_loop() {
+      local -a out=("$fixture" "$1" "${(j:,:)${(@P)2}}" "$3" "action=$_ZLE_PICKER_ACTION_VIEW")
+      for key in ${(ok)_ZLE_PICKER_INSPECT_TEXTS}; do out+=("text[$key]=${_ZLE_PICKER_INSPECT_TEXTS[$key]//$'\''\n'\''/~}"); done
+      for key in ${(ok)_ZLE_PICKER_ACCEPT_LABELS}; do out+=("accept[$key]=${_ZLE_PICKER_ACCEPT_LABELS[$key]}"); done
+      for key in ${(ok)_ZLE_PICKER_DESCRIPTIONS}; do out+=("describe[$key]=${_ZLE_PICKER_DESCRIPTIONS[$key]}"); done
+      for key in ${(ok)_ZLE_PICKER_LABEL_HIGHLIGHTS}; do out+=("highlight[$key]=${_ZLE_PICKER_LABEL_HIGHLIGHTS[$key]}"); done
+      print -r -- "${(j:|:)out}"
+      _ZLE_PICKER_BOOKMARK=(q 1 0)
+      return 1
+    }
+    fixture=xcode-options
+    _XCODE_PICKER_VALUES=(build test scheme) _XCODE_PICKER_SEARCH=(build test scheme)
+    _XCODE_PICKER_LABELS=("Build · Incremental build" "Test · Run tests" "Scheme · Choose")
+    _XCODE_PICKER_DETAILS=($'\''Build\n\nBuilds.'\'' Test Scheme)
+    _xcode_choose Title Scope Filter options "" test 1 1 zz 1 1
+    fixture=xcode-plain
+    _XCODE_PICKER_LABELS=(Build Test Scheme)
+    _xcode_choose Title Scope Filter "" "" missing
+    fixture=xcode-destination _XCODE_PENDING_ACTION_LABEL=Build
+    _xcode_choose Title Scope Filter action-destination
+    fixture=usb-action
+    _USB_PICKER_VALUES=(flash format back) _USB_PICKER_LABELS=(Flash Format Back)
+    _USB_PICKER_SEARCH=(flash format back) _USB_PICKER_HIGHLIGHTS=("0:5:picker-success" "" "")
+    _USB_PICKER_DETAILS=($'\''Flash\n\nWrite an image.\nMore.'\'' Format $'\''Back\n\nReturn.'\'')
+    _usb_choose Title Scope Filter 1 0 1 "" "" "" action
+    fixture=usb-select
+    _usb_choose Title Scope Filter 0 1 1 "refresh label" "" back choice x 1 0
+    fixture=usb-plain
+    _usb_choose Title Scope Filter
+    fixture=worktree-action
+    typeset -gA _GWT_DETAILS=() _GWT_LABELS=()
+    _git_worktree_rows_reset
+    _git_worktree_row create "Create worktree…" configure $'\''Create one.\nMore.'\''
+    _git_worktree_row back Back back Return.
+    _GWT_FOCUS=1 _git_worktree_pick Worktrees /example "Filter actions" q 2 1 ex 1 1
+    fixture=review-action
+    _ZLE_UI_CHOICE_VALUES=(to open) _ZLE_UI_CHOICE_LABELS=(Compare Review)
+    _ZLE_UI_CHOICE_SEARCH_LABELS=()
+    _git_compare_details=(to $'\''Compare\nendpoint'\'' open Review) _git_compare_actions=(to choose open review)
+    _git_review_pick Compare "a against b" Filter q 2 1 1 action ex 1 0
+    fixture=review-choice
+    _git_review_pick Compare "a against b" Filter
+    :
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'xcode-options|--bookmark|,2,1,zz,1,1,1|10|action=1|text[build]=Build~~Builds.|text[scheme]=Scheme|text[test]=Test|accept[build]=build|accept[scheme]=choose scheme|accept[test]=test|describe[build]=Incremental build|describe[scheme]=Choose|describe[test]=Run tests|highlight[build]=0:5:picker-header|highlight[scheme]=0:6:picker-header|highlight[test]=0:4:picker-header
+xcode-plain|--bookmark|,1,0,,0,0,0|10|action=0|text[build]=Build~~Builds.|text[scheme]=Scheme|text[test]=Test
+xcode-destination|--bookmark|,1,0,,0,0,0|10|action=0|text[build]=Build~~Builds.|text[scheme]=Scheme|text[test]=Test|accept[build]=build|accept[scheme]=build|accept[test]=build
+usb-action|--bookmark|,1,0,,0,0,0|20|action=1|text[back]=Back~~Return.|text[flash]=Flash~~Write an image.~More.|text[format]=Format|accept[back]=back|accept[checksum]=enter checksum|accept[custom-name]=enter name|accept[default-name]=review confirmation|accept[done]=done|accept[flash]=choose media|accept[flash-only]=review confirmation|accept[flash-verify]=review confirmation|accept[format]=choose drive|accept[image]=choose media|accept[remove-checksum]=remove checksum|accept[retry]=retry capture|accept[target]=choose drive|describe[back]=Return.|describe[flash]=Write an image.|describe[format]=Format|highlight[flash]=0:5:picker-success
+usb-select|--bookmark|,3,2,x,1,0,0|20|action=0|highlight[flash]=0:5:picker-success
+usb-plain|--bookmark|,1,0,,0,0,0|20|action=0
+worktree-action|--bookmark|q,2,1,ex,1,1,1|10|action=1|text[back]=Return.|text[create]=Create one.~More.|accept[back]=back|accept[create]=configure|describe[back]=Return.|describe[create]=Create one.
+review-action|--bookmark|q,2,1,ex,1,0,1|10|action=1|text[open]=Review|text[to]=Compare~endpoint|accept[open]=review|accept[to]=choose|describe[open]=Review|describe[to]=Compare
+review-choice|--bookmark|,1,0,,0,0,0|10|action=0|text[open]=Review|text[to]=Compare~endpoint|accept[open]=review|accept[to]=choose' \
+    "$output" 'a choice adapter changed its mapped details, labels or opening bookmark'
+}
+test_case 'UI components choice adapters map values to details, labels and the opening bookmark' \
+  _test_ui_components_choice_adapters_map_values

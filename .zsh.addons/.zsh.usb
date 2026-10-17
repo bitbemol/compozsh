@@ -1379,8 +1379,9 @@ _usb_choose() {
 
 _usb_choice_view() {
   emulate -L zsh
-  local title=$1 subtitle=$2 query_label=$3
-  local -i show_details=${4:-0}
+  local title=$1 subtitle=$2 query_label=$3 detail=''
+  local -i show_details=${4:-0} show_highlights=${6:-0} index=0
+  local -a view_bookmark=("${8:-}" 1 0 "${11:-}" "${12:-0}" "${13:-0}" 0) choices=()
   if (( _ZLE_PICKER_ACTION_VIEW )); then
     show_details=1
     _ZLE_PICKER_ACTION_CONTEXT="PLAN"$'\n'"$2"$'\n\nWrites require a separate confirmation.'
@@ -1389,12 +1390,15 @@ _usb_choice_view() {
       default-name 'review confirmation' custom-name 'enter name' image 'choose media'
       target 'choose drive' checksum 'enter checksum' remove-checksum 'remove checksum'
       retry 'retry capture' back back done done)
+    # Action rows describe themselves by their detail's second paragraph.
+    for (( index = 1; index <= ${#_USB_PICKER_VALUES}; ++index )); do
+      detail=${_USB_PICKER_DETAILS[index]-}
+      [[ $detail == *$'\n\n'* ]] && detail=${detail#*$'\n\n'}
+      _ZLE_PICKER_DESCRIPTIONS[${_USB_PICKER_VALUES[index]}]=${detail%%$'\n'*}
+    done
   fi
   _ZLE_PICKER_REFRESH_ENABLED=${5:-0}
-  local -i show_highlights=${6:-0}
   local refresh_label=${7:-'captured external disks · Ctrl-R refresh'}
-  local initial_query=${8:-} initial_value=${9:-}
-  local -i start_index=1 start_offset=0
   _ZLE_PICKER_TITLE=$title _ZLE_PICKER_SUBTITLE=$subtitle
   _ZLE_PICKER_QUERY_LABEL=$query_label
   _ZLE_PICKER_BROWSE_LABEL='captured choices · no action yet'
@@ -1405,28 +1409,10 @@ _usb_choice_view() {
     _ZLE_PICKER_PASSIVE_LINES=("${_USB_PICKER_PASSIVE_LINES[@]}")
     _ZLE_PICKER_PASSIVE_STYLES=("${_USB_PICKER_PASSIVE_STYLES[@]}")
   fi
-  local -i index=0
-  for (( index = 1; (show_details || show_highlights) && index <= ${#_USB_PICKER_VALUES}; ++index )); do
-    (( show_highlights )) && [[ -n ${_USB_PICKER_HIGHLIGHTS[index]-} ]] &&
-      _ZLE_PICKER_LABEL_HIGHLIGHTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_HIGHLIGHTS[index]}
-    if (( show_details )); then
-      _ZLE_PICKER_INSPECT_TEXTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_DETAILS[index]-}
-      if (( _ZLE_PICKER_ACTION_VIEW )); then
-        local detail=${_USB_PICKER_DETAILS[index]-}
-        [[ $detail == *$'\n\n'* ]] && detail=${detail#*$'\n\n'}
-        _ZLE_PICKER_DESCRIPTIONS[${_USB_PICKER_VALUES[index]}]=${detail%%$'\n'*}
-      fi
-    fi
-  done
-  local _ZLE_PICKER_EXCLUDE=${11:-}
-  if [[ -n $initial_value ]]; then
-    _usb_picker_collect "$initial_query" 501
-    start_index=${_ZLE_PICKER_RESULTS[(Ie)$initial_value]}
-    (( start_index > 0 )) || start_index=1
-    start_offset=$(( start_index - 1 ))
-  fi
-  local -a view_bookmark=("$initial_query" "$start_index" "$start_offset" "${11:-}" "${12:-0}" "${13:-0}" 0)
-  _zle_picker_loop --bookmark view_bookmark 20
+  (( show_details )) && choices+=(--details _USB_PICKER_DETAILS)
+  (( show_highlights )) && choices+=(--highlights _USB_PICKER_HIGHLIGHTS)
+  [[ -n ${9:-} ]] && choices+=(--select-top "$9")
+  _zle_ui_choices "${choices[@]}" _USB_PICKER_VALUES view_bookmark 20
 }
 
 # A first removable-volume access can return once while macOS applies the

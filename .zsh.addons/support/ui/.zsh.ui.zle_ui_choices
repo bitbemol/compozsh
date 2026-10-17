@@ -1,0 +1,93 @@
+# Entry point: _zle_ui_choices
+# UI component: consumes view state and participates in the screen lifecycle.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# The shared choice adapter for a view configured by _zle_ui_view:
+#   _zle_ui_choices [--details NAME] [--accept NAME] [--highlights NAME]
+#     [--select VALUE | --select-top VALUE] VALUES BOOKMARK LIMIT
+# Peers keep their own capture; this maps it onto the view. VALUES names the
+# captured value array. --details (inspector text), --accept (Enter labels)
+# and --highlights (label highlights) each name an array parallel to VALUES
+# or an association keyed by value; an unset one maps nothing. An action view
+# describes each value it has not described by its detail's first line.
+# --select opens at VALUE's row under the bookmark's query and exclusion,
+# keeping the bookmark's offset; --select-top also scrolls that row to the top.
+# BOOKMARK names the caller's seven-field array, which the loop then reads and
+# records into; LIMIT is the visible row limit. Names are validated
+# identifiers, never expressions.
+_zle_ui_choices() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local _zuc_values='' _zuc_details='' _zuc_accept='' _zuc_highlights=''
+  local _zuc_select='' _zuc_name='' _zuc_value='' _zuc_text='' _zuc_ref=''
+  local -i _zuc_top=0 _zuc_index=0 _zuc_row=1
+  local -a _zuc_fields=() reply=()
+  while (( $# > 3 )); do
+    case $1 in
+      (--details) _zuc_details=$2 ;;
+      (--accept) _zuc_accept=$2 ;;
+      (--highlights) _zuc_highlights=$2 ;;
+      (--select) _zuc_select=$2 _zuc_top=0 ;;
+      (--select-top) _zuc_select=$2 _zuc_top=1 ;;
+      (*) return 2 ;;
+    esac
+    shift 2
+  done
+  (( $# == 3 )) || return 2
+  _zuc_values=$1 _zuc_name=$2
+  for _zuc_ref in "$_zuc_values" "$_zuc_name" $_zuc_details $_zuc_accept $_zuc_highlights; do
+    [[ $_zuc_ref == [A-Za-z_][A-Za-z0-9_]# && $_zuc_ref != (_zuc_*|REPLY|reply) ]] || return 2
+  done
+  [[ ${(Pt)_zuc_values} == array* && ${(Pt)_zuc_name} == array* ]] || return 2
+  (( ${+functions[$_ZLE_PICKER_COLLECTOR]} )) || return 2
+  # An unset per-value source maps nothing.
+  for _zuc_ref in $_zuc_details $_zuc_accept $_zuc_highlights; do
+    [[ ${(Pt)_zuc_ref} == (array|association)* || -z ${(Pt)_zuc_ref} ]] || return 2
+  done
+  local -a _zuc_list=("${(@P)_zuc_values}") _zuc_maps=(
+    _ZLE_PICKER_INSPECT_TEXTS "$_zuc_details" _ZLE_PICKER_ACCEPT_LABELS "$_zuc_accept"
+    _ZLE_PICKER_LABEL_HIGHLIGHTS "$_zuc_highlights")
+  local _zuc_target='' _zuc_source=''
+
+  # An association copies as captured; an array maps by position onto VALUES.
+  # Every value gets inspector text; labels and highlights only when non-empty.
+  for _zuc_target _zuc_source in "${_zuc_maps[@]}"; do
+    [[ -n $_zuc_source && -n ${(Pt)_zuc_source} ]] || continue
+    if [[ ${(Pt)_zuc_source} == association* ]]; then
+      set -A "$_zuc_target" "${(@kvP)_zuc_target}" "${(@kvP)_zuc_source}"
+      continue
+    fi
+    for (( _zuc_index = 1; _zuc_index <= ${#_zuc_list}; ++_zuc_index )); do
+      _zuc_ref="${_zuc_source}[$_zuc_index]"
+      _zuc_text=${(P)_zuc_ref-}
+      [[ $_zuc_target == _ZLE_PICKER_INSPECT_TEXTS || -n $_zuc_text ]] || continue
+      _zuc_value=${_zuc_list[_zuc_index]}
+      case $_zuc_target in
+        (_ZLE_PICKER_INSPECT_TEXTS) _ZLE_PICKER_INSPECT_TEXTS[$_zuc_value]=$_zuc_text ;;
+        (_ZLE_PICKER_ACCEPT_LABELS) _ZLE_PICKER_ACCEPT_LABELS[$_zuc_value]=$_zuc_text ;;
+        (*) _ZLE_PICKER_LABEL_HIGHLIGHTS[$_zuc_value]=$_zuc_text ;;
+      esac
+    done
+  done
+  if (( _ZLE_PICKER_ACTION_VIEW )) && [[ -n $_zuc_details ]] &&
+     _zle_ui_descriptions "${(@kv)_ZLE_PICKER_INSPECT_TEXTS}"; then
+    # Descriptions the view already set win over these defaults.
+    local -A _zuc_described=("${reply[@]}" "${(@kv)_ZLE_PICKER_DESCRIPTIONS}")
+    _ZLE_PICKER_DESCRIPTIONS=("${(@kv)_zuc_described}")
+  fi
+
+  _zuc_fields=("${(@P)_zuc_name}")
+  if [[ -n $_zuc_select ]]; then
+    local _ZLE_PICKER_EXCLUDE=${_zuc_fields[4]-}
+    "$_ZLE_PICKER_COLLECTOR" "${_zuc_fields[1]-}" "$(( ${#_zuc_list} > 0 ? ${#_zuc_list} : 1 ))"
+    _zuc_row=${_ZLE_PICKER_RESULTS[(Ie)$_zuc_select]}
+    (( _zuc_row > 0 )) || _zuc_row=1
+    _zuc_fields[2]=$_zuc_row
+    (( _zuc_top )) && _zuc_fields[3]=$(( _zuc_row - 1 ))
+  fi
+  set -A "$_zuc_name" "${_zuc_fields[1]-}" "${_zuc_fields[2]:-1}" "${_zuc_fields[3]:-0}" \
+    "${_zuc_fields[4]-}" "${_zuc_fields[5]:-0}" "${_zuc_fields[6]:-0}" "${_zuc_fields[7]:-0}"
+  _zle_picker_loop --bookmark "$_zuc_name" "$3"
+}
+
+:

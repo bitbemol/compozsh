@@ -3140,15 +3140,10 @@ _git_review_choice_view() {
   _ZLE_PICKER_BROWSE_LABEL=${_git_compare_status:-read-only comparison}
   _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_zle_ui_collect_choices}
   local -a view_bookmark=("${4:-}" "${5:-1}" "${6:-0}" "${9:-}" "${10:-0}" "${11:-0}" "${7:-0}")
-  _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_git_compare_details}")
-  _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_git_compare_actions}")
-  if (( _ZLE_PICKER_ACTION_VIEW )); then
+  (( _ZLE_PICKER_ACTION_VIEW )) &&
     _ZLE_PICKER_ACTION_CONTEXT="COMPARISON"$'\n'"$2"$'\n\nRead-only · captured endpoints'
-    local -a reply=()
-    _zle_ui_descriptions "${(@kv)_git_compare_details}"
-    _ZLE_PICKER_DESCRIPTIONS=("${reply[@]}")
-  fi
-  _zle_picker_loop --bookmark view_bookmark 10
+  _zle_ui_choices --details _git_compare_details --accept _git_compare_actions \
+    _ZLE_UI_CHOICE_VALUES view_bookmark 10
 }
 
 _git_review_ref_collect() {
