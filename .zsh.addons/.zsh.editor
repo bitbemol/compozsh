@@ -355,7 +355,11 @@ _draft_inspect_choose() {
   _ZLE_PICKER_TITLE='Draft / Inspect' _ZLE_PICKER_SUBTITLE=$_DRAFT_INSPECT_SCOPE
   _ZLE_PICKER_QUERY_LABEL='Filter next steps' _ZLE_PICKER_COLLECTOR=_draft_inspect_collect
   _ZLE_PICKER_BROWSE_LABEL='Explicit inspection · nothing executes'
-  _ZLE_PICKER_ACTION_CONTEXT="DRAFT"$'\n'"Cursor $_DRAFT_INSPECT_CURSOR of $_DRAFT_INSPECT_LENGTH characters"$'\n\nFOLDER\n'"$_DRAFT_INSPECT_SCOPE"
+  local -a reply=()
+  _zle_ui_action_context heading DRAFT \
+    text "Cursor $_DRAFT_INSPECT_CURSOR of $_DRAFT_INSPECT_LENGTH characters" text '' \
+    heading FOLDER text "$_DRAFT_INSPECT_SCOPE"
+  _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
   _ZLE_PICKER_DESCRIPTIONS=(
     read 'Read and filter the literal text; keep your cursor'
     files 'Browse this folder; selecting a path replaces the draft'
@@ -1141,7 +1145,10 @@ _directory_browser_view() {
   _ZLE_PICKER_QUERY_LABEL='Filter folders'
   (( ${+functions[_file_search_choose]} )) && _ZLE_PICKER_SEARCH_ACTION=search-auto
   _ZLE_PICKER_INSPECT_TITLE=Preview _ZLE_PICKER_INSPECT_ACTION=$mode _ZLE_PICKER_CANCEL_LABEL=''
-  [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
+  if [[ ${_FILES_WORKSPACE-} == 1 ]]; then
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1
+    _files_workspace_guide
+  fi
   local _directory_browser_preview_value='' _directory_browser_preview_text=''
   local -a components=() bookmark=()
   local -i result=0 transition_status=0 return_focus=0 start_focus=0
@@ -1248,6 +1255,49 @@ _directory_browser_view() {
 
     return 0
   done
+}
+
+# Files workspace facts for the keyboard guide, shared by Browse, Search and
+# Recents. Search facts appear only when the search peer is loaded, and its
+# own validation turns the live ZSH_FILE_SEARCH_MAX_* settings into the limits
+# a walk would use. Reads shell variables only; never the filesystem.
+_files_workspace_guide() {
+  emulate -L zsh
+  local visited='' candidates=''
+  local -i search=${+functions[_file_search_limit]}
+  _ZLE_PICKER_GUIDE_FACTS=(
+    'Action groups' 'Selected folder / Current folder / Go to'
+    'Go to' 'Independent navigation to this shell Recents'
+    'Browse' 'Children of the displayed folder; Enter inserts')
+  (( search )) && _ZLE_PICKER_GUIDE_FACTS+=(
+    'Search' 'Submit fragments to search below this folder')
+  _ZLE_PICKER_GUIDE_FACTS+=(
+    'Recents' 'Enter inserts a path; submit at the prompt to cd')
+  (( search )) || return 0
+  _file_search_limit "${ZSH_FILE_SEARCH_MAX_VISITED:-20000}" 20000
+  _files_guide_grouped "$REPLY"
+  visited=$REPLY
+  _file_search_limit "${ZSH_FILE_SEARCH_MAX_CANDIDATES:-2000}" 2000
+  _files_guide_grouped "$REPLY"
+  candidates=$REPLY
+  _ZLE_PICKER_GUIDE_FACTS+=(
+    'Sources' 'Filesystem walk, Git files, or Spotlight index'
+    'Limits' "Walk: $visited entries; captured matches: $candidates"
+    'Coverage' 'Git ignores untracked ignored files and empty dirs'
+    'Spotlight' 'Filename seed; unindexed/excluded paths may be absent'
+    'Refinement' 'Typing filters captured paths; discovery is explicit'
+    'Source choice' 'Ctrl-X selects Filesystem, Git files, or Spotlight')
+}
+
+# Group a validated decimal in thousands for display: 20000 → 20,000.
+_files_guide_grouped() {
+  emulate -L zsh
+  local digits=$1 grouped=''
+  while (( ${#digits} > 3 )); do
+    grouped=",${digits[-3,-1]}$grouped"
+    digits=${digits[1,-4]}
+  done
+  REPLY=$digits$grouped
 }
 
 # A small explicit view switch, not a registration/lifecycle framework. Optional

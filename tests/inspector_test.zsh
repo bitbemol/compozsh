@@ -194,6 +194,8 @@ _test_document_wrapping_geometry() {
     test_source_support "$1" || exit
     local -i _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT=1
     local _ZLE_PICKER_DOCUMENT_KEY=diff
+    # The Git caller names its own truncation note.
+    local _ZLE_PICKER_DOCUMENT_LIMIT_NOTE="Limits: 20,000 wrapped lines; use Git for the remaining text."
     local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
     local -A _ZLE_PICKER_DOCUMENT_SYNTAX=()
     local -a lengths=() rows=() roles=() sources=() slices=() spans=()

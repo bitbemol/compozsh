@@ -126,7 +126,9 @@ _zle_picker_show() {
       color=${REPLY:+fg=$REPLY}
       [[ $role == heading || $role == warning ]] && color+="${color:+,}bold"
       [[ -n $color ]] || color=none
-      if (( _ZLE_PICKER_DOCUMENT && !_ZLE_PICKER_READER_ONLY )); then
+      # Only a caller-declared review document reads success/error as added
+      # and removed lines; other documents keep the semantic output colours.
+      if (( _ZLE_PICKER_DOCUMENT && ${_ZLE_PICKER_DOCUMENT_REVIEW:-0} )); then
         case $role in
           (success) _zle_picker_review_style added; color=$REPLY ;;
           (error) _zle_picker_review_style removed; color=$REPLY ;;

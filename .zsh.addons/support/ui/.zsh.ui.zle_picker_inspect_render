@@ -175,7 +175,8 @@ _zle_picker_inspect_prepare() {
   local -i width=$2 first=1 max_lines=256 source_index=0 character_offset=0 document_pending=0
   local -i clip_lines=${_ZLE_PICKER_INSPECT_CLIP_LINES:-0}
   local -i ascii_wrap=0 remaining_width=0 restore_multibyte=0 inspect_source_row=0
-  local -a source_lines=() reply=() syntax=()
+  local -i context_lines=0
+  local -a source_lines=() reply=() syntax=() context=()
   [[ -o MULTIBYTE ]] && restore_multibyte=1
   (( _ZLE_PICKER_DOCUMENT )) && max_lines=20000
   if [[ $name == "$_ZLE_PICKER_INSPECT_KEY" ]] &&
@@ -224,6 +225,8 @@ _zle_picker_inspect_prepare() {
       text=${_ZLE_PICKER_INSPECT_TEXTS[$name]-'Details unavailable in this snapshot.'}
     fi
     if (( _ZLE_PICKER_ACTION_VIEW )) && [[ -n $_ZLE_PICKER_ACTION_CONTEXT ]]; then
+      context=("${(@f)${_ZLE_PICKER_ACTION_CONTEXT[1,32768]}}")
+      context_lines=${#context}
       text="${_ZLE_PICKER_ACTION_CONTEXT[1,32768]}"$'\n\n'"$text"
     fi
   fi
@@ -281,12 +284,13 @@ _zle_picker_inspect_prepare() {
       fi
     elif (( _ZLE_PICKER_ACTION_VIEW || _ZLE_PICKER_VALUE_INSPECT )); then
       # Plans and literal commands are prose/data, not the help companion's
-      # heading grammar. Only known plan labels get structural emphasis.
-      if (( _ZLE_PICKER_ACTION_VIEW )); then
-        case $line in
-          (TARGET|SCOPE|PLAN|DRAFT|FOLDER|PROJECT|SCHEME|DESTINATION|REPOSITORY|COMPARISON|'CAPTURED LOGS') role=heading ;;
-          (Safety*|Unavailable:*) role=warning ;;
-        esac
+      # heading grammar. The caller names each plan line's role, so a captured
+      # value never earns emphasis from its text; authored action details
+      # keep their Safety/Unavailable warnings.
+      if (( _ZLE_PICKER_ACTION_VIEW && source_index <= context_lines )); then
+        role=${_ZLE_PICKER_ACTION_CONTEXT_ROLES[source_index]:-text}
+      elif (( _ZLE_PICKER_ACTION_VIEW )); then
+        case $line in (Safety*|Unavailable:*) role=warning ;; esac
       fi
     elif (( _ZLE_PICKER_REFERENCE_VIEW )); then
       # A topic can start with an indented option paragraph. Keep explanation
@@ -362,7 +366,7 @@ _zle_picker_inspect_prepare() {
     _ZLE_PICKER_INSPECT_SOURCE_LINES+=($source_index)
     if (( ${#_ZLE_PICKER_INSPECT_LINES} >= max_lines )); then
       _ZLE_PICKER_INSPECT_LINES[max_lines]='[Preview truncated.]'
-      (( _ZLE_PICKER_DOCUMENT )) && _ZLE_PICKER_INSPECT_LINES[max_lines]='Limits: 20,000 wrapped lines; use Git for the remaining text.'
+      (( _ZLE_PICKER_DOCUMENT )) && _ZLE_PICKER_INSPECT_LINES[max_lines]=${(V)_ZLE_PICKER_DOCUMENT_LIMIT_NOTE:-Limits: 20,000 wrapped lines.}
       (( _ZLE_PICKER_READER_ONLY )) && _ZLE_PICKER_INSPECT_LINES[max_lines]='Limits: 20,000 wrapped lines; narrow the filter to read more.'
       _ZLE_PICKER_INSPECT_ROLES[max_lines]=warning
       _ZLE_PICKER_INSPECT_SYNTAX[max_lines]=''

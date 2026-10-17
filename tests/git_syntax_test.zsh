@@ -75,7 +75,7 @@ _test_git_syntax_render() {
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.highlighting"
     source "$1/.zsh.addons/.zsh.git-syntax"
-    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_KEY=one
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REVIEW=1 _ZLE_PICKER_DOCUMENT_KEY=one
     _ZLE_PICKER_DOCUMENT_LINES=($'\''               +\t"é界\e[2J"'\'')
     _ZLE_PICKER_DOCUMENT_ROLES=(success)
     _ZLE_PICKER_DOCUMENT_SYNTAX=(1 "17:25:string ")
@@ -1343,7 +1343,7 @@ _test_git_syntax_zle() {
     _git_review_document_parse
     _git_syntax_capture example.swift
     _git_syntax_apply "$_GIT_SYNTAX_DATA" || exit 1
-    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_KEY=1
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REVIEW=1 _ZLE_PICKER_DOCUMENT_KEY=1
     _ZLE_PICKER_TITLE="Working changes" _ZLE_PICKER_SUBTITLE="Synthetic syntax fixture"
     _ZLE_PICKER_DOCUMENT_TITLE=example.swift _ZLE_PICKER_INSPECT_TEXTS=(1 ready)
     _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_COLLECTOR=_syntax_collect

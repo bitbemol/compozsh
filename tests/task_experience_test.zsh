@@ -11,7 +11,8 @@ _test_task_action_surface() {
       _ZLE_PICKER_RESULTS=(open copy) _ZLE_PICKER_LABELS=(Open Copy)
       _ZLE_PICKER_VIEW_LIMIT=10
       _ZLE_PICKER_DESCRIPTIONS=(open "Launch the registered app" copy "Keep the exact path")
-      _ZLE_PICKER_ACTION_CONTEXT=$'"'"'TARGET\n/example/literal % [a].txt'"'"'
+      _zle_ui_action_context heading TARGET text "/example/literal % [a].txt"
+      _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
       _ZLE_PICKER_INSPECT_TEXTS=(open "Explicit application launch" copy "Clipboard after cleanup")
       _zle_picker_render "" 1
       [[ ${(j:|:)_ZLE_PICKER_DISPLAY} == *"Launch the registered app"* &&

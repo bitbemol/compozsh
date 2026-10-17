@@ -212,6 +212,16 @@ focused filters.
 - Returning to Recents (Back from its actions menu, or from Browse) now also
   restores which pane had focus, the list or the details, as Browse, Search,
   the help workspaces and the composer already did (P3-06, B-10).
+- The Files keyboard guide (Ctrl-K in Browse, Search and Recents) now states
+  the walk and match limits from `ZSH_FILE_SEARCH_MAX_VISITED` and
+  `ZSH_FILE_SEARCH_MAX_CANDIDATES` instead of always saying 20,000 and 2,000.
+  Action plans emphasize exactly the headings their tool names, so
+  `FROM REMOTE-TRACKING REF` and `COMMIT` (creating a branch from `g`) and
+  `SOURCE` and `DESTINATIONS` (`xcode --export-skills`) are now headings,
+  while a draft, path or other captured value that equals a heading word or
+  starts with "Safety" stays ordinary text. Review colours and the "use Git
+  for the remaining text" truncation note now belong to Git review documents
+  only (P3-12, B-07).
 
 ## Performance results
 

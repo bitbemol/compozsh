@@ -29,6 +29,8 @@ typeset -gA _ZLE_PICKER_CONTEXTS=()
 # These are captured presentation data, never command previews to execute.
 typeset -gA _ZLE_PICKER_DESCRIPTIONS=()
 typeset -g _ZLE_PICKER_ACTION_CONTEXT=''
+# One caller-named role per action-context line; values never imply emphasis.
+typeset -ga _ZLE_PICKER_ACTION_CONTEXT_ROLES=()
 typeset -gi _ZLE_PICKER_ACTION_VIEW=0 _ZLE_PICKER_VALUE_INSPECT=0 _ZLE_PICKER_REFERENCE_VIEW=0
 # Optional zero-based, end-exclusive label spans keyed by the unchanged action
 # value. Each `start:end:picker-role` token describes presentation metadata;
@@ -86,6 +88,8 @@ typeset -ga _ZLE_PICKER_BUSY_STYLES=()
 typeset -gi _ZLE_PICKER_DIRECTORY_ACTIONS=0
 typeset -ga _ZLE_PICKER_TRAIL=()
 typeset -ga _ZLE_PICKER_GUIDE_CONTEXT=()
+# Caller-owned guide facts as label/description pairs, rendered with key lines.
+typeset -ga _ZLE_PICKER_GUIDE_FACTS=()
 typeset -ga _ZLE_PICKER_DISPLAY_PREFIX_ENDS=()
 typeset -g _ZLE_PICKER_ACTION='select'
 typeset -gi _ZLE_PICKER_INDEXES_VISIBLE=0
@@ -129,6 +133,10 @@ typeset -gi _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
 typeset -gi _ZLE_PICKER_AUTO_REFRESH=-1
 typeset -g _ZLE_PICKER_DOCUMENT_KEY=''
 typeset -g _ZLE_PICKER_DOCUMENT_TITLE=''
+# Review documents paint success/error rows with the review add/remove styles;
+# the caller names the truncation note for its own document.
+typeset -gi _ZLE_PICKER_DOCUMENT_REVIEW=0
+typeset -g _ZLE_PICKER_DOCUMENT_LIMIT_NOTE=''
 typeset -gi _ZLE_PICKER_DOCUMENT_PENDING=0
 # Document workspaces may let list selection outrun expensive preview capture.
 # Zero preserves immediate controller handoff; Git review opts into a small

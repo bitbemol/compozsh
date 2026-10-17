@@ -218,9 +218,14 @@ These are Compozsh controls, not claims about macOS-wide standards.
   digits and copy keys don't edit the filter or apply a result, and it never
   triggers refresh or a provider check. Key and fact labels use the heading
   style, descriptions ordinary text, notes muted text; emphasis is clipped to
-  the visible row and passive labels never get numbers. Caller-supplied
-  context lines arrive as raw captured facts; the guide sanitizes and fits
-  them like every other row and paints them as unemphasized literal text.
+  the visible row and passive labels never get numbers. Key lines derive from
+  capabilities in the engine. Domain facts belong to the owning peer, which
+  sets `_ZLE_PICKER_GUIDE_FACTS` label/description pairs from live settings
+  when it configures the view (the Files views state the configured
+  `ZSH_FILE_SEARCH_MAX_*` limits); the guide lists them after the key lines.
+  Caller-supplied context lines arrive as raw captured facts; the guide
+  sanitizes and fits them like every other row and paints them as
+  unemphasized literal text.
 
 ## Selection and focus
 
@@ -279,6 +284,11 @@ These are Compozsh controls, not claims about macOS-wide standards.
   caller requests that still work with zero matching lines. Static text
   readers filter literal lines case-insensitively and release their maps on
   exit.
+- Document roles keep their semantic output colours unless the caller declares
+  a review document (`_ZLE_PICKER_DOCUMENT_REVIEW=1`), whose success/error
+  rows use the review added/removed styles. The caller also names the
+  truncation note for its own bound (`_ZLE_PICKER_DOCUMENT_LIMIT_NOTE`; Git
+  review points to Git for the remaining text).
 - The shared UI owns prepared rows, scroll offsets and saved document
   positions. A caller whose captured text or presentation metadata changed
   requests a rewrap with `_zle_picker_inspect_invalidate keep|tail|top`
@@ -297,8 +307,10 @@ shared choice pane of 45% width capped at 52 columns; the captured plan takes
 the rest and may fill the body before focus. Narrower screens keep the focus
 switch (Ctrl-E/Right or Tab to the plan, Ctrl-B/Left back). Descriptive second
 rows never reduce visible choice capacity, receive digits, change matching or
-become action values. Known plan labels may be emphasized; prose and literal
-commands stay ordinary text. Files actions, Git review/comparison and worktree
+become action values. The caller builds its plan with `_zle_ui_action_context`
+and names each segment's role (plan headings use `heading`); a captured value
+keeps its caller's role even when it spans lines, equals a heading word or
+starts with Safety. Prose and literal commands stay ordinary text. Files actions, Git review/comparison and worktree
 setup, Xcode actions and log options, and external-device review share this
 presentation while keeping their own capture, action and confirmation rules.
 

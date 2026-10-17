@@ -95,6 +95,8 @@ test_case 'keyboard guide sanitizes caller-owned context lines' _test_keyboard_g
 
 # Characterize every Ctrl-X caller: the footer destination and the guide's
 # Ctrl-X key lines come from capabilities plus the caller's options label.
+# Files workspace facts belong to the Files views, so engine-only state here
+# shows key lines alone; the caller-facts case below covers the full guide.
 _test_keyboard_guide_options_callers() {
   test_make_temp_dir || return
   local output
@@ -180,13 +182,13 @@ _test_keyboard_guide_options_callers() {
     'folder browser|guide|Keyboard guide · 1/29|Ctrl-X               Options: folder actions, including current folder'
     'files browse|wide|⏎ choose · Esc back · ^] filter/exclude · ^X options · ^F search · ^O preview · ↑/↓ move · → open / ← back · ^T hidden · ^E details · Fn/Option ↑/↓ page · type filter · ^U clear · ^K all keys'
     'files browse|screen|⏎ choose · Esc back · ^] filter/exclude · ^X options · ^F search · ^O preview · ^K all keys'
-    'files browse|guide|Keyboard guide · 1/41|Ctrl-X               Options: folder actions, including current folder;Ctrl-X               Options: actions, sources, Browse and Recents'
+    'files browse|guide|Keyboard guide · 1/30|Ctrl-X               Options: folder actions, including current folder;Ctrl-X               Options: actions, sources, Browse and Recents'
     'files results|wide|⏎ insert · Esc back · ^] filter/exclude · ^X options · ↑/↓ move · Tab details · Fn/Option ↑/↓ page · type filter · ^U clear · ^K all keys'
     'files results|screen|⏎ insert · Esc back · ^] filter/exclude · ^X options · ↑/↓ move · Tab details · ^K all keys'
-    'files results|guide|Keyboard guide · 1/36|Ctrl-X               Options: actions, sources, Browse and Recents'
+    'files results|guide|Keyboard guide · 1/25|Ctrl-X               Options: actions, sources, Browse and Recents'
     'recents|wide|⏎ insert · Esc back · ^] filter/exclude · ^X options · ^O browse · ↑/↓ move · Tab details · Fn/Option ↑/↓ page · type filter · ^U clear · ^K all keys'
     'recents|screen|⏎ insert · Esc back · ^] filter/exclude · ^X options · ^O browse · ↑/↓ move · ^K all keys'
-    'recents|guide|Keyboard guide · 1/37|Ctrl-X               Options: actions, sources, Browse and Recents'
+    'recents|guide|Keyboard guide · 1/26|Ctrl-X               Options: actions, sources, Browse and Recents'
     'plain choice|wide|⏎ choose · Esc back · ^] filter/exclude · ↑/↓ move · Tab details · Fn/Option ↑/↓ page · type filter · ^U clear · ^K all keys'
     'plain choice|screen|⏎ choose · Esc back · ^] filter/exclude · ↑/↓ move · Tab details · Fn/Option ↑/↓ page · ^K all keys'
     'plain choice|guide|Keyboard guide · 1/24|'
@@ -194,3 +196,91 @@ _test_keyboard_guide_options_callers() {
   test_assert_equal "${(F)expected}" "$output"
 }
 test_case 'keyboard guide and footer keep Ctrl-X destinations for every options caller' _test_keyboard_guide_options_callers
+
+# Domain facts and plan roles come from callers, never from engine vocabulary
+# or from the text of captured values.
+_test_keyboard_guide_caller_facts_and_roles() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    export LC_ALL=en_US.UTF-8
+    ZSH_FILE_SEARCH_MAX_VISITED=5000 ZSH_FILE_SEARCH_MAX_CANDIDATES=300
+    source "$1/.zshrc"
+    local guide="" line=""
+    local -a captured=() headings=() warnings=()
+    _ZLE_PICKER_SCREEN_ACTIVE=1 _ZLE_PICKER_GUIDE_ACTIVE=1 _ZLE_PICKER_GUIDE_OFFSET=0
+    LINES=200 COLUMNS=200
+    _stub_guide() {
+      _ZLE_PICKER_RESULTS=(main) _ZLE_PICKER_LABELS=(main) _ZLE_PICKER_SELECTED=1
+      _zle_picker_guide_render 199
+      guide=${(F)_ZLE_PICKER_DISPLAY}
+      return 1
+    }
+    # The Files workspace guide states the live search limits.
+    _zle_picker_loop() { _stub_guide; }
+    _FILES_WORKSPACE=1 _zle_ui_view choice _directory_recents_view
+    [[ $guide == *"Limits               Walk: 5,000 entries; captured matches: 300"* &&
+       $guide != *"20,000 entries"* ]] || {
+      print -u2 -r -- "Files guide must state the configured limits: $guide"; exit 1; }
+    # A view that only sets workspace actions inherits no Files facts.
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1 _ZLE_PICKER_GUIDE_FACTS=()
+    _stub_guide
+    [[ $guide != *"Walk:"* && $guide != *"Action groups"* ]] || exit 2
+    _ZLE_PICKER_WORKSPACE_ACTIONS=0
+    # Plan headings carry the caller-named role; captured values stay text.
+    _capture_roles() {
+      local -i i=0
+      _zle_picker_inspect_prepare "${_ZLE_PICKER_RESULTS[1]:-back}" 120
+      headings=() warnings=()
+      for (( i=1; i<=${#_ZLE_PICKER_INSPECT_LINES}; ++i )); do
+        [[ $_ZLE_PICKER_INSPECT_ROLES[i] == heading ]] && headings+=("$_ZLE_PICKER_INSPECT_LINES[i]")
+        [[ $_ZLE_PICKER_INSPECT_ROLES[i] == warning ]] && warnings+=("$_ZLE_PICKER_INSPECT_LINES[i]")
+      done
+      return 1
+    }
+    _zle_picker_loop() { _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0; _capture_roles; }
+    _GIT_BRANCH_REMOTE_NAMES=([remote:refs/remotes/origin/feature]=feature)
+    _GIT_BRANCH_REMOTE_OIDS=([remote:refs/remotes/origin/feature]=0123456789abcdef0123456789abcdef01234567)
+    _zle_ui_view action _git_branch_remote_confirm_view remote:refs/remotes/origin/feature
+    [[ ${(j:|:)headings} == "LOCAL BRANCH|FROM REMOTE-TRACKING REF|COMMIT" ]] || {
+      print -u2 -r -- "Branch plan headings: ${(j:|:)headings}"; exit 3; }
+    local agent_path=/Applications/Xcode.app
+    local -a agent_names=(Codex) skill_dirs=(/tmp/skills)
+    _zle_picker_loop() {
+      _ZLE_PICKER_RESULTS=(export)
+      _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0; _capture_roles; }
+    _xcode_export_review
+    [[ ${(j:|:)headings} == "SOURCE|DESTINATIONS" ]] || {
+      print -u2 -r -- "Export plan headings: ${(j:|:)headings}"; exit 4; }
+    # A draft equal to a heading word, or starting with Safety, stays text.
+    _zle_picker_loop() {
+      _ZLE_PICKER_RESULTS=(replace)
+      _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0; _capture_roles; }
+    local _compose_scope=/tmp/project
+    _DRAFT_CONTEXT_PROBE=$'"'"'TARGET\nSafety first'"'"'
+    _compose_context_probe() {
+      _zle_ui_action_context heading DRAFT text "$_DRAFT_CONTEXT_PROBE" text "" heading FOLDER text "$_compose_scope"
+      _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
+      _zle_picker_loop
+    }
+    _zle_ui_view action _compose_context_probe
+    [[ ${(j:|:)headings} == "DRAFT|FOLDER" && ${#warnings} == 0 ]] || {
+      print -u2 -r -- "Draft roles: ${(j:|:)headings} / ${(j:|:)warnings}"; exit 5; }
+    # Review add/remove colours belong to review documents only.
+    local painted=""
+    zle() { painted=${(j:|:)region_highlight}; }
+    ZSH_HIGHLIGHT_STYLES[review-added]="fg=201"
+    _ZLE_PICKER_DISPLAY=("left │ added" "footer") _ZLE_PICKER_DISPLAY_STYLES=(picker-text picker-muted)
+    _ZLE_PICKER_DISPLAY_LEFT_ENDS=(4 -1) _ZLE_PICKER_DISPLAY_RIGHT_ROLES=(success "")
+    _ZLE_PICKER_DISPLAY_INDEX_ENDS=(0 0) _ZLE_PICKER_DISPLAY_HIGHLIGHTS=("" "")
+    _ZLE_PICKER_DISPLAY_RIGHT_SYNTAX=("" "") _ZLE_PICKER_DISPLAY_CONTEXT_STARTS=(0 0)
+    _ZLE_PICKER_DISPLAY_MATCH_STARTS=(-1 -1)
+    _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_READER_ONLY=0 _ZLE_PICKER_DOCUMENT_REVIEW=0
+    BUFFER="" PREDISPLAY="" POSTDISPLAY="" region_highlight=()
+    _zle_picker_show
+    [[ $painted != *"fg=201"* ]] || { print -u2 -r -- "Non-review document used review colours"; exit 6; }
+    _ZLE_PICKER_DOCUMENT_REVIEW=1
+    _zle_picker_show
+    [[ $painted == *"fg=201"* ]] || { print -u2 -r -- "Review document lost review colours"; exit 7; }
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'keyboard guide shows the configured file-search limits and plan headings keep their roles' _test_keyboard_guide_caller_facts_and_roles

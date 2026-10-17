@@ -162,7 +162,10 @@ _directory_recents_view() {
   local notice=${1-}
   _ZLE_PICKER_SUBTITLE='This shell · native directory stack' _ZLE_PICKER_QUERY_LABEL=Search
   _ZLE_PICKER_INSPECT_TITLE=Location _ZLE_PICKER_INSPECT_ACTION=${mode:-insert}
-  [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
+  if [[ ${_FILES_WORKSPACE-} == 1 ]]; then
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1
+    (( ${+functions[_files_workspace_guide]} )) && _files_workspace_guide
+  fi
   # Slots match the stack: [0] is the current directory, as in dirs -v.
   _ZLE_PICKER_ZERO_BASED=1
   local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
@@ -357,7 +360,12 @@ _git_branch_remote_confirm_view() {
   _ZLE_PICKER_BROWSE_LABEL='confirmation · existing local Git data'
   _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_INSPECT_ACTION=choose
-  _ZLE_PICKER_ACTION_CONTEXT="LOCAL BRANCH"$'\n'"$name"$'\n\nFROM REMOTE-TRACKING REF\n'"${ref#refs/remotes/}"$'\n\nCOMMIT\n'"${_GIT_BRANCH_REMOTE_OIDS[$key]}"$'\n\nCreates a tracking branch and switches this working tree.\nNo fetch, pull, merge, force or automatic stash.\nGit refuses conflicting changes or an existing local branch.'
+  local -a reply=()
+  _zle_ui_action_context heading 'LOCAL BRANCH' text "$name" text '' \
+    heading 'FROM REMOTE-TRACKING REF' text "${ref#refs/remotes/}" text '' \
+    heading COMMIT text "${_GIT_BRANCH_REMOTE_OIDS[$key]}" text '' \
+    text $'Creates a tracking branch and switches this working tree.\nNo fetch, pull, merge, force or automatic stash.\nGit refuses conflicting changes or an existing local branch.'
+  _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
   _ZLE_PICKER_ACCEPT_LABELS=(back back create 'create and switch')
   _zle_picker_loop '' 10
 }

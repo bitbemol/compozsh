@@ -100,7 +100,10 @@ _compozsh_compose_form() {
   _ZLE_PICKER_QUERY_LABEL='Find a field or action'
   _ZLE_PICKER_BROWSE_LABEL='Literal draft · nothing executes'
   _ZLE_PICKER_COLLECTOR=_compozsh_compose_collect
-  _ZLE_PICKER_ACTION_CONTEXT="DRAFT"$'\n'"$draft"$'\n\nFOLDER\n'"$_compose_scope"$'\n\nReplace draft returns to the ordinary prompt.\nReview it there before pressing Return.'
+  local -a reply=()
+  _zle_ui_action_context heading DRAFT text "$draft" text '' heading FOLDER text "$_compose_scope" text '' \
+    text $'Replace draft returns to the ordinary prompt.\nReview it there before pressing Return.'
+  _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
   if [[ $_compose_recipe == git-review ]]; then
     _compose_values=(method base head)
     _compose_labels=(method "Comparison · ${${_compose_method/exact/All differences}/ancestor/Since common ancestor}"

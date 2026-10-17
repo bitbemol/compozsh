@@ -3000,6 +3000,12 @@ _git_review_document_view() {
     _ZLE_PICKER_CONTEXT_MIN_WIDTH=11
     _ZLE_PICKER_WORKSPACE_ACTIONS=1
   fi
+  # Every document here is a diff: success/error rows are added/removed lines,
+  # and Git itself reads whatever the 20,000-line bound leaves out.
+  if (( _ZLE_PICKER_DOCUMENT )); then
+    _ZLE_PICKER_DOCUMENT_REVIEW=1
+    _ZLE_PICKER_DOCUMENT_LIMIT_NOTE='Limits: 20,000 wrapped lines; use Git for the remaining text.'
+  fi
   _ZLE_PICKER_BROWSE_LABEL=$_GIT_REVIEW_SUMMARY
   if (( !${#_GIT_REVIEW_LABELS} )); then
     _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Escape returns to the previous view.' "$_GIT_REVIEW_NOTICE")
@@ -3141,8 +3147,11 @@ _git_review_choice_view() {
   _ZLE_PICKER_BROWSE_LABEL=${_git_compare_status:-read-only comparison}
   _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_zle_ui_collect_choices}
   local -a view_bookmark=("${4:-}" "${5:-1}" "${6:-0}" "${9:-}" "${10:-0}" "${11:-0}" "${7:-0}")
-  (( _ZLE_PICKER_ACTION_VIEW )) &&
-    _ZLE_PICKER_ACTION_CONTEXT="COMPARISON"$'\n'"$2"$'\n\nRead-only · captured endpoints'
+  local -a reply=()
+  if (( _ZLE_PICKER_ACTION_VIEW )); then
+    _zle_ui_action_context heading COMPARISON text "$2" text '' text 'Read-only · captured endpoints'
+    _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
+  fi
   _zle_ui_choices --details _git_compare_details --accept _git_compare_actions \
     _ZLE_UI_CHOICE_VALUES view_bookmark 10
 }
@@ -3449,7 +3458,9 @@ _git_review_options() {
 _git_review_options_view() {
   emulate -L zsh
   local root=$1 branch=$2
-  _ZLE_PICKER_ACTION_CONTEXT="REPOSITORY"$'\n'"$root"$'\n\nRead-only · no checkout or fetch'
+  local -a reply=()
+  _zle_ui_action_context heading REPOSITORY text "$root" text '' text 'Read-only · no checkout or fetch'
+  _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
   _ZLE_PICKER_DESCRIPTIONS=(working 'Staged, unstaged and untracked changes'
     commits 'Captured branch tip → commits → files → diff'
     compare 'Choose both endpoints and a comparison method')

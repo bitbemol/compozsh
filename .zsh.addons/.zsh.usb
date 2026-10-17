@@ -1381,10 +1381,11 @@ _usb_choice_view() {
   emulate -L zsh
   local title=$1 subtitle=$2 query_label=$3 detail=''
   local -i show_details=${4:-0} show_highlights=${6:-0} index=0
-  local -a view_bookmark=("${8:-}" 1 0 "${11:-}" "${12:-0}" "${13:-0}" 0) choices=()
+  local -a view_bookmark=("${8:-}" 1 0 "${11:-}" "${12:-0}" "${13:-0}" 0) choices=() reply=()
   if (( _ZLE_PICKER_ACTION_VIEW )); then
     show_details=1
-    _ZLE_PICKER_ACTION_CONTEXT="PLAN"$'\n'"$2"$'\n\nWrites require a separate confirmation.'
+    _zle_ui_action_context heading PLAN text "$2" text '' text 'Writes require a separate confirmation.'
+    _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
     _ZLE_PICKER_ACCEPT_LABELS=(flash-verify 'review confirmation' flash-only 'review confirmation'
       flash 'choose media' format 'choose drive'
       default-name 'review confirmation' custom-name 'enter name' image 'choose media'

@@ -104,20 +104,14 @@ _zle_picker_guide_render() {
         'Auto-refresh         Checks locally while idle; Ctrl-R still refreshes now')
     fi
   elif (( ${_ZLE_PICKER_WORKSPACE_ACTIONS:-0} )); then
-    lines+=(
-    'Ctrl-X               Options: actions, sources, Browse and Recents'
-    'Action groups        Selected folder / Current folder / Go to'
-    'Go to                Independent navigation to this shell Recents'
-    'Browse               Children of the displayed folder; Enter inserts'
-    'Search               Submit fragments to search below this folder'
-    'Recents              Enter inserts a path; submit at the prompt to cd'
-    'Sources              Filesystem walk, Git files, or Spotlight index'
-    'Limits               Walk: 20,000 entries; captured matches: 2,000'
-    'Coverage             Git ignores untracked ignored files and empty dirs'
-    'Spotlight            Filename seed; unindexed/excluded paths may be absent'
-    'Refinement           Typing filters captured paths; discovery is explicit'
-    'Source choice        Ctrl-X selects Filesystem, Git files, or Spotlight')
+    lines+=('Ctrl-X               Options: actions, sources, Browse and Recents')
   fi
+  # Caller-owned facts (label/description pairs) follow the key lines. The
+  # owning peer derives them from live settings when the view is configured.
+  for (( index=1; index<${#_ZLE_PICKER_GUIDE_FACTS}; index+=2 )); do
+    lines+=("${(r:21:)${(V)_ZLE_PICKER_GUIDE_FACTS[index]}}${(V)_ZLE_PICKER_GUIDE_FACTS[index+1]}")
+  done
+  index=0
   if (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_DOCUMENT_FOLLOW >= 0 )); then
     lines+=('Live                 Follow the newest output; resize keeps the tail visible'
             'Up / Page up / Home  Scroll back and pause following'

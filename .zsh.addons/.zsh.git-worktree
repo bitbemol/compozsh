@@ -532,7 +532,11 @@ _git_worktree_choice_view() {
   _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_WORKSPACE_ACTIONS=${_GWT_OPTIONS:-0}
   _ZLE_PICKER_HIERARCHY_ENABLED=${_GWT_HIERARCHY:-0}
-  (( _ZLE_PICKER_ACTION_VIEW )) && _ZLE_PICKER_ACTION_CONTEXT="SCOPE"$'\n'"$2"
+  local -a reply=()
+  if (( _ZLE_PICKER_ACTION_VIEW )); then
+    _zle_ui_action_context heading SCOPE text "$2"
+    _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
+  fi
   local -a view_bookmark=("${4:-}" "${5:-1}" "${6:-0}" "${7:-}" "${8:-0}" "${9:-0}" "${_GWT_FOCUS:-0}")
   _zle_ui_choices --details _GWT_DETAILS --accept _GWT_LABELS \
     _ZLE_UI_CHOICE_VALUES view_bookmark 10

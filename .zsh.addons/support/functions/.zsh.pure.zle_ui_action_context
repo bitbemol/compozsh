@@ -1,0 +1,25 @@
+# Entry point: _zle_ui_action_context
+# Pure: role/text segment pairs in; context text in REPLY, line roles in reply.
+
+# Action views show a caller-owned plan above the selected action. Each
+# segment names its own role, so a captured value that spans lines or equals a
+# heading word keeps the role its caller gave it, never one inferred from text.
+_zle_ui_action_context() {
+  emulate -L zsh
+  local role='' line=''
+  local -a segments=()
+  REPLY='' reply=()
+  (( $# % 2 == 0 )) || return 2
+  while (( $# )); do
+    role=$1
+    segments+=("$2")
+    for line in "${(@f)2}"; do
+      reply+=("$role")
+    done
+    shift 2
+  done
+  REPLY=${(pj:\n:)segments}
+  return 0
+}
+
+:

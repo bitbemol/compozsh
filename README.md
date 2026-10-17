@@ -1535,6 +1535,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/functions/.zsh.pure.zle_picker_document_direction` | Reading disclosure steps |
 | `support/functions/.zsh.pure.zle_picker_fit` | Cell padding and truncation |
 | `support/functions/.zsh.pure.zle_picker_highlights_shift` | Highlight offsets |
+| `support/functions/.zsh.pure.zle_ui_action_context` | Action-plan lines and roles |
 | `support/functions/.zsh.pure.zle_ui_descriptions` | First-line descriptions |
 | `support/functions/.zsh.pure.zle_ui_path_actions` | Path-action metadata |
 | `support/ui/.zsh.ui.state` | Shared view state (data only) |

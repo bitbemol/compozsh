@@ -537,7 +537,8 @@ _file_search_actions_view() {
   local action='' label='' detail='' accept='' display_path=${(V)selected}
   local -i can_open=0 can_enter=0 can_reveal=0 can_copy=0
   local -a reply=()
-  _ZLE_PICKER_ACTION_CONTEXT="TARGET"$'\n'"$selected"
+  _zle_ui_action_context heading TARGET text "$selected"
+  _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
   if [[ -L $selected ]]; then
     kind='Symbolic link'
     [[ -d $selected ]] && can_enter=1
@@ -658,7 +659,10 @@ _file_search_view() {
   _ZLE_PICKER_QUERY_LABEL='Filter results' _ZLE_PICKER_SEARCH_ACTION="search-$provider"
   _ZLE_PICKER_TITLE=Files _ZLE_PICKER_SUBTITLE="$provider · $root"
   _ZLE_PICKER_INSPECT_TITLE=Path _ZLE_PICKER_INSPECT_ACTION=insert
-  [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
+  if [[ ${_FILES_WORKSPACE-} == 1 ]]; then
+    _ZLE_PICKER_WORKSPACE_ACTIONS=1
+    (( ${+functions[_files_workspace_guide]} )) && _files_workspace_guide
+  fi
   local -a _FILE_SEARCH_VALUES=() _FILE_SEARCH_LABELS=() _FILE_SEARCH_MATCH_TEXTS=() _FILE_SEARCH_RANKS=()
   local -A _FILE_SEARCH_SEEN=()
   local _FILE_SEARCH_ROOT='' _FILE_SEARCH_SOURCE=''

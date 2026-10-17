@@ -1925,7 +1925,10 @@ _xcode_logs_options_view() {
   fi
   _XCODE_PICKER_VALUES+=(back)
   _XCODE_PICKER_LABELS+=('Return to Run · Keep the app running')
-  _ZLE_PICKER_ACTION_CONTEXT="CAPTURED LOGS"$'\n'"$_xcode_logs_matches of $_xcode_logs_total lines"$'\n\nThe app remains running while you read.'
+  local -a reply=()
+  _zle_ui_action_context heading 'CAPTURED LOGS' text "$_xcode_logs_matches of $_xcode_logs_total lines" \
+    text '' text 'The app remains running while you read.'
+  _ZLE_PICKER_ACTION_CONTEXT=$REPLY _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${reply[@]}")
   local -i index=0
   local value='' label='' detail=''
   for (( index=1; index<=${#_XCODE_PICKER_VALUES}; ++index )); do
@@ -2397,6 +2400,24 @@ _xcode_picker_collect() {
     _XCODE_PICKER_LABELS _XCODE_PICKER_SEARCH append
 }
 
+# Plans keep caller-named line roles through the shared builder. The workspace
+# controller also runs without the UI support (tests, standalone peer), so the
+# plain text stays available and the roles are simply absent there.
+_xcode_action_context() {
+  emulate -L zsh
+  local -a reply=() texts=()
+  if (( ${+functions[_zle_ui_action_context]} )); then
+    _zle_ui_action_context "$@" || return
+    _XCODE_ACTION_CONTEXT=$REPLY _XCODE_ACTION_CONTEXT_ROLES=("${reply[@]}")
+    return 0
+  fi
+  while (( $# >= 2 )); do
+    texts+=("$2")
+    shift 2
+  done
+  _XCODE_ACTION_CONTEXT=${(pj:\n:)texts} _XCODE_ACTION_CONTEXT_ROLES=()
+}
+
 _xcode_choose() {
   local view_kind=choice
   [[ ${4:-} == options ]] && view_kind=action
@@ -2432,6 +2453,8 @@ _xcode_choice_view() {
       _ZLE_PICKER_LABEL_HIGHLIGHTS[$value]="0:${#label_prefix}:picker-header"
     done
     _ZLE_PICKER_ACTION_CONTEXT=${_XCODE_ACTION_CONTEXT:-$subtitle}
+    _ZLE_PICKER_ACTION_CONTEXT_ROLES=()
+    [[ -n $_XCODE_ACTION_CONTEXT ]] && _ZLE_PICKER_ACTION_CONTEXT_ROLES=("${_XCODE_ACTION_CONTEXT_ROLES[@]}")
     _ZLE_PICKER_BROWSE_LABEL='Choose an action · inspect before applying'
   elif [[ $label_kind == run-products ]]; then
     _ZLE_PICKER_INSPECT_ACTION=run
@@ -2667,6 +2690,7 @@ _xcode_workspace_controller() {
   local -a _XCODE_DESTINATION_CACHE_SPECS=()
   local -A _XCODE_DESTINATION_SELECTIONS=()
   local _XCODE_ACTION_CONTEXT='' action_query='' action_value=''
+  local -a _XCODE_ACTION_CONTEXT_ROLES=()
   local -i action_offset=0 action_focus=0
 
   if (( ${#_XCODE_CONTAINERS} > 1 )); then
@@ -2739,7 +2763,8 @@ _xcode_workspace_controller() {
       'Analyze'$'\n\nRuns Xcode static analysis after this workspace closes.'
       'Clean'$'\n\nRemoves build products for this scheme and destination after this workspace closes.'
       'Refresh destinations'$'\n\nReplaces the current scheme’s in-memory snapshot with a fresh Xcode query. Use after devices or runtimes change.')
-    _XCODE_ACTION_CONTEXT="PROJECT"$'\n'"$container"$'\n\nSCHEME  '"$scheme"$'\nDESTINATION  '"$destination"$'\n'"$spec"
+    _xcode_action_context heading PROJECT text "$container" text '' \
+      text "SCHEME  $scheme" text "DESTINATION  $destination" text "$spec"
     _xcode_choose 'Xcode / Actions' "${container:t} · $scheme · $destination" 'Filter actions' options \
       "$action_query" "$action_value" "$action_offset" "$action_focus" "${action_exclusion[1]-}" "${action_exclusion[2]:-0}" "${action_exclusion[3]:-0}"
     result=$?
@@ -3440,11 +3465,14 @@ _xcode_export_review() {
   local -a _XCODE_PICKER_SEARCH=('export install update skills')
   local -a _XCODE_PICKER_DETAILS=(
     $'Export once, then install real copies in the displayed destinations.\n\nOnly skills marked .xcode-skill-export may be replaced. Personal conflicts and symlinks are kept and reported.\nReplacement is staged per skill, not one transaction: a later failure can leave earlier updates installed.\nNo export or installation has started. Escape returns without writing.')
-  local _XCODE_ACTION_CONTEXT="SOURCE"$'\n'"$agent_path"$'\n\nDESTINATIONS'
+  local -a segments=(heading SOURCE text "$agent_path" text '' heading DESTINATIONS)
   local -i index=0
   for (( index = 1; index <= ${#agent_names}; ++index )); do
-    _XCODE_ACTION_CONTEXT+=$'\n'"${agent_names[index]}"$'\n'"${skill_dirs[index]}"
+    segments+=(text "${agent_names[index]}" text "${skill_dirs[index]}")
   done
+  local _XCODE_ACTION_CONTEXT=''
+  local -a _XCODE_ACTION_CONTEXT_ROLES=()
+  _xcode_action_context "${segments[@]}"
   _xcode_choose 'Xcode / Export skills' 'Detected local agents · review installation targets' 'Filter actions' options
 }
 
