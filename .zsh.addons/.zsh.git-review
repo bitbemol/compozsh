@@ -2823,8 +2823,8 @@ _git_review_atlas_view() {
       _ZLE_PICKER_ACCEPT_LABELS[$value]='read diff'
     fi
   done
-  _zle_picker_start_focus=${6:-0}
-  _zle_picker_loop "${3:-}" 20 "${4:-1}" "${5:-0}" "${7:-}" "${8:-0}" "${9:-0}"
+  local -a view_bookmark=("${3:-}" "${4:-1}" "${5:-0}" "${7:-}" "${8:-0}" "${9:-0}" "${6:-0}")
+  _zle_picker_loop --bookmark view_bookmark 20
 }
 
 _git_review_atlas_level() {
@@ -2947,7 +2947,7 @@ _git_review_document_view() {
   local -i _GIT_REVIEW_TRUNCATED=0 _GIT_REVIEW_DOCUMENT_HAS_CODE=0
   local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
   local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
-  local -a bookmark=('' 1 0)
+  local -a bookmark=('' 1 0) view_bookmark=()
   case $kind in
     (atlas-file)
       [[ $target == <-> ]] && (( target >= 1 && target <= ${#_atlas_paths} )) || return 2
@@ -3037,8 +3037,9 @@ _git_review_document_view() {
   fi
   while true; do
     _ZLE_PICKER_DIGIT_SELECT=1 _ZLE_PICKER_COPY_ENABLED=0
-    _zle_picker_start_focus=$focus
-    _zle_picker_loop "${bookmark[1]}" 20 "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    view_bookmark=("${bookmark[1]-}" "${bookmark[2]-}" "${bookmark[3]-}" \
+      "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}" "$focus")
+    _zle_picker_loop --bookmark view_bookmark 20
     result=$?
     if (( result == 1 )) && [[ $_ZLE_PICKER_OPTIONS_KIND == file-views ]]; then
       bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
@@ -3138,7 +3139,7 @@ _git_review_choice_view() {
   _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2 _ZLE_PICKER_QUERY_LABEL=$3
   _ZLE_PICKER_BROWSE_LABEL=${_git_compare_status:-read-only comparison}
   _ZLE_PICKER_COLLECTOR=${_git_compare_collector:-_zle_ui_collect_choices}
-  _zle_picker_start_focus=${7:-0}
+  local -a view_bookmark=("${4:-}" "${5:-1}" "${6:-0}" "${9:-}" "${10:-0}" "${11:-0}" "${7:-0}")
   _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_git_compare_details}")
   _ZLE_PICKER_ACCEPT_LABELS=("${(@kv)_git_compare_actions}")
   if (( _ZLE_PICKER_ACTION_VIEW )); then
@@ -3147,7 +3148,7 @@ _git_review_choice_view() {
     _zle_ui_descriptions "${(@kv)_git_compare_details}"
     _ZLE_PICKER_DESCRIPTIONS=("${reply[@]}")
   fi
-  _zle_picker_loop "${4:-}" 10 "${5:-1}" "${6:-0}" "${9:-}" "${10:-0}" "${11:-0}"
+  _zle_picker_loop --bookmark view_bookmark 10
 }
 
 _git_review_ref_collect() {
@@ -3474,8 +3475,8 @@ _git_review_options_view() {
   _ZLE_PICKER_DESCRIPTIONS[atlas]='Captured change entries → folders → files → focused diff'
   _ZLE_PICKER_ACCEPT_LABELS[atlas]='open atlas'
   _ZLE_PICKER_INSPECT_TEXTS[atlas]='Map the current working-tree snapshot by folder. Bars show file-entry counts; staged and unstaged changes remain distinct. No content is read until a file is chosen.'
-  _zle_picker_start_focus=${6:-0}
-  _zle_picker_loop "${3:-}" 10 "${4:-1}" "${5:-0}" "${7:-}" "${8:-0}" "${9:-0}"
+  local -a view_bookmark=("${3:-}" "${4:-1}" "${5:-0}" "${7:-}" "${8:-0}" "${9:-0}" "${6:-0}")
+  _zle_picker_loop --bookmark view_bookmark 10
 }
 
 _git_review_menu() {
@@ -3524,7 +3525,8 @@ _git_review_branch_choose() {
   local collector=${_ZLE_PICKER_COLLECTOR:-_zle_ui_collect_choices}
   local -a _ZLE_PICKER_EMPTY_LINES=()
   local _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
-  local -i _GIT_REVIEW_TRUNCATED=0 _zle_picker_start_focus=0
+  local -i _GIT_REVIEW_TRUNCATED=0
+  local -a view_bookmark=()
   if (( !${#_ZLE_UI_CHOICE_VALUES} )); then
     _ZLE_PICKER_EMPTY_LINES=('No local branches'
       'Ctrl-X reviews the current working tree, including before its first commit.')
@@ -3533,8 +3535,9 @@ _git_review_branch_choose() {
     _ZLE_PICKER_COLLECTOR=$collector
     _ZLE_PICKER_DIGIT_SELECT=1
     _ZLE_PICKER_COPY_ENABLED=$(( ${#clipboard_binary} > 0 ))
-    _zle_picker_start_focus=$focus
-    _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    view_bookmark=("${bookmark[1]-}" "${bookmark[2]-}" "${bookmark[3]-}" \
+      "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}" "$focus")
+    _zle_picker_loop --bookmark view_bookmark "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
     result=$?
     (( result == 0 )) || return $result
     [[ $_ZLE_PICKER_ACTION == actions ]] || return 0

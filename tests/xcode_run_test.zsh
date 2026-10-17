@@ -210,19 +210,21 @@ _test_xcode_run_action_continuity() {
       [[ $_XCODE_PICKER_VALUES[2] == read && $_XCODE_PICKER_LABELS[2] == "Read output · Full view, filter and copy" ]] || {
         print -u2 "second action still offers redundant following"; return 8
       }
+      [[ $1 == --bookmark && $3 == 10 ]] || { print -u2 "actions view lost its named bookmark"; return 7; }
+      local -a fields=("${(@P)2}")
       if (( calls == 2 )); then
-        (( _zle_picker_start_focus == 0 && $3 == 2 )) || { print -u2 "Read output did not return to actions"; return 8; }
+        [[ $fields[7] == 0 && $fields[2] == 2 ]] || { print -u2 "Read output did not return to actions"; return 8; }
       elif (( calls == 3 )); then
-        [[ $1 == output && $3 == 1 ]] && (( _zle_picker_start_focus == 0 )) || {
+        [[ $fields[1] == output && $fields[2] == 1 && $fields[7] == 0 ]] || {
           print -u2 "Read output lost filtered selection"; return 13
         }
       fi
-      _xcode_picker_collect "$1" 10
+      _xcode_picker_collect "$fields[1]" 10
       COLUMNS=120 LINES=30
-      _ZLE_PICKER_INSPECT_FOCUS=${_zle_picker_start_focus:-0}
-      _zle_picker_render "" ${3:-1}
+      _ZLE_PICKER_INSPECT_FOCUS=${fields[7]:-0}
+      _zle_picker_render "" ${fields[2]:-1}
       _xcode_run_idle
-      _zle_picker_render "" ${3:-1}
+      _zle_picker_render "" ${fields[2]:-1}
       local offset=$_ZLE_PICKER_INSPECT_OFFSET
       (( offset > 0 )) || return 10
       _zle_picker_render "" 2

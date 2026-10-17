@@ -866,7 +866,7 @@ _git_branch_choose() {
 
 _git_branch_session() {
   emulate -L zsh
-  local -a bookmark=('' 1 0)
+  local -a bookmark=('' 1 0) view_bookmark=()
   local chosen=''
   local -i result=0 focus=0
   while true; do
@@ -877,9 +877,9 @@ _git_branch_session() {
       _git_review_branch_choose "${bookmark[1]}" "${bookmark[2]}" "${bookmark[3]}" \
         "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}" "$focus"
     else
-      _zle_picker_start_focus=$focus
-      _zle_picker_loop "${bookmark[1]}" "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}" \
-        "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+      view_bookmark=("${bookmark[1]-}" "${bookmark[2]-}" "${bookmark[3]-}" \
+        "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}" "$focus")
+      _zle_picker_loop --bookmark view_bookmark "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
     fi
     result=$?
     (( result == 0 )) || return $result

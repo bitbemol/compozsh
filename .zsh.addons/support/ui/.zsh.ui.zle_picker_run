@@ -55,8 +55,9 @@ _zle_picker_widget() {
     _zle_picker_screen_session "$_zle_picker_session_callback"
     _zle_picker_session_status=$?
   else
-    _zle_picker_loop "${_zle_picker_start_query:-}" "${_ZLE_PICKER_RUN_LIMIT:-10}" \
-      "${_zle_picker_start_index:-1}" "${_zle_picker_start_offset:-0}"
+    local -a start_bookmark=("${_zle_picker_start_query:-}" \
+      "${_zle_picker_start_index:-1}" "${_zle_picker_start_offset:-0}")
+    _zle_picker_loop --bookmark start_bookmark "${_ZLE_PICKER_RUN_LIMIT:-10}"
   fi
 }
 

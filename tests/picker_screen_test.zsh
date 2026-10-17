@@ -364,7 +364,7 @@ _test_picker_engine_drops_inherited_view_state() {
       _ZLE_PICKER_EXCLUSION_ENABLED _ZLE_PICKER_QUERY_SUBMIT
       _ZLE_PICKER_QUERY_EMPTY_CANCEL _ZLE_PICKER_INSPECT_STACKED
       _ZLE_PICKER_INSPECT_CLIP_LINES _ZLE_PICKER_IDLE_PREPAINT
-      _ZLE_PICKER_WORKSPACE_ACTIONS _zle_picker_start_focus
+      _ZLE_PICKER_WORKSPACE_ACTIONS
       _ZLE_PICKER_EXCLUDE_SHOWN _ZLE_PICKER_EXCLUDE_FOCUS)
     for name in "${names[@]}"; do export "$name=$substitution"; done
     export _ZLE_PICKER_IDLE_CALLBACK=_inherited_idle _ZLE_AUTOSUGGEST_SUSPENDED=$substitution

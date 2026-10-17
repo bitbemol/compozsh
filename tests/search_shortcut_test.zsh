@@ -57,7 +57,7 @@ _test_search_shortcut_browser() {
         _ZLE_PICKER_BOOKMARK=(filter 2 1)
         _ZLE_PICKER_BOOKMARK_FOCUS=1
       else
-        [[ $2 == filter && $3 == 2 && $4 == 1 && $_zle_picker_start_focus == 1 ]] || return 21
+        [[ $2 == filter && $3 == 2 && $4 == 1 && $8 == 1 ]] || return 21
         return 1
       fi
     }

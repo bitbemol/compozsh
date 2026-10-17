@@ -680,8 +680,8 @@ _test_picker_script_helper() {
     }
     _probe_view() {
       _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE="$1 subtitle" _ZLE_PICKER_COLLECTOR=_probe_collect
-      _zle_picker_start_focus=${2:-0}
-      _zle_picker_loop "" 10 "${5:-1}" 0 "${3:-}" 0 "${4:-0}"
+      local -a probe_bookmark=("" "${5:-1}" 0 "${3:-}" 0 "${4:-0}" "${2:-0}")
+      _zle_picker_loop --bookmark probe_bookmark 10
     }
     # An observe function keeps its own names, such as a step counter.
     local -i step=0

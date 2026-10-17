@@ -378,9 +378,12 @@ _test_ui_components_named_bookmark() {
       print -r -- "$scalar:$?"
     done
     _zle_picker_loop --bookmark bookmark || print -r -- "arity:$?"
+    # Bookmark fields travel only by name: positional start fields are refused.
+    _zle_picker_loop query 10 2 0 || print -r -- "positional:$?"
+    _zle_picker_loop --body || print -r -- "body:$?"
     print -r -- "${(j:|:)bookmark}|${(j:|:)reply}"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal $'query|2|0|skip|1|1|1\nreply:2\nscalar:2\nbookmark[1]:2\n_zpl_name:2\n_ZLE_PICKER_BOOKMARK:2\n:2\narity:2\nquery|2|0|skip|1|1|1|query|2|0' \
+  test_assert_equal $'query|2|0|skip|1|1|1\nreply:2\nscalar:2\nbookmark[1]:2\n_zpl_name:2\n_ZLE_PICKER_BOOKMARK:2\n:2\narity:2\npositional:2\nbody:2\nquery|2|0|skip|1|1|1|query|2|0' \
     "$output" 'the named bookmark was not read, validated or written back exactly'
 }
 test_case 'UI components picker loop reads and writes a validated named bookmark' \

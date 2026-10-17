@@ -254,7 +254,8 @@ _test_git_document_selection_settle() {
       fi
       return 1
     }
-    _zle_picker_loop "" 10 2 0
+    local -a start_bookmark=("" 2 0)
+    _zle_picker_loop --bookmark start_bookmark 10
     [[ $? == 0 && $_ZLE_PICKER_ACTION == inspect && $_ZLE_PICKER_SELECTED_VALUE == four &&
        $keys_read == 2 && ${#read_events} == 0 && $shows == 3 ]] || {
       print -u2 -- "document selection settled before repeated input: selected=$_ZLE_PICKER_SELECTED_VALUE keys=$keys_read events=${#read_events} shows=$shows"
@@ -266,7 +267,8 @@ _test_git_document_selection_settle() {
     # can begin while the user continues holding Down.
     shows=0 keys_read=0
     read_events=(timeout timeout down timeout timeout timeout down timeout timeout timeout timeout)
-    _zle_picker_loop "" 10 4 0
+    start_bookmark=("" 4 0)
+    _zle_picker_loop --bookmark start_bookmark 10
     [[ $? == 0 && $_ZLE_PICKER_ACTION == inspect && $_ZLE_PICKER_SELECTED_VALUE == four &&
        $keys_read == 2 && ${#read_events} == 0 && $shows == 3 ]] || {
       print -u2 -- "boundary repeats did not restart settlement: selected=$_ZLE_PICKER_SELECTED_VALUE keys=$keys_read events=${#read_events} shows=$shows"

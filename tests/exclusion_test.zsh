@@ -217,7 +217,8 @@ _test_exclusion_native() {
     }
     _exclusion_choices() {
       _ZLE_PICKER_TITLE=Choices _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
-      _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}"
+      local -a view_bookmark=("${1:-}" "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}" 0)
+      _zle_picker_loop --bookmark view_bookmark 10
     }
     _exclusion_menu() {
       local -a _ZLE_UI_CHOICE_VALUES=(done) _ZLE_UI_CHOICE_LABELS=(Done)
@@ -455,7 +456,8 @@ _test_exclusion_capture_display() {
     }
     _file_search_inspector_capture() { :; }
     _zle_picker_loop() {
-      result_fields="${_ZLE_PICKER_EXCLUDE:-}:${_ZLE_PICKER_EXCLUDE_SHOWN:-0}:${5:-}"
+      [[ $1 == --bookmark ]] || return 9
+      result_fields="${_ZLE_PICKER_EXCLUDE:-}:${_ZLE_PICKER_EXCLUDE_SHOWN:-0}:${${(@P)2}[4]-}"
       displayed_summary=$_ZLE_PICKER_BROWSE_LABEL
       return 1
     }

@@ -837,10 +837,12 @@ _directory_browser_collect() {
   done
 }
 
+# LIMIT [QUERY ROW OFFSET EXCLUSION EXCLUSION-FOCUS EXCLUSION-SHOWN FOCUS]
 _directory_browser_pick() {
   local limit=$1
   shift
-  _zle_picker_loop "${1:-}" "$limit" "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}"
+  local -a view_bookmark=("${1:-}" "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}" "${7:-0}")
+  _zle_picker_loop --bookmark view_bookmark "$limit"
 }
 
 _directory_browser_actions_collect() {
@@ -1142,7 +1144,7 @@ _directory_browser_view() {
   [[ ${_FILES_WORKSPACE-} == 1 ]] && _ZLE_PICKER_WORKSPACE_ACTIONS=1
   local _directory_browser_preview_value='' _directory_browser_preview_text=''
   local -a components=() bookmark=()
-  local -i result=0 transition_status=0 return_focus=0
+  local -i result=0 transition_status=0 return_focus=0 start_focus=0
   while true; do
     _ZLE_PICKER_TITLE='Directory browser'
     _directory_browser_absolute "${_DIRECTORY_PICKER_LOCATION:-.}"
@@ -1183,10 +1185,13 @@ _directory_browser_view() {
       (( ${#indent} < 6 )) && indent+='  '
     done
 
-    _directory_browser_pick $result_limit "${_DIRECTORY_PICKER_RESUME[@]}"
+    _directory_browser_pick $result_limit "${_DIRECTORY_PICKER_RESUME[1]-}" \
+      "${_DIRECTORY_PICKER_RESUME[2]:-1}" "${_DIRECTORY_PICKER_RESUME[3]:-0}" \
+      "${_DIRECTORY_PICKER_RESUME[4]-}" "${_DIRECTORY_PICKER_RESUME[5]:-0}" \
+      "${_DIRECTORY_PICKER_RESUME[6]:-0}" "$start_focus"
     result=$?
     return_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
-    _zle_picker_start_focus=0
+    start_focus=0
     (( result == 0 )) || return $result
     _DIRECTORY_PICKER_RESUME=("${_ZLE_PICKER_BOOKMARK[@]}")
     if [[ $_ZLE_PICKER_ACTION == preview ]]; then
@@ -1196,8 +1201,8 @@ _directory_browser_view() {
       _directory_browser_preview_text=$REPLY
       # Narrow windows and empty lists have no useful side-by-side reading
       # context: open the captured preview directly in the main workspace.
-      # The input loop resets focus at entry; use its optional start focus.
-      _zle_picker_start_focus=$(( COLUMNS < 100 || !${#_ZLE_PICKER_SELECTED_VALUE} ))
+      # The input loop resets focus at entry; the bookmark's focus field opens it.
+      start_focus=$(( COLUMNS < 100 || !${#_ZLE_PICKER_SELECTED_VALUE} ))
       continue
     elif [[ $_ZLE_PICKER_ACTION == actions ]]; then
       bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
@@ -1206,7 +1211,7 @@ _directory_browser_view() {
       result=$?
       if (( result == 1 )); then
         _DIRECTORY_PICKER_RESUME=("${bookmark[@]}")
-        _zle_picker_start_focus=$return_focus
+        start_focus=$return_focus
         continue
       fi
       (( result == 0 )) || return $result
@@ -1219,7 +1224,7 @@ _directory_browser_view() {
       _file_search_choose "$REPLY" '' "${_ZLE_PICKER_ACTION#search-}"
       result=$?
       if (( result == 1 )); then
-        _zle_picker_start_focus=$return_focus
+        start_focus=$return_focus
         continue
       fi
       return $result

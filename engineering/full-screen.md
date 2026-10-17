@@ -238,7 +238,9 @@ These are Compozsh controls, not claims about macOS-wide standards.
   LIMIT`); the engine validates the name, reads the fields before declaring
   its own locals and writes the recorded bookmark back after its scope ends,
   so Back restores all seven and a view that records none leaves the array
-  unchanged. The positional form remains for callers not yet migrated.
+  unchanged. A view with nothing to restore opens with `_zle_picker_loop
+  QUERY LIMIT`; the loop takes no other arguments and reads no start-focus
+  variable, so pane focus travels only in the bookmark.
 
 ## Inspectors and readers
 

@@ -478,7 +478,7 @@ _test_git_review_native_queued_input_precedes_idle() {
       local go=""
       IFS= read -r -u $gfd go || return 90
       [[ $go == GO ]] || return 91
-      _zle_picker_loop "" 10 1 0
+      _zle_picker_loop "" 10
       print -r -u $efd -- "DONE|$?|$idle_calls"
     }
     _queued_event() {

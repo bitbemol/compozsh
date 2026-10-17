@@ -6,37 +6,46 @@ _zle_picker_loop() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
-  # `--bookmark NAME LIMIT` names the caller's array of seven fields: query,
-  # row, offset, exclusion text, exclusion focus, exclusion shown and pane
-  # focus. They are read before this loop declares its locals, and the bookmark
-  # it records is written back after that scope ends, so a validated name never
-  # resolves to a loop local; a view that records none leaves the array as is.
-  if [[ ${1-} == --bookmark ]]; then
-    (( $# == 3 )) || return 2
-    local _zpl_name=$2 _zpl_limit=$3
-    [[ $_zpl_name == [A-Za-z_][A-Za-z0-9_]# &&
-       $_zpl_name != (_zpl_*|_zle_*|_ZLE_*|REPLY|reply) ]] || return 2
-    [[ ${(Pt)_zpl_name} == array* ]] || return 2
-    local -a _zpl_fields=("${(@P)_zpl_name}")
-    local -i _zpl_status=0 _zle_picker_start_focus=0
-    [[ ${_zpl_fields[7]-} == 1 ]] && _zle_picker_start_focus=1
-    _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
-    _zle_picker_loop "${_zpl_fields[1]-}" "$_zpl_limit" "${_zpl_fields[2]-1}" \
-      "${_zpl_fields[3]-0}" "${_zpl_fields[4]-}" "${_zpl_fields[5]-0}" \
-      "${_zpl_fields[6]-0}" || _zpl_status=$?
-    (( ${#_ZLE_PICKER_BOOKMARK} )) &&
+  # `QUERY LIMIT` opens a view at its first row. `--bookmark NAME LIMIT` names
+  # the caller's array of seven fields: query, row, offset, exclusion text,
+  # exclusion focus, exclusion shown and pane focus. This frame reads them
+  # before the loop below declares its locals, and writes the recorded bookmark
+  # back after that scope ends, so a validated name never resolves to a loop
+  # local; a view that records none leaves the array as is. The loop itself
+  # runs as `--body`, an internal re-entry (the screen session repeats it) that
+  # reads the fields from this frame and takes no arguments of its own.
+  if [[ ${1-} != --body ]]; then
+    local _zpl_name='' _zpl_limit=''
+    local -a _zpl_fields=()
+    local -i _zpl_status=0
+    if [[ ${1-} == --bookmark ]]; then
+      (( $# == 3 )) || return 2
+      _zpl_name=$2 _zpl_limit=$3
+      [[ $_zpl_name == [A-Za-z_][A-Za-z0-9_]# &&
+         $_zpl_name != (_zpl_*|_zle_*|_ZLE_*|REPLY|reply) ]] || return 2
+      [[ ${(Pt)_zpl_name} == array* ]] || return 2
+      _zpl_fields=("${(@P)_zpl_name}")
+      _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
+    else
+      (( $# <= 2 )) || return 2
+      _zpl_fields=("${1-}") _zpl_limit=${2-}
+    fi
+    _zle_picker_loop --body || _zpl_status=$?
+    [[ -n $_zpl_name ]] && (( ${#_ZLE_PICKER_BOOKMARK} )) &&
       set -A "$_zpl_name" "${(@)_ZLE_PICKER_BOOKMARK[1,3]}" \
         "${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" \
         "${_ZLE_PICKER_BOOKMARK[6]:-0}" "$_ZLE_PICKER_BOOKMARK_FOCUS"
     return $_zpl_status
   fi
+  # Only that frame enters the body.
+  [[ ${(t)_zpl_fields-} == array-local* ]] || return 2
 
-  local query=$1 raw_limit=$2 key='' sequence='' suffix='' byte='' collected_query=''
+  local query=${_zpl_fields[1]-} raw_limit=${_zpl_limit-} key='' sequence='' suffix='' byte='' collected_query=''
   local collector=$_ZLE_PICKER_COLLECTOR
-  local _ZLE_PICKER_EXCLUDE=${5:-} collected_exclude='' input=''
+  local _ZLE_PICKER_EXCLUDE=${_zpl_fields[4]-} collected_exclude='' input=''
   local -i _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0 editing_exclude=0
-  [[ ${6:-0} == 1 ]] && _ZLE_PICKER_EXCLUDE_FOCUS=1
-  [[ ${7:-0} == 1 || -n $_ZLE_PICKER_EXCLUDE ]] && _ZLE_PICKER_EXCLUDE_SHOWN=1
+  [[ ${_zpl_fields[5]-} == 1 ]] && _ZLE_PICKER_EXCLUDE_FOCUS=1
+  [[ ${_zpl_fields[6]-} == 1 || -n $_ZLE_PICKER_EXCLUDE ]] && _ZLE_PICKER_EXCLUDE_SHOWN=1
   local -i _ZLE_PICKER_EXCLUSION_ENABLED=${_ZLE_PICKER_EXCLUSION_ENABLED:-$(( !${_ZLE_PICKER_QUERY_SUBMIT:-0} && !_ZLE_PICKER_READER_ONLY && !_ZLE_PICKER_STATUS_VIEW ))}
   (( ${+functions[_matching_exclusion]} )) || _ZLE_PICKER_EXCLUSION_ENABLED=0
   if (( !_ZLE_PICKER_EXCLUSION_ENABLED )); then
@@ -59,8 +68,11 @@ _zle_picker_loop() {
   (( configured_limit < 1 )) && configured_limit=1
   (( configured_limit > 20 )) && configured_limit=20
   (( ${+functions[$collector]} )) || return 2
-  [[ ${3:-} == <-> ]] && (( $3 > 0 )) && start_index=$3
-  [[ ${4:-} == <-> ]] && start_offset=$4
+  # Bookmark text: 19 or more digits would truncate or wrap on assignment.
+  [[ ${_zpl_fields[2]-} == <-> && ${#_zpl_fields[2]} -le 18 ]] &&
+    (( _zpl_fields[2] > 0 )) && start_index=${_zpl_fields[2]}
+  [[ ${_zpl_fields[3]-} == <-> && ${#_zpl_fields[3]} -le 18 ]] &&
+    start_offset=${_zpl_fields[3]}
 
   if (( !${_ZLE_PICKER_SESSION:-0} )); then
     _zle_picker_screen_session _zle_picker_loop "$@"
@@ -79,7 +91,8 @@ _zle_picker_loop() {
   _ZLE_PICKER_VIEW_LIMIT=$configured_limit
   _ZLE_PICKER_VIEW_OFFSET=0
   _ZLE_PICKER_HAS_MORE=0
-  _ZLE_PICKER_INSPECT_FOCUS=${_zle_picker_start_focus:-0}
+  _ZLE_PICKER_INSPECT_FOCUS=0
+  [[ ${_zpl_fields[7]-} == 1 ]] && _ZLE_PICKER_INSPECT_FOCUS=1
   _ZLE_PICKER_INSPECT_OFFSET=0
   _ZLE_PICKER_INSPECT_KEY=''
   _ZLE_PICKER_INSPECT_WIDTH=0

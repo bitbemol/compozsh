@@ -157,7 +157,8 @@ _test_git_comparison_navigation() {
       case $step in
         (1) [[ ${_ZLE_UI_CHOICE_VALUES[(Ie)open]} == 0 ]] || exit 2
             _ZLE_PICKER_SELECTED_VALUE=from ;;
-        (2) [[ $3 == 4 && ${_ZLE_UI_CHOICE_VALUES[(Ie)open]} == 4 ]] || exit 3
+        (2) [[ $1 == --bookmark && ${${(@P)2}[2]} == 4 &&
+               ${_ZLE_UI_CHOICE_VALUES[(Ie)open]} == 4 ]] || exit 3
             _ZLE_PICKER_SELECTED_VALUE=open ;;
         (3) [[ $_ZLE_UI_CHOICE_LABELS[2] == *other* ]] || exit 4
             return 1 ;;

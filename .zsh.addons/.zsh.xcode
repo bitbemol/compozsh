@@ -1967,7 +1967,6 @@ _xcode_logs_reader_view() {
   # instead of preparing a second tail before the first can reach the display.
   _ZLE_PICKER_IDLE_PREPAINT=0
   _ZLE_PICKER_DOCUMENT_FOLLOW=${_xcode_logs_follow:-1}
-  _zle_picker_start_focus=1
   local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
   _ZLE_PICKER_GUIDE_CONTEXT=('Find: case-insensitive fuzzy characters in each captured line, in source order.'
     'Ctrl-] reveals Exclude contains: one case-insensitive literal phrase.'
@@ -1982,6 +1981,7 @@ _xcode_logs_reader_view() {
   local -A _ZLE_PICKER_DOCUMENT_SYNTAX=()
   _ZLE_PICKER_INSPECT_TEXTS=(logs '')
   local _xcode_logs_text='' action=''
+  local -a view_bookmark=()
   local -i _xcode_logs_total=0 _xcode_logs_matches=0 _xcode_logs_errors=0 _xcode_logs_faults=0 _xcode_logs_native=0 result=0
   while true; do
     if (( _ZLE_PICKER_DOCUMENT_FOLLOW == 1 )); then
@@ -1990,7 +1990,10 @@ _xcode_logs_reader_view() {
     _ZLE_PICKER_DOCUMENT_OFFSETS[logs]=${_xcode_logs_offset:-100000}
     _ZLE_PICKER_DOCUMENT_ROWS[logs]=${_xcode_logs_row:-0}
     _ZLE_PICKER_DOCUMENT_WIDTHS[logs]=${_xcode_logs_width:-0}
-    _zle_picker_loop "$_xcode_logs_query" 20 1 0 "${_xcode_logs_exclude:-}" "${_xcode_logs_exclude_focus:-0}" "${_xcode_logs_exclude_shown:-0}"
+    # The reader opens focused on the log document.
+    view_bookmark=("$_xcode_logs_query" 1 0 "${_xcode_logs_exclude:-}" \
+      "${_xcode_logs_exclude_focus:-0}" "${_xcode_logs_exclude_shown:-0}" 1)
+    _zle_picker_loop --bookmark view_bookmark 20
     result=$?
     _xcode_logs_follow=$_ZLE_PICKER_DOCUMENT_FOLLOW
     _xcode_logs_query=${_ZLE_PICKER_BOOKMARK[1]-$_xcode_logs_query}
@@ -2078,7 +2081,7 @@ _xcode_run_view() {
   [[ ${_xcode_run_unified_status:-} == following ]] ||
     _xcode_run_empty_output=$'Waiting for app stdout/stderr.\nLogger capture unavailable.'
   (( ${_xcode_run_device:-0} )) && _xcode_run_empty_output=$'Waiting for device console output.\nThe selected app’s native stdout/stderr appears here.'
-  local -a _XCODE_PICKER_VALUES=(stop read)
+  local -a _XCODE_PICKER_VALUES=(stop read) view_bookmark=()
   local -a _XCODE_PICKER_LABELS=('Stop app and close' 'Read output · Full view, filter and copy')
   local -a _XCODE_PICKER_SEARCH=()
   _ZLE_PICKER_PASSIVE_LINES=(
@@ -2107,7 +2110,10 @@ _xcode_run_view() {
   while true; do
     _xcode_run_publish=1
     _ZLE_PICKER_DIGIT_SELECT=1
-    _zle_picker_loop "$query" 10 "$selected" "${_xcode_run_actions_bookmark[3]:-0}" "${_xcode_run_actions_bookmark[4]-}" "${_xcode_run_actions_bookmark[5]:-0}" "${_xcode_run_actions_bookmark[6]:-0}"
+    view_bookmark=("$query" "$selected" "${_xcode_run_actions_bookmark[3]:-0}" \
+      "${_xcode_run_actions_bookmark[4]-}" "${_xcode_run_actions_bookmark[5]:-0}" \
+      "${_xcode_run_actions_bookmark[6]:-0}" 0)
+    _zle_picker_loop --bookmark view_bookmark 10
     result=$?
     (( result == 0 )) || return $result
     [[ $_ZLE_PICKER_SELECTED_VALUE == read ]] || return 0
@@ -2118,7 +2124,6 @@ _xcode_run_view() {
     _xcode_logs_reader
     result=$?
     (( result == 0 || result > 1 )) && return $result
-    _zle_picker_start_focus=0
   done
 }
 
@@ -2459,8 +2464,8 @@ _xcode_choice_view() {
     initial_index=${_ZLE_PICKER_RESULTS[(Ie)$initial_value]}
     (( initial_index > 0 )) || initial_index=1
   fi
-  _zle_picker_start_focus=${8:-0}
-  _zle_picker_loop "$initial_query" 10 $initial_index "${7:-0}" "${9:-}" "${10:-0}" "${11:-0}"
+  local -a view_bookmark=("$initial_query" "$initial_index" "${7:-0}" "${9:-}" "${10:-0}" "${11:-0}" "${8:-0}")
+  _zle_picker_loop --bookmark view_bookmark 10
 }
 
 _xcode_test_result_choose() {

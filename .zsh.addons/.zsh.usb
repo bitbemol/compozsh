@@ -910,9 +910,10 @@ _usb_browse_choose() {
     [[ -n ${_USB_PICKER_HIGHLIGHTS[index]-} ]] &&
       _ZLE_PICKER_LABEL_HIGHLIGHTS[${_USB_PICKER_VALUES[index]}]=${_USB_PICKER_HIGHLIGHTS[index]}
   done
-  _zle_picker_loop "${_USB_BROWSER_RESUME[1]-}" 20 \
+  local -a view_bookmark=("${_USB_BROWSER_RESUME[1]-}" \
     "${_USB_BROWSER_RESUME[2]:-1}" "${_USB_BROWSER_RESUME[3]:-0}" \
-    "${_USB_BROWSER_RESUME[4]-}" "${_USB_BROWSER_RESUME[5]:-0}" "${_USB_BROWSER_RESUME[6]:-0}"
+    "${_USB_BROWSER_RESUME[4]-}" "${_USB_BROWSER_RESUME[5]:-0}" "${_USB_BROWSER_RESUME[6]:-0}" 0)
+  _zle_picker_loop --bookmark view_bookmark 20
 }
 
 # The browser is one view: its title, location, trail and capabilities end
@@ -1424,7 +1425,8 @@ _usb_choice_view() {
     (( start_index > 0 )) || start_index=1
     start_offset=$(( start_index - 1 ))
   fi
-  _zle_picker_loop "$initial_query" 20 $start_index $start_offset "${11:-}" "${12:-0}" "${13:-0}"
+  local -a view_bookmark=("$initial_query" "$start_index" "$start_offset" "${11:-}" "${12:-0}" "${13:-0}" 0)
+  _zle_picker_loop --bookmark view_bookmark 20
 }
 
 # A first removable-volume access can return once while macOS applies the

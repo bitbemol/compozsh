@@ -74,7 +74,9 @@ _test_task_xcode_resume() {
     _XCODE_PICKER_SEARCH=(scheme destination build)
     _XCODE_PICKER_DETAILS=(scheme destination build)
     _zle_picker_loop() {
-      [[ $1 == i && $2 == 10 && $3 == 2 && $4 == 1 && $_zle_picker_start_focus == 1 ]] || return 10
+      [[ $1 == --bookmark && $3 == 10 ]] || return 10
+      local -a fields=("${(@P)2}")
+      [[ $fields[1] == i && $fields[2] == 2 && $fields[3] == 1 && $fields[7] == 1 ]] || return 10
       [[ $_ZLE_PICKER_ACCEPT_LABELS[build] == build ]] || return 11
       [[ $_ZLE_PICKER_DESCRIPTIONS[build] == "Incremental build" ]] || return 12
       print resumed

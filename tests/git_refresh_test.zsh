@@ -32,6 +32,8 @@ _test_git_refresh_workspace() {
     }
     _zle_picker_loop() {
       (( ++loops ))
+      local -a fields=("$1")
+      [[ $1 == --bookmark ]] && fields=("${(@P)2}")
       _ZLE_PICKER_BOOKMARK=(same 2 0) _ZLE_PICKER_BOOKMARK_FOCUS=1
       _ZLE_PICKER_SELECTED_VALUE=2
       case $loops in
@@ -43,7 +45,7 @@ _test_git_refresh_workspace() {
           generation=1 _ZLE_PICKER_ACTION=document-refresh ;;
         (4)
           (( lists == 2 && prepares == 1 )) || { print -u2 "refresh did not recapture the file list safely"; return 72; }
-          [[ $_ZLE_PICKER_DOCUMENT_KEY == 3 && $1 == same && $3 == 2 && $_zle_picker_start_focus == 1 ]] || return 73
+          [[ $_ZLE_PICKER_DOCUMENT_KEY == 3 && $fields[1] == same && $fields[2] == 2 && $fields[7] == 1 ]] || return 73
           [[ $_ZLE_PICKER_DOCUMENT_MODE == full && $_ZLE_PICKER_DOCUMENT_TARGET_ROW == 4 ]] || return 74
           [[ ${(F)_ZLE_PICKER_DOCUMENT_LINES} == *"unstaged generation 1"* ]] || return 75
           (( ${#_git_document_cache} == 1 && captures == 3 )) || return 76
@@ -94,6 +96,8 @@ _test_git_refresh_empty_failure() {
     }
     _zle_picker_loop() {
       (( ++loops ))
+      local -a fields=("$1")
+      [[ $1 == --bookmark ]] && fields=("${(@P)2}")
       _ZLE_PICKER_BOOKMARK=("" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
       _ZLE_PICKER_ACTION=document-refresh _ZLE_PICKER_SELECTED_VALUE=""
       case $loops in
@@ -115,7 +119,7 @@ _test_git_refresh_empty_failure() {
           generation=4 _ZLE_PICKER_SELECTED_VALUE=1 _ZLE_PICKER_BOOKMARK_FOCUS=1 ;;
         (6)
           [[ ${#_GIT_REVIEW_PATHS} == 0 && -z $_ZLE_PICKER_DOCUMENT_KEY &&
-             ${#_ZLE_PICKER_DOCUMENT_LINES} == 0 && $_zle_picker_start_focus == 0 &&
+             ${#_ZLE_PICKER_DOCUMENT_LINES} == 0 && ${fields[7]-0} == 0 &&
              ${(F)_ZLE_PICKER_EMPTY_LINES} == *"No changes"* ]] || return 74
           abort_status=130 ;;
         (*) return 75 ;;
@@ -161,18 +165,20 @@ _test_git_refresh_filter_commit() {
     }
     _zle_picker_loop() {
       (( ++loops ))
+      local -a fields=("$1")
+      [[ $1 == --bookmark ]] && fields=("${(@P)2}")
       _ZLE_PICKER_SELECTED_VALUE=2 _ZLE_PICKER_ACTION=document-refresh
       _ZLE_PICKER_BOOKMARK=(beta 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=1
       case $loops in
         (1) _ZLE_PICKER_ACTION=inspect ;;
         (2) generation=1 ;;
         (3)
-          [[ $1 == beta && $_zle_picker_start_focus == 0 && -z $_ZLE_PICKER_DOCUMENT_KEY &&
+          [[ $fields[1] == beta && ${fields[7]-0} == 0 && -z $_ZLE_PICKER_DOCUMENT_KEY &&
              ${#_ZLE_PICKER_DOCUMENT_LINES} == 0 && ${#_ZLE_PICKER_EMPTY_LINES} == 0 &&
              $_ZLE_PICKER_BROWSE_LABEL == *"previous selection no longer in results"* ]] || return 71
           _ZLE_PICKER_SELECTED_VALUE="" _ZLE_PICKER_BOOKMARK=(alpha 1 0) ;;
         (4)
-          [[ $1 == alpha && $_ZLE_PICKER_DOCUMENT_KEY == 1 && $list_reads == 3 ]] || return 72
+          [[ $fields[1] == alpha && $_ZLE_PICKER_DOCUMENT_KEY == 1 && $list_reads == 3 ]] || return 72
           _GIT_REVIEW_CONFIG=(previous) preparation=2
           _ZLE_PICKER_SELECTED_VALUE=1 _ZLE_PICKER_BOOKMARK=(alpha 1 0) ;;
         (5)

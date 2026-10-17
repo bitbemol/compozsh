@@ -197,7 +197,8 @@ _test_ui_feature_xcode_reader_bookmark_scope() {
         (( _ZLE_PICKER_DOCUMENT && _ZLE_PICKER_READER_ONLY &&
             !_ZLE_PICKER_DIGIT_SELECT && !_ZLE_PICKER_IDLE_PREPAINT )) || return 31
         [[ $_ZLE_PICKER_IDLE_CALLBACK == _xcode_logs_idle &&
-           $_ZLE_PICKER_INSPECT_FIXED_KEY == logs && $1 == draft ]] || return 32
+           $_ZLE_PICKER_INSPECT_FIXED_KEY == logs && $1 == --bookmark &&
+           ${${(@P)2}[1]} == draft ]] || return 32
         _ZLE_PICKER_DOCUMENT_FOLLOW=1
         _ZLE_PICKER_BOOKMARK=(filtered 0 0)
         _ZLE_PICKER_DOCUMENT_OFFSETS[logs]=17

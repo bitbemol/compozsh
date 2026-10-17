@@ -286,6 +286,8 @@ _test_worktree_remove_menu() {
     local -i steps=0
     _zle_picker_loop() {
       (( ++steps ))
+      local -a fields=("$1")
+      [[ $1 == --bookmark ]] && fields=("${(@P)2}")
       [[ -d "$HOME/occupied" ]] || return 70
       _ZLE_PICKER_BOOKMARK=("ocpd" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=0
       _ZLE_PICKER_ACTION=select
@@ -302,7 +304,7 @@ _test_worktree_remove_menu() {
                $_ZLE_UI_CHOICE_VALUES[1] == "$HOME/occupied" &&
                $_ZLE_PICKER_ACCEPT_LABELS[$HOME/occupied] == "check removal" ]] || return 72
             if (( steps == 4 )); then
-              [[ $1 == ocpd ]] || return 73
+              [[ $fields[1] == ocpd ]] || return 73
               return 1
             fi
             _ZLE_PICKER_SELECTED_VALUE="$HOME/occupied" ;;
@@ -312,7 +314,7 @@ _test_worktree_remove_menu() {
                $_ZLE_PICKER_INSPECT_TEXTS[remove] == *"Keep branch: feature/occupied"* ]] || return 74
             (( steps == 3 )) && return 1
             _ZLE_PICKER_SELECTED_VALUE=remove ;;
-        (5) [[ $_ZLE_PICKER_TITLE == Worktrees && $1 == remove ]] || return 75
+        (5) [[ $_ZLE_PICKER_TITLE == Worktrees && $fields[1] == remove ]] || return 75
             _ZLE_PICKER_SELECTED_VALUE=remove ;;
         (*) return 77 ;;
       esac
@@ -437,8 +439,9 @@ _test_worktree_options_bookmark() {
             _ZLE_PICKER_BOOKMARK=("mo" 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=1 ;;
         (2) [[ $_ZLE_PICKER_TITLE == "Move / rename worktree" ]] || return 71
             return 1 ;;
-        (3) [[ $_ZLE_PICKER_TITLE == "Worktree options" && $1 == mo &&
-               $_zle_picker_start_focus == 1 ]] || return 72
+        (3) local -a fields=("${(@P)2}")
+            [[ $1 == --bookmark && $_ZLE_PICKER_TITLE == "Worktree options" &&
+               $fields[1] == mo && $fields[7] == 1 ]] || return 72
             return 130 ;;
         (*) return 73 ;;
       esac
@@ -840,7 +843,8 @@ _test_worktree_parent_bookmark() {
         (1) _ZLE_PICKER_ACTION=descend _ZLE_PICKER_SELECTED_VALUE="$HOME/parents/b" ;;
         (2) mkdir "$HOME/parents/a"
             _ZLE_PICKER_ACTION=parent _ZLE_PICKER_SELECTED_VALUE=use ;;
-        (3) [[ $3 == 3 ]] || { print -u2 "Back selected an added sibling instead of b"; return 72; }
+        (3) [[ $1 == --bookmark && ${${(@P)2}[2]} == 3 ]] ||
+              { print -u2 "Back selected an added sibling instead of b"; return 72; }
             _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=use ;;
       esac
       return 0

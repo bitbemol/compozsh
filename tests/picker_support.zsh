@@ -19,12 +19,13 @@
 # TEST_PICKER_LIMITS, TEST_PICKER_STARTS and TEST_PICKER_LABELS. A view with no
 # step left, an unknown step or a selection its collector did not return fails
 # with status 2 and a diagnostic on stderr. Outputs and bookmarks, the named
-# `--bookmark NAME` write-back included, are set as the engine sets them; the stubs read no keys and do not paint, run idle or
-# deadline callbacks, preview documents or keep document positions. Tests of
-# those engine behaviors keep the real loop. An observe function also sees the
-# loop stub's locals, which keep the engine's names (query, limit, selected,
-# offset, count, focus); only the step words use a prefixed name, so a test's
-# own step counter is not shadowed.
+# `--bookmark NAME` write-back included, are set as the engine sets them; the
+# stubs read no keys and do not paint, run idle or deadline callbacks, preview
+# documents or keep document positions. Tests of those engine behaviors keep
+# the real loop. An observe function also sees the loop stub's locals, which
+# keep the engine's names (query, limit, selected, offset, count, focus); only
+# the step words use a prefixed name, so a test's own step counter is not
+# shadowed.
 
 typeset -ga TEST_PICKER_STEPS=() TEST_PICKER_TITLES=() TEST_PICKER_SUBTITLES=()
 typeset -ga TEST_PICKER_LIMITS=() TEST_PICKER_STARTS=() TEST_PICKER_LABELS=()
@@ -68,8 +69,9 @@ _test_picker_run() {
     _zle_picker_screen_session "$_zle_picker_session_callback"
     _zle_picker_session_status=$?
   else
-    _zle_picker_loop "$_zle_picker_start_query" "$raw_limit" \
-      "$_zle_picker_start_index" "$_zle_picker_start_offset"
+    local -a start_bookmark=("$_zle_picker_start_query" \
+      "$_zle_picker_start_index" "$_zle_picker_start_offset")
+    _zle_picker_loop --bookmark start_bookmark "$raw_limit"
   fi
   (( _zle_picker_aborted )) && return 130
   [[ -n $_zle_picker_session_callback ]] && return $_zle_picker_session_status
@@ -79,33 +81,38 @@ _test_picker_run() {
 
 _test_picker_loop() {
   emulate -L zsh
-  # The engine's named form: read seven fields, run the positional form with the
-  # start focus, then write back the recorded bookmark.
-  if [[ ${1-} == --bookmark ]]; then
+  # The engine's two forms: `QUERY LIMIT`, or `--bookmark NAME LIMIT` over seven
+  # fields that are read first and written back after the `--body` re-entry.
+  if [[ ${1-} != --body ]]; then
     setopt EXTENDED_GLOB
-    (( $# == 3 )) || return 2
-    local _zpl_name=$2 _zpl_limit=$3
-    [[ $_zpl_name == [A-Za-z_][A-Za-z0-9_]# &&
-       $_zpl_name != (_zpl_*|_zle_*|_ZLE_*|REPLY|reply) ]] || return 2
-    [[ ${(Pt)_zpl_name} == array* ]] || return 2
-    local -a _zpl_fields=("${(@P)_zpl_name}")
-    local -i _zpl_status=0 _zle_picker_start_focus=0
-    [[ ${_zpl_fields[7]-} == 1 ]] && _zle_picker_start_focus=1
-    _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
-    _zle_picker_loop "${_zpl_fields[1]-}" "$_zpl_limit" "${_zpl_fields[2]-1}" \
-      "${_zpl_fields[3]-0}" "${_zpl_fields[4]-}" "${_zpl_fields[5]-0}" \
-      "${_zpl_fields[6]-0}" || _zpl_status=$?
-    (( ${#_ZLE_PICKER_BOOKMARK} )) &&
+    local _zpl_name='' _zpl_limit=''
+    local -a _zpl_fields=()
+    local -i _zpl_status=0
+    if [[ ${1-} == --bookmark ]]; then
+      (( $# == 3 )) || return 2
+      _zpl_name=$2 _zpl_limit=$3
+      [[ $_zpl_name == [A-Za-z_][A-Za-z0-9_]# &&
+         $_zpl_name != (_zpl_*|_zle_*|_ZLE_*|REPLY|reply) ]] || return 2
+      [[ ${(Pt)_zpl_name} == array* ]] || return 2
+      _zpl_fields=("${(@P)_zpl_name}")
+      _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
+    else
+      (( $# <= 2 )) || return 2
+      _zpl_fields=("${1-}") _zpl_limit=${2-}
+    fi
+    _zle_picker_loop --body || _zpl_status=$?
+    [[ -n $_zpl_name ]] && (( ${#_ZLE_PICKER_BOOKMARK} )) &&
       set -A "$_zpl_name" "${(@)_ZLE_PICKER_BOOKMARK[1,3]}" \
         "${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" \
         "${_ZLE_PICKER_BOOKMARK[6]:-0}" "$_ZLE_PICKER_BOOKMARK_FOCUS"
     return $_zpl_status
   fi
-  local query=${1-} raw_limit=${2-} collector=${_ZLE_PICKER_COLLECTOR-}
-  local _ZLE_PICKER_EXCLUDE=${5:-}
+  [[ ${(t)_zpl_fields-} == array-local* ]] || return 2
+  local query=${_zpl_fields[1]-} raw_limit=${_zpl_limit-} collector=${_ZLE_PICKER_COLLECTOR-}
+  local _ZLE_PICKER_EXCLUDE=${_zpl_fields[4]-}
   local -i _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0
-  [[ ${6:-0} == 1 ]] && _ZLE_PICKER_EXCLUDE_FOCUS=1
-  [[ ${7:-0} == 1 || -n $_ZLE_PICKER_EXCLUDE ]] && _ZLE_PICKER_EXCLUDE_SHOWN=1
+  [[ ${_zpl_fields[5]-} == 1 ]] && _ZLE_PICKER_EXCLUDE_FOCUS=1
+  [[ ${_zpl_fields[6]-} == 1 || -n $_ZLE_PICKER_EXCLUDE ]] && _ZLE_PICKER_EXCLUDE_SHOWN=1
   local -i exclusion_default=$(( !${_ZLE_PICKER_QUERY_SUBMIT:-0} &&
     !${_ZLE_PICKER_READER_ONLY:-0} && !${_ZLE_PICKER_STATUS_VIEW:-0} ))
   local -i _ZLE_PICKER_EXCLUSION_ENABLED=${_ZLE_PICKER_EXCLUSION_ENABLED:-$exclusion_default}
@@ -119,8 +126,10 @@ _test_picker_loop() {
   (( limit < 1 )) && limit=1
   (( limit > 20 )) && limit=20
   [[ -n $collector ]] && (( ${+functions[$collector]} )) || return 2
-  [[ ${3:-} == <-> ]] && (( $3 > 0 )) && selected=$3
-  [[ ${4:-} == <-> ]] && offset=$4
+  [[ ${_zpl_fields[2]-} == <-> && ${#_zpl_fields[2]} -le 18 ]] &&
+    (( _zpl_fields[2] > 0 )) && selected=${_zpl_fields[2]}
+  [[ ${_zpl_fields[3]-} == <-> && ${#_zpl_fields[3]} -le 18 ]] &&
+    offset=${_zpl_fields[3]}
   if (( !${_ZLE_PICKER_SESSION:-0} )); then
     _zle_picker_screen_session _zle_picker_loop "$@"
     return
@@ -129,7 +138,7 @@ _test_picker_loop() {
   _ZLE_PICKER_SELECTED_VALUE='' _ZLE_PICKER_ACCEPTED=0
   _ZLE_PICKER_ACTION=select _ZLE_PICKER_IDLE_ACTION=''
   _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
-  focus=${_zle_picker_start_focus:-0}
+  [[ ${_zpl_fields[7]-} == 1 ]] && focus=1
   (( ${_ZLE_PICKER_READER_ONLY:-0} )) && focus=1
   {
     # The engine's first request covers its start row and viewport.
@@ -139,7 +148,7 @@ _test_picker_loop() {
     TEST_PICKER_TITLES+=("${_ZLE_PICKER_TITLE-}")
     TEST_PICKER_SUBTITLES+=("${_ZLE_PICKER_SUBTITLE-}")
     TEST_PICKER_LIMITS+=($limit)
-    TEST_PICKER_STARTS+=("${3-}")
+    TEST_PICKER_STARTS+=("${_zpl_fields[2]-}")
     TEST_PICKER_LABELS+=("${(pj:\n:)_ZLE_PICKER_LABELS[offset+1,offset+limit]}")
     while _test_picker_next_step; do
       _test_picker_step=("${reply[@]}")

@@ -45,10 +45,12 @@ _test_xcode_log_reader_navigation() {
     (( ${+functions[_xcode_logs_reader]} )) || { print -u2 "missing full log reader"; exit 1; }
     _zle_picker_loop() {
       (( ++calls ))
+      [[ $1 == --bookmark ]] || return 92
+      local -a fields=("${(@P)2}")
       [[ $_ZLE_PICKER_READER_ONLY == 1 && $_ZLE_PICKER_CANCEL_LABEL == back &&
-         $_ZLE_PICKER_INSPECT_ACTION == options && $1 == ERROR ]] || return 93
-      "$_ZLE_PICKER_COLLECTOR" "$1" 10
-      _ZLE_PICKER_BOOKMARK=("$1" 0 0)
+         $_ZLE_PICKER_INSPECT_ACTION == options && $fields[1] == ERROR ]] || return 93
+      "$_ZLE_PICKER_COLLECTOR" "$fields[1]" 10
+      _ZLE_PICKER_BOOKMARK=("$fields[1]" 0 0)
       _ZLE_PICKER_DOCUMENT_OFFSETS[logs]=7
       _ZLE_PICKER_DOCUMENT_ROWS[logs]=2
       case $calls in

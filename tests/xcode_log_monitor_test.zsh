@@ -80,7 +80,10 @@ _test_xcode_monitor_filter_bookmark() {
     local _xcode_logs_severity=all calls=0
     _zle_picker_loop() {
       (( ++calls ))
-      [[ $_ZLE_PICKER_READER_ONLY == 1 && $_ZLE_PICKER_EXCLUSION_ENABLED == 1 && $1 == nrfd && $5 == retry && $6 == 1 && $7 == 1 ]] || return 91
+      [[ $1 == --bookmark ]] || return 90
+      local -a fields=("${(@P)2}")
+      [[ $_ZLE_PICKER_READER_ONLY == 1 && $_ZLE_PICKER_EXCLUSION_ENABLED == 1 && $fields[1] == nrfd &&
+         $fields[4] == retry && $fields[5] == 1 && $fields[6] == 1 ]] || return 91
       _ZLE_PICKER_BOOKMARK=(nrfd 0 0 retry 1 1)
       return 1
     }
