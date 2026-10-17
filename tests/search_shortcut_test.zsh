@@ -135,7 +135,6 @@ _test_search_shortcut_native() {
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
     local event="" trace="" captures=0
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_search_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _search_show
@@ -212,11 +211,8 @@ _test_search_shortcut_native() {
       _search_expect RETURNED || exit 19
       zpty -w -n search $'\''\r'\''
       _search_expect DONE || exit 20
-      [[ $trace == *"$enter"* && $trace == *"$leave"* ]] || exit 21
-      trace=${trace/"$enter"/}
-      trace=${trace/"$leave"/}
-      [[ $trace != *"$enter"* && $trace != *"$leave"* &&
-         $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 22
+      test_pty_screen_sessions "$trace" 1 || exit 21
+      [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 22
     } always {
       zpty -d search
     }

@@ -91,8 +91,8 @@ _test_task_native_draft_journey() {
       _task_expect RESTORED || exit 11
       zpty -w -n journey $'"'"'\r'"'"'
       _task_expect DONE || exit 12
-      [[ $trace == *$'"'"'\e[?1049h'"'"'* && $trace == *$'"'"'\e[?1049l'"'"'* &&
-         $trace != *"read-only variable"* && $trace != *"command not found"* ]] || exit 13
+      test_pty_screen_sessions "$trace" 1 || exit 13
+      [[ $trace != *"read-only variable"* && $trace != *"command not found"* ]] || exit 13
     } always {
       zpty -d journey
     }

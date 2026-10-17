@@ -123,12 +123,11 @@ _test_git_comparison_native() {
       fi
       zpty -w -n compare $'\''\e'\''
       _comparison_test_expect DONE || return 25
-      [[ -n $enter && -n $leave && $trace == *"$enter"*"$leave"* && $trace != *"read-only variable"* ]] || return 26
-      (( ${#trace} - ${#${trace//"$enter"/}} == ${#enter} &&
-         ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || return 26
+      [[ $trace != *"read-only variable"* ]] || return 26
+      test_pty_screen_sessions "$trace" 1 || return 26
       [[ $(git symbolic-ref HEAD) == refs/heads/topic && $(git hash-object .git/index) == "$index_before" ]] || return 27
     }
-    local scenario trace event device enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local scenario trace event device
     local -i result=0
     for scenario in setup branches direct cancel; do
       git branch -f main "$left"

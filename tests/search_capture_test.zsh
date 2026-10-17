@@ -140,7 +140,6 @@ _test_search_capture_native() {
     exec {efd}<> "$HOME/events"
     exec {gate_fd}<> "$HOME/gate"
     local event="" trace="" device="" captures=0
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_capture_native_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _capture_native_show
@@ -225,11 +224,8 @@ _test_search_capture_native() {
       zpty -w -n capture $'\''\r'\''
       _capture_native_expect DONE || exit 20
       [[ $(<"$HOME/mdfind-args") == $(printf "%s\n" -0 -onlyin "${HOME:A}" -name needle -0 -onlyin "${HOME:A}" -name needle) ]] || exit 21
-      [[ $trace == *"$enter"*"$leave"* ]] || exit 22
-      trace=${trace/"$enter"/}
-      trace=${trace/"$leave"/}
-      [[ $trace != *"$enter"* && $trace != *"$leave"* &&
-         $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 23
+      test_pty_screen_sessions "$trace" 1 || exit 22
+      [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 23
     } always {
       print -r -u $gate_fd release
       zpty -d capture

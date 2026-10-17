@@ -132,9 +132,8 @@ _test_git_tree_native() {
       _tree_native_expect "FRAME|Working changes|tree||5||5|1|next/d|40" || exit 20
       _tree_native_key $'\''\e'\'' DONE || exit 21
       while zpty -r tree chunk; do trace+=$chunk; done
-      [[ $trace != *"bad math"* && $trace != *"not found"* && $trace != *"read-only variable"* &&
-         $trace == *"$terminfo[smcup]"* && ${trace#*"$terminfo[smcup]"} != *"$terminfo[smcup]"* &&
-         $trace == *"$terminfo[rmcup]"* ]] || exit 22
+      [[ $trace != *"bad math"* && $trace != *"not found"* && $trace != *"read-only variable"* ]] || exit 22
+      test_pty_screen_sessions "$trace" 1 || exit 22
       [[ $(git hash-object --no-filters .git/index) == "$before" ]] || exit 23
     } always {
       zpty -d tree

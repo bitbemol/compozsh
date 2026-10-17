@@ -242,7 +242,7 @@ _test_xcode_product_choice_native() {
     source "$1/tests/pty_support.zsh" || exit 12
     command mkfifo "$HOME/events"
     exec {events}<> "$HOME/events"
-    local event="" trace="" scenario="" device=""
+    local event="" trace="" chunk="" scenario="" device=""
     _xcode_capture_command() {
       _XCODE_CAPTURE="[{\"buildSettings\":{\"WRAPPER_EXTENSION\":\"app\",\"TARGET_BUILD_DIR\":\"$HOME\",\"FULL_PRODUCT_NAME\":\"First.app\",\"PRODUCT_BUNDLE_IDENTIFIER\":\"com.example.first\"}},{\"buildSettings\":{\"WRAPPER_EXTENSION\":\"app\",\"TARGET_BUILD_DIR\":\"$HOME\",\"FULL_PRODUCT_NAME\":\"Second.app\",\"PRODUCT_BUNDLE_IDENTIFIER\":\"com.example.second\"}}]"
     }
@@ -327,12 +327,14 @@ _test_xcode_product_choice_native() {
           zpty -w -n product $'\''\e2'\''
           _until "DONE:1::" || exit 9
         fi
+        while zpty -r product chunk; do trace+=$chunk; done
       } always {
         zpty -d product
       }
     done
-    [[ $trace == *$'\''\e[?1049h'\''* && $trace == *$'\''\e[?1049l'\''* &&
-       $trace != *"command not found"* && $trace != *"bad math"* &&
+    # Each scenario opens and leaves one product choice screen.
+    test_pty_screen_sessions "$trace" 3 || exit 10
+    [[ $trace != *"command not found"* && $trace != *"bad math"* &&
        $trace != *"read-only variable"* && $trace != *"error in flags"* ]] || exit 10
     print product-choice
   ' "$TEST_REPO_ROOT" "$TEST_ZSH_BIN") || return

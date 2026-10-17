@@ -108,7 +108,6 @@ _test_search_actions_native() {
     exec {efd}<> "$HOME/events"
     local event="" trace="" scenario="" action=""
     local root="${HOME:A}/Root" initial=$PWD
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_action_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _action_show
@@ -192,10 +191,8 @@ _test_search_actions_native() {
           _action_expect RETURNED || exit 14
           zpty -w -n actions $'\''\r'\''
           _action_expect DONE || exit 15
-          [[ $trace == *"$enter"* && $trace == *"$leave"* ]] || exit 16
-          trace=${trace/"$enter"/} trace=${trace/"$leave"/}
-          [[ $trace != *"$enter"* && $trace != *"$leave"* &&
-             $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 17
+          test_pty_screen_sessions "$trace" 1 || exit 16
+          [[ $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 17
         } always { zpty -d actions; }
       done
     done

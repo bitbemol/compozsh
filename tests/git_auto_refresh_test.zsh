@@ -57,7 +57,6 @@ _test_git_auto_refresh_native() {
         return $parse_result
       }
     fi
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions -c _zle_picker_show _auto_test_show
     _zle_picker_show() {
       _auto_test_show
@@ -151,7 +150,7 @@ _test_git_auto_refresh_native() {
       (( busy_count == 1 && clear_count == 1 )) || {
         print -u2 -- "unexpected busy/clear lifecycle: ${(j:,:)events}"; exit 17
       }
-      [[ $trace == *"$enter"*"$leave"* && ${trace#*"$enter"} != *"$enter"* ]] || exit 18
+      test_pty_screen_sessions "$trace" 1 || exit 18
       [[ $2 != exit-race || ${events[(Ie)EXIT-RACE]} != 0 ]] || exit 19
     } always {
       zpty -d auto-review

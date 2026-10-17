@@ -489,7 +489,7 @@ _test_worktree_native() {
     source "$1/tests/pty_support.zsh" || exit 39
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local leave=$terminfo[rmcup]
     functions -c _zle_picker_show _worktree_test_show
     _zle_picker_show() {
       _worktree_test_show
@@ -547,7 +547,8 @@ _test_worktree_native() {
     _worktree_test_key() {
       zpty -w -n worktree "$1"
       _worktree_test_expect "$2" || return
-      [[ $trace == *"$enter"* && ${trace#*"$enter"} != *"$enter"* && $trace != *"$leave"* ]]
+      # One screen is still open: leaving it would complete exactly one session.
+      test_pty_screen_sessions "$trace$leave" 1
     }
     local trace="" event="" device="" captures="" chunk=""
     test_pty_start worktree _worktree_test_driver || exit 2
@@ -605,9 +606,8 @@ _test_worktree_native() {
       fi
       _worktree_test_expect DONE || exit 19
       while zpty -r worktree chunk; do trace+=$chunk; done
-      [[ $trace == *"$leave"* &&
-         $trace != *"command not found"* && $trace != *"bad math"* ]] || exit 20
-      (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 20
+      [[ $trace != *"command not found"* && $trace != *"bad math"* ]] || exit 20
+      test_pty_screen_sessions "$trace" 1 || exit 20
     } always {
       zpty -d worktree 2>/dev/null
       exec {efd}>&-

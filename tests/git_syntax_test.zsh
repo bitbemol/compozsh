@@ -1352,7 +1352,7 @@ _test_git_syntax_zle() {
     source "$1/tests/pty_support.zsh" || exit 9
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local leave=$terminfo[rmcup]
     functions -c _zle_picker_show _syntax_original_show
     _zle_picker_show() {
       [[ -e $HOME/syntax-primed ]] || print -r -u $efd BAD-PREPAINT
@@ -1384,11 +1384,12 @@ _test_git_syntax_zle() {
       zpty -w -n syntax $'\''\e[B'\''
       _syntax_expect FRAME:1 || exit 4
       [[ $trace == *"48;5;22"* && $trace == *"48;5;52"* && $trace == *"38;5;189"* ]] || { print -u2 "native terminal colors missing"; exit 5; }
-      [[ $trace == *"$enter"* && ${trace#*"$enter"} != *"$enter"* && $trace != *"$leave"* ]] || exit 6
+      # One screen is still open: leaving it would complete exactly one session.
+      test_pty_screen_sessions "$trace$leave" 1 || exit 6
       zpty -w -n syntax $'\''\e'\''
       _syntax_expect DONE || exit 7
       while zpty -r syntax chunk; do trace+=$chunk; done
-      [[ $trace == *"$leave"* ]] || exit 8
+      test_pty_screen_sessions "$trace" 1 || exit 8
       print native-zle
     } always {
       zpty -d syntax 2>/dev/null

@@ -14,7 +14,7 @@ _test_directory_transition_screen() {
     source "$1/tests/pty_support.zsh" || exit 16
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local leave=$terminfo[rmcup]
     functions[_transition_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
     _transition_show
@@ -90,8 +90,8 @@ _test_directory_transition_screen() {
       { test_pty_expect transition $efd "$1" } always { trace+=$TEST_PTY_OUTPUT }
     }
     _transition_stays_open() {
-      local tail=${trace#*"$enter"}
-      [[ $trace == *"$enter"* && $tail != *"$enter"* && $trace != *"$leave"* ]] || {
+      # One screen is still open: leaving it would complete exactly one session.
+      test_pty_screen_sessions "$trace$leave" 1 || {
         print -u2 -r -- "$scenario: directory transition exposed the main terminal"
         return 1
       }
@@ -142,9 +142,8 @@ _test_directory_transition_screen() {
         zpty -w -n transition $'\''\x07'\''
         _transition_expect DONE || exit 14
         fi
-        [[ $trace == *"$enter"*"$leave"* &&
-           $trace != *$'\''\e[3J'\''* && $trace != *"read-only variable"* ]] || exit 15
-        (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 15
+        [[ $trace != *$'\''\e[3J'\''* && $trace != *"read-only variable"* ]] || exit 15
+        test_pty_screen_sessions "$trace" 1 || exit 15
       } always {
         zpty -d transition
       }

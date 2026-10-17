@@ -30,7 +30,7 @@ _test_git_review_native() {
     source "$1/tests/pty_support.zsh" || exit 113
     command mkfifo "$HOME/events"
     exec {efd}<> "$HOME/events"
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local leave=$terminfo[rmcup]
     functions -c _zle_picker_show _review_test_show
     _zle_picker_show() {
       _review_test_show
@@ -100,7 +100,8 @@ _test_git_review_native() {
     _review_test_key() {
       zpty -w -n review "$1"
       _review_test_expect "$2" || return
-      [[ $trace == *"$enter"* && ${trace#*"$enter"} != *"$enter"* && $trace != *"$leave"* ]] || {
+      # One screen is still open: leaving it would complete exactly one session.
+      test_pty_screen_sessions "$trace$leave" 1 || {
         print -u2 -- "review exposed the main terminal"
         return 1
       }
@@ -199,11 +200,8 @@ _test_git_review_native() {
       _review_test_key $'\''\e'\'' "FRAME|Branches||2|0|70|16" || exit 25
       zpty -w -n review $'\''\e'\''
       _review_test_expect DONE || exit 26
-      [[ $trace == *"$enter"*"$leave"* &&
-         $trace != *$'\''\e[3J'\''* && $trace != *"read-only variable"* ]] || exit 27
-      # Literal substitution counts the boundary without shortest-prefix glob
-      # removal, which becomes quadratic over a long Unicode terminal trace.
-      (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 27
+      [[ $trace != *$'\''\e[3J'\''* && $trace != *"read-only variable"* ]] || exit 27
+      test_pty_screen_sessions "$trace" 1 || exit 27
       [[ $(git symbolic-ref --short HEAD) == main && $(git hash-object --no-filters .git/index) == "$index_before" ]] || exit 28
     } always {
       zpty -d review
@@ -257,8 +255,7 @@ _test_git_review_native() {
         fi
         if [[ $scenario == abort ]]; then _review_test_expect RESTORED || exit 40
         else _review_test_expect DONE || exit 41; fi
-        [[ $trace == *"$enter"*"$leave"* ]] || exit 42
-        (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 42
+        test_pty_screen_sessions "$trace" 1 || exit 42
         if [[ $scenario == switch ]]; then
           [[ $(git symbolic-ref --short HEAD) == feature/review ]] || exit 43
         fi

@@ -270,10 +270,9 @@ _prompt_test_emit "SOURCE|$(command tty)"
         print -u2 -r -- "semantic living-prompt paint is missing from PTY trace"
         exit 38
       }
-      local enter=${terminfo[smcup]:-} leave=${terminfo[rmcup]:-}
-      [[ -z $enter || $trace != *"$enter"* ]] || exit 39
-      [[ -z $leave || $trace != *"$leave"* ]] || exit 40
-      [[ $trace != *$'"'"'\e[2J'"'"'* && $trace != *$'"'"'\e[3J'"'"'* &&
+      # No alternate screen and no full-screen clear.
+      test_pty_screen_sessions "$trace" 0 || exit 39
+      [[ $trace != *$'"'"'\e[3J'"'"'* &&
          $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 41
     } always {
       zpty -d living-prompt 2>/dev/null
@@ -471,10 +470,9 @@ _prompt_test_emit "SOURCE|$(command tty)"
 
       while zpty -r living-prompt-resize chunk; do trace+=$chunk; done
       [[ $all_events != *BAD-PROVIDER-* ]] || exit 24
-      local enter=${terminfo[smcup]:-} leave=${terminfo[rmcup]:-}
-      [[ -z $enter || $trace != *"$enter"* ]] || exit 25
-      [[ -z $leave || $trace != *"$leave"* ]] || exit 26
-      [[ $trace != *$'"'"'\e[2J'"'"'* && $trace != *$'"'"'\e[3J'"'"'* &&
+      # No alternate screen and no full-screen clear.
+      test_pty_screen_sessions "$trace" 0 || exit 25
+      [[ $trace != *$'"'"'\e[3J'"'"'* &&
          $trace != *"read-only variable"* && $trace != *"bad math"* ]] || exit 27
     } always {
       zpty -d living-prompt-resize 2>/dev/null

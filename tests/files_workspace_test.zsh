@@ -329,7 +329,7 @@ cat > "$HOME/copied-path"' || return
     source "$1/tests/pty_support.zsh" || exit 27
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
+    local leave=$terminfo[rmcup]
     functions[_workspace_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _workspace_show
@@ -415,7 +415,8 @@ cat > "$HOME/copied-path"' || return
     _workspace_key() {
       zpty -w -n workspace "$1"
       _workspace_expect "$2" || return 1
-      [[ $trace == *"$enter"* && ${trace#*"$enter"} != *"$enter"* && $trace != *"$leave"* ]] || return 2
+      # One screen is still open: leaving it would complete exactly one session.
+      test_pty_screen_sessions "$trace$leave" 1 || return 2
     }
     local scenario="" trace="" event="" expected_draft="" expected_cursor=0
     for scenario in search cancel recents recents-empty recents-enter recents-copy recents-escape recents-abort menu-recents; do
@@ -487,9 +488,8 @@ cat > "$HOME/copied-path"' || return
           zpty -w -n workspace $'\''\r'\''
           _workspace_expect DONE || exit 14
         fi
-        [[ $trace == *"$enter"*"$leave"* &&
-           $trace != *"read-only variable"* ]] || exit 15
-        (( ${#trace} - ${#${trace//"$leave"/}} == ${#leave} )) || exit 15
+        [[ $trace != *"read-only variable"* ]] || exit 15
+        test_pty_screen_sessions "$trace" 1 || exit 15
         if [[ $scenario == recents || $scenario == recents-empty || $scenario == recents-enter || $scenario == menu-recents ]]; then
           # Verify actual terminal painting after the alternate screen closes,
           # not just BUFFER: this regression presented as an invisible path.

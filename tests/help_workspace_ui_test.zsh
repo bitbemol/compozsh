@@ -15,7 +15,7 @@ _test_help_workspace_native() {
     source "$1/tests/pty_support.zsh" || exit 18
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local event="" trace="" device="" captures=0 panel_color=0 reader_color=0
+    local event="" trace="" chunk="" device="" captures=0 panel_color=0 reader_color=0
     zle() {
       local IFS=$'"'"' \t\n'"'"'
       if [[ $1 == -R ]] && (( _ZLE_PICKER_REFERENCE_VIEW )); then
@@ -105,8 +105,10 @@ _test_help_workspace_native() {
       local accent=${${ZSH_HIGHLIGHT_STYLES[picker-header]#fg=}%%,*}
       (( panel_color && reader_color )) || { print -u2 -- "missing painted help accents: panel=$panel_color reader=$reader_color"; exit 17; }
       [[ $trace == *$'"'"'\e[38;5;'"'"'"${accent}m--worktree"* ]] || exit 16
-      [[ $captures == 1 && $trace == *$'"'"'\e[?1049h'"'"'* && $trace == *$'"'"'\e[?1049l'"'"'* &&
-         $trace != *"read-only variable"* && $trace != *"command not found"* ]] || exit 14
+      # g and eight tool topics each open one screen; plain fallbacks open none.
+      while zpty -r help-native chunk; do trace+=$chunk; done
+      test_pty_screen_sessions "$trace" 9 || exit 14
+      [[ $captures == 1 && $trace != *"read-only variable"* && $trace != *"command not found"* ]] || exit 14
     } always {
       zpty -d help-native
     }

@@ -182,7 +182,6 @@ _test_directory_argument_native() {
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
     local scenario="" event="" trace="" device=""
-    local enter=$terminfo[smcup] leave=$terminfo[rmcup]
     functions[_argument_show]=$functions[_zle_picker_show]
     _zle_picker_show() {
       _argument_show
@@ -220,7 +219,7 @@ _test_directory_argument_native() {
       zselect -r $efd -t 500 && IFS= read -r -u $efd event || exit 3
       device=${event#TTY|}
       [[ $device == /dev/ttys<-> || $device == /dev/pts/<-> ]] || exit 4
-      local expected="" remainder="" keys=""
+      local expected="" keys=""
       local -i sessions=0
       for scenario in cancel insert digit copy native; do
         _argument_expect "READY|$scenario" || exit 5
@@ -255,10 +254,8 @@ _test_directory_argument_native() {
       done
       _argument_expect DONE || exit 13
       [[ $(<"$HOME/copied") == "$HOME/Developer/Example & Co" ]] || exit 14
-      remainder=${trace//$enter/}
-      (( (${#trace} - ${#remainder}) / ${#enter} == sessions )) || exit 15
-      remainder=${trace//$leave/}
-      (( (${#trace} - ${#remainder}) / ${#leave} == sessions )) || exit 16
+      # Ctrl-L above clears the main screen on purpose, so clears are not checked.
+      test_pty_screen_sessions "${trace//$'\''\e[2J'\''/}" $sessions || exit 15
       [[ $trace != *"bad pattern"* && $trace != *"command not found"* && $trace != *"widgets can only"* ]] || exit 17
     } always {
       zpty -d argument 2>/dev/null

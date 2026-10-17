@@ -25,7 +25,7 @@ print -r -- "Build version Example"' || return
     source "$1/tests/pty_support.zsh" || exit 17
     command mkfifo "$HOME/events" || exit 1
     exec {efd}<> "$HOME/events"
-    local event="" trace="" device=""
+    local event="" trace="" chunk="" device=""
     functions[_family_show]=$functions[_zle_picker_show]
     functions[_family_run]=$functions[_zle_picker_run]
     _zle_picker_show() {
@@ -95,8 +95,10 @@ print -r -- "Build version Example"' || return
       _family_expect "FRAME|Xcode / Export skills||40" || exit 14
       zpty -w -n family $'"'"'\r'"'"'
       _family_expect DONE || exit 15
-      [[ $trace == *$'"'"'\e[?1049h'"'"'* && $trace == *$'"'"'\e[?1049l'"'"'* &&
-         $trace != *"read-only variable"* && $trace != *"command not found"* ]] || exit 16
+      # Two external-device and two export choosers, each its own screen.
+      while zpty -r family chunk; do trace+=$chunk; done
+      test_pty_screen_sessions "$trace" 4 || exit 16
+      [[ $trace != *"read-only variable"* && $trace != *"command not found"* ]] || exit 16
     } always {
       zpty -d family
     }
