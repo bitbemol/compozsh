@@ -5,6 +5,7 @@
 # Shared by key dispatch and hints. Empty mode means a single reading level;
 # empty reply means the current boundary has no further disclosure.
 _zle_picker_document_direction() {
+  emulate -L zsh
   REPLY=''
   case "$1:$2:$3" in
     (right:0:full|left:1:full) REPLY=focused ;;

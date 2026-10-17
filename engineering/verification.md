@@ -180,10 +180,10 @@ Then add the checks for each boundary you changed:
 | --- | --- |
 | Anything | Reread SECURITY.md against the final tree; during development run `zsh tests/run.zsh 'docs:'` and `zsh tests/run.zsh 'security:'`. When a sensitive boundary changes, run its independent audit commands, confirm their documented expected output and limitations, and report that evidence. |
 | Shipped peer files | Every recursive `.zsh.addons/**/.zsh.<name>` has exactly one README inventory row and every row resolves to a file. |
-| Shared support entries | `zsh tests/run.zsh 'support components'`, `'support function filenames'`, `'support private helpers'`, `'support pure'`; review purity through callees. Remove obsolete paths from active docs and fixtures. |
+| Shared support entries | `zsh tests/run.zsh 'support components'`, `'support function filenames'`, `'support private helpers'`, `'support pure'`, `'start with emulate'`; review purity through callees. Remove obsolete paths from active docs and fixtures. |
 | Loader or layout | Symlinked and copied installs under disposable homes; a public command is discoverable in each. |
 | Peer boundaries or source-time state (aliases, options, bindings, hooks, defaults) | Source every unit in normal, reverse and a rotated order; compare options, aliases, bindings, styles, hooks, prompts and public names — checked orders must converge without load diagnostics; source twice for stable hooks/bindings. See the [peer configuration algebra](architecture.md#peer-configuration-algebra). |
-| Keys or widgets | `bindkey` under `xterm-256color` and `screen-256color`; standalone Escape, bracketed paste, cancellation, redraw and resize in a real PTY. |
+| Keys or widgets | `zsh tests/run.zsh 'start with emulate'`; `bindkey` under `xterm-256color` and `screen-256color`; standalone Escape, bracketed paste, cancellation, redraw and resize in a real PTY. |
 | Prompt | Outside Git; clean, dirty and detached repositories; during an operation; missing tools; wide and narrow widths. |
 | Destructive Git helpers | Only in disposable repositories. |
 | Wrappers | Plain output through pipes/redirects; original options and exit status preserved. |

@@ -86,6 +86,81 @@ _test_support_private_helper_ownership() {
 test_case 'support private helpers stay inside their owning production entry' \
   _test_support_private_helper_ownership
 
+# Functions that Zsh, ZLE or another peer calls directly, possibly under the
+# user's options, start with `emulate -L zsh` (engineering/zsh.md): support
+# entries, public commands, widgets and shell hooks. Only `$?` and
+# `${options[...]}` captures may precede it. One that must keep caller options
+# says so in a comment directly above it that names "caller options". Private
+# helpers inherit their caller's emulation. A Compozsh-owned (`_`-prefixed)
+# name the scan must check but cannot find as a column-0 `name() {` definition
+# fails, so a definition in another form cannot slip past the check.
+_test_support_entries_start_with_emulate() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local root=$TEST_REPO_ROOT unit='' line='' name='' previous='' entry='' word=''
+  local -a units lines found=() missing=() undefined=()
+  local -A required=() first=() above=() where=()
+  units=("$root"/.zshrc "$root"/.zsh.addons/.zsh.*(N.)
+    "$root"/.zsh.addons/support/{functions,ui}/.zsh.*(N.))
+  for unit in "${units[@]}"; do
+    lines=("${(@f)$(<$unit)}")
+    name='' previous=''
+    for line in "${lines[@]}"; do
+      if [[ -n $name ]]; then
+        if [[ $line == [[:space:]]# || $line == [[:space:]]#\#* ||
+              $line == [[:space:]]#local\ [a-z_]##=(\$\?|*options\[*) ]]; then
+          continue
+        fi
+        first[$name]=${line##[[:space:]]#}
+        name=''
+      fi
+      if [[ $line == '# Entry point: '* ]]; then
+        entry=${line#\# Entry point: }
+        required[$entry]=1
+      elif [[ $line == (#b)([a-z][-a-z0-9]#)'() {' ]]; then
+        required[$match[1]]=1
+      elif [[ $line == (#b)[[:space:]]#zle\ -N\ [^\ ]##\ ([_a-z][-_a-z0-9]#)* ||
+              $line == (#b)[[:space:]]#add-zle-hook-widget\ [a-z-]##\ ([_a-z][-_a-z0-9]#)* ||
+              $line == (#b)[[:space:]]#add-zsh-hook\ [a-z-]##\ ([_a-z][-_a-z0-9]#)* ]]; then
+        required[$match[1]]=1
+      elif [[ $line == (#b)[[:space:]]#(precmd|preexec|chpwd|periodic|zshaddhistory|zshexit)_functions(|+)=\((*) ]]; then
+        # Hook arrays name functions as plain words; expansions are skipped.
+        for word in ${(s: :)match[3]}; do
+          word=${word%%\)*}
+          [[ $word == _[_a-z0-9]## ]] && required[$word]=1
+        done
+      fi
+      if [[ $line == (#b)([_a-zA-Z][-_a-zA-Z0-9]#)'() {' ]]; then
+        name=$match[1]
+        above[$name]=$previous
+        where[$name]=${unit#$root/}
+      fi
+      previous=$line
+    done
+  done
+  for name in ${(ok)required}; do
+    if [[ -z ${where[$name]-} ]]; then
+      [[ $name == _* ]] && undefined+=("$name")
+      continue
+    fi
+    found+=("$name")
+    [[ ${first[$name]-} == 'emulate -L zsh'* ]] && continue
+    [[ ${above[$name]-} == [[:space:]]#\#*'caller options'* ]] && continue
+    missing+=("${where[$name]}: $name")
+  done
+  (( ${#found} > 20 )) || { test_fail "too few entries scanned: ${#found}"; return 1; }
+  (( ${#undefined} == 0 )) || {
+    test_fail "no column-0 definition found to check: ${(j:, :)undefined}"
+    return 1
+  }
+  (( ${#missing} == 0 )) || {
+    test_fail "start with emulate -L zsh or document caller options: ${(j:, :)missing}"
+    return 1
+  }
+}
+test_case 'support entries, commands, widgets and hooks start with emulate -L zsh or document why' \
+  _test_support_entries_start_with_emulate
+
 # Pure support entries compute from explicit inputs and return through
 # caller-local REPLY/reply (engineering/architecture.md, "Pure entries stay
 # pure"). This scan reads Zsh's normalized body of every function loaded from

@@ -48,6 +48,7 @@ _zle_picker_run() {
 # The UI peer owns this lifecycle so navigation and search peers can detect it
 # at runtime without depending on each other or duplicating terminal handling.
 _zle_picker_widget() {
+  emulate -L zsh
   if [[ -n ${_zle_picker_session_callback:-} ]]; then
     _zle_picker_screen_session "$_zle_picker_session_callback"
     _zle_picker_session_status=$?

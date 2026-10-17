@@ -3,6 +3,7 @@
 # Ordinary support peer; no cross-peer calls at source time.
 
 _compozsh_git_valid_oid() {
+  emulate -L zsh
   [[ $1 != *[^[:xdigit:]]* ]] && (( ${#1} == 40 || ${#1} == 64 ))
 }
 

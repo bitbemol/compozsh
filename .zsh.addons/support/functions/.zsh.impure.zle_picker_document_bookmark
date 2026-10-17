@@ -3,6 +3,7 @@
 # Ordinary support peer; no cross-peer calls at source time.
 
 _zle_picker_document_bookmark() {
+  emulate -L zsh
   if (( _ZLE_PICKER_DOCUMENT )) && [[ -n $_ZLE_PICKER_INSPECT_KEY &&
         ( $_ZLE_PICKER_INSPECT_KEY == "$_ZLE_PICKER_DOCUMENT_KEY" ||
           -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$_ZLE_PICKER_INSPECT_KEY]-} ) ]]; then

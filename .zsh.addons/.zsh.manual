@@ -171,6 +171,7 @@ _manual_async_cancel() {
 }
 
 _manual_async_preexec() {
+  emulate -L zsh
   [[ $_MANUAL_ASYNC_STATE != running ]] || _manual_async_cancel
   return 0
 }

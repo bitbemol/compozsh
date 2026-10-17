@@ -1303,6 +1303,7 @@ _files_workspace_choose() {
 
 
 _files_recents_widget() {
+  emulate -L zsh
   if (( ! ${+functions[_directory_recents_choose]} || !${+functions[_zle_picker_run]} || !${+functions[_matching_compile]} )); then
     zle -M 'Recents unavailable: keep navigation, UI and matching add-ons installed.'
     return 1
@@ -1342,15 +1343,15 @@ _directory_completion_prefix() {
   [[ $REPLY == *[[:blank:]] ]]
 }
 
+# No emulate: AUTO_CD detection and native completion need caller options.
 _directory_context_complete_widget() {
   if (( !${+functions[_zle_picker_run]} || !${+functions[_matching_compile]} )); then
     zle expand-or-complete
     return $?
   fi
-  # Preserve caller options for AUTO_CD detection and native completion. The
-  # parser localizes its own options; command text stays outside Browse state.
-  # Use compinit's expand-or-complete registration: the dotted builtin bypasses
-  # its command-specific completion functions.
+  # The parser localizes its own options; command text stays outside Browse
+  # state. Use compinit's expand-or-complete registration: the dotted builtin
+  # bypasses its command-specific completion functions.
   (( CURSOR == ${#BUFFER} )) || { zle expand-or-complete; return; }
   local REPLY='' entry=$BUFFER argument_prefix=''
   _directory_completion_prefix "$BUFFER" || { zle expand-or-complete; return; }

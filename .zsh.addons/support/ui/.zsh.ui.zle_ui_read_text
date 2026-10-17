@@ -6,6 +6,7 @@
 # clipboard, or file access; Enter/Escape returns to the calling workspace.
 # An explicit fourth argument, reference, enables help accents for this reader.
 _zle_ui_read_text() {
+  emulate -L zsh
   _zle_ui_view reader _zle_ui_text_view "$@"
 }
 

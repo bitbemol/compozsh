@@ -6,7 +6,7 @@
 # the cache before executable lookup keeps missing tools cheap too; PATH and
 # environment selectors ensure activations and toolchain switches get new keys.
 _prompt_runtime_version() {
-  setopt localoptions noglobsubst
+  emulate -L zsh
 
   local IFS=$' \t\n' language=$1 project_root=$2
   local binary='' output='' first_line='' version=''

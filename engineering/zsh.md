@@ -17,8 +17,22 @@ Idioms, naming and the public command/help interface.
 
 - Prefer `[[ ... ]]`, `(( ... ))`, native arrays and associative arrays,
   parameter-expansion flags, `zstyle`, ZLE hooks and bundled `zsh/*` modules.
-- Start non-trivial functions with `emulate -L zsh` (they may run after users
-  change options); enable extra options locally.
+- Apply `emulate -L zsh` by function kind; enable extra options locally after
+  it.
+  - Functions that Zsh, ZLE or another peer calls directly, possibly under the
+    user's options, start with it: [support entries](glossary.md) (named on
+    their `# Entry point:` line), public commands, widgets (`zle -N`,
+    `add-zle-hook-widget`) and shell hooks (`precmd`, `preexec`, `chpwd`,
+    `zshexit` and the other hook arrays, or `add-zsh-hook`). Only a
+    `local name=$?` or `${options[...]}` capture may come before it.
+  - One that must read live caller options instead says so in a comment on
+    the line directly above its definition that names "caller options"; the
+    `_directory_context_complete_widget` widget keeps them for AUTO_CD
+    detection and native completion.
+  - Private helpers inherit their caller's emulation. One that a
+    caller-options widget calls emulates for itself, as
+    `_directory_picker_prepare` does after capturing AUTO_CD.
+  - A `start with emulate` test checks these kinds statically in shipped code.
 - Declare function variables with typed `local` (`-i`, `-F`, `-a`, `-A`).
   Declare intentional globals with `typeset -g`, `-gi`, `-gF`, `-ga` or `-gA`.
 - Never name a variable after an array Zsh ties to a colon-separated special:
