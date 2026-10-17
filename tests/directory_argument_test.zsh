@@ -13,15 +13,17 @@ _test_directory_argument_boundaries() {
     local BUFFER="" CURSOR=0 draft=""
     local -i captures=0 fallback=0
     zle() { [[ $1 == expand-or-complete ]] && (( ++fallback )); return 0; }
-    _zle_picker_screen_session() {
-      (( ++captures ))
-      _ZLE_PICKER_ACTION=select
-      _ZLE_PICKER_SELECTED_VALUE=${_DIRECTORY_PICKER_VALUES[1]}
-    }
+    # Each Browse session runs the workspace once; its first row is accepted.
+    source "$1/tests/picker_support.zsh"
+    functions[_argument_workspace]=$functions[_files_workspace_choose]
+    _files_workspace_choose() { (( ++captures )); _argument_workspace "$@"; }
     local -a drafts=(
       "vim -p ./Developer" "vim earlier.txt ~/Developer"
       "vim \"$HOME/Developer\"" "vim ~/Dev"
       "vim ./Developer/Example\\ \\&\\ Co/")
+    local -a first_rows=(
+      "./Developer/Example & Co/" "~/Developer/Example & Co/"
+      "$HOME/Developer/Example & Co/" "~/Developer/")
     local -a expected_paths=(
       "vim -p ./Developer/Example\\ \\&\\ Co/"
       "vim earlier.txt ~/Developer/Example\\ \\&\\ Co/"
@@ -32,7 +34,9 @@ _test_directory_argument_boundaries() {
     for draft in "${drafts[@]}"; do
       (( ++index ))
       if (( index == 5 )); then
-        _zle_picker_screen_session() { (( ++captures )); return 1; }
+        test_picker_script cancel
+      else
+        test_picker_script select "${first_rows[index]}"
       fi
       BUFFER=$draft CURSOR=${#BUFFER} captures=0 fallback=0
       _directory_context_complete_widget
@@ -86,12 +90,11 @@ _test_directory_argument_ksh_arrays() {
     local BUFFER="" CURSOR=0 REPLY=""
     local -i captures=0 fallback=0
     zle() { [[ $1 == expand-or-complete ]] && (( ++fallback )); return 0; }
-    # Called under the session emulation, so this subscript stays 1-based.
-    _zle_picker_screen_session() {
-      (( ++captures ))
-      _ZLE_PICKER_ACTION=select
-      _ZLE_PICKER_SELECTED_VALUE=${_DIRECTORY_PICKER_VALUES[1]}
-    }
+    # Each Browse session runs the workspace once; its first row is accepted.
+    source "$1/tests/picker_support.zsh"
+    functions[_argument_workspace]=$functions[_files_workspace_choose]
+    _files_workspace_choose() { (( ++captures )); _argument_workspace "$@"; }
+    test_picker_script select "~/Developer/Example & Co/"
     setopt KSH_ARRAYS
     BUFFER="vim ~/Developer/" CURSOR=${#BUFFER}
     _directory_context_complete_widget
@@ -124,7 +127,11 @@ _test_directory_lone_quoted_tilde_fallback() {
     local BUFFER="" CURSOR=0 draft=""
     local -i captures=0 fallback=0
     zle() { [[ $1 == expand-or-complete ]] && (( ++fallback )); return 0; }
-    _zle_picker_screen_session() { (( ++captures )); return 1; }
+    # Each Browse session runs the workspace once and is cancelled.
+    source "$1/tests/picker_support.zsh"
+    functions[_argument_workspace]=$functions[_files_workspace_choose]
+    _files_workspace_choose() { (( ++captures )); _argument_workspace "$@"; }
+    test_picker_script cancel
     local -a drafts=("\"~/target/\"" "\\~/target/" "\"~\"/target/")
     [[ -z $2 ]] || setopt "$2"
     for draft in "${drafts[@]}"; do

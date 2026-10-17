@@ -53,15 +53,13 @@ _test_files_recents_acceptance() {
     local -a dirstack=("$expected_path")
     local -i input_calls=0 redraws=0
     zle() { [[ $1 == redisplay ]] && (( ++redraws )); return 0; }
-    _zle_picker_screen_session() { "$@"; }
-    _zle_picker_loop() {
+    source "$1/tests/picker_support.zsh"
+    _recents_check() {
       (( ++input_calls ))
       [[ $_ZLE_PICKER_INSPECT_ACTION == insert ]] || return 21
       [[ $_NAVIGATION_PICKER_VALUES[2] == "$expected_path" ]] || return 22
-      _ZLE_PICKER_SELECTED_VALUE=$_NAVIGATION_PICKER_VALUES[2]
-      _ZLE_PICKER_ACTION=select
-      _ZLE_PICKER_BOOKMARK=("" 2 0)
     }
+    test_picker_script observe _recents_check -- select "$expected_path"
     _files_recents_widget
     [[ $PWD == "$initial_pwd" && $BUFFER == "${(q)expected_path}" &&
        $CURSOR == ${#BUFFER} && $input_calls == 1 && $redraws == 1 ]] || exit 23

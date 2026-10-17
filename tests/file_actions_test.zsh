@@ -159,7 +159,8 @@ _test_file_actions_boundaries() {
        ${_ZLE_PICKER_ACCEPT_LABELS[$root/directory]} == insert &&
        ${_ZLE_PICKER_ACCEPT_LABELS[$root/broken]} == "file actions" ]] || exit 1
     # Inspect capability-driven menus without starting an editor or an app.
-    _zle_picker_run() {
+    source "$1/tests/picker_support.zsh"
+    _menu_check() {
       [[ ${_file_action_values[(Ie)insert]} -gt 0 ]] || return 40
       if [[ $mode == unavailable ]]; then
         [[ ${(j:|:)_file_action_values} == insert ]] || return 41
@@ -169,6 +170,7 @@ _test_file_actions_boundaries() {
       fi
       return 0
     }
+    test_picker_script observe _menu_check -- select insert -- observe _menu_check -- select insert
     mode=unavailable
     _file_search_actions "$selected" "" "" || exit 2
     mode=broken

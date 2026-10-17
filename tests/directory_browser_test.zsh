@@ -406,8 +406,10 @@ _test_browser_action_boundaries() {
     test_source_support "$1" || exit
     builtin cd "$HOME/Projects"
     local fixture_target="$HOME/Projects/literal ; echo nope" scenario=reveal
-    _zle_picker_run() { "$5"; }
-    # Replace only user selection; run the real browser/action boundary.
+    # Replace only user selection; run the real browser/action boundary. The
+    # session runs without a terminal, and this pick stands in for its views.
+    source "$1/tests/picker_support.zsh"
+    test_picker_script
     _directory_browser_pick() {
       (( !_ZLE_PICKER_ACTIVE )) || exit 1
       _ZLE_PICKER_ACTION=$scenario
@@ -447,64 +449,54 @@ _test_browser_search_cd_link() {
     source "$1/.zshrc"
     local root="$HOME/root" search_query=folder stale=""
     stale="Files: the selected folder changed or is unavailable; your directory and draft are unchanged."
-    local -a picks=()
     local -i result=0
-    _zle_picker_run() { "$5"; }
     _files_read_query() { _ZLE_PICKER_SELECTED_VALUE=$search_query; _ZLE_PICKER_BOOKMARK=("" 1 0 ""); }
-    # Replace only user selection: one queued pick per real picker loop.
-    _zle_picker_loop() {
-      local pick=${picks[1]} action=""
-      local -i index=0
-      picks=("${(@)picks[2,-1]}")
-      case $pick in
-        (search-folder)
-          _ZLE_PICKER_SELECTED_VALUE=${_FILE_SEARCH_VALUES[1]}
-          [[ -n $_ZLE_PICKER_SELECTED_VALUE && ${_FILE_SEARCH_LABELS[1]} == "▸ "* ]] || return 21
-          _ZLE_PICKER_ACTION=actions ;;
-        (browse-folder)
-          _ZLE_PICKER_SELECTED_VALUE=${_DIRECTORY_PICKER_VALUES[(r)*folder/]}
-          [[ -n $_ZLE_PICKER_SELECTED_VALUE ]] || return 22
-          _ZLE_PICKER_ACTION=actions ;;
-        (cd|swap-cd|current-cd)
-          action=${pick#swap-}
-          index=${_directory_action_values[(Ie)$action]}
-          [[ $index != 0 && ${_directory_action_labels[index]} == *" · Change directory" ]] || return 23
-          if [[ $pick == swap-cd ]]; then
-            command mv -- "$root/folder" "$HOME/moved" &&
-              command ln -s elsewhere "$root/folder" || return 24
-          fi
-          _ZLE_PICKER_SELECTED_VALUE=$action ;;
-        (*) return 25 ;;
-      esac
-      return 0
+    # Replace only user selection: each real view takes the next scripted step.
+    source "$1/tests/picker_support.zsh"
+    _search_folder() {
+      [[ ${_FILE_SEARCH_VALUES[1]} == "$1" && ${_FILE_SEARCH_LABELS[1]} == "▸ "* ]] || return 21
+    }
+    _browse_folder() { [[ ${_DIRECTORY_PICKER_VALUES[(r)*folder/]} == "$1" ]] || return 22; }
+    _change_directory() {
+      local -i index=${_directory_action_values[(Ie)$1]}
+      [[ $index != 0 && ${_directory_action_labels[index]} == *" · Change directory" ]] || return 23
+    }
+    _swap_folder() {
+      command mv -- "$root/folder" "$HOME/moved" &&
+        command ln -s elsewhere "$root/folder" || return 24
     }
     builtin cd "$HOME" || exit 20
     # Control: a captured folder that is still a folder is entered.
-    picks=(search-folder cd)
+    test_picker_script observe _search_folder "${root:A}/folder" -- select "${root:A}/folder" actions -- \
+      observe _change_directory cd -- select cd
     _directory_browser_session "$root/" insert command search-local 2>|"$HOME/stderr"
     result=$?
-    [[ $result == 0 && $PWD -ef "$root/folder" && ! -s "$HOME/stderr" && ${#picks} == 0 ]] ||
+    [[ $result == 0 && $PWD -ef "$root/folder" && ! -s "$HOME/stderr" && ${#TEST_PICKER_STEPS} == 0 ]] ||
       { print -r -- "folder: status=$result PWD=$PWD"; exit 1; }
     builtin cd "$HOME" || exit 20
     # The captured folder becomes a link between capture and the explicit action.
-    picks=(search-folder swap-cd)
+    test_picker_script observe _search_folder "${root:A}/folder" -- select "${root:A}/folder" actions -- \
+      observe _change_directory cd -- observe _swap_folder -- select cd
     _directory_browser_session "$root/" insert command search-local 2>|"$HOME/stderr"
     result=$?
-    [[ $result != 0 && $PWD == "$HOME" && ${#picks} == 0 ]] ||
+    [[ $result != 0 && $PWD == "$HOME" && ${#TEST_PICKER_STEPS} == 0 ]] ||
       { print -r -- "became a link: status=$result PWD=$PWD"; exit 2; }
     [[ $(<"$HOME/stderr") == "$stale" ]] || { print -r -- "became a link: stderr=$(<"$HOME/stderr")"; exit 3; }
     # Guard: Browse lists the same link as a folder row, so its action follows it.
-    picks=(browse-folder cd)
+    test_picker_script observe _browse_folder "$root/folder/" -- select "$root/folder/" actions -- \
+      observe _change_directory cd -- select cd
     _directory_browser_session "$root/" insert command browse 2>|"$HOME/stderr"
     result=$?
-    [[ $result == 0 && $PWD == "$root/folder" && $PWD -ef "$root/elsewhere" && ${#picks} == 0 ]] ||
+    [[ $result == 0 && $PWD == "$root/folder" && $PWD -ef "$root/elsewhere" && ${#TEST_PICKER_STEPS} == 0 ]] ||
       { print -r -- "browse link: status=$result PWD=$PWD"; exit 4; }
     builtin cd "$HOME" || exit 20
     # Guard: a search scope opened through a link stays a usable current folder.
-    search_query=elsewhere picks=(search-folder current-cd)
+    search_query=elsewhere
+    test_picker_script observe _search_folder "${root:A}/elsewhere" -- \
+      select "${root:A}/elsewhere" actions -- observe _change_directory current-cd -- select current-cd
     _directory_browser_session "$HOME/root-link/" insert command search-local 2>|"$HOME/stderr"
     result=$?
-    [[ $result == 0 && $PWD == "$HOME/root-link" && ${#picks} == 0 ]] ||
+    [[ $result == 0 && $PWD == "$HOME/root-link" && ${#TEST_PICKER_STEPS} == 0 ]] ||
       { print -r -- "current link: status=$result PWD=$PWD"; exit 5; }
     print refused
   ' "$TEST_REPO_ROOT") || { test_fail "search Change directory journey failed: $output"; return; }
