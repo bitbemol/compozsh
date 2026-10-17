@@ -232,6 +232,13 @@ These are Compozsh controls, not claims about macOS-wide standards.
   orphaned divider or full-pane box. Use the `picker-selected-inactive` and
   `picker-focus` palette roles, never embedded escapes or tool colors.
 - Search and selection survive pane focus changes and responsive layouts.
+- A view's bookmark has seven fields: filter, selected row, viewport offset,
+  exclusion text, exclusion focus, exclusion visibility and pane focus. A
+  controller passes its array by name (`_zle_picker_loop --bookmark NAME
+  LIMIT`); the engine validates the name, reads the fields before declaring
+  its own locals and writes the recorded bookmark back after its scope ends,
+  so Back restores all seven and a view that records none leaves the array
+  unchanged. The positional form remains for callers not yet migrated.
 
 ## Inspectors and readers
 

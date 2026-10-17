@@ -27,13 +27,15 @@ _test_search_actions_targets() {
     _zle_picker_loop() {
       [[ $_ZLE_PICKER_TITLE == Files ]] || return 30
       (( ++audit_picks ))
+      [[ $1 == --bookmark ]] || return 29
+      local -a audit_fields=("${(@P)2}")
       if (( audit_cancel && audit_picks > 1 )); then
-        [[ $1 == narrow && $3 == 2 && $4 == 1 ]] || return 31
+        [[ $audit_fields[1] == narrow && $audit_fields[2] == 2 && $audit_fields[3] == 1 ]] || return 31
         return 1
       fi
       _ZLE_PICKER_SELECTED_VALUE=$audit_target
       _ZLE_PICKER_ACTION=actions
-      _ZLE_PICKER_BOOKMARK=(narrow 2 1)
+      set -A "$2" narrow 2 1 "" 0 0 0
     }
     _directory_browser_pick() {
       local audit_index=${_directory_action_values[(Ie)$audit_action]}

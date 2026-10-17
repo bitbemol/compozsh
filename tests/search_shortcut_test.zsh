@@ -99,15 +99,16 @@ _test_search_shortcut_refresh() {
       (( ++picks ))
       [[ $_ZLE_PICKER_QUERY_LABEL == "Filter results" &&
          $_ZLE_PICKER_SEARCH_ACTION == search-local ]] || return 22
+      [[ $1 == --bookmark ]] || return 26
+      local -a fields=("${(@P)2}")
       if (( picks == 2 )); then
-        [[ $1 == narrow && $3 == 2 && $4 == 1 && $captures == 1 && $_zle_picker_start_focus == 1 ]] || return 23
+        [[ $fields[1] == narrow && $fields[2] == 2 && $fields[3] == 1 && $captures == 1 && $fields[7] == 1 ]] || return 23
       elif (( picks == 3 )); then
-        [[ -z $1 && $3 == 1 && $4 == 0 && $captures == 2 ]] || return 24
+        [[ -z $fields[1] && $fields[2] == 1 && $fields[3] == 0 && $captures == 2 ]] || return 24
         return 1
       fi
       _ZLE_PICKER_ACTION=search-local
-      _ZLE_PICKER_BOOKMARK=(narrow 2 1)
-      _ZLE_PICKER_BOOKMARK_FOCUS=1
+      set -A "$2" narrow 2 1 "" 0 0 1
     }
     _files_read_query() {
       (( ++queries ))

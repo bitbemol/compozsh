@@ -356,3 +356,32 @@ _test_ui_palette_source_order_and_resource_convergence() {
 }
 test_case 'UI and palette converge across four peer orders and double sourcing in both schemes' \
   _test_ui_palette_source_order_and_resource_convergence
+
+_test_ui_components_named_bookmark() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    _ui_test_collect() { _ZLE_PICKER_RESULTS=(a b c) _ZLE_PICKER_LABELS=(a b c); }
+    local -a bookmark=(query 2 0 skip 1 1 1 stale) reply=(query 2 0)
+    local scalar=''
+    # A document view hands its selected row to the controller at once, so
+    # the engine records a bookmark without reading keys.
+    local -i _ZLE_PICKER_SESSION=1 _ZLE_PICKER_DOCUMENT=1
+    local _ZLE_PICKER_COLLECTOR=_ui_test_collect
+    _zle_picker_loop --bookmark bookmark 10 || exit 1
+    [[ $_ZLE_PICKER_ACTION == inspect && $_ZLE_PICKER_SELECTED_VALUE == b ]] || exit 2
+    print -r -- "${(j:|:)bookmark}"
+    for scalar in "reply" "scalar" "bookmark[1]" "_zpl_name" "_ZLE_PICKER_BOOKMARK" ""; do
+      _zle_picker_loop --bookmark "$scalar" 10
+      print -r -- "$scalar:$?"
+    done
+    _zle_picker_loop --bookmark bookmark || print -r -- "arity:$?"
+    print -r -- "${(j:|:)bookmark}|${(j:|:)reply}"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal $'query|2|0|skip|1|1|1\nreply:2\nscalar:2\nbookmark[1]:2\n_zpl_name:2\n_ZLE_PICKER_BOOKMARK:2\n:2\narity:2\nquery|2|0|skip|1|1|1|query|2|0' \
+    "$output" 'the named bookmark was not read, validated or written back exactly'
+}
+test_case 'UI components picker loop reads and writes a validated named bookmark' \
+  _test_ui_components_named_bookmark

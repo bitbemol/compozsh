@@ -299,10 +299,10 @@ _compozsh_help_workspace() {
 
 _compozsh_help_view() {
   emulate -L zsh
-  local -a _HELP_TOPIC_LABELS=() _HELP_TOPIC_TEXTS=() bookmark=('' 1 0)
+  local -a _HELP_TOPIC_LABELS=() _HELP_TOPIC_TEXTS=() bookmark=('' 1 0 '' 0 0 0)
   local _HELP_USAGE='' _HELP_DESCRIPTION='' selected=''
   local _help_compose_seed=''
-  local -i index=0 result=0 focus=0 _HELP_COMPOSE_INDEX=0
+  local -i index=0 result=0 _HELP_COMPOSE_INDEX=0
   _compozsh_help_topics "$1"
   if [[ -n ${2:-} ]] && (( ${+functions[_compozsh_compose_open]} )) &&
      _compozsh_compose_capability "$2"; then
@@ -336,13 +336,11 @@ _compozsh_help_view() {
     fi
   done
   while true; do
-    _zle_picker_start_focus=$focus
-    _zle_picker_loop "$bookmark[1]" 20 "$bookmark[2]" "$bookmark[3]" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    _zle_picker_loop --bookmark bookmark 20
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
     [[ $selected == <-> ]] && (( selected >= 1 && selected <= ${#_HELP_TOPIC_LABELS} )) || return 1
-    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     if (( selected == _HELP_COMPOSE_INDEX )); then
       _compozsh_compose_open "$_help_compose_seed" "$PWD"
       result=$?
@@ -822,17 +820,15 @@ _compozsh_view() {
 # same filter, row, viewport and pane; a guide never invokes its public command.
 _compozsh_browse_loop() {
   emulate -L zsh
-  local -a bookmark=('' 1 0)
+  local -a bookmark=('' 1 0 '' 0 0 0)
   local selected='' text=''
-  local -i focus=0 result=0
+  local -i result=0
   while true; do
-    _zle_picker_start_focus=$focus
     _ZLE_PICKER_DIGIT_SELECT=1
-    _zle_picker_loop "$bookmark[1]" "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}" "$bookmark[2]" "$bookmark[3]" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    _zle_picker_loop --bookmark bookmark "${ZSH_TOOL_PICKER_MAX_RESULTS:-10}"
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
-    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     text=${_ZLE_PICKER_INSPECT_TEXTS[$selected]-No captured help available.}
     _compozsh_help_workspace "$text" "$selected"
     result=$?

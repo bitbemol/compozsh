@@ -121,8 +121,7 @@ _compozsh_compose_form() {
     _ZLE_PICKER_DESCRIPTIONS[apply]='Replace the current draft with this exact command; do not run it'
     _ZLE_PICKER_INSPECT_TEXTS[apply]='Explicit editor insertion only. Escape from the composer keeps the original draft.'
   fi
-  _zle_picker_start_focus=${4:-0}
-  _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}" "${5:-}" "${6:-0}" "${7:-0}"
+  _zle_picker_loop --bookmark "$1" 10
 }
 
 _compozsh_compose_field_collect() {
@@ -195,17 +194,16 @@ _compozsh_compose_open() {
   local REPLY=''
   local _compose_prefix=${_COMPOZSH_COMPOSE_PREFIX-${1%%[^ ]*}}
   local _compose_scope=$2 _compose_recipe='' _compose_method='' _compose_base='' _compose_head='' _compose_path=''
-  local _compose_field='' selected='' value='' result=0 focus=0
-  local -a bookmark=('' 1 0)
+  local _compose_field='' selected='' value='' result=0
+  local -a bookmark=('' 1 0 '' 0 0 0)
   _compozsh_compose_seed "$1"
   [[ -n $_compose_recipe ]] || return 1
   local _compose_base_label=$_compose_base _compose_head_label=$_compose_head _compose_endpoint_label=''
   while true; do
-    _zle_ui_view action _compozsh_compose_form "${bookmark[@][1,3]}" "$focus" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    _zle_ui_view action _compozsh_compose_form bookmark
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
-    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     case $selected in
       method) [[ $_compose_method == exact ]] && _compose_method=ancestor || _compose_method=exact ;;
       base|head)

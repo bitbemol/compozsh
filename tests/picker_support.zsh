@@ -18,8 +18,8 @@
 # visible labels (one per line) to TEST_PICKER_TITLES, TEST_PICKER_SUBTITLES,
 # TEST_PICKER_LIMITS, TEST_PICKER_STARTS and TEST_PICKER_LABELS. A view with no
 # step left, an unknown step or a selection its collector did not return fails
-# with status 2 and a diagnostic on stderr. Outputs and bookmarks are set as the
-# engine sets them; the stubs read no keys and do not paint, run idle or
+# with status 2 and a diagnostic on stderr. Outputs and bookmarks, the named
+# `--bookmark NAME` write-back included, are set as the engine sets them; the stubs read no keys and do not paint, run idle or
 # deadline callbacks, preview documents or keep document positions. Tests of
 # those engine behaviors keep the real loop. An observe function also sees the
 # loop stub's locals, which keep the engine's names (query, limit, selected,
@@ -79,6 +79,28 @@ _test_picker_run() {
 
 _test_picker_loop() {
   emulate -L zsh
+  # The engine's named form: read seven fields, run the positional form with the
+  # start focus, then write back the recorded bookmark.
+  if [[ ${1-} == --bookmark ]]; then
+    setopt EXTENDED_GLOB
+    (( $# == 3 )) || return 2
+    local _zpl_name=$2 _zpl_limit=$3
+    [[ $_zpl_name == [A-Za-z_][A-Za-z0-9_]# &&
+       $_zpl_name != (_zpl_*|_zle_*|_ZLE_*|REPLY|reply) ]] || return 2
+    [[ ${(Pt)_zpl_name} == array* ]] || return 2
+    local -a _zpl_fields=("${(@P)_zpl_name}")
+    local -i _zpl_status=0 _zle_picker_start_focus=0
+    [[ ${_zpl_fields[7]-} == 1 ]] && _zle_picker_start_focus=1
+    _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
+    _zle_picker_loop "${_zpl_fields[1]-}" "$_zpl_limit" "${_zpl_fields[2]-1}" \
+      "${_zpl_fields[3]-0}" "${_zpl_fields[4]-}" "${_zpl_fields[5]-0}" \
+      "${_zpl_fields[6]-0}" || _zpl_status=$?
+    (( ${#_ZLE_PICKER_BOOKMARK} )) &&
+      set -A "$_zpl_name" "${(@)_ZLE_PICKER_BOOKMARK[1,3]}" \
+        "${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" \
+        "${_ZLE_PICKER_BOOKMARK[6]:-0}" "$_ZLE_PICKER_BOOKMARK_FOCUS"
+    return $_zpl_status
+  fi
   local query=${1-} raw_limit=${2-} collector=${_ZLE_PICKER_COLLECTOR-}
   local _ZLE_PICKER_EXCLUDE=${5:-}
   local -i _ZLE_PICKER_EXCLUDE_FOCUS=0 _ZLE_PICKER_EXCLUDE_SHOWN=0

@@ -190,13 +190,14 @@ _test_task_tools_read_return() {
     }
     _zle_picker_loop() {
       (( ++visits ))
+      [[ $1 == --bookmark ]] || return 15
       if (( visits == 1 )); then
         _ZLE_PICKER_SELECTED_VALUE=example
-        _ZLE_PICKER_BOOKMARK=(exam 1 0) _ZLE_PICKER_BOOKMARK_FOCUS=1
+        set -A "$2" exam 1 0 "" 0 0 1
         _ZLE_PICKER_DIGIT_SELECT=0
         return 0
       fi
-      [[ $1 == exam && $_zle_picker_start_focus == 1 ]] || return 12
+      [[ ${${(P)2}[1]} == exam && ${${(P)2}[7]} == 1 ]] || return 12
       (( _ZLE_PICKER_DIGIT_SELECT )) || return 14
       return 1
     }

@@ -6,6 +6,31 @@ _zle_picker_loop() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
+  # `--bookmark NAME LIMIT` names the caller's array of seven fields: query,
+  # row, offset, exclusion text, exclusion focus, exclusion shown and pane
+  # focus. They are read before this loop declares its locals, and the bookmark
+  # it records is written back after that scope ends, so a validated name never
+  # resolves to a loop local; a view that records none leaves the array as is.
+  if [[ ${1-} == --bookmark ]]; then
+    (( $# == 3 )) || return 2
+    local _zpl_name=$2 _zpl_limit=$3
+    [[ $_zpl_name == [A-Za-z_][A-Za-z0-9_]# &&
+       $_zpl_name != (_zpl_*|_zle_*|_ZLE_*|REPLY|reply) ]] || return 2
+    [[ ${(Pt)_zpl_name} == array* ]] || return 2
+    local -a _zpl_fields=("${(@P)_zpl_name}")
+    local -i _zpl_status=0 _zle_picker_start_focus=0
+    [[ ${_zpl_fields[7]-} == 1 ]] && _zle_picker_start_focus=1
+    _ZLE_PICKER_BOOKMARK=() _ZLE_PICKER_BOOKMARK_FOCUS=0
+    _zle_picker_loop "${_zpl_fields[1]-}" "$_zpl_limit" "${_zpl_fields[2]-1}" \
+      "${_zpl_fields[3]-0}" "${_zpl_fields[4]-}" "${_zpl_fields[5]-0}" \
+      "${_zpl_fields[6]-0}" || _zpl_status=$?
+    (( ${#_ZLE_PICKER_BOOKMARK} )) &&
+      set -A "$_zpl_name" "${(@)_ZLE_PICKER_BOOKMARK[1,3]}" \
+        "${_ZLE_PICKER_BOOKMARK[4]-}" "${_ZLE_PICKER_BOOKMARK[5]:-0}" \
+        "${_ZLE_PICKER_BOOKMARK[6]:-0}" "$_ZLE_PICKER_BOOKMARK_FOCUS"
+    return $_zpl_status
+  fi
+
   local query=$1 raw_limit=$2 key='' sequence='' suffix='' byte='' collected_query=''
   local collector=$_ZLE_PICKER_COLLECTOR
   local _ZLE_PICKER_EXCLUDE=${5:-} collected_exclude='' input=''

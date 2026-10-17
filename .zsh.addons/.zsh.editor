@@ -366,23 +366,21 @@ _draft_inspect_choose() {
     back 'Return to the exact draft and cursor')
   _ZLE_PICKER_INSPECT_TEXTS=("${(@kv)_ZLE_PICKER_DESCRIPTIONS}")
   _ZLE_PICKER_ACCEPT_LABELS=(read read files 'browse folder' history recall tools 'open guides' git review compose compose back 'keep editing')
-  _zle_picker_start_focus=${4:-0}
-  _zle_picker_loop "${1:-}" 10 "${2:-1}" "${3:-0}" "${5:-}" "${6:-0}" "${7:-0}"
+  _zle_picker_loop --bookmark "$1" 10
 }
 
 _draft_inspect_controller() {
   emulate -L zsh
-  local -a bookmark=('' 1 0)
-  local -i focus=0 result=0
+  local -a bookmark=('' 1 0 '' 0 0 0)
+  local -i result=0
   local selected='' root='' _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
   local -a _GIT_REVIEW_CONFIG=()
   local -i _GIT_REVIEW_TRUNCATED=0
   while true; do
-    _zle_ui_view action _draft_inspect_choose "${bookmark[@][1,3]}" "$focus" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    _zle_ui_view action _draft_inspect_choose bookmark
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
-    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     case $selected in
       back) return 0 ;;
       files|history) _DRAFT_INSPECT_NEXT=$selected; return 0 ;;
@@ -996,7 +994,7 @@ _directory_browser_session() {
   local entry=$1 mode=$2 runner=$3
   local argument_prefix=${5:-}
   local _FILES_ORIGIN=${4:-browse} _FILES_VIEW=${4:-browse}
-  local -a _FILES_RECENTS_BOOKMARK=('' 1 0)
+  local -a _FILES_RECENTS_BOOKMARK=('' 1 0 '' 0 0 0)
   local -i _FILES_WORKSPACE=1 _ZLE_PICKER_WORKSPACE_ACTIONS=1
   # Per-invocation state never becomes a persistent directory index or a
   # dependency for another picker. -1 preserves native dot-prefix discovery.

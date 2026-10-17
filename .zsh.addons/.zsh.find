@@ -652,8 +652,8 @@ _file_search_view() {
     _file_search_default_provider "$root"
     provider=$REPLY
   fi
-  local -i result=0 capture_status=0 refresh=1 return_focus=0
-  local -a bookmark=('' 1 0)
+  local -i result=0 capture_status=0 refresh=1
+  local -a bookmark=('' 1 0 '' 0 0 0)
   local summary=''
   _ZLE_PICKER_QUERY_LABEL='Filter results' _ZLE_PICKER_SEARCH_ACTION="search-$provider"
   _ZLE_PICKER_TITLE=Files _ZLE_PICKER_SUBTITLE="$provider · $root"
@@ -689,8 +689,7 @@ _file_search_view() {
       [[ -n $exclusion ]] && summary+=" · exclude contains: $exclusion"
       (( capture_status == 2 )) && summary="Source failed or unavailable · $summary"
       _file_search_inspector_capture
-      bookmark=('' 1 0)
-      _zle_picker_start_focus=0
+      bookmark=('' 1 0 '' 0 0 0)
       refresh=0
     fi
     _ZLE_PICKER_TITLE=Files
@@ -709,13 +708,10 @@ _file_search_view() {
     _ZLE_PICKER_HIERARCHY_ENABLED=0
     _ZLE_PICKER_DIRECTORY_ACTIONS=0
     _ZLE_PICKER_COPY_ENABLED=$(( ${#_directory_browser_clipboard} > 0 ))
-    _zle_picker_loop "${bookmark[1]}" "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}" "${bookmark[2]}" "${bookmark[3]}" "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}"
+    _zle_picker_loop --bookmark bookmark "${ZSH_FILE_SEARCH_MAX_RESULTS:-10}"
     result=$?
     (( result == 0 )) || return $result
     selected=$_ZLE_PICKER_SELECTED_VALUE
-    bookmark=("${_ZLE_PICKER_BOOKMARK[@]}")
-    return_focus=${_ZLE_PICKER_BOOKMARK_FOCUS:-0}
-    _zle_picker_start_focus=$return_focus
     if [[ $_ZLE_PICKER_ACTION == "search-$provider" ]]; then
       _files_read_query 'Search descendants' "$provider · $root" "$query" "$exclusion" "$provider"
       result=$?
@@ -770,7 +766,7 @@ _files_query_content() {
   local _ZLE_PICKER_TITLE=$1 _ZLE_PICKER_SUBTITLE=$2
   local _ZLE_PICKER_QUERY_LABEL='Search descendants'
   local -i _ZLE_PICKER_EXCLUSION_ENABLED=1 query_status=0
-  local -a discovery=("${3:-}" 1 0 "${4:-}" 0 0)
+  local -a discovery=("${3:-}" 1 0 "${4:-}" 0 0 0)
   local _ZLE_PICKER_INSPECT_ACTION=search
   local _ZLE_PICKER_BROWSE_LABEL='Enter fragments, then press Return to search'
   local -a _ZLE_PICKER_EMPTY_LINES=(
@@ -785,10 +781,9 @@ _files_query_content() {
     'After capture, Filter results refines that snapshot. Ctrl-F edits the search.'
     'Ctrl-X in Browse or results chooses another discovery source.')
   while true; do
-    _zle_picker_loop "$discovery[1]" 10 "$discovery[2]" "$discovery[3]" "${discovery[4]-}" "${discovery[5]:-0}" "${discovery[6]:-0}"
+    _zle_picker_loop --bookmark discovery 10
     query_status=$?
     (( query_status == 0 )) || return $query_status
-    discovery=("${_ZLE_PICKER_BOOKMARK[@]}")
     if [[ ${5:-} == spotlight && -z ${discovery[1]//[[:space:]]/} ]]; then
       _ZLE_PICKER_BROWSE_LABEL='Spotlight needs positive filename text'
       _ZLE_PICKER_EMPTY_LINES=('Add filename text, or go Back and choose Search filesystem in Options.'

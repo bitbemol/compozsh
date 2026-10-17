@@ -209,6 +209,9 @@ focused filters.
   set in the shell, `g --review` no longer leaves the last resolved object ID
   in `$REPLY` or its final action and acceptance, and `xcode` no longer
   leaves the chosen value or acceptance behind (P3-04, B-06, SEC-C-02).
+- Returning to Recents (Back from its actions menu, or from Browse) now also
+  restores which pane had focus, the list or the details, as Browse, Search,
+  the help workspaces and the composer already did (P3-06, B-10).
 
 ## Performance results
 

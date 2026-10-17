@@ -103,15 +103,17 @@ _test_files_recents_bookmark() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zshrc"
-    local -a _FILES_RECENTS_BOOKMARK=("" 1 0)
+    local -a _FILES_RECENTS_BOOKMARK=("" 1 0 "" 0 0 0)
     local _directory_browser_clipboard="" mode=insert
     local -i visits=0
     _zle_picker_loop() {
       (( ++visits ))
+      [[ $1 == --bookmark ]] || return 21
+      local -a fields=("${(@P)2}")
       if (( visits == 2 )); then
-        [[ $1 == previous && $3 == 2 && $4 == 1 ]] || return 22
+        [[ $fields[1] == previous && $fields[2] == 2 && $fields[3] == 1 ]] || return 22
       fi
-      _ZLE_PICKER_BOOKMARK=(previous 2 1)
+      set -A "$2" previous 2 1 "" 0 0 0
       _ZLE_PICKER_ACTION=browse
       _ZLE_PICKER_SELECTED_VALUE=$HOME
     }
@@ -146,14 +148,16 @@ _test_files_recents_vanished_browse() {
     local -i visits=0 browsed=0
     _zle_picker_loop() {
       (( ++visits ))
+      [[ $1 == --bookmark ]] || print -r -- "BAD-PROTOCOL:$1"
+      local -a fields=("${(@P)2}")
       case $visits in
         (1)
-          _ZLE_PICKER_BOOKMARK=(gone 2 0)
+          set -A "$2" gone 2 0 "" 0 0 0
           _ZLE_PICKER_ACTION=browse _ZLE_PICKER_SELECTED_VALUE="$HOME/gone" ;;
         (2)
-          [[ $1 == gone && $3 == 2 ]] || print -r -- "BAD-BOOKMARK:$1:$3"
+          [[ $fields[1] == gone && $fields[2] == 2 ]] || print -r -- "BAD-BOOKMARK:$fields[1]:$fields[2]"
           print -r -- "notice:$_ZLE_PICKER_BROWSE_LABEL"
-          _ZLE_PICKER_BOOKMARK=(gone 2 0)
+          set -A "$2" gone 2 0 "" 0 0 0
           _ZLE_PICKER_ACTION=browse _ZLE_PICKER_SELECTED_VALUE="$HOME/Other" ;;
         (*)
           print -r -- "again:$_ZLE_PICKER_BROWSE_LABEL"
