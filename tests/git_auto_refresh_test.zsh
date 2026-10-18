@@ -257,7 +257,7 @@ _test_git_auto_refresh_pending_identity() {
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local context=3 loaded="" loaded_data=""
+    local _git_review_context=3 loaded="" loaded_data=""
     local -a bookmark=("" 1 0)
     local -i focus=1 _ZLE_PICKER_DOCUMENT_KEY=2 _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=1
     local -i _git_auto_candidate_diff_truncated=0 _git_auto_candidate_list_truncated=0
@@ -349,7 +349,7 @@ _test_git_auto_refresh_full_pipe() {
     export TMPDIR=$HOME
     command mkfifo "$HOME/watchdog"
     exec {watchdog_fd}<> "$HOME/watchdog"
-    local root=$HOME context=3 mode="" chunk="" session="" bulk_status="" name=""
+    local _git_review_root=$HOME _git_review_context=3 mode="" chunk="" session="" bulk_status="" name=""
     local -i _ZLE_PICKER_SELECTED=0 _git_auto_session_fd=-1 _git_auto_session_pid=0
     local -i _git_auto_generation=0 large=1 worker=0 watchdog=0 attempt=0 result=0
     local -F _git_auto_started_at=0 _git_auto_deadline_at=0
@@ -658,7 +658,7 @@ _test_git_auto_refresh_pending_context() {
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
-    local context=1000000000 _git_auto_candidate_request_context=3
+    local _git_review_context=1000000000 _git_auto_candidate_request_context=3
     local _git_review_event_status="" _git_review_refresh_status=""
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_GUIDE_ACTIVE=0
     local -i _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=1 _git_auto_candidate_ready=1
@@ -683,7 +683,7 @@ _test_git_auto_refresh_other_bookmarks() {
   output=$(/bin/zsh -fc '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.zle_picker_document_position(N.); do source "$git_support_component"; done
-    local context=3
+    local _git_review_context=3
     local -i _ZLE_PICKER_SELECTED=1
     local -a _ZLE_PICKER_RESULTS=(1)
     local -A _git_document_cache=(1:3 one 2:3 two)
@@ -709,7 +709,7 @@ _test_git_auto_refresh_selection_floor() {
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
-    local root=/fixture context=3 old_next=""
+    local _git_review_root=/fixture _git_review_context=3 old_next=""
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_GUIDE_ACTIVE=0
     local -i _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0 _git_auto_session_pid=0
     local -i _git_auto_candidate_ready=1 _git_auto_candidate_generation=4 _git_auto_generation=4
@@ -812,7 +812,7 @@ _test_git_auto_refresh_timeout() {
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
     zmodload zsh/datetime
-    local root=/fixture context=3 _git_review_event_status="" _git_review_refresh_status=""
+    local _git_review_root=/fixture _git_review_context=3 _git_review_event_status="" _git_review_refresh_status=""
     local -i _ZLE_PICKER_AUTO_REFRESH=1 _ZLE_PICKER_GUIDE_ACTIVE=0 stopped=0
     local -i _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0 _git_auto_session_pid=42
     local -i _git_auto_failed=0 _git_review_reads_blocked=0
@@ -855,7 +855,7 @@ exec /bin/sleep 30' || return
     zmodload zsh/datetime
     zmodload zsh/zselect
     _GIT_REVIEW_AUTO_REFRESH_TIMEOUT=0.5
-    local root="$HOME/repo" context=3
+    local _git_review_root="$HOME/repo" _git_review_context=3
     local -i _ZLE_PICKER_SELECTED=0 _git_auto_session_fd=-1 _git_auto_session_pid=0
     local -i _git_auto_generation=0 poll_result=1 attempt=0 provider=0
     local -F _git_auto_started_at=0 _git_auto_deadline_at=0 started=$EPOCHREALTIME elapsed=0
@@ -910,7 +910,7 @@ exec /bin/sleep 30' || return
     }
     zmodload zsh/datetime
     zmodload zsh/zselect
-    local root="$HOME/repo" context=3
+    local _git_review_root="$HOME/repo" _git_review_context=3
     local -i _ZLE_PICKER_SELECTED=0 _git_auto_session_fd=-1 _git_auto_session_pid=0
     local -i _git_auto_generation=0
     local -F _git_auto_started_at=0 _git_auto_deadline_at=0

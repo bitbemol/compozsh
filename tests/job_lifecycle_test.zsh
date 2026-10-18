@@ -178,7 +178,7 @@ _test_git_review_auto_job_cleanup() {
     }
     _auto_driver() {
       unsetopt MONITOR NOTIFY BG_NICE
-      local root=$HOME/repo context=3 number="" state="" retained="" event=""
+      local _git_review_root=$HOME/repo _git_review_context=3 number="" state="" retained="" event=""
       local -i _ZLE_PICKER_SELECTED=0 _git_auto_session_fd=-1 _git_auto_session_pid=0
       local -i _git_auto_generation=0 user_done=0 worker=0 provider=0 attempt=0 poll_result=1
       local -F _git_auto_started_at=0 _git_auto_deadline_at=0 _ZLE_PICKER_DEADLINE_AT=0

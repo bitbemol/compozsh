@@ -15,7 +15,7 @@ _test_git_auto_refresh_suspended_worker() {
     exec {event_fd}<> "$HOME/events"
     exec {provider_fd}<> "$HOME/provider-input"
     exec {watchdog_fd}<> "$HOME/watchdog"
-    local root=$HOME context=3 event="" state="" session="" REPLY=""
+    local _git_review_root=$HOME _git_review_context=3 event="" state="" session="" REPLY=""
     local -i _ZLE_PICKER_SELECTED=0 _git_auto_session_fd=-1 _git_auto_session_pid=0
     local -i _git_auto_generation=0 worker=0 provider=0 watchdog=0 attempt=0 stopped=0
     local -F _git_auto_started_at=0 _git_auto_deadline_at=0

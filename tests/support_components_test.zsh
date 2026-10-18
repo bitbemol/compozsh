@@ -525,3 +525,152 @@ _fixture_bad_shapes() {
 }
 test_case 'support pure entry scan reports outside calls, commands, files and escaping state' \
   _test_support_purity_scan_reports_violations
+
+# Feature hooks run beneath shared engine frames that declare generic locals:
+# _zle_ui_view declares `kind`, the renderer `context`, the input loop and the
+# footer `mode`. A hook (an idle, deadline, subtitle or browse renderer, or
+# collector callback) or a feature function it calls that uses such a name it
+# did not declare reaches its controller only through dynamic scope, and
+# silently reaches the nearest engine frame instead once one declares the same
+# name. Session state a hook shares with its controller therefore carries the
+# peer's prefix or arrives as an argument. The scan finds hooks where a
+# function of the given peers names a feature function in a *_CALLBACK,
+# *_RENDERER, *_COLLECTOR or *_collector assignment, follows calls into
+# feature peers (never into support), and reports a watched name used in a
+# $-expansion, (( )), an assignment or a loop variable without a local
+# declaration in that function. Names built at run time and names inside a
+# (( )) subscript are not traced.
+_test_feature_hook_scope_scan() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local root=${1:A} name='' body='' token='' rest='' var='' callee='' MATCH=''
+  local watched='(context|kind|root|bookmark|focus|mode|*clipboard*)'
+  shift
+  local -A peers=() hooks=() seen=() locals=()
+  local -a queue=() tokens=() problems=() used=() match=() mbegin=() mend=()
+  local -i i=0 MBEGIN=0 MEND=0
+  zmodload zsh/parameter || return 1
+  for name in "$@"; do peers[$name]=1 peers[${name:A}]=1; done
+  for name in ${(k)functions}; do
+    [[ -n ${peers[${functions_source[$name]-}]-} ]] || continue
+    rest=${functions[$name]}
+    while [[ $rest =~ '_[A-Za-z_]*(CALLBACK|RENDERER|COLLECTOR|collector)=([_A-Za-z][-_A-Za-z0-9]*)' ]]; do
+      rest=${rest#*"$MATCH"} callee=$match[2]
+      [[ ${functions_source[$callee]-} == "$root"/.zsh.addons/.zsh.* ||
+         -n ${peers[${functions_source[$callee]-}]-} ]] && hooks[$callee]=1
+    done
+  done
+  queue=(${(ko)hooks})
+  while (( ${#queue} )); do
+    name=$queue[1] queue[1]=()
+    [[ -z ${seen[$name]-} ]] || continue
+    seen[$name]=1 body=${functions[$name]} locals=() used=()
+    tokens=(${(z)body})
+    for token in $tokens; do
+      [[ -z ${seen[$token]-} ]] || continue
+      [[ ${functions_source[$token]-} == "$root"/.zsh.addons/.zsh.* ||
+         -n ${peers[${functions_source[$token]-}]-} ]] && queue+=("$token")
+    done
+    for (( i = 1; i <= ${#tokens}; i++ )); do
+      [[ $tokens[i] == (local|typeset|integer|float|declare|private) ]] || continue
+      while (( ++i <= ${#tokens} )) && [[ $tokens[i] != (\;|\&\&|\|\||\|) ]]; do
+        [[ $tokens[i] == [-+]* ]] || locals[${tokens[i]%%[=\[]*}]=1
+      done
+      (( i-- ))
+    done
+    rest=${${body//\\\$/}//\'[^\']#\'/}
+    while [[ $rest =~ '\$\{?(\([^)]*\))?[#+^=~]*([A-Za-z_][A-Za-z0-9_]*)' ]]; do
+      rest=${rest#*"$MATCH"} var=$match[2]
+      [[ $var == ${~watched} && -z ${locals[$var]-} ]] && used+=("reads $var")
+    done
+    rest=$body
+    while [[ $rest =~ '\(\(([^()]|\([^()]*\))*\)\)' ]]; do
+      rest=${rest#*"$MATCH"} token=${${${MATCH//\$\{[^\}]#\}/}//\$[A-Za-z0-9_]#/}//[0-9]##\#[A-Za-z0-9_]#/}
+      # A subscript may be an associative key, such as facts[mode].
+      token=${token//\[[^\]]#\]/}
+      for var in ${(M)${=${token//[^A-Za-z0-9_]/ }}:#[A-Za-z_]*}; do
+        [[ $var == ${~watched} && -z ${locals[$var]-} ]] && used+=("uses $var in arithmetic")
+      done
+    done
+    for (( i = 1; i <= ${#tokens}; i++ )); do
+      token=$tokens[i]
+      if [[ $token == (#b)([A-Za-z_][A-Za-z0-9_]#)(\[*\])#(\+|)=* ]]; then
+        var=$match[1]
+        [[ $var == ${~watched} && -z ${locals[$var]-} ]] && used+=("assigns $var")
+      elif [[ $token == for ]]; then
+        while [[ $tokens[i+1] == [A-Za-z_][A-Za-z0-9_]# && $tokens[i+1] != in ]] && (( ++i )); do
+          [[ $tokens[i] == ${~watched} && -z ${locals[$tokens[i]]-} ]] &&
+            used+=("loops with $tokens[i]")
+        done
+      fi
+    done
+    for token in ${(u)used}; do problems+=("$name $token"); done
+  done
+  print -rl -- ${(ou)problems} "scanned ${#hooks} hooks and ${#seen} functions"
+}
+
+# Usage: _test_feature_hook_scope_report <home> <root> <peer>...
+# Peers outside <root>/.zsh.addons are fixtures, sourced after the bootstrap.
+_test_feature_hook_scope_report() {
+  test_run_interactive "$1" "source \"\$1/.zshrc\" || exit 1
+local peer=''
+for peer in \"\${@:2}\"; do
+  [[ \$peer == \"\$1\"/.zsh.addons/* ]] || source \"\$peer\" || exit 1
+done
+$(typeset -f _test_feature_hook_scope_scan)
+_test_feature_hook_scope_scan \"\$@\"" "${@:2}"
+}
+
+_test_feature_hooks_read_no_generic_caller_names() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(_test_feature_hook_scope_report "$TEST_TMP_DIR/home" "$TEST_REPO_ROOT" \
+    "$TEST_REPO_ROOT/.zsh.addons/.zsh.git-review") || return
+  [[ $output == 'scanned '<6->' hooks and '<20->' functions' ]] || {
+    test_fail "feature hooks must read session state through prefixed names or arguments, never through a generic caller local that a shared engine frame may also declare:"$'\n'"$output"
+    return 1
+  }
+}
+test_case 'feature hooks read no unprefixed caller locals' \
+  _test_feature_hooks_read_no_generic_caller_names
+
+_test_feature_hook_scope_scan_reports_violations() {
+  test_make_temp_dir || return
+  local peer="$TEST_TMP_DIR/.zsh.fixture" output='' expected=''
+  test_write_file "$peer" '_fixture_view() {
+  local context=3 _fixture_root=/repo
+  _ZLE_PICKER_IDLE_CALLBACK=_fixture_idle
+  _ZLE_PICKER_SUBTITLE_RENDERER=_fixture_subtitle
+  _fixture_compare_collector=_fixture_collect
+  _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
+}
+_fixture_idle() {
+  local -i first=1
+  local -A facts=()
+  _fixture_helper
+  (( focus )) && first=2
+  (( facts[mode] )) && first=3
+  REPLY="$_fixture_root $first"
+}
+_fixture_helper() { print -r -- "${root:t} $context"; bookmark[2]=1; }
+_fixture_subtitle() {
+  local kind=$1 mode=""
+  for clipboard_binary in a; do :; done
+  REPLY="$kind $mode ${(V)_fixture_root} not context or root"
+}
+_fixture_collect() { local -a bookmark=(); bookmark=(a); }' || return
+  output=$(_test_feature_hook_scope_report "$TEST_TMP_DIR/home" "$TEST_REPO_ROOT" "$peer") || return
+  for expected in \
+    '_fixture_helper reads root' \
+    '_fixture_helper reads context' \
+    '_fixture_helper assigns bookmark' \
+    '_fixture_idle uses focus in arithmetic' \
+    '_fixture_subtitle loops with clipboard_binary' \
+    'scanned 3 hooks and 4 functions'; do
+    test_assert_contains "$output" "$expected" "hook scope scan missed: $expected" || return
+  done
+  [[ $output != *(_fixture_view|_fixture_collect|'_fixture_subtitle reads'|'_fixture_idle reads'|'uses mode')* ]] ||
+    test_fail "hook scope scan reported a declared or prefixed name:"$'\n'"$output"
+}
+test_case 'feature hook scope scan reports generic caller names through calls' \
+  _test_feature_hook_scope_scan_reports_violations

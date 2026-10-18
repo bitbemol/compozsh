@@ -49,7 +49,7 @@ _test_git_review_native() {
             print -r -u $efd BAD-NEW-PREVIEW
         fi
         local -i source_row=${_ZLE_PICKER_INSPECT_SOURCE_LINES[_ZLE_PICKER_INSPECT_OFFSET+1]:-0}
-        print -r -u $efd -- "DOC|$_ZLE_PICKER_DOCUMENT_KEY|$_ZLE_PICKER_INSPECT_OFFSET|$_ZLE_PICKER_INSPECT_WIDTH|$context|${_GIT_REVIEW_DOCUMENT_NEW[source_row]:-0}"
+        print -r -u $efd -- "DOC|$_ZLE_PICKER_DOCUMENT_KEY|$_ZLE_PICKER_INSPECT_OFFSET|$_ZLE_PICKER_INSPECT_WIDTH|$_git_review_context|${_GIT_REVIEW_DOCUMENT_NEW[source_row]:-0}"
       fi
       if [[ $_ZLE_PICKER_TITLE == Branches && $scenario != fallback ]]; then
         [[ ${_ZLE_PICKER_DISPLAY[-1]} == *"^X review"* ]] || print -r -u $efd BAD-REVIEW-HINT

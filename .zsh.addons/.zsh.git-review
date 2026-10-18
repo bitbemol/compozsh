@@ -768,7 +768,7 @@ _git_review_syntax_idle() {
   # reader; preview settlement will install the final exact document first.
   (( _ZLE_PICKER_SELECTED > 0 )) &&
     [[ ${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} == "$_ZLE_PICKER_DOCUMENT_KEY" ]] || return 2
-  _git_review_document_cache_key "$_ZLE_PICKER_DOCUMENT_KEY" "$context"
+  _git_review_document_cache_key "$_ZLE_PICKER_DOCUMENT_KEY" "$_git_review_context"
   cache_key=$REPLY
   covered_first=${_git_document_syntax_first[$cache_key]:-0}
   covered_last=${_git_document_syntax_last[$cache_key]:-0}
@@ -1179,12 +1179,12 @@ _git_review_file_subtitle() {
   local location='' source=''
   local value=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-}
   if [[ -n ${_ZLE_PICKER_DOCUMENT_BRANCHES[$value]-} ]]; then
-    local _ZLE_PICKER_SUBTITLE="${root:t} · captured folder · read-only"
-    [[ $kind == comparison ]] && _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${root:t} · captured folder"
+    local _ZLE_PICKER_SUBTITLE="${_git_review_root:t} · captured folder · read-only"
+    [[ $_git_review_kind == comparison ]] && _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${_git_review_root:t} · captured folder"
   fi
   _zle_picker_abbreviate "$_git_file_location" $location_width
   location=$REPLY
-  if [[ $kind == comparison ]]; then
+  if [[ $_git_review_kind == comparison ]]; then
     _git_review_comparison_subtitle $(( width - location_width - 3 ))
     source=$REPLY
   else
@@ -1532,7 +1532,7 @@ _git_review_file_options() {
       bookmark[2]=1 bookmark[3]=0 focus=0
       _git_review_file_reselect "$_ZLE_PICKER_DOCUMENT_KEY" ;;
     atlas)
-      _git_review_atlas "$root" "$oid" "$parent"
+      _git_review_atlas "$_git_review_root" "$oid" "$parent"
       outcome=$?
       (( outcome > 1 )) && return $outcome ;;
   esac
@@ -1623,11 +1623,12 @@ _git_review_tree_rows() {
 
 # Explicit captures share the existing busy painter. Review supplies its own
 # status words so no search-only instructions leak into a Git screen.
+# Usage: _git_review_load <capture-function> <root> [<argument>...]
 _git_review_load() {
   local _ZLE_PICKER_BUSY_LABEL='Reading Git…'
   local -a _ZLE_PICKER_BUSY_LINES=('Reading a local Git snapshot' 'Read-only · no fetch, staging or checkout'
     'Large repositories or mounted drives can delay synchronous reads.')
-  _zle_picker_capture 'Git review' "${root:t} · read-only" '' "$@"
+  _zle_picker_capture 'Git review' "${2:t} · read-only" '' "$@"
 }
 
 # Only capture facts inside the busy painter: it temporarily shadows UI state.
@@ -2121,7 +2122,7 @@ _git_review_auto_launch() {
   fi
   (( ++_git_auto_generation ))
   _git_auto_request_name=$name _git_auto_request_kind=$kind
-  _git_auto_request_context=$context
+  _git_auto_request_context=$_git_review_context
   _git_auto_session_buffer=''
   _git_auto_started_at=$EPOCHREALTIME
   _git_auto_deadline_at=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_TIMEOUT ))
@@ -2129,7 +2130,7 @@ _git_review_auto_launch() {
   (
     zmodload zsh/system || exit 2
     sysopen -w -o nonblock,cloexec,nofollow -u 1 "$_git_auto_session_fifo" || exit 2
-    _git_review_auto_worker "$root" $_git_auto_generation "$name" "$kind" "$context" "$_git_auto_session_dir"
+    _git_review_auto_worker "$_git_review_root" $_git_auto_generation "$name" "$kind" "$_git_review_context" "$_git_auto_session_dir"
   ) < /dev/null 2>/dev/null &
   _git_auto_session_pid=$!
   (( _git_auto_session_pid > 0 ))
@@ -2208,7 +2209,7 @@ _git_review_auto_candidate_changed() {
     local current=${_ZLE_PICKER_RESULTS[_ZLE_PICKER_SELECTED]-} cache_key=''
     [[ $current == d:* ]] && current=$_ZLE_PICKER_DOCUMENT_KEY
     [[ $current == <-> ]] || return 0
-    _git_review_document_cache_key "$current" "$context"
+    _git_review_document_cache_key "$current" "$_git_review_context"
     cache_key=$REPLY
     [[ ${_git_document_cache[$cache_key]-} == "$_git_auto_candidate_diff_data" &&
        ${_git_document_partial[$cache_key]:-0} == $_git_auto_candidate_diff_truncated ]] || return 0
@@ -2251,7 +2252,7 @@ _git_review_auto_forget_other_documents() {
   # bookmarks still follow the existing active-reader invalidation rule below.
   _zle_picker_document_position keys
   retained=("${(@M)reply:#d:*}")
-  [[ $current == <-> ]] && { _git_review_document_cache_key "$current" "$context"; keep=$REPLY; }
+  [[ $current == <-> ]] && { _git_review_document_cache_key "$current" "$_git_review_context"; keep=$REPLY; }
   if [[ $current == <-> ]]; then
     saved_context=${_git_document_contexts[$current]-}
     saved_anchor=${_git_document_anchors[$current]-}
@@ -2370,7 +2371,7 @@ _git_review_auto_idle() {
     return 2
   fi
   if (( _ZLE_PICKER_DOCUMENT_UPDATE_PENDING )); then
-    if [[ $context != "$_git_auto_candidate_request_context" ]]; then
+    if [[ $_git_review_context != "$_git_auto_candidate_request_context" ]]; then
       # A pending diff is bound to the disclosure mode captured by its worker.
       # Keep the old observation and obtain the new context on the next normal
       # check instead of caching full bytes under a focused key (or vice versa).
@@ -2424,7 +2425,7 @@ _git_review_auto_idle() {
     fi
     if [[ $current_name != "$_git_auto_candidate_request_name" ||
           $current_kind != "$_git_auto_candidate_request_kind" ||
-          $context != "$_git_auto_candidate_request_context" ]]; then
+          $_git_review_context != "$_git_auto_candidate_request_context" ]]; then
       # Selection or disclosure won while Git was working. Its result is a
       # valid local check but cannot replace another document; request the new
       # exact target on the already scheduled check without bypassing the
@@ -2525,7 +2526,7 @@ _git_review_auto_publish() {
   local diff_data=$_git_auto_candidate_diff_data
   local -i diff_truncated=$_git_auto_candidate_diff_truncated match=0
 
-  if [[ $context != "$_git_auto_candidate_request_context" ]]; then
+  if [[ $_git_review_context != "$_git_auto_candidate_request_context" ]]; then
     _git_review_auto_safety_adopt || true
     _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
     _git_review_auto_candidate_clear
@@ -2562,13 +2563,13 @@ _git_review_auto_publish() {
   _git_review_rebind_selection auto "$name" "$change_kind" "$selected_row" "$anchor"
   match=$REPLY
   if (( match )); then
-    _git_review_document_cache_key "$match" "$context"
+    _git_review_document_cache_key "$match" "$_git_review_context"
     cache_key=$REPLY
     _git_document_cache[$cache_key]=$diff_data
     _git_document_partial[$cache_key]=$diff_truncated
     _git_document_order=("$cache_key")
     _git_review_refresh_status=''
-    _git_review_document_load "$root" "$match" '' '' "$context" || return $?
+    _git_review_document_load "$root" "$match" '' '' "$_git_review_context" || return $?
     _git_review_event_status='updated automatically'
   elif [[ -n $name ]]; then
     _git_review_event_status='updated automatically · previous selection no longer in results'
@@ -2587,7 +2588,8 @@ _git_review_auto_publish() {
 # change kind (numeric IDs are valid only within one observation), re-rank it
 # under the unchanged filter and reconcile the file projection. Calculation over
 # captured facts only: no provider read and no paint. bookmark, focus and
-# context belong to the calling view. A surviving item keeps its visible slot.
+# _git_review_context belong to the calling view. A surviving item keeps its
+# visible slot.
 # When it left the results, policy `manual` (Ctrl-R) falls back to the first
 # match and `auto` reads nothing. REPLY is the row to read, or 0 for none;
 # status 1 means the selection left the results.
@@ -2616,7 +2618,7 @@ _git_review_rebind_selection() {
     _git_document_anchors[$match]=$anchor
     REPLY=$match
   else
-    bookmark[2]=1 bookmark[3]=0 focus=0 context=3
+    bookmark[2]=1 bookmark[3]=0 focus=0 _git_review_context=3
     if [[ $policy == manual ]]; then
       match=${_ZLE_PICKER_RESULTS[1]:-0}
       REPLY=$match
@@ -2642,7 +2644,8 @@ _git_review_rebind_selection() {
 # Explicit whole-workspace refresh, owned by _git_review_view. Keep the old
 # observation on a failed list read. Numeric IDs can change, so successful
 # refresh retires every raw/token cache and rebinds only the active source anchor
-# by literal path AND change kind. bookmark/focus/context belong to the caller.
+# by literal path AND change kind. bookmark, focus and _git_review_context
+# belong to the caller.
 _git_review_refresh() {
   emulate -L zsh
   local root=$1 view_kind=$2 oid=$3 parent=$4 selected=$5
@@ -2691,7 +2694,7 @@ _git_review_refresh() {
   match=$REPLY
   _git_review_refresh_status=''
   if (( match )); then
-    _git_review_document_load "$root" "$match" "$oid" "$parent" "$context" || return $?
+    _git_review_document_load "$root" "$match" "$oid" "$parent" "$_git_review_context" || return $?
   fi
   _git_review_refresh_succeeded=1
   return 0
@@ -2876,21 +2879,24 @@ _git_review_document_view() {
   unsetopt MONITOR NOTIFY
   setopt EXTENDED_GLOB
   zmodload zsh/datetime || return 2
-  local root=$1 kind=$2 target=${3:-} oid=${4:-} parent=${5:-}
+  # Its idle, deadline, renderer and collector hooks run beneath engine frames
+  # that declare generic names such as kind and context, so the session names
+  # they read carry this peer's prefix.
+  local _git_review_root=$1 _git_review_kind=$2 target=${3:-} oid=${4:-} parent=${5:-}
   local _git_file_view=flat _git_file_location='' _git_tree_scope='' _git_tree_filter='' _git_tree_exclude='' _git_tree_filter_scope=''
   local selected_value=''
   local -a _git_tree_bookmark=() _git_flat_bookmark=()
   local _git_tree_selected='' _git_flat_selected='' _git_tree_document='' _git_flat_document=''
   local -A _git_tree_expanded=() _git_tree_filter_expanded=() _git_tree_depths=()
   local -a _git_tree_scopes=() _git_tree_returns=() _git_tree_filter_scopes=() _git_tree_filter_returns=()
-  _ZLE_PICKER_SUBTITLE="${root:t} · read-only"
+  _ZLE_PICKER_SUBTITLE="${_git_review_root:t} · read-only"
   _ZLE_PICKER_INSPECT_ACTION=diff _ZLE_PICKER_CANCEL_LABEL=back
   _ZLE_PICKER_QUERY_LABEL='Filter files' _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
   _ZLE_PICKER_BROWSE_LABEL='' _ZLE_PICKER_EMPTY_LABEL='no matching entries'
   _ZLE_PICKER_IDLE_CALLBACK=_git_review_idle
   # List selection may outrun preview capture: settle for four input-idle ticks.
   _ZLE_PICKER_DOCUMENT_SETTLE_TICKS=4
-  local -i result=0 index=0 focus=0 _git_review_reads_blocked=0 context=3
+  local -i result=0 index=0 focus=0 _git_review_reads_blocked=0 _git_review_context=3
   local -i _git_review_refresh_succeeded=0
   local _GIT_REVIEW_DOCUMENT_SUMMARY=''
   local _git_review_refresh_status='' _git_review_event_status=''
@@ -2939,40 +2945,40 @@ _git_review_document_view() {
   local -a _ZLE_UI_CHOICE_VALUES=() _ZLE_UI_CHOICE_LABELS=()
   local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
   local -a bookmark=('' 1 0) view_bookmark=()
-  case $kind in
+  case $_git_review_kind in
     (atlas-file)
       [[ $target == <-> ]] && (( target >= 1 && target <= ${#_atlas_paths} )) || return 2
       _GIT_REVIEW_PATHS=("$_atlas_paths[target]") _GIT_REVIEW_KINDS=("$_atlas_kinds[target]")
       _GIT_REVIEW_LABELS=("$_atlas_source_labels[target]") _GIT_REVIEW_CONTEXTS=("$_atlas_contexts[target]")
       _GIT_REVIEW_DETAILS=("$_atlas_source_details[target]")
       _ZLE_PICKER_TITLE='Atlas / Read change'
-      _ZLE_PICKER_SUBTITLE=${_atlas_scope:-${root:t}}
+      _ZLE_PICKER_SUBTITLE=${_atlas_scope:-${_git_review_root:t}}
       _ZLE_PICKER_GUIDE_CONTEXT=("${_atlas_guide[@]}")
       _GIT_REVIEW_SUMMARY='One captured change · Escape returns to the atlas'
       _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff ;;
     (working)
-      _git_review_load _git_review_changes_capture "$root"; result=$?
+      _git_review_load _git_review_changes_capture "$_git_review_root"; result=$?
       _ZLE_PICKER_TITLE='Working changes'
-      _ZLE_PICKER_SUBTITLE="${root:t} · current working tree · read-only"
+      _ZLE_PICKER_SUBTITLE="${_git_review_root:t} · current working tree · read-only"
       [[ $ZSH_GIT_REVIEW_AUTO_REFRESH == 0 ]] && _ZLE_PICKER_AUTO_REFRESH=0 || _ZLE_PICKER_AUTO_REFRESH=1
       _ZLE_PICKER_DEADLINE_CALLBACK=_git_review_auto_deadline
       _git_auto_checked_at=$EPOCHSECONDS
       (( result == 0 )) && _git_auto_updated_at=$EPOCHSECONDS
       _git_auto_next_at=$(( EPOCHREALTIME + _GIT_REVIEW_AUTO_REFRESH_INTERVAL )) ;;
     (commits)
-      _git_review_load _git_review_commits_capture "$root" "$oid"; result=$?
+      _git_review_load _git_review_commits_capture "$_git_review_root" "$oid"; result=$?
       _ZLE_PICKER_TITLE='Branch commits' _ZLE_PICKER_QUERY_LABEL='Filter commits'
-      _ZLE_PICKER_SUBTITLE="${root:t} · $target · captured tip ${oid[1,12]}"
+      _ZLE_PICKER_SUBTITLE="${_git_review_root:t} · $target · captured tip ${oid[1,12]}"
       _ZLE_PICKER_INSPECT_ACTION=files ;;
     (files)
-      _git_review_load _git_review_commit_files_capture "$root" "$oid" "$parent"; result=$?
+      _git_review_load _git_review_commit_files_capture "$_git_review_root" "$oid" "$parent"; result=$?
       _ZLE_PICKER_TITLE='Commit files' ;;
     (comparison)
-      _git_review_load _git_review_comparison_files_capture "$root" "$oid" "$parent"; result=$?
+      _git_review_load _git_review_comparison_files_capture "$_git_review_root" "$oid" "$parent"; result=$?
       _ZLE_PICKER_TITLE='Git comparison'
-      _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${root:t}"
+      _ZLE_PICKER_SUBTITLE="$_git_compare_context · ${_git_review_root:t}"
       _ZLE_PICKER_SUBTITLE_RENDERER=_git_review_comparison_subtitle
-      _ZLE_PICKER_GUIDE_CONTEXT=("$_git_compare_method_label · ${root:t} · committed content"
+      _ZLE_PICKER_GUIDE_CONTEXT=("$_git_compare_method_label · ${_git_review_root:t} · committed content"
         "Against (From): $_git_compare_from_label" "$_git_compare_from"
         "Compare (To): $_git_compare_to_label" "$_git_compare_to"
         'Actual old endpoint:' "$parent" 'Actual new endpoint:' "$oid"
@@ -2980,7 +2986,7 @@ _git_review_document_view() {
         'Choose a ref again in setup, or rerun g --review, to acquire a newer tip.') ;;
     (*) return 2 ;;
   esac
-  if [[ $kind == (working|files|comparison) ]]; then
+  if [[ $_git_review_kind == (working|files|comparison) ]]; then
     _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_DOCUMENT_REFRESH=1
     _ZLE_PICKER_INSPECT_ACTION=read _ZLE_PICKER_INSPECT_TITLE=Diff
     _ZLE_PICKER_OPTIONS_KIND=file-views _ZLE_PICKER_OPTIONS_LABEL=views
@@ -3022,16 +3028,16 @@ _git_review_document_view() {
   if (( _ZLE_PICKER_DOCUMENT && ${+functions[_git_syntax_session_start]} )); then
     _git_syntax_session_start || true
   fi
-  if [[ $kind == atlas-file ]]; then
-    _git_review_document_load "$root" 1 "$oid" "$parent" "$context" || return $?
+  if [[ $_git_review_kind == atlas-file ]]; then
+    _git_review_document_load "$_git_review_root" 1 "$oid" "$parent" "$_git_review_context" || return $?
     focus=1
   elif [[ ${6:-} == atlas ]]; then
-    _git_review_atlas "$root" "$oid" "$parent"
+    _git_review_atlas "$_git_review_root" "$oid" "$parent"
     return $?
   elif [[ $_ZLE_PICKER_OPTIONS_KIND == file-views ]] && (( ${#_GIT_REVIEW_PATHS} )); then
     _git_review_file_reselect 1
     if [[ ${_ZLE_PICKER_RESULTS[(Ie)1]} == 0 ]]; then
-      _git_review_document_load "$root" 1 "$oid" "$parent" "$context" || return $?
+      _git_review_document_load "$_git_review_root" 1 "$oid" "$parent" "$_git_review_context" || return $?
     fi
   fi
   while true; do
@@ -3083,7 +3089,7 @@ _git_review_document_view() {
         continue
       fi
       if [[ $_ZLE_PICKER_ACTION == (document-auto-refresh|document-auto-apply) ]]; then
-        _git_review_auto_publish "$root" "$selected_value" || return $?
+        _git_review_auto_publish "$_git_review_root" "$selected_value" || return $?
         continue
       fi
       if [[ $_ZLE_PICKER_ACTION == document-refresh ]]; then
@@ -3092,7 +3098,7 @@ _git_review_document_view() {
         _git_review_auto_worker_stop
         _git_review_auto_candidate_clear
         _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
-        _git_review_refresh "$root" "$kind" "$oid" "$parent" "$index" "$selected_value" || return $?
+        _git_review_refresh "$_git_review_root" "$_git_review_kind" "$oid" "$parent" "$index" "$selected_value" || return $?
         _git_review_manual_refresh_auto_state $_git_review_refresh_succeeded \
           $resume_after_failure $auto_was_enabled
         _git_review_status_apply >/dev/null
@@ -3102,21 +3108,21 @@ _git_review_document_view() {
         case $_ZLE_PICKER_ACTION in
           (document-full|document-focused)
             case $_ZLE_PICKER_ACTION in
-              (document-full) context=1000000000 ;;
-              (document-focused) context=3 ;;
+              (document-full) _git_review_context=1000000000 ;;
+              (document-focused) _git_review_context=3 ;;
             esac
-            _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" || return $? ;;
+            _git_review_document_load "$_git_review_root" "$index" "$oid" "$parent" "$_git_review_context" || return $? ;;
           (*)
             [[ $_ZLE_PICKER_ACTION == select ]] && focus=1
             if [[ $index != "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
-              _git_review_document_load "$root" "$index" "$oid" "$parent" "$context" || return $?
+              _git_review_document_load "$_git_review_root" "$index" "$oid" "$parent" "$_git_review_context" || return $?
             fi ;;
         esac
       fi
       continue
     fi
-    case $kind in
-      (commits) _git_review_view "$root" files '' "${_GIT_REVIEW_PATHS[index]}" "${_GIT_REVIEW_PARENTS[index]}" ;;
+    case $_git_review_kind in
+      (commits) _git_review_view "$_git_review_root" files '' "${_GIT_REVIEW_PATHS[index]}" "${_GIT_REVIEW_PARENTS[index]}" ;;
     esac
     result=$?
     (( result > 1 )) && return $result

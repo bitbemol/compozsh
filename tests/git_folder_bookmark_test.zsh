@@ -2,7 +2,7 @@ _test_git_folder_bookmark_refresh() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zshrc"
-    local context=3
+    local _git_review_context=3
     local literal_folder="d:odd[*/"
     local -a _GIT_REVIEW_PATHS=(src/a other/b "odd[*/c") _GIT_REVIEW_KINDS=(unstaged unstaged unstaged)
     local -A _git_document_cache=() _git_document_partial=() _git_document_syntax_cache=()

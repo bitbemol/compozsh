@@ -31,7 +31,7 @@ _test_git_folder_summary() {
     (( ${+functions[_git_review_file_browse]} )) || exit 4
     _git_review_file_browse 120
     [[ $REPLY == *"auto on"* && $REPLY == *"Folder summary"* && $REPLY != *stale* ]] || exit 5
-    local kind=working root=repo
+    local _git_review_kind=working _git_review_root=repo
     _ZLE_PICKER_SUBTITLE="stale focused diff · file syntax"
     _git_review_file_subtitle 120
     [[ $REPLY == *"captured folder"* && $REPLY != *stale* && $REPLY != *syntax* ]] || exit 13

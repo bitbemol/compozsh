@@ -213,7 +213,7 @@ _test_git_refresh_list_rebind() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zshrc"
-    local mode="" scenario="" loaded="" loaded_data="" context=3 _ZLE_PICKER_OPTIONS_KIND=""
+    local mode="" scenario="" loaded="" loaded_data="" _git_review_context=3 _ZLE_PICKER_OPTIONS_KIND=""
     local -i focus=1 _ZLE_PICKER_DOCUMENT=1
     local _ZLE_PICKER_DOCUMENT_KEY=5 _git_review_event_status=""
     local -A _ZLE_PICKER_DOCUMENT_ROWS=(5 77)
@@ -260,7 +260,7 @@ _test_git_refresh_list_rebind() {
         _git_auto_candidate_details=("${_git_auto_candidate_paths[@]}")
         _git_auto_candidate_contexts=("${_git_auto_candidate_kinds[@]}")
         _git_auto_candidate_parents=("${_git_auto_candidate_paths[@]/*/}")
-        _ZLE_PICKER_DOCUMENT_KEY=5 focus=1 context=3 loaded="" loaded_data="" _git_review_event_status=""
+        _ZLE_PICKER_DOCUMENT_KEY=5 focus=1 _git_review_context=3 loaded="" loaded_data="" _git_review_event_status=""
         _git_document_anchors=() _ZLE_PICKER_DOCUMENT_ROWS=(5 77)
         bookmark=("" 5 2)
         _git_review_rows
@@ -275,8 +275,8 @@ _test_git_refresh_list_rebind() {
           (vanished/auto) expected=("" 1 0 0 3 "" "" "updated automatically · previous selection no longer in results") ;;
           (vanished/manual) expected=("" 1 0 0 3 n/untracked "" "refreshed · previous selection no longer in results") ;;
         esac
-        [[ "${(j:|:)bookmark[1,3]}|$focus|$context|$loaded|$loaded_data|$_git_review_event_status" == "${(j:|:)expected}" ]] || {
-          print -u2 -r -- "$scenario $mode: ${(j:|:)bookmark[1,3]}|$focus|$context|$loaded|$loaded_data|$_git_review_event_status"
+        [[ "${(j:|:)bookmark[1,3]}|$focus|$_git_review_context|$loaded|$loaded_data|$_git_review_event_status" == "${(j:|:)expected}" ]] || {
+          print -u2 -r -- "$scenario $mode: ${(j:|:)bookmark[1,3]}|$focus|$_git_review_context|$loaded|$loaded_data|$_git_review_event_status"
           exit 2
         }
         if [[ $scenario == inserted ]]; then

@@ -3,7 +3,7 @@ _test_git_tree_refresh_projection() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zshrc"
     local mode="" view="" selection="" selected_row="" expected_row=""
-    local context=3 focus=1 _git_file_view=tree _git_tree_scope="" _git_tree_filter="" _git_tree_exclude="" _git_tree_filter_scope=""
+    local _git_review_context=3 focus=1 _git_file_view=tree _git_tree_scope="" _git_tree_filter="" _git_tree_exclude="" _git_tree_filter_scope=""
     local _ZLE_PICKER_OPTIONS_KIND=file-views _ZLE_PICKER_DOCUMENT_KEY=3
     local -A _git_tree_expanded=() _git_tree_filter_expanded=() _git_tree_depths=()
     local -A _git_document_contexts=() _git_document_anchors=() _git_document_cache=() _git_document_partial=()
@@ -32,7 +32,7 @@ _test_git_tree_refresh_projection() {
       for view in tree flat; do
         for selection in file folder; do
           [[ $view == flat && $selection == folder ]] && continue
-          _git_file_view=$view _ZLE_PICKER_DOCUMENT_KEY=3 focus=1 context=3
+          _git_file_view=$view _ZLE_PICKER_DOCUMENT_KEY=3 focus=1 _git_review_context=3
           _GIT_REVIEW_PATHS=(a/x b/y c/z)
           _GIT_REVIEW_LABELS=("${_GIT_REVIEW_PATHS[@]}")
           _GIT_REVIEW_KINDS=(unstaged unstaged unstaged) _GIT_REVIEW_CONTEXTS=(M M M)
@@ -59,7 +59,7 @@ _test_git_tree_refresh_projection() {
             print -u2 -r -- "$mode $view $selection lost projected row or slot: $bookmark; $_ZLE_PICKER_RESULTS"; exit 2
           }
           [[ $_ZLE_PICKER_DOCUMENT_KEY == 4 && $_GIT_REVIEW_PATHS[4] == c/z &&
-             ${_git_document_anchors[4]} == new:77 && $focus == 1 && $context == 3 &&
+             ${_git_document_anchors[4]} == new:77 && $focus == 1 && $_git_review_context == 3 &&
              $bookmark[4] == excluded && $bookmark[6] == 1 ]] || {
             print -u2 "$mode $view $selection lost reader identity anchor focus or filter"; exit 3
           }
@@ -69,7 +69,7 @@ _test_git_tree_refresh_projection() {
     _git_auto_candidate_paths=() _git_auto_candidate_labels=()
     _git_auto_candidate_kinds=() _git_auto_candidate_contexts=()
     for mode in auto manual; do
-      _git_file_view=tree _ZLE_PICKER_DOCUMENT_KEY=3 focus=1 context=3 load_failure=0
+      _git_file_view=tree _ZLE_PICKER_DOCUMENT_KEY=3 focus=1 _git_review_context=3 load_failure=0
       _GIT_REVIEW_PATHS=(a/x b/y c/z) _GIT_REVIEW_LABELS=(a/x b/y c/z)
       _GIT_REVIEW_KINDS=(unstaged unstaged unstaged) _GIT_REVIEW_CONTEXTS=(M M M)
       bookmark=("" 6 4)

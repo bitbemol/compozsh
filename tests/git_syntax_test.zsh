@@ -203,7 +203,7 @@ _test_git_syntax_viewport_schedule() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=101 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=110
     local -i _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=sample.swift
@@ -286,7 +286,7 @@ _test_git_syntax_read_ahead_failure_keeps_frame() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=31 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=38
     local -i _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_DOCUMENT_PENDING=0
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=sample.swift
@@ -349,7 +349,7 @@ _test_git_syntax_short_document_viewport_schedule() {
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.git-review"
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _ZLE_PICKER_SCREEN_ACTIVE=1
     local -i _GIT_REVIEW_DOCUMENT_HAS_CODE=1 _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=short.swift
     local -a _ZLE_PICKER_DOCUMENT_LINES=(
@@ -414,7 +414,7 @@ _test_git_syntax_latest_viewport_wins() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=one.swift
@@ -488,7 +488,7 @@ _test_git_syntax_transient_failure_retries() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=one.swift
@@ -589,7 +589,7 @@ _test_git_syntax_transient_failure_is_viewport_scoped() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=one.swift
@@ -680,7 +680,7 @@ _test_git_syntax_success_replaces_plain_status() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1 _ZLE_PICKER_DOCUMENT_PENDING=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=one.swift
@@ -730,7 +730,7 @@ _test_git_syntax_snapshot_epoch() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=1
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=one.swift
@@ -814,7 +814,7 @@ _test_git_syntax_selected_document_alignment() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.git-review"
     for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_DOCUMENT_VISIBLE_FIRST=1 _ZLE_PICKER_DOCUMENT_VISIBLE_LAST=8
     local -i _ZLE_PICKER_SELECTED=2
     local _ZLE_PICKER_DOCUMENT_KEY=1 _ZLE_PICKER_DOCUMENT_TITLE=one.swift
@@ -1130,7 +1130,7 @@ _test_git_syntax_atomic_window() {
     source "$1/.zsh.addons/.zsh.git-syntax"
     _GIT_REVIEW_DATA=$'\''@@ -1 +1 @@\n-let old = 1\n+let new = 2\n'\''
     _git_review_document_parse
-    local -i context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
+    local -i _git_review_context=3 _ZLE_PICKER_DOCUMENT=1 _GIT_REVIEW_DOCUMENT_HAS_CODE=1
     local -i _ZLE_PICKER_SELECTED=1
     local _git_syntax_session_dir="" _git_syntax_session_request_fifo=""
     local _git_syntax_session_response_fifo="" _git_syntax_session_buffer=""
