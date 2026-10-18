@@ -938,33 +938,24 @@ _xcode_destinations_capture() {
 
 # Destination compatibility is expensive Xcode-owned discovery. Keep at most
 # four successful parsed snapshots inside one workspace controller so returning
-# to a scheme does not start xcodebuild again. These dynamically scoped arrays
-# disappear when that screen session ends; reopening xcode is always fresh.
+# to a scheme does not start xcodebuild again. The controller declares
+# _XCODE_DESTINATION_CACHE, one record per scheme, and
+# _XCODE_DESTINATION_CACHE_ORDER, its schemes from least to most recently used;
+# both disappear when that screen session ends, so reopening xcode is always
+# fresh. A record holds one line per destination with its identifier, platform,
+# name and exact specification separated by tabs; validation keeps tabs and
+# newlines out of every field.
+_xcode_destination_cache_ready() {
+  (( ${+parameters[_XCODE_DESTINATION_CACHE]} &&
+     ${+parameters[_XCODE_DESTINATION_CACHE_ORDER]} ))
+}
+
 _xcode_destination_cache_touch() {
   emulate -L zsh
-  local slot=$1 saved_scheme='' saved_ids='' saved_platforms='' saved_names='' saved_specs=''
-  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_SPECS]} )) || return 2
-  [[ $slot == <-> ]] && (( slot >= 1 && slot <= ${#_XCODE_DESTINATION_CACHE_SCHEMES} )) ||
-    return 2
-  saved_scheme=${_XCODE_DESTINATION_CACHE_SCHEMES[slot]}
-  saved_ids=${_XCODE_DESTINATION_CACHE_IDS[slot]}
-  saved_platforms=${_XCODE_DESTINATION_CACHE_PLATFORMS[slot]}
-  saved_names=${_XCODE_DESTINATION_CACHE_NAMES[slot]}
-  saved_specs=${_XCODE_DESTINATION_CACHE_SPECS[slot]}
-  _XCODE_DESTINATION_CACHE_SCHEMES[slot]=()
-  _XCODE_DESTINATION_CACHE_IDS[slot]=()
-  _XCODE_DESTINATION_CACHE_PLATFORMS[slot]=()
-  _XCODE_DESTINATION_CACHE_NAMES[slot]=()
-  _XCODE_DESTINATION_CACHE_SPECS[slot]=()
-  _XCODE_DESTINATION_CACHE_SCHEMES+=("$saved_scheme")
-  _XCODE_DESTINATION_CACHE_IDS+=("$saved_ids")
-  _XCODE_DESTINATION_CACHE_PLATFORMS+=("$saved_platforms")
-  _XCODE_DESTINATION_CACHE_NAMES+=("$saved_names")
-  _XCODE_DESTINATION_CACHE_SPECS+=("$saved_specs")
+  local scheme=$1
+  local -i slot=${_XCODE_DESTINATION_CACHE_ORDER[(Ie)$scheme]}
+  (( slot )) && _XCODE_DESTINATION_CACHE_ORDER[slot]=()
+  _XCODE_DESTINATION_CACHE_ORDER+=("$scheme")
 }
 
 _xcode_destination_cache_forget() {
@@ -974,31 +965,20 @@ _xcode_destination_cache_forget() {
   if (( ${+parameters[_XCODE_DESTINATION_SELECTIONS]} )); then
     unset "_XCODE_DESTINATION_SELECTIONS[$scheme]"
   fi
-  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_SPECS]} )) || return 2
-  slot=${_XCODE_DESTINATION_CACHE_SCHEMES[(Ie)$scheme]}
+  _xcode_destination_cache_ready || return 2
+  unset "_XCODE_DESTINATION_CACHE[$scheme]"
+  slot=${_XCODE_DESTINATION_CACHE_ORDER[(Ie)$scheme]}
   (( slot )) || return 0
-  _XCODE_DESTINATION_CACHE_SCHEMES[slot]=()
-  _XCODE_DESTINATION_CACHE_IDS[slot]=()
-  _XCODE_DESTINATION_CACHE_PLATFORMS[slot]=()
-  _XCODE_DESTINATION_CACHE_NAMES[slot]=()
-  _XCODE_DESTINATION_CACHE_SPECS[slot]=()
+  _XCODE_DESTINATION_CACHE_ORDER[slot]=()
 }
 
 _xcode_destination_cache_store() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local scheme=$1 name='' platform='' identifier=''
-  local -i count=${#_XCODE_DESTINATION_IDS} index=0 slot=0
-  local -a specs=()
-  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_SPECS]} )) || return 2
+  local -i count=${#_XCODE_DESTINATION_IDS} index=0
+  local -a specs=() lines=()
+  _xcode_destination_cache_ready || return 2
   [[ -n $scheme && $scheme != *[[:cntrl:]]* ]] || return 1
   (( count >= 1 && count <= 100 &&
      ${#_XCODE_DESTINATION_PLATFORMS} == count &&
@@ -1014,72 +994,41 @@ _xcode_destination_cache_store() {
     (( !${#_XCODE_DESTINATION_SPECS} )) || [[ -n ${_XCODE_DESTINATION_SPECS[index]} ]] || return 1
     _xcode_destination_spec "$platform" "$identifier" "${_XCODE_DESTINATION_SPECS[index]-}" || return 1
     specs+=("$REPLY")
+    lines+=("$identifier"$'\t'"$platform"$'\t'"$name"$'\t'"$REPLY")
   done
   _XCODE_DESTINATION_SPECS=("${specs[@]}")
-  slot=${_XCODE_DESTINATION_CACHE_SCHEMES[(Ie)$scheme]}
-  if (( slot )); then
-    _XCODE_DESTINATION_CACHE_IDS[slot]=${(F)_XCODE_DESTINATION_IDS}
-    _XCODE_DESTINATION_CACHE_PLATFORMS[slot]=${(F)_XCODE_DESTINATION_PLATFORMS}
-    _XCODE_DESTINATION_CACHE_NAMES[slot]=${(F)_XCODE_DESTINATION_NAMES}
-    _XCODE_DESTINATION_CACHE_SPECS[slot]=${(F)specs}
-  else
-    _XCODE_DESTINATION_CACHE_SCHEMES+=("$scheme")
-    _XCODE_DESTINATION_CACHE_IDS+=("${(F)_XCODE_DESTINATION_IDS}")
-    _XCODE_DESTINATION_CACHE_PLATFORMS+=("${(F)_XCODE_DESTINATION_PLATFORMS}")
-    _XCODE_DESTINATION_CACHE_NAMES+=("${(F)_XCODE_DESTINATION_NAMES}")
-    _XCODE_DESTINATION_CACHE_SPECS+=("${(F)specs}")
-    slot=${#_XCODE_DESTINATION_CACHE_SCHEMES}
-  fi
-  _xcode_destination_cache_touch $slot || return
-  if (( ${#_XCODE_DESTINATION_CACHE_SCHEMES} > 4 )); then
-    if (( ${+parameters[_XCODE_DESTINATION_SELECTIONS]} )); then
-      unset "_XCODE_DESTINATION_SELECTIONS[${_XCODE_DESTINATION_CACHE_SCHEMES[1]}]"
-    fi
-    _XCODE_DESTINATION_CACHE_SCHEMES=("${_XCODE_DESTINATION_CACHE_SCHEMES[@][2,-1]}")
-    _XCODE_DESTINATION_CACHE_IDS=("${_XCODE_DESTINATION_CACHE_IDS[@][2,-1]}")
-    _XCODE_DESTINATION_CACHE_PLATFORMS=("${_XCODE_DESTINATION_CACHE_PLATFORMS[@][2,-1]}")
-    _XCODE_DESTINATION_CACHE_NAMES=("${_XCODE_DESTINATION_CACHE_NAMES[@][2,-1]}")
-    _XCODE_DESTINATION_CACHE_SPECS=("${_XCODE_DESTINATION_CACHE_SPECS[@][2,-1]}")
-  fi
+  _XCODE_DESTINATION_CACHE[$scheme]=${(F)lines}
+  _xcode_destination_cache_touch "$scheme"
+  while (( ${#_XCODE_DESTINATION_CACHE_ORDER} > 4 )); do
+    _xcode_destination_cache_forget "${_XCODE_DESTINATION_CACHE_ORDER[1]}" || return
+  done
 }
 
 _xcode_destination_cache_restore() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local scheme=$1 encoded='' name='' platform='' identifier=''
-  local -i slot=0 count=0 index=0
-  local -a ids=() platforms=() names=() specs=()
-  (( ${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_IDS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_PLATFORMS]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_NAMES]} &&
-     ${+parameters[_XCODE_DESTINATION_CACHE_SPECS]} )) || return 2
-  slot=${_XCODE_DESTINATION_CACHE_SCHEMES[(Ie)$scheme]}
-  (( slot )) || return 1
-  encoded=${_XCODE_DESTINATION_CACHE_IDS[slot]}
-  ids=("${(@f)encoded}")
-  encoded=${_XCODE_DESTINATION_CACHE_PLATFORMS[slot]}
-  platforms=("${(@f)encoded}")
-  encoded=${_XCODE_DESTINATION_CACHE_NAMES[slot]}
-  names=("${(@f)encoded}")
-  encoded=${_XCODE_DESTINATION_CACHE_SPECS[slot]}
-  specs=("${(@f)encoded}")
-  count=${#ids}
-  (( count >= 1 && count <= 100 && ${#platforms} == count && ${#names} == count && ${#specs} == count )) ||
-    return 1
-  for (( index = 1; index <= count; ++index )); do
-    identifier=${ids[index]} platform=${platforms[index]} name=${names[index]}
+  local scheme=$1 line='' name='' platform='' identifier='' spec=''
+  local -a lines=() fields=() ids=() platforms=() names=() specs=()
+  _xcode_destination_cache_ready || return 2
+  (( ${+_XCODE_DESTINATION_CACHE[$scheme]} )) || return 1
+  lines=("${(@f)_XCODE_DESTINATION_CACHE[$scheme]}")
+  (( ${#lines} >= 1 && ${#lines} <= 100 )) || return 1
+  for line in "${lines[@]}"; do
+    fields=("${(@ps:\t:)line}")
+    (( ${#fields} == 4 )) || return 1
+    identifier=${fields[1]} platform=${fields[2]} name=${fields[3]} spec=${fields[4]}
     [[ $identifier == [[:alnum:]][[:alnum:].-]# &&
        -n $name && ${#name} -le 4096 && $name != *[[:cntrl:]]* ]] || return 1
     _xcode_destination_platform_is_supported "$platform" || return 1
-    [[ -n ${specs[index]} ]] || return 1
-    _xcode_destination_spec "$platform" "$identifier" "${specs[index]}" || return 1
+    [[ -n $spec ]] || return 1
+    _xcode_destination_spec "$platform" "$identifier" "$spec" || return 1
+    ids+=("$identifier") platforms+=("$platform") names+=("$name") specs+=("$spec")
   done
   _XCODE_DESTINATION_IDS=("${ids[@]}")
   _XCODE_DESTINATION_PLATFORMS=("${platforms[@]}")
   _XCODE_DESTINATION_NAMES=("${names[@]}")
   _XCODE_DESTINATION_SPECS=("${specs[@]}")
-  _xcode_destination_cache_touch $slot
+  _xcode_destination_cache_touch "$scheme"
 }
 
 _xcode_action_command() {
@@ -2697,12 +2646,8 @@ _xcode_workspace_controller() {
   local -a _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=()
   local -a _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
   local -a reply=()
-  local -a _XCODE_DESTINATION_CACHE_SCHEMES=()
-  local -a _XCODE_DESTINATION_CACHE_IDS=()
-  local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
-  local -a _XCODE_DESTINATION_CACHE_NAMES=()
-  local -a _XCODE_DESTINATION_CACHE_SPECS=()
-  local -A _XCODE_DESTINATION_SELECTIONS=()
+  local -A _XCODE_DESTINATION_CACHE=() _XCODE_DESTINATION_SELECTIONS=()
+  local -a _XCODE_DESTINATION_CACHE_ORDER=()
   local _XCODE_ACTION_CONTEXT='' action_query='' action_value=''
   local -a _XCODE_ACTION_CONTEXT_ROLES=()
   local -i action_offset=0 action_focus=0

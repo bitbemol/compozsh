@@ -826,11 +826,8 @@ _test_xcode_destination_cache_evicts_lru_inside_one_workspace() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    local -a _XCODE_DESTINATION_CACHE_SCHEMES=()
-    local -a _XCODE_DESTINATION_CACHE_IDS=()
-    local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
-    local -a _XCODE_DESTINATION_CACHE_NAMES=()
-    local -a _XCODE_DESTINATION_CACHE_SPECS=()
+    local -A _XCODE_DESTINATION_CACHE=()
+    local -a _XCODE_DESTINATION_CACHE_ORDER=()
     local scheme=""
     for scheme in A B C D E; do
       _XCODE_DESTINATION_SPECS=()
@@ -843,7 +840,33 @@ _test_xcode_destination_cache_evicts_lru_inside_one_workspace() {
     print -r -- "A:$?"
     _xcode_destination_cache_restore B || exit
     print -r -- "B:${(j:|:)_XCODE_DESTINATION_IDS}|${(j:|:)_XCODE_DESTINATION_NAMES}"
-    print -r -- "lru:${(j:|:)_XCODE_DESTINATION_CACHE_SCHEMES}"
+    print -r -- "lru:${(j:|:)_XCODE_DESTINATION_CACHE_ORDER}"
+    # Observe recency through eviction alone: probing an absent scheme never
+    # reorders the cache, so each store must evict exactly the oldest entry.
+    local -a evicted=()
+    local probe=""
+    for scheme in F G H; do
+      _XCODE_DESTINATION_SPECS=()
+      _XCODE_DESTINATION_IDS=("$scheme-ID")
+      _XCODE_DESTINATION_PLATFORMS=(macOS)
+      _XCODE_DESTINATION_NAMES=("$scheme destination")
+      _xcode_destination_cache_store "$scheme" || exit
+      case $scheme in (F) probe=C ;; (G) probe=D ;; (H) probe=E ;; esac
+      _xcode_destination_cache_restore "$probe"
+      evicted+=("$probe=$?")
+    done
+    print -r -- "evicted:${(j:|:)evicted}"
+    _xcode_destination_cache_restore B || exit
+    print -r -- "kept:${(j:|:)_XCODE_DESTINATION_IDS}"
+    _XCODE_DESTINATION_SPECS=()
+    _XCODE_DESTINATION_IDS=(B-NEW)
+    _XCODE_DESTINATION_PLATFORMS=(macOS)
+    _XCODE_DESTINATION_NAMES=("B replaced")
+    _xcode_destination_cache_store B || exit
+    _xcode_destination_cache_restore F
+    print -r -- "replaced-kept-F:$?"
+    _xcode_destination_cache_restore B || exit
+    print -r -- "replaced:${(j:|:)_XCODE_DESTINATION_IDS}|${(j:|:)_XCODE_DESTINATION_NAMES}|${(j:|:)_XCODE_DESTINATION_SPECS}"
   ' "$TEST_REPO_ROOT") || return
 
   test_assert_contains "$output" 'A:1' \
@@ -851,7 +874,15 @@ _test_xcode_destination_cache_evicts_lru_inside_one_workspace() {
   test_assert_contains "$output" 'B:B-ID|B destination' \
     'Xcode destination cache lost a retained exact snapshot' || return
   test_assert_contains "$output" 'lru:C|D|E|B' \
-    'Xcode destination cache did not update bounded LRU order'
+    'Xcode destination cache did not update bounded LRU order' || return
+  test_assert_contains "$output" 'evicted:C=1|D=1|E=1' \
+    'Xcode destination cache evicted a recently used snapshot first' || return
+  test_assert_contains "$output" 'kept:B-ID' \
+    'Xcode destination cache evicted the most recently restored snapshot' || return
+  test_assert_contains "$output" 'replaced-kept-F:0' \
+    'replacing a cached scheme snapshot evicted another scheme' || return
+  test_assert_contains "$output" 'replaced:B-NEW|B replaced|platform=macOS,id=B-NEW' \
+    'storing a cached scheme again did not replace its exact snapshot'
 }
 test_case 'Xcode destination snapshots use a four-scheme workspace LRU' \
   _test_xcode_destination_cache_evicts_lru_inside_one_workspace
@@ -862,11 +893,8 @@ _test_xcode_destination_refresh_forgets_snapshot_before_failed_store() {
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    local -a _XCODE_DESTINATION_CACHE_SCHEMES=()
-    local -a _XCODE_DESTINATION_CACHE_IDS=()
-    local -a _XCODE_DESTINATION_CACHE_PLATFORMS=()
-    local -a _XCODE_DESTINATION_CACHE_NAMES=()
-    local -a _XCODE_DESTINATION_CACHE_SPECS=()
+    local -A _XCODE_DESTINATION_CACHE=()
+    local -a _XCODE_DESTINATION_CACHE_ORDER=()
     _XCODE_DESTINATION_IDS=(OLD-ID)
     _XCODE_DESTINATION_PLATFORMS=(macOS)
     _XCODE_DESTINATION_NAMES=("Old destination")

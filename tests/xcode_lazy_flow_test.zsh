@@ -535,17 +535,16 @@ _test_xcode_lazy_evicted_selection_requires_fresh_choice() {
        $_XCODE_SELECTED_SPEC == "platform=macOS,id=MAC-1,arch=arm64" ]] || {
       print -u2 "evicted scheme reused destination discovery or consent"; exit 11
     }
-    local -a _XCODE_DESTINATION_CACHE_SCHEMES=() _XCODE_DESTINATION_CACHE_IDS=()
-    local -a _XCODE_DESTINATION_CACHE_PLATFORMS=() _XCODE_DESTINATION_CACHE_NAMES=()
-    local -a _XCODE_DESTINATION_CACHE_SPECS=()
-    local -A _XCODE_DESTINATION_SELECTIONS=()
+    local -A _XCODE_DESTINATION_CACHE=() _XCODE_DESTINATION_SELECTIONS=()
+    local -a _XCODE_DESTINATION_CACHE_ORDER=()
     local literal=""
     for literal in "${_XCODE_SCHEMES[@]}"; do
       _xcode_destinations_capture project /example/App.xcodeproj "$literal" || exit
       _xcode_destination_cache_store "$literal" || exit
       _XCODE_DESTINATION_SELECTIONS[$literal]=${_XCODE_DESTINATION_SPECS[1]}
       _xcode_destination_cache_forget "$literal" || exit
-      (( !${#_XCODE_DESTINATION_SELECTIONS} && !${#_XCODE_DESTINATION_CACHE_SCHEMES} )) || exit 12
+      (( !${#_XCODE_DESTINATION_SELECTIONS} && !${#_XCODE_DESTINATION_CACHE} &&
+         !${#_XCODE_DESTINATION_CACHE_ORDER} )) || exit 12
     done
     [[ ! -e $HOME/evaluated ]] || { print -u2 "literal scheme was evaluated"; exit 13; }
     print freshly-chosen
@@ -661,7 +660,8 @@ _test_xcode_lazy_cancel_refresh_under_shell_options() {
         [[ $result == 130 && -z $_XCODE_REQUEST ]] || exit 13
       fi
       (( !${+parameters[_XCODE_DESTINATION_SELECTIONS]} &&
-         !${+parameters[_XCODE_DESTINATION_CACHE_SCHEMES]} )) || {
+         !${+parameters[_XCODE_DESTINATION_CACHE]} &&
+         !${+parameters[_XCODE_DESTINATION_CACHE_ORDER]} )) || {
         print -u2 "workspace exit leaked a destination snapshot or selection"; exit 14
       }
     done

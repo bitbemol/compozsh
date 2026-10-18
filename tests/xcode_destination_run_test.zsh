@@ -217,15 +217,20 @@ _test_xcode_destination_cache_rejects_missing_spec() {
   local output=''
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.xcode"
-    local -a _XCODE_DESTINATION_CACHE_SCHEMES=(App)
-    local -a _XCODE_DESTINATION_CACHE_IDS=(MAC-123)
-    local -a _XCODE_DESTINATION_CACHE_PLATFORMS=(macOS)
-    local -a _XCODE_DESTINATION_CACHE_NAMES=("My Mac · Mac Catalyst")
-    local -a _XCODE_DESTINATION_CACHE_SPECS=("")
+    local -a fields=(MAC-123 macOS "My Mac · Mac Catalyst" "")
+    local -A _XCODE_DESTINATION_CACHE=()
+    local -a _XCODE_DESTINATION_CACHE_ORDER=()
+    local result=""
+    # A record with an empty fourth field, then one without that field at all.
+    _XCODE_DESTINATION_CACHE[App]="${(pj:\t:)fields}"
+    _XCODE_DESTINATION_CACHE_ORDER=(App)
     _xcode_destination_cache_restore App
-    print -r -- "$?"
+    result=$?
+    _XCODE_DESTINATION_CACHE[App]="${(pj:\t:)fields[1,3]}"
+    _xcode_destination_cache_restore App
+    print -r -- "$result|$?|${#_XCODE_DESTINATION_IDS}"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal 1 "$output" 'a missing cached specification silently selected the native Mac variant'
+  test_assert_equal '1|1|0' "$output" 'a missing cached specification silently selected the native Mac variant'
 }
 test_case 'Xcode destination cache rejects a missing exact specification' _test_xcode_destination_cache_rejects_missing_spec
 
