@@ -7,8 +7,8 @@ layout when `ZDOTDIR` is unset.
 ## Essentials
 
 - **`.zshrc` is only the bootstrap**: interactive guard, optional initializer,
-  recursive peer discovery, the compiled-mirror check and diagnostics.
-  Features go in peers.
+  recursive peer discovery, the compiled-mirror check (with its startup
+  recompile of changed shipped peers) and diagnostics. Features go in peers.
 - **One ordered boundary.** The optional `local/init.zsh` loads first; every
   `.zsh.<name>` peer after it loads in any order with the same result.
 - **Enabled by filename.** A peer is on when its basename starts with
@@ -30,6 +30,7 @@ compozsh/
 │       ├── .zsh.appearance  palette defaults and light/dark selection
 │       ├── functions/     .zsh.pure.<entry> and .zsh.impure.<entry> shared entries
 │       ├── ui/            .zsh.ui.<entry> shared UI entries and .zsh.ui.state
+│       ├── compile.zsh    compiles shipped peers into the compiled mirror (not a peer)
 │       └── git-syntax.vim adapter asset for .zsh.git-syntax (not a peer)
 ├── install.zsh            symlink/copy installer with preview, backups and rollback
 ├── templates/init.zsh     inert starter for the private initializer
@@ -69,11 +70,14 @@ compozsh/
   not a peer tier. It follows [caching](caching.md). Both installation layouts
   use it; installs never copy generated source caches, normal updates preserve
   destination caches, and `--clean` archives them with the add-on tree.
-- `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled/` is the installer's marked,
-  owner-only compiled mirror of the shipped peers (never private peers), never
-  discovered as peers. Every installation rebuilds it in both layouts, `--clean`
-  archives it with the add-on tree, and nothing else writes it — not
-  `compozsh --refresh`. Its format and checks are in
+- `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled/` is the marked, owner-only
+  compiled mirror of the shipped peers (never private peers), never discovered
+  as peers. Only `.zsh.addons/support/compile.zsh`, run in a separate `zsh -f`,
+  writes it: every installation rebuilds it in both layouts, and interactive
+  startup recompiles just the shipped peers without a fresh record (creating a
+  missing mirror) under a lock with atomic renames and a time box. `--clean`
+  archives it with the add-on tree, `compozsh --refresh` never writes it, and
+  deleting it is always safe. Its format and checks are in
   [Bootstrap and loading](#bootstrap-and-loading) and SECURITY.md.
 - `README.md` is user-facing documentation synchronized with visible behavior,
   keys, installation, extension points and safety guarantees. Its **Shipped
@@ -163,7 +167,12 @@ documents and SECURITY.md discloses: ownership, Zsh version, the exact peer
 path, unchanged device, inode, size, mtime and ctime, and the compiling
 shell's parse context (options and aliases) when peers start loading and
 across every text-loaded peer. Otherwise the peer's text loads, so compiled
-loading reaches the same state. Compiled peers report the mirror path in
+loading reaches the same state. Before any peer loads, shipped peers with no
+record matching their current metadata are compiled by
+`support/compile.zsh` in a separate `zsh -f` (only parsing them, never
+running them) when the mirror is absent or the user's own and the parse
+context matches the manifest's; the manifest is then read again, so a changed
+peer runs compiled in the first shell that can compile it. Compiled peers report the mirror path in
 `functions_source`, which keeps the `/.zsh.addons/` label suffix. Lexical
 traversal only makes diagnostics reproducible:
 
@@ -187,8 +196,8 @@ Keep documentation correct for both layouts. A symlinked `~/.zshrc` resolves
 peers beside the repository file, plus private peers in `~/.zsh.addons`. A
 copied `.zshrc` uses a copied `~/.zsh.addons` with the managed copy in its
 marked `compozsh/` namespace. Both layouts get the compiled mirror; in the
-symlink layout a repository update leaves changed peers on text until
-`install.zsh` runs again, which README's update instructions say. Whenever
+symlink layout the first shell after a repository update recompiles the
+changed peers, which README's update instructions say. Whenever
 repository structure changes, audit installation, updating and uninstall
 instructions together, and update the repository tree above in the same
 change.

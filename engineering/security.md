@@ -106,11 +106,15 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   peers in the fixed user add-on directory. Add-on names and paths never come
   from the current directory or project metadata, so a relative initializer
   path is refused with a diagnostic. A shared peer may run from the
-  installer's compiled mirror (`support/compiled` in the user add-on
+  compiled mirror (`support/compiled` in the user add-on
   directory) only under its disclosed freshness, ownership, version and
   parse-context checks, so compiled code never differs from the peer's current
-  text; private peers are never compiled, only the installer writes the
-  mirror, and discovery never sources `.zwc` files. Two native mechanisms sit
+  text; private peers are never compiled, and discovery never sources `.zwc`
+  files. Only `support/compile.zsh` writes the mirror, in a separate `zsh -f`
+  that parses and never runs peers: for the installer, and at startup for the
+  discovered shipped peers lacking a fresh record, only into a missing or
+  user-owned, marked, owner-only mirror, under a lock, through atomic renames
+  and within a time and size bound; every failure means text. Two native mechanisms sit
   outside that list: Zsh's stock functions autoloaded from `fpath` (such as
   `compinit` and `add-zle-hook-widget`), and stock `compinit`'s sourcing of its
   configuration-base dump. Keep the `compinit` call bare and add no `fpath`

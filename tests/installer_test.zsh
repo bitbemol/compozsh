@@ -757,8 +757,9 @@ _test_installer_validates_nested_shared_peers() {
 test_case 'installer syntax-checks nested shared peers before mutation' \
   _test_installer_validates_nested_shared_peers
 
-# The compiled mirror is installer-owned: previews name it, a repeated install
-# refreshes it without a backup, a failed activation restores the previous
+# Every installation rebuilds the compiled mirror (startup only recompiles
+# changed peers into it): previews name it, a repeated install refreshes it
+# without a backup, a failed activation restores the previous
 # mirror, --clean archives it with the add-on tree, and an unmarked
 # support/compiled directory is refused before anything changes.
 _test_installer_manages_compiled_mirror() {

@@ -207,8 +207,13 @@ about 20 ms; private peers are never compiled. A shell uses a peer's compiled
 code only while that peer file is unchanged since compilation, the Zsh version
 matches, and your initializer or an earlier private peer has not added aliases
 or changed parse options. Otherwise it loads the peer's text exactly as before,
-so the mirror changes speed, never behavior. Each installation rebuilds the
-mirror; it is safe to delete, and `--clean` archives it with the add-on tree.
+so the mirror changes speed, never behavior. When a shipped peer is new or has
+changed (after `git pull`, an edit or a Zsh update), the next shell recompiles
+just the changed peers into the mirror and uses them at once; it creates a
+missing mirror the same way. Compiling only parses a peer, never runs it, and
+stops starting new peers after about 300 ms, so a large update can take a few
+shells; a peer over 512 KiB stays text. Each installation rebuilds the mirror;
+deleting it is always safe, and `--clean` archives it with the add-on tree.
 
 ## Apply changes
 
@@ -218,13 +223,12 @@ of stacking hooks the way repeated `source ~/.zshrc` would.
 ## Updating
 
 With the recommended symlink installation, pull the repository and start a
-clean shell. The linked bootstrap and adjacent add-ons update together. Peers
-the update changed load from their text until you rerun the installer, which
-recompiles them for fast startup:
+clean shell. The linked bootstrap and adjacent add-ons update together, and the
+first shell recompiles the peers the update changed, so later shells start at
+full speed without rerunning the installer:
 
 ```sh
 git -C "$repo_dir" pull
-zsh "$repo_dir/install.zsh" --symlink
 exec zsh
 ```
 
@@ -1622,7 +1626,7 @@ peers from your `.zsh.addons`; copy installations nest a marked
 Discovery uses fixed Zsh options, whatever glob options your initializer or
 peers set: the `.zsh.` prefix is case-sensitive and hidden folders such as
 `.archive/` or `.git/` are never searched. A `.zwc` file is compiled data, never
-a peer, and the `support/cache` and installer-owned `support/compiled`
+a peer, and the `support/cache` and `support/compiled` (compiled mirror)
 directories are never searched for peers.
 
 ```text
@@ -1810,8 +1814,8 @@ mv "$config_base/.zsh.addons" \
 ```
 
 Do not archive the complete tree when keeping `local/init.zsh` or private peers.
-With either installation, archive the installer's compiled mirror of the
-shipped peers too; nothing loads it once the bootstrap is archived:
+With either installation, archive the compiled mirror of the shipped peers
+too; nothing loads or rebuilds it once the bootstrap is archived:
 
 ```sh
 mkdir -p "$config_base/.zsh-backups/uninstall-$stamp"

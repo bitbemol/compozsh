@@ -41,12 +41,13 @@ _installer_help() {
     '  Normal mode refuses unmarked conflicts at .zsh.addons/compozsh.' \
     '  Both modes compile the shipped peers into the marked, owner-only' \
     '  .zsh.addons/support/compiled mirror for faster startup; private peers' \
-    '  are never compiled, and a peer changed since loads from its text.' \
+    '  are never compiled. The next shell after a change recompiles just the' \
+    '  changed shipped peers there; deleting the mirror is always safe.' \
     '' \
     'Updating and recovery:' \
     '  Symlink mode requires the repository to stay at its installed path.' \
     '  Update that clone with git pull, then run exec zsh in each terminal;' \
-    '  rerun the installer to recompile the updated peers for fast startup.' \
+    '  the first shell recompiles the updated peers for fast startup.' \
     '  Copy mode keeps a snapshot; update the clone and rerun --copy to refresh.' \
     '  Both modes leave private data separate from shipped configuration.' \
     '  Failures and interruptions (Ctrl-C, hangup, termination) roll back;' \
@@ -156,74 +157,15 @@ _installer_peers() {
   done
 }
 
-# Build the compiled mirror of shipped peers in <mirror>, which must not exist.
-# Each peer <base>/<path> gets <mirror>/.zsh.addons/<path>, a symlink to the
-# peer's absolute path, and that symlink's .zwc; .zshrc's comment describes how
-# the manifest is checked. A separate zsh -f compiles under Zsh's default
-# options and aliases, whose parse context the manifest records, with a umask
-# that keeps the mirror private, and only after the clock has passed the
-# peer's ctime, so any later write moves ctime past the recorded value. A peer
-# that changes while it compiles, or fails to compile, is left out and loads
-# as text.
+# Build the compiled mirror of shipped peers in <mirror>, which must not exist,
+# with the same .zsh.addons/support/compile.zsh that startup uses to recompile
+# changed peers; that file describes the mirror. Install mode compiles every
+# listed peer, waiting for the clock to pass a just-edited peer's ctime.
+# Usage: _installer_compile <mirror> <base> <relative>...
 _installer_compile() {
   emulate -L zsh
-  "$commands[zsh]" -f -c '
-    emulate -R zsh
-    umask 077
-    zmodload -F zsh/stat b:zstat || exit 1
-    unset EPOCHSECONDS
-    zmodload -F zsh/datetime p:EPOCHSECONDS || exit 1
-    zmodload -F zsh/zselect b:zselect || exit 1
-    zmodload -F zsh/files b:zf_mkdir b:zf_ln b:zf_rm || exit 1
-    local mirror=$1 base=$2 relative="" peer="" entry="" table="" name=""
-    local recorded_options="" recorded_aliases=""
-    local -a fields=() parse=(aliases posixaliases ignorebraces ignoreclosebraces
-      rcquotes cshjunkiequotes cshjunkieloops kshglob shglob shortloops
-      shortrepeat multifuncdef posixidentifiers posixstrings multibyte)
-    local -A before=() after=() map=()
-    shift 2
-    # The same description as _zsh_addon_parse_context in .zshrc.
-    for name in "${parse[@]}"; do
-      recorded_options+=" $name=${options[$name]-}"
-    done
-    for table in aliases galiases saliases; do
-      map=("${(@Pkv)table}")
-      recorded_aliases+=" $table:"
-      for name in ${(ok)map}; do
-        recorded_aliases+=" ${(qqqq)name}=${(qqqq)map[$name]}"
-      done
-    done
-    zf_mkdir -m 0700 -- "$mirror" || exit 1
-    print -r -- version=1 > "$mirror/.managed-by-compozsh" || exit 1
-    {
-      print -r -- "compozsh-compiled 1"
-      print -r -- "zsh $ZSH_VERSION"
-      print -r -- "base $base"
-      print -r -- "parse ${parse[*]}"
-      print -r -- "options$recorded_options"
-      print -r -- "aliases$recorded_aliases"
-      for relative in "$@"; do
-        [[ $relative != *[[:cntrl:]]* ]] || continue
-        peer=$base/$relative entry=$mirror/.zsh.addons/$relative
-        zf_mkdir -p -- "${entry:h}" && zf_ln -s -- "$peer" "$entry" || exit 1
-        zstat -H before -- "$peer" || continue
-        while (( EPOCHSECONDS <= before[ctime] )); do
-          zselect -t 10
-          zstat -H before -- "$peer" || continue 2
-        done
-        zcompile -R -- "$entry" 2> /dev/null &&
-          zstat -H after -- "$peer" &&
-          [[ "$before[device] $before[inode] $before[size] $before[mtime] $before[ctime]" ==
-             "$after[device] $after[inode] $after[size] $after[mtime] $after[ctime]" ]] || {
-            zf_rm -f -- "$entry.zwc"
-            continue
-          }
-        fields=("$relative" "$before[device]" "$before[inode]" "$before[size]"
-                "$before[mtime]" "$before[ctime]")
-        print -r -- "${(pj:\t:)fields}"
-      done
-    } > "$mirror/manifest"
-  ' compozsh-compile "$@"
+  "$commands[zsh]" -f -- "$_INSTALLER_REPOSITORY/.zsh.addons/support/compile.zsh" \
+    install "$1" "$2" '' "${@[3,-1]}" < /dev/null
 }
 
 _installer_main() {
