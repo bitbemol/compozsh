@@ -237,6 +237,73 @@ _test_living_prompt_git_operation_follows_nested_repository() {
 test_case 'living prompt Git operation follows a repository initialized inside a previously visited folder' \
   _test_living_prompt_git_operation_follows_nested_repository
 
+# Every folder of one work tree shares its repository's Git directory, so the
+# prompt resolves it once per repository. A folder inside a Git directory is
+# Git's own discovery target: a submodule's metadata under .git/modules or
+# another repository's metadata directory must not reuse the enclosing one.
+_test_living_prompt_git_dir_once_per_repository() {
+  test_make_temp_dir || return
+  local repository="$TEST_TMP_DIR/repository"
+  local module_work="$TEST_TMP_DIR/module" store_work="$TEST_TMP_DIR/store"
+  local output=''
+
+  command git init -q "$repository" || return
+  command mkdir -p -- "$repository"/{a/b,c/d/e,f,store,.git/modules} || return
+  : >| "$repository/.git/MERGE_HEAD" || return
+  # Absorbed-submodule layout: metadata under .git/modules with core.worktree.
+  command git init -q --separate-git-dir "$repository/.git/modules/module" "$module_work" || return
+  command git --git-dir="$repository/.git/modules/module" config core.worktree "$module_work" || return
+  : >| "$repository/.git/modules/module/REVERT_HEAD" || return
+  command git init -q --separate-git-dir "$repository/store/other.git" "$store_work" || return
+  command git --git-dir="$repository/store/other.git" config core.worktree "$store_work" || return
+  : >| "$repository/store/other.git/CHERRY_PICK_HEAD" || return
+  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/sh
+case " $* " in *" --absolute-git-dir "*) printf "%s\n" resolve >> "$GIT_RESOLVE_LOG" ;; esac
+exec "$REAL_GIT" "$@"' || return
+  command chmod +x "$TEST_TMP_DIR/bin/git" || return
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    TERM=dumb
+    source "$1/.zsh.addons/.zsh.shell"
+    source "$1/.zsh.addons/.zsh.prompt"
+    source "$1/.zsh.addons/.zsh.editor"
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    export REAL_GIT=${commands[git]} GIT_RESOLVE_LOG="$HOME/resolves"
+    [[ -n $REAL_GIT ]] || exit 90
+    path=("$2" $path)
+    local folder="" labels=""
+    local -a resolved=()
+    : >| "$GIT_RESOLVE_LOG" || exit 91
+
+    for folder in "" /a /a/b /c /c/d/e /f; do
+      builtin cd -- "$3$folder" || exit 1
+      true; _prompt_update
+      labels+="[$_PROMPT_GIT_OPERATION_TEXT]"
+    done
+    resolved=(${(f)"$(<$GIT_RESOLVE_LOG)"})
+    print -r -- "six folders: $labels ${#resolved} resolved, ${#_PROMPT_GIT_DIR_CACHE} kept"
+
+    builtin cd -- "$3/.git/modules/module" || exit 2
+    true; _prompt_update
+    print -r -- "submodule metadata: [$_PROMPT_GIT_OPERATION_TEXT]"
+    builtin cd -- "$3/store/other.git" || exit 3
+    true; _prompt_update
+    print -r -- "nested metadata: [$_PROMPT_GIT_OPERATION_TEXT]"
+    builtin cd -- "$3/c/d" || exit 4
+    true; _prompt_update
+    print -r -- "back in the work tree: [$_PROMPT_GIT_OPERATION_TEXT]"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" "$repository") || return
+
+  test_assert_equal 'six folders: [merge][merge][merge][merge][merge][merge] 1 resolved, 1 kept
+submodule metadata: [revert]
+nested metadata: [cherry-pick]
+back in the work tree: [merge]' "$output" \
+    'the prompt resolved one repository'"'"'s Git directory per folder, or reused it inside another Git directory'
+}
+test_case 'living prompt resolves the Git directory once per repository across its folders' \
+  _test_living_prompt_git_dir_once_per_repository
+
 _test_living_prompt_manual_lens_and_transcript_state() {
   test_make_temp_dir || return
   local project="$TEST_TMP_DIR/home/project"

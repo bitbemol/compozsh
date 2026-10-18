@@ -211,16 +211,16 @@ _prompt_has_git_context() {
 }
 
 # Render a compact Git summary. Porcelain v2 gives branch and file state in one
-# Git call. The metadata directory is resolved once per working directory and
-# nearest .git marker, so operation checks do not require another Git process
-# on every prompt, and a repository initialized inside a visited folder is not
-# served the enclosing repository's metadata.
+# Git call. The metadata directory is resolved once per repository (its nearest
+# .git marker), so operation checks do not require another Git process on every
+# prompt or in each new folder, and a repository initialized inside a visited
+# folder is not served the enclosing repository's metadata.
 _prompt_git() {
   setopt localoptions noglobsubst
 
   local git_output line branch='' oid='' upstream=''
   local separator=$'\x1f'
-  local git_dir operation='' cache_key=''
+  local git_dir operation='' cache_key='' dir=''
   local summary=''
   local color=''
   REPLY=''
@@ -239,8 +239,19 @@ _prompt_git() {
   _PROMPT_GIT_OPERATION_TEXT=''
   _PROMPT_GIT_ATTENTION=''
   _prompt_has_git_context "$PWD" || return
-  # Keep PWD as well: a relative GIT_DIR or GIT_WORK_TREE resolves against it.
-  cache_key="${PWD}${separator}${REPLY}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
+  # Every folder of a work tree shares the Git directory of its nearest .git
+  # marker, so the marker alone is the key. PWD joins it where Git's answer
+  # depends on the folder: a relative GIT_DIR or GIT_WORK_TREE resolves against
+  # it, and Git discovers a Git directory that PWD is inside (a submodule's
+  # under .git/modules, for one) before the marker; such a directory has a HEAD.
+  cache_key=$REPLY
+  dir=$PWD
+  while [[ -n $cache_key && $dir != "${cache_key:h}" && $dir != / ]]; do
+    [[ -e $dir/HEAD ]] && cache_key=''
+    dir=${dir:h}
+  done
+  [[ -n $cache_key ]] ||
+    cache_key="${PWD}${separator}${REPLY}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
   (( ${+functions[_compozsh_git_local]} &&
      ${+functions[_compozsh_git_filter_config]} &&
      ${+functions[_compozsh_git_operation]} )) || return

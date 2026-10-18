@@ -654,6 +654,61 @@ A/A difference, matching the plan's estimate of about 0.1 ms per command word.
 Startup and prompt rendering do not call the highlighter, so they were not
 remeasured.
 
+### P5-05: prompt Git-directory memo keyed by repository (A2-07)
+
+`_prompt_git` keyed `_PROMPT_GIT_DIR_CACHE` by `PWD`, the nearest `.git`
+marker, `GIT_DIR` and `GIT_WORK_TREE`, so each new folder of a known
+repository ran `git rev-parse --absolute-git-dir` again, and the memo listed
+every repository folder visited. With neither variable set, the nearest
+marker alone is now the key. `PWD` stays in the key, as before, when either
+variable is set (a relative value resolves against `PWD`), and when a folder
+between `PWD` and the marker's parent holds a `HEAD`: Git discovers a Git
+directory that `PWD` is inside before the marker, and every Git directory has
+a `HEAD`. A marker-only key, tried first, served the enclosing repository's
+metadata in an absorbed submodule's `.git/modules/<name>` and in a nested Git
+directory with `core.worktree`, where Git's own status succeeds. The check
+costs one `stat` per folder level below the repository root on each prompt in
+a repository. `compozsh --refresh` still clears the
+memo, which now holds one entry per repository, plus one per folder visited
+inside a Git directory. SECURITY.md's prompt-facts row (Git state and paths in
+shell memory) holds unchanged.
+
+`living prompt resolves the Git directory once per repository across its
+folders` failed first: six folders of one repository ran 6 resolutions and
+kept 6 entries; it expects 1 and 1. It also checks that the submodule-metadata
+and nested-metadata folders keep their own operation labels (`revert`,
+`cherry-pick`) after the enclosing repository (`merge`) is memoized, which the
+marker-only key failed. The relative `GIT_DIR` and nested-repository cases of
+`living prompt Git operation follows a repository initialized inside a
+previously visited folder` pass unchanged.
+
+Before tree `git archive a498176`, after tree the working tree; environment as
+in P5-01, load averages 1.5–2.7. The focused rows come from a scratch script:
+each run starts one `env -i … LC_ALL=en_US.UTF-8 /bin/zsh -dfi` shell per tree,
+alternating which goes first, with `TMPDIR` in the scratch area. Each shell
+sources the tree's `.zshrc`, renders three times at the root of a 200-file
+repository with an upstream, then times the first render (every `precmd` hook
+plus `PROMPT`/`RPROMPT` expansion) in each of its 50 subfolders, reporting the
+median. Its A/A (baseline against baseline, 11 runs) ran first. Milliseconds,
+*median (range)*:
+
+| Metric | Mode | Runs | Before | After | Delta | A/A |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| First render in a new subfolder of a known repository | focused | 11×50 | 31.14 (30.92–31.35) | 23.48 (23.21–23.64) | −7.65 (−24.6%) | −0.03 (0.1%) |
+| Prompt render, outside | fresh | 11 | 12.65 (12.41–14.08) | 12.64 (12.45–12.91) | −0.01 (−0.1%) | |
+| Prompt render, clean | fresh | 11 | 33.66 (33.07–78.70) | 33.31 (32.62–33.68) | −0.34 (−1.0%) | |
+| Prompt render, dirty | fresh | 11 | 34.81 (34.36–35.08) | 34.40 (34.26–34.84) | −0.41 (−1.2%) | |
+| Prompt render, large | fresh | 11 | 54.63 (53.65–57.72) | 54.14 (52.65–55.16) | −0.49 (−0.9%) | |
+
+Decision: kept. The focused ranges are disjoint, and the gain matches one Git
+process (the plan's 7.4 ms) against an A/A of 0.03 ms. The fresh rows, the
+first render of a new shell at a repository root, must miss the memo in both
+trees; they moved within noise, so the `HEAD` checks cost nothing measurable.
+
+```zsh
+TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <after> fresh 11
+```
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*
