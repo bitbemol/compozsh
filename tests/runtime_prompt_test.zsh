@@ -165,3 +165,152 @@ print -r -u $event_fd -- "SOURCE|$(command tty)"
   ' "$TEST_ZSH_BIN" "$TEST_REPO_ROOT"
 }
 test_case 'runtime prompt native command clear and resize preserve READY toolchain' _test_runtime_prompt_native_clear
+
+# Characterize the merged, ordered project items that root and conventional
+# folder language rules produce. `mix.exs` adds a marker-only language that is
+# always last in rule order, so a language the rules miss but the resolver
+# still reports would move behind it and change the pinned order.
+_test_prompt_project_detection_rules() {
+  test_make_temp_dir || return
+  local rule='' folder='' extension='' language='' name='' expected_text=''
+  local output=''
+  local -a specs=() expected=()
+  local -a rules=(
+    .:c:c-cpp .:cc:c-cpp .:cpp:c-cpp .:cxx:c-cpp .:hh:c-cpp .:hpp:c-cpp .:hxx:c-cpp
+    .:asm:asm .:s:asm .:S:asm .:scm:scheme .:ss:scheme .:rkt:racket
+    .:lisp:lisp .:cl:lisp .:asd:lisp .:mm:objective-c .:swift:swift
+    .:php:php .:ps1:powershell .:psm1:powershell .:psd1:powershell
+    .:kt:kotlin .:kts:kotlin .:lua:lua .:rockspec:lua .:R:r .:Rmd:r .:Rproj:r
+    .:zig:zig .:tf:terraform .:jl:julia .:pl:perl .:pm:perl
+    .:f:fortran .:f90:fortran .:f95:fortran .:f03:fortran
+    .:ml:ocaml .:mli:ocaml .:opam:ocaml .:scala:scala .:erl:erlang .:hrl:erlang
+    .:groovy:groovy .:ipynb:python .:cabal:haskell .:gemspec:ruby .:java:java
+    .:csproj:dotnet .:fsproj:fsharp .:fs:fsharp .:vbproj:visual-basic .:vb:visual-basic
+    .:sln:dotnet .:slnx:dotnet
+  )
+  for folder in src source Sources lib app; do
+    for extension in c cc cpp cxx hh hpp hxx; do
+      rules+=("${folder}:${extension}:c-cpp")
+    done
+    for extension in asm s S; do
+      rules+=("${folder}:${extension}:asm")
+    done
+  done
+  for folder in src source lib; do
+    for extension in scm:scheme ss:scheme rkt:racket lisp:lisp cl:lisp asd:lisp; do
+      rules+=("${folder}:${extension}")
+    done
+  done
+  for folder in src source Sources app; do
+    rules+=("${folder}:mm:objective-c" "${folder}:swift:swift")
+  done
+  rules+=(
+    include:hh:c-cpp include:hpp:c-cpp include:hxx:c-cpp
+    src:php:php app:php:php public:php:php
+    src:ps1:powershell src:psm1:powershell src:psd1:powershell
+    scripts:ps1:powershell scripts:psm1:powershell scripts:psd1:powershell
+    modules:ps1:powershell modules:psm1:powershell modules:psd1:powershell
+    src:kt:kotlin app:kt:kotlin src:lua:lua lua:lua:lua lib:lua:lua
+    R:R:r src:R:r scripts:R:r notebooks:Rmd:r
+    src:zig:zig source:zig:zig src:jl:julia scripts:jl:julia
+    lib:pl:perl bin:pl:perl script:pl:perl scripts:pl:perl lib:pm:perl bin:pm:perl
+    src:ml:ocaml src:mli:ocaml lib:ml:ocaml lib:mli:ocaml
+    src:scala:scala app:scala:scala
+    src:erl:erlang src:hrl:erlang include:erl:erlang include:hrl:erlang
+    src:groovy:groovy app:groovy:groovy notebooks:ipynb:python
+    src:java:java app:java:java src:fs:fsharp app:fs:fsharp
+    src:vb:visual-basic app:vb:visual-basic
+  )
+  for folder in src source app; do
+    for extension in f f90 f95 f03; do
+      rules+=("${folder}:${extension}:fortran")
+    done
+  done
+
+  for rule in "${rules[@]}"; do
+    folder=${rule%%:*}
+    extension=${${rule#*:}%%:*}
+    language=${rule##*:}
+    name="rule-${folder//./root}-$extension"
+    specs+=("$name=$folder/x.$extension,mix.exs")
+    case $extension in
+      (ipynb) expected+=("$name=$language 1,elixir 1,mix,jupyter") ;;
+      (rockspec) expected+=("$name=$language 1,elixir 1,mix,luarocks") ;;
+      (cabal) expected+=("$name=$language 1,elixir 1,cabal,mix") ;;
+      (opam) expected+=("$name=$language 1,elixir 1,mix,opam") ;;
+      (sln|slnx) expected+=("$name=$language 1,elixir 1,solution,mix") ;;
+      (asd) [[ $folder == . ]] &&
+          expected+=("$name=$language 1,elixir 1,mix,asdf") ||
+          expected+=("$name=$language 1,elixir 1,mix") ;;
+      (*) expected+=("$name=$language 1,elixir 1,mix") ;;
+    esac
+  done
+  specs+=(
+    'tf-json=x.tf.json,mix.exs'
+    'hidden=.x.c,src/.x.swift,lib/.x.lua,bin/.x.sh,mix.exs'
+    'tuist=Project.swift,Workspace.swift,Tuist.swift,src/Project.swift,mix.exs'
+    'package-swift=Package.swift,mix.exs'
+    'build-gradle-kts=build.gradle.kts,mix.exs'
+    'settings-gradle-kts=settings.gradle.kts,mix.exs'
+    'xmake=xmake.lua,src/xmake.lua,lua/xmake.lua,mix.exs'
+    'bare-m=x.m,mix.exs'
+    'xcode-m=X.xcodeproj/,x.m,mix.exs'
+    'lib-php=lib/x.php,mix.exs'
+    'public-c=public/x.c,mix.exs'
+    'src-kts=src/x.kts,mix.exs'
+    'src-h=src/x.h,mix.exs'
+    'polyglot=src/x.c,Sources/x.swift,x.php,lib/x.pl,notebooks/x.ipynb,app/x.java,x.vb,lua/x.lua,mix.exs'
+    'shell-root=.git/,x.sh'
+    'shell-src=.git/,src/x.sh'
+    'shell-bin=.git/,bin/x.sh'
+    'shell-scripts=.git/,scripts/x.sh'
+    'shell-lib=.git/,lib/x.sh'
+    'shell-make=Makefile,x.sh'
+    'shell-hidden=.git/,.x.sh'
+  )
+  expected+=(
+    'tf-json=terraform 1,elixir 1,mix'
+    'hidden=elixir 1,mix'
+    'tuist=elixir 1,mix'
+    'package-swift=swift 1,elixir 1,swiftpm,mix'
+    'build-gradle-kts=elixir 1,gradle,mix'
+    'settings-gradle-kts=elixir 1,kotlin 1,gradle,mix'
+    'xmake=elixir 1,mix,xmake'
+    'bare-m=elixir 1,objective-c 1,mix'
+    'xcode-m=objective-c 1,elixir 1,xcode,mix'
+    'lib-php=elixir 1,php 1,mix'
+    'public-c=elixir 1,c-cpp 1,mix'
+    'src-kts=elixir 1,kotlin 1,mix'
+    'src-h=elixir 1,mix'
+    'polyglot=c-cpp 1,swift 1,php 1,lua 1,perl 1,python 1,java 1,visual-basic 1,elixir 1,mix,jupyter'
+    'shell-root=shell 1'
+    'shell-src=shell 1'
+    'shell-bin=shell 1'
+    'shell-scripts=shell 1'
+    'shell-lib=shell 1'
+    'shell-make=make'
+    'shell-hidden='
+  )
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    _prompt_runtime_version() { REPLY=1; }
+    local root=$2 spec name file items
+    local -a files
+    shift 2
+    for spec in "$@"; do
+      name=${spec%%=*}
+      files=("$root/$name/"${^${(s:,:)spec#*=}})
+      command mkdir -p -- "$root/$name" ${${(M)files:#*/}%/} ${${files:#*/}:h} || exit 1
+      for file in ${files:#*/}; do : >| "$file"; done
+      builtin cd -- "$root/$name" || exit 2
+      _prompt_project_context
+      items=${(j:,:)_PROMPT_PROJECT_ITEMS}
+      print -r -- "$name=${${items//\%F\{default\}/}//\%f/}"
+    done
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/matrix" "${specs[@]}") || return
+  expected_text=${(F)expected}
+  test_assert_equal "$expected_text" "$output"
+}
+test_case 'prompt project detection characterizes root and conventional-folder language rules' \
+  _test_prompt_project_detection_rules
