@@ -336,3 +336,68 @@ _test_xcode_job_reaping() {
 }
 test_case 'job lifecycle Xcode reaping retires only its own job record and keeps unrelated completion notices' \
   _test_xcode_job_reaping
+
+# A device console that ignores TERM gets its bounded grace period, then KILL,
+# a reap and the check-the-device notice; cleanup never waits on the child.
+_test_xcode_device_unresponsive_stop() {
+  test_make_temp_dir || return
+  test_write_file "$TEST_TMP_DIR/bin/xcrun" '#!/bin/zsh -df
+trap "" TERM
+exec {gate}<> "$HOME/gate"
+print ready
+while read -r -u $gate line; do :; done' || return
+  command chmod +x "$TEST_TMP_DIR/bin/xcrun" || return
+  command mkdir -p "$TEST_TMP_DIR/home" || return
+  command mkfifo "$TEST_TMP_DIR/home/gate" "$TEST_TMP_DIR/home/watchdog" || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    path=("$2/bin" $path)
+    export TMPDIR=$HOME
+    zmodload zsh/zselect zsh/parameter
+    unsetopt MONITOR NOTIFY BG_NICE
+    exec {watchdog_gate}<> "$HOME/watchdog"
+    local -i watchdog=0 console=0 result=0
+    _zle_picker_run() {
+      local -i attempt=0
+      for (( attempt=0; attempt<100; ++attempt )); do
+        _xcode_run_read_sources
+        [[ $_xcode_run_log == *ready* ]] && break
+        zselect -t 1
+      done
+      [[ $_xcode_run_log == *ready* ]] || return 91
+      console=$_xcode_device_pid
+      {
+        if ! IFS= read -r -t 5 -u $watchdog_gate line; then
+          print expired > "$HOME/expired"
+          kill -KILL $console 2>/dev/null
+        fi
+      } &
+      watchdog=$!
+      _ZLE_PICKER_SELECTED_VALUE=stop
+    }
+    {
+      _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV" 2> "$HOME/stderr"
+      result=$?
+      print -r -u $watchdog_gate -- complete
+      wait $watchdog 2>/dev/null
+      watchdog=0
+      [[ ! -f $HOME/expired ]] || { print -u2 "unresponsive device cleanup waited for watchdog"; exit 1; }
+      (( result == 1 )) || { print -u2 "unresponsive device stop reported $result"; exit 2; }
+      kill -0 $console 2>/dev/null && { print -u2 "unresponsive console survived cleanup"; exit 3; }
+      [[ $(<"$HOME/stderr") == "xcode: device console did not stop promptly; check or stop the app on the device" ]] ||
+        { print -u2 -r -- "unexpected notice: $(<"$HOME/stderr")"; exit 4; }
+      [[ ${(j: :)jobstates} != *":$console="* ]] || { print -u2 "console job record retained"; exit 5; }
+      local -a leftovers=("$HOME"/compozsh-xcode-device.*(N))
+      (( !${#leftovers} )) || exit 6
+    } always {
+      (( watchdog > 1 )) && { kill -KILL $watchdog 2>/dev/null; wait $watchdog 2>/dev/null; }
+      (( console > 1 )) && kill -KILL $console 2>/dev/null
+    }
+    exec {watchdog_gate}>&-
+    print ended-with-notice
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
+  test_assert_equal ended-with-notice "$output" 'unresponsive device console was not bounded, killed and reported'
+}
+test_case 'job lifecycle Xcode device stop bounds a TERM-ignoring console and reports a check-the-device notice' \
+  _test_xcode_device_unresponsive_stop

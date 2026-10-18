@@ -705,7 +705,7 @@ _xcode_discovery_capture() {
   local -a _xcode_discovery_fds=(-1 -1) _xcode_discovery_eof=(0 0)
   local -i _xcode_discovery_pid=0 _xcode_discovery_done=0 _xcode_discovery_failed=0
   local -i _xcode_discovery_overflow=0 _xcode_discovery_status=-1
-  local -i hold_reader=-1 hold_writer=-1 fd=-1 result=1 attempt=0 view_finished=0
+  local -i hold_reader=-1 hold_writer=-1 fd=-1 result=1 view_finished=0
   _XCODE_CAPTURE_ERROR='cannot prepare the bounded Xcode discovery capture'
   _xcode_capture_limit "${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}"
   max_bytes=$REPLY
@@ -772,21 +772,8 @@ _xcode_discovery_capture() {
     if (( _xcode_discovery_pid > 1 && !view_finished )); then
       _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR='Xcode discovery cancelled'
     fi
-    if (( _xcode_discovery_pid > 1 )); then
-      if _xcode_run_child_state "$_xcode_discovery_pid"; then
-        kill -TERM -- -$_xcode_discovery_pid 2>/dev/null
-        _xcode_run_child_state "$_xcode_discovery_pid" &&
-          kill -CONT -- -$_xcode_discovery_pid 2>/dev/null
-        for (( attempt=0; attempt<20; ++attempt )); do
-          [[ -f $_xcode_discovery_dir/status ]] && break
-          _xcode_discovery_poll
-          zselect -t 5
-        done
-        _xcode_run_child_state "$_xcode_discovery_pid" &&
-          kill -KILL -- -$_xcode_discovery_pid 2>/dev/null
-      fi
-      _xcode_run_wait_child "$_xcode_discovery_pid"
-    fi
+    (( _xcode_discovery_pid > 1 )) &&
+      _xcode_run_stop_child "$_xcode_discovery_pid" group _xcode_discovery_stop_drain
     for fd in "${_xcode_discovery_fds[@]}" $hold_reader $hold_writer; do
       (( fd >= 0 )) && exec {fd}>&-
     done
@@ -852,6 +839,15 @@ _xcode_discovery_poll() {
 _xcode_discovery_idle() {
   _xcode_discovery_poll
   (( _xcode_discovery_done )) && { _ZLE_PICKER_IDLE_ACTION=complete; return 0; }
+  return 1
+}
+
+# Stop drain: the provider's grace ends once the supervisor records its status
+# or is gone; until then keep its streams moving so it can finish writing.
+_xcode_discovery_stop_drain() {
+  [[ -f $_xcode_discovery_dir/status ]] && return 0
+  _xcode_run_child_state "$_xcode_discovery_pid" || return 0
+  _xcode_discovery_poll
   return 1
 }
 
@@ -1543,27 +1539,22 @@ _xcode_run_logs_start() {
 
 _xcode_run_logs_stop() {
   emulate -L zsh
-  local REPLY='' chunk=''
-  local -i attempt=0 grace=20
   if (( ${_xcode_run_logger:-0} > 1 )); then
-    zmodload zsh/zselect || grace=0
-    _xcode_run_child_state "$_xcode_run_logger" && kill -TERM $_xcode_run_logger 2>/dev/null
-    if _xcode_run_child_state "$_xcode_run_logger" && [[ $REPLY == suspended ]]; then
-      kill -CONT $_xcode_run_logger 2>/dev/null
-    fi
-    # Give the native observer at most one second to stop. Draining its pipe
-    # lets a termination handler finish even when pending output filled it.
-    for (( attempt=0; attempt<grace; ++attempt )); do
-      _xcode_run_child_state "$_xcode_run_logger" || break
-      if (( ${_xcode_run_unified_fd:--1} >= 0 )); then
-        sysread -i $_xcode_run_unified_fd -s 8192 -t 0 chunk 2>/dev/null
-      fi
-      zselect -t 5
-    done
-    _xcode_run_child_state "$_xcode_run_logger" && kill -KILL $_xcode_run_logger 2>/dev/null
-    _xcode_run_wait_child "$_xcode_run_logger"
+    _xcode_run_stop_child "$_xcode_run_logger" pid _xcode_run_logs_stop_drain
     _xcode_run_logger=0
   fi
+}
+
+# Stop drain: the observer's grace ends when it exits. Discarding its pending
+# output lets a termination handler finish even when that output filled it.
+_xcode_run_logs_stop_drain() {
+  emulate -L zsh
+  local chunk=''
+  _xcode_run_child_state "$_xcode_run_logger" || return 0
+  if (( ${_xcode_run_unified_fd:--1} >= 0 )); then
+    sysread -i $_xcode_run_unified_fd -s 8192 -t 0 chunk 2>/dev/null
+  fi
+  return 1
 }
 
 # Zsh can reap a producer before cleanup. Recheck the exact owned job before
@@ -1607,6 +1598,41 @@ _xcode_run_wait_child() {
     (( final != 127 )) && result=$final
   fi
   REPLY=$result
+}
+
+# Stop one owned child with a bounded grace period, then reap it. TERM first,
+# then CONT so a suspended child can act on it; a group stop always resumes
+# the group, whose members can stop apart from its leader. The caller's drain
+# callback runs at most 20 times, 50 ms apart (one second), keeps the child's
+# output moving and returns 0 once the child needs no more grace; anything
+# left gets KILL. The exact owned job is rechecked before every signal, so an
+# expired or reused PID is never signaled. Returns 1 when the grace period
+# ran out, 2 for invalid usage.
+# Usage: _xcode_run_stop_child <pid> <pid|group> <drain-callback>
+_xcode_run_stop_child() {
+  emulate -L zsh
+  local pid=$1 scope=$2 drain=$3 target=$1 REPLY=''
+  local -i attempt=0 grace=20 finished=0
+  zmodload zsh/parameter || return 2
+  [[ $pid == <2-> && ${#pid} -le 10 && $scope == (pid|group) ]] &&
+    (( ${+functions[$drain]} )) || return 2
+  [[ $scope == group ]] && target=-$pid
+  zmodload zsh/zselect || grace=0
+  _xcode_run_child_state "$pid" && kill -TERM -- $target 2>/dev/null
+  if _xcode_run_child_state "$pid" && [[ $scope == group || $REPLY == suspended ]]; then
+    kill -CONT -- $target 2>/dev/null
+  fi
+  for (( attempt=0; attempt<grace; ++attempt )); do
+    $drain && { finished=1; break; }
+    zselect -t 5
+  done
+  _xcode_run_child_state "$pid" && kill -KILL -- $target 2>/dev/null
+  # A drain can reap the child itself (the device poll keeps its status). Wait
+  # only while its job record remains: without the shared reaper, a repeated
+  # wait would scan unrelated completed jobs.
+  (( finished )) && [[ -z ${(M)${(v)jobstates}:#*:$pid=*} ]] ||
+    _xcode_run_wait_child "$pid"
+  (( finished ))
 }
 
 _xcode_run_identity() {
@@ -2193,6 +2219,13 @@ _xcode_device_poll() {
   REPLY=1
 }
 
+# Stop drain: keep reading the console so its termination handler can finish;
+# the grace ends once the poll has reaped it and kept its native status.
+_xcode_device_stop_drain() {
+  _xcode_run_read_sources
+  (( ${_xcode_device_done:-0} ))
+}
+
 _xcode_run_device_live() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -2213,7 +2246,7 @@ _xcode_run_device_live() {
   local -i _xcode_run_trimmed=0 _xcode_run_publish=1 _xcode_device_pid=0 _xcode_device_done=0 _xcode_device_status=0
   local -i _xcode_logs_captured=0 _xcode_logs_trimmed=0 _xcode_logs_offset=100000 _xcode_logs_follow=1
   local -i _xcode_logs_row=0 _xcode_logs_width=0 _xcode_logs_copy_count=0 _xcode_run_initial_logs=1
-  local -i _xcode_logs_exclude_focus=0 _xcode_logs_exclude_shown=0 result=0 screen_result=0 attempt=0
+  local -i _xcode_logs_exclude_focus=0 _xcode_logs_exclude_shown=0 result=0 screen_result=0
   [[ -n $arch ]] && launch_arguments+=(--arch "$arch")
   (( ${+functions[_compozsh_effect_copy]} )) && _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
   _xcode_run_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-device.XXXXXXXX") || return 1
@@ -2239,17 +2272,7 @@ _xcode_run_device_live() {
     (( _xcode_run_read_error )) && result=1
     _xcode_device_poll
     if (( _xcode_device_pid > 1 && !_xcode_device_done )); then
-      _xcode_run_child_state "$_xcode_device_pid" && kill -TERM $_xcode_device_pid 2>/dev/null
-      if _xcode_run_child_state "$_xcode_device_pid" && [[ $REPLY == suspended ]]; then
-        kill -CONT $_xcode_device_pid 2>/dev/null
-      fi
-      for (( attempt=0; attempt<20 && !_xcode_device_done; ++attempt )); do
-        _xcode_run_read_sources
-        (( _xcode_device_done )) || zselect -t 5
-      done
-      if (( !_xcode_device_done )); then
-        _xcode_run_child_state "$_xcode_device_pid" && kill -KILL $_xcode_device_pid 2>/dev/null
-        _xcode_run_wait_child "$_xcode_device_pid"
+      if ! _xcode_run_stop_child "$_xcode_device_pid" pid _xcode_device_stop_drain; then
         print -u2 -r -- 'xcode: device console did not stop promptly; check or stop the app on the device'
         result=1
       elif (( _xcode_device_status != 0 && _xcode_device_status != 143 )); then

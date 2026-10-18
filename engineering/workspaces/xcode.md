@@ -231,7 +231,10 @@ Signal an owned child (discovery supervisor, device console, log observer or
 drainer) only after revalidating its job, and reap it through the shared job
 reaper: retire only its own job record and preserve unrelated jobs — never an
 unqualified `jobs`/`wait` sweep (see the
-[job-lifecycle limitation](../../SECURITY.md#job-lifecycle)).
+[job-lifecycle limitation](../../SECURITY.md#job-lifecycle)). The discovery
+supervisor's process group, the device console and the log observer stop
+through one grace-period helper: TERM, CONT for a suspended child (always for
+the group), at most one second of caller-specific draining, KILL, reap.
 
 ## Apple skill export
 
@@ -257,7 +260,8 @@ conditional clipboard affordance, post-screen copying, status preservation,
 bundle cleanup; for Run, the exact log predicate, child environment isolation,
 bounded readiness, fair draining and partial-line bounds, independent source
 failure, replacement launch, observer stop/reap before LLDB and on error,
-reader geometry, anchors after resize/reopen, fuzzy and exclusion matching,
+bounded stops of suspended or TERM-ignoring children (with the device
+notice), reader geometry, anchors after resize/reopen, fuzzy and exclusion matching,
 no-match recovery, scroll pause/resume, stable Options copying, quiet
 callbacks, independent bookmarks and sticky clipboard failure. Real
 Xcode/Simulator checks are optional host integration tests and never read
