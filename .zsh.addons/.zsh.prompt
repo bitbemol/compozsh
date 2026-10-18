@@ -1965,6 +1965,12 @@ typeset -ga _PROMPT_PROJECT_ROOT_MARKERS=(
   flake.nix shell.nix devenv.nix devenv.yaml mise.toml .mise.toml Vagrantfile
   supabase/config.toml
 )
+# Conventional source folders, in scan order. The resolver bounds each one
+# (a symlink or a saturated sample makes the root large), so the full
+# detector may list them once each.
+typeset -ga _PROMPT_SOURCE_SCAN_FOLDERS=(
+  src source Sources include lib app public scripts modules bin R notebooks
+)
 typeset -ga _PROMPT_SOURCE_SCAN_LANGUAGES=()
 typeset -ga _PROMPT_RESOLVED_SOURCE_LANGUAGES=()
 typeset -gi _PROMPT_SOURCE_SCAN_SATURATED=0
@@ -1988,8 +1994,7 @@ _prompt_scan_source_languages() {
   typeset -gi _PROMPT_SOURCE_SCAN_UNSAFE=0
 
   scan_dirs+=("$dir")
-  for candidate in \
-    "$dir"/{src,source,Sources,include,lib,app,public,scripts,modules,bin,R,notebooks} \
+  for candidate in "$dir"/${^_PROMPT_SOURCE_SCAN_FOLDERS} \
     "$dir"/src/{main,test}/{java,kotlin,scala,groovy}; do
     if [[ -L $candidate ]]; then
       _PROMPT_SOURCE_SCAN_UNSAFE=1
@@ -2321,9 +2326,9 @@ typeset -ga _PROMPT_PROJECT_RULES=(
   'environment:vagrant f:Vagrantfile'
 )
 
-# Capture tokens derived once per shell from the constant rules above, for
+# Capture plans derived once per shell from the constant rules above, for
 # ordinary and saturated roots; re-sourcing resets them with the table.
-typeset -ga _PROMPT_PROJECT_TOKENS=() _PROMPT_PROJECT_MANIFEST_TOKENS=()
+typeset -ga _PROMPT_PROJECT_CAPTURE=() _PROMPT_PROJECT_MANIFEST_CAPTURE=()
 
 # List the distinct evidence tokens (`f:`, `d:`, `e:`, `g:`) that the rules in
 # the named array mention, negated ones included, in `reply`. Pure.
@@ -2336,6 +2341,63 @@ _prompt_project_rule_tokens() {
   reply=(
     ${(u)${(M)${${(s:+:)${(j:+:)${(s: :)${(j: :)${(@P)rules_name}#* }}}}#!}:#[fdeg]:*}}
   )
+}
+
+# Plan how the capture reads the evidence tokens the rules in the first named
+# array mention: `reply` holds `kind via tokens` triples, with the tokens
+# space-separated. Kind `own` tests each token on its own (an exact check or a
+# bounded wildcard). Kind `root` matches its tokens in the root listing, and
+# kind `folder` in one listing of a folder named in the second array; via is
+# the union of their wildcards (`folder/(...)` for a folder), so the capture
+# reads only names some token can match. Only visible one-component wildcards
+# share a listing, and only when the third argument is `1`; a literal name
+# keeps its exact check, which follows the file system's case rules. Pure.
+_prompt_project_capture_plan() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local rules_name=$1 folders_name=$2 listed=$3
+  local token='' pattern='' folder='' rest='' via=''
+  local -i shared=0
+  local -a folders=() own=() names=()
+  local -A held=() bases=()
+  reply=()
+  [[ $folders_name == [A-Za-z_][A-Za-z0-9_]# && $listed == [01] ]] || return 1
+  _prompt_project_rule_tokens "$rules_name" || return 1
+  folders=("${(@P)folders_name}")
+
+  for token in "${reply[@]}"; do
+    # An exclusion after `~` stays in the token and filters each match.
+    pattern=${${token#g:}%%\~*}
+    folder=.
+    rest=$pattern
+    if [[ $pattern == */* ]]; then
+      folder=${pattern%%/*}
+      rest=${pattern#*/}
+    fi
+    shared=0
+    if (( listed )) && [[ $token == g:* && $rest != (.*|*/*) &&
+                          $rest == *[\*\?\[\(\<\^\#]* ]]; then
+      [[ $folder == . ]] || (( ${folders[(Ie)$folder]} )) && shared=1
+    fi
+    if (( !shared )); then
+      own+=("$token")
+    else
+      (( ${names[(Ie)$folder]} )) || names+=("$folder")
+      held[$folder]+=" $token"
+      bases[$folder]+="|$rest"
+    fi
+  done
+
+  reply=()
+  (( ${#own} )) && reply+=(own - "${(j: :)own}")
+  for folder in "${names[@]}"; do
+    via="(${bases[$folder]#|})"
+    if [[ $folder == . ]]; then
+      reply+=(root "$via" "${held[$folder]# }")
+    else
+      reply+=(folder "$folder/$via" "${held[$folder]# }")
+    fi
+  done
 }
 
 # Classify one project root from captured marker evidence. Pure: it reads only
@@ -2457,11 +2519,11 @@ _prompt_project_context() {
   local dir='' project_root=''
   local language version expected color label
   local runtime_text warning_text
-  local marker hook token
+  local marker hook token kind via group
   local -i large_project=0 custom_marker=0 index=0
   local -i runtime_width=0 warning_width=0
   local -a languages rendered rendered_widths matches root_entries markers
-  local -a rules tokens marker_evidence reply=()
+  local -a rules capture listing marker_evidence reply=()
   local -a tools frameworks environment warnings warning_widths attention
 
   _PROMPT_PROJECT_NAME_TEXT=''
@@ -2487,33 +2549,53 @@ _prompt_project_context() {
     (( ${#root_entries} >= 129 )) && large_project=1
   fi
 
-  # Capture every marker token the applicable rules name, testing each once
-  # with an exact check or a bounded wildcard; classification below is pure.
-  # The token lists derive from the constant rule table once per shell.
+  # Capture every marker token the applicable rules name, testing each once;
+  # classification below is pure. An ordinary root matches wildcards in the
+  # listing above and in one read of each conventional folder, through a glob
+  # of only the names its rules can match; other tokens keep an exact check
+  # or a bounded wildcard. The plans derive from the constant rule table once
+  # per shell.
   if (( large_project )); then
-    if (( ! ${#_PROMPT_PROJECT_MANIFEST_TOKENS} )); then
+    if (( ! ${#_PROMPT_PROJECT_MANIFEST_CAPTURE} )); then
       rules=(${(M)_PROMPT_PROJECT_RULES:#manifest:*})
-      _prompt_project_rule_tokens rules
-      _PROMPT_PROJECT_MANIFEST_TOKENS=("${reply[@]}")
+      _prompt_project_capture_plan rules _PROMPT_SOURCE_SCAN_FOLDERS 0
+      _PROMPT_PROJECT_MANIFEST_CAPTURE=("${reply[@]}")
     fi
-    tokens=("${_PROMPT_PROJECT_MANIFEST_TOKENS[@]}")
+    capture=("${_PROMPT_PROJECT_MANIFEST_CAPTURE[@]}")
   else
-    if (( ! ${#_PROMPT_PROJECT_TOKENS} )); then
+    if (( ! ${#_PROMPT_PROJECT_CAPTURE} )); then
       rules=(${_PROMPT_PROJECT_RULES:#manifest:*})
-      _prompt_project_rule_tokens rules
-      _PROMPT_PROJECT_TOKENS=("${reply[@]}")
+      _prompt_project_capture_plan rules _PROMPT_SOURCE_SCAN_FOLDERS 1
+      _PROMPT_PROJECT_CAPTURE=("${reply[@]}")
     fi
-    tokens=("${_PROMPT_PROJECT_TOKENS[@]}")
+    capture=("${_PROMPT_PROJECT_CAPTURE[@]}")
+    # A wildcard that does not start with a dot never matches a hidden name.
+    root_entries=(${root_entries:#$dir/.*})
   fi
-  for token in "${tokens[@]}"; do
-    case $token in
-      (f:*) [[ -f $dir/${token#f:} ]] ;;
-      (d:*) [[ -d $dir/${token#d:} ]] ;;
-      (e:*) [[ -e $dir/${token#e:} ]] ;;
-      (g:*)
-        matches=("$dir"/${~token#g:}(NY1oN))
-        (( ${#matches} )) ;;
-    esac && marker_evidence+=("$token")
+  for kind via group in "${capture[@]}"; do
+    listing=()
+    case $kind in
+      (root) listing=(${(M)root_entries:#$dir/${~via}}) ;;
+      (folder) listing=("$dir"/${~via}(NY129oN)) ;;
+    esac
+    # A listing without candidates proves every token it holds absent.
+    [[ $kind != own ]] && (( ! ${#listing} )) && continue
+    for token in ${(s: :)group}; do
+      case $token in
+        (f:*) [[ -f $dir/${token#f:} ]] ;;
+        (d:*) [[ -d $dir/${token#d:} ]] ;;
+        (e:*) [[ -e $dir/${token#e:} ]] ;;
+        (g:*)
+          # More candidates than one bounded listing holds keep exact
+          # per-token wildcards.
+          if [[ $kind == own ]] || (( ${#listing} > 128 )); then
+            matches=("$dir"/${~token#g:}(NY1oN))
+          else
+            matches=(${(M)listing:#$dir/${~token#g:}})
+          fi
+          (( ${#matches} )) ;;
+      esac && marker_evidence+=("$token")
+    done
   done
   markers=("${PROMPT_PROJECT_MARKERS[@]}")
   (( large_project )) &&

@@ -66,6 +66,10 @@ trees ([log monitor](xcode-log-monitor.md));
 `file-search-stream.zsh` compares the Git and Spotlight file-search provider
 captures over a real repository and stubbed listings in two trees
 ([excellence run](excellence-2026-10-12.md#performance-results));
+`prompt-project-detect.zsh` compares prompt project detection and the
+complete prompt update outside Git, over small, C, flat-`src/`, flat-`public/`
+and no-project fixtures, in two trees
+([architecture pass](architecture-2026-10-14.md#performance-results));
 `first-editable-prompt.zsh` is historical (pre-async), and
 the superseded `manual-cache-parity.zsh` is in `archive/benchmarks/`.
 

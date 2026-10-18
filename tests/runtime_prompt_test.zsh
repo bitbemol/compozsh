@@ -194,7 +194,9 @@ _test_prompt_project_matrix() {
 # Characterize the merged, ordered project items that root and conventional
 # folder language rules produce. `mix.exs` adds a marker-only language that is
 # always last in rule order, so a language the rules miss but the resolver
-# still reports would move behind it and change the pinned order.
+# still reports would move behind it and change the pinned order. The
+# `literal-*[x]` folder name pins that pattern characters in the project path
+# stay literal.
 _test_prompt_project_detection_rules() {
   test_make_temp_dir || return
   local rule='' folder='' extension='' language='' name='' expected_text=''
@@ -292,6 +294,7 @@ _test_prompt_project_detection_rules() {
     'shell-lib=.git/,lib/x.sh'
     'shell-make=Makefile,x.sh'
     'shell-hidden=.git/,.x.sh'
+    'literal-*[x]=src/x.c,Project.swift,lib/x.lua,mix.exs'
   )
   expected+=(
     'tf-json=terraform 1,elixir 1,mix'
@@ -315,6 +318,7 @@ _test_prompt_project_detection_rules() {
     'shell-lib=shell 1'
     'shell-make=make'
     'shell-hidden='
+    'literal-*[x]=c-cpp 1,lua 1,elixir 1,mix'
   )
 
   output=$(_test_prompt_project_matrix "${specs[@]}") || return
@@ -323,6 +327,32 @@ _test_prompt_project_detection_rules() {
 }
 test_case 'prompt project detection characterizes root and conventional-folder language rules' \
   _test_prompt_project_detection_rules
+
+# A conventional folder holding more rule candidates than one bounded listing
+# keeps exact evidence for every rule. The rule table is replaced with
+# extensions outside the resolver's source sample, so the root stays on the
+# ordinary path. `zone.vue` must still be found among 2,000 `.tsx` files;
+# both APFS (hash) and sorted directory order list it after the first 129.
+_test_prompt_project_detection_dense_folder() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    _prompt_runtime_version() { REPLY=1; }
+    _PROMPT_PROJECT_RULES=("language:tsx g:src/*.tsx" "language:vue g:src/*.vue")
+    local root=$2
+    local -i i=0
+    command mkdir -p -- "$root/src" || exit 1
+    : >| "$root/package.json" && : >| "$root/src/zone.vue" || exit 1
+    for (( i = 1; i <= 2000; i++ )); do : >| "$root/src/x-$i.tsx" || exit 1; done
+    builtin cd -- "$root" || exit 2
+    _prompt_project_context
+    print -r -- "${${(j:,:)_PROMPT_PROJECT_ITEMS//\%F\{default\}/}//\%f/}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/dense") || return
+  test_assert_equal 'tsx 1,vue 1' "$output"
+}
+test_case 'prompt project detection stays exact in a dense conventional folder' \
+  _test_prompt_project_detection_dense_folder
 # Characterize marker-driven languages, tools, frameworks and environment
 # signals, one fixture each. Every fixture holds `.git/` and `x.sh`, so the
 # shell fallback also shows whether the markers made the folder a recognized
