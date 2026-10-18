@@ -191,6 +191,65 @@ The inline fallback frame now fits below the living prompt.
 | `15d4e36` | P3-12 (B-07) | Move Files guide facts and plan heading roles out of the engine |
 | `4ed0cfe` | P3-13 (B-05) | Fit the inline fallback frame below the living prompt |
 
+### Phase 4: peer decomposition and duplication (parallel lanes)
+
+The owner approved running phase 4 in four parallel git worktree lanes. Each
+lane owned disjoint peer files:
+
+- USB: `.zsh.usb`;
+- Xcode: `.zsh.xcode`;
+- Git and editor: Git review, navigation and the editor;
+- Prompt: `.zsh.prompt`, plus the Git operation and filter support.
+
+Inside a lane, units ran one at a time under the same rules as the other
+phases, and lane agents did not edit this record. All 27 commit units landed
+on their first attempt, at 3–28 minutes each. Every lane ended with a green
+full suite. The lanes took about 2.5 hours, against about 7.5 hours
+sequentially.
+
+The orchestrator then integrated the work:
+
+1. It fast-forwarded the USB lane and cherry-picked the other three onto this
+   branch. There were no conflicts; SECURITY.md merged automatically.
+2. It ran the full suite on the combined tree: 1,099 passed, 0 failed.
+3. It applied the three owner-approved patches, P4-30, P4-31 and P4-29,
+   re-checking red against the prior HEAD and green, plus focused filters,
+   for each.
+4. It ran a final full suite: 1,104 passed, 0 failed.
+
+| Commit | Unit | Lane | Subject |
+| --- | --- | --- | --- |
+| `bebc361` | P4-01 (A1-04, A1-05) | usb | Branch USB recovery on an error kind and delete dead USB helpers |
+| `e246694` | P4-02 (A1-06) | usb | Drop USB load globals that the flash and format tasks scope locally |
+| `08c320e` | P4-03 (A1-06, SEC-C-02) | usb | Make the remaining USB capture state invocation-local |
+| `976eb4b` | P4-04 (A1-10) | usb | Extract pure USB write-geometry and failure-mapping records |
+| `146e52a` | P4-05 (A1-10) | usb | Extract pure USB review rows, progress parsing and media labels |
+| `a8debc5` | P4-06 (A1-09) | usb | Share the USB execution prologue and epilogue |
+| `8cc78c9` | P4-07 (A1-09) | usb | Run USB workers through one progress loop |
+| `aedefea` | P4-08 (A1-11) | xcode | Add an Xcode optional plist helper and one export vendor table |
+| `1399ad7` | P4-09 (A1-11) | xcode | Key the Xcode destination cache by scheme records |
+| `d576e74` | P4-10 (A1-11) | xcode | Build Xcode test results from one pure model |
+| `13ce4e6` | P4-11 (U65, XCODE-05, A1-11) | xcode | Format each retained Xcode log line once per collection |
+| `615a8c5` | P4-12 (A1-08) | xcode | Stop Xcode child processes through one grace-period helper |
+| `4c6d3f4` | P4-13 (A1-07) | xcode | Share the Xcode run Copy-and-reopen screen loop |
+| `6b1470a` | P4-14 (A1-07) | xcode | Own Xcode Run session state in one function for both modes |
+| `2ce7ee8` | P4-17 (A2-11, D-08) | git | Rebind Git review selection through one refresh helper |
+| `49cdd2b` | P4-18 (A2-10) | git | Prefix Git review session names that engine hooks read |
+| `40dfbb4` | P4-19 (A2-10) | git | Pass navigation context explicitly and open review through one entry |
+| `eb93a5a` | P4-20 (A2-12) | git | Match directory picker candidates through the shared collector |
+| `37f5924` | P4-21 (A2-13) | git | Capture the alias option at widget entry; disclose in-widget hooks |
+| `2f724b2` | P4-22 (A2-09) | prompt | Lay out the prompt context row only at capture and resize |
+| `a63c783` | P4-23 (D-09) | prompt | Pin Interaction kind precedence with a neighbor matrix |
+| `272869b` | P4-24 (D-09) | prompt | Split the Interaction model into lex, heads, rows and enrich steps |
+| `c773e5b` | P4-25 (D-09) | prompt | Classify Interaction kinds through ordered matcher functions |
+| `dae4cce` | P4-26 (C-06, U62, PROMPT-04) | prompt | Characterize prompt project detection across project folders |
+| `2cba80c` | P4-27 (C-06, U62, A2-decomposition) | prompt | Classify project languages, tools and frameworks from marker tables |
+| `a1727c4` | P4-28 (C-06, U62, PROMPT-04) | prompt | Read each conventional project folder once during detection |
+| `d2eb3cf` | P4-16 (A2-06) | prompt | Check Git operation markers from one table with two policies |
+| `7bd92c0` | P4-30 (U11 follow-up, excellence open owner question 2), patch | usb | Refuse USB image sources that sit on a virtual disk |
+| `70203b0` | P4-31 (Git audit note, excellence open owner question 4), patch | git | Bound the bare g branch catalog with an honest partial notice |
+| `450393e` | P4-29 (A2-05, D-05), patch | prompt | Route prompt, filter and discard Git reads through the shared entry |
+
 ## Release notes
 
 - Ctrl-C in a Compozsh workspace now exits with status 130 from every
@@ -253,6 +312,43 @@ The inline fallback frame now fits below the living prompt.
   starts with "Safety" stays ordinary text. Review colours and the "use Git
   for the remaining text" truncation note now belong to Git review documents
   only (P3-12, B-07).
+- `external-device --flash` and `--format` keep every capture, helper result
+  and picker selection or filter bookmark local to the task. Nothing from a
+  USB session (disk names, sizes, checksums, filter text) is left in the
+  shell afterwards (P4-02, P4-03).
+- `external-device --flash` refuses media stored on a virtual disk (a mounted
+  disk image, sparsebundle or RAID set) before any drive is listed. macOS
+  does not report which drives hold such a disk, so they could not be kept
+  out of the target list. Copy the media to a regular drive and choose the
+  copy. Physical drives, including Apple silicon internal storage and Fusion
+  drives, work as before (P4-30).
+- Xcode test results list each source location of a failed test on its own
+  line. Before, a stray `$'\n  '` appeared between them (P4-10).
+- Xcode Logs filtering is faster: each retained log line is formatted once
+  per update instead of twice (P4-11).
+- `xcode --export-skills --help` lists one aligned row per supported agent
+  and skill folder, generated from the same table the export uses (P4-08).
+- `g --discard-all` also refuses when only a merge autostash or bisect-start
+  marker remains, or when an operation marker has an unexpected file type.
+  Worktree move and removal use the same check (P4-16).
+- `g` reads at most 5,000 local branches (512 KiB of names), current branch
+  first. In larger repositories its header says "partial", filtering covers
+  the captured branches only, and remote-tracking suggestions are off. Use
+  `g switch <name>` or `g branch --list <pattern>` for other branches.
+  Branch details are built only for the selected row (P4-31).
+- After a Browse or Recents Change directory, the Interaction lens no longer
+  previews alias expansion while `ALIASES` is off. `PROMPT_PROJECT_CONTEXT_FUNCTIONS`
+  hooks are documented as also running after such a change (P4-21).
+- Typing at the living prompt no longer rebuilds the compact context row on
+  every keystroke (P4-22).
+- Project detection reads each conventional source folder once instead of
+  once per rule. The indicative median drops from about 3 ms to 1.4 ms per
+  prompt for a small project, and from about 16 ms to 4.6 ms for a flat
+  `src/` of 800 files (P4-27, P4-28).
+- The prompt's Git status, Git filter discovery and every Git command of
+  `g --discard-all` go through the shared local-only Git entry. They now also
+  disable commit-signature verification and the untracked cache. If shared
+  support is missing, `g --discard-all` refuses before running Git (P4-29).
 
 ## Performance results
 
