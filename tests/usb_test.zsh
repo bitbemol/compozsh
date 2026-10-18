@@ -1224,7 +1224,7 @@ _test_usb_apfs_source_run() {
       REPLY+="</array>"
     }
     whole() {
-      plist "$(key DeviceIdentifier $1)$(key ParentWholeDisk $1)<key>TotalSize</key><integer>$2</integer><key>DeviceBlockSize</key><integer>512</integer>$(key MediaName "$3")$(key BusProtocol USB)<key>Internal</key><false/>$(key VirtualOrPhysical Physical)<key>WholeDisk</key><true/><key>WritableMedia</key><true/>"
+      plist "$(key DeviceIdentifier $1)$(key ParentWholeDisk $1)<key>TotalSize</key><integer>$2</integer><key>DeviceBlockSize</key><integer>512</integer>$(key MediaName "$3")$(key BusProtocol USB)<key>Internal</key><false/>$(key VirtualOrPhysical "${4:-Physical}")<key>WholeDisk</key><true/><key>WritableMedia</key><true/>"
     }
     _usb_image_filesystem_device_capture() { _USB_IMAGE_DEVICE=/dev/disk5s1; }
     _usb_diskutil_run() {
@@ -1236,8 +1236,17 @@ _test_usb_apfs_source_run() {
         ("info -plist /dev/disk4s3") plist "$(key DeviceIdentifier disk4s3)$(key ParentWholeDisk disk4)" ;;
         ("info -plist /dev/disk7s2") plist "$(key DeviceIdentifier disk7s2)$(key ParentWholeDisk disk7)" ;;
         ("info -plist /dev/disk8s2") plist "$(key DeviceIdentifier disk8s2)" ;;
+        ("info -plist /dev/disk0s2") plist "$(key DeviceIdentifier disk0s2)$(key ParentWholeDisk disk0)" ;;
+        ("info -plist /dev/disk10s2") plist "$(key DeviceIdentifier disk10s2)$(key ParentWholeDisk disk10)" ;;
+        ("info -plist /dev/disk12s2") plist "$(key DeviceIdentifier disk12s2)$(key ParentWholeDisk disk12)" ;;
+        ("info -plist /dev/disk14s2") plist "$(key DeviceIdentifier disk14s2)$(key ParentWholeDisk disk14)" ;;
         ("info -plist /dev/disk4") whole disk4 1000204886016 "Example SSD holding the image" ;;
         ("info -plist /dev/disk6") whole disk6 64023257088 "Example empty stick" ;;
+        ("info -plist /dev/disk7") whole disk7 3000592982016 "Example Fusion hard disk" ;;
+        ("info -plist /dev/disk0") whole disk0 1000555581440 "Example internal storage" Unknown ;;
+        ("info -plist /dev/disk10") whole disk10 8589934592 "Example attached disk image" Virtual ;;
+        ("info -plist /dev/disk11") whole disk11 2000398934016 "Example RAID set" Virtual ;;
+        ("info -plist /dev/disk14") whole disk4 1000204886016 "Example answer for another disk" ;;
         (*) return 1 ;;
       esac
     }
@@ -1337,6 +1346,74 @@ _test_usb_source_exclusion_covers_every_store_and_fails_closed() {
 }
 test_case 'USB source exclusion covers every APFS store and fails closed when unresolved' \
   _test_usb_source_exclusion_covers_every_store_and_fails_closed
+
+# An attached disk image, sparsebundle or AppleRAID set is a virtual whole disk;
+# diskutil info does not name the drives behind it, so they could not be
+# excluded as targets. Internal Apple silicon storage reports Unknown, not
+# Physical, so only an explicit Virtual refuses.
+_test_usb_source_exclusion_refuses_virtual_whole_disks() {
+  test_make_temp_dir || return
+  local output='' probe='' virtual_error=''
+  virtual_error='the media is on a virtual disk (a mounted disk image, sparsebundle, or RAID set); copy it to a regular drive first'
+  output=$(_test_usb_apfs_source_run '
+    probe() {
+      volume_keys=$2
+      _usb_image_source_disk_capture /Volumes/Image/linux.iso
+      print -r -- "$1:$?|source:$_USB_IMAGE_SOURCE_DISK|kind:$_USB_CAPTURE_ERROR_KIND|error:$_USB_CAPTURE_ERROR"
+    }
+    stores disk10s2; probe apfs-on-disk-image "$REPLY"
+    stores disk11; probe apfs-on-raid-set "$REPLY"
+    stores disk4s2 disk10s2; probe fusion-with-virtual-store "$REPLY"
+    probe hfs-on-disk-image "$(key DeviceIdentifier disk5s1)$(key ParentWholeDisk disk10)"
+    stores disk12s2; probe unreadable-whole-disk "$REPLY"
+    stores disk14s2; probe mismatched-whole-disk "$REPLY"
+    stores disk0s2; probe internal-unknown "$REPLY"
+    stores disk4s2; probe external-physical "$REPLY"
+    _USB_IMAGE_PATHS=(/Volumes/Image/linux.iso) _USB_IMAGE_LABELS=(linux.iso)
+    _USB_IMAGE_DETAILS=(details) _USB_IMAGE_SIZES=(1048576)
+    _USB_IMAGE_FINGERPRINTS=(image-fingerprint)
+    stores disk10s2; volume_keys=$REPLY
+    _usb_disks_capture() { trace+=(target-capture); return 1; }
+    call=0
+    _usb_choose() {
+      (( ++call ))
+      print -r -- "view${call}:$1|${(j:,:)_USB_PICKER_VALUES}|${(j:,:)_USB_PICKER_PASSIVE_LINES}"
+      case $call in
+        1) _ZLE_PICKER_SELECTED_VALUE=image:1 ;;
+        2) _ZLE_PICKER_SELECTED_VALUE=back ;;
+        *) return 2 ;;
+      esac
+    }
+    trace=()
+    _usb_workspace_controller
+    print -r -- "flow:$?|trace:${(j:,:)trace}"
+  ') || return
+
+  for probe in apfs-on-disk-image apfs-on-raid-set fusion-with-virtual-store \
+      hfs-on-disk-image; do
+    test_assert_contains "$output" "$probe:1|source:|kind:virtual-source|error:$virtual_error" \
+      "a source on a virtual whole disk ($probe) was not refused" || return
+  done
+  test_assert_contains "$output" \
+    'unreadable-whole-disk:1|source:|kind:|error:diskutil could not inspect /dev/disk12' \
+    'an unreadable whole disk behind the source was not refused as unestablished' || return
+  test_assert_contains "$output" \
+    'mismatched-whole-disk:1|source:|kind:|error:diskutil described another disk than /dev/disk14' \
+    'whole-disk facts for another disk were accepted for the source' || return
+  test_assert_contains "$output" 'internal-unknown:0|source:disk0|kind:|error:' \
+    'internal storage reporting Unknown was refused as virtual' || return
+  test_assert_contains "$output" 'external-physical:0|source:disk4|kind:|error:' \
+    'a source on a physical external disk was refused' || return
+  test_assert_contains "$output" \
+    'view2:External device / Flash · Media compatibility|back|Media on a virtual disk · Nothing can be written' \
+    'a virtual-disk source was not refused with a clear message and a way back' || return
+  test_assert_contains "$output" 'flow:2|trace:' \
+    'a refused virtual-disk source reached target capture or an effect' || return
+  [[ $output != *view2:*retry* ]] ||
+    test_fail 'a virtual-disk refusal offered a retry that cannot succeed'
+}
+test_case 'USB source exclusion refuses media on a virtual whole disk' \
+  _test_usb_source_exclusion_refuses_virtual_whole_disks
 
 # Integer assignment evaluates arithmetic, including $(...) in a subscript, and
 # 19 or more digits truncate or wrap; validate plist text before either.

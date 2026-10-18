@@ -1137,6 +1137,20 @@ state-changing mode.
    runs with privilege), and an Apple-signature-validated `createinstallmedia`
    from the explicitly selected macOS installer application.
 
+A write never targets the disk holding its own source. Before drive capture,
+`_usb_image_source_disk_capture` in `.zsh.addons/.zsh.usb` resolves the
+selected media's filesystem device with `/bin/df` and `diskutil info`, follows
+an APFS volume to the whole disk of every physical store behind its container,
+excludes those whole disks from the drive list, and refuses them again before
+any effect when the write starts. Media on a whole disk that `diskutil` reports
+as virtual (a mounted disk image, sparsebundle or AppleRAID set) is refused
+before any drive is captured, because macOS does not report the drives behind
+it; copy it to a regular drive first. A device, physical store or whole disk
+that cannot be resolved is refused too. Media on a filesystem whose device is
+not a local `/dev/disk` node, such as a network share, maps to no local disk
+and needs no exclusion. `zsh tests/run.zsh 'USB source exclusion'` checks these
+cases against recorded `diskutil` answers.
+
 Apple signature validation never consults the requirement a signer declares
 for its own code. `_usb_codesign_is_apple` and
 `_usb_codesign_is_apple_application` in `.zsh.addons/.zsh.usb` pass fixed
@@ -1775,6 +1789,7 @@ server.
 | Task routing and external-device modes | `task families` |
 | USB progress, phase and disk-size number bounds | `USB numeric bounds` |
 | External media writes, read-back and temporary files | `USB raw`, `USB verification`, `USB temporary`, `ISO inspection`, `external-media temporary` |
+| Source disk excluded from targets; media on a virtual disk refused | `USB source exclusion` |
 | External device captures released when the task returns | `USB invocation state` |
 | Apple signature before `createinstallmedia` runs as root | `USB Apple signature boundary`, `USB macOS` |
 | Touch ID policy in unprivileged fixtures | `sudo Touch ID` |

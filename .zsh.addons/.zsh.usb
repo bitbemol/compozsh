@@ -1025,20 +1025,47 @@ _usb_plist_whole_disk() {
   [[ $parent == disk<-> ]]
 }
 
+# Accept one whole disk behind the source unless diskutil reports it Virtual.
+# An attached disk image, sparsebundle or AppleRAID set hides the drives that
+# hold it, so they could not be excluded as targets; refuse instead of tracing
+# them. Internal Apple silicon storage reports Unknown, so only Virtual refuses.
+# $2/$3 are an identifier and plist already read, reused when $1 names it.
+_usb_source_whole_disk_check() {
+  emulate -L zsh
+  local whole=$1 plist=$3
+  if [[ $whole != "$2" ]]; then
+    _usb_disk_info_read "$whole" || return
+    plist=$_USB_PLIST
+  fi
+  _usb_plist_optional "$plist" DeviceIdentifier
+  [[ $REPLY == "$whole" ]] || {
+    _USB_CAPTURE_ERROR="diskutil described another disk than /dev/$whole"
+    return 1
+  }
+  _usb_plist_optional "$plist" VirtualOrPhysical
+  [[ $REPLY == Virtual ]] || return 0
+  _USB_CAPTURE_ERROR='the media is on a virtual disk (a mounted disk image, sparsebundle, or RAID set); copy it to a regular drive first'
+  _USB_CAPTURE_ERROR_KIND=virtual-source
+  return 1
+}
+
 # Resolve a local source volume through diskutil metadata instead of deriving a
 # whole-disk identifier from a partition name. An APFS volume's ParentWholeDisk
 # is its synthesized (Virtual) container, never a physical target, so each APFS
 # physical store resolves to its own whole disk; a Fusion container spans two.
 # The result is one or more space-separated diskN identifiers, and anything
-# unestablished fails closed. Network/FileProvider sources do not map to a
-# local /dev/disk target and therefore need no exclusion.
+# unestablished fails closed, as does a whole disk diskutil reports Virtual.
+# _USB_CAPTURE_ERROR_KIND is virtual-source for that refusal, which no retry
+# can resolve, and empty otherwise. Network/FileProvider sources do not map to
+# a local /dev/disk target and therefore need no exclusion.
 _usb_image_source_disk_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local image_path=$1 device='' identifier='' plist='' count='' store=''
+  local image_path=$1 device='' identifier='' plist='' count='' store='' whole=''
+  local store_plist=''
   local -i index=0
   local -a disks=()
-  _USB_IMAGE_SOURCE_DISK='' _USB_CAPTURE_ERROR=''
+  _USB_IMAGE_SOURCE_DISK='' _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND=''
   _usb_image_filesystem_device_capture "$image_path" || return
   device=$_USB_IMAGE_DEVICE
   [[ $device == /dev/disk* ]] || return 0
@@ -1061,7 +1088,9 @@ _usb_image_source_disk_capture() {
       _USB_CAPTURE_ERROR='diskutil could not resolve the image filesystem to a whole disk'
       return 1
     }
-    _USB_IMAGE_SOURCE_DISK=$REPLY
+    whole=$REPLY
+    _usb_source_whole_disk_check "$whole" "$identifier" "$plist" || return
+    _USB_IMAGE_SOURCE_DISK=$whole
     return 0
   fi
   [[ $count == <1-16> ]] || {
@@ -1076,11 +1105,15 @@ _usb_image_source_disk_capture() {
       return 1
     }
     _usb_disk_info_read "$store" || return
-    _usb_plist_whole_disk "$_USB_PLIST" || {
+    store_plist=$_USB_PLIST
+    _usb_plist_whole_disk "$store_plist" || {
       _USB_CAPTURE_ERROR="diskutil could not resolve APFS physical store /dev/$store to a whole disk"
       return 1
     }
-    (( ${disks[(Ie)$REPLY]} )) || disks+=("$REPLY")
+    whole=$REPLY
+    (( ${disks[(Ie)$whole]} )) && continue
+    _usb_source_whole_disk_check "$whole" "$store" "$store_plist" || return
+    disks+=("$whole")
   done
   _USB_IMAGE_SOURCE_DISK=${(j: :)disks}
 }
@@ -1685,6 +1718,14 @@ _usb_image_source_disk_retry() {
   while true; do
     _usb_image_source_disk_capture "$image" && return 0
     error=${_USB_CAPTURE_ERROR:-'macOS did not return a usable image-volume snapshot'}
+    if [[ $_USB_CAPTURE_ERROR_KIND == virtual-source ]]; then
+      _usb_media_attention_choose "$image" \
+        'Media on a virtual disk · Nothing can be written' \
+        'Media on a virtual disk'$'\n\n''The selected media is on a mounted disk image, sparsebundle, or RAID set. macOS does not report which drives hold that virtual disk, so Compozsh cannot keep them out of the drive list and refuses the media before any drive is captured.'$'\n\n''Copy the media to a regular internal or external drive, then choose the copy.'
+      result=$?
+      (( result <= 1 )) && return 1
+      return $result
+    fi
     _USB_PICKER_VALUES=(retry image)
     _USB_PICKER_LABELS=(
       'Retry image-volume access · permission may have changed'
@@ -3560,9 +3601,12 @@ _usb_help_flash() {
     '  The workspace excludes internal, virtual, read-only, partition-slice,' \
     '  and undersized targets. USB, Thunderbolt, and other external transports' \
     '  are eligible; protocol, media name, exact /dev/diskN, and size are shown.' \
-    '  The whole disk holding the selected image is also excluded, so a target' \
-    '  can never destroy its own source during dd. For an APFS volume, that is' \
-    '  the whole disk of every physical store behind its container.' \
+    '  The whole disk holding the selected media is also excluded, so a write' \
+    '  can never target its own source. For an APFS volume, that is the whole' \
+    '  disk of every physical store behind its container. Media on a virtual' \
+    '  disk (a mounted disk image, sparsebundle, or RAID set) is refused before' \
+    '  target capture, because macOS does not report the drives behind it; copy' \
+    '  it to a regular drive first.' \
     '  Step 2 Ctrl-R performs a fresh target capture without losing the selected' \
     '  image, including after a newly connected drive becomes available.' \
     '  A drive macOS ejected can remain physically plugged in while absent from' \

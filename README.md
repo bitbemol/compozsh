@@ -1295,7 +1295,9 @@ Names containing `x86_64`/`amd64` or `arm64`/`aarch64` show **x86-64** or
   Nothing is written.
 
 **Step 2 · External drive** lists eligible USB, SSD and Thunderbolt disks,
-excluding undersized disks and the disk holding the image.
+excluding undersized disks and the disk holding the image. Media on a mounted
+disk image, sparsebundle or RAID set is refused before this step, because macOS
+does not report which drives hold it; copy it to a regular drive first.
 
 **Step 3 · Flash** defaults to **Start flash & verify**, and also offers **Flash
 without verification** and **Add image checksum…** (SHA-256 or SHA-512). A
