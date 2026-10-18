@@ -1241,9 +1241,11 @@ test_case 'USB source exclusion covers every APFS store and fails closed when un
 # 19 or more digits truncate or wrap; validate plist text before either.
 _test_usb_plist_capture_rejects_hostile_numbers() {
   test_make_temp_dir || return
-  local output='' exit_status=0
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+  local output='' exit_status=0 REPLY=''
+  _test_usb_invocation_state_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
     source "$1/.zsh.addons/.zsh.usb" || exit
+    _test_usb_invocation_state declare
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     head="<?xml version=\"1.0\"?><plist version=\"1.0\"><dict>"
     _usb_disk_list_read() { _USB_PLIST="${head}<key>AllDisks</key><string>99999999999999999999</string></dict></plist>"; }
@@ -2583,15 +2585,44 @@ _test_usb_format_catalog_failure_is_not_a_cancel() {
 test_case 'USB format catalog failure is reported, not treated as cancel' \
   _test_usb_format_catalog_failure_is_not_a_cancel
 
+# Script helper: _usb_flash and _usb_format declare their capture and result
+# facts as typed locals, so nothing holds them at load. _test_usb_invocation_state
+# sets reply to those names; with "declare" it also declares each globally with
+# the entry point's type and initial value, so a script that calls a USB helper
+# directly runs it against the same typed state (integer assignment included).
+_test_usb_invocation_state_script() {
+  REPLY='
+  _test_usb_invocation_state() {
+    local entry="" line="" word=""
+    local -a words=() flags=()
+    reply=()
+    for entry in _usb_flash _usb_format; do
+      for line in "${(@f)functions[$entry]}"; do
+        words=(${(z)line})
+        [[ ${words[1]-} == local ]] || continue
+        flags=("${(@M)words:#-*}")
+        for word in "${(@M)words:#_USB_*}"; do
+          reply+=("${word%%=*}")
+          [[ ${1-} == declare ]] && typeset -g "${flags[@]}" -- "${(Q)word}"
+        done
+      done
+    done
+    reply=("${(@u)reply}")
+  }
+'
+}
+
 # Disk identity, image identity and writer diagnostics last only as long as
-# the external-device invocation: afterwards every _USB_* parameter is back to
-# its load-time value, whether the user leaves at Step 2 or a write fails.
+# the external-device invocation: no name an entry point scopes exists at load,
+# and afterwards every _USB_* parameter is back to its load-time value, whether
+# the user leaves at Step 2 or a write fails.
 _test_usb_invocation_state_ends_when_external_device_returns() {
   test_make_temp_dir || return
-  local image="$TEST_TMP_DIR/media/compozsh-invocation.img" output='' snapshot=''
+  local image="$TEST_TMP_DIR/media/compozsh-invocation.img" output='' snapshot='' REPLY=''
   # 65,535 bytes plus the trailing newline: one 64 KiB, 512-byte-aligned image.
   test_write_file "$image" "${(l:65535::x:)}" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+  _test_usb_invocation_state_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset" || exit
     for usb_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do
       source "$usb_component" || exit
@@ -2679,8 +2710,13 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
     [[ $captured == *END-USB-INVOCATION* ]] || exit 4
     print -r -- "trace:${(j:,:)${(f)$(<"$HOME/trace")}}"
     local -a baseline=("${(@f)$(<"$HOME/baseline")}") current=() added=() removed=()
-    local -a known=("${(@M)baseline:#(_USB_INFO_NAME|_USB_WRITE_ERROR) *}")
-    print -r -- "baseline-entries:${#known}"
+    # A name an entry point scopes has no global value (engineering/zsh.md).
+    local -a load_names=("${(@)baseline%% *}") scoped=()
+    _test_usb_invocation_state
+    scoped=("${reply[@]}")
+    print -r -- "scoped-names:${#scoped}"
+    print -r -- "scoped-at-load:${(j:,:)${(@)load_names:*scoped}}"
+    print -r -- "load-constant:${#${(@M)load_names:#_USB_PLIST_MAX_BYTES}}"
     for snapshot in after-flash-escape after-format-escape after-flash-write; do
       current=("${(@f)$(<"$HOME/$snapshot")}")
       added=(${current:|baseline}) removed=(${baseline:|current})
@@ -2693,8 +2729,12 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
   test_assert_contains "$output" \
     'trace:captured:flash:disk9,flash-escape:0,captured:format:disk9,format-escape:0,captured:flash:disk9,result:raw-image:6:drive-read-failed,flash-write:6' \
     'the external-device fixture did not capture the drive and fail the write as staged' || return
-  test_assert_contains "$output" 'baseline-entries:2' \
-    'the parameter snapshot did not see the load-time USB globals' || return
+  test_assert_contains "$output" 'load-constant:1' \
+    'the parameter snapshot did not see the load-time USB limits' || return
+  [[ $output == *$'\n'scoped-names:<1->$'\n'* ]] ||
+    test_fail "the USB entry points declared no invocation-local state: ${(qqq)output}" || return
+  test_assert_contains "$output" $'\nscoped-at-load:\n' \
+    'a name a USB entry point scopes has a load-time global value' || return
   for snapshot in after-flash-escape after-format-escape after-flash-write; do
     test_assert_contains "$output" $'\n'"${snapshot}:added:"$'\n' \
       "external-device left new or changed USB state after $snapshot" || return
@@ -4000,11 +4040,13 @@ test_case 'USB numeric bounds reject dd byte counts beyond 18 digits without dia
 
 _test_usb_write_progress_bounds_byte_counts() {
   test_make_temp_dir || return
-  local progress_file="$TEST_TMP_DIR/write-progress" output=''
+  local progress_file="$TEST_TMP_DIR/write-progress" output='' REPLY=''
   test_write_file "$progress_file" $'compozsh-write-stage:image\n4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)\r12345678901234567890 bytes transferred in 1.0 secs\rcompozsh-write-stage:verify\ncompozsh-write-verify-bytes:12345678901234567890\n' || return
 
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+  _test_usb_invocation_state_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
     source "$1/.zsh.addons/.zsh.usb" || exit
+    _test_usb_invocation_state declare
     for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     _usb_dd_progress_read "$2" 8388608 0 2>| "$HOME/errors"
     print -r -- "write:$_USB_WRITE_BYTES_OBSERVED|verify:$_USB_WRITE_VERIFY_BYTES_OBSERVED|errors:$(<"$HOME/errors")"
@@ -4018,10 +4060,12 @@ test_case 'USB numeric bounds ignore write progress byte records beyond 18 digit
 
 _test_usb_write_stage_text_is_never_arithmetic() {
   test_make_temp_dir || return
-  local capture_root="$TEST_TMP_DIR/progress-stage-text" output=''
+  local capture_root="$TEST_TMP_DIR/progress-stage-text" output='' REPLY=''
   command mkdir -p "$capture_root" || return
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+  _test_usb_invocation_state_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
     source "$1/.zsh.addons/.zsh.usb" || exit
+    _test_usb_invocation_state declare
     for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     TMPDIR=$2
     local -i planted_status=0 evaluated=0
@@ -4052,9 +4096,11 @@ test_case 'USB numeric bounds compare write stage text literally, never as arith
 
 _test_usb_createinstallmedia_progress_bounds_percent() {
   test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+  local output='' REPLY=''
+  _test_usb_invocation_state_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
     source "$1/.zsh.addons/.zsh.usb" || exit
+    _test_usb_invocation_state declare
     for progress_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$progress_component"; done
     print -r -- $'\''Erasing disk: 42%\rCopying to disk: 12345678901234567890%'\'' >| "$HOME/progress"
     _usb_createinstallmedia_progress_read "$HOME/progress" 2>| "$HOME/errors"
@@ -4069,9 +4115,11 @@ test_case 'USB numeric bounds ignore createinstallmedia percentages beyond 18 di
 
 _test_usb_disk_info_sizes_are_validated_before_integer_assignment() {
   test_make_temp_dir || return
-  local output=''
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+  local output='' REPLY=''
+  _test_usb_invocation_state_script
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
     source "$1/.zsh.addons/.zsh.usb" || exit
+    _test_usb_invocation_state declare
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     local size="" planted=""
     local -i evaluated=0 planted_status=0
