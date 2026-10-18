@@ -14,25 +14,43 @@ unset _COMPOZSH_TOOL_NAMES _COMPOZSH_TOOL_LABELS \
 # Prompt documentation is captured at a prompt boundary, never while editing.
 # These are disposable snapshots of loaded same-source companions, not a tool
 # registry. Definition changes invalidate a snapshot; --refresh also clears it.
+# Identity is kept in parts (source path, both definitions, accounted size),
+# so a prompt compares them instead of rebuilding one joined signature.
 typeset -gA _COMPOZSH_PROMPT_SIGNATURES=() _COMPOZSH_PROMPT_SUMMARIES=()
-typeset -gA _COMPOZSH_PROMPT_OPTIONS=()
+typeset -gA _COMPOZSH_PROMPT_OPTIONS=() _COMPOZSH_PROMPT_COMMANDS=()
+typeset -gA _COMPOZSH_PROMPT_HELPERS=() _COMPOZSH_PROMPT_SIZES=()
 
 # Refresh releases every snapshot, so text for a command removed before the
 # next capture is never kept without its identity.
 _compozsh_prompt_reset() {
   _COMPOZSH_PROMPT_SIGNATURES=() _COMPOZSH_PROMPT_SUMMARIES=()
-  _COMPOZSH_PROMPT_OPTIONS=()
+  _COMPOZSH_PROMPT_OPTIONS=() _COMPOZSH_PROMPT_COMMANDS=()
+  _COMPOZSH_PROMPT_HELPERS=() _COMPOZSH_PROMPT_SIZES=()
 }
 
+# Succeeds while the command and its companion keep the source path
+# (_COMPOZSH_PROMPT_SIGNATURES) and definitions captured for them, so the
+# snapshot still meets the source guard and bounds it was captured under.
 _compozsh_prompt_signature() {
   emulate -L zsh
-  local name=$1 helper="_compozsh_help_$1" source=${functions_source[$1]-}
-  REPLY=''
-  [[ $source == */.zsh.addons/* && $source == ${functions_source[$helper]-} ]] || return 1
-  local command_definition=${functions[$name]-} help_definition=${functions[$helper]-}
-  [[ -n $command_definition && -n $help_definition ]] || return 1
-  (( ${#command_definition} <= 65536 && ${#help_definition} <= 65536 )) || return 1
-  REPLY="$source"$'\n'"$command_definition"$'\n'"$help_definition"
+  local name=$1 helper="_compozsh_help_$1"
+  [[ -n ${_COMPOZSH_PROMPT_COMMANDS[$name]-} &&
+     ${functions_source[$name]-} == "${_COMPOZSH_PROMPT_SIGNATURES[$name]-}" &&
+     ${functions_source[$helper]-} == "${_COMPOZSH_PROMPT_SIGNATURES[$name]-}" &&
+     ${functions[$name]-} == "${_COMPOZSH_PROMPT_COMMANDS[$name]}" &&
+     ${functions[$helper]-} == "${_COMPOZSH_PROMPT_HELPERS[$name]-}" ]]
+}
+
+# Releases one command's snapshot: identity parts, summary and options.
+_compozsh_prompt_forget() {
+  emulate -L zsh
+  local name=$1 key=''
+  unset "_COMPOZSH_PROMPT_SIGNATURES[$name]" "_COMPOZSH_PROMPT_COMMANDS[$name]" \
+    "_COMPOZSH_PROMPT_HELPERS[$name]" "_COMPOZSH_PROMPT_SIZES[$name]" \
+    "_COMPOZSH_PROMPT_SUMMARIES[$name]"
+  for key in ${(k)_COMPOZSH_PROMPT_OPTIONS}; do
+    [[ $key == "$name:"* ]] && unset "_COMPOZSH_PROMPT_OPTIONS[$key]"
+  done
 }
 
 _compozsh_prompt_options_capture() {
@@ -75,22 +93,36 @@ _compozsh_prompt_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   zmodload zsh/parameter || return 1
-  local helper='' name='' signature='' text='' line='' key=''
+  local helper='' name='' source='' command_definition='' help_definition=''
+  local text='' line=''
   local -a live=() lines=()
-  local -i count=0 bytes=0
+  local -i count=0 bytes=0 size=0
   for helper in ${(ok)functions[(I)_compozsh_help_*]}; do
     name=${helper#_compozsh_help_}
     [[ $name == [A-Za-z][A-Za-z0-9_-]# && ${#name} -le 80 ]] || continue
-    _compozsh_prompt_signature "$name" || continue
-    signature=$REPLY
-    (( ++count <= 64 && (bytes += ${#signature}) <= 262144 )) || break
+    if _compozsh_prompt_signature "$name" &&
+       [[ ${_COMPOZSH_PROMPT_SIZES[$name]-} == <1-262144> ]]; then
+      # An unchanged pair keeps its snapshot and its accounted size.
+      size=${_COMPOZSH_PROMPT_SIZES[$name]}
+      (( ++count <= 64 && (bytes += size) <= 262144 )) || break
+      live+=("$name")
+      continue
+    fi
+    source=${functions_source[$name]-}
+    [[ $source == */.zsh.addons/* && $source == ${functions_source[$helper]-} ]] || continue
+    command_definition=${functions[$name]-} help_definition=${functions[$helper]-}
+    [[ -n $command_definition && -n $help_definition ]] || continue
+    (( ${#command_definition} <= 65536 && ${#help_definition} <= 65536 )) || continue
+    # A pair's share of the identity budget: its source path and both
+    # definitions, plus the two separators the joined signature once had.
+    size=$(( ${#source} + ${#command_definition} + ${#help_definition} + 2 ))
+    (( ++count <= 64 && (bytes += size) <= 262144 )) || break
     live+=("$name")
-    [[ ${_COMPOZSH_PROMPT_SIGNATURES[$name]-} == "$signature" ]] && continue
-    _COMPOZSH_PROMPT_SIGNATURES[$name]=$signature
-    unset "_COMPOZSH_PROMPT_SUMMARIES[$name]"
-    for key in ${(k)_COMPOZSH_PROMPT_OPTIONS}; do
-      [[ $key == "$name:"* ]] && unset "_COMPOZSH_PROMPT_OPTIONS[$key]"
-    done
+    _compozsh_prompt_forget "$name"
+    _COMPOZSH_PROMPT_SIGNATURES[$name]=$source
+    _COMPOZSH_PROMPT_COMMANDS[$name]=$command_definition
+    _COMPOZSH_PROMPT_HELPERS[$name]=$help_definition
+    _COMPOZSH_PROMPT_SIZES[$name]=$size
     text=''
     # Help companions are static documentation providers, never public tools.
     # The bounded pipe reads only enough for the introduction and leading options.
@@ -108,11 +140,7 @@ _compozsh_prompt_capture() {
     fi
   done
   for name in ${(k)_COMPOZSH_PROMPT_SIGNATURES}; do
-    (( ${live[(Ie)$name]} )) && continue
-    unset "_COMPOZSH_PROMPT_SIGNATURES[$name]" "_COMPOZSH_PROMPT_SUMMARIES[$name]"
-    for key in ${(k)_COMPOZSH_PROMPT_OPTIONS}; do
-      [[ $key == "$name:"* ]] && unset "_COMPOZSH_PROMPT_OPTIONS[$key]"
-    done
+    (( ${live[(Ie)$name]} )) || _compozsh_prompt_forget "$name"
   done
   return 0
 }
@@ -123,9 +151,8 @@ _compozsh_prompt_description() {
   shift
   reply=()
   (( ${+aliases[$name]} || ${+galiases[$name]} )) && return 1
-  _compozsh_prompt_signature "$name" || return 1
-  [[ $REPLY == ${_COMPOZSH_PROMPT_SIGNATURES[$name]-} &&
-     -n ${_COMPOZSH_PROMPT_SUMMARIES[$name]-} ]] || return 1
+  [[ -n ${_COMPOZSH_PROMPT_SUMMARIES[$name]-} ]] &&
+    _compozsh_prompt_signature "$name" || return 1
   reply=(ABOUT "${_COMPOZSH_PROMPT_SUMMARIES[$name]}")
   # These shapes choose documented topics; they do not validate targets or
   # claim that a command will succeed. Unknown forms retain the tool's ABOUT.

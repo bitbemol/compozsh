@@ -539,6 +539,74 @@ capture and moved within noise (warm: −2.07, −1.42 and −0.99 ms).
 TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/isolated-startup.zsh <before> <after> 15 en_US.UTF-8 direct
 ```
 
+### P5-03: help-description identity validated in parts (C-05, U69, HELP-03)
+
+Every TTY prompt's `_compozsh_prompt_capture`, and every redraw that describes
+a Compozsh command, rebuilt one joined signature per command (source path,
+command definition, companion definition), measured its multibyte length and
+compared it with the stored copy. `.zsh.help` now keeps the identity in parts:
+`_COMPOZSH_PROMPT_SIGNATURES` holds the source path, beside
+`_COMPOZSH_PROMPT_COMMANDS`, `_COMPOZSH_PROMPT_HELPERS` and
+`_COMPOZSH_PROMPT_SIZES`. `_compozsh_prompt_signature` is a status-only
+validator that compares both `functions_source` entries and both `functions`
+entries with the stored parts. An unchanged pair is charged its stored size,
+expanded and matched against `<1-262144>` before any arithmetic uses it; any
+other pair goes through the unchanged source guard and 65,536-character
+definition bounds, and its size (source, both definitions and two separators,
+the old signature's length) counts against the 64-pair / 262,144-character
+budget. `_compozsh_prompt_reset` clears the three new maps, and one helper,
+`_compozsh_prompt_forget`, releases a command's parts, summary and options.
+The same data stays in memory, so SECURITY.md's prompt-description row (64
+pairs, 262,144 characters of identity) holds unchanged. Option (b) of the
+excellence record's owner question 5, lazy validation from edit time, was not
+done; it remains an owner proposal.
+
+`tool descriptions bound definition size and identity budget`, added first,
+passed before and after the change: five pairs of about 60,000 characters and
+one over-bound command, captured twice, describe exactly the first four with
+one help read each; a redefined command or companion from the same file is
+stale until the next capture, which rereads only that pair; removing one
+command releases its identity and lets the fifth pair in. It fails when an
+unchanged pair is not charged against the budget or when the validator skips
+the companion definition. The refresh case now also covers the three new maps
+(it failed with the old `_compozsh_prompt_reset`).
+
+Before tree `git archive 9229ac2`, after tree a copy of the working tree;
+environment as in P5-01, load averages 3.4–3.9. The focused rows come from a
+scratch script: each run starts one `env -i … LC_ALL=en_US.UTF-8 /bin/zsh
+-dfi` shell per tree that sources the tree's `.zshrc`, alternating which goes
+first, captures twice to warm up, then times 200 more captures and 200
+`_compozsh_prompt_description g --review main HEAD` calls (the redraw path)
+with `EPOCHREALTIME`. Its A/A (baseline against baseline, 12 runs, run later
+under more load, at a 1.62 ms capture) differed by −0.01 ms (capture) and
+−0.00 ms (description). The *A/A* column of the PTY rows is a separate
+baseline-against-baseline run of the same benchmark. Milliseconds, *median
+(range)*:
+
+| Metric | Mode | Runs | Before | After | Delta | A/A |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `_compozsh_prompt_capture`, warm | focused | 12×200 | 1.484 (1.478–1.501) | 0.777 (0.774–0.791) | −0.71 (−47.7%) | −0.01 (0.5%) |
+| `_compozsh_prompt_description g --review main HEAD` | focused | 12×200 | 0.414 (0.413–0.416) | 0.204 (0.203–0.207) | −0.21 (−50.8%) | −0.00 (0.2%) |
+| Prompt Return, outside | pty | 11×15 | 9.97 (9.70–10.32) | 9.23 (8.95–9.39) | −0.75 (−7.5%) | +0.27 (2.7%) |
+| Prompt Return, clean | pty | 11×15 | 25.91 (24.72–26.89) | 25.38 (23.91–26.19) | −0.54 (−2.1%) | −1.66 (6.2%) |
+| Prompt Return, dirty | pty | 11×15 | 27.89 (26.39–29.05) | 26.99 (25.38–27.95) | −0.90 (−3.2%) | +0.03 (0.1%) |
+| Prompt Return, large | pty | 11×15 | 47.46 (45.29–48.53) | 46.84 (44.95–47.66) | −0.62 (−1.3%) | +0.04 (0.1%) |
+
+Decision: kept. The focused ranges do not overlap and halve both paths, as
+the plan expected (capture about 1.54 → 0.78 ms). End to end, Return outside a
+repository gains 0.75 ms with disjoint ranges, beyond its 0.27 ms A/A; inside
+repositories every fixture gains 0.5–0.9 ms, consistent with the focused
+saving, but Git work makes those ranges overlap, and the clean fixture's A/A
+(1.66 ms) is wider than its gain. The table predates the stored-size check
+that the `security:` arithmetic scan required; a 6-run focused recheck of the
+final tree, under more load, gave capture 1.589 → 0.843 ms (−46.9%) and
+description 0.446 → 0.217 ms, the same halving.
+
+```zsh
+TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <after> pty 11 15
+TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <before> pty 11 15
+```
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*

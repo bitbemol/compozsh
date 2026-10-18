@@ -220,6 +220,76 @@ _compozsh_help_demo() { print -rl -- "usage: demo" "Updated fixture metadata."; 
 }
 test_case 'tool descriptions capture once invalidate changed help and preserve safety and overrides' _test_prompt_description_capture_safety
 
+_test_prompt_description_identity_budget() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.help"
+    zmodload zsh/parameter || exit 1
+    # Only the fixture pairs compete for the identity budget.
+    unfunction compozsh
+    local fixture=$HOME/.zsh.addons/.zsh.fixture name=""
+    local -a reads=()
+    functions[_fixture_read_help]=$functions[_compozsh_prompt_read_help]
+    _compozsh_prompt_read_help() { reads+=("$1"); _fixture_read_help "$@"; }
+    # About 60,000 characters per pair: four fit in 262,144, five do not.
+    # The huge command exceeds the 65,536-character definition bound.
+    _fixture_write() {
+      local pad=${(l:29950::x:)} command_pad="" summary=""
+      command mkdir -p -- "${fixture:h}" || return 1
+      {
+        print -r -- "huge() { : ${(l:70000::h:)}; }"
+        print -r -- "_compozsh_help_huge() { print -rl -- \"usage: huge\" \"Describe huge.\"; }"
+        for name in paira pairb pairc paird paire; do
+          command_pad=$pad summary="Describe $name."
+          [[ $name == pairb ]] && command_pad=${pad%x}$1
+          [[ $name == pairc ]] && summary=$2
+          print -r -- "$name() { : $command_pad; }"
+          print -r -- "_compozsh_help_$name() { : $pad; print -rl -- \"usage: $name\" \"$summary\"; }"
+        done
+      } >| "$fixture"
+    }
+    _fixture_described() {
+      _compozsh_prompt_description "$1" && [[ $reply[1] == ABOUT && $reply[2] == "$2" ]]
+    }
+    _fixture_write x "Describe pairc." && source "$fixture" || exit 2
+    _compozsh_prompt_capture
+    _compozsh_prompt_capture
+    [[ ${(j: :)reads} == "_compozsh_help_paira _compozsh_help_pairb _compozsh_help_pairc _compozsh_help_paird" ]] || {
+      print -u2 -r -- "unexpected help reads: $reads"; exit 3
+    }
+    for name in paira pairb pairc paird; do
+      _fixture_described $name "Describe $name." || { print -u2 -r -- "missing $name"; exit 4; }
+    done
+    for name in huge paire; do
+      ! _compozsh_prompt_description $name && (( ! ${+_COMPOZSH_PROMPT_SUMMARIES[$name]} )) || {
+        print -u2 -r -- "over-bound $name was described"; exit 5
+      }
+    done
+    # A redefined command or companion is stale until the next capture,
+    # which rereads only that pair.
+    reads=()
+    _fixture_write y "Describe pairc." && source "$fixture" || exit 6
+    _compozsh_prompt_description pairb && exit 7
+    _fixture_described pairc "Describe pairc." || exit 8
+    _compozsh_prompt_capture
+    [[ $reads == _compozsh_help_pairb ]] && _fixture_described pairb "Describe pairb." || exit 9
+    reads=()
+    _fixture_write y "Changed pairc." && source "$fixture" || exit 10
+    _compozsh_prompt_description pairc && exit 11
+    _compozsh_prompt_capture
+    [[ $reads == _compozsh_help_pairc ]] && _fixture_described pairc "Changed pairc." || exit 12
+    # A removed command releases its identity and its share of the budget.
+    reads=()
+    unfunction paira
+    _compozsh_prompt_capture
+    ! _compozsh_prompt_description paira && (( ! ${+_COMPOZSH_PROMPT_SUMMARIES[paira]} &&
+      ! ${+_COMPOZSH_PROMPT_SIGNATURES[paira]} )) || exit 13
+    [[ $reads == _compozsh_help_paire ]] && _fixture_described paire "Describe paire." || exit 14
+    _fixture_described paird "Describe paird." || exit 15
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'tool descriptions bound definition size and identity budget' _test_prompt_description_identity_budget
+
 _test_prompt_descriptions_native() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home" || return

@@ -339,11 +339,12 @@ _test_prompt_refresh_invalidates_memory_only() {
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.help"
     _COMPOZSH_PROMPT_SIGNATURES=(demo sig) _COMPOZSH_PROMPT_SUMMARIES=(demo text)
-    _COMPOZSH_PROMPT_OPTIONS=(demo:--mode text)
+    _COMPOZSH_PROMPT_OPTIONS=(demo:--mode text) _COMPOZSH_PROMPT_COMMANDS=(demo body)
+    _COMPOZSH_PROMPT_HELPERS=(demo body) _COMPOZSH_PROMPT_SIZES=(demo 8)
     compozsh --refresh
-    print -r -- "${#_PROMPT_RUNTIME_VERSION_CACHE}|${#_PROMPT_GIT_DIR_CACHE}|$_GREP_SUPPORTS_COLOR|${#_GREP_COLOR_BINARY}|${#_COMPOZSH_PROMPT_SIGNATURES}|${#_COMPOZSH_PROMPT_SUMMARIES}|${#_COMPOZSH_PROMPT_OPTIONS}"
+    print -r -- "${#_PROMPT_RUNTIME_VERSION_CACHE}|${#_PROMPT_GIT_DIR_CACHE}|$_GREP_SUPPORTS_COLOR|${#_GREP_COLOR_BINARY}|${#_COMPOZSH_PROMPT_SIGNATURES}|${#_COMPOZSH_PROMPT_SUMMARIES}|${#_COMPOZSH_PROMPT_OPTIONS}|${#_COMPOZSH_PROMPT_COMMANDS}|${#_COMPOZSH_PROMPT_HELPERS}|${#_COMPOZSH_PROMPT_SIZES}"
   ' "$TEST_REPO_ROOT") || return
-  test_assert_equal '0|0|-1|0|0|0|0' "$output" \
+  test_assert_equal '0|0|-1|0|0|0|0|0|0|0' "$output" \
     'compozsh --refresh did not invalidate all documented in-memory caches'
 }
 test_case 'compozsh --refresh clears runtime, Git, help-description and output capability caches' \
