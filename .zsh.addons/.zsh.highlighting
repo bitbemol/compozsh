@@ -42,19 +42,19 @@ _zle_command_category() {
 
   local name=$1 suffix=${1:e}
   REPLY=''
-  if [[ -n ${aliases[(Ie)$name]} ]]; then
+  if (( ${+aliases[$name]} )); then
     REPLY='alias'
-  elif [[ -n ${galiases[(Ie)$name]} ]]; then
+  elif (( ${+galiases[$name]} )); then
     REPLY='global-alias'
   elif (( ${reswords[(Ie)$name]} )); then
     REPLY='keyword'
-  elif [[ -n ${functions[(Ie)$name]} ]]; then
+  elif (( ${+functions[$name]} )); then
     REPLY='function'
-  elif [[ -n ${builtins[(Ie)$name]} ]]; then
+  elif (( ${+builtins[$name]} )); then
     REPLY='builtin'
-  elif [[ -n ${commands[(Ie)$name]} ]]; then
+  elif (( ${+commands[$name]} )); then
     REPLY='command'
-  elif [[ -n $suffix && -n ${saliases[(Ie)$suffix]} ]]; then
+  elif [[ -n $suffix ]] && (( ${+saliases[$suffix]} )); then
     REPLY='suffix-alias'
   else
     return 1
@@ -101,7 +101,7 @@ _zle_path_category() {
   elif [[ $raw == '~'?*(|/*) ]]; then
     stack_prefix=${raw%%/*}
     named_directory=${stack_prefix#\~}
-    [[ -n ${nameddirs[(Ie)$named_directory]} ]] || return 1
+    (( ${+nameddirs[$named_directory]} )) || return 1
     literal="${nameddirs[(e)$named_directory]}${literal#$stack_prefix}"
   fi
 
@@ -450,7 +450,7 @@ _zle_syntax_highlight() {
     if [[ $reserved_context == function ]]; then
       category='function'
       reserved_context=''
-    elif [[ -n ${galiases[(Ie)$plain]} ]]; then
+    elif (( ${+galiases[$plain]} )); then
       category='global-alias'
     elif _zle_path_category "$token"; then
       category=$REPLY

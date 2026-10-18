@@ -607,6 +607,53 @@ TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zs
 TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <before> pty 11 15
 ```
 
+### P5-04: highlighter command categories by keyed lookup (C-07, U64, PROMPT-07)
+
+`_zle_command_category` found each command word's kind with `(Ie)` reverse
+subscripts, which scan every key of `aliases`, `galiases`, `functions`,
+`builtins`, `commands` and `saliases`; with completion loaded `functions` has
+about 1,750 entries and `commands` about 1,270 on a system `PATH`. It now tests
+existence by key (`${+functions[$name]}` and so on); `reswords` is an ordinary
+array and keeps its `(Ie)` search. The named-directory check in
+`_zle_path_category` and the global-alias check for arguments in
+`_zle_syntax_highlight` changed the same way. A miss in `commands` fills the
+command hash once under `HASH_LIST_ALL`, exactly as the scan did, so the
+highlighter reads nothing new.
+
+`syntax highlighting command, global-alias and named-directory lookups
+classify every kind and odd name identically`, added first, passed before and
+after the change: an alias, a global alias, a keyword, functions, a builtin, a
+command, a suffix alias, and the names `@`, `x]y`, `f]`, `*`, the empty
+string, `(i)a` and `(Ie)ls`, a named directory and a missing one, and a global
+alias argument's region. `syntax highlighting looks up shell tables by key
+instead of scanning them`, a source check, failed on the eight scans before
+the change.
+
+Before tree `git archive a740b01`, after tree the working tree; environment
+as in P5-01, load averages 2.3–4.3. The rows come from a scratch script: each
+run starts one `env -i … LC_ALL=en_US.UTF-8 /bin/zsh -dfi` shell per tree,
+alternating which goes first, with `TMPDIR` in the scratch area and a warmed
+disposable home per tree. Each shell sources the tree's `.zshrc` (every peer
+and `compinit`), then for each draft sets `BUFFER`, calls
+`_zle_syntax_highlight` 20 times unmeasured and times 400 calls with
+`EPOCHREALTIME`. The drafts are `git status`, `ls`, the pipeline
+`ls -la | grep -v total | sort -k5 -n > sizes.txt` and an in-bound worst case
+of 60 unknown command words (`nosuch; ` repeated: 480 characters, 120 tokens).
+The A/A ran first, the baseline against the working tree before the
+production change. Microseconds per redraw, *median (range)*:
+
+| Draft | Runs | Before | After | Delta | A/A |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `git status` | 11×400 | 292.37 (289.68–300.15) | 211.32 (208.74–214.48) | −81.05 (−27.7%) | −3.37 (1.1%) |
+| `ls` | 11×400 | 244.19 (240.12–248.57) | 120.95 (119.38–123.92) | −123.23 (−50.5%) | +2.35 (1.0%) |
+| pipeline | 11×400 | 1275.47 (1267.72–1306.01) | 938.80 (929.96–945.38) | −336.67 (−26.4%) | −2.46 (0.2%) |
+| 60 unknown command words | 11×400 | 14686.55 (14564.35–14756.39) | 8205.83 (8116.74–8307.91) | −6480.72 (−44.1%) | −1.71 (0.0%) |
+
+Decision: kept. Every range is disjoint and each gain is at least 24 times its
+A/A difference, matching the plan's estimate of about 0.1 ms per command word.
+Startup and prompt rendering do not call the highlighter, so they were not
+remeasured.
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*
