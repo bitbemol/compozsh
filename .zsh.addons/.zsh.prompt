@@ -210,6 +210,63 @@ _prompt_has_git_context() {
   return 1
 }
 
+# Parse `git status --porcelain=v2 --branch --show-stash` text. Pure: reply
+# holds the branch head, commit, upstream, then the ahead, behind, stash,
+# staged, modified, untracked and conflicted counts. Headers are matched one
+# by one; file records are counted by kind with array filters.
+_prompt_git_parse() {
+  emulate -L zsh
+  local text=$1
+  local line='' branch='' oid='' upstream=''
+  local ahead_text='' behind_text='' stash_text=''
+  local -i ahead=0 behind=0 stash=0 staged=0 modified=0 untracked=0 conflicted=0
+  local -a lines changes fields
+
+  # Split in memory: Zsh backs here-strings with temporary files, and this
+  # output names changed and untracked paths.
+  lines=("${(@f)text}")
+  for line in "${(@M)lines:#\# *}"; do
+    case $line in
+      '# branch.oid '*)
+        oid=${line#\# branch.oid }
+        ;;
+      '# branch.head '*)
+        branch=${line#\# branch.head }
+        ;;
+      '# branch.upstream '*)
+        upstream=${line#\# branch.upstream }
+        ;;
+      '# branch.ab '*)
+        # Validate Git's counts as text: integer assignment evaluates
+        # arithmetic, including $(...) in a subscript.
+        fields=(${(s: :)line})
+        ahead_text=${fields[3]-} behind_text=${fields[4]-}
+        if [[ $ahead_text == +<-> && ${#ahead_text} -le 19 &&
+              $behind_text == -<-> && ${#behind_text} -le 19 ]]; then
+          ahead=${ahead_text#+} behind=${behind_text#-}
+        fi
+        ;;
+      '# stash '*)
+        stash_text=${line#\# stash }
+        [[ $stash_text == <-> && ${#stash_text} -le 18 ]] && stash=$stash_text
+        ;;
+    esac
+  done
+
+  # Ordinary and renamed records carry the index state in their third
+  # character and the work-tree state in their fourth; '.' means unchanged.
+  # Counts are taken in plain assignments: arithmetic and double quotes would
+  # join a nested filter's result and measure its length instead.
+  changes=("${(@M)lines:#[12] *}")
+  staged=${#${(M)changes:#[12] .*}}
+  modified=${#${(M)changes:#[12] ?.*}}
+  (( staged = ${#changes} - staged, modified = ${#changes} - modified ))
+  untracked=${#${(M)lines:#\? *}}
+  conflicted=${#${(M)lines:#u *}}
+  reply=("$branch" "$oid" "$upstream" "$ahead" "$behind" "$stash"
+    "$staged" "$modified" "$untracked" "$conflicted")
+}
+
 # Render a compact Git summary. Porcelain v2 gives branch and file state in one
 # Git call. The metadata directory is resolved once per repository (its nearest
 # .git marker), so operation checks do not require another Git process on every
@@ -218,7 +275,7 @@ _prompt_has_git_context() {
 _prompt_git() {
   setopt localoptions noglobsubst
 
-  local git_output line branch='' oid='' upstream=''
+  local git_output branch='' oid='' upstream=''
   local separator=$'\x1f'
   local git_dir operation='' cache_key='' dir=''
   local summary=''
@@ -228,8 +285,7 @@ _prompt_git() {
   color=$REPLY
   local -i staged=0 modified=0 untracked=0 conflicted=0 ahead=0 behind=0 stash=0
   local -i detached=0
-  local -a fields indicators filter_config
-  local ahead_text='' behind_text='' stash_text=''
+  local -a indicators filter_config reply
 
   REPLY=''
   _PROMPT_GIT_TEXT=''
@@ -266,45 +322,13 @@ _prompt_git() {
   git_output=$(_compozsh_git_local inherit "$PWD" --exec -- "${filter_config[@]}" \
     status --porcelain=v2 --branch --show-stash 2>/dev/null) || return
 
-  # Split in memory: Zsh backs here-strings with temporary files, and this
-  # output names changed and untracked paths.
-  for line in "${(@f)git_output}"; do
-    case $line in
-      '# branch.oid '*)
-        oid=${line#\# branch.oid }
-        ;;
-      '# branch.head '*)
-        branch=${line#\# branch.head }
-        ;;
-      '# branch.upstream '*)
-        upstream=${line#\# branch.upstream }
-        ;;
-      '# branch.ab '*)
-        # Validate Git's counts as text: integer assignment evaluates
-        # arithmetic, including $(...) in a subscript.
-        fields=(${(s: :)line})
-        ahead_text=${fields[3]-} behind_text=${fields[4]-}
-        if [[ $ahead_text == +<-> && ${#ahead_text} -le 19 &&
-              $behind_text == -<-> && ${#behind_text} -le 19 ]]; then
-          ahead=${ahead_text#+} behind=${behind_text#-}
-        fi
-        ;;
-      '# stash '*)
-        stash_text=${line#\# stash }
-        [[ $stash_text == <-> && ${#stash_text} -le 18 ]] && stash=$stash_text
-        ;;
-      '1 '*|'2 '*)
-        [[ ${line[3]} != '.' ]] && (( staged++ ))
-        [[ ${line[4]} != '.' ]] && (( modified++ ))
-        ;;
-      'u '*)
-        (( conflicted++ ))
-        ;;
-      '? '*)
-        (( untracked++ ))
-        ;;
-    esac
-  done
+  # The parser validated each count as digits, so these integer assignments
+  # evaluate no Git-supplied text.
+  _prompt_git_parse "$git_output"
+  branch=${reply[1]} oid=${reply[2]} upstream=${reply[3]}
+  ahead=${reply[4]} behind=${reply[5]} stash=${reply[6]}
+  staged=${reply[7]} modified=${reply[8]}
+  untracked=${reply[9]} conflicted=${reply[10]}
 
   if [[ $branch == '(detached)' ]]; then
     branch="@${oid[1,7]}"

@@ -709,6 +709,67 @@ trees; they moved within noise, so the `HEAD` checks cost nothing measurable.
 TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <after> fresh 11
 ```
 
+### P5-06: prompt Git status parsed by a pure helper (C-08, A2-decomposition)
+
+`_prompt_git` matched every line of `git status --porcelain=v2 --branch
+--show-stash` against a `case` statement, so a repository with 3,000 changed
+or untracked files ran 3,000 shell iterations per prompt. The new private pure
+`_prompt_git_parse` in `.zsh.prompt` takes the status text as its argument and
+returns the branch head, commit, upstream and the ahead, behind, stash,
+staged, modified, untracked and conflicted counts through `reply`, which
+`_prompt_git` now declares local. It splits the text in memory once, matches
+only the `#` header lines one by one (the ahead, behind and stash text checks
+are unchanged), and counts file records by kind with array filters
+(`${(M)lines:#u *}`), taking staged and modified as the ordinary and renamed
+records whose third or fourth character is not `.`. The counts are plain
+assignments: inside arithmetic or double quotes a nested filter's result is
+joined and its length measured instead. The filter read, its bounds and the
+status capture are unchanged; caching the filter names stays rejected (C-08
+(b)).
+
+`in-memory parsing: prompt Git porcelain parsing keeps counts for clean,
+dirty, conflicted, stashed and detached states`, added first, passed before
+and after the change. It stubs the Git entries to return twelve fixed status
+texts and pins the rendered summary, color role, branch, upstream and
+attention values, including widest valid counts, oversized, missing and
+hostile `$(...)` ahead, behind and stash fields (never evaluated) and a branch
+name with prompt escapes. A scratch differential check also compared the old
+loop with the helper on 6,000 random mixes of header, record, malformed,
+duplicate, short and invalid-byte lines under `C` and `en_US.UTF-8`, with no
+difference.
+
+Before tree `git archive 5d6f6c5`, after tree a copy of the working tree;
+environment as in P5-01, load averages 2.7–3.3. The focused rows come from a
+scratch script: each run starts one `env -i … LC_ALL=en_US.UTF-8 /bin/zsh
+-dfi` shell per tree, alternating which goes first, with `TMPDIR` in the
+scratch area. Each shell sources the tree's `.zsh.prompt`, stubs the Git
+entries to print a status text saved from the benchmark's own fixtures, and
+times 40 `_prompt_git` calls after three warm-up calls (the stub's command
+substitution included). Its A/A (baseline against baseline, 11 runs, large
+fixture) differed by +0.11 ms. The *A/A* column of the render rows is a
+separate baseline-against-baseline run of the same benchmark. Milliseconds,
+*median (range)*:
+
+| Metric | Mode | Runs | Before | After | Delta | A/A |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `_prompt_git`, large status (3,004 lines) | focused | 11×40 | 16.68 (16.28–16.83) | 11.59 (11.28–11.94) | −5.09 (−30.5%) | +0.11 (0.7%) |
+| `_prompt_git`, dirty status (85 lines) | focused | 11×40 | 2.06 (2.01–2.12) | 2.00 (1.90–2.06) | −0.06 (−3.1%) | |
+| Prompt render, outside | render | 11×40 | 7.70 (7.62–7.87) | 7.77 (7.61–8.02) | +0.07 (0.8%) | +0.08 (1.0%) |
+| Prompt render, clean | render | 11×40 | 26.09 (25.13–27.63) | 26.36 (25.09–27.67) | +0.27 (1.0%) | +0.46 (1.8%) |
+| Prompt render, dirty | render | 11×40 | 28.40 (27.15–29.73) | 28.03 (26.84–29.82) | −0.37 (−1.3%) | +0.04 (0.1%) |
+| Prompt render, large | render | 11×40 | 48.62 (47.11–50.69) | 43.29 (42.17–45.54) | −5.33 (−11.0%) | −0.51 (1.0%) |
+
+Decision: kept. In the large fixture the focused and end-to-end ranges are
+disjoint, and the render gain is about ten times its A/A difference. It
+exceeds the review's estimate (8.6 → 6.8 ms for the parse, about 1.8 ms),
+because only the few header lines still pass through shell code. The other
+fixtures moved within their A/A noise, as expected for small status texts.
+
+```zsh
+TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <after> render 11 40
+TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <before> render 11 40
+```
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*

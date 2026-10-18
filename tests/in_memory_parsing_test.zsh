@@ -136,6 +136,139 @@ _test_in_memory_prompt_git_status() {
 test_case 'in-memory parsing: prompt Git status needs no here-string temporary file' \
   _test_in_memory_prompt_git_status
 
+# Fixed porcelain v2 texts stand in for Git's status output; the label before
+# the first newline names each one. Count fields are data: hostile ahead,
+# behind and stash values must neither evaluate nor count.
+_in_memory_porcelain_fixtures() {
+  local oid='# branch.oid 0123456789abcdef0123456789abcdef01234567'
+  local detached='# branch.oid 89abcdef0123456789abcdef0123456789abcdef'
+  local entry='N... 100644 100644 100644 0123456789abcdef0123456789abcdef01234567 0123456789abcdef0123456789abcdef01234567'
+  reply=(
+    'empty'
+    "clean
+$oid
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -0"
+    "dirty
+$oid
+# branch.head feature/one two
+# branch.upstream origin/feature/one two
+# branch.ab +3 -2
+# stash 4
+1 M. $entry staged.txt
+1 .M $entry modified.txt
+1 MM $entry both.txt
+1 A. $entry added.txt
+1 .D $entry deleted.txt
+2 R. $entry R100 renamed.txt"$'\t'"original.txt
+? untracked.txt
+? \"quoted\\nname\"
+! ignored.txt"
+    "conflicted
+$oid
+# branch.head main
+# stash 2
+u UU N... 100644 100644 100644 100644 0123 4567 89ab conflict.txt
+u AA N... 000000 100644 100644 100644 0123 4567 89ab both-added.txt
+1 .M $entry modified.txt"
+    "detached clean
+$detached
+# branch.head (detached)"
+    "detached dirty
+$detached
+# branch.head (detached)
+# stash 1
+1 .M $entry modified.txt
+? untracked.txt"
+    "behind
+$oid
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -5"
+    'widest counts
+'"$oid"'
+# branch.head main
+# branch.upstream origin/main
+# branch.ab  +999999999999999999 -999999999999999999 extra
+# stash 999999999999999999'
+    'hostile counts
+'"$oid"'
+# branch.head %F{red}x$(touch "$HOME/evaluated")
+# branch.upstream origin/main
+# branch.ab +1[$(touch "$HOME/evaluated")] -0
+# stash 1[$(touch "$HOME/evaluated")]'
+    'hostile behind
+'"$oid"'
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +2 -$(touch "$HOME/evaluated")'
+    'oversized counts
+'"$oid"'
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +9999999999999999999 -1
+# stash 9999999999999999999'
+    'missing behind
+'"$oid"'
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +2'
+  )
+}
+
+# Runs inside the shell under test, with Git support replaced by stubs that
+# return the current fixture as status output and no Git directory, and with
+# palette role names standing in for colors.
+_in_memory_porcelain_probe() {
+  local fixture=''
+  local -a fixtures=()
+  _in_memory_porcelain_fixtures
+  fixtures=("${reply[@]}")
+  for fixture in "${fixtures[@]}"; do
+    _IN_MEMORY_PORCELAIN=${fixture#*$'\n'}
+    [[ $fixture == *$'\n'* ]] || _IN_MEMORY_PORCELAIN=''
+    _prompt_git
+    print -r -- "${fixture%%$'\n'*}: $REPLY|$_PROMPT_GIT_TEXT|$_PROMPT_GIT_BRANCH_TEXT|$_PROMPT_GIT_UPSTREAM_TEXT|$_PROMPT_GIT_ATTENTION"
+  done
+  [[ ! -e $HOME/evaluated ]] || print -r -- 'a porcelain field was evaluated'
+}
+
+_test_in_memory_prompt_porcelain_parsing() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh" && source "$1/tests/in_memory_parsing_test.zsh" || exit 1
+    source "$1/.zsh.addons/.zsh.prompt" || exit 2
+    _compozsh_palette_color() { REPLY=$2; }
+    _compozsh_git_filter_config() { reply=(); }
+    _compozsh_git_operation() { REPLY=""; }
+    _compozsh_git_local() {
+      (( ${argv[(Ie)status]} )) || return 1
+      print -r -- "$_IN_MEMORY_PORCELAIN"
+    }
+    command mkdir -p "$HOME/repository/.git" && builtin cd -- "$HOME/repository" || exit 3
+    # Prompt escaping keeps the indicator glyphs only in a UTF-8 locale.
+    export LC_ALL=en_US.UTF-8
+    _in_memory_twice _in_memory_porcelain_probe
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'empty: %F{success}unknown no-upstream%f|unknown no-upstream|unknown||
+clean: %F{success}main ✓%f|main ✓|main|origin/main|
+dirty: %F{warning}feature/one two +4 !3 ?2 ≡4 ⇡3 ⇣2%f|feature/one two +4 !3 ?2 ≡4 ⇡3 ⇣2|feature/one two|origin/feature/one two|
+conflicted: %F{danger}main !1 x2 ≡2 no-upstream%f|main !1 x2 ≡2 no-upstream|main||operation:|conflict:1
+detached clean: %F{detached}@89abcde ✓%f|@89abcde ✓|@89abcde||
+detached dirty: %F{warning}@89abcde !1 ?1 ≡1%f|@89abcde !1 ?1 ≡1|@89abcde||
+behind: %F{info}main ⇣5%f|main ⇣5|main|origin/main|
+widest counts: %F{info}main ≡999999999999999999 ⇡999999999999999999 ⇣999999999999999999%f|main ≡999999999999999999 ⇡999999999999999999 ⇣999999999999999999|main|origin/main|
+hostile counts: %F{success}%%F{red}x$(touch "$HOME/evaluated") ✓%f|%F{red}x$(touch "$HOME/evaluated") ✓|%F{red}x$(touch "$HOME/evaluated")|origin/main|
+hostile behind: %F{success}main ✓%f|main ✓|main|origin/main|
+oversized counts: %F{success}main ✓%f|main ✓|main|origin/main|
+missing behind: %F{success}main ✓%f|main ✓|main|origin/main|' "$output" \
+    'prompt Git porcelain parsing changed a branch, upstream or count'
+}
+test_case 'in-memory parsing: prompt Git porcelain parsing keeps counts for clean, dirty, conflicted, stashed and detached states' \
+  _test_in_memory_prompt_porcelain_parsing
+
 _in_memory_review_changes_probe() {
   local -i index=0
   typeset -ga _GIT_REVIEW_CONFIG=()
