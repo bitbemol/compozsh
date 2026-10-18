@@ -188,6 +188,139 @@ print -r -- \'Build version 27A100\'' || return
 test_case 'Xcode skill export stages under an identifiable compozsh temporary name' \
   _test_xcode_export_stages_under_compozsh_name
 
+# Each supported vendor is detected by every CLI name and app bundle it lists;
+# an unknown vendor is a caller error, not an absent agent. App bundles are
+# placed under the temporary HOME's Applications folder only.
+_test_xcode_skill_vendor_detection_recognizes_each_surface() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode" || exit
+    local pair="" vendor="" name="" bin=""
+    local -a saved=("${path[@]}")
+    local -i n=0
+    for pair in codex:codex claude:claude gemini:gemini antigravity:agy \
+        antigravity:antigravity kiro:kiro-cli kiro:kiro; do
+      vendor=${pair%%:*} name=${pair#*:}
+      bin="$HOME/bin$(( ++n ))"
+      command mkdir -p -- "$bin" || exit
+      print -r -- "#!/bin/zsh -f" >| "$bin/$name" && command chmod +x "$bin/$name" || exit
+      path=("$bin") && rehash
+      _detect_xcode_skill_vendor "$vendor" && [[ $REPLY == "$name CLI"* ]] ||
+        print -r -- "missed CLI $name for $vendor: $REPLY"
+      path=("${saved[@]}") && rehash
+    done
+    path=()
+    rehash
+    for pair in codex:ChatGPT codex:Codex claude:Claude \
+        antigravity:Antigravity kiro:Kiro; do
+      vendor=${pair%%:*} name=${pair#*:}
+      /bin/mkdir -p -- "$HOME/Applications/$name.app/Contents" || exit
+      _detect_xcode_skill_vendor "$vendor" && [[ $REPLY == *"$name app"* ]] ||
+        print -r -- "missed app $name for $vendor: $REPLY"
+    done
+    REPLY=stale
+    _detect_xcode_skill_vendor unknown
+    print -r -- "unknown:$?:$REPLY"
+  ' "$TEST_REPO_ROOT" 2>&1) || return
+  test_assert_equal 'unknown:2:' "$output" \
+    'Xcode skill vendor detection missed a supported surface'
+}
+test_case 'Xcode skill vendor detection recognizes each supported CLI and app bundle' \
+  _test_xcode_skill_vendor_detection_recognizes_each_surface
+
+# The detected vendor set alone decides the destinations, their order and
+# shared names. Detection and installation are stubbed so the plan is exact.
+_test_xcode_skill_export_plans_destinations_per_vendor_set() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output=''
+  test_write_file "$fake_bin/xcrun" $'#!/bin/zsh -f
+if [[ $1 == --find && $2 == agent ]]; then
+  print -r -- /Applications/Xcode.app/usr/bin/agent
+elif [[ $1 == agent && $2 == skills && $3 == export && $4 == --output-dir ]]; then
+  command mkdir -p -- "$5/swift" && print -r -- guidance >| "$5/swift/SKILL.md"
+else
+  exit 64
+fi' || return
+  test_write_file "$fake_bin/xcodebuild" $'#!/bin/zsh -f
+print -r -- \'Xcode 27.0\'
+print -r -- \'Build version 27A100\'' || return
+  command chmod +x "$fake_bin/xcrun" "$fake_bin/xcodebuild" || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode" || exit
+    typeset -ga detected=()
+    _detect_xcode_skill_vendor() { REPLY="$1 CLI"; (( ${detected[(Ie)$1]} )); }
+    _install_xcode_skills_for_agent() {
+      print -r -- "install:$3|${2/#$HOME/~}|$4"
+    }
+    local set=""
+    for set in "codex claude gemini antigravity kiro" "gemini claude" codex kiro ""; do
+      detected=(${=set})
+      print -r -- "== ${set:-none}"
+      _xcode_export_skills 2>&1
+      print -r -- "status:$?"
+    done
+  ' "$TEST_REPO_ROOT" "$fake_bin" 2>&1) || return
+
+  test_assert_equal '== codex claude gemini antigravity kiro
+Detected: Codex (codex CLI), Claude Code (claude CLI), Gemini CLI (gemini CLI), Google Antigravity (antigravity CLI), Kiro (kiro CLI)
+Exporting portable Apple skills from:
+Xcode 27.0
+Build version 27A100
+Installing 1 skills for local coding agents:
+install:Codex + Gemini CLI|~/.agents/skills|27A100
+install:Claude Code|~/.claude/skills|27A100
+install:Google Antigravity|~/.gemini/config/skills|27A100
+install:Kiro|~/.kiro/skills|27A100
+install:Codex in Xcode|~/Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode|27A100
+Xcode skills are ready for: Codex + Gemini CLI, Claude Code, Google Antigravity, Kiro, Codex in Xcode.
+Start a new agent session to make the exported skills available.
+An open Gemini CLI session can instead run /skills reload.
+status:0
+== gemini claude
+Detected: Claude Code (claude CLI), Gemini CLI (gemini CLI)
+Exporting portable Apple skills from:
+Xcode 27.0
+Build version 27A100
+Installing 1 skills for local coding agents:
+install:Gemini CLI|~/.agents/skills|27A100
+install:Claude Code|~/.claude/skills|27A100
+Xcode skills are ready for: Gemini CLI, Claude Code.
+Start a new agent session to make the exported skills available.
+An open Gemini CLI session can instead run /skills reload.
+status:0
+== codex
+Detected: Codex (codex CLI)
+Exporting portable Apple skills from:
+Xcode 27.0
+Build version 27A100
+Installing 1 skills for local coding agents:
+install:Codex|~/.agents/skills|27A100
+install:Codex in Xcode|~/Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode|27A100
+Xcode skills are ready for: Codex, Codex in Xcode.
+Start a new agent session to make the exported skills available.
+status:0
+== kiro
+Detected: Kiro (kiro CLI)
+Exporting portable Apple skills from:
+Xcode 27.0
+Build version 27A100
+Installing 1 skills for local coding agents:
+install:Kiro|~/.kiro/skills|27A100
+Xcode skills are ready for: Kiro.
+Start a new agent session to make the exported skills available.
+status:0
+== none
+xcode --export-skills: no supported local coding agent found
+Install Codex, Claude Code, Gemini CLI, Google Antigravity, or Kiro first.
+status:1' "$output" 'Xcode skill export changed its per-vendor destination plan'
+}
+test_case 'Xcode skill export plans destinations for each detected vendor set' \
+  _test_xcode_skill_export_plans_destinations_per_vendor_set
+
 # The installation-plan requirement names the shared support components that
 # provide the screen and matching entries, never the retired grouped peers.
 _test_xcode_export_help_names_current_support_components() {
@@ -208,6 +341,43 @@ _test_xcode_export_help_names_current_support_components() {
 }
 test_case 'Xcode skill export help names the shared support components, not retired peers' \
   _test_xcode_export_help_names_current_support_components
+
+# Help lists the same vendors, detection surfaces and destinations that the
+# export plan uses, one aligned row each, without detecting anything.
+_test_xcode_export_help_lists_each_vendor() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode" || exit
+    _detect_xcode_skill_vendor() { print -u2 -r -- unexpected-detection; return 99; }
+    xcode --export-skills --help 2>&1
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_contains "$output" '
+  Detects supported CLIs on PATH and standard macOS app bundles in
+  /Applications or ~/Applications; apps are not launched:
+    Codex:              codex, ChatGPT.app, or Codex.app
+    Claude Code:        claude or Claude.app
+    Gemini CLI:         gemini
+    Google Antigravity: agy, antigravity, or Antigravity.app
+    Kiro:               kiro-cli, kiro, or Kiro.app
+  Detection does not check sign-in or guarantee skill support in every
+  installed version or chat surface.
+
+Writes only for detected agents (paths are below HOME):
+  Codex / Gemini CLI: ~/.agents/skills
+  Claude Code:        ~/.claude/skills
+  Google Antigravity: ~/.gemini/config/skills
+  Kiro:               ~/.kiro/skills
+  Codex in Xcode:
+    ~/Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode
+  Exports once into a temporary directory, then installs real copies.
+' 'Xcode skill export help does not list each vendor from the export table' || return
+  [[ $output != *unexpected-detection* ]] ||
+    test_fail 'Xcode skill export help ran vendor detection'
+}
+test_case 'Xcode skill export help lists each vendor detection and destination' \
+  _test_xcode_export_help_lists_each_vendor
 
 _test_xcode_workspace_discovers_only_nearest_containers() {
   test_make_temp_dir || return
@@ -1050,6 +1220,61 @@ runs:' "status:$exit_status"$'\n'"$output" \
 }
 test_case 'Xcode test results keep hostile paths and overflowing counts inert' \
   _test_xcode_test_result_capture_keeps_hostile_values_inert
+
+# Optional result keys fall back to fixed labels, the identifier falls back to
+# its string form, and without the shared plutil entry only the native action
+# status remains: no partial rows and no error.
+_test_xcode_test_result_capture_defaults_optional_keys() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" bundle="$TEST_TMP_DIR/Test.xcresult"
+  local summary="$TEST_TMP_DIR/summary.json" build="$TEST_TMP_DIR/build.json"
+  command mkdir -p -- "$bundle" || return
+  test_write_file "$summary" '{
+    "totalTestCount":1,"failedTests":1,
+    "testFailures":[{"testIdentifierString":"Suite/fallback()"}]
+  }' || return
+  test_write_file "$build" '{"errors":[{}]}' || return
+  test_write_file "$fake_bin/xcrun" $'#!/bin/zsh -df\ncase "${(j: :)@}" in\n  (*"test-results summary"*) command cat -- "$XCODE_SUMMARY" ;;\n  (*"test-results test-details"*) print -r -- "{}" ;;\n  (*"build-results"*) command cat -- "$XCODE_BUILD" ;;\n  (*) exit 2 ;;\nesac' || return
+  command chmod +x "$fake_bin/xcrun" || return
+
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    path=("$2" $path)
+    export XCODE_SUMMARY=$4 XCODE_BUILD=$5
+    rehash
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.pure.matching_decimal_limit"
+    _report() {
+      print -r -- "result:$_XCODE_TEST_RESULT|$_XCODE_TEST_TOTAL|$_XCODE_TEST_FAILED|${_XCODE_TEST_CAPTURE_ERROR:-none}"
+      print -r -- "failures:${#_XCODE_TEST_FAILURE_NAMES}|${(j:|:)_XCODE_TEST_FAILURE_NAMES}|${(j:|:)_XCODE_TEST_FAILURE_TARGETS}|${(j:|:)_XCODE_TEST_FAILURE_IDENTIFIERS}|${(j:|:)_XCODE_TEST_FAILURE_TEXTS}"
+      print -r -- "build:$_XCODE_TEST_BUILD_ERROR_TOTAL|${(j:|:)_XCODE_TEST_BUILD_NAMES}|${(j:|:)_XCODE_TEST_BUILD_TEXTS}|${(j:|:)_XCODE_TEST_BUILD_FILES}"
+    }
+    _xcode_test_result_capture "$3" 65 || exit
+    _report
+    _xcode_test_result_capture "$3" 0 || exit
+    print -r -- "--"
+    _report
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    _xcode_test_result_capture "$3" 65 || exit
+    print -r -- "--"
+    _report
+  ' "$TEST_REPO_ROOT" "$fake_bin" "$bundle" "$summary" "$build" 2>&1) || return
+
+  test_assert_equal 'result:Failed|0|0|none
+failures:0||||
+build:0|||
+--
+result:Passed|0|0|none
+failures:0||||
+build:0|||
+--
+result:Failed|1|1|none
+failures:1|Failed test 1||Suite/fallback()|No failure reason was reported.
+build:1|Build error|No diagnostic was reported.|' "$output" \
+    'Xcode result capture changed its optional-key fallbacks'
+}
+test_case 'Xcode test results fall back for absent optional keys and a missing plutil entry' \
+  _test_xcode_test_result_capture_defaults_optional_keys
 
 _test_xcode_test_result_screen_uses_shared_semantic_roles() {
   test_make_temp_dir || return

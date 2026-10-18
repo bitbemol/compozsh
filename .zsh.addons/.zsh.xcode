@@ -240,6 +240,18 @@ _xcode_plist_string_array_parse() {
   done
 }
 
+# Read one scalar from a captured JSON or plist document through the optional
+# shared plutil entry. An absent entry or key leaves the fallback in REPLY and
+# returns nonzero, so callers either keep a default or stop. The document is
+# passed through, not copied, because build settings can reach 5 MiB.
+_xcode_plist_optional() {
+  emulate -L zsh
+  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$1" "$2" && return 0
+  local -i capture_status=$?
+  REPLY=${3-}
+  return capture_status
+}
+
 _xcode_test_result_reset() {
   emulate -L zsh
   _XCODE_TEST_RESULT='' _XCODE_TEST_CAPTURE_ERROR=''
@@ -264,10 +276,10 @@ _xcode_test_node_sources_capture() {
   (( depth <= 12 && _XCODE_TEST_DETAIL_NODE_COUNT < 256 )) || return 0
   (( ++_XCODE_TEST_DETAIL_NODE_COUNT ))
 
-  if (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key.sourceLocation.filePath"; then
+  if _xcode_plist_optional "$json" "$key.sourceLocation.filePath"; then
     file=$REPLY
     if [[ -n $file && ${#file} -le 4096 && $file != *[[:cntrl:]]* ]]; then
-      if (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key.sourceLocation.lineNumber" &&
+      if _xcode_plist_optional "$json" "$key.sourceLocation.lineNumber" &&
           [[ $REPLY == <-> && ${#REPLY} -le 18 ]]; then
         line=$REPLY
       fi
@@ -278,7 +290,7 @@ _xcode_test_node_sources_capture() {
         _XCODE_TEST_DETAIL_FILES+=("$file")
     fi
   fi
-  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key.children" || return 0
+  _xcode_plist_optional "$json" "$key.children" || return 0
   # Validate provider text before an integer assignment can evaluate it.
   (( ${+functions[_matching_decimal_limit]} )) &&
     _matching_decimal_limit "$REPLY" 64 || return 0
@@ -300,7 +312,7 @@ _xcode_test_failure_files_capture() {
   _xcode_capture_command xcrun xcresulttool get test-results test-details \
     --path "$bundle" --test-id "$identifier" --compact || return
   json=$_XCODE_CAPTURE
-  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" testRuns || return 1
+  _xcode_plist_optional "$json" testRuns || return 1
   count=$REPLY
   [[ $count == <-> && ${#count} -le 18 ]] || return 1
   (( count > 64 )) && count=64
@@ -328,16 +340,16 @@ _xcode_test_build_issues_capture() {
   _xcode_capture_command xcrun xcresulttool get build-results \
     --path "$bundle" --compact || return
   json=$_XCODE_CAPTURE
-  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" errors || return 0
+  _xcode_plist_optional "$json" errors || return 0
   count=$REPLY
   [[ $count == <-> && ${#count} -le 18 ]] || return 1
   _XCODE_TEST_BUILD_ERROR_TOTAL=$count
   (( count > 20 )) && count=20
   for (( index = 0; index < count; ++index )); do
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.issueType" && issue=$REPLY || issue='Build error'
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.targetName" && target=$REPLY || target=''
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.message" && message=$REPLY || message='No diagnostic was reported.'
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "errors.$index.sourceURL" && source=$REPLY || source=''
+    _xcode_plist_optional "$json" "errors.$index.issueType" 'Build error'; issue=$REPLY
+    _xcode_plist_optional "$json" "errors.$index.targetName" ''; target=$REPLY
+    _xcode_plist_optional "$json" "errors.$index.message" 'No diagnostic was reported.'; message=$REPLY
+    _xcode_plist_optional "$json" "errors.$index.sourceURL" ''; source=$REPLY
     (( ${#issue} > 256 )) && issue=${issue[1,256]}
     (( ${#target} > 256 )) && target=${target[1,256]}
     (( ${#message} > 4096 )) && message=${message[1,4096]}
@@ -367,27 +379,29 @@ _xcode_test_result_capture() {
   if _xcode_capture_command xcrun xcresulttool get test-results summary \
        --path "$bundle" --compact; then
     json=$_XCODE_CAPTURE
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" result && _XCODE_TEST_RESULT=$REPLY
+    _xcode_plist_optional "$json" result && _XCODE_TEST_RESULT=$REPLY
     case $_XCODE_TEST_RESULT in
       (Passed|Failed|'Expected Failure'|Skipped|unknown) ;;
       (*) _XCODE_TEST_RESULT='' ;;
     esac
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" totalTestCount && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_TOTAL=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" passedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_PASSED=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" failedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_FAILED=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" skippedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_SKIPPED=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" expectedFailures && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_EXPECTED_FAILURES=$REPLY
-    if (( ${+functions[_compozsh_plutil_raw]} && ${+functions[_matching_decimal_limit]} )) &&
-        _compozsh_plutil_raw "$json" testFailures && _matching_decimal_limit "$REPLY" 20; then
+    _xcode_plist_optional "$json" totalTestCount && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_TOTAL=$REPLY
+    _xcode_plist_optional "$json" passedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_PASSED=$REPLY
+    _xcode_plist_optional "$json" failedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_FAILED=$REPLY
+    _xcode_plist_optional "$json" skippedTests && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_SKIPPED=$REPLY
+    _xcode_plist_optional "$json" expectedFailures && [[ $REPLY == <-> && ${#REPLY} -le 18 ]] && _XCODE_TEST_EXPECTED_FAILURES=$REPLY
+    if (( ${+functions[_matching_decimal_limit]} )) &&
+        _xcode_plist_optional "$json" testFailures && _matching_decimal_limit "$REPLY" 20; then
       failure_count=$REPLY
     fi
     for (( index = 0; index < failure_count; ++index )); do
-      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.testName" && name=$REPLY || name="Failed test $(( index + 1 ))"
-      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.targetName" && target=$REPLY || target=''
-      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.failureText" && reason=$REPLY || reason='No failure reason was reported.'
-      (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.testIdentifierURL" && identifier=$REPLY || identifier=''
-      [[ -n $identifier ]] ||
-        { (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "testFailures.$index.testIdentifierString" && identifier=$REPLY || identifier=''; }
+      _xcode_plist_optional "$json" "testFailures.$index.testName" "Failed test $(( index + 1 ))"; name=$REPLY
+      _xcode_plist_optional "$json" "testFailures.$index.targetName" ''; target=$REPLY
+      _xcode_plist_optional "$json" "testFailures.$index.failureText" 'No failure reason was reported.'; reason=$REPLY
+      _xcode_plist_optional "$json" "testFailures.$index.testIdentifierURL" ''; identifier=$REPLY
+      if [[ -z $identifier ]]; then
+        _xcode_plist_optional "$json" "testFailures.$index.testIdentifierString"
+        identifier=$REPLY
+      fi
       [[ ${#identifier} -le 4096 && $identifier != *[[:cntrl:]]* ]] || identifier=''
       (( ${#name} > 512 )) && name=${name[1,512]}
       (( ${#target} > 256 )) && target=${target[1,256]}
@@ -769,7 +783,7 @@ _xcode_schemes_capture() {
   _xcode_discovery_capture 'Loading schemes' "${_XCODE_COMMAND[@]}" || return
   json=$_XCODE_CAPTURE
   key="$kind.schemes"
-  (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$key" || {
+  _xcode_plist_optional "$json" "$key" || {
     _XCODE_CAPTURE_ERROR='Xcode returned no readable scheme list'
     return 1
   }
@@ -1122,7 +1136,7 @@ _xcode_build_settings_capture() {
   # The root is an array. Probe a bounded number of target dictionaries;
   # plutil intentionally has no empty-key extraction for the root count.
   for (( index = 0; index < 100; ++index )); do
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings" || break
+    _xcode_plist_optional "$json" "$index.buildSettings" || break
     extension='' product_kind='' bundle_id=''
     _compozsh_plutil_raw "$json" "$index.buildSettings.WRAPPER_EXTENSION" && extension=$REPLY
     if [[ $extension == app ]]; then
@@ -1137,9 +1151,9 @@ _xcode_build_settings_capture() {
     else
       continue
     fi
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings.TARGET_BUILD_DIR" || continue
+    _compozsh_plutil_raw "$json" "$index.buildSettings.TARGET_BUILD_DIR" || continue
     build_dir=$REPLY
-    (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$json" "$index.buildSettings.FULL_PRODUCT_NAME" || continue
+    _compozsh_plutil_raw "$json" "$index.buildSettings.FULL_PRODUCT_NAME" || continue
     product=$REPLY
     [[ $build_dir == /* && -n $product && $product != (.|..|*/*) &&
        "$build_dir/$product" != *[[:cntrl:]]* ]] || continue
@@ -3219,6 +3233,43 @@ xcode() {
   }
 }
 
+# The supported coding agents, one row each: id, display name, CLI names and
+# macOS app bundle names. Detection, the export plan, help and the no-agent
+# message all read this table, so adding an agent is one row here plus its
+# skill folder below.
+_xcode_skill_vendor_table() {
+  reply=(
+    codex       'Codex'              'codex'           'ChatGPT Codex'
+    claude      'Claude Code'        'claude'          'Claude'
+    gemini      'Gemini CLI'         'gemini'          ''
+    antigravity 'Google Antigravity' 'agy antigravity' 'Antigravity'
+    kiro        'Kiro'               'kiro-cli kiro'   'Kiro'
+  )
+}
+
+# Skill folders below HOME in installation order, one row each: a fixed label
+# (empty to name the detected vendors that share the folder), the folder and
+# the vendor ids that use it.
+_xcode_skill_destination_table() {
+  reply=(
+    ''               .agents/skills        'codex gemini'
+    ''               .claude/skills        claude
+    ''               .gemini/config/skills antigravity
+    ''               .kiro/skills          kiro
+    'Codex in Xcode' Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode codex
+  )
+}
+
+# Join words as an English list: "a", "a or b", "a, b, or c".
+_xcode_or_list() {
+  emulate -L zsh
+  case $# in
+    (0|1) REPLY=${1-} ;;
+    (2) REPLY="$1 or $2" ;;
+    (*) REPLY="${(j:, :)@[1,-2]}, or ${@[-1]}" ;;
+  esac
+}
+
 # Detect coding-agent surfaces that can discover local Agent Skills. A CLI on
 # PATH or its standard macOS application bundle is sufficient; merely having a
 # vendor's consumer web or chat application is not.
@@ -3226,33 +3277,18 @@ _detect_xcode_skill_vendor() {
   emulate -L zsh
 
   local vendor=$1 binary='' app_name='' app_root=''
-  local -a binaries=() app_names=() matches=()
+  local -a binaries=() app_names=() matches=() reply=()
+  local -i index=0
 
-  case $vendor in
-    codex)
-      binaries=(codex)
-      app_names=(ChatGPT Codex)
-      ;;
-    claude)
-      binaries=(claude)
-      app_names=(Claude)
-      ;;
-    gemini)
-      binaries=(gemini)
-      ;;
-    antigravity)
-      binaries=(agy antigravity)
-      app_names=(Antigravity)
-      ;;
-    kiro)
-      binaries=(kiro-cli kiro)
-      app_names=(Kiro)
-      ;;
-    *)
-      REPLY=''
-      return 2
-      ;;
-  esac
+  _xcode_skill_vendor_table
+  for (( index = 1; index <= ${#reply}; index += 4 )); do
+    [[ ${reply[index]} == "$vendor" ]] && break
+  done
+  (( index <= ${#reply} )) || {
+    REPLY=''
+    return 2
+  }
+  binaries=(${(s: :)reply[index + 2]}) app_names=(${(s: :)reply[index + 3]})
 
   for binary in "${binaries[@]}"; do
     (( $+commands[$binary] )) && matches+=("$binary CLI")
@@ -3402,8 +3438,39 @@ _install_xcode_skills_for_agent() {
 # common local coding agents. No Xcode process or filesystem write occurs until
 # this function is explicitly invoked.
 _xcode_export_help() {
-  local -a printer=(print -rl --)
+  emulate -L zsh
+  local -a printer=(print -rl --) reply=() vendors=() words=() names=()
+  local -a detection=() destinations=()
+  local -A vendor_names=()
+  local REPLY='' label='' id='' line=''
+  local -i index=0
   (( ${+functions[_output_print_help]} )) && printer=(_output_print_help)
+  _xcode_skill_vendor_table
+  vendors=("${reply[@]}")
+  for (( index = 1; index <= ${#vendors}; index += 4 )); do
+    vendor_names[${vendors[index]}]=${vendors[index + 1]}
+    words=(${(s: :)vendors[index + 2]})
+    for label in ${(s: :)vendors[index + 3]}; do
+      words+=("$label.app")
+    done
+    _xcode_or_list "${words[@]}"
+    print -v line -f '    %-20s%s' -- "${vendors[index + 1]}:" "$REPLY"
+    detection+=("$line")
+  done
+  _xcode_skill_destination_table
+  for (( index = 1; index <= ${#reply}; index += 3 )); do
+    names=()
+    for id in ${(s: :)reply[index + 2]}; do
+      names+=("${vendor_names[$id]}")
+    done
+    label=${reply[index]:-${(j: / :)names}}
+    print -v line -f '  %-20s~/%s' -- "$label:" "${reply[index + 1]}"
+    if (( ${#line} <= 76 )); then
+      destinations+=("$line")
+    else
+      destinations+=("  $label:" "    ~/${reply[index + 1]}")
+    fi
+  done
   if [[ ${1:-} == section ]]; then
     "${printer[@]}" '' 'Skill export: xcode --export-skills'
   else
@@ -3417,19 +3484,13 @@ _xcode_export_help() {
     '  That Xcode must provide xcrun agent skills export. This command does' \
     '  not install Xcode, coding agents, or other tools.' \
     '  Detects supported CLIs on PATH and standard macOS app bundles in' \
-    '  /Applications or ~/Applications; apps are not launched.' \
-    '  Codex: codex, ChatGPT.app, or Codex.app; Claude: claude or Claude.app;' \
-    '  Gemini: gemini; Antigravity: agy, antigravity, or Antigravity.app;' \
-    '  Kiro: kiro-cli, kiro, or Kiro.app. Detection does not check sign-in or' \
-    '  guarantee skill support in every installed version or chat surface.' \
+    '  /Applications or ~/Applications; apps are not launched:' \
+    "${detection[@]}" \
+    '  Detection does not check sign-in or guarantee skill support in every' \
+    '  installed version or chat surface.' \
     '' \
     'Writes only for detected agents (paths are below HOME):' \
-    '  Codex / Gemini CLI: ~/.agents/skills' \
-    '  Claude Code:        ~/.claude/skills' \
-    '  Antigravity:        ~/.gemini/config/skills' \
-    '  Kiro:               ~/.kiro/skills' \
-    '  Codex in Xcode also uses:' \
-    '    ~/Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode' \
+    "${destinations[@]}" \
     '  Exports once into a temporary directory, then installs real copies.' \
     '  Missing agents get no new configuration directories. With no detected' \
     '  agent or no compatible Xcode exporter, it fails before installing.' \
@@ -3480,70 +3541,45 @@ _xcode_export_skills() {
   emulate -L zsh
 
   local agent_path='' xcode_version='' xcode_build='' stage_dir=''
-  local shared_agent_name=''
   local temp_root=${TMPDIR:-/tmp}
   local -i overall_status=0 install_status=0
-  local -i codex_installed=0 claude_installed=0 gemini_installed=0
-  local -i antigravity_installed=0 kiro_installed=0
-  local -a exported_skills=()
+  local -a exported_skills=() vendors=() reply=() users=()
   local -a detected_vendors=() agent_names=() skill_dirs=()
+  local -A vendor_names=() detected_ids=()
+  local REPLY='' id=''
   local -i index=0
 
-  if _detect_xcode_skill_vendor codex; then
-    codex_installed=1
-    detected_vendors+=("Codex ($REPLY)")
-  fi
-  if _detect_xcode_skill_vendor claude; then
-    claude_installed=1
-    detected_vendors+=("Claude Code ($REPLY)")
-  fi
-  if _detect_xcode_skill_vendor gemini; then
-    gemini_installed=1
-    detected_vendors+=("Gemini CLI ($REPLY)")
-  fi
-  if _detect_xcode_skill_vendor antigravity; then
-    antigravity_installed=1
-    detected_vendors+=("Google Antigravity ($REPLY)")
-  fi
-  if _detect_xcode_skill_vendor kiro; then
-    kiro_installed=1
-    detected_vendors+=("Kiro ($REPLY)")
-  fi
+  _xcode_skill_vendor_table
+  vendors=("${reply[@]}")
+  for (( index = 1; index <= ${#vendors}; index += 4 )); do
+    id=${vendors[index]}
+    vendor_names[$id]=${vendors[index + 1]}
+    _detect_xcode_skill_vendor "$id" || continue
+    detected_ids[$id]=1
+    detected_vendors+=("${vendor_names[$id]} ($REPLY)")
+  done
 
-  if (( codex_installed || gemini_installed )); then
-    if (( codex_installed && gemini_installed )); then
-      shared_agent_name='Codex + Gemini CLI'
-    elif (( codex_installed )); then
-      shared_agent_name='Codex'
-    else
-      shared_agent_name='Gemini CLI'
-    fi
-    agent_names+=("$shared_agent_name")
-    skill_dirs+=("$HOME/.agents/skills")
-  fi
-  if (( claude_installed )); then
-    agent_names+=('Claude Code')
-    skill_dirs+=("$HOME/.claude/skills")
-  fi
-  if (( antigravity_installed )); then
-    agent_names+=('Google Antigravity')
-    skill_dirs+=("$HOME/.gemini/config/skills")
-  fi
-  if (( kiro_installed )); then
-    agent_names+=('Kiro')
-    skill_dirs+=("$HOME/.kiro/skills")
-  fi
-  if (( codex_installed )); then
-    agent_names+=('Codex in Xcode')
-    skill_dirs+=(
-      "$HOME/Library/Developer/Xcode/CodingAssistant/codex/skills/__xcode"
-    )
-  fi
+  # A folder shared by several detected vendors is installed once, under
+  # their joined names.
+  _xcode_skill_destination_table
+  for (( index = 1; index <= ${#reply}; index += 3 )); do
+    users=()
+    for id in ${(s: :)reply[index + 2]}; do
+      (( ${+detected_ids[$id]} )) && users+=("${vendor_names[$id]}")
+    done
+    (( ${#users} )) || continue
+    agent_names+=("${reply[index]:-${(j: + :)users}}")
+    skill_dirs+=("$HOME/${reply[index + 1]}")
+  done
 
   if (( ${#agent_names} == 0 )); then
     print -u2 -r -- 'xcode --export-skills: no supported local coding agent found'
-    print -u2 -r -- \
-      'Install Codex, Claude Code, Gemini CLI, Antigravity, or Kiro first.'
+    users=()
+    for (( index = 2; index <= ${#vendors}; index += 4 )); do
+      users+=("${vendors[index]}")
+    done
+    _xcode_or_list "${users[@]}"
+    print -u2 -r -- "Install $REPLY first."
     return 1
   fi
 
@@ -3613,7 +3649,7 @@ _xcode_export_skills() {
   if (( overall_status == 0 )); then
     print -r -- "Xcode skills are ready for: ${(j:, :)agent_names}."
     print -r -- 'Start a new agent session to make the exported skills available.'
-    (( gemini_installed )) && \
+    (( ${+detected_ids[gemini]} )) && \
       print -r -- 'An open Gemini CLI session can instead run /skills reload.'
   else
     print -u2 -r -- \
