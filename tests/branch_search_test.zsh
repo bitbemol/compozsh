@@ -85,6 +85,7 @@ _test_branch_complete_catalog() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     command git init -qb main "$HOME/repository" || exit 1
     builtin cd "$HOME/repository"
     command git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit --allow-empty -qm initial || exit 2
@@ -99,7 +100,8 @@ _test_branch_complete_catalog() {
     (( ${#_GIT_RECENT_BRANCHES} == 452 )) || exit 6
     [[ $_GIT_RECENT_BRANCHES[1] == main && $_GIT_RECENT_BRANCHES[-1] == topic-450 ]] || exit 7
     _git_branch_inspector_capture "$PWD" || exit 8
-    [[ $_ZLE_PICKER_INSPECT_TEXTS[topic-450] == *"unavailable"* ]] || exit 9
+    _git_branch_inspect_text topic-450
+    [[ $REPLY == *"unavailable"* ]] || exit 9
     _ZLE_UI_CHOICE_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
     _ZLE_UI_CHOICE_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
     _zle_ui_collect_choices 450 10
@@ -113,3 +115,110 @@ _test_branch_complete_catalog() {
   test_assert_equal complete "$output"
 }
 test_case 'branch search includes unvisited local names beyond viewport and detail limits without remote refs' _test_branch_complete_catalog
+
+# Above the row bound the catalog keeps Git's first names, current branch
+# first, and both the browse and no-match labels say it is partial.
+_test_branch_catalog_row_bound() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
+    command git init -qb main "$HOME/repository" || exit 1
+    builtin cd "$HOME/repository"
+    command git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit --allow-empty -qm initial || exit 2
+    local oid=$(command git rev-parse HEAD) branch=""
+    {
+      print -r -- "# pack-refs with: peeled fully-peeled sorted"
+      for branch in topic-{0001..5001} zz-current; do print -r -- "$oid refs/heads/$branch"; done
+      print -r -- "$oid refs/remotes/origin/remote-only"
+    } > .git/packed-refs || exit 3
+    command git remote add origin https://example.invalid/origin.git || exit 3
+    command git switch -q zz-current || exit 4
+    _git_recent_branches "$PWD" || exit 5
+    (( ${#_GIT_RECENT_BRANCHES} == 5000 && ${_GIT_RECENT_PARTIAL:-0} == 1 )) || {
+      print -u2 -- "captured ${#_GIT_RECENT_BRANCHES} names, partial=${_GIT_RECENT_PARTIAL-unset}"
+      exit 6
+    }
+    [[ $_GIT_RECENT_CURRENT == zz-current && $_GIT_RECENT_BRANCHES[1] == zz-current ]] || exit 7
+    (( ${_GIT_RECENT_BRANCHES[(Ie)topic-5001]} == 0 )) || exit 8
+    # A partial catalog cannot rule out a local branch, so no remote fallback.
+    _git_branch_remote_capture "$PWD" && exit 11
+    (( !${#_GIT_BRANCH_REMOTE_VALUES} )) && [[ $_GIT_BRANCH_REMOTE_NOTICE == *partial* ]] || exit 12
+    _ZLE_UI_CHOICE_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+    _ZLE_UI_CHOICE_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
+    _git_branch_collect "" 10
+    [[ $_ZLE_PICKER_BROWSE_LABEL == *partial* ]] || exit 9
+    _git_branch_collect qqq 10
+    [[ $_ZLE_PICKER_EMPTY_LABEL == *captured* ]] || exit 10
+    [[ $(_git_branch_stack_print) == *$'\''\nPartial: captured branches only'\''* ]] || exit 13
+    print bounded
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal bounded "$output"
+}
+test_case 'Git branch catalog bounds rows, keeps the current branch and labels matching partial' \
+  _test_branch_catalog_row_bound
+
+# A byte-bounded read keeps only complete names; a cut name never matches.
+_test_branch_catalog_byte_bound() {
+  test_make_temp_dir || return
+  local output
+  test_write_file "$TEST_TMP_DIR/bin/git" $'#!/bin/zsh\n[[ $* == *for-each-ref* ]] || exit 0\nprint -r -- "*"$\'\\t\'"refs/heads/current"\nfor i in {1..3000}; do print -r -- " "$\'\\t\'"refs/heads/${(l:200::x:)}-$i"; done' || return
+  command chmod +x "$TEST_TMP_DIR/bin/git" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
+    path=("$2" "${path[@]}")
+    _git_recent_branches /fixture || exit 1
+    (( ${_GIT_RECENT_PARTIAL:-0} == 1 && ${#_GIT_RECENT_BRANCHES} > 1000 &&
+       ${#_GIT_RECENT_BRANCHES} < 3001 )) || exit 2
+    [[ $_GIT_RECENT_CURRENT == current ]] || exit 3
+    local name=""
+    for name in "${(@)_GIT_RECENT_BRANCHES[2,-1]}"; do
+      [[ $name == ${(l:200::x:)}-<1-3000> ]] || { print -u2 -r -- "cut name: ${name[-12,-1]}"; exit 4; }
+    done
+    print bounded
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin") || return
+  test_assert_equal bounded "$output"
+}
+test_case 'Git branch catalog bounds bytes and keeps only complete names' \
+  _test_branch_catalog_byte_bound
+
+# Details keep captured facts; the inspector holds text for one branch at a
+# time: the first result after filtering, then the selection while idle.
+_test_branch_inspector_selected_only() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.navigation"
+    command git init -qb main "$HOME/repository" || exit 1
+    builtin cd "$HOME/repository"
+    command git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit --allow-empty -qm initial || exit 2
+    command git branch topic && command git branch other || exit 3
+    _git_recent_branches "$PWD" || exit 4
+    _git_branch_inspector_capture "$PWD" || exit 5
+    (( ${#_ZLE_PICKER_INSPECT_TEXTS} == 0 )) || {
+      print -u2 -- "capture built ${#_ZLE_PICKER_INSPECT_TEXTS} inspector texts"; exit 6
+    }
+    _ZLE_UI_CHOICE_VALUES=("${_GIT_RECENT_BRANCHES[@]}")
+    _ZLE_UI_CHOICE_LABELS=("${_GIT_RECENT_BRANCHES[@]}")
+    _git_branch_collect "" 10
+    (( ${#_ZLE_PICKER_RESULTS} == 3 && ${#_ZLE_PICKER_INSPECT_TEXTS} == 1 )) || exit 7
+    [[ ${_ZLE_PICKER_INSPECT_TEXTS[$_ZLE_PICKER_RESULTS[1]]} == *"Current branch"*"Latest commit:"* ]] || exit 8
+    _ZLE_PICKER_SELECTED=2
+    _git_branch_inspect_idle; (( $? == 0 )) || exit 9
+    (( ${#_ZLE_PICKER_INSPECT_TEXTS} == 1 )) || exit 10
+    [[ ${_ZLE_PICKER_INSPECT_TEXTS[$_ZLE_PICKER_RESULTS[2]]} == *"Local branch"*"Latest commit:"* ]] || exit 11
+    _git_branch_inspect_idle; (( $? == 2 )) || exit 12
+    _git_branch_collect qqq 10
+    (( !${#_ZLE_PICKER_RESULTS} && ${#_ZLE_PICKER_INSPECT_TEXTS} == 1 )) || exit 13
+    print selected
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal selected "$output"
+}
+test_case 'Git branch catalog builds inspector text only for the selected branch' \
+  _test_branch_inspector_selected_only

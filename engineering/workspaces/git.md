@@ -51,6 +51,18 @@ Branch snapshot reads (refs, checkout reflog, detail subjects) keep the
 local-only controls and disable commit-signature verification, so reading a
 signed reflog never runs a configured verifier.
 
+- The local catalog is one bounded read through the shared bounded capture
+  (5,000 names / 512 KiB), current branch first, then Git's name order.
+  Recency orders captured names and never removes one. Beyond either bound the
+  catalog keeps only complete names and is partial: the browse label says so,
+  the no-match label and details say filtering covers captured branches only,
+  and the remote-tracking fallback stays off, since a partial catalog cannot
+  show that a name is not already a local branch.
+- Details come from one bounded bulk read of captured facts. Inspector text
+  exists for one branch at a time: the collector formats the first result
+  after filtering and the idle callback formats the selection before its
+  frame paints; neither calls Git.
+
 ## Git worktree workspace boundary
 
 - `g --worktree` is the sole worktree entry. `.zsh.git-worktree` owns capture,

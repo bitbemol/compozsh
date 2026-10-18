@@ -718,6 +718,10 @@ reserves `--help`, `--review`, `--worktree` and `--discard-all`.
 
 - Branches are listed current first, then by recent checkouts from Git's
   reflog, then by name. Plain digits filter (`1232` finds `bug/1232-something`).
+- `g` captures up to 5,000 local branches (512 KiB of names), current branch
+  first. Beyond that the header says **partial** and filtering covers only
+  the captured branches: use `g switch <name>` or `g branch --list <pattern>`
+  for the rest.
 - Enter switches with `git switch --no-guess`, so Git still refuses unsafe
   switches. Ctrl-Y copies the name instead. Tab shows the latest commit and
   upstream from a local snapshot; nothing is fetched.

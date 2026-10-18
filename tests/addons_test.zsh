@@ -457,6 +457,7 @@ _test_git_branch_recency_contract() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     _git_recent_branches "$2"
     print -r -- "${(j:|:)_GIT_RECENT_BRANCHES}"
   ' "$TEST_REPO_ROOT" "$repository") || return
@@ -487,6 +488,7 @@ _test_git_branch_recency_tolerates_unvisited_branches() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     _git_recent_branches "$2"
     result_status=$?
     print -r -- "$result_status|${(j:|:)_GIT_RECENT_BRANCHES}"

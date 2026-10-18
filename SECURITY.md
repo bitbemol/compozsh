@@ -127,7 +127,7 @@ recoverable installer need local state.
 | Terminal title | The terminal's window/tab title, replaced at each prompt, after an in-widget directory change and at each command start; display and retention follow the terminal and any multiplexer | `user@host: <current folder>` (home as `~`) at each prompt and after an in-widget directory change, and while a command runs `user@host: <command word>`: the first lexical word after leading assignments, at most 60 characters. Never an assignment value; the identity alone after an array assignment or when no command word is established. Controls sanitized; written only when standard output is a terminal and `TERM` is not `dumb` |
 | Prompt tool descriptions | Current-shell memory; cleared on shell exit or invalidation | At most 64 same-source command/help pairs; up to 262,144 characters of source/definition identity; 240-character summaries and option descriptions from at most 4,096 characters per guide plus the Touch ID subguide. No disk cache |
 | Git comparison choices and snapshots | View memory, released on view exit | At most 1,000 refs/256 KiB of names, kinds and object IDs; resolved endpoints, paths and bounded diff snapshots. No saved comparison catalog |
-| Git branch picker | Invocation memory; catalog released when `g` returns, details cleared on view exit | All local branch names (no count cap), ordered by current branch and up to 200 checkout reflog entries, then other refnames; details at most 262,144 characters across 401 refs, 512 per subject. No fetch, saved history or background refresh |
+| Git branch picker | Invocation memory; catalog released when `g` returns, details cleared on view exit | Up to 5,000 local branch names / 512 KiB, current branch first, with a partial notice beyond either bound; ordered by current branch and up to 200 checkout reflog entries, then other refnames. Details at most 262,144 characters across 401 refs, 512 per subject, with inspector text built only for the selected branch. No fetch, saved history or background refresh |
 | Known remote branch fallback | Invocation memory until `g` returns; tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB, and 128 remote names / 32 KiB; no remote URLs. No fetch, pull or disk cache |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
@@ -754,7 +754,10 @@ missing-UI confirmation remains. No new privilege, network path, persistence,
 automatic action or rollback claim is introduced.
 
 **Branches.** The local catalog includes names absent from the bounded checkout
-reflog. Opening the `g` branch picker also reads `git remote` names and
+reflog. It is one bounded read; beyond its bounds the picker labels itself
+partial, filtering covers captured branches only, and the remote fallback
+stays off because a partial catalog cannot show that a name is not already a
+local branch. Opening the `g` branch picker also reads `git remote` names and
 `for-each-ref refs/remotes/` once, before the first filter, through the same
 local-only provider controls, so filtering never calls Git; those refs are
 offered only when nothing local matches, and every later filter reuses that

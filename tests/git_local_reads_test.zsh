@@ -27,10 +27,12 @@ _test_git_missing_object_reads() {
       source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
       source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
       source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
+      source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
       builtin cd "$repo" || exit 4
       _git_branch_stack_load || exit 5
       _git_branch_inspector_capture "$repo" || exit 6
-      [[ ${_ZLE_PICKER_INSPECT_TEXTS[main]} == *"Commit details unavailable"* ]] || exit 7
+      _git_branch_inspect_text main
+      [[ $REPLY == *"Commit details unavailable"* ]] || exit 7
     else
       source "$1/.zsh.addons/.zsh.tools"
       for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done

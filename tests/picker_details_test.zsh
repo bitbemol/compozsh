@@ -63,16 +63,21 @@ _test_branch_details_snapshot() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
+    local topic="" main=""
     _git_recent_branches "$2" || exit 1
     _git_branch_inspector_capture "$2" || exit 2
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[topic]} == *"Current branch"* ]] || exit 3
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[topic]} == *"Upstream:"*$'\''\n  main'\''* ]] || exit 4
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[main]} == *"not configured"* ]] || exit 5
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[main]} == *'"'"'Literal %F{red} $(never-run)'"'"'* ]] || exit 6
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[main]} == *"Latest commit:"* ]] || exit 7
+    _git_branch_inspect_text topic; topic=$REPLY
+    _git_branch_inspect_text main; main=$REPLY
+    [[ $topic == *"Current branch"* ]] || exit 3
+    [[ $topic == *"Upstream:"*$'\''\n  main'\''* ]] || exit 4
+    [[ $main == *"not configured"* ]] || exit 5
+    [[ $main == *'"'"'Literal %F{red} $(never-run)'"'"'* ]] || exit 6
+    [[ $main == *"Latest commit:"* ]] || exit 7
     path=()
     _git_branch_inspector_capture "$2" || exit 8
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[topic]} == *"Current branch"*"unavailable"* ]] || exit 9
+    _git_branch_inspect_text topic
+    [[ $REPLY == *"Current branch"*"unavailable"* ]] || exit 9
     print branches
   ' "$TEST_REPO_ROOT" "$repository") || return
   test_assert_equal branches "$output"
@@ -97,9 +102,11 @@ print -rn -- "refs/heads/topic"$\'\\0\'$\'\\0\'"def456"$\'\\0\'${(l:300000::y:)}
     _GIT_RECENT_BRANCHES=(main topic)
     _GIT_RECENT_CURRENT=topic
     _git_branch_inspector_capture /fixture || exit 1
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[main]} == *"[truncated]"* ]] || exit 2
-    (( ${#_ZLE_PICKER_INSPECT_TEXTS[main]} < 1000 )) || exit 3
-    [[ ${_ZLE_PICKER_INSPECT_TEXTS[topic]} == *"Current branch"*"read limit"* ]] || exit 4
+    _git_branch_inspect_text main
+    [[ $REPLY == *"[truncated]"* ]] || exit 2
+    (( ${#REPLY} < 1000 )) || exit 3
+    _git_branch_inspect_text topic
+    [[ $REPLY == *"Current branch"*"read limit"* ]] || exit 4
     [[ $(<"$HOME/git-calls") == called ]] || exit 5
     print bounded
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin") || return

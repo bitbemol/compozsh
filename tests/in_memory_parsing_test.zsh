@@ -239,14 +239,15 @@ test_case 'in-memory parsing: Git review refs history and committed files need n
   _test_in_memory_review_history
 
 _in_memory_branch_probe() {
-  local short=''
+  local short='' REPLY=''
   _git_recent_branches "$PWD" || print -r -- 'catalog failed'
   print -r -- "$_GIT_RECENT_CURRENT|${(j:|:)_GIT_RECENT_BRANCHES}"
   _git_branch_remote_capture "$PWD" || print -r -- 'remote capture failed'
   print -r -- "${(j:|:)_GIT_BRANCH_REMOTE_VALUES}|${_GIT_BRANCH_REMOTE_NAMES[remote:refs/remotes/origin/fix/remote-only]}"
   _git_branch_inspector_capture "$PWD"
   short=$(command git rev-parse --short main)
-  print -r -- "${_ZLE_PICKER_INSPECT_TEXTS[main]/$short/OID}"
+  _git_branch_inspect_text main
+  print -r -- "${REPLY/$short/OID}"
 }
 
 _test_in_memory_branch_catalog() {
