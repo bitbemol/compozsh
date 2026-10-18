@@ -1143,7 +1143,7 @@ _test_usb_apfs_source_run() {
     for effect in _usb_progress_stage _usb_authorize _usb_authorization_valid \
         _usb_macos_installer_revalidate _usb_image_revalidate _usb_target_revalidate \
         _usb_macos_prepare_volume _usb_createinstallmedia_run _usb_unmount \
-        _usb_write_image _usb_dd_run _usb_eject \
+        _usb_write_image _usb_eject \
         _usb_diskutil_erase_run; do
       functions[$effect]="trace+=($effect); return 0"
     done
@@ -2208,39 +2208,58 @@ _test_usb_workspace_refreshes_after_late_attachment() {
 test_case 'USB Step 2 refreshes after a drive is attached late' \
   _test_usb_workspace_refreshes_after_late_attachment
 
-_test_usb_ejected_drive_recovery_is_explicit() {
+# An ejected drive leaves diskutil's external list empty. Only diskutil is a
+# stand-in: the real capture chain reaches Step 2's recovery view, and a
+# reworded producer message must not change which recovery it offers.
+_test_usb_target_recovery_follows_the_capture_error_kind() {
   test_make_temp_dir || return
-  local output=''
+  local output='' probe='' detail_line=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    _usb_disks_capture() {
-      _USB_CAPTURE_ERROR="no whole external physical disks are attached"
-      return 1
+    TMPDIR=$HOME
+    _usb_diskutil_run() {
+      [[ "$*" == "list -plist external physical" ]] || return 1
+      print -rn -- "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>AllDisks</key><array/></dict></plist>"
     }
     _usb_choose() {
-      print -r -- "label:${_USB_PICKER_LABELS[1]}"
-      print -r -- "subtitle:$2"
-      print -r -- "detail:${_USB_PICKER_DETAILS[1]}"
+      print -r -- "${probe}:label:${_USB_PICKER_LABELS[1]}"
+      print -r -- "${probe}:subtitle:$2"
+      print -r -- "${probe}:detail:${(j: :)${(f)_USB_PICKER_DETAILS[1]}}"
       return 1
     }
-    _usb_disks_capture_retry 30000 linux.iso image "Choose another image"
-    print -r -- "status:$?"
+    probe=shipped
+    _usb_target_choose 30000 linux.iso image "Choose another image"
+    print -r -- "${probe}:status:$?"
+    shipped_body=$functions[_usb_disk_ids_capture]
+    functions[_usb_disk_ids_capture]=${shipped_body//no whole external physical disks are attached/macOS lists no external disks right now}
+    [[ $functions[_usb_disk_ids_capture] != "$shipped_body" ]] &&
+      print -r -- message-reworded:yes
+    probe=reworded
+    _usb_target_choose 30000 linux.iso image "Choose another image"
+    print -r -- "${probe}:status:$?"
   ' "$TEST_REPO_ROOT") || return
 
-  test_assert_contains "$output" \
-    'label:Make drive available · connect or replug it, then retry' \
-    'the empty target view did not give the required physical recovery action' || return
-  test_assert_contains "$output" \
-    'subtitle:DRIVE unavailable · no external disk is currently visible to macOS' \
-    'the empty target status repeated an internal provider error instead of recovery guidance' || return
-  test_assert_contains "$output" 'Ctrl-R cannot reactivate an ejected drive' \
-    'the empty target details implied that refresh can recover an ejected drive' || return
-  test_assert_contains "$output" 'status:1' \
-    'leaving the empty target recovery view did not preserve cancellation'
+  test_assert_contains "$output" 'message-reworded:yes' \
+    'the probe did not reword the producer message' || return
+  for probe in shipped reworded; do
+    test_assert_contains "$output" \
+      "${probe}:label:Make drive available · connect or replug it, then retry" \
+      "the empty target view did not give the required physical recovery action ($probe message)" || return
+    test_assert_contains "$output" \
+      "${probe}:subtitle:DRIVE unavailable · no external disk is currently visible to macOS" \
+      "the empty target status repeated an internal provider error instead of recovery guidance ($probe message)" || return
+    detail_line=${(M)${(f)output}:#${probe}:detail:*}
+    [[ $detail_line == *'Ctrl-R cannot reactivate an ejected drive'* ]] || {
+      test_fail "the empty target details implied that refresh can recover an ejected drive ($probe message): ${(qqq)detail_line}"
+      return
+    }
+    test_assert_contains "$output" "${probe}:status:1" \
+      "leaving the empty target recovery view did not preserve cancellation ($probe message)" || return
+  done
 }
-test_case 'USB Step 2 explains physical recovery for an ejected drive' \
-  _test_usb_ejected_drive_recovery_is_explicit
+test_case "USB target recovery offers replug guidance from the capture's error kind" \
+  _test_usb_target_recovery_follows_the_capture_error_kind
 
 _test_usb_workspace_refreshes_images_with_spotlight_snapshot() {
   test_make_temp_dir || return
@@ -2618,8 +2637,6 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
     _usb_authorization_valid() { return 0; }
     _usb_unmount() { return 0; }
     _usb_eject() { return 0; }
-    _usb_dd_run() { print -r -- unexpected-dd >> "$HOME/trace"; return 1; }
-    _usb_dd_read_run() { print -r -- unexpected-dd-read >> "$HOME/trace"; return 1; }
     _usb_diskutil_erase_run() { print -r -- unexpected-erase >> "$HOME/trace"; return 1; }
     _usb_hdiutil_detach() { print -r -- unexpected-detach >> "$HOME/trace"; return 1; }
     _usb_raw_write_session_run() {
@@ -3522,7 +3539,10 @@ _test_usb_execution_uses_atomic_premount_verification() {
       _USB_WRITE_VERIFY_SECONDS=3
       return 0
     }
-    _usb_verify_payload() { trace+=(late-verify); return 0; }
+    # The stubbed write session already returned its evidence, so any further
+    # privileged device primitive is a late reread.
+    _usb_raw_write_session_run() { trace+=(late-verify); return 0; }
+    _usb_diskutil_erase_run() { trace+=(late-verify); return 0; }
     _usb_eject() { trace+=(eject); return 0; }
     _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
       8388608 flash-verify "" 1 >/dev/null 2>&1
@@ -3558,9 +3578,8 @@ _test_usb_flash_verify_without_session_evidence_fails_closed() {
     _usb_target_revalidate() { return 0; }
     _usb_unmount() { return 0; }
     _usb_write_image() { _USB_WRITE_BYTES_OBSERVED=$3; return 0; }
-    _usb_verify_payload() { trace+=(late-reread); return 0; }
-    _usb_verify_payload_checksum() { trace+=(late-reread); return 0; }
-    _usb_dd_read_run() { trace+=(late-reread); return 0; }
+    _usb_raw_write_session_run() { trace+=(late-reread); return 0; }
+    _usb_diskutil_erase_run() { trace+=(late-reread); return 0; }
     _usb_eject() { trace+=(eject); return 0; }
     _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
       8388608 flash-verify "" 1 >/dev/null 2>&1

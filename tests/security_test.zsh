@@ -123,6 +123,12 @@ _test_privilege_and_credential_surface_stays_bounded() {
         test_fail "sudo can prompt outside an explicit validation call: $trimmed"
         return 1
       fi
+      # Raw device I/O runs only inside the fixed raw-write routine; a direct
+      # sudo dd wrapper would hand root dd whatever operands its caller chose.
+      if [[ $invocation == *[[:space:]]/bin/dd([[:space:]]*|) ]]; then
+        test_fail "sudo runs dd outside the fixed raw-write routine: $trimmed"
+        return 1
+      fi
     done < "$file"
   done
 

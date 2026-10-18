@@ -1130,10 +1130,10 @@ state-changing mode.
    from the terminal and manages its own authorization timestamp.
 4. Compozsh revalidates the target before mutation.
 5. Privileged operations use `sudo -n`, which refuses to prompt or read a
-   password. The permitted implementations are Apple's `/bin/dd`,
-   `/usr/sbin/diskutil`, one fixed internal Zsh raw-device routine, and an
-   Apple-signature-validated `createinstallmedia` from the explicitly selected
-   macOS installer application.
+   password. The permitted implementations are `/usr/sbin/diskutil`, one
+   fixed internal Zsh raw-device routine (the only place Apple's `/bin/dd`
+   runs with privilege), and an Apple-signature-validated `createinstallmedia`
+   from the explicitly selected macOS installer application.
 
 Apple signature validation never consults the requirement a signer declares
 for its own code. `_usb_codesign_is_apple` and

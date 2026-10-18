@@ -112,7 +112,7 @@ typeset -ga _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
 typeset -ga _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=()
 typeset -ga _USB_FORMAT_DETAILS=()
 typeset -ga _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
-typeset -g _USB_CAPTURE_ERROR='' _USB_PLIST=''
+typeset -g _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND='' _USB_PLIST=''
 typeset -g _USB_FORMAT_ERROR=''
 typeset -g _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
 typeset -gi _USB_ISO_TABLE_MAX_BYTES=16777216 _USB_ISO_TABLE_MAX_ENTRIES=65536
@@ -1184,12 +1184,15 @@ _usb_disk_list_read() {
   }
 }
 
+# _USB_CAPTURE_ERROR is display text; consumers branch on
+# _USB_CAPTURE_ERROR_KIND, which is no-disks when diskutil lists no whole
+# external physical disk and empty for every other failure.
 _usb_disk_ids_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local count='' identifier=''
   local -i index=0
-  _USB_DISK_IDS=()
+  _USB_DISK_IDS=() _USB_CAPTURE_ERROR_KIND=''
   _usb_disk_list_read || return
   (( ${+functions[_compozsh_plutil_raw]} )) && _compozsh_plutil_raw "$_USB_PLIST" AllDisks || return 1
   count=$REPLY
@@ -1207,6 +1210,7 @@ _usb_disk_ids_capture() {
   done
   (( ${#_USB_DISK_IDS} )) || {
     _USB_CAPTURE_ERROR='no whole external physical disks are attached'
+    _USB_CAPTURE_ERROR_KIND=no-disks
     return 1
   }
 }
@@ -1303,7 +1307,7 @@ _usb_external_disks_capture() {
   local identifier='' size_label='' effect_detail=''
   local -i excluded_count=0 ineligible_count=0 undersized_count=0
   local -a captured_ids=()
-  _USB_CAPTURE_ERROR=''
+  _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND=''
   [[ $minimum_size == <-> ]] || return 2
   _usb_disk_ids_capture || return
   captured_ids=("${_USB_DISK_IDS[@]}")
@@ -1431,7 +1435,7 @@ _usb_external_device_capture_retry() {
     retry_label='Retry target capture · permission or attachment may have changed'
     retry_detail='Retry target capture'$'\n\n'"$error"$'\n\n''macOS can return once while applying removable-volume permission. Enter performs a fresh read-only diskutil capture.'
     subtitle="DRIVE unavailable · $error"
-    if [[ $error == 'no whole external physical disks are attached' ]]; then
+    if [[ $_USB_CAPTURE_ERROR_KIND == no-disks ]]; then
       retry_label='Make drive available · connect or replug it, then retry'
       retry_detail='No external disk is currently visible to macOS.'$'\n\n''A drive can remain physically plugged in after macOS ejects it. Ctrl-R cannot reactivate an ejected drive. Unplug and reconnect the drive (or power-cycle its hub), then press Ctrl-R or Enter.'
       subtitle='DRIVE unavailable · no external disk is currently visible to macOS'
@@ -1452,15 +1456,6 @@ _usb_external_device_capture_retry() {
     selected=$_ZLE_PICKER_SELECTED_VALUE
     [[ $selected == retry ]] || return 1
   done
-}
-
-_usb_disks_capture_retry() {
-  emulate -L zsh
-  local image_size=$1 image_label=$2 back_value=$3 back_label=$4
-  local excluded_disk=${5:-} media_kind=${6:-raw-image}
-  _usb_external_device_capture_retry _usb_disks_capture "$image_size" \
-    "$excluded_disk" "$media_kind" 'External device / Flash · Step 2 of 3' \
-    "$back_value" "$back_label"
 }
 
 _usb_external_device_choose() {
@@ -2350,10 +2345,6 @@ _usb_authorization_valid() {
 
 _usb_unmount() {
   command /usr/sbin/diskutil unmountDisk "/dev/$1"
-}
-
-_usb_dd_run() {
-  command /usr/bin/sudo -n /bin/dd "$@"
 }
 
 _usb_raw_write_script_capture() {
@@ -3686,7 +3677,7 @@ _usb_flash() {
     _USB_IMAGE_KINDS=()
     _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
     _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
-    _USB_CAPTURE_ERROR='' _USB_PLIST=''
+    _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND='' _USB_PLIST=''
     _USB_CONFIRM_ERROR=''
     _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_CAPTURE_PARTIAL=0
     _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
@@ -3811,6 +3802,7 @@ _usb_format() {
     _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=()
     _USB_FORMAT_DETAILS=()
     _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
-    _USB_CAPTURE_ERROR='' _USB_FORMAT_ERROR='' _USB_CONFIRM_ERROR='' _USB_PLIST=''
+    _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND=''
+    _USB_FORMAT_ERROR='' _USB_CONFIRM_ERROR='' _USB_PLIST=''
   }
 }
