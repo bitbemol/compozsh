@@ -204,3 +204,89 @@ _test_git_refresh_filter_commit() {
   test_assert_equal scoped "$output"
 }
 test_case 'Git workspace refresh preserves filtered-empty context immutable commit IDs and failed configuration safety' _test_git_refresh_filter_commit
+
+# List-mode selection rebind after a successful recapture, for both refresh
+# paths side by side. Both bind the selection by literal path and change kind
+# and keep a surviving item's visible slot. When the selection vanished, Ctrl-R
+# reads the first match and automatic publication reads nothing.
+_test_git_refresh_list_rebind() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zshrc"
+    local mode="" scenario="" loaded="" loaded_data="" context=3 _ZLE_PICKER_OPTIONS_KIND=""
+    local -i focus=1 _ZLE_PICKER_DOCUMENT=1
+    local _ZLE_PICKER_DOCUMENT_KEY=5 _git_review_event_status=""
+    local -A _ZLE_PICKER_DOCUMENT_ROWS=(5 77)
+    local -A _git_document_contexts=() _git_document_anchors=() _git_document_cache=() _git_document_partial=()
+    local -a _GIT_REVIEW_PATHS=() _GIT_REVIEW_LABELS=() _GIT_REVIEW_KINDS=() _GIT_REVIEW_CONTEXTS=()
+    local -a _GIT_REVIEW_DETAILS=() _GIT_REVIEW_PARENTS=() _GIT_REVIEW_CONFIG=()
+    local -a _git_auto_candidate_paths=() _git_auto_candidate_labels=() _git_auto_candidate_kinds=()
+    local -a _git_auto_candidate_contexts=() _git_auto_candidate_details=() _git_auto_candidate_parents=()
+    local -a _git_auto_candidate_config=() bookmark=() expected=()
+    local _git_auto_candidate_request_name=e _git_auto_candidate_request_kind=unstaged
+    local _git_auto_candidate_request_context=3 _git_auto_candidate_diff_data=CAPTURED
+    local -i _git_auto_candidate_diff_truncated=0 _git_auto_candidate_list_truncated=0
+    _git_review_document_load() {
+      _ZLE_PICKER_DOCUMENT_KEY=$2 loaded=${_GIT_REVIEW_PATHS[$2]}/${_GIT_REVIEW_KINDS[$2]}
+      _git_review_document_cache_key "$2" "$5"
+      loaded_data=${_git_document_cache[$REPLY]-}
+    }
+    _git_review_document_anchor() { REPLY="new:$1"; }
+    _git_review_auto_candidate_clear() { :; }
+    _git_review_status_apply() { :; }
+    _git_review_load() {
+      _GIT_REVIEW_PATHS=("${_git_auto_candidate_paths[@]}")
+      _GIT_REVIEW_LABELS=("${_git_auto_candidate_labels[@]}")
+      _GIT_REVIEW_KINDS=("${_git_auto_candidate_kinds[@]}")
+      _GIT_REVIEW_CONTEXTS=("${_git_auto_candidate_contexts[@]}")
+      _GIT_REVIEW_DETAILS=("${_git_auto_candidate_details[@]}")
+      _GIT_REVIEW_PARENTS=("${_git_auto_candidate_parents[@]}")
+    }
+    for scenario in inserted vanished; do
+      for mode in auto manual; do
+        _GIT_REVIEW_PATHS=(a b c d e f) _GIT_REVIEW_LABELS=(a b c d e f)
+        _GIT_REVIEW_KINDS=(unstaged unstaged unstaged unstaged unstaged unstaged)
+        _GIT_REVIEW_CONTEXTS=(M M M M M M) _GIT_REVIEW_DETAILS=(a b c d e f)
+        _GIT_REVIEW_PARENTS=("" "" "" "" "" "")
+        if [[ $scenario == inserted ]]; then
+          # The same path with another kind lands above the selection too.
+          _git_auto_candidate_paths=(n e a b c d e f)
+          _git_auto_candidate_kinds=(untracked staged unstaged unstaged unstaged unstaged unstaged unstaged)
+        else
+          _git_auto_candidate_paths=(n a b c d f)
+          _git_auto_candidate_kinds=(untracked unstaged unstaged unstaged unstaged unstaged)
+        fi
+        _git_auto_candidate_labels=("${_git_auto_candidate_paths[@]}")
+        _git_auto_candidate_details=("${_git_auto_candidate_paths[@]}")
+        _git_auto_candidate_contexts=("${_git_auto_candidate_kinds[@]}")
+        _git_auto_candidate_parents=("${_git_auto_candidate_paths[@]/*/}")
+        _ZLE_PICKER_DOCUMENT_KEY=5 focus=1 context=3 loaded="" loaded_data="" _git_review_event_status=""
+        _git_document_anchors=() _ZLE_PICKER_DOCUMENT_ROWS=(5 77)
+        bookmark=("" 5 2)
+        _git_review_rows
+        if [[ $mode == auto ]]; then
+          _git_review_auto_publish root 5 || exit 10
+        else
+          _git_review_refresh root working "" "" 5 5 || exit 11
+        fi
+        case $scenario/$mode in
+          (inserted/auto) expected=("" 7 4 1 3 e/unstaged CAPTURED "updated automatically") ;;
+          (inserted/manual) expected=("" 7 4 1 3 e/unstaged "" refreshed) ;;
+          (vanished/auto) expected=("" 1 0 0 3 "" "" "updated automatically · previous selection no longer in results") ;;
+          (vanished/manual) expected=("" 1 0 0 3 n/untracked "" "refreshed · previous selection no longer in results") ;;
+        esac
+        [[ "${(j:|:)bookmark[1,3]}|$focus|$context|$loaded|$loaded_data|$_git_review_event_status" == "${(j:|:)expected}" ]] || {
+          print -u2 -r -- "$scenario $mode: ${(j:|:)bookmark[1,3]}|$focus|$context|$loaded|$loaded_data|$_git_review_event_status"
+          exit 2
+        }
+        if [[ $scenario == inserted ]]; then
+          [[ $_ZLE_PICKER_DOCUMENT_KEY == 7 && ${_git_document_anchors[7]-} == new:77 &&
+             ${_git_document_contexts[7]-} == refresh ]] || {
+            print -u2 -r -- "$scenario $mode lost reader identity or anchor: $_ZLE_PICKER_DOCUMENT_KEY ${(kv)_git_document_anchors} ${(kv)_git_document_contexts}"; exit 3
+          }
+        fi
+      done
+    done
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'Git manual and automatic refresh keep their selection row and visible slot after inserts above the selection' _test_git_refresh_list_rebind

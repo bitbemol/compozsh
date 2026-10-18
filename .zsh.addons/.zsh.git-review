@@ -2523,8 +2523,7 @@ _git_review_auto_publish() {
   local name=$_git_auto_candidate_request_name
   local change_kind=$_git_auto_candidate_request_kind
   local diff_data=$_git_auto_candidate_diff_data
-  local -i diff_truncated=$_git_auto_candidate_diff_truncated
-  local -i match=0 rank=0 row=0 old_slot=$(( bookmark[2] - bookmark[3] ))
+  local -i diff_truncated=$_git_auto_candidate_diff_truncated match=0
 
   if [[ $context != "$_git_auto_candidate_request_context" ]]; then
     _git_review_auto_safety_adopt || true
@@ -2560,24 +2559,9 @@ _git_review_auto_publish() {
   if (( !${#_GIT_REVIEW_PATHS} )); then
     _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Automatic refresh is active; Ctrl-R refreshes now.' "$_GIT_REVIEW_NOTICE")
   fi
-  for (( row=1; row<=${#_GIT_REVIEW_PATHS}; ++row )); do
-    if [[ ${_GIT_REVIEW_PATHS[row]} == "$name" &&
-          ${_GIT_REVIEW_KINDS[row]} == "$change_kind" ]]; then
-      match=$row
-      break
-    fi
-  done
-  _git_review_rows
-  local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
-  _zle_ui_collect_choices "${bookmark[1]}" 1000
-  (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
-  if (( rank )); then
-    bookmark[2]=$rank
-    (( old_slot < 1 )) && old_slot=1
-    bookmark[3]=$(( rank - old_slot ))
-    (( bookmark[3] < 0 )) && bookmark[3]=0
-    _git_document_contexts[$match]=refresh
-    _git_document_anchors[$match]=$anchor
+  _git_review_rebind_selection auto "$name" "$change_kind" "$selected_row" "$anchor"
+  match=$REPLY
+  if (( match )); then
     _git_review_document_cache_key "$match" "$context"
     cache_key=$REPLY
     _git_document_cache[$cache_key]=$diff_data
@@ -2585,12 +2569,10 @@ _git_review_auto_publish() {
     _git_document_order=("$cache_key")
     _git_review_refresh_status=''
     _git_review_document_load "$root" "$match" '' '' "$context" || return $?
+    _git_review_event_status='updated automatically'
+  elif [[ -n $name ]]; then
+    _git_review_event_status='updated automatically · previous selection no longer in results'
   else
-    bookmark[2]=1 bookmark[3]=0 focus=0 context=3
-    [[ -n $name ]] && _git_review_event_status='updated automatically · previous selection no longer in results' ||
-      _git_review_event_status='updated automatically'
-  fi
-  if (( rank )); then
     _git_review_event_status='updated automatically'
   fi
   _git_auto_updated_at=$EPOCHSECONDS
@@ -2598,6 +2580,48 @@ _git_review_auto_publish() {
   _ZLE_PICKER_DOCUMENT_UPDATE_PENDING=0
   _git_review_auto_candidate_clear
   _git_review_status_apply >/dev/null
+  return 0
+}
+
+# Rebind the selection to a freshly installed snapshot by literal path AND
+# change kind (numeric IDs are valid only within one observation), re-rank it
+# under the unchanged filter and reconcile the file projection. Calculation over
+# captured facts only: no provider read and no paint. bookmark, focus and
+# context belong to the calling view. A surviving item keeps its visible slot.
+# When it left the results, policy `manual` (Ctrl-R) falls back to the first
+# match and `auto` reads nothing. REPLY is the row to read, or 0 for none;
+# status 1 means the selection left the results.
+_git_review_rebind_selection() {
+  emulate -L zsh
+  local policy=$1 name=$2 change_kind=$3 selected_row=$4 anchor=$5
+  local -i match=0 rank=0 row=0 folder_rank=0 old_slot=$(( bookmark[2] - bookmark[3] ))
+  (( old_slot < 1 )) && old_slot=1
+  REPLY=0
+  for (( row=1; row<=${#_GIT_REVIEW_PATHS}; ++row )); do
+    if [[ ${_GIT_REVIEW_PATHS[row]} == "$name" && ${_GIT_REVIEW_KINDS[row]} == "$change_kind" ]]; then
+      match=$row
+      break
+    fi
+  done
+  _git_review_rows
+  # A status change may also remove a surviving path/kind from this query's
+  # results; the projection below then reselects its nearest folder.
+  local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
+  _zle_ui_collect_choices "${bookmark[1]}" 1000
+  (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
+  if (( rank )); then
+    bookmark[2]=$rank bookmark[3]=$(( rank - old_slot ))
+    (( bookmark[3] < 0 )) && bookmark[3]=0
+    _git_document_contexts[$match]=refresh
+    _git_document_anchors[$match]=$anchor
+    REPLY=$match
+  else
+    bookmark[2]=1 bookmark[3]=0 focus=0 context=3
+    if [[ $policy == manual ]]; then
+      match=${_ZLE_PICKER_RESULTS[1]:-0}
+      REPLY=$match
+    fi
+  fi
   if [[ $_ZLE_PICKER_OPTIONS_KIND == file-views ]]; then
     _git_tree_bookmark=() _git_flat_bookmark=()
     _git_review_tree_reconcile
@@ -2605,16 +2629,14 @@ _git_review_auto_publish() {
     # The source rank excludes directory rows. Restore the visible slot only
     # after the final projection, retaining a surviving folder independently
     # from the reader whose path/kind was rebound to this snapshot.
-    local -i folder_rank=0
     [[ $selected_row == d:* ]] && folder_rank=${_ZLE_PICKER_RESULTS[(Ie)$selected_row]}
     (( folder_rank )) && bookmark[2]=$folder_rank
     if (( (rank || folder_rank) && bookmark[2] > 0 )); then
-      (( old_slot < 1 )) && old_slot=1
       bookmark[3]=$(( bookmark[2] - old_slot ))
       (( bookmark[3] < 0 )) && bookmark[3]=0
     fi
   fi
-  return 0
+  (( rank ))
 }
 
 # Explicit whole-workspace refresh, owned by _git_review_view. Keep the old
@@ -2633,7 +2655,7 @@ _git_review_refresh() {
   local -a saved_labels=("${_GIT_REVIEW_LABELS[@]}") saved_contexts=("${_GIT_REVIEW_CONTEXTS[@]}")
   local -a saved_details=("${_GIT_REVIEW_DETAILS[@]}") saved_parents=("${_GIT_REVIEW_PARENTS[@]}")
   local -a saved_config=("${_GIT_REVIEW_CONFIG[@]}")
-  local -i result=0 match=0 rank=0 row=0 old_slot=$(( bookmark[2] - bookmark[3] ))
+  local -i result=0 match=0
   _git_review_refresh_succeeded=0
   if [[ -n $selected && $selected == "$_ZLE_PICKER_DOCUMENT_KEY" ]]; then
     _git_review_saved_anchor "$selected"
@@ -2663,45 +2685,15 @@ _git_review_refresh() {
   if (( !${#_GIT_REVIEW_PATHS} )); then
     _ZLE_PICKER_EMPTY_LINES=('No changes in this snapshot' 'Ctrl-R refreshes now; Escape returns.' "$_GIT_REVIEW_NOTICE")
   fi
-  for (( row=1; row<=${#_GIT_REVIEW_PATHS}; ++row )); do
-    if [[ ${_GIT_REVIEW_PATHS[row]} == "$name" && ${_GIT_REVIEW_KINDS[row]} == "$change_kind" ]]; then
-      match=$row
-      break
-    fi
-  done
-  _git_review_rows
-  # Re-rank the bounded captured list using the unchanged filter. A status
-  # change may also remove a surviving path/kind from this query's results.
-  local _ZLE_PICKER_EXCLUDE=${bookmark[4]-}
-  _zle_ui_collect_choices "${bookmark[1]}" 1000
-  (( match )) && rank=${_ZLE_PICKER_RESULTS[(Ie)$match]}
-  if (( rank )); then
-    bookmark[2]=$rank
-    _git_document_contexts[$match]=refresh
-    _git_document_anchors[$match]=$anchor
-  else
-    bookmark[2]=1 bookmark[3]=0 focus=0 context=3
-    match=${_ZLE_PICKER_RESULTS[1]:-0}
+  if ! _git_review_rebind_selection manual "$name" "$change_kind" "$selected_row" "$anchor"; then
     [[ -n $name ]] && _git_review_event_status+=' · previous selection no longer in results'
   fi
+  match=$REPLY
   _git_review_refresh_status=''
   if (( match )); then
     _git_review_document_load "$root" "$match" "$oid" "$parent" "$context" || return $?
   fi
   _git_review_refresh_succeeded=1
-  if [[ $_ZLE_PICKER_OPTIONS_KIND == file-views ]]; then
-    _git_tree_bookmark=() _git_flat_bookmark=()
-    _git_review_tree_reconcile
-    _git_review_file_reselect "$match"
-    local -i folder_rank=0
-    [[ $selected_row == d:* ]] && folder_rank=${_ZLE_PICKER_RESULTS[(Ie)$selected_row]}
-    (( folder_rank )) && bookmark[2]=$folder_rank
-    if (( (rank || folder_rank) && bookmark[2] > 0 )); then
-      (( old_slot < 1 )) && old_slot=1
-      bookmark[3]=$(( bookmark[2] - old_slot ))
-      (( bookmark[3] < 0 )) && bookmark[3]=0
-    fi
-  fi
   return 0
 }
 
