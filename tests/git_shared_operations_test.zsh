@@ -176,24 +176,51 @@ _test_shared_git_operation_state() {
   local output
   output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_operation" || exit 1
-    local root="$HOME/metadata" REPLY=""
+    local root="$HOME/metadata" REPLY="" entry="" marker="" expected="" seen=""
+    local -a observed=()
     command mkdir -p "$root/sequencer" "$root/rebase-merge"
-    _compozsh_git_operation "$root" 1
+    _compozsh_git_operation "$root" fail-closed
     [[ $REPLY == rebase ]] || exit 2
     : > "$root/MERGE_HEAD"
-    _compozsh_git_operation "$root" 1
+    _compozsh_git_operation "$root" fail-closed
     [[ $REPLY == merge ]] || exit 3
     command rm "$root/MERGE_HEAD"
     command rmdir "$root/rebase-merge"
-    _compozsh_git_operation "$root" 0
+    _compozsh_git_operation "$root" label
     [[ -z $REPLY ]] || exit 4
-    _compozsh_git_operation "$root" 1
+    _compozsh_git_operation "$root" fail-closed
     [[ $REPLY == cherry-pick/revert ]] || exit 5
+    command rmdir "$root/sequencer"
+    # Ordinary markers keep the prompt labels under both policies; the
+    # bookkeeping-only and unusual-type markers refuse without a prompt label.
+    for entry in MERGE_HEAD:merge:merge CHERRY_PICK_HEAD:cherry-pick:cherry-pick \
+        REVERT_HEAD:revert:revert BISECT_LOG:bisect:bisect \
+        rebase-merge/:rebase:rebase rebase-apply/:rebase:rebase \
+        MERGE_AUTOSTASH::merge BISECT_START::bisect sequencer/::cherry-pick/revert \
+        MERGE_HEAD/::merge BISECT_LOG/::bisect MERGE_HEAD@::merge rebase-merge::rebase; do
+      marker=${entry%%:*} expected=${entry#*:}
+      case $marker in
+        */) command mkdir -- "$root/${marker%/}" ;;
+        *@) command ln -s -- missing-target "$root/${marker%@}" ;;
+        *) : > "$root/$marker" ;;
+      esac
+      _compozsh_git_operation "$root" label || exit 6
+      seen=$REPLY
+      _compozsh_git_operation "$root" fail-closed || exit 7
+      [[ $seen:$REPLY == "$expected" ]] || observed+=("$marker=$seen:$REPLY")
+      command rm -rf -- "$root/${marker%[/@]}"
+    done
+    (( ${#observed} )) && print -r -- "mismatch: ${observed}"
+    _compozsh_git_operation "$root" fail-closed && [[ -z $REPLY ]] || exit 8
+    : > "$root/MERGE_HEAD"
+    _compozsh_git_operation "$root" 1 && exit 9
+    [[ -z $REPLY ]] || exit 10
+    _compozsh_git_operation "$root" && exit 11
     print state
   ' "$TEST_REPO_ROOT") || return
   test_assert_equal state "$output"
 }
-test_case 'shared Git operation observation preserves marker precedence and sequencer policy' _test_shared_git_operation_state
+test_case 'shared Git operation observation preserves marker precedence and label and fail-closed policies' _test_shared_git_operation_state
 
 _test_shared_git_ambiguous_filter_consumers() {
   test_make_temp_dir || return

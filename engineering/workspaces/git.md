@@ -142,6 +142,14 @@ focus.
   process for the review worker. Wrappers add only their own `-c` flags and
   exported variables and fail closed without the entry; the prompt, filter
   discovery and discard keep their own calls under the static baseline.
+- One ordered marker table in `_compozsh_git_operation <git-dir>
+  label|fail-closed` decides whether a Git operation is in progress: merge,
+  merge autostash, cherry-pick, revert, bisect log and start, both rebase
+  directories and the sequencer. The prompt's `label` policy names only the
+  ordinary markers of the type Git writes. Destructive actions (discard,
+  worktree move and removal) use `fail-closed`: any marker of any file type,
+  a dangling link included, refuses, as do missing support and an unknown
+  policy.
 - Disable optional index writes, fsmonitor, hooks, lazy fetch, network
   protocols, external diffs, textconv and commit-signature verification
   (`-c log.showSignature=false`: no configured verifier such as `gpg.program`

@@ -320,18 +320,25 @@ _git_worktree_target_current() {
   _git_worktree_fail 'The selected folder is missing, replaced or belongs to another repository.'
 }
 
+# Shares discard's fail-closed marker policy: any operation marker refuses,
+# whatever its file type, and so does missing shared support.
 _git_worktree_idle_check() {
   emulate -L zsh
-  local target=$1 git_dir='' flag=''
+  local target=$1 git_dir='' REPLY=''
+  (( ${+functions[_compozsh_git_operation]} )) || {
+    _git_worktree_fail 'Shared Git safety support is unavailable; no action applied.'
+    return 2
+  }
   _git_worktree_capture "$target" rev-parse --absolute-git-dir || return
   git_dir=${_GWT_DATA%$'\n'}
-  for flag in MERGE_HEAD MERGE_AUTOSTASH CHERRY_PICK_HEAD REVERT_HEAD \
-      BISECT_LOG BISECT_START rebase-merge rebase-apply sequencer; do
-    [[ ! -e "$git_dir/$flag" ]] || {
-      _git_worktree_fail 'Finish the Git operation in this worktree before moving or removing it.'
-      return 1
-    }
-  done
+  _compozsh_git_operation "$git_dir" fail-closed || {
+    _git_worktree_fail 'Git operation state could not be checked; no action applied.'
+    return 2
+  }
+  [[ -z $REPLY ]] || {
+    _git_worktree_fail 'Finish the Git operation in this worktree before moving or removing it.'
+    return 1
+  }
   return 0
 }
 

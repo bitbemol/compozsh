@@ -199,7 +199,7 @@ _tools_git_discard_all() {
     print -u2 'g --discard-all: shared Git safety support is unavailable; nothing was discarded'
     return 1
   }
-  _compozsh_git_operation "$git_dir" 1 || return 1
+  _compozsh_git_operation "$git_dir" fail-closed || return 1
   operation=$REPLY
   if [[ -n $operation ]]; then
     print -u2 -- "g --discard-all: refusing during an active ${operation} operation"
@@ -255,7 +255,7 @@ _tools_git_discard_all() {
       print -u2 'g --discard-all: could not revalidate the repository after confirmation; nothing was discarded'
       return 1
     }
-  _compozsh_git_operation "$confirmed_git_dir" 1 || return 1
+  _compozsh_git_operation "$confirmed_git_dir" fail-closed || return 1
   operation=$REPLY
   _compozsh_git_filter_config "$root" restore || {
     print -u2 'g --discard-all: repository filter configuration changed after the preview; nothing was discarded'

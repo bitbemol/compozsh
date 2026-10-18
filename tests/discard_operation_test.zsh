@@ -71,3 +71,55 @@ test_case 'g --discard-all refuses native no-commit cherry-pick sequencers befor
 _test_discard_late_sequencer() { _test_discard_sequencer_guard confirmation; }
 test_case 'g --discard-all revalidates sequencer state after confirmation without changing conflicted data' \
   _test_discard_late_sequencer
+
+# Discard fails closed on every operation marker Git or its autostash and
+# bisect bookkeeping can leave behind, whatever its file type: Git itself
+# tests MERGE_HEAD with lstat, so a directory or dangling link still counts.
+_test_discard_fail_closed_markers() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    source "$1/tests/support.zsh"
+    source "$1/.zsh.addons/.zsh.tools"
+    test_source_support "$1" || exit 1
+    source "$1/.zsh.addons/.zsh.navigation"
+    local repo="$HOME/repository" marker="" name=""
+    local -a proceeded=()
+    command git init -qb main "$repo" || exit 2
+    command git -C "$repo" config user.name Fixture
+    command git -C "$repo" config user.email fixture@example.invalid
+    command git -C "$repo" config commit.gpgsign false
+    print base > "$repo/tracked"
+    command git -C "$repo" add tracked && command git -C "$repo" commit -qm base || exit 3
+    builtin cd "$repo" || exit 4
+    read() {
+      [[ $* == *"answer?"* ]] && print prompted >| "$HOME/prompted"
+      builtin read "$@"
+    }
+    for marker in MERGE_AUTOSTASH BISECT_START MERGE_HEAD/ MERGE_HEAD@; do
+      name=${marker%[/@]}
+      print preserve >| untracked
+      command rm -f -- "$HOME/prompted"
+      case $marker in
+        */) command mkdir -- ".git/$name" || exit 5 ;;
+        *@) command ln -s -- missing-target ".git/$name" || exit 6 ;;
+        *) print fixture > ".git/$name" || exit 7 ;;
+      esac
+      if g --discard-all <<< y > "$HOME/output" 2> "$HOME/error" ||
+         [[ -e "$HOME/prompted" || ! -f untracked ||
+            $(<"$HOME/error") != *"refusing during an active"* ]]; then
+        proceeded+=("$marker")
+      fi
+      if [[ -d ".git/$name" && ! -L ".git/$name" ]]; then
+        command rmdir -- ".git/$name" || exit 8
+      else
+        command rm -f -- ".git/$name" || exit 9
+      fi
+    done
+    (( ${#proceeded} )) && print -r -- "proceeded: ${proceeded}" || print refused
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal refused "$output"
+}
+test_case 'g --discard-all refuses while only MERGE_AUTOSTASH BISECT_START or an unusual MERGE_HEAD marks an operation' \
+  _test_discard_fail_closed_markers

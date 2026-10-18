@@ -1,24 +1,39 @@
 # Entry point: _compozsh_git_operation
 # Impure: observes operation markers in the supplied Git metadata directory.
-# Destructive actions include stopped --no-commit sequencers; prompt callers
-# preserve their existing concise operation labels by opting out explicitly.
+# Usage: _compozsh_git_operation <git-dir> label|fail-closed
+# One ordered table serves two policies; REPLY names the first match.
+# - label (the prompt) keeps concise labels for the ordinary markers, of the
+#   file type Git writes.
+# - fail-closed (destructive discard, worktree move and removal) also counts
+#   autostash, bisect-start and stopped --no-commit sequencer bookkeeping, and
+#   any marker of any file type, dangling links included, as Git's own lstat
+#   checks do.
+# An unknown policy returns 2 with an empty REPLY.
 _compozsh_git_operation() {
   emulate -L zsh
-  local git_dir=$1 sequencer=${2:-0}
+  local git_dir=$1 policy=${2-} marker='' kind='' label=''
   REPLY=''
-  if [[ -f "$git_dir/MERGE_HEAD" ]]; then
-    REPLY=merge
-  elif [[ -f "$git_dir/CHERRY_PICK_HEAD" ]]; then
-    REPLY=cherry-pick
-  elif [[ -f "$git_dir/REVERT_HEAD" ]]; then
-    REPLY=revert
-  elif [[ -f "$git_dir/BISECT_LOG" ]]; then
-    REPLY=bisect
-  elif [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
-    REPLY=rebase
-  elif [[ $sequencer == 1 && -d "$git_dir/sequencer" ]]; then
-    REPLY=cherry-pick/revert
-  fi
+  [[ $policy == (label|fail-closed) ]] || return 2
+  # Marker, type (f or d: an ordinary, prompt-labelled marker), label.
+  for marker kind label in \
+      MERGE_HEAD       f merge \
+      MERGE_AUTOSTASH  - merge \
+      CHERRY_PICK_HEAD f cherry-pick \
+      REVERT_HEAD      f revert \
+      BISECT_LOG       f bisect \
+      BISECT_START     - bisect \
+      rebase-merge     d rebase \
+      rebase-apply     d rebase \
+      sequencer        - cherry-pick/revert; do
+    case $policy:$kind in
+      fail-closed:*) [[ -e $git_dir/$marker || -L $git_dir/$marker ]] ;;
+      label:f) [[ -f $git_dir/$marker ]] ;;
+      label:d) [[ -d $git_dir/$marker ]] ;;
+      *) false ;;
+    esac || continue
+    REPLY=$label
+    return 0
+  done
   return 0
 }
 

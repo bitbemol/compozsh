@@ -422,6 +422,51 @@ _test_worktree_move_refusals() {
   test_assert_equal refused "$output"
 }
 test_case 'worktree move refuses main locked active nested occupied and stale targets' _test_worktree_move_refusals
+# Move and removal share the fail-closed marker policy with discard: every
+# marker refuses whatever its file type, and missing shared support refuses.
+_test_worktree_operation_markers() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "${TEST_TMP_DIR:A}/home" '
+    source "$1/tests/support.zsh"
+    source "$1/tests/git_worktree_test.zsh"
+    _test_worktree_fixture "$1" || exit 1
+    local target="$HOME/occupied" marker="" name=""
+    local metadata=$(git -C "$target" rev-parse --absolute-git-dir)
+    local -a allowed=()
+    _git_worktree_idle_check "$target" || exit 2
+    for marker in MERGE_HEAD MERGE_AUTOSTASH CHERRY_PICK_HEAD REVERT_HEAD \
+        BISECT_LOG BISECT_START rebase-merge/ rebase-apply/ sequencer/ \
+        MERGE_HEAD/ MERGE_HEAD@ sequencer; do
+      name=${marker%[/@]}
+      case $marker in
+        */) mkdir -- "$metadata/$name" || exit 3 ;;
+        *@) ln -s -- missing-target "$metadata/$name" || exit 4 ;;
+        *) print fixture > "$metadata/$name" || exit 5 ;;
+      esac
+      _GWT_ERROR=""
+      if _git_worktree_idle_check "$target" ||
+         [[ $_GWT_ERROR != "Finish the Git operation"* ]]; then
+        allowed+=("$marker")
+      fi
+      if [[ -d "$metadata/$name" && ! -L "$metadata/$name" ]]; then
+        rmdir -- "$metadata/$name" || exit 6
+      else
+        rm -f -- "$metadata/$name" || exit 7
+      fi
+    done
+    (( ${#allowed} )) && print -r -- "allowed: ${allowed}"
+    _git_worktree_idle_check "$target" || exit 8
+    unfunction _compozsh_git_operation
+    _GWT_ERROR=""
+    _git_worktree_idle_check "$target" && print -r -- "allowed without shared support"
+    [[ -n $_GWT_ERROR ]] || print -r -- "refusal without a reason"
+    print refused
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal refused "$output"
+}
+test_case 'worktree move and removal refuse every Git operation marker of any file type' \
+  _test_worktree_operation_markers
 
 _test_worktree_options_bookmark() {
   test_make_temp_dir || return

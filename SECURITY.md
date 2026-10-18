@@ -1413,9 +1413,11 @@ another remote operation.
 - **`g --discard-all`** applies these controls to initial HEAD validation
   (where a missing promised object likewise cannot start transport), preview,
   restore, cleanup and verification, and after confirmation
-  revalidates repository, HEAD, operation (including Git's sequencer directory,
-  before and after), filter-name and listed-path state. An existing index lock
-  refuses before writes and is never removed. Native untracked cleanup runs
+  revalidates repository, HEAD, operation (before and after: any merge,
+  autostash, cherry-pick, revert, bisect, rebase or sequencer marker of any
+  file type, the check worktree move and removal also use), filter-name and
+  listed-path state. An existing index lock refuses before writes and is never
+  removed. Native untracked cleanup runs
   before tracked restoration while reviewed ignore rules apply; ignored files
   newly exposed by restoring `.gitignore` stay on disk and yield a
   remaining-changes report with status 1. An empty committed tree supports

@@ -314,7 +314,7 @@ _prompt_git() {
     [[ -n $git_dir ]] && _PROMPT_GIT_DIR_CACHE[$cache_key]=$git_dir
   fi
   if [[ -n $git_dir ]]; then
-    _compozsh_git_operation "$git_dir" 0
+    _compozsh_git_operation "$git_dir" label
     operation=$REPLY
   fi
 
