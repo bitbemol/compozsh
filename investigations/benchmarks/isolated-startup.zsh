@@ -2,12 +2,12 @@
 # Isolated interactive startup of two immutable trees, alternating which tree
 # goes first each run. Reports per-tree median, min and max over runs (ms).
 # Usage: /bin/zsh -df <this-file> <baseline-root> <candidate-root> \
-#          [runs] [locale]
+#          [runs] [locale] [direct|copy|symlink]
 #   process     wall clock of `zsh -dfi -c 'source <root>/.zshrc'` without a
 #               TTY, from fork to exit (the TTY-only prompt captures skip)
 #   source      that shell's in-process time for sourcing .zshrc
 #   editable    wall clock from spawning `zsh -di` in a 140x40 PTY, whose
-#               ZDOTDIR .zshrc sources the tree, to its first ZLE line-init
+#               wrapper .zshrc sources the tree, to its first ZLE line-init
 #   tty-source  that PTY shell's in-process time for sourcing .zshrc
 #   fresh uses a new disposable ZDOTDIR per run (no completion dump, no
 #   manual cache); warm reuses one ZDOTDIR per tree, primed by unmeasured
@@ -15,12 +15,19 @@
 #   manual capture. Every PTY shell is left only after that capture settles,
 #   so no worker outlives its run. The working directory is the disposable
 #   home, outside Git; ZSH_LOCAL_INIT=/dev/null and a system-only PATH.
+#   direct (default) sources <root>/.zshrc with the run's ZDOTDIR. copy and
+#   symlink first run <root>/install.zsh --<layout> --yes, unattended, into
+#   that ZDOTDIR (an unmeasured step, once per fresh ZDOTDIR and once per warm
+#   one) and then source the installed ZDOTDIR/.zshrc, so installer-generated
+#   files are measured as an installation loads them.
 emulate -LR zsh
 zmodload zsh/datetime zsh/zpty zsh/zselect || exit
-local baseline=${1:A} candidate=${2:A} locale=${4:-en_US.UTF-8}
+local baseline=${1:A} candidate=${2:A} locale=${4:-en_US.UTF-8} layout=${5:-direct}
 local -i runs=${3:-15} run=0
-[[ -f $baseline/.zshrc && -f $candidate/.zshrc ]] && (( runs > 0 )) || {
-  print -u2 'usage: isolated-startup.zsh <baseline-root> <candidate-root> [runs] [locale]'
+[[ -f $baseline/.zshrc && -f $candidate/.zshrc && $layout == (direct|copy|symlink) ]] &&
+  [[ $layout == direct || ( -f $baseline/install.zsh && -f $candidate/install.zsh ) ]] &&
+  (( runs > 0 )) || {
+  print -u2 'usage: isolated-startup.zsh <baseline-root> <candidate-root> [runs] [locale] [direct|copy|symlink]'
   exit 2
 }
 local bench=''
@@ -36,7 +43,26 @@ _bench_env() {
     ZSH_LOCAL_INIT=/dev/null "$@"
 }
 
-# Records process and source times for one non-TTY startup of tree $1 in $2.
+# Creates ZDOTDIR $2 for tree $1 and sets REPLY to the directory whose .zshrc
+# the measured shells source: the tree itself, or $2 after installing into it.
+_bench_home() {
+  local root=$1 zdot=$2
+  REPLY=''
+  command mkdir -p -- "$zdot" || return
+  if [[ $layout == direct ]]; then
+    REPLY=$root
+    return 0
+  fi
+  _bench_env "$zdot" /bin/zsh -df "$root/install.zsh" "--$layout" --yes \
+    < /dev/null > "$bench/install.log" 2>&1 && [[ -f $zdot/.zshrc ]] || {
+    print -u2 -r -- "install failed: $layout $root"
+    command cat -- "$bench/install.log" >&2
+    return 1
+  }
+  REPLY=$zdot
+}
+
+# Records process and source times for one non-TTY startup of $1/.zshrc in $2.
 _bench_process() {
   local root=$1 zdot=$2 mode=$3 version=$4 value=''
   local -F started=0 ended=0
@@ -70,15 +96,17 @@ _bench_event() {
   return 1
 }
 
-# Starts tree $1 with ZDOTDIR $2 in a PTY; records editable and tty-source
-# unless $3 is prime. Leaves only after the manual capture settles.
+# Starts $1/.zshrc with ZDOTDIR $2 in a PTY; records editable and tty-source
+# unless $3 is prime. Leaves only after the manual capture settles. The PTY
+# shell reads the fixed wrapper .zshrc, which then points ZDOTDIR at $2.
 _bench_pty() {
   local root=$1 zdot=$2 mode=$3 version=$4 stale=''
   local -a fields=()
   local -F spawned=0
   local -i elapsed=0 i=0 status_ok=0
   while IFS= read -r -t 0 -u $fd stale; do :; done
-  print -r -- 'zmodload zsh/datetime
+  print -r -- 'ZDOTDIR=$BENCH_ZDOTDIR
+zmodload zsh/datetime
 typeset -gF _bench_started=$EPOCHREALTIME _bench_loaded=0
 source "$BENCH_ROOT/.zshrc"
 _bench_loaded=$EPOCHREALTIME
@@ -90,12 +118,13 @@ _bench_ready() {
 }
 _bench_idle() { print -r -- "IDLE ${_MANUAL_ASYNC_STATE-none}" >&$_bench_fd; }
 zle -N bench-idle _bench_idle; bindkey "^X^Z" bench-idle
-add-zle-hook-widget line-init _bench_ready' > "$zdot/.zshrc" || return
+add-zle-hook-widget line-init _bench_ready' >| "$bench/wrapper/.zshrc" || return
   spawned=$EPOCHREALTIME
-  zpty -b bench_startup "command env -i HOME=${(q)bench}/home ZDOTDIR=${(q)zdot} \
+  zpty -b bench_startup "command env -i HOME=${(q)bench}/home ZDOTDIR=${(q)bench}/wrapper \
     TMPDIR=${(q)bench}/tmp PATH=/usr/bin:/bin:/usr/sbin:/sbin TERM=xterm-256color \
     COLUMNS=140 LINES=40 LC_ALL=${(q)locale} ZSH_LOCAL_INIT=/dev/null \
-    BENCH_ROOT=${(q)root} BENCH_EVENTS=${(q)bench}/events /bin/zsh -di" || return
+    BENCH_ZDOTDIR=${(q)zdot} BENCH_ROOT=${(q)root} BENCH_EVENTS=${(q)bench}/events \
+    /bin/zsh -di" || return
   pfd=$REPLY
   {
     _bench_event READY 60 || { print -u2 "no editable prompt: $version $mode"; return 1; }
@@ -116,16 +145,19 @@ add-zle-hook-widget line-init _bench_ready' > "$zdot/.zshrc" || return
 }
 
 _bench_main() {
-  local version='' root='' mode='' metric='' zdot=''
+  local version='' root='' mode='' metric='' zdot='' warm_baseline='' warm_candidate=''
   local -F median=0
   local -a order=() values=()
-  command mkdir -p -- "$bench/home" "$bench/tmp" && builtin cd -- "$bench/home" || return
+  command mkdir -p -- "$bench/home" "$bench/tmp" "$bench/wrapper" &&
+    builtin cd -- "$bench/home" || return
   command mkfifo "$bench/events" && exec {fd}<> "$bench/events" || return
   for version in baseline candidate; do
     root=$baseline
     [[ $version == candidate ]] && root=$candidate
     zdot="$bench/warm-$version"
-    command mkdir -p -- "$zdot" || return
+    _bench_home "$root" "$zdot" || return
+    root=$REPLY
+    [[ $version == baseline ]] && warm_baseline=$root || warm_candidate=$root
     _bench_process "$root" "$zdot" prime $version && _bench_pty "$root" "$zdot" prime $version ||
       { print -u2 "priming failed: $version"; return 1; }
   done
@@ -137,14 +169,16 @@ _bench_main() {
       root=$baseline
       [[ $version == candidate ]] && root=$candidate
       zdot="$bench/fresh-$version-$run-process"
-      command mkdir -p -- "$zdot" && _bench_process "$root" "$zdot" fresh $version || return
+      _bench_home "$root" "$zdot" && _bench_process "$REPLY" "$zdot" fresh $version || return
       zdot="$bench/fresh-$version-$run-pty"
-      command mkdir -p -- "$zdot" && _bench_pty "$root" "$zdot" fresh $version || return
+      _bench_home "$root" "$zdot" && _bench_pty "$REPLY" "$zdot" fresh $version || return
+      root=$warm_baseline
+      [[ $version == candidate ]] && root=$warm_candidate
       _bench_process "$root" "$bench/warm-$version" warm $version &&
         _bench_pty "$root" "$bench/warm-$version" warm $version || return
     done
   done
-  print -r -- "runs=$runs locale=$locale zsh=$ZSH_VERSION size=140x40"
+  print -r -- "runs=$runs locale=$locale layout=$layout zsh=$ZSH_VERSION size=140x40"
   printf '%-11s %-6s %-10s %10s %10s %10s\n' metric mode version median_ms min_ms max_ms
   for metric in process source editable tty-source; do
     for mode in fresh warm; do

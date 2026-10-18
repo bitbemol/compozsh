@@ -41,7 +41,9 @@ concurrency record; `prompt-git-render.zsh` compares complete prompt rendering
 of two trees inside and outside Git repositories
 ([in-memory parsing](in-memory-capture-parsing.md#measurements));
 `isolated-startup.zsh` compares isolated interactive startup (sourcing, and
-the first editable prompt in a PTY, fresh and warm) and
+the first editable prompt in a PTY, fresh and warm), sourcing each tree
+directly or, with a `copy` or `symlink` layout argument, after that tree's
+own installer installed it into the run's `ZDOTDIR`, and
 `workspace-first-frame.zsh` the first painted full-screen frame of Browse,
 Search, Ctrl-R history and Git review in a PTY, both alternating two trees
 ([excellence run](excellence-2026-10-12.md#method));

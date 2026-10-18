@@ -394,6 +394,100 @@ scan, so the pre-filter never hides a line the old loop would report (pinned
 by `security: network-client scan names the offending line of a fixture
 file`, which passes against both scans in C and UTF-8).
 
+### P5-01: performance baseline at the end of phase 4 (C-02, C-04, C-05, C-11)
+
+Baseline for the phase 5 units, at `1ab553f` (the end of phase 4). Every
+comparison is A/A: the baseline is `git archive 1ab553f`, the candidate the
+working tree at the same commit (only this unit's benchmark and record edits
+differ, and no benchmark measures them). Apple M3 Max on AC power, macOS
+27.0.1, `/bin/zsh` 5.9, Git 2.54.0 (Apple Git-157); benchmark shells under
+`LC_ALL=en_US.UTF-8` with `TMPDIR` in the scratch area; load averages
+1.95–3.31 (an ordinary desktop session); runs sequential. Milliseconds:
+*median (range)* is the baseline tree's; *A/A* is the candidate median minus
+the baseline median, with its share of the baseline median.
+
+`isolated-startup.zsh` now takes an optional layout: `direct` (the default and
+the earlier behavior) sources `<root>/.zshrc`; `copy` and `symlink` first run
+that tree's `install.zsh --<layout> --yes` into the run's disposable
+`ZDOTDIR`, unmeasured, and then source the installed `.zshrc`, so P5-13 can
+measure installer-generated files as an installation loads them. The PTY
+shell now reads a fixed wrapper `.zshrc` from its own directory, which points
+`ZDOTDIR` at the run's directory before sourcing, so the installed `.zshrc` is
+never overwritten. A check run confirmed that peers load from
+`ZDOTDIR/.zsh.addons/compozsh/` (copy) and from the tree (symlink).
+
+| Startup metric | Mode | Runs | direct | A/A | copy | A/A | symlink | A/A |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| process | fresh | 15 | 221.88 (218.15–230.20) | −0.37 (0.2%) | 226.54 (223.77–238.42) | +3.85 (1.7%) | 219.49 (216.75–231.88) | −0.11 (0.0%) |
+| process | warm | 15 | 71.33 (68.95–74.60) | +0.06 (0.1%) | 74.08 (71.33–75.50) | +0.05 (0.1%) | 72.58 (70.61–76.47) | −1.43 (2.0%) |
+| source | fresh | 15 | 214.85 (211.51–223.04) | −0.15 (0.1%) | 220.86 (218.29–232.84) | +3.56 (1.6%) | 214.02 (211.83–226.40) | +0.27 (0.1%) |
+| source | warm | 15 | 64.80 (62.84–67.01) | −0.55 (0.8%) | 66.98 (64.77–68.09) | +0.15 (0.2%) | 65.63 (63.89–68.97) | −1.44 (2.2%) |
+| editable | fresh | 15 | 242.44 (237.99–250.98) | +0.59 (0.2%) | 256.36 (253.80–269.01) | +9.23 (3.6%) | 242.55 (238.82–253.54) | +0.33 (0.1%) |
+| editable | warm | 15 | 99.62 (96.75–104.07) | −0.68 (0.7%) | 101.26 (99.90–104.76) | +1.76 (1.7%) | 100.21 (98.80–106.59) | −1.12 (1.1%) |
+| tty-source | fresh | 15 | 205.94 (201.04–212.94) | +1.02 (0.5%) | 219.66 (217.70–232.93) | +7.74 (3.5%) | 206.85 (203.34–216.12) | −0.68 (0.3%) |
+| tty-source | warm | 15 | 62.95 (61.35–64.53) | −0.94 (1.5%) | 64.52 (63.32–67.33) | +0.75 (1.2%) | 63.48 (62.52–67.48) | −1.25 (2.0%) |
+
+Every A/A pair's ranges overlap in all three layouts, the self-check the unit
+plan asked for.
+
+| Metric | Mode | Runs | Median (range) | A/A |
+| --- | --- | ---: | ---: | ---: |
+| Prompt render, outside | render | 11×40 | 7.67 (7.57–7.88) | −0.01 (0.1%) |
+| Prompt render, clean | render | 11×40 | 25.17 (24.48–26.39) | −0.39 (1.6%) |
+| Prompt render, dirty | render | 11×40 | 26.84 (26.14–28.74) | +0.38 (1.4%) |
+| Prompt render, large | render | 11×40 | 47.60 (46.80–49.78) | +0.63 (1.3%) |
+| Prompt Return, outside | pty | 11×15 | 10.24 (10.07–10.46) | +0.07 (0.7%) |
+| Prompt Return, clean | pty | 11×15 | 29.09 (27.72–29.79) | −0.11 (0.4%) |
+| Prompt Return, dirty | pty | 11×15 | 30.99 (29.05–37.46) | −0.16 (0.5%) |
+| Prompt Return, large | pty | 11×15 | 50.77 (49.85–50.96) | −0.06 (0.1%) |
+| Help, editable shipped | warm | 9 | 101.70 (100.37–103.60) | +1.18 (1.2%) |
+| Help, editable bypassed | warm | 9 | 87.53 (86.62–89.62) | +1.46 (1.7%) |
+| Help, first capture shipped | warm | 9 | 14.25 (13.93–14.94) | +0.30 (2.1%) |
+| Help, first capture with 16 extra | warm | 9 | 46.40 (45.28–47.73) | +1.86 (4.0%) |
+| Help, capture per extra companion | warm | 9 | 2.01 (1.90–2.10) | +0.06 (2.8%) |
+| Frame browse | fresh | 9 | 84.16 (79.01–85.16) | +0.51 (0.6%) |
+| Frame browse | warm | 9×5 | 84.02 (82.97–84.65) | −0.40 (0.5%) |
+| Frame history | fresh | 9 | 11.11 (6.80–12.36) | +0.33 (3.0%) |
+| Frame history | warm | 9×5 | 11.76 (11.10–12.76) | +0.30 (2.5%) |
+| Frame review | fresh | 9 | 80.73 (66.91–83.44) | −1.28 (1.6%) |
+| Frame review | warm | 9×5 | 74.01 (69.10–78.40) | −0.23 (0.3%) |
+
+`help-first-prompt.zsh` measures one tree, so its A/A is two invocations, the
+`git archive` copy first and then the working tree.
+
+Observations, none investigated in this unit:
+
+- **Startup is where the excellence run left it.** Warm direct sourcing is
+  64.8 ms and fork to exit 71.3 ms (excellence `36cdcda`: 64.7 and 71.8), and
+  the warm first editable prompt 99.6 ms (98.6), against the contract's
+  roughly 50 ms. This is the baseline for P5-13's compiled startup.
+- **The copy layout is slower than the symlink layout.** Fresh, it sources
+  about 6 ms slower and reaches the editable prompt about 14 ms later, with
+  the widest A/A deltas here (3.5–3.6%); warm, it sources about 1.4 ms slower.
+- **Outside a repository, prompt work grew.** The outside render is 7.67 ms
+  against 4.11 ms at `36cdcda` and lens C's 4.5 ms, and Return outside is
+  10.24 ms against 7.18 ms; inside repositories the medians are within about
+  1 ms of the excellence run. The disposable home is the outside fixture, so
+  project detection or another per-prompt read outside Git is the likely
+  place to look.
+- **First frames.** Ctrl-R fresh is 11.1 ms (excellence 7.4 ms; its range
+  still reaches 6.8 ms) and the `g --review` chooser fresh 80.7 ms (65.3 ms),
+  both noisy metrics; Browse is 84.2 ms (79.2 ms).
+
+Reproduction, from the repository root with `TMPDIR` set to a disposable
+directory, `<before>` the `git archive` copy and `<after>` the working tree:
+
+```zsh
+/bin/zsh -df investigations/benchmarks/isolated-startup.zsh <before> <after> 15 en_US.UTF-8 direct
+/bin/zsh -df investigations/benchmarks/isolated-startup.zsh <before> <after> 15 en_US.UTF-8 copy
+/bin/zsh -df investigations/benchmarks/isolated-startup.zsh <before> <after> 15 en_US.UTF-8 symlink
+/bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <after> render 11 40
+/bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <after> pty 11 15
+/bin/zsh -df investigations/benchmarks/help-first-prompt.zsh <before> 9
+/bin/zsh -df investigations/benchmarks/help-first-prompt.zsh <after> 9
+/bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <before> <after> browse,history,review 9 5
+```
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*
