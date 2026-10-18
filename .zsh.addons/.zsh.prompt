@@ -68,9 +68,9 @@ if [[ ${(t)_PROMPT_COMMAND_STARTED} != float* ]]; then
   typeset -gF _PROMPT_COMMAND_STARTED=0
 fi
 # Prompt state: facts captured at precmd (*_TEXT, *_KEY, *_ATTENTION, project
-# items), the segments _prompt_layout renders from them, and view and lens
-# state. _prompt_base composes PROMPT from the context, lens, interaction and
-# input segments only.
+# items), the segments _prompt_layout renders from them (with the width the
+# context row was laid out for), and view and lens state. _prompt_base composes
+# PROMPT from the context, lens, interaction and input segments only.
 typeset -g _PROMPT_ENV_TEXT=''
 typeset -g _PROMPT_ENV_KEY=''
 typeset -g _PROMPT_GIT_TEXT=''
@@ -89,6 +89,7 @@ typeset -g _PROMPT_SESSION_TEXT=''
 typeset -g _PROMPT_JOBS_TEXT=''
 typeset -g _PROMPT_SYMBOL_COLOR=''
 typeset -g _PROMPT_CONTEXT_SEGMENT=''
+typeset -gi _PROMPT_CONTEXT_COLUMNS=0
 typeset -g _PROMPT_LENS_SEGMENT=''
 typeset -g _PROMPT_INTERACTION_SEGMENT=''
 typeset -g _PROMPT_INPUT_SEGMENT=''
@@ -1603,11 +1604,11 @@ _prompt_lens_layout() {
   _PROMPT_LENS_SEGMENT+=$'\n'"$footer"
 }
 
-# Reflow the captured snapshot without launching Git, language tools, or project
-# detection. The compact row always retains path and applicable Git; remaining
-# width is assigned to environment, jobs, then project facts by priority.
-_prompt_layout() {
-  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
+# Lay out the compact context row from the captured snapshot for the current
+# width. It always retains path and applicable Git; remaining width is assigned
+# to environment, jobs, then project facts by priority. Its other inputs change
+# only at capture or load, so it records the width it laid the row out for.
+_prompt_context_layout() {
   emulate -L zsh
   setopt localoptions multibyte
   local path_text='' git_text='' identity_text=''
@@ -1717,6 +1718,19 @@ _prompt_layout() {
       (( used_width += separator_width + item_width ))
     done
   fi
+  _PROMPT_CONTEXT_COLUMNS=$line_limit
+}
+
+# Lay out the segments that follow BUFFER and the view: the Interaction and
+# Context lenses. Editing and Option-I reuse the context row laid out at
+# capture or resize, and relay it out only if the width changed without a
+# resize relayout, such as under a WINCH handler installed later.
+_prompt_live_layout() {
+  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
+  emulate -L zsh
+
+  (( _PROMPT_CONTEXT_COLUMNS == (COLUMNS > 0 ? COLUMNS : 80) )) ||
+    _prompt_context_layout
 
   if (( _PROMPT_INTERACTION_ACTIVE )); then
     _prompt_interaction_model "${BUFFER:-}"
@@ -1730,6 +1744,15 @@ _prompt_layout() {
   else
     _PROMPT_LENS_SEGMENT=''
   fi
+}
+
+# Reflow the whole captured snapshot without launching Git, language tools, or
+# project detection. Capture and resize run it; edits run only the live part.
+_prompt_layout() {
+  local _prompt_alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
+  emulate -L zsh
+  _prompt_context_layout
+  _prompt_live_layout
 }
 
 # Project discovery stays at prompt capture; optional runtime capabilities are
@@ -2644,7 +2667,7 @@ _prompt_interaction_update() {
   elif [[ $_PROMPT_VIEW == transcript ]]; then
     _PROMPT_VIEW=compact
   fi
-  _prompt_layout
+  _prompt_live_layout
   _prompt_base
   [[ $PROMPT != "$old_prompt" ||
      $_PROMPT_INTERACTION_SEGMENT != "$old_segment" ||
@@ -2671,7 +2694,7 @@ _prompt_toggle_lens() {
     _PROMPT_LENS_REASON='pinned context'
   fi
   _PROMPT_INTERACTION_ACTIVE=1
-  _prompt_layout
+  _prompt_live_layout
   _prompt_base
   return 0
 }

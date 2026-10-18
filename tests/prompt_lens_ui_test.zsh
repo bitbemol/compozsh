@@ -468,6 +468,30 @@ _prompt_test_emit "SOURCE|$(command tty)"
       (( fields[8] > 2 )) && [[ $fields[11] == *"╭─ RUN"* &&
          $fields[11] == *"COMMAND TEXT"*x* ]] || exit 23
 
+      # Below twelve columns the interaction lens yields to the one context
+      # row. Typing repaints exactly the row the resize laid out, and a wide
+      # resize restores the interaction lens, all from cached facts.
+      command stty rows 20 cols 10 < "$device" || exit 28
+      _living_prompt_resize_expect "PAINT|10|20|compact|0|x|1|" || exit 29
+      fields=("${(@s:|:)event}")
+      local narrow_render=$fields[11]
+      [[ $fields[8] == 2 && $fields[9] == 1 && $fields[10] == 1 &&
+         $narrow_render != *"╭─"* ]] || exit 30
+      zpty -w -n living-prompt-resize y
+      _living_prompt_resize_expect "REDRAW|10|20|compact|0|xy|2|" || exit 31
+      _living_prompt_resize_probe "10|20|compact|0|xy|2|" || exit 32
+      fields=("${(@s:|:)event}")
+      [[ $fields[11] == "$narrow_render" ]] || {
+        print -u2 -r -- "typing changed the narrow context row: $event"
+        exit 33
+      }
+      command stty rows 20 cols 70 < "$device" || exit 34
+      _living_prompt_resize_expect "PAINT|70|20|compact|0|xy|2|" || exit 35
+      fields=("${(@s:|:)event}")
+      [[ $fields[9] == 1 && $fields[10] == 1 ]] || exit 36
+      (( fields[8] > 2 )) && [[ $fields[11] == *"╭─ RUN"* &&
+         $fields[11] == *"COMMAND TEXT"*xy* ]] || exit 37
+
       while zpty -r living-prompt-resize chunk; do trace+=$chunk; done
       [[ $all_events != *BAD-PROVIDER-* ]] || exit 24
       # No alternate screen and no full-screen clear.

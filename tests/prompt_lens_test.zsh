@@ -1342,6 +1342,87 @@ _test_living_prompt_unicode_layout_respects_terminal_cells() {
 test_case 'living prompt Unicode layout respects terminal cell widths' \
   _test_living_prompt_unicode_layout_respects_terminal_cells
 
+_test_living_prompt_edit_repaints_context_row_like_full_reflow() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+    export LC_ALL=en_US.UTF-8
+    setopt MULTIBYTE
+    setopt EXTENDED_GLOB
+    TERM=xterm-256color
+    source "$1/.zsh.addons/.zsh.prompt"
+
+    _PROMPT_PATH_TEXT="~/a-deliberately-long-workspace-name/project"
+    _PROMPT_FULL_PATH_TEXT=$_PROMPT_PATH_TEXT
+    _PROMPT_GIT_TEXT="feature/cache-safe-resize ✓"
+    _PROMPT_GIT_BRANCH_TEXT=feature/cache-safe-resize
+    _PROMPT_ENV_TEXT=demo
+    _PROMPT_JOBS_TEXT="1 job"
+    _PROMPT_PROJECT_ITEMS=("swift 6.4")
+    _PROMPT_PROJECT_ITEM_WIDTHS=(9)
+    _PROMPT_VIEW=compact
+    _PROMPT_INTERACTION_ACTIVE=1
+    LINES=20
+
+    # The expected paint is a complete reflow of the captured snapshot at the
+    # current width, as capture and resize produce it.
+    _full_reflow() {
+      COLUMNS=$1 BUFFER=$2 CURSOR=${#2}
+      _prompt_layout
+      _prompt_base
+      REPLY=$PROMPT
+    }
+    # An edit after the width changed with no resize relayout, such as under a
+    # later-installed WINCH handler that never calls the prompt.
+    _edit_after_width_change() {
+      COLUMNS=$1 BUFFER="" CURSOR=0
+      _prompt_layout
+      _prompt_base
+      COLUMNS=$2 BUFFER=$3 CURSOR=${#3}
+      _prompt_interaction_update "$3" || :
+      REPLY=$PROMPT
+    }
+
+    local expected="" actual="" first_row="" step="" rest="" draft=""
+    local -i from=0 to=0
+    for step in 140:140:x 140:10:xy 10:10:xyz 10:8:xyz 8:11:xy 11:140:x \
+        140:9: 9:140:; do
+      from=${step%%:*} rest=${step#*:}
+      to=${rest%%:*} draft=${rest#*:}
+      _full_reflow "$to" "$draft"
+      expected=$REPLY
+      _edit_after_width_change "$from" "$to" "$draft"
+      actual=$REPLY
+      [[ $actual == "$expected" ]] || {
+        print -u2 -r -- "edit at $step painted ${(V)actual} instead of ${(V)expected}"
+        exit 2
+      }
+      # Below twelve columns the Interaction lens yields to one context row
+      # that fits the window.
+      if (( to < 12 )); then
+        print -P -v first_row -r -- "${actual%%$'"'"'\n'"'"'*}"
+        first_row=${first_row//$'"'"'\e'"'"'\[[0-9;]#m/}
+        [[ -z $_PROMPT_INTERACTION_SEGMENT &&
+           $actual == "${_PROMPT_CONTEXT_SEGMENT}"$'"'"'\n'"'"'* &&
+           -n $first_row ]] || exit 3
+        (( ${(m)#first_row} <= to )) || {
+          print -u2 -r -- "context row ${(V)first_row} overflows at $step"
+          exit 4
+        }
+      else
+        [[ $actual == *"╭─"* ]] || exit 5
+      fi
+    done
+    print -r -- edit-context-row
+  ' "$TEST_REPO_ROOT") || return
+
+  test_assert_equal edit-context-row "$output"
+}
+test_case 'living prompt edits repaint the small-window context row exactly as a full reflow at the current width' \
+  _test_living_prompt_edit_repaints_context_row_like_full_reflow
+
 _test_living_prompt_peer_hooks_converge_and_missing_capabilities_noop() {
   test_make_temp_dir || return
   local mode='' output='' expected=''
