@@ -3964,6 +3964,235 @@ _test_usb_write_geometry_records_are_pure() {
 test_case 'USB write geometry and failure records are pure without UI or shared state' \
   _test_usb_write_geometry_records_are_pure
 
+# Step 3 rows as value|label|highlight|search|detail (detail newlines shown as
+# \n) for every checksum state the controller reaches, with each view's
+# breadcrumb and refusal context. Highlight offsets count bytes (LC_ALL=C).
+_test_usb_review_rows_keep_step3_records() {
+  test_make_temp_dir || return
+  local output='' expected=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    digest=${(l:64::d:)} other=${(l:64::e:)} long=${(l:128::f:)}
+    printf -v nl "\n"
+    _USB_IMAGE_PATHS=(/images/ubuntu-arm64.iso) _USB_IMAGE_LABELS=(ubuntu)
+    _USB_IMAGE_DETAILS=(image-details) _USB_IMAGE_SIZES=(30000)
+    _USB_IMAGE_FINGERPRINTS=(image-fingerprint)
+    _usb_image_source_disk_capture() { _USB_IMAGE_SOURCE_DISK=""; }
+    _usb_disks_capture() {
+      _USB_DISK_IDS=(disk7) _USB_DISK_LABELS=("Target 64 GB")
+      _USB_DISK_DETAILS=(target-details) _USB_DISK_SIZES=(90000)
+      _USB_DISK_FINGERPRINTS=(disk-fingerprint)
+    }
+    call=0 mode=""
+    _usb_choose() {
+      local -i row=0
+      (( ++call ))
+      if [[ $1 == *"Step 3 of 3" ]]; then
+        print -r -- "view $call:$2|passive:${(j:|:)_USB_PICKER_PASSIVE_LINES}"
+        for (( row = 1; row <= ${#_USB_PICKER_VALUES}; ++row )); do
+          print -r -- "${_USB_PICKER_VALUES[row]}|${_USB_PICKER_LABELS[row]}|${_USB_PICKER_HIGHLIGHTS[row]}|${_USB_PICKER_SEARCH[row]}|${_USB_PICKER_DETAILS[row]//$nl/\\n}"
+        done
+        print -r -- "rows:${#_USB_PICKER_VALUES}/${#_USB_PICKER_LABELS}/${#_USB_PICKER_HIGHLIGHTS}/${#_USB_PICKER_SEARCH}/${#_USB_PICKER_DETAILS}"
+      fi
+      case $call in
+        (1) _ZLE_PICKER_SELECTED_VALUE=image:1 ;;
+        (2) _ZLE_PICKER_SELECTED_VALUE=1 ;;
+        (3) mode=changed _ZLE_PICKER_SELECTED_VALUE=checksum ;;
+        (4) mode=error _ZLE_PICKER_SELECTED_VALUE=checksum ;;
+        (5) mode=mismatch _ZLE_PICKER_SELECTED_VALUE=checksum ;;
+        (6) _ZLE_PICKER_SELECTED_VALUE=flash-verify ;;
+        (7) mode=matched _ZLE_PICKER_SELECTED_VALUE=checksum ;;
+        (8) _ZLE_PICKER_SELECTED_VALUE=remove-checksum ;;
+        (9) _ZLE_PICKER_SELECTED_VALUE=flash-only ;;
+        (*) return 2 ;;
+      esac
+    }
+    _usb_read_checksum() {
+      if [[ $mode == matched ]]; then
+        _ZLE_PICKER_SELECTED_VALUE="SHA512 (ubuntu-arm64.iso) = $long"
+      else
+        _ZLE_PICKER_SELECTED_VALUE="SHA256 (ubuntu-arm64.iso) = $digest"
+      fi
+    }
+    _usb_image_revalidate() { [[ $mode != changed ]]; }
+    _usb_image_checksum() {
+      case $mode in
+        (error) return 1 ;;
+        (mismatch) REPLY=$other ;;
+        (*) REPLY=$long ;;
+      esac
+    }
+    _usb_progress_stage() { return 0; }
+    _usb_workspace_controller || exit 2
+    print -r -- "request:$_USB_REQUEST|$_USB_SELECTED_CHECKSUM|$_USB_SELECTED_IMAGE_INTEGRITY"
+  ' "$TEST_REPO_ROOT") || return
+
+  local digest=${(l:64::d:)} other=${(l:64::e:)} long=${(l:128::f:)}
+  local crumb='Image  ›  Drive  ›  FLASH · ARM64 · ubuntu-arm64.iso → /dev/disk7'
+  local refusal='The image integrity check must match before flashing; correct or remove the checksum'
+  local verify='write verify checksum|Flash & verify\n\nStep 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/disk7, writes through /dev/rdisk7, compares every image byte before the drive is released, and ejects.'
+  local integrity='checksum sha256 sha512 integrity'
+  local remove='remove-checksum|Remove image checksum||remove checksum|Remove checksum\n\nContinue without trusted-checksum validation. Flash & verify will still perform the native raw-device comparison.'
+  local -a tail=('image|Change image · ubuntu-arm64.iso||image|image-details'
+    'target|Change drive · Target 64 GB||target|target-details'
+    'flash-only|Flash without verification||write|Flash only\n\nValidates a provided checksum before writing, then writes /dev/rdisk7 and ejects without reading the payload back.')
+  local -a unverified=("flash-verify|Start flash & verify||$verify"
+    "checksum|Image integrity · Not verified · no checksum provided|0:55:picker-error|$integrity|No checksum was supplied. Flash & verify will still compare the finished drive with the selected local image, but the local image’s origin is not established."
+    "${tail[@]}" 'rows:5/5/5/5/5')
+  local -a mismatch=("flash-verify|Resolve image integrity check before flashing||$verify"
+    "checksum|Image integrity · FAILED · SHA-256 mismatch|0:45:picker-error|$integrity|Local image checksum mismatch\n\nExpected\n$digest\n\nActual\n$other\n\nThe drive cannot be flashed until the checksum is corrected, removed, or a valid image is selected."
+    "$remove" "${tail[@]}" 'rows:6/6/6/6/6')
+  local -a rows=("view 3:$crumb|passive:" "${unverified[@]}"
+    "view 4:$crumb|passive:"
+    "flash-verify|Resolve image integrity check before flashing||$verify"
+    "checksum|Image integrity · FAILED · image changed during validation|0:60:picker-error|$integrity|The selected image no longer matches its captured size or filesystem identity. Choose the image again before flashing."
+    "$remove" "${tail[@]}" 'rows:6/6/6/6/6'
+    "view 5:$crumb|passive:"
+    "flash-verify|Resolve image integrity check before flashing||$verify"
+    "checksum|Image integrity · Could not calculate SHA-256|0:46:picker-error|$integrity|The selected image could not be read completely. Nothing can be written until the integrity check succeeds or the checksum is explicitly removed."
+    "$remove" "${tail[@]}" 'rows:6/6/6/6/6'
+    "view 6:$crumb|passive:" "${mismatch[@]}"
+    "view 7:$crumb|passive:$refusal" "${mismatch[@]}"
+    "view 8:$crumb|passive:"
+    "flash-verify|Start flash & verify · SHA-512||$verify"
+    "checksum|Image integrity · Verified · SHA-512 matched|0:46:picker-success|$integrity|Verified local image\n\nExpected\n$long\n\nActual\n$long\n\nThe complete local image matches the supplied checksum."
+    "$remove" "${tail[@]}" 'rows:6/6/6/6/6'
+    "view 9:$crumb|passive:" "${unverified[@]}"
+    'request:flash-only||not-provided')
+  expected=${(F)rows}
+  test_assert_equal "$expected" "$output" \
+    'USB Step 3 review rows changed a label, highlight, search text, detail or breadcrumb'
+}
+test_case 'USB review rows keep Step 3 labels, roles, search text and details for every checksum state' \
+  _test_usb_review_rows_keep_step3_records
+
+# Rows: file/initial stage=stage|progress stage|write bytes|verify bytes|
+# verified|tail verified|diagnostic|unparsed remainder length:status after one
+# progress read. Markers switch the stage and record success evidence; a
+# verify-bytes marker counts only within the image and above parsed bytes.
+_test_usb_write_progress_keeps_success_evidence_markers() {
+  test_make_temp_dir || return
+  local progress="$TEST_TMP_DIR/progress-evidence" output='' expected=''
+  local dd_half='4194304 bytes transferred in 1.0 secs (4194304 bytes/sec)'
+  local dd_full='8388608 bytes transferred in 2.0 secs (4194304 bytes/sec)'
+  command mkdir -p "$progress" || return
+  print -rn -- "compozsh-write-stage:image"$'\n'"$dd_half"$'\r'"$dd_full"$'\n16+0 records in\n16+0 records out\n' >| "$progress/1" || return
+  print -rn -- $'compozsh-write-stage:tail\n  compozsh-write-tail-verified\ncompozsh-write-stage:verify\n4096 bytes transferred in 0.1 secs (40960 bytes/sec)\rcompozsh-write-verify-bytes:8388608\ncompozsh-write-verified\n' >| "$progress/2" || return
+  print -rn -- $'compozsh-write-verify-bytes:4096\ncompozsh-write-verify-bytes:8388609\ncompozsh-write-verify-bytes:1234567890123456789\ncompozsh-write-verify-bytes:2048\n' >| "$progress/3" || return
+  print -rn -- $'dd: first diagnostic\n\tdd: /dev/rdisk7: Resource busy\n\e[31mcolored\n'"${(l:513::z:)}"$'\ncompozsh-write-stage:\n' >| "$progress/4" || return
+  print -rn -- "${(l:512::y:)}"$'\n'"$dd_full"$'\ncompozsh-write-verified' >| "$progress/5" || return
+  print -rn -- "$dd_half"$'\n' >| "$progress/6" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    typeset row="" stage="" read_status=""
+    for row stage in 1 "" 2 image 3 verify 4 image 5 verify 6 image; do
+      _USB_WRITE_PROGRESS_OFFSET=0 _USB_WRITE_PROGRESS_REMAINDER=""
+      _USB_WRITE_BYTES_OBSERVED=0 _USB_WRITE_VERIFY_BYTES_OBSERVED=0
+      _USB_WRITE_VERIFIED=0 _USB_WRITE_TAIL_VERIFIED=0 _USB_WRITE_ERROR=""
+      _USB_WRITE_PROGRESS_STAGE=$stage _USB_WRITE_STAGE=$stage
+      [[ $row == 6 ]] && _USB_WRITE_STAGE=custom
+      _usb_dd_progress_read "$2/$row" 8388608 $SECONDS
+      read_status=$?
+      print -r -- "$row/$stage=$_USB_WRITE_STAGE|$_USB_WRITE_PROGRESS_STAGE|$_USB_WRITE_BYTES_OBSERVED|$_USB_WRITE_VERIFY_BYTES_OBSERVED|$_USB_WRITE_VERIFIED|$_USB_WRITE_TAIL_VERIFIED|$_USB_WRITE_ERROR|${#_USB_WRITE_PROGRESS_REMAINDER}:$read_status"
+    done
+  ' "$TEST_REPO_ROOT" "$progress") || return
+
+  local -a rows=('1/=image|image|8388608|0|0|0||0:0'
+    '2/image=verify|verify|0|8388608|1|1||0:0'
+    '3/verify=verify|verify|0|4096|0|0||0:0'
+    '4/image=||0|0|0|0|dd: /dev/rdisk7: Resource busy|0:0'
+    "5/verify=verify|verify|0|8388608|0|0|${(l:512::y:)}|23:0"
+    '6/image=custom|image|4194304|0|0|0||0:0')
+  expected=${(F)rows}
+  test_assert_equal "$expected" "$output" \
+    'USB write progress changed its stage, byte, success-evidence or diagnostic parsing'
+}
+test_case 'USB write progress keeps parsed success-evidence markers and diagnostics' \
+  _test_usb_write_progress_keeps_success_evidence_markers
+
+# Rows: label|highlights for raw images with and without a recognized
+# architecture, a full macOS installer and the custom-path browser rows.
+_test_usb_media_rows_keep_labels_and_highlights() {
+  test_make_temp_dir || return
+  local media="$TEST_TMP_DIR/media" output='' expected=''
+  command mkdir -p "$media/Folder" "$media/Install macOS Sequoia.app" || return
+  test_write_file "$media/debian-12-arm64.iso" "${(l:20000::a:)}" || return
+  test_write_file "$media/rescue.img" "${(l:3000000::b:)}" || return
+  test_write_file "$media/tiny.iso" "${(l:100::c:)}" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
+    _usb_macos_installer_tool() { [[ $1 == *.app ]]; }
+    _usb_macos_installer_fingerprint() { REPLY="1:2:1700000000:1690000000|installer"; }
+    _usb_image_add "$2/debian-12-arm64.iso" || exit 2
+    _usb_image_add "$2/rescue.img" || exit 3
+    _usb_macos_installer_add "$2/Install macOS Sequoia.app" || exit 4
+    typeset -i row=0
+    for (( row = 1; row <= ${#_USB_IMAGE_LABELS}; ++row )); do
+      print -r -- "media:${_USB_IMAGE_LABELS[row]}|${_USB_IMAGE_HIGHLIGHTS[row]}"
+    done
+    _usb_browser_capture "$2" || exit 5
+    for (( row = 1; row <= ${#_USB_PICKER_VALUES}; ++row )); do
+      print -r -- "browse:${_USB_PICKER_VALUES[row]#$2/}|${_USB_PICKER_LABELS[row]}|${_USB_PICKER_HIGHLIGHTS[row]}"
+    done
+  ' "$TEST_REPO_ROOT" "${media:A}") || return
+
+  local -a rows=('media:debian-12-arm64.iso · ARM64 · 19.5 KiB|22:27:picker-architecture 30:38:picker-size'
+    'media:rescue.img · 2.9 MiB|13:20:picker-size'
+    'media:Install macOS Sequoia.app · macOS installer · 16 GB-class target|28:43:picker-architecture'
+    'browse:paste-path|Paste or drop an exact media path…|'
+    'browse:Folder/|Folder/|'
+    'browse:Install macOS Sequoia.app|Install macOS Sequoia.app · macOS installer|28:43:picker-architecture'
+    'browse:debian-12-arm64.iso|debian-12-arm64.iso · 19.5 KiB|22:30:picker-size'
+    'browse:rescue.img|rescue.img · 2.9 MiB|13:20:picker-size')
+  expected=${(F)rows}
+  test_assert_equal "$expected" "$output" \
+    'USB media row labels or highlight spans changed'
+}
+test_case 'USB media rows keep labels and highlight spans across capture and browse' \
+  _test_usb_media_rows_keep_labels_and_highlights
+
+_test_usb_review_rows_and_progress_records_are_pure() {
+  test_make_temp_dir || return
+  local output='' expected=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.pure.usb_dd_progress_bytes" || exit
+    _USB_PICKER_VALUES=(sentinel) _USB_WRITE_ERROR=sentinel _USB_WRITE_STAGE=sentinel
+    _USB_WRITE_VERIFIED=sentinel REPLY=sentinel
+    typeset -a reply=(stale)
+    _usb_review_rows disk7 linux.iso "Target [x] %F{red}" image-detail drive-detail "" "" not-provided "" || exit 1
+    print -r -- "review:$(( ${#reply} / 5 )):${(j:,:)reply[1,5]}|${reply[7]}|${reply[17]}"
+    _usb_review_rows disk7 linux.iso Target image-detail drive-detail abc 512 matched abc || exit 2
+    print -r -- "matched:$(( ${#reply} / 5 )):${reply[2]}|${reply[8]}|${reply[11]}"
+    _usb_write_progress_parse "$2" image 8388608 || exit 3
+    print -r -- "parse:${(j:|:)reply}"
+    _usb_write_progress_parse "$2" image 8x
+    print -r -- "refused:$?:${#reply}"
+    _usb_media_label "name [x].iso" picker-architecture ARM64 "" plain picker-size "1.0 GiB" || exit 4
+    print -r -- "label:${(j:|:)reply}"
+    _usb_media_label name.iso picker-size
+    print -r -- "odd:$?:${#reply}"
+    print -r -- "state:${(j:,:)_USB_PICKER_VALUES}|$_USB_WRITE_ERROR|$_USB_WRITE_STAGE|$_USB_WRITE_VERIFIED|$REPLY"
+  ' "$TEST_REPO_ROOT" $'compozsh-write-stage:verify\n8388608 bytes transferred in 1.0 secs (8388608 bytes/sec)\ncompozsh-write-verified\ndd: literal %F{red} [x]\n') || return
+
+  local -a rows=('review:5:flash-verify,Start flash & verify,,write verify checksum,Flash & verify' ''
+    'Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/disk7, writes through /dev/rdisk7, compares every image byte before the drive is released, and ejects.|Image integrity · Not verified · no checksum provided|Change drive · Target [x] %F{red}'
+    'matched:6:Start flash & verify · SHA-512|picker-success|remove-checksum'
+    'parse:1|verify|0|8388608|1|0|dd: literal %F{red} [x]'
+    'refused:1:0'
+    'label:name [x].iso · ARM64 · plain · 1.0 GiB|15:20:picker-architecture 31:38:picker-size'
+    'odd:2:0'
+    'state:sentinel|sentinel|sentinel|sentinel|sentinel')
+  expected=${(F)rows}
+  test_assert_equal "$expected" "$output" \
+    'USB review rows, progress parsing or media labels needed UI, effects or shared state'
+}
+test_case 'USB review rows, progress parsing and media labels are pure records without UI or shared state' \
+  _test_usb_review_rows_and_progress_records_are_pure
+
 _test_usb_atomic_progress_separates_write_and_verify() {
   test_make_temp_dir || return
   local progress_file="$TEST_TMP_DIR/atomic-progress" output=''

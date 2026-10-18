@@ -477,12 +477,30 @@ _usb_format_epoch() {
   REPLY=$epoch
 }
 
+# Pure media row label: the name, then each (role, text) segment after " · ".
+# reply=(label, highlights); a segment with a role gets a "start:end:role" span,
+# space separated, counting each separator as three characters.
+_usb_media_label() {
+  emulate -L zsh
+  local label=$1 role='' text='' highlights=''
+  local -i start=0 end=${#1}
+  shift
+  reply=()
+  (( $# % 2 == 0 )) || return 2
+  for role text in "$@"; do
+    label+=" · $text"
+    start=$(( end + 3 )) end=$(( end + 3 + ${#text} ))
+    [[ -z $role ]] || highlights+=" $start:$end:$role"
+  done
+  reply=("$label" "${highlights# }")
+}
+
 _usb_image_add() {
   emulate -L zsh
-  local image_path=${1:a} fingerprint='' raw_size='' label='' size_label='' filename='' highlights=''
+  local image_path=${1:a} fingerprint='' raw_size='' size_label=''
   local created_label='' modified_label='' format='' architecture='' architecture_label=''
   local architecture_short=''
-  local -i architecture_start=0 architecture_end=0 size_start=0 size_end=0
+  local -a segments=() reply=()
   [[ ! -L $image_path ]] || return 1
   image_path=${image_path:A}
   [[ ${#image_path} -le 4096 && $image_path != *[[:cntrl:]]* ]] || return 1
@@ -508,22 +526,12 @@ _usb_image_add() {
   architecture_label=$REPLY
   _usb_image_architecture_short_label "$architecture"
   architecture_short=$REPLY
-  filename=${image_path:t}
-  if [[ $architecture == unknown ]]; then
-    label="$filename · $size_label"
-    size_start=$(( ${#filename} + 3 ))
-  else
-    label="$filename · $architecture_short · $size_label"
-    architecture_start=$(( ${#filename} + 3 ))
-    architecture_end=$(( architecture_start + ${#architecture_short} ))
-    size_start=$(( architecture_end + 3 ))
-    highlights="$architecture_start:$architecture_end:picker-architecture "
-  fi
-  size_end=$(( size_start + ${#size_label} ))
-  highlights+="$size_start:$size_end:picker-size"
+  [[ $architecture == unknown ]] ||
+    segments=(picker-architecture "$architecture_short")
+  _usb_media_label "${image_path:t}" "${segments[@]}" picker-size "$size_label"
   _USB_IMAGE_PATHS+=("$image_path")
-  _USB_IMAGE_LABELS+=("$label")
-  _USB_IMAGE_HIGHLIGHTS+=("$highlights")
+  _USB_IMAGE_LABELS+=("$reply[1]")
+  _USB_IMAGE_HIGHLIGHTS+=("$reply[2]")
   _USB_IMAGE_DETAILS+=("${image_path:t}"$'\n\nPath\n  '"$image_path"$'\n\n'"Format · $format"$'\n'"Architecture · $architecture_label"$'\n'"Size · $size_label"$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
   _USB_IMAGE_SIZES+=("$raw_size")
   _USB_IMAGE_FINGERPRINTS+=("$fingerprint")
@@ -534,9 +542,9 @@ _usb_image_add() {
 
 _usb_macos_installer_add() {
   emulate -L zsh
-  local installer_path=${1:A} fingerprint='' root_stat='' filename='' label=''
+  local installer_path=${1:A} fingerprint='' root_stat='' filename=''
   local created_label='' modified_label=''
-  local -a fields=()
+  local -a fields=() reply=()
   [[ ${#installer_path} -le 4096 && $installer_path != *[[:cntrl:]]* ]] || return 1
   (( ${_USB_IMAGE_PATHS[(Ie)$installer_path]} )) && return 0
   _usb_macos_installer_fingerprint "$installer_path" || return 1
@@ -547,14 +555,14 @@ _usb_macos_installer_add() {
   (( ${#fields} == 4 )) || return 1
   [[ ${fields[3]} == <-> && ${fields[4]} == <-> ]] || return 1
   filename=${installer_path:t}
-  label="$filename · macOS installer · 16 GB-class target"
   _usb_format_epoch "${fields[4]}"
   created_label=$REPLY
   _usb_format_epoch "${fields[3]}"
   modified_label=$REPLY
+  _usb_media_label "$filename" picker-architecture 'macOS installer' '' '16 GB-class target'
   _USB_IMAGE_PATHS+=("$installer_path")
-  _USB_IMAGE_LABELS+=("$label")
-  _USB_IMAGE_HIGHLIGHTS+=("$(( ${#filename} + 3 )):$(( ${#filename} + 18 )):picker-architecture")
+  _USB_IMAGE_LABELS+=("$reply[1]")
+  _USB_IMAGE_HIGHLIGHTS+=("$reply[2]")
   _USB_IMAGE_DETAILS+=("$filename"$'\n\nPath\n  '"$installer_path"$'\n\n''Format · Full macOS installer application'$'\n''Handler · Apple createinstallmedia'$'\n''Target · 16 GB-class minimum; Apple reports if more is required'$'\n'"Created · $created_label"$'\n'"Modified · $modified_label")
   _USB_IMAGE_SIZES+=("$_USB_MACOS_TARGET_MINIMUM")
   _USB_IMAGE_FINGERPRINTS+=("$fingerprint")
@@ -795,8 +803,8 @@ _usb_checksum_view() {
 _usb_browser_capture() {
   emulate -L zsh
   setopt EXTENDED_GLOB NULL_GLOB
-  local location=${1:A} candidate='' raw_size='' filename='' size_label=''
-  local -a directories=() images=() installers=()
+  local location=${1:A} candidate='' raw_size='' size_label=''
+  local -a directories=() images=() installers=() reply=()
   local -i inspected=0
   _USB_BROWSER_PARTIAL=0
   [[ -d $location && -r $location ]] || return 1
@@ -829,10 +837,10 @@ _usb_browser_capture() {
     (( ++inspected > 500 )) && break
     [[ ! -L $candidate ]] || continue
     _usb_macos_installer_tool "$candidate" >/dev/null || continue
-    filename=${candidate:t}
+    _usb_media_label "${candidate:t}" picker-architecture 'macOS installer'
     _USB_PICKER_VALUES+=("${candidate:A}")
-    _USB_PICKER_LABELS+=("$filename · macOS installer")
-    _USB_PICKER_HIGHLIGHTS+=("$(( ${#filename} + 3 )):$(( ${#filename} + 18 )):picker-architecture")
+    _USB_PICKER_LABELS+=("$reply[1]")
+    _USB_PICKER_HIGHLIGHTS+=("$reply[2]")
     _USB_PICKER_SEARCH+=("${candidate:t} macos installer createinstallmedia")
     _USB_PICKER_DETAILS+=('Apple createinstallmedia will erase the selected external disk and build the bootable installer.')
   done
@@ -845,10 +853,10 @@ _usb_browser_capture() {
     REPLY='size unavailable'
     (( ${+functions[_usb_human_size]} )) && _usb_human_size "$raw_size"
     size_label=$REPLY
-    filename=${candidate:t}
+    _usb_media_label "${candidate:t}" picker-size "$size_label"
     _USB_PICKER_VALUES+=("${candidate:A}")
-    _USB_PICKER_LABELS+=("$filename · $size_label")
-    _USB_PICKER_HIGHLIGHTS+=("$(( ${#filename} + 3 )):$(( ${#filename} + 3 + ${#size_label} )):picker-size")
+    _USB_PICKER_LABELS+=("$reply[1]")
+    _USB_PICKER_HIGHLIGHTS+=("$reply[2]")
     _USB_PICKER_SEARCH+=("${candidate:t} image")
     _USB_PICKER_DETAILS+=('')
   done
@@ -1786,6 +1794,64 @@ _usb_step3_checksum_progress() {
     muted "Expected · ${checksum[1,16]}…"
 }
 
+# Pure Step 3 rows from the reviewed drive, image and checksum state, as
+# reply=(value label role search detail ...). Only the integrity row carries a
+# role; any checksum that has not matched turns the start row into a reminder.
+_usb_review_rows() {
+  emulate -L zsh
+  local disk=$1 image_name=$2 disk_label=$3 image_detail=$4 disk_detail=$5
+  local checksum=$6 algorithm=$7 state=$8 actual=$9
+  local start='Start flash & verify' role=picker-error label='' detail=''
+  if [[ -n $checksum && $state == matched ]]; then
+    start+=" · SHA-$algorithm"
+  elif [[ -n $checksum ]]; then
+    start='Resolve image integrity check before flashing'
+  fi
+  reply=(flash-verify "$start" '' 'write verify checksum'
+    'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares every image byte before the drive is released, and ejects.")
+  case $state in
+    (matched)
+      role=picker-success
+      label="Image integrity · Verified · SHA-$algorithm matched"
+      detail="Verified local image"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"$actual"$'\n\n''The complete local image matches the supplied checksum.' ;;
+    (mismatch)
+      label="Image integrity · FAILED · SHA-$algorithm mismatch"
+      detail="Local image checksum mismatch"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"${actual:-unavailable}"$'\n\n''The drive cannot be flashed until the checksum is corrected, removed, or a valid image is selected.' ;;
+    (changed)
+      label='Image integrity · FAILED · image changed during validation'
+      detail='The selected image no longer matches its captured size or filesystem identity. Choose the image again before flashing.' ;;
+    (error)
+      label="Image integrity · Could not calculate SHA-$algorithm"
+      detail='The selected image could not be read completely. Nothing can be written until the integrity check succeeds or the checksum is explicitly removed.' ;;
+    (*)
+      label='Image integrity · Not verified · no checksum provided'
+      detail='No checksum was supplied. Flash & verify will still compare the finished drive with the selected local image, but the local image’s origin is not established.' ;;
+  esac
+  reply+=(checksum "$label" "$role" 'checksum sha256 sha512 integrity' "$detail")
+  [[ -z $checksum ]] || reply+=(remove-checksum 'Remove image checksum' '' 'remove checksum'
+    'Remove checksum'$'\n\n''Continue without trusted-checksum validation. Flash & verify will still perform the native raw-device comparison.')
+  reply+=(image "Change image · $image_name" '' image "$image_detail"
+    target "Change drive · $disk_label" '' target "$disk_detail"
+    flash-only 'Flash without verification' '' write
+    'Flash only'$'\n\n'"Validates a provided checksum before writing, then writes /dev/r$disk and ejects without reading the payload back.")
+}
+
+# Append (value label role search detail) records to the picker rows the
+# caller scoped; a role highlights its whole label.
+_usb_picker_rows_add() {
+  emulate -L zsh
+  local value='' label='' role='' search='' detail=''
+  for value label role search detail in "$@"; do
+    _USB_PICKER_VALUES+=("$value") _USB_PICKER_LABELS+=("$label")
+    if [[ -n $role ]]; then
+      _USB_PICKER_HIGHLIGHTS+=("0:${#label}:$role")
+    else
+      _USB_PICKER_HIGHLIGHTS+=('')
+    fi
+    _USB_PICKER_SEARCH+=("$search") _USB_PICKER_DETAILS+=("$detail")
+  done
+}
+
 _usb_workspace_controller() {
   emulate -L zsh
   local selected='' image='' disk='' source_disk=''
@@ -1793,13 +1859,12 @@ _usb_workspace_controller() {
   local -a image_exclusion=()
   local checksum='' checksum_algorithm='' checksum_subtitle='' architecture_label=''
   local media_kind=raw-image media_error='' review_breadcrumb='' review_refusal=''
-  local checksum_state=not-provided checksum_actual='' integrity_label='' integrity_detail=''
-  local integrity_role=''
+  local checksum_state=not-provided checksum_actual=''
   local _USB_CHECKSUM_ALGORITHM=''
   local -i image_index=1 disk_index=1 result=0 index=0 refresh_index=0
   local -i target_minimum=0
   local -a _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
-  local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
+  local -a _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=() reply=()
 
   while true; do
     _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=() _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
@@ -1935,67 +2000,10 @@ _usb_workspace_controller() {
     while true; do
       _USB_PICKER_VALUES=() _USB_PICKER_LABELS=() _USB_PICKER_HIGHLIGHTS=()
       _USB_PICKER_SEARCH=() _USB_PICKER_DETAILS=()
-      _USB_PICKER_VALUES+=(flash-verify)
-      if [[ -n $checksum && $checksum_state == matched ]]; then
-        _USB_PICKER_LABELS+=("Start flash & verify · SHA-$checksum_algorithm")
-      elif [[ -n $checksum ]]; then
-        _USB_PICKER_LABELS+=('Resolve image integrity check before flashing')
-      else
-        _USB_PICKER_LABELS+=('Start flash & verify')
-      fi
-      _USB_PICKER_HIGHLIGHTS+=('')
-      _USB_PICKER_SEARCH+=('write verify checksum')
-      _USB_PICKER_DETAILS+=(
-        'Flash & verify'$'\n\n'"Step 3 validates a provided full-image checksum. After confirmation it revalidates the image and /dev/$disk, writes through /dev/r$disk, compares every image byte before the drive is released, and ejects.")
-      _USB_PICKER_VALUES+=(checksum)
-      case $checksum_state in
-        (matched)
-          integrity_role=picker-success
-          integrity_label="Image integrity · Verified · SHA-$checksum_algorithm matched"
-          integrity_detail="Verified local image"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"$checksum_actual"$'\n\n''The complete local image matches the supplied checksum.' ;;
-        (mismatch)
-          integrity_role=picker-error
-          integrity_label="Image integrity · FAILED · SHA-$checksum_algorithm mismatch"
-          integrity_detail="Local image checksum mismatch"$'\n\n'"Expected"$'\n'"$checksum"$'\n\n'"Actual"$'\n'"${checksum_actual:-unavailable}"$'\n\n''The drive cannot be flashed until the checksum is corrected, removed, or a valid image is selected.' ;;
-        (changed)
-          integrity_role=picker-error
-          integrity_label='Image integrity · FAILED · image changed during validation'
-          integrity_detail='The selected image no longer matches its captured size or filesystem identity. Choose the image again before flashing.' ;;
-        (error)
-          integrity_role=picker-error
-          integrity_label="Image integrity · Could not calculate SHA-$checksum_algorithm"
-          integrity_detail='The selected image could not be read completely. Nothing can be written until the integrity check succeeds or the checksum is explicitly removed.' ;;
-        (*)
-          integrity_role=picker-error
-          integrity_label='Image integrity · Not verified · no checksum provided'
-          integrity_detail='No checksum was supplied. Flash & verify will still compare the finished drive with the selected local image, but the local image’s origin is not established.' ;;
-      esac
-      _USB_PICKER_LABELS+=("$integrity_label")
-      _USB_PICKER_HIGHLIGHTS+=("0:${#integrity_label}:$integrity_role")
-      _USB_PICKER_DETAILS+=("$integrity_detail")
-      _USB_PICKER_SEARCH+=('checksum sha256 sha512 integrity')
-      if [[ -n $checksum ]]; then
-        _USB_PICKER_VALUES+=(remove-checksum)
-        _USB_PICKER_LABELS+=('Remove image checksum')
-        _USB_PICKER_HIGHLIGHTS+=('')
-        _USB_PICKER_SEARCH+=('remove checksum')
-        _USB_PICKER_DETAILS+=('Remove checksum'$'\n\n''Continue without trusted-checksum validation. Flash & verify will still perform the native raw-device comparison.')
-      fi
-      _USB_PICKER_VALUES+=(image target)
-      _USB_PICKER_LABELS+=(
-        "Change image · ${image:t}"
-        "Change drive · ${_USB_DISK_LABELS[disk_index]}")
-      _USB_PICKER_HIGHLIGHTS+=('' '')
-      _USB_PICKER_SEARCH+=(image target)
-      _USB_PICKER_DETAILS+=(
-        "${_USB_IMAGE_DETAILS[image_index]}"
-        "${_USB_DISK_DETAILS[disk_index]}")
-      _USB_PICKER_VALUES+=(flash-only)
-      _USB_PICKER_LABELS+=('Flash without verification')
-      _USB_PICKER_HIGHLIGHTS+=('')
-      _USB_PICKER_SEARCH+=(write)
-      _USB_PICKER_DETAILS+=(
-        'Flash only'$'\n\n'"Validates a provided checksum before writing, then writes /dev/r$disk and ejects without reading the payload back.")
+      _usb_review_rows "$disk" "${image:t}" "${_USB_DISK_LABELS[disk_index]}" \
+        "${_USB_IMAGE_DETAILS[image_index]}" "${_USB_DISK_DETAILS[disk_index]}" \
+        "$checksum" "$checksum_algorithm" "$checksum_state" "$checksum_actual"
+      _usb_picker_rows_add "${reply[@]}"
       _usb_image_architecture_short_label "$_USB_SELECTED_IMAGE_ARCHITECTURE"
       architecture_label=$REPLY
       review_breadcrumb="Image  ›  Drive  ›  FLASH · $architecture_label · ${image:t} → /dev/$disk"
@@ -2181,12 +2189,55 @@ _usb_progress_view() {
   _zle_picker_capture 'External device / Flash · Step 3 of 3' 'Image  ›  Drive  ›  FLASH' '' _usb_noop
 }
 
+# Pure parse of complete native writer status lines from one bounded read.
+# Byte records count toward the stage in effect, starting from `stage`; markers
+# switch the stage or record success evidence; any other short printable line
+# becomes the latest diagnostic. A verify-bytes marker counts only within
+# `total` and above the verify bytes already parsed. reply=(stage seen, stage,
+# write bytes, verify bytes, verified, tail verified, diagnostic).
+_usb_write_progress_parse() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local complete=$1 stage=$2 total=$3 line='' byte_text='' diagnostic='' REPLY=''
+  local -i stage_seen=0 write_bytes=0 verify_bytes=0 verified=0 tail_verified=0
+  reply=()
+  (( ${+functions[_usb_dd_progress_bytes]} )) && [[ $total == <-> ]] || return 1
+  for line in "${(f)complete}"; do
+    if _usb_dd_progress_bytes "$line"; then
+      if [[ $stage == verify ]]; then
+        verify_bytes=$REPLY
+      else
+        write_bytes=$REPLY
+      fi
+      continue
+    fi
+    line=${line##[[:space:]]#}
+    case $line in
+      (compozsh-write-stage:*)
+        stage=${line#compozsh-write-stage:} stage_seen=1
+        continue ;;
+      (compozsh-write-verify-bytes:<->)
+        byte_text=${line#compozsh-write-verify-bytes:}
+        (( ${#byte_text} <= 18 )) &&
+          (( 10#$byte_text <= total && 10#$byte_text > verify_bytes )) &&
+          verify_bytes=$(( 10#$byte_text ))
+        continue ;;
+      (compozsh-write-verified) verified=1; continue ;;
+      (compozsh-write-tail-verified) tail_verified=1; continue ;;
+      (''|*' records in'|*' records out') continue ;;
+    esac
+    if (( ${#line} <= 512 )) && [[ $line != *[[:cntrl:]]* ]]; then
+      diagnostic=$line
+    fi
+  done
+  reply=($stage_seen "$stage" $write_bytes $verify_bytes $verified $tail_verified "$diagnostic")
+}
+
 _usb_dd_progress_read() {
   emulate -L zsh
   (( ${+functions[_usb_dd_progress_bytes]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
-  setopt EXTENDED_GLOB
-  local progress_file=$1 total=$2 started=$3 raw='' chunk='' line='' byte_text=''
-  local complete='' parse_stage=$_USB_WRITE_PROGRESS_STAGE size_text=''
+  local progress_file=$1 total=$2 started=$3 raw='' chunk=''
+  local complete='' size_text=''
   local -i progress_fd=-1 chunk_size=0 new_size=0 raw_size=0
   local -i bytes=0 write_bytes=0 verify_bytes=0
   local -i elapsed=$(( SECONDS - started )) bar_width=32
@@ -2242,41 +2293,14 @@ _usb_dd_progress_read() {
   else
     complete=$raw
   fi
-  for line in "${(f)complete}"; do
-    if _usb_dd_progress_bytes "$line"; then
-      byte_text=$REPLY
-      if [[ $parse_stage == verify ]]; then
-        verify_bytes=$byte_text
-      else
-        write_bytes=$byte_text
-      fi
-      continue
-    fi
-    line=${line##[[:space:]]#}
-    case $line in
-      (compozsh-write-stage:*)
-        parse_stage=${line#compozsh-write-stage:}
-        _USB_WRITE_PROGRESS_STAGE=$parse_stage
-        _USB_WRITE_STAGE=$parse_stage
-        continue ;;
-      (compozsh-write-verify-bytes:<->)
-        byte_text=${line#compozsh-write-verify-bytes:}
-        (( ${#byte_text} <= 18 )) &&
-          (( 10#$byte_text <= total && 10#$byte_text > verify_bytes )) &&
-          verify_bytes=$(( 10#$byte_text ))
-        continue ;;
-      (compozsh-write-verified)
-        _USB_WRITE_VERIFIED=1
-        continue ;;
-      (compozsh-write-tail-verified)
-        _USB_WRITE_TAIL_VERIFIED=1
-        continue ;;
-      (''|*' records in'|*' records out') continue ;;
-    esac
-    if (( ${#line} <= 512 )) && [[ $line != *[[:cntrl:]]* ]]; then
-      _USB_WRITE_ERROR=$line
-    fi
-  done
+  _usb_write_progress_parse "$complete" "$_USB_WRITE_PROGRESS_STAGE" "$total" || return 0
+  if [[ $reply[1] == 1 ]]; then
+    _USB_WRITE_PROGRESS_STAGE=$reply[2] _USB_WRITE_STAGE=$reply[2]
+  fi
+  write_bytes=$reply[3] verify_bytes=$reply[4]
+  [[ $reply[5] == 1 ]] && _USB_WRITE_VERIFIED=1
+  [[ $reply[6] == 1 ]] && _USB_WRITE_TAIL_VERIFIED=1
+  [[ -n $reply[7] ]] && _USB_WRITE_ERROR=$reply[7]
   (( write_bytes > _USB_WRITE_BYTES_OBSERVED )) &&
     _USB_WRITE_BYTES_OBSERVED=$write_bytes
   (( verify_bytes > _USB_WRITE_VERIFY_BYTES_OBSERVED )) &&
@@ -3192,16 +3216,8 @@ _usb_result_present() {
     verify_reason "${_USB_RESULT_VERIFY_REASON:-}" source_validated "${_USB_RESULT_SOURCE_VALIDATED:-0}" \
     checksum_validated "${_USB_RESULT_CHECKSUM_VALIDATED:-0}" checksum_algorithm "${_USB_RESULT_CHECKSUM_ALGORITHM:-}" \
     expected_checksum "${_USB_RESULT_EXPECTED_CHECKSUM:-}" image_checksum "${_USB_RESULT_IMAGE_CHECKSUM:-}" || return
-  local title=$reply[1] subtitle=$reply[2] value='' label='' role='' search='' detail=''
-  for value label role search detail in "${reply[@]:2}"; do
-    _USB_PICKER_VALUES+=("$value") _USB_PICKER_LABELS+=("$label")
-    if [[ -n $role ]]; then
-      _USB_PICKER_HIGHLIGHTS+=("0:${#label}:$role")
-    else
-      _USB_PICKER_HIGHLIGHTS+=('')
-    fi
-    _USB_PICKER_SEARCH+=("$search") _USB_PICKER_DETAILS+=("$detail")
-  done
+  local title=$reply[1] subtitle=$reply[2]
+  _usb_picker_rows_add "${reply[@]:2}"
   _usb_result_choose "$title" "$subtitle"
 }
 
