@@ -3777,6 +3777,193 @@ _test_usb_write_respects_target_logical_block_size() {
 test_case 'USB raw writer respects target logical block size' \
   _test_usb_write_respects_target_logical_block_size
 
+# Rows: image/target/block/verify=sectors tail-seek tail-count block:status.
+# Physical-tail clearing covers the 33-sector backup GPT, rounded up to whole
+# logical blocks; every size the writer must refuse stops with status 2.
+_test_usb_write_geometry_keeps_tail_clearing_records() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress-geometry" output='' expected=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    TMPDIR=$2
+    _usb_progress_stage() { return 0; }
+    _usb_raw_write_session_run() {
+      print -r -- "$3 $4 $5 $7"
+      print -u2 -r -- "compozsh-write-stage:image"
+      print -u2 -r -- "$(( $3 * 512 )) bytes transferred in 1.0 secs (512 bytes/sec)\r"
+    }
+    typeset image="" target="" block="" verify="" row=""
+    for image target block verify in \
+        512 512 512 0  8192 8192 512 0  8192 8704 512 0  8192 25088 512 0 \
+        8192 25600 512 0  8192 1048576 512 0 \
+        2048 4096 2048 0  2048 40960 2048 0 \
+        4096 4096 4096 0  4096 8192 4096 0  4096 24576 4096 0 \
+        4096 28672 4096 0  8192 32768 4096 0  4096 1048576 4096 0 \
+        4096000 2000398934016 4096 0  8192 65536 8192 0 \
+        0 512 512 0  1024 512 512 0  1000 1024 512 0  512 1000 512 0 \
+        4096 6144 4096 0  10240 32768 4096 0  512 512 4096 0 \
+        512 512 256 0  1536 1536 768 0  512 512 0 0  512 512 512 2 \
+        -512 512 512 0  512 5x2 512 0; do
+      row=$(_usb_write_image /images/linux.iso disk7 "$image" "$target" "$verify" "$block" image-fingerprint)
+      print -r -- "$image/$target/$block/$verify=$row:$?"
+    done
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  local -a rows=('512/512/512/0=1 0 0 512:0'
+    '8192/8192/512/0=16 0 0 512:0'
+    '8192/8704/512/0=16 16 1 512:0'
+    '8192/25088/512/0=16 16 33 512:0'
+    '8192/25600/512/0=16 17 33 512:0'
+    '8192/1048576/512/0=16 2015 33 512:0'
+    '2048/4096/2048/0=4 4 4 2048:0'
+    '2048/40960/2048/0=4 44 36 2048:0'
+    '4096/4096/4096/0=8 0 0 4096:0'
+    '4096/8192/4096/0=8 8 8 4096:0'
+    '4096/24576/4096/0=8 8 40 4096:0'
+    '4096/28672/4096/0=8 16 40 4096:0'
+    '8192/32768/4096/0=16 24 40 4096:0'
+    '4096/1048576/4096/0=8 2008 40 4096:0'
+    '4096000/2000398934016/4096/0=8000 3907029128 40 4096:0'
+    '8192/65536/8192/0=16 80 48 8192:0'
+    '0/512/512/0=:2'
+    '1024/512/512/0=:2'
+    '1000/1024/512/0=:2'
+    '512/1000/512/0=:2'
+    '4096/6144/4096/0=:2'
+    '10240/32768/4096/0=:2'
+    '512/512/4096/0=:2'
+    '512/512/256/0=:2'
+    '1536/1536/768/0=:2'
+    '512/512/0/0=:2'
+    '512/512/512/2=:2'
+    '-512/512/512/0=:2'
+    '512/5x2/512/0=:2')
+  expected=${(F)rows}
+  test_assert_equal "$expected" "$output" \
+    'USB write geometry changed its sector, physical-tail or refusal records'
+}
+test_case 'USB write geometry keeps tail-clearing records for 512-byte, 2 KiB, 4Kn and 8 KiB blocks' \
+  _test_usb_write_geometry_keeps_tail_clearing_records
+
+# Rows: request/writer status/final stage/native error?=result status|outcome|
+# verify reason|error. Reasons 5-9 belong only to the pre-mount verify stage.
+_test_usb_write_status_mapping_keeps_error_records() {
+  test_make_temp_dir || return
+  local output='' expected=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    _usb_progress_stage() { return 0; }
+    _usb_authorize() { return 0; }
+    _usb_authorization_valid() { return 0; }
+    _usb_image_revalidate() { return 0; }
+    _usb_target_revalidate() { _USB_INFO_BLOCK_SIZE=512; return 0; }
+    _usb_unmount() { return 0; }
+    _usb_eject() { return 0; }
+    _usb_write_image() {
+      _USB_WRITE_STAGE=$fake_stage _USB_WRITE_BYTES_OBSERVED=$fake_bytes
+      _USB_WRITE_ERROR=$fake_error _USB_WRITE_VERIFIED=$fake_verified
+      return $fake_status
+    }
+    typeset request="" fake_status="" fake_stage="" fake_bytes="" fake_verified="" fake_error=""
+    for request fake_status fake_stage fake_bytes fake_verified fake_error in \
+        flash-only 0 image 8388608 0 "" \
+        flash-verify 0 verify 8388608 1 "" \
+        flash-verify 0 image 8388608 0 "" \
+        flash-only 1 image 0 0 "" \
+        flash-only 1 image 0 0 "dd: /dev/rdisk7: Resource busy" \
+        flash-only 2 "" 0 0 "" \
+        flash-only 3 image 4194304 0 "" \
+        flash-only 3 image "" 0 "dd: short write" \
+        flash-only 4 tail 8388608 0 "" \
+        flash-verify 4 verify 8388608 0 "" \
+        flash-verify 5 verify 8388608 0 "" \
+        flash-verify 5 verify 8388608 0 "dd: compare failed" \
+        flash-verify 5 image 8388608 0 "" \
+        flash-verify 6 verify 8388608 0 "" \
+        flash-verify 6 tail 8388608 0 "dd: /dev/rdisk7: Input/output error" \
+        flash-verify 7 verify 8388608 0 "" \
+        flash-verify 7 image 8388608 0 "" \
+        flash-verify 8 verify 8388608 0 "" \
+        flash-verify 8 tail 8388608 0 "" \
+        flash-verify 9 verify 8388608 0 "" \
+        flash-only 9 image 8388608 0 "" \
+        flash-only 130 image 0 0 ""; do
+      _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+        8388608 "$request" "" 1 >/dev/null 2>&1
+      print -r -- "$request/$fake_status/$fake_stage/${fake_error:+native}=$?|$_USB_RESULT_OUTCOME|$_USB_RESULT_VERIFY_REASON|$_USB_RESULT_ERROR"
+    done
+  ' "$TEST_REPO_ROOT") || return
+
+  local generic='Writing failed; the USB may contain an incomplete image and must not be used.'
+  local tail_error='The image write completed, but old physical-tail partition metadata could not be cleared safely; the USB must not be used.'
+  local evidence='Pre-mount verification ended without complete success evidence; the drive was not verified.'
+  local mismatch='The USB bytes differed from the selected image during pre-mount verification; the drive must not be used.'
+  local -a rows=('flash-only/0/image/=0|complete||'
+    'flash-verify/0/verify/=0|complete||'
+    "flash-verify/0/image/=9|failed|incomplete-evidence|$evidence"
+    "flash-only/1/image/=1|failed||$generic"
+    'flash-only/1/image/native=1|failed||Writing failed: dd: /dev/rdisk7: Resource busy. The USB may contain an incomplete image and must not be used.'
+    "flash-only/2//=2|failed||$generic"
+    'flash-only/3/image/=3|failed||Writing stopped after 4194304 of 8388608 bytes; the USB contains an incomplete image and must not be used.'
+    'flash-only/3/image/native=3|failed||Writing stopped after 0 of 8388608 bytes; the USB contains an incomplete image and must not be used.'
+    "flash-only/4/tail/=4|failed||$tail_error"
+    "flash-verify/4/verify/=4|failed||$tail_error"
+    "flash-verify/5/verify/=5|failed|mismatch|$mismatch"
+    "flash-verify/5/verify/native=5|failed|mismatch|$mismatch"
+    "flash-verify/5/image/=5|failed||$generic"
+    'flash-verify/6/verify/=6|failed|drive-read-failed|The image was written, but the USB could not be read completely before macOS mounted it; the drive was not verified.'
+    'flash-verify/6/tail/native=6|failed||Writing failed: dd: /dev/rdisk7: Input/output error. The USB may contain an incomplete image and must not be used.'
+    'flash-verify/7/verify/=7|failed|image-read-failed|The image was written, but its source could not be reread completely during pre-mount verification; the drive was not verified.'
+    "flash-verify/7/image/=7|failed||$generic"
+    'flash-verify/8/verify/=8|failed|stale-tail-gpt|The image bytes matched, but the cleared physical-tail metadata did not read back as zero; the drive must not be used.'
+    "flash-verify/8/tail/=8|failed||$generic"
+    "flash-verify/9/verify/=9|failed|incomplete-evidence|$evidence"
+    "flash-only/9/image/=9|failed||$generic"
+    "flash-only/130/image/=130|failed||$generic")
+  expected=${(F)rows}
+  test_assert_equal "$expected" "$output" \
+    'USB write status mapping changed its error text, verify reason or status'
+}
+test_case 'USB write geometry and status mapping keep error text and verify reasons for statuses 0-9' \
+  _test_usb_write_status_mapping_keeps_error_records
+
+_test_usb_write_geometry_records_are_pure() {
+  test_make_temp_dir || return
+  local output='' expected=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    _USB_WRITE_ERROR=sentinel _USB_RESULT_ERROR=sentinel REPLY=sentinel
+    typeset -a reply=(stale)
+    _usb_write_geometry 8192 32768 4096 || exit 1
+    print -r -- "geometry:${(j: :)reply}"
+    _usb_write_geometry 10240 32768 4096
+    print -r -- "refused:$?:${#reply}"
+    _usb_write_geometry 4096000 2000398934016 4096 || exit 2
+    print -r -- "large:${(j: :)reply}"
+    _usb_write_failure_model 3 image 4194304 8388608 "dd: short write"
+    print -r -- "short:${#reply}:$reply[1]|$reply[2]"
+    _usb_write_failure_model 8 verify 8388608 8388608 ""
+    print -r -- "tail:$reply[2]"
+    _usb_write_failure_model 8 tail 8388608 8388608 "literal %F{red} [x]"
+    print -r -- "native:$reply[1]|$reply[2]"
+    print -r -- "state:$_USB_WRITE_ERROR|$_USB_RESULT_ERROR|$REPLY"
+  ' "$TEST_REPO_ROOT") || return
+
+  local -a rows=('geometry:16 24 40' 'refused:2:0' 'large:8000 3907029128 40'
+    'short:2:Writing stopped after 4194304 of 8388608 bytes; the USB contains an incomplete image and must not be used.|'
+    'tail:stale-tail-gpt'
+    'native:Writing failed: literal %F{red} [x]. The USB may contain an incomplete image and must not be used.|'
+    'state:sentinel|sentinel|sentinel')
+  expected=${(F)rows}
+  test_assert_equal "$expected" "$output" \
+    'USB write geometry or failure records needed UI, effects or shared state'
+}
+test_case 'USB write geometry and failure records are pure without UI or shared state' \
+  _test_usb_write_geometry_records_are_pure
+
 _test_usb_atomic_progress_separates_write_and_verify() {
   test_make_temp_dir || return
   local progress_file="$TEST_TMP_DIR/atomic-progress" output=''

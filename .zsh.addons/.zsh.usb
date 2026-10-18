@@ -2447,31 +2447,19 @@ _usb_raw_write_session_run() {
     "$tail_seek" "$tail_count" "$verify" "$block_size" "$expected_fingerprint"
 }
 
-_usb_write_image() {
+# Pure raw-write geometry from byte sizes and the target's logical block size.
+# reply=(image sectors, tail seek, tail count) in 512-byte sectors: the
+# physical-tail clear covers the 33-sector backup GPT, rounded up to whole
+# logical blocks and capped at the space after the image, so it never touches
+# image bytes. Status 2 refuses sizes the raw writer must not receive: empty,
+# unaligned or larger than the target.
+_usb_write_geometry() {
   emulate -L zsh
-  setopt NO_BG_NICE
-  unsetopt MONITOR NOTIFY
-  local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
-  local verify=${5:-0} progress_title='Writing image'
-  local block_size=${6:-512}
-  local image_fingerprint=${7:-}
-  local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
-  local -i worker=0 command_status=1 started=$SECONDS sector_count=0
-  local -i verify_started=0
-  local -i target_sectors=0 trailing_sectors=0 tail_count=0 tail_seek=0
-  local -i block_sectors=0 tail_clear_sectors=0
-  _USB_WRITE_BYTES_OBSERVED=0 _USB_WRITE_VERIFY_BYTES_OBSERVED=0
-  _USB_WRITE_VERIFY_SECONDS=0 _USB_WRITE_VERIFIED=0
-  _USB_WRITE_TAIL_VERIFIED=0
-  _USB_WRITE_PROGRESS_OFFSET=0 _USB_WRITE_PROGRESS_STAGE=''
-  _USB_WRITE_PROGRESS_REMAINDER=''
-  _USB_WRITE_ERROR='' _USB_WRITE_STAGE=''
-  (( ${+functions[_usb_dd_progress_bytes]} )) || {
-    _USB_WRITE_ERROR='Shared byte-progress parsing support unavailable; nothing was written.'
-    return 1
-  }
-  [[ $image_size == <-> && $target_size == <-> && $verify == [01] &&
-     $block_size == <-> ]] || return 2
+  local image_size=$1 target_size=$2 block_size=$3
+  local -i block_sectors=0 sector_count=0 target_sectors=0
+  local -i trailing_sectors=0 tail_clear_sectors=0 tail_seek=0 tail_count=0
+  reply=()
+  [[ $image_size == <-> && $target_size == <-> && $block_size == <-> ]] || return 2
   (( block_size >= 512 && block_size % 512 == 0 )) || return 2
   (( image_size > 0 && image_size % block_size == 0 )) || return 2
   (( target_size >= image_size && target_size % block_size == 0 )) || return 2
@@ -2484,6 +2472,34 @@ _usb_write_image() {
     tail_count=$(( trailing_sectors < tail_clear_sectors ? trailing_sectors : tail_clear_sectors ))
     tail_seek=$(( target_sectors - tail_count ))
   fi
+  reply=($sector_count $tail_seek $tail_count)
+}
+
+_usb_write_image() {
+  emulate -L zsh
+  setopt NO_BG_NICE
+  unsetopt MONITOR NOTIFY
+  local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
+  local verify=${5:-0} progress_title='Writing image'
+  local block_size=${6:-512}
+  local image_fingerprint=${7:-}
+  local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
+  local -i worker=0 command_status=1 started=$SECONDS sector_count=0
+  local -i verify_started=0 tail_count=0 tail_seek=0
+  local -a reply=()
+  _USB_WRITE_BYTES_OBSERVED=0 _USB_WRITE_VERIFY_BYTES_OBSERVED=0
+  _USB_WRITE_VERIFY_SECONDS=0 _USB_WRITE_VERIFIED=0
+  _USB_WRITE_TAIL_VERIFIED=0
+  _USB_WRITE_PROGRESS_OFFSET=0 _USB_WRITE_PROGRESS_STAGE=''
+  _USB_WRITE_PROGRESS_REMAINDER=''
+  _USB_WRITE_ERROR='' _USB_WRITE_STAGE=''
+  (( ${+functions[_usb_dd_progress_bytes]} )) || {
+    _USB_WRITE_ERROR='Shared byte-progress parsing support unavailable; nothing was written.'
+    return 1
+  }
+  [[ $verify == [01] ]] || return 2
+  _usb_write_geometry "$image_size" "$target_size" "$block_size" || return 2
+  sector_count=$reply[1] tail_seek=$reply[2] tail_count=$reply[3]
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
   {
     _usb_raw_write_session_run "$image" "$identifier" "$sector_count" \
@@ -2795,6 +2811,43 @@ _usb_cleanup_eject() {
   _USB_RESULT_EJECTED=1
 }
 
+# Pure failure record for a raw write that did not succeed, from the writer's
+# status, final stage, observed bytes, image size and bounded native error.
+# reply=(error, verify reason). Statuses 5-9 are verification evidence only
+# when the writer ended in its pre-mount verify stage; status 3 (short write)
+# and 4 (tail clear) win over native text, and anything else is a write failure.
+_usb_write_failure_model() {
+  emulate -L zsh
+  local write_status=$1 stage=$2 observed_bytes=$3 image_size=$4 native_error=$5
+  local error='' reason=''
+  case $write_status:$stage in
+    (3:*) error="Writing stopped after $observed_bytes of $image_size bytes; the USB contains an incomplete image and must not be used." ;;
+    (4:*) error='The image write completed, but old physical-tail partition metadata could not be cleared safely; the USB must not be used.' ;;
+    (5:verify)
+      reason=mismatch
+      error='The USB bytes differed from the selected image during pre-mount verification; the drive must not be used.' ;;
+    (6:verify)
+      reason=drive-read-failed
+      error='The image was written, but the USB could not be read completely before macOS mounted it; the drive was not verified.' ;;
+    (7:verify)
+      reason=image-read-failed
+      error='The image was written, but its source could not be reread completely during pre-mount verification; the drive was not verified.' ;;
+    (8:verify)
+      reason=stale-tail-gpt
+      error='The image bytes matched, but the cleared physical-tail metadata did not read back as zero; the drive must not be used.' ;;
+    (9:verify)
+      reason=incomplete-evidence
+      error='Pre-mount verification ended without complete success evidence; the drive was not verified.' ;;
+    (*)
+      if [[ -n $native_error ]]; then
+        error="Writing failed: $native_error. The USB may contain an incomplete image and must not be used."
+      else
+        error='Writing failed; the USB may contain an incomplete image and must not be used.'
+      fi ;;
+  esac
+  reply=("$error" "$reason")
+}
+
 _usb_execute() {
   emulate -L zsh
   setopt EXTENDED_GLOB NO_BG_NICE
@@ -2806,6 +2859,7 @@ _usb_execute() {
   local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
   local -i verify_during_write=0
   local -i target_block_size=512
+  local -a reply=()
   if (( ! ${+functions[_usb_result_reset]} )); then
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Shared USB result support is unavailable; nothing was written.'
     return 1
@@ -2930,31 +2984,10 @@ _usb_execute() {
       _USB_RESULT_RATE="$REPLY/s"
     fi
   else
+    _usb_write_failure_model "$action_status" "$_USB_WRITE_STAGE" \
+      "${_USB_WRITE_BYTES_OBSERVED:-0}" "$image_size" "$_USB_WRITE_ERROR"
     _USB_RESULT_OUTCOME=failed
-    if (( action_status == 3 )); then
-      _USB_RESULT_ERROR="Writing stopped after ${_USB_WRITE_BYTES_OBSERVED:-0} of $image_size bytes; the USB contains an incomplete image and must not be used."
-    elif (( action_status == 4 )); then
-      _USB_RESULT_ERROR='The image write completed, but old physical-tail partition metadata could not be cleared safely; the USB must not be used.'
-    elif (( action_status == 5 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
-      _USB_RESULT_VERIFY_REASON=mismatch
-      _USB_RESULT_ERROR='The USB bytes differed from the selected image during pre-mount verification; the drive must not be used.'
-    elif (( action_status == 6 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
-      _USB_RESULT_VERIFY_REASON=drive-read-failed
-      _USB_RESULT_ERROR='The image was written, but the USB could not be read completely before macOS mounted it; the drive was not verified.'
-    elif (( action_status == 7 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
-      _USB_RESULT_VERIFY_REASON=image-read-failed
-      _USB_RESULT_ERROR='The image was written, but its source could not be reread completely during pre-mount verification; the drive was not verified.'
-    elif (( action_status == 8 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
-      _USB_RESULT_VERIFY_REASON=stale-tail-gpt
-      _USB_RESULT_ERROR='The image bytes matched, but the cleared physical-tail metadata did not read back as zero; the drive must not be used.'
-    elif (( action_status == 9 )) && [[ $_USB_WRITE_STAGE == verify ]]; then
-      _USB_RESULT_VERIFY_REASON=incomplete-evidence
-      _USB_RESULT_ERROR='Pre-mount verification ended without complete success evidence; the drive was not verified.'
-    elif [[ -n $_USB_WRITE_ERROR ]]; then
-      _USB_RESULT_ERROR="Writing failed: $_USB_WRITE_ERROR. The USB may contain an incomplete image and must not be used."
-    else
-      _USB_RESULT_ERROR='Writing failed; the USB may contain an incomplete image and must not be used.'
-    fi
+    _USB_RESULT_ERROR=$reply[1] _USB_RESULT_VERIFY_REASON=$reply[2]
   fi
   if (( action_status == 0 )); then
     _usb_unmount "$identifier" >/dev/null 2>&1 || {
