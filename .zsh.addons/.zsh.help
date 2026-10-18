@@ -482,8 +482,9 @@ _compozsh_help_compozsh() {
     '' \
     'Refresh this shell:' \
     '  --refresh  Clear cached facts in this shell and run rehash.' \
-    '  It clears cached runtime versions, Git-directory information, local' \
-    '  manual summaries, help descriptions and grep color-capability detection.' \
+    '  It clears cached runtime versions, Git-directory information, the' \
+    '  verified Git behind /usr/bin/git, local manual summaries,' \
+    '  help descriptions and grep color-capability detection.' \
     '  Requires .zsh.tools.' \
     '  Relevant caches rebuild on next use. No tools are installed or upgraded;' \
     '  public OS manual summaries also rebuild their optional disk cache at' \

@@ -331,6 +331,8 @@ _tools_refresh() {
     _PROMPT_RUNTIME_VERSION_CACHE=()
   (( ${+parameters[_PROMPT_GIT_DIR_CACHE]} )) &&
     _PROMPT_GIT_DIR_CACHE=()
+  (( ${+parameters[_COMPOZSH_GIT_LOCAL_BINARY]} )) &&
+    _COMPOZSH_GIT_LOCAL_BINARY=()
   (( ${+parameters[_GREP_SUPPORTS_COLOR]} )) &&
     _GREP_SUPPORTS_COLOR=-1
   (( ${+parameters[_GREP_COLOR_BINARY]} )) &&

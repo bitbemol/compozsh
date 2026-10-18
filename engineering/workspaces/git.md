@@ -158,6 +158,14 @@ focus.
   substitutions, keeping one fork per Git read. Callers add only their own
   `-c` flags and exported variables, keep their own bounded capture, and fail
   closed without the entry.
+- When `PATH` selects `/usr/bin/git`, `_compozsh_git_local resolve` (the
+  prompt calls it in its own shell before its first read, since the reads run
+  in command substitutions) remembers the Git that launcher would start, only
+  after `/usr/bin/codesign` accepts it as Apple's `com.apple.git`; every call
+  runs it directly while the launcher's selectors and the file's identity
+  match, and `/usr/bin/git` otherwise. A subshell never resolves, a refusal is
+  remembered per selector set, and `compozsh --refresh` forgets it
+  ([SECURITY.md](../../SECURITY.md#local-only-git-controls)).
 - One ordered marker table in `_compozsh_git_operation <git-dir>
   label|fail-closed` decides whether a Git operation is in progress: merge,
   merge autostash, cherry-pick, revert, bisect log and start, both rebase

@@ -311,6 +311,9 @@ _prompt_git() {
   (( ${+functions[_compozsh_git_local]} &&
      ${+functions[_compozsh_git_filter_config]} &&
      ${+functions[_compozsh_git_operation]} )) || return
+  # Resolve here, in the prompt's own shell: every read below runs in a command
+  # substitution, where a resolution would be lost with the subshell.
+  _compozsh_git_local resolve || :
   _compozsh_git_filter_config "$PWD" clean || return
   filter_config=("${reply[@]}")
   # Prompt rendering is passive: the shared entry suppresses repository-

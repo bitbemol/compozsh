@@ -362,3 +362,236 @@ Git never ran' "status:$exit_status"$'\n'"$output" \
 }
 test_case 'shared Git entry missing leaves every wrapper, the prompt and discard failing closed' \
   _test_shared_git_entry_missing_fails_closed
+
+# The system git shim. When PATH selects /usr/bin/git, the shared entry may run
+# the Git that shim would launch directly, but only after the real
+# /usr/bin/codesign proves Apple signed that exact file as com.apple.git, and
+# only while the file's identity is unchanged. The resolver seam
+# (_compozsh_git_local_find) supplies each candidate path here; the signature
+# check is never stubbed. A refused candidate must never run: the script writes
+# a marker, and an echo copy would print its arguments instead of the exec path
+# that /usr/bin/git reports.
+_test_git_shim_apple_git() {
+  REPLY=$(command env -i PATH=/usr/bin:/bin HOME="$TEST_TMP_DIR/home" \
+    /usr/bin/xcrun --find git 2>/dev/null) && [[ $REPLY == /* ]] &&
+    command /usr/bin/codesign --verify --strict \
+      -R '=anchor apple and identifier "com.apple.git"' -- "$REPLY" >/dev/null 2>&1
+}
+
+_test_git_shim_refuses_untrusted() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  test_write_file "$TEST_TMP_DIR/script/git" $'#!/bin/sh\n: > "$HOME/script-ran"\necho fake' || return
+  command chmod +x "$TEST_TMP_DIR/script/git" || return
+  command mkdir -p -- "$TEST_TMP_DIR/adhoc" "$TEST_TMP_DIR/apple" || return
+  command cp -- /bin/echo "$TEST_TMP_DIR/adhoc/git" || return
+  command cp -- /bin/echo "$TEST_TMP_DIR/apple/git" || return
+  command /usr/bin/codesign -s - -f -- "$TEST_TMP_DIR/adhoc/git" >/dev/null 2>&1 || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH=/usr/bin:/bin
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    source "$1/.zsh.addons/.zsh.tools" || exit 1
+    local shim="" ran="" candidate=""
+    local -a report=()
+    shim=$(command /usr/bin/git -C "$HOME" --exec-path) || exit 2
+    _compozsh_git_local_find() { REPLY=$GIT_SHIM_CANDIDATE; }
+    for candidate in script adhoc apple; do
+      _tools_refresh
+      GIT_SHIM_CANDIDATE=$2/$candidate/git
+      _compozsh_git_local resolve
+      report+=("$candidate: resolve $? direct ${_COMPOZSH_GIT_LOCAL_BINARY[2]:-none}")
+      ran=$(_compozsh_git_local inherit "$HOME" -- --exec-path 2>&1)
+      [[ $ran == "$shim" ]] && report+=("$candidate: /usr/bin/git ran") ||
+        report+=("$candidate: ran ${(q+)ran}")
+    done
+    [[ -e $HOME/script-ran ]] && report+=("unsigned script ran") || report+=("unsigned script never ran")
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+script: resolve 1 direct none
+script: /usr/bin/git ran
+adhoc: resolve 1 direct none
+adhoc: /usr/bin/git ran
+apple: resolve 1 direct none
+apple: /usr/bin/git ran
+unsigned script never ran' "status:$exit_status"$'\n'"$output" \
+    'the git shim resolver accepted or ran an unsigned, ad-hoc signed or non-Git binary'
+}
+test_case 'git shim refuses unsigned, ad-hoc signed and Apple non-Git binaries without running them' \
+  _test_git_shim_refuses_untrusted
+
+# A verified copy of Apple's Git runs directly (its exec path follows its own
+# location). Appending a byte or swapping a script into its place changes the
+# recorded identity, so the very next call runs /usr/bin/git, and the next
+# resolve point re-verifies and refuses it. Needs an Apple-signed Git.
+_test_git_shim_identity_recheck() {
+  test_make_temp_dir || return
+  local output='' exit_status=0 apple_git=''
+  _test_git_shim_apple_git || {
+    print -u2 -r -- '      not applicable here: no Apple-signed Git behind /usr/bin/git'
+    return 0
+  }
+  apple_git=$REPLY
+  command mkdir -p -- "$TEST_TMP_DIR/tampered/bin" "$TEST_TMP_DIR/swapped/bin" || return
+  command cp -- "$apple_git" "$TEST_TMP_DIR/tampered/bin/git" || return
+  command cp -- "$apple_git" "$TEST_TMP_DIR/swapped/bin/git" || return
+  test_write_file "$TEST_TMP_DIR/fake-git" $'#!/bin/sh\n: > "$HOME/fake-ran"\necho fake' || return
+  command chmod +x "$TEST_TMP_DIR/fake-git" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH=/usr/bin:/bin
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    source "$1/.zsh.addons/.zsh.tools" || exit 1
+    local shim="" ran="" name=""
+    local -a report=()
+    shim=$(command /usr/bin/git -C "$HOME" --exec-path) || exit 2
+    _compozsh_git_local_find() { REPLY=$GIT_SHIM_CANDIDATE; }
+    for name in tampered swapped; do
+      _tools_refresh
+      GIT_SHIM_CANDIDATE=$2/$name/bin/git
+      _compozsh_git_local resolve; report+=("$name: verified $?")
+      ran=$(_compozsh_git_local inherit "$HOME" -- --exec-path 2>&1)
+      [[ $ran == "$2/$name/libexec/git-core" ]] && report+=("$name: ran directly") ||
+        report+=("$name: ran ${(q+)ran}")
+      if [[ $name == tampered ]]; then
+        print -rn -- x >> "$GIT_SHIM_CANDIDATE" || exit 3
+      else
+        command mv -f -- "$2/fake-git" "$GIT_SHIM_CANDIDATE" || exit 3
+      fi
+      ran=$(_compozsh_git_local inherit "$HOME" -- --exec-path 2>&1)
+      [[ $ran == "$shim" ]] && report+=("$name: /usr/bin/git ran") || report+=("$name: ran ${(q+)ran}")
+      _compozsh_git_local resolve
+      report+=("$name: reverified $? direct ${_COMPOZSH_GIT_LOCAL_BINARY[2]:-none}")
+      ran=$(_compozsh_git_local inherit "$HOME" -- --exec-path 2>&1)
+      [[ $ran == "$shim" ]] && report+=("$name: /usr/bin/git ran") || report+=("$name: ran ${(q+)ran}")
+    done
+    [[ -e $HOME/fake-ran ]] && report+=("swapped script ran") || report+=("swapped script never ran")
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+tampered: verified 0
+tampered: ran directly
+tampered: /usr/bin/git ran
+tampered: reverified 1 direct none
+tampered: /usr/bin/git ran
+swapped: verified 0
+swapped: ran directly
+swapped: /usr/bin/git ran
+swapped: reverified 1 direct none
+swapped: /usr/bin/git ran
+swapped script never ran' "status:$exit_status"$'\n'"$output" \
+    'the git shim memo outlived a tampered or swapped binary'
+}
+test_case 'git shim runs a verified Apple Git directly and falls back once it is tampered with or swapped' \
+  _test_git_shim_identity_recheck
+
+# Resolution is per shell and keyed by every selector the shim honors: the same
+# selectors reuse the answer (a refusal included), a changed exported
+# DEVELOPER_DIR, TOOLCHAINS or SDKROOT resolves again, a subshell never
+# resolves (its memo would die with it), compozsh --refresh forgets the answer,
+# and a Git chosen elsewhere on PATH is never resolved or replaced.
+_test_git_shim_resolution_keys() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  test_write_file "$TEST_TMP_DIR/script/git" $'#!/bin/sh\n: > "$HOME/path-git-ran"\necho fake' || return
+  command chmod +x "$TEST_TMP_DIR/script/git" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH=/usr/bin:/bin
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    source "$1/.zsh.addons/.zsh.tools" || exit 1
+    local -a report=()
+    : > "$HOME/finds"
+    GIT_SHIM_CANDIDATE=$2/script/git
+    _compozsh_git_local_find() { print -r -- find >> "$HOME/finds"; REPLY=$GIT_SHIM_CANDIDATE; }
+    _shim_step() {
+      local -a finds=("${(@f)$(<$HOME/finds)}")
+      report+=("$1 $2 finds ${#${(@)finds:#}}")
+    }
+    _compozsh_git_local resolve; _shim_step first $?
+    _compozsh_git_local resolve; _shim_step "same selectors" $?
+    export DEVELOPER_DIR=$HOME/developer
+    _compozsh_git_local resolve; _shim_step DEVELOPER_DIR $?
+    _compozsh_git_local resolve; _shim_step "DEVELOPER_DIR again" $?
+    export TOOLCHAINS=fixture
+    _compozsh_git_local resolve; _shim_step TOOLCHAINS $?
+    export SDKROOT=$HOME/sdk
+    _compozsh_git_local resolve; _shim_step SDKROOT $?
+    _tools_refresh
+    ( _compozsh_git_local resolve ); _shim_step "subshell after refresh" $?
+    _compozsh_git_local resolve; _shim_step "parent after refresh" $?
+    export PATH=$2/script:/usr/bin:/bin
+    _compozsh_git_local resolve; _shim_step "PATH git" $?
+    _compozsh_git_local inherit "$HOME" -- --version > /dev/null 2>&1
+    [[ -e $HOME/path-git-ran ]] && report+=("PATH git ran") || report+=("PATH git did not run")
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+first 1 finds 1
+same selectors 1 finds 1
+DEVELOPER_DIR 1 finds 2
+DEVELOPER_DIR again 1 finds 2
+TOOLCHAINS 1 finds 3
+SDKROOT 1 finds 4
+subshell after refresh 1 finds 4
+parent after refresh 1 finds 5
+PATH git 1 finds 5
+PATH git ran' "status:$exit_status"$'\n'"$output" \
+    'the git shim resolver ignored a selector, PATH, a subshell or refresh'
+}
+test_case 'shared Git entry resolves the system git shim once per shell and honors its selectors, PATH and refresh' \
+  _test_git_shim_resolution_keys
+
+# End to end with the real resolver: the prompt resolves once in its own shell,
+# and every prompt Git read, all inside command substitutions, runs Apple's Git
+# directly. Trace2 records SDKROOT only for runs launched through the shim,
+# which adds it. Needs an Apple-signed Git.
+_test_git_shim_prompt_direct() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  _test_git_shim_apple_git || {
+    print -u2 -r -- '      not applicable here: no Apple-signed Git behind /usr/bin/git'
+    return 0
+  }
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    local repo="$HOME/repository" direct="" shimmed=""
+    local -a report=() lines=()
+    command git init -qb main "$repo" || exit 1
+    command git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
+      -c commit.gpgsign=false commit --allow-empty -qm fixture || exit 1
+    source "$1/.zsh.addons/.zsh.prompt" || exit 1
+    source "$1/.zsh.addons/.zsh.tools" || exit 1
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    : > "$HOME/finds"
+    functions[_test_real_find]=$functions[_compozsh_git_local_find]
+    _compozsh_git_local_find() { print -r -- find >> "$HOME/finds"; _test_real_find "$@"; }
+    builtin cd "$repo" || exit 2
+    export GIT_TRACE2_ENV_VARS=SDKROOT GIT_TRACE2_EVENT=$HOME/trace
+    _prompt_git; report+=("prompt $_PROMPT_GIT_TEXT")
+    _prompt_git; report+=("prompt $_PROMPT_GIT_TEXT")
+    unset GIT_TRACE2_ENV_VARS GIT_TRACE2_EVENT
+    lines=("${(@f)$(<$HOME/finds)}"); report+=("resolved ${#${(@)lines:#}} time")
+    [[ ${_COMPOZSH_GIT_LOCAL_BINARY[2]-} == "$2" ]] && report+=("direct binary is xcrun answer") ||
+      report+=("direct binary ${(q+)_COMPOZSH_GIT_LOCAL_BINARY[2]-}")
+    lines=("${(@f)$(<$HOME/trace)}")
+    report+=("Git runs ${#${(@M)lines:#*\"event\":\"start\"*}}, through the shim ${#${(@M)lines:#*\"param\":\"SDKROOT\"*}}")
+    direct=$(_compozsh_git_local inherit "$repo" -- --version; _compozsh_git_local inherit "$repo" -- config --get core.bare)
+    shimmed=$(command /usr/bin/git -C "$repo" --version; command /usr/bin/git -C "$repo" config --get core.bare)
+    [[ -n $direct && $direct == "$shimmed" ]] && report+=("output matches /usr/bin/git") ||
+      report+=("output differs: ${(q+)direct} vs ${(q+)shimmed}")
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$REPLY" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+prompt main no-upstream
+prompt main no-upstream
+resolved 1 time
+direct binary is xcrun answer
+Git runs 5, through the shim 0
+output matches /usr/bin/git' "status:$exit_status"$'\n'"$output" \
+    'the prompt did not run the verified Apple Git directly'
+}
+test_case 'git shim lets the prompt run the Apple Git behind /usr/bin/git directly with identical output' \
+  _test_git_shim_prompt_direct

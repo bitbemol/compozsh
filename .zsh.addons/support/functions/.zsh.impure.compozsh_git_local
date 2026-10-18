@@ -8,9 +8,22 @@
 # that already chose. Callers add their own -c flags and exported variables;
 # --exec replaces the calling process: the review worker needs it, and the
 # prompt's command substitutions use it to keep one fork per Git read.
+# When PATH selects Apple's /usr/bin/git launcher, `resolve` (run in the
+# parent shell at a capture boundary; the prompt does) remembers the Git that
+# launcher would start, but only once /usr/bin/codesign proves Apple signed
+# that file as com.apple.git. Later calls, in subshells too, run it directly
+# while the selectors and the file's identity still match; any change runs
+# /usr/bin/git. compozsh --refresh forgets it.
 # Usage: _compozsh_git_local <root|inherit> <dir> [--exec] [--] <git-arguments...>
+#        _compozsh_git_local resolve
 _compozsh_git_local() {
   emulate -L zsh
+  local REPLY=''
+  local -a reply=()
+  if (( $# == 1 )) && [[ $1 == resolve ]]; then
+    _compozsh_git_local_resolve
+    return
+  fi
   (( $# >= 2 )) && [[ $1 == (root|inherit) ]] || return 2
   local policy=$1 dir=$2 git_binary=${commands[git]:-}
   local -i replace=0
@@ -18,6 +31,7 @@ _compozsh_git_local() {
   [[ ${1:-} == --exec ]] && { replace=1; shift; }
   [[ ${1:-} == -- ]] && shift
   [[ -n $git_binary ]] || return 127
+  [[ $git_binary == /usr/bin/git ]] && _compozsh_git_local_direct && git_binary=$REPLY
   if [[ $policy == root ]]; then
     local GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
     local GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
@@ -35,5 +49,92 @@ _compozsh_git_local() {
     -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null -c log.showSignature=false "$@"
 }
+
+# The selectors that choose the Git /usr/bin/git starts: the PATH choice, the
+# exported developer-directory, toolchain and SDK selectors (an unexported one
+# never reaches the launcher) and the xcode-select link, quoted unambiguously.
+_compozsh_git_local_key() {
+  emulate -L zsh
+  local name='' value=''
+  local -a link=()
+  REPLY=${(qqqq)commands[git]-}
+  for name in DEVELOPER_DIR TOOLCHAINS SDKROOT; do
+    value=-
+    [[ ${(tP)name} == *-export* ]] && value=${(qqqq)${(P)name}}
+    REPLY+=" $value"
+  done
+  zstat -L -A link +link -- /var/db/xcode_select_link 2>/dev/null || link=()
+  REPLY+=" ${(qqqq)link[1]-}"
+}
+
+# A file's identity as zstat reports it: device, inode, mode, owner, size and
+# modification and change times. Fails when the file is gone.
+_compozsh_git_local_identity() {
+  emulate -L zsh
+  local -A facts=()
+  REPLY=''
+  zstat -H facts -- "$1" 2>/dev/null || return 1
+  REPLY="$facts[device] $facts[inode] $facts[mode] $facts[uid] $facts[size] $facts[mtime] $facts[ctime]"
+}
+
+# Ask the launcher which Git it would start; a test seam replaces only this.
+_compozsh_git_local_find() {
+  emulate -L zsh
+  local -a reply=()
+  REPLY=''
+  (( ${+functions[_compozsh_capture_bounded]} )) || return 1
+  [[ -x /usr/bin/xcrun ]] || return 1
+  _compozsh_capture_bounded 4097 /usr/bin/xcrun --find git || return 1
+  [[ $reply[2] == complete && $reply[3] == 0 ]] || return 1
+  REPLY=${reply[1]%$'\n'}
+}
+
+# REPLY is the remembered direct Git when its selectors and identity still
+# match; otherwise the caller runs /usr/bin/git. Reads only, so a call inside a
+# command substitution behaves exactly as one in the parent shell.
+_compozsh_git_local_direct() {
+  emulate -L zsh
+  local memo_path=${_COMPOZSH_GIT_LOCAL_BINARY[2]-}
+  REPLY=''
+  [[ -n $memo_path ]] && zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
+  _compozsh_git_local_key
+  [[ $REPLY == "${_COMPOZSH_GIT_LOCAL_BINARY[1]-}" ]] || return 1
+  _compozsh_git_local_identity "$memo_path" &&
+    [[ $REPLY == "${_COMPOZSH_GIT_LOCAL_BINARY[3]-}" ]] || return 1
+  REPLY=$memo_path
+}
+
+# Resolve once per shell and selector set, in the parent shell only: a memo
+# written in a subshell would die with it. A refusal is remembered too, so a
+# failing check never repeats at every prompt.
+_compozsh_git_local_resolve() {
+  emulate -L zsh
+  local key='' found='' identity=''
+  (( ZSH_SUBSHELL == 0 )) && [[ ${commands[git]-} == /usr/bin/git ]] || return 1
+  zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
+  _compozsh_git_local_key
+  key=$REPLY
+  if [[ ${_COMPOZSH_GIT_LOCAL_BINARY[1]-} == "$key" ]]; then
+    [[ -n ${_COMPOZSH_GIT_LOCAL_BINARY[2]-} ]] || return 1
+    _compozsh_git_local_direct && return 0
+  fi
+  _COMPOZSH_GIT_LOCAL_BINARY=("$key" '' '')
+  _compozsh_git_local_find || return 1
+  found=$REPLY
+  [[ $found == /* && $found != *$'\n'* && -f $found && -x $found ]] || return 1
+  _compozsh_git_local_identity "$found" || return 1
+  identity=$REPLY
+  [[ -x /usr/bin/codesign ]] || return 1
+  command /usr/bin/codesign --verify --strict \
+    -R '=anchor apple and identifier "com.apple.git"' -- "$found" >/dev/null 2>&1 ||
+    return 1
+  # The verified file must still be the one whose identity was recorded.
+  _compozsh_git_local_identity "$found" && [[ $REPLY == "$identity" ]] || return 1
+  _COMPOZSH_GIT_LOCAL_BINARY=("$key" "$found" "$identity")
+}
+
+# Selector key, direct path and identity of the verified Git, or a refusal
+# (empty path) for that key; shell memory only, cleared by compozsh --refresh.
+typeset -ga _COMPOZSH_GIT_LOCAL_BINARY
 
 :

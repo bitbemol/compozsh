@@ -92,6 +92,11 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   because caching sounds faster.
 - Runtime and tool version probes cache in memory only, keyed by every
   selector that can change the answer; `compozsh --refresh` invalidates them.
+- When `PATH` selects Apple's `/usr/bin/git` launcher, the shared Git entry
+  runs the Apple-signed Git behind it directly, skipping the launcher's
+  start-up on each Git read. The prompt resolves it once per shell (one
+  `xcrun`, one `codesign`), keyed by the launcher's selectors and rechecked by
+  file identity before each run ([SECURITY.md](../SECURITY.md#local-only-git-controls)).
 - Reproducible public system data may use disposable persistent caches under
   the [caching contract](caching.md). Never persist user or project facts or
   make a feature depend on a cache. Zsh's native completion dump is not
