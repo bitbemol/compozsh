@@ -441,101 +441,207 @@ _xcode_test_report_text() {
   REPLY=${value//([[:cntrl:]]~[$'\n\t'])/?}
 }
 
-# Compose an inert, bounded report only from the structured facts already
-# retained for the result window. No source files, attachments or environment
-# values are read while formatting or copying it.
-_xcode_test_report_build() {
+# Pure model of one retained test result, shared by the result window and the
+# copied report. Arguments: the view (`window` or `report`), the native status,
+# key/value facts (result, mode, container, scheme, destination, platform,
+# destination_id, capture_error, clipboard and the counts total, passed, failed,
+# skipped, expected_failures and build_errors), then `--` and tagged records:
+# `failure NAME TARGET IDENTIFIER REASON FILES` or `build NAME REASON FILES`,
+# FILES holding one location per line. `report` sets REPLY to the inert
+# plain-text report, built only from these facts: no source files, attachments
+# or environment values are read. `window` sets reply to the title, subtitle
+# and passive-line count, that many line/role pairs, then five-field rows:
+# exact value, label, semantic role, search text and details.
+_xcode_test_result_model() {
   emulate -L zsh
-  local -i action_status=${1:-1} index=0 captured=0 reported=0
-  local report='Xcode test report' result='' name='' target='' identifier=''
-  local reason='' files=''
-  local expected_label='expected failure'
+  [[ $1 == (window|report) && $2 == <-> && ${#2} -le 18 ]] || return 2
+  local view=$1
+  local -i action_status=$2 index=0 captured=0 reported=0
+  shift 2
+  local -A facts=()
+  while (( $# )) && [[ $1 != -- ]]; do
+    (( $# >= 2 )) && [[ $1 == [a-z_]* && $1 != *[^a-z_]* ]] || return 2
+    facts[$1]=$2
+    shift 2
+  done
+  (( $# )) && shift
+  local -a failures=() builds=()
+  while (( $# )); do
+    case $1 in
+      (failure) (( $# >= 6 )) || return 2; failures+=("${(@)argv[2,6]}"); shift 6 ;;
+      (build) (( $# >= 4 )) || return 2; builds+=("${(@)argv[2,4]}"); shift 4 ;;
+      (*) return 2 ;;
+    esac
+  done
+  local mode=${facts[mode]:-Incremental Test} key='' label='' name='' target=''
+  local identifier='' reason='' files=''
+  # Counts are provider text until validated; only digits reach arithmetic.
+  for key in total passed failed skipped expected_failures build_errors; do
+    [[ ${facts[$key]-} == <-> && ${#facts[$key]} -le 18 ]] || facts[$key]=0
+  done
 
-  _xcode_test_report_text "${_XCODE_TEST_RESULT:-Unknown}"
-  result=$REPLY
-  report+=$'\n\n'"Result: $result"
-  report+=$'\n'"xcodebuild exit status: $action_status"
-  _xcode_test_report_text "${_XCODE_TEST_MODE:-Incremental Test}"
-  report+=$'\n'"Mode: $REPLY"
-  if [[ -n $_XCODE_TEST_CONTAINER ]]; then
-    _xcode_test_report_text "$_XCODE_TEST_CONTAINER"
-    report+=$'\n'"Container: $REPLY"
-  fi
-  _xcode_test_report_text "$_XCODE_TEST_SCHEME"
-  report+=$'\n'"Scheme: $REPLY"
-  _xcode_test_report_text "$_XCODE_TEST_DESTINATION"
-  report+=$'\n'"Destination: $REPLY"
-  if [[ -n $_XCODE_TEST_PLATFORM ]]; then
-    _xcode_test_report_text "$_XCODE_TEST_PLATFORM"
-    report+=$'\n'"Platform: $REPLY"
-  fi
-  if [[ -n $_XCODE_TEST_DESTINATION_ID ]]; then
-    _xcode_test_report_text "$_XCODE_TEST_DESTINATION_ID"
-    report+=$'\n'"Destination ID: $REPLY"
-  fi
-  (( _XCODE_TEST_EXPECTED_FAILURES != 1 )) && expected_label+='s'
-  report+=$'\n'"Tests: ${_XCODE_TEST_TOTAL} total · ${_XCODE_TEST_PASSED} passed"
-  report+=" · ${_XCODE_TEST_FAILED} failed · ${_XCODE_TEST_SKIPPED} skipped"
-  report+=" · ${_XCODE_TEST_EXPECTED_FAILURES} $expected_label"
-  report+=$'\n''Report scope: bounded structured xcresult snapshot; native console'
-  report+=' output, attachments, and source contents are not included.'
+  if [[ $view == report ]]; then
+    local report='Xcode test report' expected_label='expected failure'
+    _xcode_test_report_text "${facts[result]:-Unknown}"
+    report+=$'\n\n'"Result: $REPLY"$'\n'"xcodebuild exit status: $action_status"
+    _xcode_test_report_text "$mode"
+    report+=$'\n'"Mode: $REPLY"
+    for label key in Container container Scheme scheme Destination destination \
+        Platform platform 'Destination ID' destination_id; do
+      [[ $key == (scheme|destination) || -n ${facts[$key]-} ]] || continue
+      _xcode_test_report_text "${facts[$key]-}"
+      report+=$'\n'"$label: $REPLY"
+    done
+    (( ${facts[expected_failures]} != 1 )) && expected_label+='s'
+    report+=$'\n'"Tests: ${facts[total]} total · ${facts[passed]} passed"
+    report+=" · ${facts[failed]} failed · ${facts[skipped]} skipped"
+    report+=" · ${facts[expected_failures]} $expected_label"
+    report+=$'\n''Report scope: bounded structured xcresult snapshot; native console'
+    report+=' output, attachments, and source contents are not included.'
 
-  captured=${#_XCODE_TEST_FAILURE_NAMES}
-  reported=$_XCODE_TEST_FAILED
-  (( reported < captured )) && reported=$captured
-  if (( captured )); then
-    report+=$'\n\n'"Failed tests: $captured captured of $reported reported"
-    for (( index = 1; index <= captured; ++index )); do
-      _xcode_test_report_text "${_XCODE_TEST_FAILURE_NAMES[index]}"
-      name=$REPLY
-      _xcode_test_report_text "${_XCODE_TEST_FAILURE_TARGETS[index]}"
-      target=$REPLY
-      _xcode_test_report_text "${_XCODE_TEST_FAILURE_IDENTIFIERS[index]}"
-      identifier=$REPLY
-      _xcode_test_report_text "${_XCODE_TEST_FAILURE_TEXTS[index]}"
-      reason=$REPLY
-      _xcode_test_report_text "${_XCODE_TEST_FAILURE_FILES[index]}"
-      files=$REPLY
+    captured=$(( ${#failures} / 5 )) reported=${facts[failed]}
+    (( reported < captured )) && reported=$captured
+    (( captured )) && report+=$'\n\n'"Failed tests: $captured captured of $reported reported"
+    for name target identifier reason files in "${failures[@]}"; do
+      (( ++index ))
+      _xcode_test_report_text "$name"; name=$REPLY
+      _xcode_test_report_text "$target"; target=$REPLY
+      _xcode_test_report_text "$identifier"; identifier=$REPLY
+      _xcode_test_report_text "$reason"; reason=$REPLY
+      _xcode_test_report_text "$files"; files=${REPLY//$'\n'/$'\n- '}
       report+=$'\n\n'"$index. $name"
       [[ -n $target ]] && report+=$'\n'"Target: $target"
       [[ -n $identifier ]] && report+=$'\n'"Identifier: $identifier"
-      report+=$'\n'"Failure:"$'\n'"$reason"
+      report+=$'\n'"Failure:"$'\n'"$reason"$'\n'"Involved files:"
       if [[ -n $files ]]; then
-        report+=$'\n'"Involved files:"$'\n- '"${files//$'\n'/$'\n- '}"
+        report+=$'\n'"- $files"
       else
-        report+=$'\n'"Involved files: Xcode reported no source location for this failure."
+        report+=' Xcode reported no source location for this failure.'
       fi
     done
-  fi
-
-  captured=${#_XCODE_TEST_BUILD_NAMES}
-  if (( captured )); then
-    reported=$_XCODE_TEST_BUILD_ERROR_TOTAL
+    captured=$(( ${#builds} / 3 )) reported=${facts[build_errors]}
     (( reported < captured )) && reported=$captured
-    report+=$'\n\n'"Build errors: $captured captured of $reported reported"
-    for (( index = 1; index <= captured; ++index )); do
-      _xcode_test_report_text "${_XCODE_TEST_BUILD_NAMES[index]}"
-      name=$REPLY
-      _xcode_test_report_text "${_XCODE_TEST_BUILD_TEXTS[index]}"
-      reason=$REPLY
-      _xcode_test_report_text "${_XCODE_TEST_BUILD_FILES[index]}"
-      files=$REPLY
-      report+=$'\n\n'"$index. $name"$'\n'"Failure:"$'\n'"$reason"
+    if (( captured )); then
+      report+=$'\n\n'"Build errors: $captured captured of $reported reported"
+    elif (( action_status != 0 && ${#failures} == 0 )); then
+      report+=$'\n\n''Structured failure details: Xcode reported no test or build issue.'
+    fi
+    index=0
+    for name reason files in "${builds[@]}"; do
+      (( ++index ))
+      _xcode_test_report_text "$name"; name=$REPLY
+      _xcode_test_report_text "$reason"; reason=$REPLY
+      _xcode_test_report_text "$files"; files=${REPLY//$'\n'/$'\n- '}
+      report+=$'\n\n'"$index. $name"$'\n'"Failure:"$'\n'"$reason"$'\n'"Involved files:"
       if [[ -n $files ]]; then
-        report+=$'\n'"Involved files:"$'\n- '"${files//$'\n'/$'\n- '}"
+        report+=$'\n'"- $files"
       else
-        report+=$'\n'"Involved files: Xcode reported no source location for this issue."
+        report+=' Xcode reported no source location for this issue.'
       fi
     done
-  elif (( action_status != 0 && ${#_XCODE_TEST_FAILURE_NAMES} == 0 )); then
-    report+=$'\n\n''Structured failure details: Xcode reported no test or build issue.'
+    if [[ -n ${facts[capture_error]-} ]]; then
+      _xcode_test_report_text "${facts[capture_error]}"
+      report+=$'\n\n'"Structured result limitation: $REPLY"
+    fi
+    REPLY=$report
+    return 0
   fi
 
-  if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
-    _xcode_test_report_text "$_XCODE_TEST_CAPTURE_ERROR"
-    report+=$'\n\n'"Structured result limitation: $REPLY"
+  local title='Xcode Test · Failed' outcome=FAILED done_role='' details='' first_file=''
+  local overview="Test results"$'\n'"Mode · $mode"$'\n'"${facts[passed]} passed · ${facts[failed]} failed"
+  local -a passive=() rows=()
+  (( ${facts[skipped]} )) && overview+=" · ${facts[skipped]} skipped"
+  (( ${facts[expected_failures]} )) &&
+    overview+=" · ${facts[expected_failures]} expected failures"
+  if (( action_status == 0 )) && [[ ${facts[result]-} == Passed ]]; then
+    title='Xcode Test · Passed' outcome=DONE done_role=picker-success
+    if [[ -n ${facts[capture_error]-} ]]; then
+      label='Test action passed · structured totals unavailable'
+    elif (( ${facts[total]} )); then
+      label="All tests passed · ${facts[passed]} of ${facts[total]} passed"
+    else
+      label='Test action passed · Xcode reported no tests'
+    fi
+    passive+=("$label" picker-success)
+  else
+    overview+=$'\n\n''Failures'
+    for name target identifier reason files in "${failures[@]}"; do
+      (( ++index ))
+      first_file=${files%%$'\n'*}
+      label="Test failed · $name"
+      [[ -n $first_file ]] && label+=" · ${first_file:t}"
+      details=$name
+      [[ -n $target ]] && details+=$'\n'"Target · $target"
+      details+=$'\n\n''Failure'$'\n'"  $reason"$'\n\n''Involved files'$'\n  '
+      if [[ -n $files ]]; then
+        details+=${files//$'\n'/$'\n  '}
+        overview+=$'\n'"  $name"$'\n    '${files//$'\n'/$'\n    '}
+      else
+        details+='Xcode reported no source location for this failure.'
+        overview+=$'\n'"  $name"
+      fi
+      rows+=("failure:$index" "$label" picker-error "$name $target $reason $files" "$details")
+    done
+    index=0
+    for name reason files in "${builds[@]}"; do
+      (( ++index ))
+      label="Build failed · $name"
+      [[ -n $files ]] && label+=" · ${files:t}"
+      details="$name"$'\n\n''Failure'$'\n'"  $reason"$'\n\n''Involved files'$'\n'"  ${files:-Xcode reported no source location for this issue.}"
+      rows+=("build:$index" "$label" picker-error "$name $reason $files" "$details")
+      overview+=$'\n'"  $name"
+      [[ -n $files ]] && overview+=$'\n'"    $files"
+    done
+    if (( ${#failures} + ${#builds} == 0 )); then
+      passive+=('Test action failed · Xcode reported no structured failure details' picker-error)
+      overview+=$'\n''  Xcode reported no structured test or build issue.'
+    fi
   fi
-  REPLY=$report
+  if [[ -n ${facts[capture_error]-} ]]; then
+    passive+=("Result details limited · ${facts[capture_error]}" picker-warning)
+    overview+=$'\n\n''Limits'$'\n'"  ${facts[capture_error]}"
+  fi
+  [[ -n $done_role ]] && overview+=$'\n\n''Outcome'$'\n'"  $label"
+  reply=("$title" "${facts[scheme]-} · ${facts[destination]-} · $outcome"
+    $(( ${#passive} / 2 )) "${passive[@]}" done Done "$done_role" done "$overview")
+  [[ ${facts[clipboard]-} == 1 ]] && reply+=(copy-report 'Copy report and done' ''
+    'copy report clipboard done failures files'
+    'Copy the captured test report to the host clipboard and close.'$'\n\n''Includes the result, native status, test mode, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.')
+  reply+=("${rows[@]}")
+}
+
+# Pass the retained invocation snapshot to the pure model: the view and native
+# status, then any caller facts such as the clipboard affordance.
+_xcode_test_result_snapshot_model() {
+  emulate -L zsh
+  local view=$1 action_status=$2
+  shift 2
+  local -a records=()
+  local -i index=0
+  for (( index = 1; index <= ${#_XCODE_TEST_FAILURE_NAMES}; ++index )); do
+    records+=(failure "${_XCODE_TEST_FAILURE_NAMES[index]}"
+      "${_XCODE_TEST_FAILURE_TARGETS[index]-}" "${_XCODE_TEST_FAILURE_IDENTIFIERS[index]-}"
+      "${_XCODE_TEST_FAILURE_TEXTS[index]-}" "${_XCODE_TEST_FAILURE_FILES[index]-}")
+  done
+  for (( index = 1; index <= ${#_XCODE_TEST_BUILD_NAMES}; ++index )); do
+    records+=(build "${_XCODE_TEST_BUILD_NAMES[index]}"
+      "${_XCODE_TEST_BUILD_TEXTS[index]-}" "${_XCODE_TEST_BUILD_FILES[index]-}")
+  done
+  _xcode_test_result_model "$view" "$action_status" "$@" \
+    result "$_XCODE_TEST_RESULT" mode "$_XCODE_TEST_MODE" \
+    container "$_XCODE_TEST_CONTAINER" scheme "$_XCODE_TEST_SCHEME" \
+    destination "$_XCODE_TEST_DESTINATION" platform "$_XCODE_TEST_PLATFORM" \
+    destination_id "$_XCODE_TEST_DESTINATION_ID" \
+    capture_error "$_XCODE_TEST_CAPTURE_ERROR" total "$_XCODE_TEST_TOTAL" \
+    passed "$_XCODE_TEST_PASSED" failed "$_XCODE_TEST_FAILED" \
+    skipped "$_XCODE_TEST_SKIPPED" expected_failures "$_XCODE_TEST_EXPECTED_FAILURES" \
+    build_errors "$_XCODE_TEST_BUILD_ERROR_TOTAL" -- "${records[@]}"
+}
+
+# The copied report: REPLY from the model over the retained snapshot.
+_xcode_test_report_build() {
+  emulate -L zsh
+  _xcode_test_result_snapshot_model report "${1:-1}"
 }
 
 _xcode_test_report_copy() {
@@ -2459,111 +2565,31 @@ _xcode_test_result_view() {
   _zle_picker_loop '' 10
 }
 
+# Check the clipboard executable once, then adapt the model's rows to the view.
 _xcode_test_result_screen() {
   emulate -L zsh
-  local -i action_status=${1:-1} index=0
-  local title='Xcode Test · Failed' subtitle=''
-  local name='' target='' reason='' files='' first_file='' label='' details=''
-  local overview='Test results' count_label=''
-  local -a _XCODE_PICKER_VALUES=(done) _XCODE_PICKER_LABELS=(Done)
-  local -a _XCODE_PICKER_HIGHLIGHTS=('') _XCODE_PICKER_SEARCH=(done)
-  local -a _XCODE_PICKER_DETAILS=('')
+  local REPLY='' title='' subtitle='' value='' label='' role='' search='' details=''
+  local -i clipboard=0 passive=0
+  local -a reply=() _XCODE_PICKER_VALUES=() _XCODE_PICKER_LABELS=()
+  local -a _XCODE_PICKER_HIGHLIGHTS=() _XCODE_PICKER_SEARCH=() _XCODE_PICKER_DETAILS=()
   local -a _XCODE_TEST_PASSIVE_LINES=() _XCODE_TEST_PASSIVE_STYLES=()
-
-  if [[ -n ${_XCODE_TEST_CLIPBOARD_BINARY:-} &&
-        -x ${_XCODE_TEST_CLIPBOARD_BINARY:-} ]]; then
-    _XCODE_PICKER_VALUES+=(copy-report)
-    _XCODE_PICKER_LABELS+=('Copy report and done')
-    _XCODE_PICKER_HIGHLIGHTS+=('')
-    _XCODE_PICKER_SEARCH+=('copy report clipboard done failures files')
-    _XCODE_PICKER_DETAILS+=(
-      'Copy the captured test report to the host clipboard and close.'$'\n\n''Includes the result, native status, test mode, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.'
-    )
-  fi
-
-  count_label="${_XCODE_TEST_PASSED} passed · ${_XCODE_TEST_FAILED} failed"
-  (( _XCODE_TEST_SKIPPED )) && count_label+=" · ${_XCODE_TEST_SKIPPED} skipped"
-  (( _XCODE_TEST_EXPECTED_FAILURES )) &&
-    count_label+=" · ${_XCODE_TEST_EXPECTED_FAILURES} expected failures"
-  overview+=$'\n'"Mode · ${_XCODE_TEST_MODE:-Incremental Test}"
-  overview+=$'\n'"$count_label"
-
-  if (( action_status == 0 )) && [[ $_XCODE_TEST_RESULT == Passed ]]; then
-    title='Xcode Test · Passed'
-    subtitle="$_XCODE_TEST_SCHEME · $_XCODE_TEST_DESTINATION · DONE"
-    if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
-      label='Test action passed · structured totals unavailable'
-    elif (( _XCODE_TEST_TOTAL )); then
-      label="All tests passed · ${_XCODE_TEST_PASSED} of ${_XCODE_TEST_TOTAL} passed"
-    else
-      label='Test action passed · Xcode reported no tests'
-    fi
-    _XCODE_TEST_PASSIVE_LINES+=("$label")
-    _XCODE_TEST_PASSIVE_STYLES+=(picker-success)
-    if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
-      _XCODE_TEST_PASSIVE_LINES+=("Result details limited · $_XCODE_TEST_CAPTURE_ERROR")
-      _XCODE_TEST_PASSIVE_STYLES+=(picker-warning)
-      overview+=$'\n\n''Limits'$'\n'"  $_XCODE_TEST_CAPTURE_ERROR"
-    fi
-    _XCODE_PICKER_HIGHLIGHTS[1]="0:${#_XCODE_PICKER_LABELS[1]}:picker-success"
-    _XCODE_PICKER_DETAILS[1]="$overview"$'\n\n''Outcome'$'\n'"  $label"
-    _xcode_test_result_choose "$title" "$subtitle"
-    return $?
-  fi
-
-  subtitle="$_XCODE_TEST_SCHEME · $_XCODE_TEST_DESTINATION · FAILED"
-  overview+=$'\n\n''Failures'
-  for (( index = 1; index <= ${#_XCODE_TEST_FAILURE_NAMES}; ++index )); do
-    name=${_XCODE_TEST_FAILURE_NAMES[index]}
-    target=${_XCODE_TEST_FAILURE_TARGETS[index]}
-    reason=${_XCODE_TEST_FAILURE_TEXTS[index]}
-    files=${_XCODE_TEST_FAILURE_FILES[index]}
-    first_file=${files%%$'\n'*}
-    label="Test failed · $name"
-    [[ -n $first_file ]] && label+=" · ${first_file:t}"
-    details="$name"
-    [[ -n $target ]] && details+=$'\n'"Target · $target"
-    details+=$'\n\n''Failure'$'\n'"  $reason"$'\n\n''Involved files'
-    if [[ -n $files ]]; then
-      details+=$'\n'"  ${files//$'\n'/$'\n  '}"
-    else
-      details+=$'\n''  Xcode reported no source location for this failure.'
-    fi
-    _XCODE_PICKER_VALUES+=("failure:$index")
-    _XCODE_PICKER_LABELS+=("$label")
-    _XCODE_PICKER_HIGHLIGHTS+=("0:${#label}:picker-error")
-    _XCODE_PICKER_SEARCH+=("$name $target $reason $files")
-    _XCODE_PICKER_DETAILS+=("$details")
-    overview+=$'\n'"  $name"
-    [[ -n $files ]] && overview+=$'\n'"    ${files//$'\n'/$'\n    '}"
+  [[ -n ${_XCODE_TEST_CLIPBOARD_BINARY:-} &&
+     -x ${_XCODE_TEST_CLIPBOARD_BINARY:-} ]] && clipboard=1
+  _xcode_test_result_snapshot_model window "${1:-1}" clipboard $clipboard || return
+  [[ $reply[3] == <-> ]] || return 2
+  title=$reply[1] subtitle=$reply[2] passive=$reply[3]
+  for label role in "${(@)reply[4,3+2*passive]}"; do
+    _XCODE_TEST_PASSIVE_LINES+=("$label") _XCODE_TEST_PASSIVE_STYLES+=("$role")
   done
-  for (( index = 1; index <= ${#_XCODE_TEST_BUILD_NAMES}; ++index )); do
-    name=${_XCODE_TEST_BUILD_NAMES[index]}
-    reason=${_XCODE_TEST_BUILD_TEXTS[index]}
-    files=${_XCODE_TEST_BUILD_FILES[index]}
-    label="Build failed · $name"
-    [[ -n $files ]] && label+=" · ${files:t}"
-    details="$name"$'\n\n''Failure'$'\n'"  $reason"$'\n\n''Involved files'$'\n'"  ${files:-Xcode reported no source location for this issue.}"
-    _XCODE_PICKER_VALUES+=("build:$index")
-    _XCODE_PICKER_LABELS+=("$label")
-    _XCODE_PICKER_HIGHLIGHTS+=("0:${#label}:picker-error")
-    _XCODE_PICKER_SEARCH+=("$name $reason $files")
-    _XCODE_PICKER_DETAILS+=("$details")
-    overview+=$'\n'"  $name"
-    [[ -n $files ]] && overview+=$'\n'"    $files"
+  for value label role search details in "${(@)reply[4+2*passive,-1]}"; do
+    _XCODE_PICKER_VALUES+=("$value") _XCODE_PICKER_LABELS+=("$label")
+    if [[ -n $role ]]; then
+      _XCODE_PICKER_HIGHLIGHTS+=("0:${#label}:$role")
+    else
+      _XCODE_PICKER_HIGHLIGHTS+=('')
+    fi
+    _XCODE_PICKER_SEARCH+=("$search") _XCODE_PICKER_DETAILS+=("$details")
   done
-  if (( ${#_XCODE_TEST_FAILURE_NAMES} + ${#_XCODE_TEST_BUILD_NAMES} == 0 )); then
-    label='Test action failed · Xcode reported no structured failure details'
-    _XCODE_TEST_PASSIVE_LINES+=("$label")
-    _XCODE_TEST_PASSIVE_STYLES+=(picker-error)
-    overview+=$'\n''  Xcode reported no structured test or build issue.'
-  fi
-  if [[ -n $_XCODE_TEST_CAPTURE_ERROR ]]; then
-    _XCODE_TEST_PASSIVE_LINES+=("Result details limited · $_XCODE_TEST_CAPTURE_ERROR")
-    _XCODE_TEST_PASSIVE_STYLES+=(picker-warning)
-    overview+=$'\n\n''Limits'$'\n'"  $_XCODE_TEST_CAPTURE_ERROR"
-  fi
-  _XCODE_PICKER_DETAILS[1]=$overview
   _xcode_test_result_choose "$title" "$subtitle"
 }
 

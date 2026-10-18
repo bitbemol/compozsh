@@ -1477,6 +1477,267 @@ _test_xcode_test_report_text_sanitizes_controls_keeping_layout() {
 test_case 'Xcode copy report sanitizes controls but keeps newlines and tabs' \
   _test_xcode_test_report_text_sanitizes_controls_keeping_layout
 
+# Characterizes the result window and the copied report over one retained
+# snapshot each: passing (with and without totals or limits), failing with
+# tests and build issues, an empty failed bundle and an all-skipped run. Every
+# involved source location gets its own line in both views.
+_test_xcode_test_result_views_characterize_retained_snapshots() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output='' expected=''
+  test_write_file "$fake_bin/pbcopy" $'#!/bin/zsh -df\n/bin/cat >/dev/null' || return
+  command chmod +x "$fake_bin/pbcopy" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _xcode_test_result_choose() {
+      local -i index=0
+      print -r -- "screen:$1|$2"
+      for (( index = 1; index <= ${#_XCODE_PICKER_VALUES}; ++index )); do
+        print -r -- "row:${_XCODE_PICKER_VALUES[index]}|${_XCODE_PICKER_LABELS[index]}|${_XCODE_PICKER_HIGHLIGHTS[index]}|${(V)_XCODE_PICKER_SEARCH[index]}|"
+        print -r -- "detail:${(V)_XCODE_PICKER_DETAILS[index]}"
+      done
+      for (( index = 1; index <= ${#_XCODE_TEST_PASSIVE_LINES}; ++index )); do
+        print -r -- "passive:${_XCODE_TEST_PASSIVE_STYLES[index]}|${(V)_XCODE_TEST_PASSIVE_LINES[index]}"
+      done
+      return 7
+    }
+    _views() {
+      _xcode_test_result_screen "$1"
+      print -r -- "status:$?"
+      _xcode_test_report_build "$1" || exit
+      print -r -- "$REPLY"
+    }
+    _context() {
+      _xcode_test_result_reset
+      _XCODE_TEST_CONTAINER=$1 _XCODE_TEST_SCHEME=$2 _XCODE_TEST_DESTINATION=$3
+      _XCODE_TEST_PLATFORM=$4 _XCODE_TEST_DESTINATION_ID=$5 _XCODE_TEST_MODE=$6
+      _XCODE_TEST_CLIPBOARD_BINARY=$7
+    }
+    _context /p/App.xcodeproj App "My Mac" macOS MAC-1 "" "$2/pbcopy"
+    _XCODE_TEST_RESULT=Passed _XCODE_TEST_TOTAL=3 _XCODE_TEST_PASSED=2
+    _XCODE_TEST_SKIPPED=1
+    _views 0
+    _context "" App "My Mac" "" "" "Rebuild & Test" ""
+    _XCODE_TEST_RESULT=Passed _XCODE_TEST_EXPECTED_FAILURES=1
+    _XCODE_TEST_CAPTURE_ERROR="xcrun is unavailable"
+    _views 0
+    _context "" App "My Mac" "" "" "" ""
+    _XCODE_TEST_RESULT=Passed
+    _views 0
+    _context "/p/App Space.xcworkspace" "App Space" "iPhone 18 · iOS 27.0" "iOS Simulator" SIM-2 "Incremental Test" "$2/pbcopy"
+    _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=6 _XCODE_TEST_PASSED=1
+    _XCODE_TEST_FAILED=3 _XCODE_TEST_SKIPPED=1 _XCODE_TEST_EXPECTED_FAILURES=2
+    _XCODE_TEST_CAPTURE_ERROR="Only the bounded structured result was retained."
+    _XCODE_TEST_FAILURE_NAMES=("WidgetTests.testRendering()" "Suite/plain()")
+    _XCODE_TEST_FAILURE_TARGETS=(WidgetTests "")
+    _XCODE_TEST_FAILURE_IDENTIFIERS=("WidgetTests/testRendering()" "")
+    _XCODE_TEST_FAILURE_TEXTS=($'\''Expected output.\n\e[31mActual blue\e[0m'\'' "No failure reason was reported.")
+    _XCODE_TEST_FAILURE_FILES=($'\''/p/Tests/WidgetTests.swift:42\n/p/Sources/Widget.swift:18'\'' "")
+    _XCODE_TEST_BUILD_ERROR_TOTAL=4
+    _XCODE_TEST_BUILD_NAMES=("Swift Compiler Error · App" "Build error")
+    _XCODE_TEST_BUILD_TEXTS=("Cannot find WidgetFactory in scope" "Linker failed")
+    _XCODE_TEST_BUILD_FILES=("/p/Sources/App.swift#StartingLineNumber=12" "")
+    _views 65
+    _context "" App "My Mac" "" "" "" ""
+    _views 65
+    _context "" App "My Mac" macOS "" "" "$2/pbcopy"
+    _XCODE_TEST_RESULT=Skipped _XCODE_TEST_TOTAL=2 _XCODE_TEST_SKIPPED=2
+    _views 0
+  ' "$TEST_REPO_ROOT" "$fake_bin") || return
+  expected='screen:Xcode Test · Passed|App · My Mac · DONE
+row:done|Done|0:4:picker-success|done|
+detail:Test results\nMode · Incremental Test\n2 passed · 0 failed · 1 skipped\n\nOutcome\n  All tests passed · 2 of 3 passed
+row:copy-report|Copy report and done||copy report clipboard done failures files|
+detail:Copy the captured test report to the host clipboard and close.\n\nIncludes the result, native status, test mode, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.
+passive:picker-success|All tests passed · 2 of 3 passed
+status:7
+Xcode test report
+
+Result: Passed
+xcodebuild exit status: 0
+Mode: Incremental Test
+Container: /p/App.xcodeproj
+Scheme: App
+Destination: My Mac
+Platform: macOS
+Destination ID: MAC-1
+Tests: 3 total · 2 passed · 0 failed · 1 skipped · 0 expected failures
+Report scope: bounded structured xcresult snapshot; native console output, attachments, and source contents are not included.
+screen:Xcode Test · Passed|App · My Mac · DONE
+row:done|Done|0:4:picker-success|done|
+detail:Test results\nMode · Rebuild & Test\n0 passed · 0 failed · 1 expected failures\n\nLimits\n  xcrun is unavailable\n\nOutcome\n  Test action passed · structured totals unavailable
+passive:picker-success|Test action passed · structured totals unavailable
+passive:picker-warning|Result details limited · xcrun is unavailable
+status:7
+Xcode test report
+
+Result: Passed
+xcodebuild exit status: 0
+Mode: Rebuild & Test
+Scheme: App
+Destination: My Mac
+Tests: 0 total · 0 passed · 0 failed · 0 skipped · 1 expected failure
+Report scope: bounded structured xcresult snapshot; native console output, attachments, and source contents are not included.
+
+Structured result limitation: xcrun is unavailable
+screen:Xcode Test · Passed|App · My Mac · DONE
+row:done|Done|0:4:picker-success|done|
+detail:Test results\nMode · Incremental Test\n0 passed · 0 failed\n\nOutcome\n  Test action passed · Xcode reported no tests
+passive:picker-success|Test action passed · Xcode reported no tests
+status:7
+Xcode test report
+
+Result: Passed
+xcodebuild exit status: 0
+Mode: Incremental Test
+Scheme: App
+Destination: My Mac
+Tests: 0 total · 0 passed · 0 failed · 0 skipped · 0 expected failures
+Report scope: bounded structured xcresult snapshot; native console output, attachments, and source contents are not included.
+screen:Xcode Test · Failed|App Space · iPhone 18 · iOS 27.0 · FAILED
+row:done|Done||done|
+detail:Test results\nMode · Incremental Test\n1 passed · 3 failed · 1 skipped · 2 expected failures\n\nFailures\n  WidgetTests.testRendering()\n    /p/Tests/WidgetTests.swift:42\n    /p/Sources/Widget.swift:18\n  Suite/plain()\n  Swift Compiler Error · App\n    /p/Sources/App.swift#StartingLineNumber=12\n  Build error\n\nLimits\n  Only the bounded structured result was retained.
+row:copy-report|Copy report and done||copy report clipboard done failures files|
+detail:Copy the captured test report to the host clipboard and close.\n\nIncludes the result, native status, test mode, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.
+row:failure:1|Test failed · WidgetTests.testRendering() · WidgetTests.swift:42|0:66:picker-error|WidgetTests.testRendering() WidgetTests Expected output.\n^[[31mActual blue^[[0m /p/Tests/WidgetTests.swift:42\n/p/Sources/Widget.swift:18|
+detail:WidgetTests.testRendering()\nTarget · WidgetTests\n\nFailure\n  Expected output.\n^[[31mActual blue^[[0m\n\nInvolved files\n  /p/Tests/WidgetTests.swift:42\n  /p/Sources/Widget.swift:18
+row:failure:2|Test failed · Suite/plain()|0:28:picker-error|Suite/plain()  No failure reason was reported. |
+detail:Suite/plain()\n\nFailure\n  No failure reason was reported.\n\nInvolved files\n  Xcode reported no source location for this failure.
+row:build:1|Build failed · Swift Compiler Error · App · App.swift#StartingLineNumber=12|0:78:picker-error|Swift Compiler Error · App Cannot find WidgetFactory in scope /p/Sources/App.swift#StartingLineNumber=12|
+detail:Swift Compiler Error · App\n\nFailure\n  Cannot find WidgetFactory in scope\n\nInvolved files\n  /p/Sources/App.swift#StartingLineNumber=12
+row:build:2|Build failed · Build error|0:27:picker-error|Build error Linker failed |
+detail:Build error\n\nFailure\n  Linker failed\n\nInvolved files\n  Xcode reported no source location for this issue.
+passive:picker-warning|Result details limited · Only the bounded structured result was retained.
+status:7
+Xcode test report
+
+Result: Failed
+xcodebuild exit status: 65
+Mode: Incremental Test
+Container: /p/App Space.xcworkspace
+Scheme: App Space
+Destination: iPhone 18 · iOS 27.0
+Platform: iOS Simulator
+Destination ID: SIM-2
+Tests: 6 total · 1 passed · 3 failed · 1 skipped · 2 expected failures
+Report scope: bounded structured xcresult snapshot; native console output, attachments, and source contents are not included.
+
+Failed tests: 2 captured of 3 reported
+
+1. WidgetTests.testRendering()
+Target: WidgetTests
+Identifier: WidgetTests/testRendering()
+Failure:
+Expected output.
+?[31mActual blue?[0m
+Involved files:
+- /p/Tests/WidgetTests.swift:42
+- /p/Sources/Widget.swift:18
+
+2. Suite/plain()
+Failure:
+No failure reason was reported.
+Involved files: Xcode reported no source location for this failure.
+
+Build errors: 2 captured of 4 reported
+
+1. Swift Compiler Error · App
+Failure:
+Cannot find WidgetFactory in scope
+Involved files:
+- /p/Sources/App.swift#StartingLineNumber=12
+
+2. Build error
+Failure:
+Linker failed
+Involved files: Xcode reported no source location for this issue.
+
+Structured result limitation: Only the bounded structured result was retained.
+screen:Xcode Test · Failed|App · My Mac · FAILED
+row:done|Done||done|
+detail:Test results\nMode · Incremental Test\n0 passed · 0 failed\n\nFailures\n  Xcode reported no structured test or build issue.
+passive:picker-error|Test action failed · Xcode reported no structured failure details
+status:7
+Xcode test report
+
+Result: Unknown
+xcodebuild exit status: 65
+Mode: Incremental Test
+Scheme: App
+Destination: My Mac
+Tests: 0 total · 0 passed · 0 failed · 0 skipped · 0 expected failures
+Report scope: bounded structured xcresult snapshot; native console output, attachments, and source contents are not included.
+
+Structured failure details: Xcode reported no test or build issue.
+screen:Xcode Test · Failed|App · My Mac · FAILED
+row:done|Done||done|
+detail:Test results\nMode · Incremental Test\n0 passed · 0 failed · 2 skipped\n\nFailures\n  Xcode reported no structured test or build issue.
+row:copy-report|Copy report and done||copy report clipboard done failures files|
+detail:Copy the captured test report to the host clipboard and close.\n\nIncludes the result, native status, test mode, scheme, destination, totals, failed-test names, targets, identifiers, reasons, involved files, build errors, and capture limits.
+passive:picker-error|Test action failed · Xcode reported no structured failure details
+status:7
+Xcode test report
+
+Result: Skipped
+xcodebuild exit status: 0
+Mode: Incremental Test
+Scheme: App
+Destination: My Mac
+Platform: macOS
+Tests: 2 total · 0 passed · 0 failed · 2 skipped · 0 expected failures
+Report scope: bounded structured xcresult snapshot; native console output, attachments, and source contents are not included.'
+  test_assert_equal "$expected" "$output" \
+    'Xcode test result window or report changed for a retained snapshot'
+}
+test_case 'Xcode test result views keep passing failing skipped and empty snapshots' \
+  _test_xcode_test_result_views_characterize_retained_snapshots
+
+# The model computes both views from its arguments alone: retained globals,
+# hostile counts and literal markup in provider text never reach it as code.
+_test_xcode_test_result_model_uses_only_explicit_facts() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    _XCODE_TEST_SCHEME=sentinel _XCODE_TEST_RESULT=Failed _XCODE_TEST_TOTAL=9
+    _XCODE_TEST_FAILURE_NAMES=(sentinel) _XCODE_TEST_CAPTURE_ERROR=sentinel
+    local -a reply=()
+    local REPLY=''
+    local -a passed=(0 result Passed scheme '\''Lit %F{red} $(id)'\'' destination Mac
+      total 2 passed 2 clipboard 1 --)
+    local -a failed=(65 total x1 failed '\''a[$(: >| "$HOME/ran")]'\'' --
+      failure "T()" "" "" why $'\''a.swift:1\nb.swift:2'\'' build B r "")
+    _xcode_test_result_model window "${passed[@]}" || exit 1
+    [[ $reply[1] == "Xcode Test · Passed" &&
+       $reply[2] == '\''Lit %F{red} $(id) · Mac · DONE'\'' &&
+       $reply[3] == 1 && $reply[4] == "All tests passed · 2 of 2 passed" &&
+       $reply[5] == picker-success && $reply[6] == done && $reply[8] == picker-success &&
+       $reply[11] == copy-report && ${#reply} == 15 ]] || exit 2
+    _xcode_test_result_model report "${passed[@]}" || exit 3
+    [[ $REPLY == *'\''Scheme: Lit %F{red} $(id)'\''* && $REPLY != *sentinel* &&
+       $REPLY == *"Tests: 2 total · 2 passed · 0 failed"* ]] || exit 4
+    _xcode_test_result_model report "${failed[@]}" || exit 5
+    [[ ! -e $HOME/ran && $REPLY == *"Tests: 0 total · 0 passed · 0 failed"* &&
+       $REPLY == *"Failed tests: 1 captured of 1 reported"* &&
+       $REPLY == *$'\''Involved files:\n- a.swift:1\n- b.swift:2'\''* &&
+       $REPLY == *"Build errors: 1 captured of 1 reported"* ]] || exit 6
+    _xcode_test_result_model window "${failed[@]}" || exit 7
+    [[ ! -e $HOME/ran && $reply[1] == "Xcode Test · Failed" && $reply[3] == 0 &&
+       ${(j:,:)${(@)reply[9,-1]}} == *"failure:1,Test failed · T() · a.swift:1,picker-error,"* ]] || exit 8
+    _xcode_test_result_model window 0 scheme && exit 9
+    _xcode_test_result_model window 0 -- note x && exit 10
+    _xcode_test_result_model report 0 -- failure a b && exit 11
+    _xcode_test_result_model window x && exit 12
+    _xcode_test_result_model summary 0 && exit 13
+    [[ $_XCODE_TEST_SCHEME == sentinel && ${#_XCODE_TEST_FAILURE_NAMES} == 1 &&
+       $_XCODE_TEST_TOTAL == 9 ]] || exit 14
+    print preserved
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal preserved "$output" \
+    'Xcode test result model read retained state or evaluated provider text'
+}
+test_case 'Xcode test result model derives window and report from explicit facts only' \
+  _test_xcode_test_result_model_uses_only_explicit_facts
+
 _test_xcode_test_result_screen_offers_report_only_with_clipboard() {
   test_make_temp_dir || return
   local fake_bin="$TEST_TMP_DIR/bin" output=''

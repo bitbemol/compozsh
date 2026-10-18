@@ -110,6 +110,9 @@ same-source help companion; any other arguments delegate directly to
   reasons, files and capture limits). Write it after screen restoration,
   recheck the captured executable, never read source files or the clipboard,
   and keep a failing test status whether or not copying succeeds.
+- The view and the report are two projections of one pure model over the
+  retained snapshot, so they agree on totals, failures and files; each
+  involved source location gets its own line.
 
 ## Run targets
 
