@@ -37,6 +37,64 @@ _test_directory_navigator_bookmarks() {
 }
 test_case 'directory navigator restores query, selected path, and viewport when returning' _test_directory_navigator_bookmarks
 
+# Ranking is the shared prefix, substring, then fuzzy policy over labels; the
+# typed path fragment stays a required filter beneath an interactive query.
+_test_directory_navigator_ranking() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.editor"
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    _rank() {
+      _directory_picker_collect "$@"
+      print -r -- "${(j:,:)_ZLE_PICKER_LABELS}|${(j:,:)_ZLE_PICKER_RESULTS}"
+    }
+    _DIRECTORY_PICKER_LABELS=(xab/ ABx/ axb/ ab/ zab/ bba/)
+    _DIRECTORY_PICKER_VALUES=("${_DIRECTORY_PICKER_LABELS[@]/#/p/}")
+    _DIRECTORY_PICKER_PATH_QUERY=""
+    print -r -- "tiers:$(_rank ab 10)"
+    print -r -- "limit:$(_rank ab 3)"
+    print -r -- "source:$(_rank "" 4)"
+    print -r -- "default:$(_rank "" "")"
+    print -r -- "floor:$(_rank ab 0)"
+    print -r -- "exclude:$(_ZLE_PICKER_EXCLUDE=X _rank ab 10)"
+    print -r -- "exclude-source:$(_ZLE_PICKER_EXCLUDE=Z _rank "" 10)"
+    _DIRECTORY_PICKER_PATH_QUERY=a
+    print -r -- "fragment:$(_rank "" 10)"
+    _DIRECTORY_PICKER_PATH_QUERY=x
+    print -r -- "required:$(_rank a 10)"
+    _DIRECTORY_PICKER_PATH_QUERY=ab
+    print -r -- "required-fuzzy:$(_rank x 10)"
+    print -r -- "required-exclude:$(_ZLE_PICKER_EXCLUDE=xa _rank x 10)"
+    _DIRECTORY_PICKER_PATH_QUERY=""
+    _DIRECTORY_PICKER_LABELS=(one/ two/ ono/ three/)
+    _DIRECTORY_PICKER_VALUES=(/same/ /same/ /other/ /third/)
+    print -r -- "dedupe:$(_rank o 10)"
+    print -r -- "keep:$(_rank "" 10)"
+    _DIRECTORY_PICKER_LABELS=(beta/ alpha/ gamma/)
+    _DIRECTORY_PICKER_VALUES=("${_DIRECTORY_PICKER_LABELS[@]/#/p/}")
+    _directory_picker_collect a 10
+    _zle_picker_render a 1
+    print -r -- "numbers:${(j:,:)_ZLE_PICKER_LABELS}|${(j:,:)_ZLE_PICKER_VISIBLE_KEYS}"
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal 'tiers:ABx/,ab/,xab/,zab/,axb/|p/ABx/,p/ab/,p/xab/,p/zab/,p/axb/
+limit:ABx/,ab/,xab/|p/ABx/,p/ab/,p/xab/
+source:xab/,ABx/,axb/,ab/|p/xab/,p/ABx/,p/axb/,p/ab/
+default:xab/,ABx/,axb/,ab/,zab/,bba/|p/xab/,p/ABx/,p/axb/,p/ab/,p/zab/,p/bba/
+floor:ABx/|p/ABx/
+exclude:ab/,zab/|p/ab/,p/zab/
+exclude-source:xab/,ABx/,axb/,ab/,bba/|p/xab/,p/ABx/,p/axb/,p/ab/,p/bba/
+fragment:ABx/,axb/,ab/,xab/,zab/,bba/|p/ABx/,p/axb/,p/ab/,p/xab/,p/zab/,p/bba/
+required:ABx/,axb/,xab/|p/ABx/,p/axb/,p/xab/
+required-fuzzy:xab/,ABx/,axb/|p/xab/,p/ABx/,p/axb/
+required-exclude:ABx/,axb/|p/ABx/,p/axb/
+dedupe:one/,ono/|/same/,/other/
+keep:one/,two/,ono/,three/|/same/,/same/,/other/,/third/
+numbers:alpha/,beta/,gamma/|1,2,3' "$output"
+}
+test_case 'directory navigator ranks prefix, substring, then fuzzy children under the typed path filter' _test_directory_navigator_ranking
+
 # A child removed after capture must not turn the descend into a filter on the
 # current level with a prefix cut mid-name (~/Projects/a + alpha-old/).
 _test_directory_navigator_vanished_child() {

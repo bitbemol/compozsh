@@ -167,6 +167,7 @@ _test_exclusion_restore() {
   local output
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$unit"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/.zsh.editor"
     _DIRECTORY_PICKER_VALUES=(/node /good /later) _DIRECTORY_PICKER_LABELS=(node good later)
     _DIRECTORY_PICKER_PATH_QUERY=""
