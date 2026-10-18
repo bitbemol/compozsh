@@ -1659,8 +1659,9 @@ zsh tests/run.zsh 'editor reader'
 ```
 
 Read `_xcode_run_live`, `_xcode_run_identity`, `_xcode_run_idle`, their scoped
-log-observer and `_xcode_logs_*` helpers, the shared picker's screen cleanup,
-and for device consoles `_xcode_run_device_live` and `_xcode_device_poll`.
+log-observer and `_xcode_logs_*` helpers, the Copy-and-reopen loop
+`_xcode_run_screen` both modes share, the shared picker's screen cleanup, and
+for device consoles `_xcode_run_device_live` and `_xcode_device_poll`.
 Check literal launch arguments, owned-job termination, failure preservation,
 temporary FIFO permissions, post-screen cleanup and clipboard dispatch, copy
 payload bounds, matching and exclusion over captured text, following and

@@ -2207,6 +2207,26 @@ _xcode_run_view() {
   done
 }
 
+# Show Run until it closes for anything but Copy. Screen restoration precedes
+# each clipboard effect; the app or console and its observers keep their owner
+# as Run reopens with the frozen reader bookmark. REPLY is the accepted action
+# ('' when none). Status: the screen's own status above 1, else 1 after any
+# failed copy, else 0.
+_xcode_run_screen() {
+  local -i screen_result=0 copy_result=0
+  REPLY=''
+  while true; do
+    _zle_picker_run 20 '' 1 0 _xcode_run_controller
+    screen_result=$?
+    (( screen_result == 0 )) && [[ $_ZLE_PICKER_SELECTED_VALUE == copy-logs ]] || break
+    _xcode_logs_copy || copy_result=1
+    _xcode_logs_copy_payload=''
+  done
+  (( screen_result > 1 )) && return $screen_result
+  (( screen_result == 0 )) && REPLY=$_ZLE_PICKER_SELECTED_VALUE
+  return $copy_result
+}
+
 # Check shell-owned job state before signaling this Run's native console child.
 # A closed console does not establish app health.
 _xcode_device_poll() {
@@ -2246,7 +2266,7 @@ _xcode_run_device_live() {
   local -i _xcode_run_trimmed=0 _xcode_run_publish=1 _xcode_device_pid=0 _xcode_device_done=0 _xcode_device_status=0
   local -i _xcode_logs_captured=0 _xcode_logs_trimmed=0 _xcode_logs_offset=100000 _xcode_logs_follow=1
   local -i _xcode_logs_row=0 _xcode_logs_width=0 _xcode_logs_copy_count=0 _xcode_run_initial_logs=1
-  local -i _xcode_logs_exclude_focus=0 _xcode_logs_exclude_shown=0 result=0 screen_result=0
+  local -i _xcode_logs_exclude_focus=0 _xcode_logs_exclude_shown=0 result=0
   [[ -n $arch ]] && launch_arguments+=(--arch "$arch")
   (( ${+functions[_compozsh_effect_copy]} )) && _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
   _xcode_run_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-device.XXXXXXXX") || return 1
@@ -2258,14 +2278,7 @@ _xcode_run_device_live() {
       --terminate-existing --console "${launch_arguments[@]}" "$bundle" \
       < /dev/null > "$_xcode_run_fifo" 2>&1 &
     _xcode_device_pid=$!
-    while true; do
-      _zle_picker_run 20 '' 1 0 _xcode_run_controller
-      screen_result=$?
-      (( screen_result > 1 )) && result=$screen_result
-      (( screen_result == 0 )) && [[ $_ZLE_PICKER_SELECTED_VALUE == copy-logs ]] || break
-      _xcode_logs_copy || result=1
-      _xcode_logs_copy_payload=''
-    done
+    _xcode_run_screen || result=$?
   } always {
     # Screen restoration precedes termination. Wait only a bounded interval;
     # an unresponsive native console cannot leave terminal cleanup hanging.
@@ -2363,7 +2376,7 @@ _xcode_run_live() {
   # Shared readers also serve the device console; scope its flags here so they
   # never fall back to inherited values or write globals.
   local -i _xcode_run_device=0 _xcode_device_done=0 _xcode_device_pid=0 _xcode_device_status=0
-  local -i result=0 screen_result=0
+  local -i result=0
   # simctl interprets output paths inside this Simulator's data filesystem.
   # Resolve only the selected device; host TMPDIR is not its guest /tmp.
   _xcode_capture_command xcrun simctl getenv "$identifier" SIMULATOR_SHARED_RESOURCES_DIRECTORY || {
@@ -2412,18 +2425,10 @@ _xcode_run_live() {
     [[ $_xcode_run_lldb == /* && -x $_xcode_run_lldb && ! -d $_xcode_run_lldb ]] || _xcode_run_lldb=''
     (( ${+functions[_compozsh_effect_copy]} )) &&
       _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
-    while true; do
-      _zle_picker_run 20 '' 1 0 _xcode_run_controller
-      screen_result=$?
-      request=$_ZLE_PICKER_SELECTED_VALUE
-      (( screen_result == 0 )) && [[ $request == copy-logs ]] || break
-      # Screen restoration precedes the clipboard effect; the app and observer
-      # keep their existing owner as Run reopens with the frozen reader bookmark.
-      _xcode_logs_copy || result=1
-      _xcode_logs_copy_payload=''
-    done
+    _xcode_run_screen || result=$?
+    request=$REPLY
     _xcode_run_logs_stop
-    if (( screen_result == 0 )) && [[ $request == lldb ]]; then
+    if [[ $request == lldb ]]; then
       if [[ -x $_xcode_run_lldb ]] && _xcode_run_is_current; then
         # Keep the drainer alive even if the app closes stdout while debugging.
         # Its owned PID then remains a cleanup target until we reap it.
@@ -2441,8 +2446,6 @@ _xcode_run_live() {
         print -u2 -r -- 'xcode: the launched process ended or changed, or LLDB is unavailable'
         result=1
       fi
-    elif (( screen_result > 1 )); then
-      result=$screen_result
     fi
   } always {
     _xcode_run_logs_stop

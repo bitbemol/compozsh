@@ -554,6 +554,94 @@ markers:0' "status:$exit_status"$'\n'"$output" \
 test_case 'Xcode Simulator run ignores inherited device console state' \
   _test_xcode_simulator_run_ignores_inherited_device_state
 
+# Copy closes only the screen. Both live modes copy after restoration, reopen
+# Run with the same owner, keep a failed copy nonzero and let an interrupt win.
+_test_xcode_run_copy_reopen_modes() {
+  test_make_temp_dir || return
+  local fake_bin="$TEST_TMP_DIR/bin" output=''
+  command mkdir -p "$TEST_TMP_DIR/home/simulator data/tmp" || return
+  test_write_file "$fake_bin/xcrun" '#!/bin/zsh -df
+if [[ $1 == devicectl ]]; then print -r -- "device ready"; exit 0; fi
+if [[ $1 == --find ]]; then exit 1; fi
+if [[ $2 == getenv ]]; then print -r -- "$HOME/simulator data"; exit; fi
+if [[ $2 == launch ]]; then print -r -- "com.example.app: 12345"; fi' || return
+  test_write_file "$fake_bin/ps" '#!/bin/zsh -df
+print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
+  test_write_file "$fake_bin/pbcopy" '#!/bin/zsh -df
+[[ -f $HOME/restored ]] || exit 91
+[[ -f $HOME/fail-copy ]] && exit 7
+command cat >> "$HOME/clipboard"' || return
+  command chmod +x "$fake_bin/"* || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    path=("$2" $path); rehash
+    export TMPDIR=$HOME
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_effect_*(N.); do
+      source "$support_component"
+    done
+    local -i calls=0 run_status=0
+    local owner="" variant="" mode=""
+    _zle_picker_run() {
+      local current=$_xcode_run_pid
+      local -i screen_status=0
+      (( _xcode_run_device )) && current=$_xcode_device_pid
+      _ZLE_PICKER_SELECTED_VALUE=""
+      case $(( ++calls )) in
+        1)
+          owner=$current
+          _xcode_logs_copy_payload="first message" _xcode_logs_copy_count=1
+          _ZLE_PICKER_SELECTED_VALUE=copy-logs ;;
+        2)
+          [[ $current == $owner && -z $_xcode_logs_copy_payload &&
+             $_xcode_logs_notice == "Copied 1 captured lines" ]] || return 93
+          if [[ $variant == cancel ]]; then
+            screen_status=1
+          else
+            print fail > "$HOME/fail-copy"
+            _xcode_logs_copy_payload="second message" _xcode_logs_copy_count=1
+            _ZLE_PICKER_SELECTED_VALUE=copy-logs
+          fi ;;
+        3)
+          [[ $current == $owner && -z $_xcode_logs_copy_payload &&
+             $_xcode_logs_notice == "Copy failed: clipboard write failed" ]] || return 94
+          [[ $variant == interrupt ]] && screen_status=130
+          [[ $variant == stop ]] && _ZLE_PICKER_SELECTED_VALUE=stop ;;
+        *) return 95 ;;
+      esac
+      print restored > "$HOME/restored"
+      return $screen_status
+    }
+    for mode in device simulator; do
+      for variant in cancel stop interrupt; do
+        command rm -f -- "$HOME/restored" "$HOME/fail-copy" "$HOME/clipboard"
+        calls=0 owner=""
+        if [[ $mode == device ]]; then
+          _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV"
+        else
+          _xcode_run_live SIM-456 com.example.app "App · Simulator"
+        fi
+        run_status=$?
+        print -r -- "$mode $variant:$run_status:$calls:$(<"$HOME/clipboard")"
+      done
+    done
+    local -a remnants=("$HOME"/compozsh-xcode-device.*(N) "$HOME/simulator data/tmp"/compozsh-xcode-run.*(N))
+    print -r -- "remnants:${#remnants}"
+  ' "$TEST_REPO_ROOT" "$fake_bin" 2>"$TEST_TMP_DIR/errors") || {
+    print -u2 -r -- "$(<"$TEST_TMP_DIR/errors")"
+    return 1
+  }
+  test_assert_equal 'device cancel:0:2:first message
+device stop:1:3:first message
+device interrupt:130:3:first message
+simulator cancel:0:2:first message
+simulator stop:1:3:first message
+simulator interrupt:130:3:first message
+remnants:0' "$output" 'device and Simulator Copy-and-reopen diverged'
+}
+test_case 'Xcode run Copy reopens the same device or Simulator owner with identical status' \
+  _test_xcode_run_copy_reopen_modes
+
 _test_xcode_lldb_terminal_presentation() {
   test_make_temp_dir || return
   local output=''
