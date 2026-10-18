@@ -131,8 +131,8 @@ recoverable installer need local state.
 | Known remote branch fallback | Invocation memory until `g` returns; tracking configuration and a created local branch persist in the repository only after confirmation | Up to 1,000 remote-tracking ref names and commit IDs / 256 KiB, and 128 remote names / 32 KiB; no remote URLs. No fetch, pull or disk cache |
 | Git Working changes refresh transport | One mode-0700 `${TMPDIR:-/tmp}/compozsh-review.*` directory with a mode-0600 FIFO, plus screen-scoped worker/provider processes and shell memory | One framed local status/selected-diff candidate at a time, at most 1 MiB; no log, daemon or persistent review cache |
 | Created Git worktrees | Explicitly selected new folder; branch refs and registration in the repository's Git common directory | Created only on `g --worktree` acceptance; persists until explicit Git/workspace removal, which preserves branches, and survives Compozsh uninstall |
-| External device captures | Invocation memory; released when `external-device --flash` or `--format` returns | Image and installer paths and stat identities, an optional user-supplied checksum and computed digests, disk identifiers, media names, sizes, protocols and device-tree paths, the filesystem catalog, and the writer's stage, byte counts and native error text that can name the image or device. Its files are the [external media temporary files](#external-media-temporary-files) |
-| Temporary operation captures | `${TMPDIR:-/tmp}` | USB disk metadata, ISO listings, write and in-session verification progress and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery and Build & Run settings output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
+| External device captures | Invocation memory; released when `external-device --flash` or `--format` returns | Image and installer paths and stat identities, an optional user-supplied checksum and computed digests, disk identifiers, media names, sizes, protocols and device-tree paths, the filesystem catalog (each `diskutil` property list read straight into memory, at most 1 MiB), and the writer's stage, byte counts and native error text that can name the image or device. Its files are the [external media temporary files](#external-media-temporary-files) |
+| Temporary operation captures | `${TMPDIR:-/tmp}` | USB ISO listings, write and in-session verification progress and image mount points ([names and exceptions](#external-media-temporary-files)), bounded Xcode discovery and Build & Run settings output, transient test-result bundles, Xcode skill-export staging (`compozsh-xcode-skills.*`, Apple-authored skill text), Git syntax transport FIFOs (not source files); validated paths removed on normal and handled-error cleanup |
 | Simulator run output | Run-scoped shell memory and two pipes beneath the selected Simulator's data/tmp; released at run exit | Stdout/stderr and unified logs of the exact installed executable: tail and frozen snapshots each at most 32 KiB/200 source lines, 8 KiB unfinished line per source; reader state; launch PID, observed identity, executable and data-directory paths. No log file; native log privacy behavior can expose sensitive app values |
 | Explicit physical-device app installation and console | The selected device, under Apple's tools and storage policy; a run-scoped local FIFO and shell memory | `devicectl` replaces the app's installed copy, which stays after console exit or failed launch. Monitoring keeps at most 32 KiB/200 source lines plus snapshots via a mode-0600 FIFO in a mode-0700 directory, removed on cleanup. No log file |
 | Command line opened in an editor | One mode-0600 file under two hard-linked names, `${TMPPREFIX:-/tmp/zsh}XXXXXX` and the same name plus `.zsh`, written by Zsh's stock `edit-command-line` widget, only on an explicit Ctrl-X Ctrl-E, while `$VISUAL`/`$EDITOR` runs (Zsh writes the draft directly into that file); Zsh removes both names when the editor returns, and an abnormal termination can leave both | The complete draft, including continuation lines, which can hold anything typed on the command line. The editor's own swap, backup, undo or history files follow the editor's settings |
@@ -1196,7 +1196,10 @@ process.
 ### External media temporary files
 
 `external-device` keeps its captures in invocation memory, released when the
-flash or format task returns, except for these
+flash or format task returns. Each `diskutil … -plist` answer (external disk
+list, disk or volume info, filesystem catalog) is read straight into memory
+through the shared bounded reader, and output above 1 MiB is refused after at
+most 1 MiB + 5 bytes are read. The exceptions are these
 `/usr/bin/mktemp` names directly beneath `${TMPDIR:-/tmp}`, created as mode
 `0600` files or `0700` directories owned by the invoking user. Privileged
 output reaches them only through redirections opened by that user's shell; no
@@ -1209,7 +1212,6 @@ after a completed format.
 
 | Name | Created during | Contents and bounds |
 | --- | --- | --- |
-| `compozsh-usb.*` | Each `diskutil … -plist` capture: external disk list, disk or volume info, filesystem catalog | One property list: disk and volume identifiers, names, mount points, sizes, UUIDs and device-tree facts, or the filesystem catalog's names and size limits. No size cap on disk; output above 1 MiB is rejected unread |
 | `compozsh-usb-iso.*` | ISO classification | The selected ISO's `tar -tf` path listing, at most 16 MiB + 1 byte |
 | `compozsh-usb-inspect.*` | ISO classification when that listing is inconclusive | Read-only, `nobrowse` `hdiutil` mount point. While attached it presents the image's file tree with the mount's own permissions (observed `0755` with an ISO 9660 fixture; check with `stat -f %Lp` on the attached mount point), so other local users can read it only through a traversable parent such as `/tmp`; the default per-user macOS `TMPDIR` is owner-only. The mount path itself is visible to them in `mount` and `df` output |
 | `compozsh-usb-progress.*` | Raw image write, including `flash-verify` read-back inside the same privileged session | Standard error of that session: `dd` write and read-back progress and record counts, fixed `compozsh-write-*` stage and result markers, and native error text that can name the image or device. No size cap on disk; read in steps of at most 1 MiB |
@@ -1259,7 +1261,8 @@ the creation and cleanup sites with
 `zsh tests/run.zsh 'USB temporary'` uses stand-ins for `diskutil`, `hdiutil`,
 `dd` and `createinstallmedia` to check removal after success and handled
 failure, and each name and mode while it exists, for every name except
-`compozsh-usb-iso.*` (removal only; `tar` has no stand-in seam).
+`compozsh-usb-iso.*` (removal only; `tar` has no stand-in seam); the
+`diskutil` stand-in sees no file at all.
 `zsh tests/run.zsh 'ISO inspection'` covers the failed-detach
 retry and a later refused inspection.
 `zsh tests/run.zsh 'external-media temporary'` fails when a

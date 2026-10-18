@@ -770,6 +770,61 @@ TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zs
 TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/prompt-git-render.zsh <before> <before> render 11 40
 ```
 
+### P5-07: diskutil plists captured in memory (A1-12)
+
+`_usb_diskutil_plist_capture` wrote every `diskutil … -plist` answer (the
+external disk list, each disk or volume info and the filesystem catalog) to a
+`compozsh-usb.*` file in `TMPDIR`, measured it with `stat` and removed it with
+`rm`: three process launches per call, and disk identity data on disk while
+diskutil ran. It now reads the answer through the shared
+`_compozsh_capture_bounded` with room for the reader's NUL and status, counts
+the payload in bytes under `LC_ALL=C`, and keeps the empty-output, over-limit
+and failed-command results. A failed command still returns its own status, and
+trailing newlines are still dropped. The `compozsh-usb.*` row leaves
+SECURITY.md, and `--format` no longer requires `mktemp` and `rm`. diskutil now
+runs under the reader's `LC_ALL=C`. A scratch check of this Mac's
+`diskutil listFilesystems -plist` gave byte-identical output with no locale
+and with `C`, `de_DE`, `fr_FR` and `ja_JP` UTF-8 locales.
+
+`USB diskutil capture limits bytes, keeps the command status and drops
+trailing newlines`, added first, passed before and after the change. It pins
+the byte limit at and over the bound, including a two-byte character, a failed
+command's status, trailing and newline-only output. After the change it also
+refuses a missing shared reader by name; that case failed before. `USB
+temporary disk metadata, ISO listing, mount and progress files are owner-only
+and removed` now expects no name while the diskutil stand-in runs, and failed
+before on `compozsh-usb:600`. Diskutil stand-ins in the USB tests now run in
+the reader's subshell. None of them recorded state in shell variables, and the
+tests that capture through them now source the reader.
+
+Before tree `git archive 86a2917`, after tree the working tree; environment as
+in P5-01. A scratch script runs one `env -i … LC_ALL=en_US.UTF-8 /bin/zsh -df`
+child per tree, alternating which goes first, with `HOME` and `TMPDIR` in the
+scratch area. Each child sources the tree's bounded reader and `.zsh.usb`,
+stubs `_usb_diskutil_run` to print a 6,665-byte `diskutil info`-shaped plist
+(*builtin*) or to run `/bin/cat` on it (*cat*, one process like diskutil),
+makes three warm-up calls and times 40, then checks the plist and an empty
+`TMPDIR`. Load averages were 31–42 during the final runs (a system media
+analysis job); an earlier run of the same tree at 2.4–2.6 gave builtin
+5.60 → 1.71 ms and cat 7.50 → 3.10 ms. Milliseconds per call, *median
+(range)*:
+
+| Metric | Runs | Before | After | Delta | A/A |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `_usb_diskutil_plist_capture`, builtin stub | 11×40 | 5.67 (5.53–5.75) | 1.65 (1.62–1.73) | −4.02 (−70.9%) | −0.02 (0.4%) |
+| `_usb_diskutil_plist_capture`, cat stub | 11×40 | 7.36 (7.12–7.89) | 2.97 (2.92–3.02) | −4.39 (−59.6%) | |
+
+Decision: kept. Ranges are disjoint and the gain is about 180 times the A/A
+difference, matching the review's 5.4 → 1.5 ms. Step 2 capture and refresh
+pay it once for the list and once per disk. Larger output trades the other
+way: the in-memory reader costs more per byte than a file. Spot runs (two
+per size, 3–10 calls each, builtin stub without a trailing newline) gave 64 KiB
+6.2–6.6 → 4.4–4.5 ms, 256 KiB 8.2–8.5 → 15.0 ms, 1 MiB − 64 bytes 15.8–16.4
+→ 55.1 ms and 1 MiB + 1 byte (refused) 8.1–9.5 → 49.3–50.3 ms. The
+crossover is near 100 KiB, far above any diskutil answer seen here (7.6 KB
+for the filesystem catalog). Over-limit output is no longer written to disk
+in full: the reader stops after 1 MiB + 5 bytes.
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*

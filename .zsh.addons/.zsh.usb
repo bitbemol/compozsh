@@ -1137,40 +1137,43 @@ _usb_decimal_is_int64() {
   [[ $1 == <-> ]] && { (( ${#1} < 19 )) || [[ ${#1} == 19 && $1 < 9223372036854775808 ]]; }
 }
 
+# One diskutil property list, captured in memory by the shared bounded reader,
+# so nothing reaches TMPDIR. The reader's limit adds room for its private NUL
+# and status of up to three digits; the byte count below enforces the plist
+# limit. LC_ALL=C makes that count bytes (the reader runs diskutil under it
+# too, and -plist output is the same UTF-8 XML in every locale). Trailing
+# newlines are dropped, like command substitution, so newline-only output is
+# an empty plist.
 _usb_diskutil_plist_capture() {
   emulate -L zsh
-  local temp_root=${TMPDIR:-/tmp} capture_file='' raw_size=''
-  local -i command_status=0
+  local LC_ALL=C payload=''
+  local -a reply=()
   _USB_PLIST='' _USB_CAPTURE_ERROR=''
-  capture_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb.XXXXXX" 2>/dev/null) || {
-    _USB_CAPTURE_ERROR='cannot create a bounded diskutil capture file'
+  (( ${+functions[_compozsh_capture_bounded]} )) || {
+    _USB_CAPTURE_ERROR='shared bounded capture support is unavailable'
     return 1
   }
-  {
-    _usb_diskutil_run "$@" >| "$capture_file" 2>/dev/null
-    command_status=$?
-    if (( command_status == 0 )); then
-      raw_size=$(command /usr/bin/stat -f '%z' "$capture_file" 2>/dev/null)
-      if [[ $raw_size != <-> ]]; then
-        command_status=1
-        _USB_CAPTURE_ERROR='cannot measure the bounded diskutil capture file'
-      elif (( raw_size == 0 )); then
-        command_status=1
-        _USB_CAPTURE_ERROR='diskutil returned no output'
-      elif (( raw_size > _USB_PLIST_MAX_BYTES )); then
-        command_status=1
-        _USB_CAPTURE_ERROR="diskutil output exceeded the ${_USB_PLIST_MAX_BYTES}-byte capture limit"
-      else
-        _USB_PLIST=$(<"$capture_file")
-      fi
-    fi
-  } always {
-    if [[ -n $capture_file && ${capture_file:t} == compozsh-usb.* &&
-          ${capture_file:h:A} == ${temp_root:A} ]]; then
-      command /bin/rm -f -- "$capture_file"
-    fi
-  }
-  return $command_status
+  _compozsh_capture_bounded $(( _USB_PLIST_MAX_BYTES + 4 )) _usb_diskutil_run "$@" ||
+    reply=()
+  case $reply[2] in
+    (complete) [[ $reply[3] == 0 ]] || return $reply[3] ;;
+    (truncated) ;;
+    (*)
+      _USB_CAPTURE_ERROR='diskutil output was incomplete'
+      return 1
+      ;;
+  esac
+  payload=$reply[1]
+  if [[ $reply[2] == truncated ]] || (( ${#payload} > _USB_PLIST_MAX_BYTES )); then
+    _USB_CAPTURE_ERROR="diskutil output exceeded the ${_USB_PLIST_MAX_BYTES}-byte capture limit"
+    return 1
+  elif (( ${#payload} == 0 )); then
+    _USB_CAPTURE_ERROR='diskutil returned no output'
+    return 1
+  fi
+  # A last-byte test and one slice cost about half a suffix pattern near 1 MiB.
+  while [[ ${payload[-1]} == $'\n' ]]; do payload=${payload[1,-2]}; done
+  _USB_PLIST=$payload
 }
 
 _usb_disk_list_read() {
@@ -3850,7 +3853,7 @@ _usb_help_format() {
     '  selected disk. diskutil may already have changed the layout if formatting' \
     '  later fails; Compozsh cannot restore the previous partition map or files.' \
     '  Requires macOS, an interactive terminal, the shared support/ui and' \
-    '  support/functions components, and Apple diskutil, plutil, mktemp, rm, and sudo.' \
+    '  support/functions components, and Apple diskutil, plutil, and sudo.' \
     '' \
     'Examples:' \
     '  external-device --format  Choose an external drive and advertised format.'
@@ -3884,8 +3887,7 @@ _usb_format() {
     print -u2 -r -- 'external-device --format: this tool requires macOS'
     return 1
   }
-  [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil &&
-     -x /usr/bin/mktemp && -x /bin/rm && -x /usr/bin/sudo ]] || {
+  [[ -x /usr/sbin/diskutil && -x /usr/bin/plutil && -x /usr/bin/sudo ]] || {
     print -u2 -r -- 'external-device --format: required Apple command-line tools are unavailable'
     return 1
   }

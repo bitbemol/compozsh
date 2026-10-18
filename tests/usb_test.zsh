@@ -1211,6 +1211,7 @@ test_case 'USB providers parse native plists into exact whole-disk facts' \
 _test_usb_apfs_source_run() {
   test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2
     local -a trace=()
@@ -1596,6 +1597,7 @@ _test_usb_plist_capture_ignores_custom_path() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     path=()
     TMPDIR=$2
@@ -1604,14 +1606,14 @@ _test_usb_plist_capture_ignores_custom_path() {
     }
     _usb_diskutil_plist_capture list -plist external physical || exit 2
     print -r -- "plist:${_USB_PLIST}"
-    leftovers=("$2"/compozsh-usb.*(N))
+    leftovers=("$2"/*(ND))
     print -r -- "leftovers:${#leftovers}"
   ' "$TEST_REPO_ROOT" "$capture_root") || return
 
   test_assert_contains "$output" '<key>AllDisks</key>' \
     'bounded plist capture depended on the customized command path' || return
   test_assert_contains "$output" 'leftovers:0' \
-    'bounded plist capture did not remove its native temporary file'
+    'bounded plist capture left a file in TMPDIR'
 }
 test_case 'USB plist capture uses absolute native tool paths' \
   _test_usb_plist_capture_ignores_custom_path
@@ -1622,6 +1624,7 @@ _test_usb_diskutil_capture_reports_empty_output() {
   command mkdir -p "$capture_root" || return
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     TMPDIR=$2
     _usb_diskutil_run() { return 0; }
     _usb_disk_list_read
@@ -1630,11 +1633,7 @@ _test_usb_diskutil_capture_reports_empty_output() {
     _usb_diskutil_run() { print -rn -- "<?xml version=\"1.0\"?><plist/>"; }
     _usb_disk_list_read
     print -r -- "oversized:$?|error:[$_USB_CAPTURE_ERROR]|plist:[$_USB_PLIST]"
-    # Losing the capture file leaves its size unknown, which is neither case.
-    _usb_diskutil_run() { command /bin/rm -f -- "$TMPDIR"/compozsh-usb.*(N); }
-    _usb_disk_list_read
-    print -r -- "unmeasured:$?|error:[$_USB_CAPTURE_ERROR]|plist:[$_USB_PLIST]"
-    leftovers=("$2"/compozsh-usb.*(N))
+    leftovers=("$2"/*(ND))
     print -r -- "leftovers:${#leftovers}"
   ' "$TEST_REPO_ROOT" "$capture_root") || return
 
@@ -1643,14 +1642,67 @@ _test_usb_diskutil_capture_reports_empty_output() {
   test_assert_contains "$output" \
     'oversized:1|error:[diskutil output exceeded the 16-byte capture limit]|plist:[]' \
     'oversized diskutil output lost its capture-limit diagnostic' || return
-  test_assert_contains "$output" \
-    'unmeasured:1|error:[cannot measure the bounded diskutil capture file]|plist:[]' \
-    'an unmeasurable diskutil capture was misreported' || return
   test_assert_contains "$output" 'leftovers:0' \
-    'a refused diskutil capture left its temporary file behind'
+    'a refused diskutil capture left a file in TMPDIR'
 }
 test_case 'USB diskutil capture reports empty output as no data' \
   _test_usb_diskutil_capture_reports_empty_output
+
+# The capture limit counts bytes, not characters: a two-byte é makes a
+# 16-character plist 17 bytes long. A failed diskutil keeps its status and
+# yields no plist, and trailing newlines are dropped, so newline-only output
+# is an empty plist that each reader reports as its own missing data.
+_test_usb_diskutil_capture_limit_status_and_newlines() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/capture" output='' expected=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
+    TMPDIR=$2 LC_ALL=en_US.UTF-8
+    capture() {
+      _usb_diskutil_plist_capture list -plist external physical
+      print -r -- "$1:$?|error:[$_USB_CAPTURE_ERROR]|plist:[$_USB_PLIST]"
+    }
+    diskutil_fixture="<?xml version=\"1.0\"?><plist/>"
+    _usb_diskutil_run() { print -rn -- "$diskutil_fixture"; }
+    _USB_PLIST_MAX_BYTES=29; capture at-limit
+    _USB_PLIST_MAX_BYTES=28; capture over-limit
+    diskutil_fixture="<plist>"$'\''\xc3\xa9'\''"</plist>"
+    _USB_PLIST_MAX_BYTES=16; capture multibyte-over
+    _USB_PLIST_MAX_BYTES=17; capture multibyte-at
+    _USB_PLIST_MAX_BYTES=1048576
+    _usb_diskutil_run() { print -rn -- "<plist/>"; return 3; }
+    capture failed
+    _usb_diskutil_run() { print -r -- "<plist/>"; print; }
+    capture trailing-newlines
+    _usb_diskutil_run() { print; }
+    capture newline-only
+    _usb_disk_list_read
+    print -r -- "newline-only-list:$?|error:[$_USB_CAPTURE_ERROR]|plist:[$_USB_PLIST]"
+    unfunction _compozsh_capture_bounded
+    _usb_diskutil_run() { print -rn -- "<plist/>"; }
+    capture no-shared-reader
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  for expected in \
+      'at-limit:0|error:[]|plist:[<?xml version="1.0"?><plist/>]' \
+      'over-limit:1|error:[diskutil output exceeded the 28-byte capture limit]|plist:[]' \
+      'multibyte-over:1|error:[diskutil output exceeded the 16-byte capture limit]|plist:[]' \
+      $'multibyte-at:0|error:[]|plist:[<plist>\xc3\xa9</plist>]' \
+      'failed:3|error:[]|plist:[]' \
+      'trailing-newlines:0|error:[]|plist:[<plist/>]' \
+      'newline-only:0|error:[]|plist:[]' \
+      'newline-only-list:1|error:[diskutil could not capture external physical disks]|plist:[]'; do
+    test_assert_contains "$output" "$expected" \
+      'diskutil capture changed its byte limit, command status or newline handling' || return
+  done
+  test_assert_contains "$output" \
+    'no-shared-reader:1|error:[shared bounded capture support is unavailable]|plist:[]' \
+    'diskutil capture without the shared bounded reader was not refused by name'
+}
+test_case 'USB diskutil capture limits bytes, keeps the command status and drops trailing newlines' \
+  _test_usb_diskutil_capture_limit_status_and_newlines
 
 _test_usb_custom_path_browses_from_home() {
   test_make_temp_dir || return
@@ -2396,6 +2448,7 @@ _test_usb_target_recovery_follows_the_capture_error_kind() {
   local output='' probe='' detail_line=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$HOME
     _usb_diskutil_run() {
@@ -2689,6 +2742,7 @@ _test_usb_format_reports_a_failed_catalog_capture() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$HOME
     _usb_external_device_choose() {
@@ -2722,6 +2776,7 @@ _test_usb_format_catalog_failure_is_not_a_cancel() {
   local output=''
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$HOME
     _matching_compile() { :; }
@@ -2816,6 +2871,7 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
       source "$usb_component" || exit
     done
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded" || exit
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw" || exit
     TMPDIR=$HOME
     image=$2 scenario=escape
@@ -4900,6 +4956,7 @@ _test_usb_temporary_capture_and_progress_files_are_removed() {
   _test_usb_temporary_observer_script
   output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
     source "$1/.zsh.addons/.zsh.usb" || exit
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"
     for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
     TMPDIR=$2 fixtures=$3 installer=$4 volume=$5 observed_log=$6
@@ -4966,7 +5023,8 @@ _test_usb_temporary_capture_and_progress_files_are_removed() {
       'a USB capture, mount directory or progress file remained after success or handled failure' || return
   done
   observed=${(j:,:)${(ou)${(f)"$(<"$observed_log")"}}}
-  test_assert_equal 'compozsh-createinstallmedia:600,compozsh-usb-inspect:700,compozsh-usb-progress:600,compozsh-usb:600' \
+  # diskutil plists stay in memory: no name exists while diskutil runs.
+  test_assert_equal 'compozsh-createinstallmedia:600,compozsh-usb-inspect:700,compozsh-usb-progress:600' \
     "$observed" 'USB capture, mount and progress files were not the disclosed owner-only names'
 }
 test_case 'USB temporary disk metadata, ISO listing, mount and progress files are owner-only and removed' \
