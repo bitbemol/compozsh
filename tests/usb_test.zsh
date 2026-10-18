@@ -651,6 +651,107 @@ _test_usb_createinstallmedia_progress_is_live_and_temporary() {
 test_case 'USB createinstallmedia publishes live progress and cleans its capture' \
   _test_usb_createinstallmedia_progress_is_live_and_temporary
 
+# Both native workers share one progress loop: the writer titles and times its
+# verify stage, and Apple createinstallmedia paints its last line after exit
+# and keeps it as the failure detail.
+_test_usb_worker_progress_settles_after_exit() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress" installer="$TEST_TMP_DIR/Install macOS Tahoe.app"
+  local volume="$TEST_TMP_DIR/CompozshVolume" output=''
+  command mkdir -p "$capture_root" "$installer/Contents/Resources" "$volume" || return
+  test_write_file "$installer/Contents/Resources/createinstallmedia" '#!/bin/zsh' || return
+  command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    # A fresh shell reads SECONDS as 0, which the verify timer treats as unset.
+    TMPDIR=$2 SECONDS=100
+    typeset -ga titles=() frames=()
+    _usb_progress_stage() { titles+=("$1"); frames+=("$1|$5"); }
+    _usb_raw_write_session_run() {
+      print -u2 -r -- compozsh-write-stage:image
+      print -u2 -r -- "8192 bytes transferred in 0.1 secs (81920 bytes/sec)"
+      print -u2 -r -- compozsh-write-stage:verify
+      command /bin/sleep 1.5
+      print -u2 -r -- "8192 bytes transferred in 0.1 secs (81920 bytes/sec)"
+      print -u2 -r -- compozsh-write-verified
+    }
+    _usb_write_image /images/linux.iso disk7 8192 8192 1
+    print -r -- "write:$?|stage:$_USB_WRITE_STAGE|verified:$_USB_WRITE_VERIFIED|verify-seconds:$_USB_WRITE_VERIFY_SECONDS"
+    print -r -- "titles:${(j:,:)${(@u)titles}}"
+    titles=() frames=()
+    _usb_createinstallmedia_command_run() {
+      print -r -- $'\''Erasing disk: 0%\rCopying to disk: 42%'\''
+      print -r -- "The volume could not be prepared."
+      return 3
+    }
+    _usb_createinstallmedia_run "$3" "$4"
+    print -r -- "media:$?|error:$_USB_CREATEINSTALLMEDIA_ERROR|last:${frames[-1]}"
+    local -a leftovers=("$2"/*(N:t))
+    print -r -- "leftovers:${(j:,:)leftovers}|end"
+  ' "$TEST_REPO_ROOT" "$capture_root" "$installer" "$volume") || return
+
+  test_assert_contains "$output" 'write:0|stage:verify|verified:1|verify-seconds:' \
+    'the native writer did not settle its verify evidence after the worker exited' || return
+  [[ $output == *'verify-seconds:'[1-9]* ]] ||
+    test_fail "the native writer did not time its verify stage: ${(qqq)output}"
+  test_assert_contains "$output" 'Verifying USB against image' \
+    'the native writer did not title its verify stage while the worker ran' || return
+  test_assert_contains "$output" \
+    'media:3|error:The volume could not be prepared.|last:Creating macOS installer|The volume could not be prepared.' \
+    'Apple createinstallmedia did not paint and keep its final line after exiting' || return
+  test_assert_contains "$output" 'leftovers:|end' \
+    'a native worker left its progress file behind'
+}
+test_case 'USB temporary worker progress titles each stage and settles after the worker exits' \
+  _test_usb_worker_progress_settles_after_exit
+
+# An error that aborts the progress loop while a worker still runs reaps that
+# worker before returning and removes its progress file.
+_test_usb_worker_progress_reaps_an_aborted_worker() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress" installer="$TEST_TMP_DIR/Install macOS Tahoe.app"
+  local volume="$TEST_TMP_DIR/CompozshVolume" output='' exit_status=0
+  command mkdir -p "$capture_root" "$installer/Contents/Resources" "$volume" || return
+  test_write_file "$installer/Contents/Resources/createinstallmedia" '#!/bin/zsh' || return
+  command chmod +x "$installer/Contents/Resources/createinstallmedia" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    zmodload zsh/system || exit
+    TMPDIR=$2 pid_file=$5
+    _usb_progress_stage() { [[ -s $pid_file ]] && : ${compozsh_test_abort:?aborted}; }
+    _usb_raw_write_session_run() { print -r -- $sysparams[pid] >| "$pid_file"; command /bin/sleep 0.5; }
+    _usb_createinstallmedia_command_run() { print -r -- $sysparams[pid] >| "$pid_file"; command /bin/sleep 0.5; }
+    _test_usb_worker_report() {
+      local -a leftovers=("$TMPDIR"/*(N:t))
+      print -r -- "${1}:aborted:$TRY_BLOCK_ERROR|$(builtin kill -0 "$(<"$pid_file")" 2>/dev/null && print running || print reaped)|leftovers:${(j:,:)leftovers}|end"
+      : >| "$pid_file"
+    }
+    {
+      _usb_write_image /images/linux.iso disk7 8192
+    } always {
+      _test_usb_worker_report write
+      TRY_BLOCK_ERROR=0
+    }
+    {
+      _usb_createinstallmedia_run "$3" "$4"
+    } always {
+      _test_usb_worker_report createinstallmedia
+      TRY_BLOCK_ERROR=0
+    }
+  ' "$TEST_REPO_ROOT" "$capture_root" "$installer" "$volume" "$TEST_TMP_DIR/worker-pid" 2>&1) || exit_status=$?
+
+  test_assert_contains "$output" 'write:aborted:1|reaped|leftovers:|end' \
+    'an aborted native write left its worker running or its progress file behind' || return
+  test_assert_contains "$output" 'createinstallmedia:aborted:1|reaped|leftovers:|end' \
+    'an aborted createinstallmedia left its worker running or its progress file behind'
+}
+test_case 'USB temporary worker progress reaps an aborted worker and removes its progress file' \
+  _test_usb_worker_progress_reaps_an_aborted_worker
+
 _test_usb_result_dispatch_preserves_media_and_status() {
   test_make_temp_dir || return
   local output=''

@@ -2233,6 +2233,20 @@ _usb_write_progress_parse() {
   reply=($stage_seen "$stage" $write_bytes $verify_bytes $verified $tail_verified "$diagnostic")
 }
 
+# Pure Step 3 progress-bar width for a terminal `columns` wide: half the width
+# beyond a 12-column margin, kept within 24 to 64 cells, from 80 columns when
+# the width is not a number. REPLY=width.
+_usb_progress_bar_width() {
+  emulate -L zsh
+  local columns=$1
+  local -i width=0
+  [[ $columns == <-> && ${#columns} -le 18 ]] || columns=80
+  width=$(( (10#$columns - 12) / 2 ))
+  (( width < 24 )) && width=24
+  (( width > 64 )) && width=64
+  REPLY=$width
+}
+
 _usb_dd_progress_read() {
   emulate -L zsh
   (( ${+functions[_usb_dd_progress_bytes]} )) || { REPLY='Shared parsing support unavailable'; return 1; }
@@ -2242,9 +2256,8 @@ _usb_dd_progress_read() {
   local -i bytes=0 write_bytes=0 verify_bytes=0
   local -i elapsed=$(( SECONDS - started )) bar_width=32
   local -a reply=()
-  bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
-  (( bar_width < 24 )) && bar_width=24
-  (( bar_width > 64 )) && bar_width=64
+  _usb_progress_bar_width "${COLUMNS:-80}"
+  bar_width=$REPLY
   REPLY=''
   (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar 0 $bar_width
   _USB_PROGRESS_BAR=$REPLY
@@ -2499,16 +2512,93 @@ _usb_write_geometry() {
   reply=($sector_count $tail_seek $tail_count)
 }
 
-_usb_write_image() {
+# Runs one native USB worker in the background with its output in the
+# caller's new owner-only `progress_file`, a compozsh-* file directly in
+# TMPDIR, and removes that file on every exit, invalid arguments included.
+# The file captures standard error (`stderr`, standard output stays the
+# caller's) or both streams (`both`). While the worker runs, `reader` gets
+# `running`, the file and its own arguments every quarter second, and once
+# after the worker exits it gets `finished` instead; readers read the file and
+# paint their own stage. An error or interrupt that leaves the loop early
+# interrupts a worker that is still running and reaps it. REPLY is the
+# reader's last REPLY, empty when no worker started. Returns the worker's
+# status, or 2 for invalid arguments.
+# Usage: _usb_worker_progress_run <progress-file> <stderr|both> <reader> [reader-arg...] -- <command> [arg...]
+_usb_worker_progress_run() {
   emulate -L zsh
   setopt NO_BG_NICE
   unsetopt MONITOR NOTIFY
+  local progress_file=${1-} stream=${2-} reader=${3-} temp_root=${TMPDIR:-/tmp}
+  local -i worker=0 command_status=2 separator=0
+  local -a reader_arguments=()
+  REPLY=''
+  {
+    (( $# >= 5 )) || return 2
+    shift 3
+    separator=${argv[(ie)--]}
+    (( separator < $# )) || return 2
+    reader_arguments=("${(@)argv[1,separator-1]}")
+    shift $separator
+    [[ -f $progress_file && $stream == (stderr|both) ]] &&
+      (( ${+functions[$reader]} )) || return 2
+    if [[ $stream == both ]]; then
+      "$@" >| "$progress_file" 2>&1 &
+    else
+      "$@" 2>| "$progress_file" &
+    fi
+    worker=$!
+    while builtin kill -0 $worker 2>/dev/null; do
+      "$reader" running "$progress_file" "${reader_arguments[@]}"
+      command /bin/sleep 0.25
+    done
+    wait $worker
+    command_status=$?
+    "$reader" finished "$progress_file" "${reader_arguments[@]}"
+  } always {
+    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
+      builtin kill -INT $worker 2>/dev/null
+      wait $worker 2>/dev/null
+    fi
+    if [[ ${progress_file:t} == compozsh-?*.?* &&
+          ${progress_file:h:A} == ${temp_root:A} ]]; then
+      command /bin/rm -f -- "$progress_file"
+    fi
+  }
+  return $command_status
+}
+
+# Reads the native writer's progress and, while it runs, paints the write or
+# verify stage. The first read in the verify stage starts the calling
+# _usb_write_image's verify_started clock; the read after the writer exits
+# records how long verification took. $1 running|finished, $2 progress file,
+# $3 image bytes, $4 starting SECONDS.
+_usb_write_progress_poll() {
+  emulate -L zsh
+  local phase=$1 title='Writing image'
+  _usb_dd_progress_read "$2" "$3" "$4"
+  if [[ $_USB_WRITE_STAGE == verify ]]; then
+    (( verify_started )) || verify_started=$SECONDS
+    title='Verifying USB against image'
+  fi
+  if [[ $phase == finished ]]; then
+    [[ $_USB_WRITE_STAGE == verify ]] &&
+      _USB_WRITE_VERIFY_SECONDS=$(( SECONDS - verify_started ))
+    return 0
+  fi
+  _usb_progress_stage "$title" \
+    progress "$_USB_PROGRESS_BAR" info "$REPLY" \
+    warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+}
+
+_usb_write_image() {
+  emulate -L zsh
   local image=$1 identifier=$2 image_size=$3 target_size=${4:-$3}
-  local verify=${5:-0} progress_title='Writing image'
+  local verify=${5:-0}
   local block_size=${6:-512}
   local image_fingerprint=${7:-}
-  local temp_root=${TMPDIR:-/tmp} progress_file='' progress_text=''
-  local -i worker=0 command_status=1 started=$SECONDS sector_count=0
+  local temp_root=${TMPDIR:-/tmp} progress_file=''
+  local -i command_status=1 started=$SECONDS sector_count=0
+  # Started by _usb_write_progress_poll when the verify stage first appears.
   local -i verify_started=0 tail_count=0 tail_seek=0
   local -a reply=()
   _USB_WRITE_BYTES_OBSERVED=0 _USB_WRITE_VERIFY_BYTES_OBSERVED=0
@@ -2525,58 +2615,27 @@ _usb_write_image() {
   _usb_write_geometry "$image_size" "$target_size" "$block_size" || return 2
   sector_count=$reply[1] tail_seek=$reply[2] tail_count=$reply[3]
   progress_file=$(command /usr/bin/mktemp "${temp_root%/}/compozsh-usb-progress.XXXXXX" 2>/dev/null) || return 1
-  {
+  _usb_worker_progress_run "$progress_file" stderr \
+    _usb_write_progress_poll "$image_size" $started -- \
     _usb_raw_write_session_run "$image" "$identifier" "$sector_count" \
-      "$tail_seek" "$tail_count" "$verify" "$block_size" \
-      "$image_fingerprint" 2>| "$progress_file" &
-    worker=$!
-    while builtin kill -0 $worker 2>/dev/null; do
-      _usb_dd_progress_read "$progress_file" "$image_size" $started
-      progress_text=$REPLY
-      if [[ $_USB_WRITE_STAGE == verify ]]; then
-        (( verify_started )) || verify_started=$SECONDS
-        progress_title='Verifying USB against image'
-      else
-        progress_title='Writing image'
-      fi
-      _usb_progress_stage "$progress_title" \
-        progress "$_USB_PROGRESS_BAR" info "$progress_text" \
-        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
-      command /bin/sleep 0.25
-    done
-    wait $worker
-    command_status=$?
-    _usb_dd_progress_read "$progress_file" "$image_size" $started
-    if [[ $_USB_WRITE_STAGE == verify ]]; then
-      (( verify_started )) || verify_started=$SECONDS
-      _USB_WRITE_VERIFY_SECONDS=$(( SECONDS - verify_started ))
-    fi
-    if (( command_status == 0 && _USB_WRITE_BYTES_OBSERVED != image_size )); then
-      command_status=3
-    fi
-    if (( verify )) && [[ $_USB_WRITE_STAGE == verify ]] &&
-        (( _USB_WRITE_VERIFY_BYTES_OBSERVED != image_size )); then
-      command_status=6
-    elif (( command_status == 0 && verify && tail_count > 0 &&
-            !_USB_WRITE_TAIL_VERIFIED )); then
-      command_status=8
-    elif (( command_status == 0 && verify && !_USB_WRITE_VERIFIED )); then
-      command_status=9
-    fi
-    if (( command_status != 0 && command_status != 5 && command_status != 6 &&
-          command_status != 7 )) && [[ $_USB_WRITE_STAGE == tail ]]; then
-      command_status=4
-    fi
-  } always {
-    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
-      builtin kill -INT $worker 2>/dev/null
-      wait $worker 2>/dev/null
-    fi
-    if [[ -n $progress_file && ${progress_file:t} == compozsh-usb-progress.* &&
-          ${progress_file:h:A} == ${temp_root:A} ]]; then
-      command /bin/rm -f -- "$progress_file"
-    fi
-  }
+      "$tail_seek" "$tail_count" "$verify" "$block_size" "$image_fingerprint"
+  command_status=$?
+  if (( command_status == 0 && _USB_WRITE_BYTES_OBSERVED != image_size )); then
+    command_status=3
+  fi
+  if (( verify )) && [[ $_USB_WRITE_STAGE == verify ]] &&
+      (( _USB_WRITE_VERIFY_BYTES_OBSERVED != image_size )); then
+    command_status=6
+  elif (( command_status == 0 && verify && tail_count > 0 &&
+          !_USB_WRITE_TAIL_VERIFIED )); then
+    command_status=8
+  elif (( command_status == 0 && verify && !_USB_WRITE_VERIFIED )); then
+    command_status=9
+  fi
+  if (( command_status != 0 && command_status != 5 && command_status != 6 &&
+        command_status != 7 )) && [[ $_USB_WRITE_STAGE == tail ]]; then
+    command_status=4
+  fi
   return $command_status
 }
 
@@ -2631,9 +2690,8 @@ _usb_createinstallmedia_progress_read() {
   local log_path=$1 raw='' line='' prefix='' latest='Preparing Apple createinstallmedia…'
   local size_text=''
   local -i raw_size=0 percent=0 bar_width=32
-  bar_width=$(( (${COLUMNS:-80} - 12) / 2 ))
-  (( bar_width < 24 )) && bar_width=24
-  (( bar_width > 64 )) && bar_width=64
+  _usb_progress_bar_width "${COLUMNS:-80}"
+  bar_width=$REPLY
   REPLY=''
   (( ${+functions[_usb_progress_bar]} )) && _usb_progress_bar 0 $bar_width
   _USB_PROGRESS_BAR=$REPLY
@@ -2675,46 +2733,34 @@ _usb_createinstallmedia_command_run() {
   builtin print -r -- Y | command /usr/bin/sudo -n "$tool" "${arguments[@]}"
 }
 
+# Reads Apple createinstallmedia's latest line and paints it, while the tool
+# runs and once more after it exits. REPLY=the line. $1 running|finished
+# (both paint), $2 progress file.
+_usb_createinstallmedia_progress_poll() {
+  emulate -L zsh
+  local progress_text=''
+  _usb_createinstallmedia_progress_read "$2"
+  progress_text=$REPLY
+  _usb_progress_stage 'Creating macOS installer' \
+    progress "$_USB_PROGRESS_BAR" info "$progress_text" \
+    warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
+  REPLY=$progress_text
+}
+
 _usb_createinstallmedia_run() {
   emulate -L zsh
-  setopt NO_BG_NICE PIPE_FAIL
-  unsetopt MONITOR NOTIFY
-  local installer=$1 volume=$2 temp_root=${TMPDIR:-/tmp}
-  local progress_file='' progress_text=''
-  local -i worker=0 command_status=1
+  local installer=$1 volume=$2 temp_root=${TMPDIR:-/tmp} progress_file='' REPLY=''
+  local -i command_status=1
   _USB_CREATEINSTALLMEDIA_ERROR=''
   _usb_macos_installer_tool "$installer" >/dev/null || return 1
   [[ -d $volume && ! -L $volume ]] || return 1
   progress_file=$(command /usr/bin/mktemp \
     "${temp_root%/}/compozsh-createinstallmedia.XXXXXX" 2>/dev/null) || return 1
-  {
-    _usb_createinstallmedia_command_run "$installer" "$volume" \
-      >| "$progress_file" 2>&1 &
-    worker=$!
-    while builtin kill -0 $worker 2>/dev/null; do
-      _usb_createinstallmedia_progress_read "$progress_file"
-      progress_text=$REPLY
-      _usb_progress_stage 'Creating macOS installer' \
-        progress "$_USB_PROGRESS_BAR" info "$progress_text" \
-        warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
-      command /bin/sleep 0.25
-    done
-    wait $worker
-    command_status=$?
-    _usb_createinstallmedia_progress_read "$progress_file"
-    progress_text=$REPLY
-    _usb_progress_stage 'Creating macOS installer' \
-      progress "$_USB_PROGRESS_BAR" info "$progress_text" \
-      warning 'KEEP THE EXTERNAL DRIVE CONNECTED'
-    (( command_status == 0 )) || _USB_CREATEINSTALLMEDIA_ERROR=$progress_text
-  } always {
-    if (( worker )) && builtin kill -0 $worker 2>/dev/null; then
-      builtin kill -INT $worker 2>/dev/null
-      wait $worker 2>/dev/null
-    fi
-    [[ -n $progress_file && ${progress_file:t} == compozsh-createinstallmedia.* &&
-       ${progress_file:h:A} == ${temp_root:A} ]] && command /bin/rm -f -- "$progress_file"
-  }
+  _usb_worker_progress_run "$progress_file" both \
+    _usb_createinstallmedia_progress_poll -- \
+    _usb_createinstallmedia_command_run "$installer" "$volume"
+  command_status=$?
+  (( command_status == 0 )) || _USB_CREATEINSTALLMEDIA_ERROR=$REPLY
   return $command_status
 }
 
