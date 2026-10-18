@@ -1320,6 +1320,8 @@ _files_workspace_choose() {
 
 
 _files_recents_widget() {
+  # A directory change recaptures the prompt with the caller's ALIASES.
+  local _prompt_alias_enabled=${options[aliases]}
   emulate -L zsh
   if (( ! ${+functions[_directory_recents_choose]} || !${+functions[_zle_picker_run]} || !${+functions[_matching_compile]} )); then
     zle -M 'Recents unavailable: keep .zsh.navigation and the shared support/ui and support/functions components installed.'
@@ -1370,6 +1372,9 @@ _directory_context_complete_widget() {
   # state. Use compinit's expand-or-complete registration: the dotted builtin
   # bypasses its command-specific completion functions.
   (( CURSOR == ${#BUFFER} )) || { zle expand-or-complete; return; }
+  # The session emulates before any directory change recaptures the prompt;
+  # that recapture keeps the caller's ALIASES.
+  local _prompt_alias_enabled=${options[aliases]}
   local REPLY='' entry=$BUFFER argument_prefix=''
   _directory_completion_prefix "$BUFFER" || { zle expand-or-complete; return; }
   argument_prefix=$REPLY

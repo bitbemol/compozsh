@@ -782,3 +782,53 @@ _test_living_prompt_recaptures_after_entering_a_link() {
 }
 test_case 'living prompt recaptures directory facts after following a directory link and keeps a manual pin' \
   _test_living_prompt_recaptures_after_entering_a_link
+
+# The recapture runs below the widget's own local emulation, so each widget
+# that can change directory reads ALIASES at entry. Otherwise the lens would
+# preview an alias the shell will not expand until the next redraw corrects it.
+_test_living_prompt_recapture_keeps_caller_alias_option() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output=''
+
+  command mkdir -p -- "$home/target" || return
+  output=$(test_run_interactive "$home" '
+    source "$1/.zshrc"
+    aliases[ap]="print -r expanded"
+    setopt NO_ALIASES
+    local widget="" expected=""
+    local -i position=0
+    zle() { return 0; }
+    _zle_picker_screen_session() {
+      _ZLE_PICKER_ACTION=cd
+      _ZLE_PICKER_SELECTED_VALUE="$HOME/target"
+    }
+    for expected in off on; do
+      [[ $expected == on ]] && setopt ALIASES
+      for widget in _directory_context_complete_widget _files_recents_widget; do
+        builtin cd -- "$HOME" || exit 1
+        true; _prompt_update
+        BUFFER="ap ./" CURSOR=5
+        "$widget"
+        [[ $PWD == "$HOME/target" && $BUFFER == "ap ./" ]] || {
+          print -u2 -r -- "$widget did not change directory: $PWD|$BUFFER"
+          exit 2
+        }
+        # The recaptured lens previews the alias exactly when the shell would
+        # expand it, as the next redraw does.
+        position=${_PROMPT_INTERACTION_LABELS[(Ie)EXPANSION]}
+        if [[ $expected == off ]] && (( position )); then
+          print -u2 -r -- "$widget recaptured with aliases on: ${_PROMPT_INTERACTION_VALUES[position]}"
+          exit 3
+        elif [[ $expected == on ]] &&
+             [[ ${_PROMPT_INTERACTION_VALUES[position]-} != *"print -r expanded"* ]]; then
+          print -u2 -r -- "$widget recaptured without the enabled alias"
+          exit 4
+        fi
+      done
+    done
+    print -r -- kept
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal kept "$output"
+}
+test_case "living prompt recaptures keep the caller's alias option after an in-widget directory change" \
+  _test_living_prompt_recapture_keeps_caller_alias_option

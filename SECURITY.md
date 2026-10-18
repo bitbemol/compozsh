@@ -229,7 +229,9 @@ change: when a Browse, Recents, Search or Draft inspector Files action
 (Change directory, Enter linked directory) succeeds, the editor runs the
 prompt's same fact capture and title update after screen cleanup and before
 repainting, so the prompt never describes the previous folder. It keeps the
-draft and records no outcome, receipt or history entry.
+draft and records no outcome, receipt or history entry. Like `precmd`, it runs
+any `PROMPT_PROJECT_CONTEXT_FUNCTIONS` a private add-on registered, here
+inside the line editor; those functions are that add-on's own code.
 This covers lens derivation and repaint, not the complete ZLE pre-redraw hook
 chain: the independent syntax highlighter keeps bounded filesystem checks for
 literal path tokens without evaluating substitutions or globs. READY keeps

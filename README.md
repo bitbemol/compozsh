@@ -1128,7 +1128,10 @@ PROMPT_PROJECT_CONTEXT_FUNCTIONS+=(v_prompt_context)
 ```
 
 Markers teach the project-root search a new manifest, and each context function
-receives the root path. `prompt_add_project_segment text [color]` escapes the
+receives the root path. Context functions run at each prompt and again right
+after a workspace's Change directory or Enter linked directory action, while
+your draft is still being edited, so keep them quick and silent.
+`prompt_add_project_segment text [color]` escapes the
 text; the color is a 0–255 index or a basic Zsh color name.
 
 ## Draft inspector

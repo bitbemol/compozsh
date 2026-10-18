@@ -263,8 +263,12 @@ short windows use bounded omission.
   no `precmd` follows before the next edit. Once it succeeds, the editor runs
   the prompt's `_prompt_capture_context` (resolved at invocation) before
   repainting, so the prompt and title never describe the previous folder. It
-  recaptures the same facts and title as `precmd`, keeps the draft, and adds
-  no outcome, receipt, history entry, manual or help capture request.
+  recaptures the same facts and title as `precmd`, user
+  `PROMPT_PROJECT_CONTEXT_FUNCTIONS` included, keeps the draft, and adds no
+  outcome, receipt, history entry, manual or help capture request. Each widget
+  that can reach it reads the caller's `ALIASES` into `_prompt_alias_enabled`
+  at entry, before its own `emulate`, so the recaptured lens agrees with the
+  next redraw.
 - Detection uses bounded upward searches, exact marker checks and shallow
   conventional directories (see [performance](performance.md)); it never
   executes repository-local wrappers, binaries, manifests or scripts, and
