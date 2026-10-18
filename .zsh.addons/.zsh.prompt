@@ -881,39 +881,71 @@ _prompt_interaction_heads() {
   fi
 }
 
-# Classify step: the first match in engineering/prompt.md "Adding an
-# Interaction kind" precedence names the kind; alias handling follows in the
+# Classify step: the first matcher in this ordered list that accepts the
+# draft names its kind — the engineering/prompt.md "Adding an Interaction
+# kind" precedence; RUN accepts every draft. Alias handling follows in the
 # enrich step. Writes _PROMPT_INTERACTION_KIND, interaction_view (the row
-# shape) and the literal view facts those rows show.
+# shape) and the literal view facts those rows show, all through the
+# accepting matcher.
+#
+# A matcher reads the lex and heads facts, inherits this step's emulation and
+# keeps its scratch words local. It accepts (status 0) only when the draft
+# carries its kind's evidence, and then writes the kind, the view and its own
+# view facts; it declines with status 1 and writes nothing, so one matcher can
+# be added, moved or tested alone. Precedence lives only in this list: a
+# matcher needn't repeat the evidence of the matchers above it.
 _prompt_interaction_classify() {
   emulate -L zsh
   setopt localoptions extendedglob multibyte
-  local token='' plain='' endpoint_scheme='' endpoint_authority=''
-  local -i index=0 caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0
 
-  if [[ ${tokens[1]} == \#* ]]; then
-    _PROMPT_INTERACTION_KIND=comment interaction_view=comment
-    comment_text=${plain_tokens[1]#\#}
-    comment_text=${comment_text# }
-    return 0
-  fi
-  if (( ! command_index )); then
-    _PROMPT_INTERACTION_KIND=environment interaction_view=assignment
-    return 0
-  fi
+  _prompt_interaction_match_comment ||
+    _prompt_interaction_match_assignment ||
+    _prompt_interaction_match_caution ||
+    _prompt_interaction_match_chain ||
+    _prompt_interaction_match_pipeline ||
+    _prompt_interaction_match_redirect ||
+    _prompt_interaction_match_task ||
+    _prompt_interaction_match_remote ||
+    _prompt_interaction_match_git ||
+    _prompt_interaction_match_navigate ||
+    _prompt_interaction_match_search ||
+    _prompt_interaction_match_environment ||
+    _prompt_interaction_match_test ||
+    _prompt_interaction_match_build ||
+    _prompt_interaction_match_run
+  return 0
+}
+
+# A leading comment word. Writes comment_text.
+_prompt_interaction_match_comment() {
+  [[ ${tokens[1]} == \#* ]] || return 1
+  _PROMPT_INTERACTION_KIND=comment interaction_view=comment
+  comment_text=${plain_tokens[1]#\#}
+  comment_text=${comment_text# }
+}
+
+# Assignments alone: no stage names a command head.
+_prompt_interaction_match_assignment() {
+  (( ! command_index )) || return 1
+  _PROMPT_INTERACTION_KIND=environment interaction_view=assignment
+}
+
+# A few recognizable, high-confidence destructive forms in any stage. Writes
+# caution_command when a named head or owned destructive mode carries the cue.
+_prompt_interaction_match_caution() {
+  local token='' cue_command=''
+  local -i caution=0
 
   case $command_lower in
     rm|rmdir|dd|eval|kill|pkill)
-      caution=1
+      caution=1 cue_command=$command_name
       ;;
   esac
-  (( caution )) && caution_command=$command_name
   if (( ! caution && ${#flow_heads} > 1 )); then
     for token in "${flow_heads[@]:1}"; do
       case $token in
         rm|rmdir|dd|eval|kill|pkill)
-          caution=1
-          caution_command=$token
+          caution=1 cue_command=$token
           break
           ;;
       esac
@@ -922,8 +954,7 @@ _prompt_interaction_classify() {
   if [[ $command_lower == external-device ]] &&
      (( ! ${plain_tokens[(Ie)--help]} )) &&
      (( ${plain_tokens[(Ie)--flash]} || ${plain_tokens[(Ie)--format]} )); then
-    caution=1
-    caution_command=$command_name
+    caution=1 cue_command=$command_name
   fi
   if [[ $command_lower == (git|g) ]]; then
     case $operation_lower in
@@ -949,163 +980,95 @@ _prompt_interaction_classify() {
         ;;
     esac
   fi
+  (( caution )) || return 1
+  _PROMPT_INTERACTION_KIND=caution interaction_view=caution
+  caution_command=$cue_command
+}
 
-  if (( caution )); then
-    _PROMPT_INTERACTION_KIND=caution interaction_view=caution
-  elif (( chain_count )); then
-    _PROMPT_INTERACTION_KIND=chain interaction_view=chain
-  elif (( pipe_count )); then
-    _PROMPT_INTERACTION_KIND=pipeline interaction_view=pipeline
-  elif [[ -n $redirect_operator ]]; then
-    _PROMPT_INTERACTION_KIND=redirect interaction_view=redirect
-  elif [[ $command_lower == (compozsh|external-device) ]] ||
-       { [[ $command_lower == xcode ]] &&
-         (( token_count == command_index || ${plain_tokens[(Ie)--export-skills]} || ${plain_tokens[(Ie)--help]} )); }; then
-    # Owned task entries share the run kind unless they change environment.
-    _PROMPT_INTERACTION_KIND=run interaction_view=task
-    action='likely open a task workspace' task_operation=''
-    if (( ${plain_tokens[(Ie)--help]} )) ||
-       [[ $command_lower == compozsh && $first_operand == help ]]; then
-      action='likely show task help'
-      task_operation=help
-      (( ${plain_tokens[(Ie)--help]} )) && task_operation=--help
-    elif [[ $command_lower == xcode ]] && (( ${plain_tokens[(Ie)--export-skills]} )); then
-      _PROMPT_INTERACTION_KIND=environment
-      task_operation=--export-skills
-      action='likely review or export Apple skills for local agents'
-    elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--sudo-touch-id]} )); then
-      _PROMPT_INTERACTION_KIND=environment
-      task_operation=--sudo-touch-id
-      action='likely inspect or manage Touch ID authentication for sudo'
-    elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--refresh]} )); then
-      _PROMPT_INTERACTION_KIND=environment
-      task_operation=--refresh
-      action='likely refresh this shell’s cached capabilities'
-    elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--list]} )); then
-      task_operation=--list
-      action='likely list loaded Compozsh tools'
-    else
-      case $command_lower in
-        xcode) action='likely open the Xcode action workspace' ;;
-        external-device) action='likely open the external-device task chooser' ;;
-        compozsh) action='likely explore loaded tools and their help' ;;
-      esac
-    fi
-  elif [[ $command_lower == (ssh|scp|sftp|rsync|curl|wget) ]]; then
-    _PROMPT_INTERACTION_KIND=remote interaction_view=remote
+# A conditional or sequential connector between stages.
+_prompt_interaction_match_chain() {
+  (( chain_count )) || return 1
+  _PROMPT_INTERACTION_KIND=chain interaction_view=chain
+}
+
+# A pipe between stages.
+_prompt_interaction_match_pipeline() {
+  (( pipe_count )) || return 1
+  _PROMPT_INTERACTION_KIND=pipeline interaction_view=pipeline
+}
+
+# A literal redirection operator.
+_prompt_interaction_match_redirect() {
+  [[ -n $redirect_operator ]] || return 1
+  _PROMPT_INTERACTION_KIND=redirect interaction_view=redirect
+}
+
+# Owned task entries share the run kind unless they change environment; bare
+# xcode is a task entry, not a build. Writes action and task_operation.
+_prompt_interaction_match_task() {
+  [[ $command_lower == (compozsh|external-device) ]] ||
+    { [[ $command_lower == xcode ]] &&
+      (( token_count == command_index || ${plain_tokens[(Ie)--export-skills]} || ${plain_tokens[(Ie)--help]} )); } ||
+    return 1
+  _PROMPT_INTERACTION_KIND=run interaction_view=task
+  action='likely open a task workspace' task_operation=''
+  if (( ${plain_tokens[(Ie)--help]} )) ||
+     [[ $command_lower == compozsh && $first_operand == help ]]; then
+    action='likely show task help'
+    task_operation=help
+    (( ${plain_tokens[(Ie)--help]} )) && task_operation=--help
+  elif [[ $command_lower == xcode ]] && (( ${plain_tokens[(Ie)--export-skills]} )); then
+    _PROMPT_INTERACTION_KIND=environment
+    task_operation=--export-skills
+    action='likely review or export Apple skills for local agents'
+  elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--sudo-touch-id]} )); then
+    _PROMPT_INTERACTION_KIND=environment
+    task_operation=--sudo-touch-id
+    action='likely inspect or manage Touch ID authentication for sudo'
+  elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--refresh]} )); then
+    _PROMPT_INTERACTION_KIND=environment
+    task_operation=--refresh
+    action='likely refresh this shell’s cached capabilities'
+  elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--list]} )); then
+    task_operation=--list
+    action='likely list loaded Compozsh tools'
+  else
     case $command_lower in
-      ssh|sftp)
-        skip_next=0
-        for (( index = command_index + 1; index <= token_count; index++ )); do
-          plain=${plain_tokens[index]}
-          if (( skip_next )); then
-            skip_next=0
-            continue
-          fi
-          if _prompt_interaction_option_takes_value "$command_lower" "$plain"; then
-            skip_next=1
-            continue
-          fi
-          [[ $plain == -- ]] && continue
-          [[ $plain == -* ]] && continue
-          remote_text=$plain
-          break
-        done
-        ;;
-      scp|rsync)
-        skip_next=0
-        for (( index = command_index + 1; index <= token_count; index++ )); do
-          plain=${plain_tokens[index]}
-          if (( skip_next )); then
-            skip_next=0
-            continue
-          fi
-          if _prompt_interaction_option_takes_value "$command_lower" "$plain"; then
-            skip_next=1
-            continue
-          fi
-          [[ $plain == -* ]] && continue
-          if [[ $plain == *://* || $plain == [^/]##:* ||
-                $plain == *@*:* ]]; then
-            remote_text=$plain
-            break
-          fi
-        done
-        ;;
-      curl|wget)
-        saw_option=0
-        for (( index = command_index + 1; index <= token_count; index++ )); do
-          plain=${plain_tokens[index]}
-          if [[ $plain == -* ]]; then
-            saw_option=1
-            continue
-          fi
-          if [[ $plain == *://* ]]; then
-            remote_text=$plain
-            continue
-          fi
-          (( ! saw_option )) && [[ -z $remote_text ]] && remote_text=$plain
-        done
-        # Curl and wget have large evolving option grammars. With any option
-        # present, omit the excerpt rather than risk repeating a header, token,
-        # output file, or other option value under a misleading endpoint label.
-        (( saw_option )) && remote_text=''
-        ;;
+      xcode) action='likely open the Xcode action workspace' ;;
+      external-device) action='likely open the external-device task chooser' ;;
+      compozsh) action='likely explore loaded tools and their help' ;;
     esac
-    if [[ -n $remote_text && $remote_text == *://* ]]; then
-      endpoint_scheme=${remote_text%%://*}
-      endpoint_authority=${remote_text#*://}
-      endpoint_authority=${endpoint_authority%%/*}
-      endpoint_authority=${endpoint_authority%%\?*}
-      endpoint_authority=${endpoint_authority%%\#*}
-      endpoint_authority=${endpoint_authority##*@}
-      if [[ -n $endpoint_scheme && -n $endpoint_authority ]]; then
-        remote_text="${endpoint_scheme}://${endpoint_authority}"
-      else
-        remote_text=''
-      fi
-    elif [[ -n $remote_text && $command_lower == (curl|wget) ]]; then
-      remote_text=${remote_text%%\?*}
-      remote_text=${remote_text%%\#*}
-      remote_text=${remote_text##*@}
-      remote_text=${remote_text%%/*}
-    fi
-  elif [[ $command_lower == (git|g) ]]; then
-    _PROMPT_INTERACTION_KIND=git interaction_view=git
-    case $operation_lower in
-      branches) action='likely open the local recent-branch workspace' ;;
-      help) action='likely show Git or Compozsh Git help' ;;
-      review) action='likely open the local Git review workspace' ;;
-      worktree) action='likely open local Git worktree actions' ;;
-      status) action='likely inspect working tree' ;;
-      diff|show|log) action='likely review repository history or changes' ;;
-      add) action='likely stage selected changes' ;;
-      commit) action='likely record staged changes' ;;
-      switch|checkout) action='likely change repository position' ;;
-      pull|fetch) action='may contact a remote to update repository data' ;;
-      push) action='may contact a remote to publish commits' ;;
-      merge|rebase|cherry-pick) action='likely integrate repository history' ;;
-      *) action='likely run a Git operation' ;;
-    esac
-  elif [[ $command_lower == (cd|pushd|popd|j|z|mkcd) || $autocd == 1 ]]; then
-    _PROMPT_INTERACTION_KIND=navigate interaction_view=navigate
-    action='likely change shell location · Tab can browse'
-    if (( autocd )); then
-      first_operand=$command_name
-      action='likely change shell location via AUTO_CD · Tab can browse'
-    fi
-  elif [[ $command_lower == (rg|grep|egrep|fgrep|find|mdfind|ag|ack) ]]; then
-    _PROMPT_INTERACTION_KIND=search interaction_view=search
-    skip_next=0
-    if [[ $command_lower == find ]]; then
-      for (( index = command_index + 1; index < token_count; index++ )); do
+  fi
+  return 0
+}
+
+# A familiar remote client. Writes remote_text: the first literal target,
+# reduced to scheme://host for a URL, never an option value.
+_prompt_interaction_match_remote() {
+  [[ $command_lower == (ssh|scp|sftp|rsync|curl|wget) ]] || return 1
+  local plain='' endpoint_scheme='' endpoint_authority=''
+  local -i index=0 skip_next=0 saw_option=0
+
+  _PROMPT_INTERACTION_KIND=remote interaction_view=remote
+  case $command_lower in
+    ssh|sftp)
+      for (( index = command_index + 1; index <= token_count; index++ )); do
         plain=${plain_tokens[index]}
-        if [[ $plain == (-name|-iname|-path|-ipath|-regex|-iregex) ]]; then
-          query_text=${plain_tokens[index + 1]}
-          break
+        if (( skip_next )); then
+          skip_next=0
+          continue
         fi
+        if _prompt_interaction_option_takes_value "$command_lower" "$plain"; then
+          skip_next=1
+          continue
+        fi
+        [[ $plain == -- ]] && continue
+        [[ $plain == -* ]] && continue
+        remote_text=$plain
+        break
       done
-    else
+      ;;
+    scp|rsync)
       for (( index = command_index + 1; index <= token_count; index++ )); do
         plain=${plain_tokens[index]}
         if (( skip_next )); then
@@ -1117,62 +1080,189 @@ _prompt_interaction_classify() {
           continue
         fi
         [[ $plain == -* ]] && continue
-        query_text=$plain
-        break
+        if [[ $plain == *://* || $plain == [^/]##:* ||
+              $plain == *@*:* ]]; then
+          remote_text=$plain
+          break
+        fi
       done
-    fi
-  elif [[ $command_lower == (conda|pyenv|rbenv|nvm|mise|direnv|export|unset|source|.) ]]; then
-    _PROMPT_INTERACTION_KIND=environment interaction_view=environment
-    environment_text=$last_operand
-    if [[ $command_lower == (export|unset) && -n $environment_text ]]; then
-      environment_text=${environment_text%%=*}
-    fi
-  else
-    # Exact high-signal test/build forms. Unknown tools remain the neutral RUN
-    # lens rather than receiving a guessed purpose.
-    if [[ $command_lower == (pytest|bats|rspec|jest|vitest) ]]; then
-      is_test=1
-      task_text=${operation:-$command_name}
-    elif [[ $operation_lower == test &&
-            $command_lower == (swift|cargo|go|npm|pnpm|yarn|bun|make|just|task|gradle|mvn|mix|dotnet|xcodebuild) ]]; then
-      is_test=1
-      task_text=$operation
-    elif [[ $command_lower == zsh ]]; then
+      ;;
+    curl|wget)
       for (( index = command_index + 1; index <= token_count; index++ )); do
         plain=${plain_tokens[index]}
-        if [[ $plain == *tests/* || $plain == *test*.zsh ]]; then
-          is_test=1
-          task_text=$plain
-          break
+        if [[ $plain == -* ]]; then
+          saw_option=1
+          continue
         fi
-      done
-    fi
-    if (( is_test )) && [[ $operation_lower == test ]]; then
-      for (( index = operation_index + 1; index < token_count; index++ )); do
-        if [[ ${plain_tokens[index]} == (--filter|-F|-t|--test) ]]; then
-          task_text=${plain_tokens[index + 1]}
-          break
+        if [[ $plain == *://* ]]; then
+          remote_text=$plain
+          continue
         fi
+        (( ! saw_option )) && [[ -z $remote_text ]] && remote_text=$plain
       done
-    fi
-    if [[ $operation_lower == build &&
-          $command_lower == (swift|cargo|go|npm|pnpm|yarn|bun|gradle|mvn|mix|dotnet|xcodebuild) ]]; then
-      is_build=1
-      task_text=$operation
-    elif [[ $command_lower == (make|cmake|ninja|xcode|xcodebuild) ]] &&
-         (( ! is_test )); then
-      is_build=1
-      task_text=${operation:-build}
-    fi
-
-    if (( is_test )); then
-      _PROMPT_INTERACTION_KIND=test interaction_view=test
-    elif (( is_build )); then
-      _PROMPT_INTERACTION_KIND=build interaction_view=build
+      # Curl and wget have large evolving option grammars. With any option
+      # present, omit the excerpt rather than risk repeating a header, token,
+      # output file, or other option value under a misleading endpoint label.
+      (( saw_option )) && remote_text=''
+      ;;
+  esac
+  if [[ -n $remote_text && $remote_text == *://* ]]; then
+    endpoint_scheme=${remote_text%%://*}
+    endpoint_authority=${remote_text#*://}
+    endpoint_authority=${endpoint_authority%%/*}
+    endpoint_authority=${endpoint_authority%%\?*}
+    endpoint_authority=${endpoint_authority%%\#*}
+    endpoint_authority=${endpoint_authority##*@}
+    if [[ -n $endpoint_scheme && -n $endpoint_authority ]]; then
+      remote_text="${endpoint_scheme}://${endpoint_authority}"
     else
-      _PROMPT_INTERACTION_KIND=run interaction_view=run
+      remote_text=''
     fi
+  elif [[ -n $remote_text && $command_lower == (curl|wget) ]]; then
+    remote_text=${remote_text%%\?*}
+    remote_text=${remote_text%%\#*}
+    remote_text=${remote_text##*@}
+    remote_text=${remote_text%%/*}
   fi
+  return 0
+}
+
+# Git or the g workspace entry. Writes action.
+_prompt_interaction_match_git() {
+  [[ $command_lower == (git|g) ]] || return 1
+  _PROMPT_INTERACTION_KIND=git interaction_view=git
+  case $operation_lower in
+    branches) action='likely open the local recent-branch workspace' ;;
+    help) action='likely show Git or Compozsh Git help' ;;
+    review) action='likely open the local Git review workspace' ;;
+    worktree) action='likely open local Git worktree actions' ;;
+    status) action='likely inspect working tree' ;;
+    diff|show|log) action='likely review repository history or changes' ;;
+    add) action='likely stage selected changes' ;;
+    commit) action='likely record staged changes' ;;
+    switch|checkout) action='likely change repository position' ;;
+    pull|fetch) action='may contact a remote to update repository data' ;;
+    push) action='may contact a remote to publish commits' ;;
+    merge|rebase|cherry-pick) action='likely integrate repository history' ;;
+    *) action='likely run a Git operation' ;;
+  esac
+  return 0
+}
+
+# A directory-changing command or the highlighter's matching AUTO_CD
+# observation. Writes action and, for AUTO_CD, first_operand.
+_prompt_interaction_match_navigate() {
+  [[ $command_lower == (cd|pushd|popd|j|z|mkcd) || $autocd == 1 ]] || return 1
+  _PROMPT_INTERACTION_KIND=navigate interaction_view=navigate
+  action='likely change shell location · Tab can browse'
+  if (( autocd )); then
+    first_operand=$command_name
+    action='likely change shell location via AUTO_CD · Tab can browse'
+  fi
+  return 0
+}
+
+# A familiar search tool. Writes query_text: find's name or path pattern, or
+# another tool's first operand that is not an option value.
+_prompt_interaction_match_search() {
+  [[ $command_lower == (rg|grep|egrep|fgrep|find|mdfind|ag|ack) ]] || return 1
+  local plain=''
+  local -i index=0 skip_next=0
+
+  _PROMPT_INTERACTION_KIND=search interaction_view=search
+  if [[ $command_lower == find ]]; then
+    for (( index = command_index + 1; index < token_count; index++ )); do
+      plain=${plain_tokens[index]}
+      if [[ $plain == (-name|-iname|-path|-ipath|-regex|-iregex) ]]; then
+        query_text=${plain_tokens[index + 1]}
+        break
+      fi
+    done
+    return 0
+  fi
+  for (( index = command_index + 1; index <= token_count; index++ )); do
+    plain=${plain_tokens[index]}
+    if (( skip_next )); then
+      skip_next=0
+      continue
+    fi
+    if _prompt_interaction_option_takes_value "$command_lower" "$plain"; then
+      skip_next=1
+      continue
+    fi
+    [[ $plain == -* ]] && continue
+    query_text=$plain
+    break
+  done
+  return 0
+}
+
+# An environment manager or shell environment builtin. Writes
+# environment_text: the last operand, without an export or unset value.
+_prompt_interaction_match_environment() {
+  [[ $command_lower == (conda|pyenv|rbenv|nvm|mise|direnv|export|unset|source|.) ]] ||
+    return 1
+  _PROMPT_INTERACTION_KIND=environment interaction_view=environment
+  environment_text=$last_operand
+  if [[ $command_lower == (export|unset) && -n $environment_text ]]; then
+    environment_text=${environment_text%%=*}
+  fi
+  return 0
+}
+
+# Exact high-signal test forms. Writes task_text: the test operation, a
+# filter after it, or the test script.
+_prompt_interaction_match_test() {
+  local plain='' text=''
+  local -i index=0
+
+  if [[ $command_lower == (pytest|bats|rspec|jest|vitest) ]]; then
+    text=${operation:-$command_name}
+  elif [[ $operation_lower == test &&
+          $command_lower == (swift|cargo|go|npm|pnpm|yarn|bun|make|just|task|gradle|mvn|mix|dotnet|xcodebuild) ]]; then
+    text=$operation
+  elif [[ $command_lower == zsh ]]; then
+    for (( index = command_index + 1; index <= token_count; index++ )); do
+      plain=${plain_tokens[index]}
+      if [[ $plain == *tests/* || $plain == *test*.zsh ]]; then
+        text=$plain
+        break
+      fi
+    done
+    [[ -n $text ]] || return 1
+  else
+    return 1
+  fi
+  if [[ $operation_lower == test ]]; then
+    for (( index = operation_index + 1; index < token_count; index++ )); do
+      if [[ ${plain_tokens[index]} == (--filter|-F|-t|--test) ]]; then
+        text=${plain_tokens[index + 1]}
+        break
+      fi
+    done
+  fi
+  _PROMPT_INTERACTION_KIND=test interaction_view=test
+  task_text=$text
+}
+
+# Exact high-signal build forms; TEST above keeps `make test`. Writes
+# task_text.
+_prompt_interaction_match_build() {
+  if [[ $operation_lower == build &&
+        $command_lower == (swift|cargo|go|npm|pnpm|yarn|bun|gradle|mvn|mix|dotnet|xcodebuild) ]]; then
+    task_text=$operation
+  elif [[ $command_lower == (make|cmake|ninja|xcode|xcodebuild) ]]; then
+    task_text=${operation:-build}
+  else
+    return 1
+  fi
+  _PROMPT_INTERACTION_KIND=build interaction_view=build
+}
+
+# Every other draft. Unknown tools remain the neutral RUN lens rather than
+# receiving a guessed purpose.
+_prompt_interaction_match_run() {
+  _PROMPT_INTERACTION_KIND=run interaction_view=run
 }
 
 # Rows step: append the classified view's rows, most specific first, then the

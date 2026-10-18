@@ -969,10 +969,10 @@ test_case 'living prompt interaction lens finds precommand heads after chains an
 # engineering/prompt.md "Adding an Interaction kind" orders the kinds (first
 # match wins): comment, leading-assignment-only environment, CAUTION, CHAIN,
 # PIPELINE, REDIRECT, owned task entries, REMOTE, GIT, NAVIGATE, SEARCH,
-# ENVIRONMENT, TEST / BUILD / RUN, then alias handling. Each kind first
-# matches alone; then a draft that also carries its lower neighbor's evidence
-# resolves to the higher kind. Owned task entries report the run kind with
-# their own ACTION.
+# ENVIRONMENT, TEST, BUILD, RUN, then alias handling; the classify step runs
+# one matcher per kind in that order. Each kind first matches alone; then a
+# draft that also carries its lower neighbor's evidence resolves to the
+# higher kind. Owned task entries report the run kind with their own ACTION.
 _test_living_prompt_interaction_kind_precedence_matrix() {
   test_make_temp_dir || return
   local output=''
@@ -1106,6 +1106,76 @@ _test_living_prompt_interaction_steps_keep_state_local() {
 }
 test_case 'living prompt interaction steps keep their shared state local to each view' \
   _test_living_prompt_interaction_steps_keep_state_local
+
+# Each kind's matcher works alone over the captured lex and heads facts: it
+# accepts its own evidence with status 0 and declines a neutral draft with
+# status 1 without writing the kind, the view or any view fact. The classify
+# step is swapped for one matcher at a time inside the model's own scope.
+_test_living_prompt_interaction_matchers_work_alone() {
+  test_make_temp_dir || return
+  local output=''
+  # Rows: matcher suffix, a draft carrying its evidence.
+  local -a rows=(
+    comment '# note' assignment 'EDITOR=vim' caution 'git push --force'
+    chain 'true && pwd' pipeline 'ls | sort' redirect 'printf x > out.txt'
+    task 'compozsh help ssh' remote 'ssh host' git 'git status'
+    navigate 'cd ..' search 'rg needle' environment 'export A=1'
+    test 'swift test --filter Unit' build make run 'printf hello'
+  )
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    shift
+    local matcher="" draft="" outcome=""
+    local -i failures=0
+    local -a names=(${(k)functions[(I)_prompt_interaction_match_*]})
+    (( ${#names} == $# / 2 )) || {
+      print -u2 -r -- "matcher rows cover ${#names} matchers: ${(j: :)${(@o)names}}"
+      exit 2
+    }
+    _prompt_interaction_view_facts() {
+      REPLY="$_PROMPT_INTERACTION_KIND|$interaction_view|$comment_text|$caution_command|$action|$task_operation|$task_text|$query_text|$remote_text|$environment_text|$first_operand"
+    }
+    _prompt_interaction_classify() {
+      local before=""
+      _prompt_interaction_view_facts
+      before=$REPLY
+      if "_prompt_interaction_match_$matcher"; then
+        outcome=accepted
+      else
+        _prompt_interaction_view_facts
+        outcome=declined
+        [[ $REPLY == "$before" ]] || outcome=wrote
+      fi
+      _PROMPT_INTERACTION_KIND=run interaction_view=run
+    }
+
+    while (( $# >= 2 )); do
+      matcher=$1 draft=$2
+      shift 2
+      outcome=""
+      _prompt_interaction_model "$draft"
+      [[ $outcome == accepted ]] || {
+        print -u2 -r -- "$matcher did not accept ${(qqq)draft}: $outcome"
+        (( ++failures ))
+      }
+      [[ $matcher == run ]] && continue
+      outcome=""
+      _prompt_interaction_model "printf hello"
+      [[ $outcome == declined ]] || {
+        print -u2 -r -- "$matcher did not decline a neutral draft cleanly: $outcome"
+        (( ++failures ))
+      }
+    done
+    (( !failures )) || exit 1
+    print -r -- matchers-alone
+  ' "$TEST_REPO_ROOT" "${rows[@]}") || return
+
+  test_assert_equal matchers-alone "$output"
+}
+test_case 'living prompt interaction matchers accept their own evidence and decline cleanly alone' \
+  _test_living_prompt_interaction_matchers_work_alone
 
 _test_living_prompt_interaction_edits_are_inert_and_reuse_autosuggestion_state() {
   test_make_temp_dir || return

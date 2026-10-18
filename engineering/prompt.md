@@ -142,11 +142,20 @@ short windows use bounded omission.
 - **Precedence** (first match wins): comment → leading-assignment-only
   environment → `CAUTION` → `CHAIN` → `PIPELINE` → `REDIRECT` → owned task
   entries → `REMOTE` → `GIT` → `NAVIGATE` → `SEARCH` → `ENVIRONMENT` →
-  `TEST` / `BUILD` / `RUN`, then alias handling. Place a new kind where it
+  `TEST` → `BUILD` → `RUN`, then alias handling. Place a new kind where it
   can't steal a more specific or safer view, and add rows for the neighbors
   it could shadow to the precedence matrix in `tests/prompt_lens_test.zsh`
   (`keep their precedence`), which checks each kind alone and against its
   lower neighbor's evidence.
+- **Matcher:** each kind is one `_prompt_interaction_match_<kind>` function
+  in `.zsh.addons/.zsh.prompt`, and `_prompt_interaction_classify` runs them
+  in the precedence order above, so adding a kind means writing its matcher,
+  inserting its name in that list and giving its view a row shape in the
+  rows step. A matcher reads only the lex and heads facts the model already
+  captured, keeps its scratch words local and stays provider-free. It
+  accepts (status 0) by writing the kind, the view and its own view facts,
+  or declines (status 1) and writes nothing; it needn't repeat the evidence
+  of matchers above it, because the list alone owns precedence.
 - **Rows:** non-READY views show at most five body rows (READY six);
   `EXPANSION` reserves the last row. Order rows from most to least specific
   and reuse captured-fact labels (`PROJECT`, `PATH`, `CURRENT`, `SCOPE`,
