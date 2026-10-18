@@ -2718,33 +2718,77 @@ _usb_createinstallmedia_run() {
   return $command_status
 }
 
-_usb_macos_execute() {
+# The media executors share one prologue and one epilogue; each validates its
+# own arguments between _usb_execution_begin and _usb_execution_authorize, and
+# revalidates its source and the target after authorizing.
+
+# Starts an execution with empty shared result evidence, failing closed when
+# the shared result support is unavailable.
+_usb_execution_begin() {
   emulate -L zsh
-  local installer=$1 identifier=$2 disk_fingerprint=$3 installer_fingerprint=$4
-  local minimum_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
-  local target_size=${11:-$minimum_size} volume=''
-  local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
   if (( ! ${+functions[_usb_result_reset]} )); then
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Shared USB result support is unavailable; nothing was written.'
     return 1
   fi
   _usb_result_reset
-  _USB_RESULT_SOURCE_VALIDATED=0
-  [[ $minimum_size == <-> && $target_size == <-> ]] || return 2
-  (( target_size >= minimum_size )) || return 2
-  [[ $request == flash-verify ]] || return 2
+}
+
+# Refuses a target that is one of the source's whole disks, shows the
+# validating stage, then authorizes unless the caller already has. Nothing has
+# been written when it fails. $1 target, $2 space-separated source whole disks,
+# $3 nonzero when the caller already authorized, $4 refusal for a target
+# holding the source, $5 stage title, $6 stage detail.
+_usb_execution_authorize() {
+  emulate -L zsh
+  local identifier=$1 source_disk=$2 authorized=$3
   if [[ -n $source_disk && " $source_disk " == *" $identifier "* ]]; then
-    _USB_RESULT_OUTCOME=failed
-    _USB_RESULT_ERROR='The selected drive contains the macOS installer source; nothing was written.'
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR=$4
     return 1
   fi
-  _usb_progress_stage 'Validating Apple installer and drive' \
-    info 'Checking the installer signature, captured identity, and exact external drive.' \
-    muted 'No disk data has been changed yet.'
+  _usb_progress_stage "$5" info "$6" muted 'No disk data has been changed yet.'
   (( authorized )) || _usb_authorize || {
     _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Administrator authorization failed; nothing was written.'
     return 1
   }
+}
+
+# Ejects the target, records the total time after the eject, then settles the
+# outcome: a failed action keeps its status and message, a failed eject after
+# a successful action fails with $4, and anything else is complete. $2 and $3
+# are the caller's typed action status and starting SECONDS.
+_usb_execution_finish() {
+  emulate -L zsh
+  local identifier=$1 eject_error=$4
+  local -i action_status=$2 execution_started=$3 eject_status=0
+  _usb_progress_stage 'Ejecting external drive' \
+    info 'Finishing the operation and making the drive safe to remove.'
+  _usb_eject "$identifier" >/dev/null 2>&1
+  eject_status=$?
+  (( eject_status == 0 )) && _USB_RESULT_EJECTED=1
+  _USB_RESULT_SECONDS=$(( SECONDS - execution_started ))
+  (( action_status )) && return $action_status
+  if (( eject_status )); then
+    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR=$eject_error
+    return $eject_status
+  fi
+  _USB_RESULT_OUTCOME=complete
+}
+
+_usb_macos_execute() {
+  emulate -L zsh
+  local installer=$1 identifier=$2 disk_fingerprint=$3 installer_fingerprint=$4
+  local minimum_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
+  local target_size=${11:-$minimum_size} volume=''
+  local -i action_status=0 execution_started=$SECONDS stage_started=0
+  _usb_execution_begin || return
+  _USB_RESULT_SOURCE_VALIDATED=0
+  [[ $minimum_size == <-> && $target_size == <-> ]] || return 2
+  (( target_size >= minimum_size )) || return 2
+  [[ $request == flash-verify ]] || return 2
+  _usb_execution_authorize "$identifier" "$source_disk" "$authorized" \
+    'The selected drive contains the macOS installer source; nothing was written.' \
+    'Validating Apple installer and drive' \
+    'Checking the installer signature, captured identity, and exact external drive.' || return
   _usb_macos_installer_revalidate "$installer" "$installer_fingerprint" || {
     _USB_RESULT_OUTCOME=failed
     _USB_RESULT_ERROR='The macOS installer changed, is incomplete, or is not Apple-signed; nothing was written.'
@@ -2794,19 +2838,8 @@ _usb_macos_execute() {
       fi
     fi
   fi
-  _usb_progress_stage 'Ejecting external drive' \
-    info 'Finishing the operation and making the drive safe to remove.'
-  _usb_eject "$identifier" >/dev/null 2>&1
-  eject_status=$?
-  (( eject_status == 0 )) && _USB_RESULT_EJECTED=1
-  _USB_RESULT_SECONDS=$(( SECONDS - execution_started ))
-  (( action_status )) && return $action_status
-  if (( eject_status )); then
-    _USB_RESULT_OUTCOME=failed
-    _USB_RESULT_ERROR='The macOS installer was created, but macOS could not eject the external drive.'
-    return $eject_status
-  fi
-  _USB_RESULT_OUTCOME=complete
+  _usb_execution_finish "$identifier" $action_status $execution_started \
+    'The macOS installer was created, but macOS could not eject the external drive.'
 }
 
 _usb_media_execute() {
@@ -2880,15 +2913,11 @@ _usb_execute() {
   local image_size=$5 request=$6 source_disk=${7:-} authorized=${8:-0}
   local checksum_algorithm=${9:-} expected_checksum=${10:-}
   local target_size=${11:-$image_size}
-  local -i action_status=0 eject_status=0 execution_started=$SECONDS stage_started=0
+  local -i action_status=0 execution_started=$SECONDS stage_started=0
   local -i verify_during_write=0
   local -i target_block_size=512
   local -a reply=()
-  if (( ! ${+functions[_usb_result_reset]} )); then
-    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Shared USB result support is unavailable; nothing was written.'
-    return 1
-  fi
-  _usb_result_reset
+  _usb_execution_begin || return
   _USB_RESULT_CHECKSUM_ALGORITHM=$checksum_algorithm
   _USB_RESULT_EXPECTED_CHECKSUM=$expected_checksum _USB_RESULT_IMAGE_CHECKSUM=''
   [[ $image_size == <-> && $target_size == <-> ]] || return 2
@@ -2904,18 +2933,10 @@ _usb_execute() {
   elif [[ -n $checksum_algorithm ]]; then
     return 2
   fi
-  if [[ -n $source_disk && " $source_disk " == *" $identifier "* ]]; then
-    _USB_RESULT_OUTCOME=failed
-    _USB_RESULT_ERROR='The selected drive contains the image source; nothing was written.'
-    return 1
-  fi
-  _usb_progress_stage 'Validating image and drive' \
-    info 'Checking the captured image and external-drive identity before writing.' \
-    muted 'No disk data has been changed yet.'
-  (( authorized )) || _usb_authorize || {
-    _USB_RESULT_OUTCOME=failed _USB_RESULT_ERROR='Administrator authorization failed; nothing was written.'
-    return 1
-  }
+  _usb_execution_authorize "$identifier" "$source_disk" "$authorized" \
+    'The selected drive contains the image source; nothing was written.' \
+    'Validating image and drive' \
+    'Checking the captured image and external-drive identity before writing.' || return
   _usb_image_revalidate "$image" "$image_fingerprint" "$image_size" || {
     _USB_RESULT_OUTCOME=failed
     _USB_RESULT_ERROR='The selected image changed after capture; nothing was written.'
@@ -3042,19 +3063,8 @@ _usb_execute() {
       _USB_RESULT_ERROR="The image SHA-$checksum_algorithm changed during writing; the USB must not be used."
     fi
   fi
-  _usb_progress_stage 'Ejecting external drive' \
-    info 'Finishing the operation and making the drive safe to remove.'
-  _usb_eject "$identifier" >/dev/null 2>&1
-  eject_status=$?
-  (( eject_status == 0 )) && _USB_RESULT_EJECTED=1
-  _USB_RESULT_SECONDS=$(( SECONDS - execution_started ))
-  (( action_status )) && return $action_status
-  if (( eject_status )); then
-    _USB_RESULT_OUTCOME=failed
-    _USB_RESULT_ERROR='The image was written, but macOS could not eject the external drive.'
-    return $eject_status
-  fi
-  _USB_RESULT_OUTCOME=complete
+  _usb_execution_finish "$identifier" $action_status $execution_started \
+    'The image was written, but macOS could not eject the external drive.'
 }
 
 _usb_result_choose() {

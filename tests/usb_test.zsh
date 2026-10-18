@@ -3120,6 +3120,84 @@ _test_usb_execution_preserves_failures_and_ejects() {
 test_case 'USB execution preserves write and verify failures while attempting eject' \
   _test_usb_execution_preserves_failures_and_ejects
 
+# Both executors share one prologue (result-support guard, source-drive refusal,
+# validating stage, authorization) and one epilogue (eject, total time measured
+# after the eject, outcome). The eject stand-in advances SECONDS by 1000 so the
+# total time proves it was measured after ejecting.
+_test_usb_execution_shared_prologue_and_epilogue() {
+  test_make_temp_dir || return
+  local output=''
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset"; source "$1/.zsh.addons/.zsh.usb" || exit
+    for parsing_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_{checksum_*,dd_progress_bytes}(N.); do source "$parsing_component"; done
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
+    typeset -ga trace=()
+    typeset -gi fake_authorize_status=0 fake_eject_status=0
+    _usb_progress_stage() { trace+=("stage:$1"); }
+    _usb_authorize() { trace+=(authorize); return $fake_authorize_status; }
+    _usb_authorization_valid() { return 0; }
+    _usb_macos_installer_revalidate() { trace+=(source-check); }
+    _usb_image_revalidate() { trace+=(source-check); }
+    _usb_target_revalidate() { trace+=(target-check); }
+    _usb_macos_prepare_volume() { trace+=(prepare); REPLY=/Volumes/CompozshInstaller; }
+    _usb_createinstallmedia_run() { trace+=(write); }
+    _usb_unmount() { trace+=(unmount); }
+    _usb_write_image() { trace+=(write); }
+    _usb_eject() { trace+=(eject); SECONDS=$(( SECONDS + 1000 )); return $fake_eject_status; }
+    run() {
+      local -i run_status=0 timed=0
+      trace=()
+      if [[ $1 == macos ]]; then
+        _usb_macos_execute "/Applications/Install macOS Tahoe.app" disk7 disk-fingerprint \
+          installer-fingerprint 17179869184 flash-verify "$2" 0 "" "" 64000000000 >/dev/null 2>&1
+      else
+        _usb_execute /images/linux.iso disk7 disk-fingerprint image-fingerprint \
+          1048576 flash-only "$2" 0 "" "" 64000000000 >/dev/null 2>&1
+      fi
+      run_status=$?
+      (( ${_USB_RESULT_SECONDS:-0} >= 1000 && ${_USB_RESULT_SECONDS:-0} < 1100 )) && timed=1
+      print -r -- "$1-$3:$run_status|${(j:,:)trace}|$_USB_RESULT_OUTCOME|$_USB_RESULT_ERROR|started:${_USB_RESULT_STARTED-}|ejected:${_USB_RESULT_EJECTED-}|timed:$timed"
+    }
+    ( unfunction _usb_result_reset; run macos "" unsupported; run raw "" unsupported )
+    for kind in macos raw; do
+      run $kind "disk3 disk7" source
+      fake_authorize_status=1; run $kind "" unauthorized; fake_authorize_status=0
+      fake_eject_status=3; run $kind disk70 eject-failed; fake_eject_status=0
+      run $kind "" complete
+    done
+  ' "$TEST_REPO_ROOT") || return
+
+  local macos_trace='stage:Validating Apple installer and drive,authorize,source-check,target-check,stage:Revalidating exact target,target-check,stage:Preparing external drive,prepare,source-check,write,stage:Ejecting external drive,eject'
+  local raw_trace='stage:Validating image and drive,authorize,source-check,target-check,stage:Unmounting external drive,unmount,target-check,stage:Writing image,write,unmount,source-check,stage:Ejecting external drive,eject'
+  local kind=''
+  for kind in macos raw; do
+    test_assert_contains "$output" \
+      "$kind-unsupported:1||failed|Shared USB result support is unavailable; nothing was written.|started:|ejected:|timed:0" \
+      "the $kind executor did not fail closed without shared result support" || return
+    test_assert_contains "$output" \
+      "$kind-unauthorized:1|stage:Validating ${${kind:#raw}:+Apple installer}${${kind:#macos}:+image} and drive,authorize|failed|Administrator authorization failed; nothing was written.|started:0|ejected:0|timed:0" \
+      "the $kind executor did not stop at failed authorization after the validating stage" || return
+  done
+  test_assert_contains "$output" \
+    'macos-source:1||failed|The selected drive contains the macOS installer source; nothing was written.|started:0|ejected:0|timed:0' \
+    'the macOS executor reached an effect on the drive holding its installer source' || return
+  test_assert_contains "$output" \
+    'raw-source:1||failed|The selected drive contains the image source; nothing was written.|started:0|ejected:0|timed:0' \
+    'the raw executor reached an effect on the drive holding its image source' || return
+  test_assert_contains "$output" \
+    "macos-eject-failed:3|$macos_trace|failed|The macOS installer was created, but macOS could not eject the external drive.|started:1|ejected:0|timed:1" \
+    'the macOS executor lost an eject failure or its total time' || return
+  test_assert_contains "$output" \
+    "raw-eject-failed:3|$raw_trace|failed|The image was written, but macOS could not eject the external drive.|started:1|ejected:0|timed:1" \
+    'the raw executor lost an eject failure or its total time' || return
+  test_assert_contains "$output" "macos-complete:0|$macos_trace|complete||started:1|ejected:1|timed:1" \
+    'the macOS executor did not complete after ejecting' || return
+  test_assert_contains "$output" "raw-complete:0|$raw_trace|complete||started:1|ejected:1|timed:1" \
+    'the raw executor did not complete after ejecting'
+}
+test_case 'USB execution shares the guarded prologue and eject epilogue across media' \
+  _test_usb_execution_shared_prologue_and_epilogue
+
 _test_usb_checksum_gates_write_and_reuses_algorithm() {
   test_make_temp_dir || return
   local output=''
