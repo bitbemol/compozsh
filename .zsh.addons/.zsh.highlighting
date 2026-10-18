@@ -483,10 +483,14 @@ _zle_syntax_highlight() {
   done
 }
 
+# Deleting and re-adding keeps one canonical redraw order in any peer order;
+# the deletes run only when the style may list one of these hooks.
 autoload -Uz add-zle-hook-widget
-add-zle-hook-widget -d line-pre-redraw _zle_prompt_pre_redraw 2>/dev/null
-add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight 2>/dev/null
-add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update 2>/dev/null
+if zstyle -m zle-line-pre-redraw widgets '*_zle_*'; then
+  add-zle-hook-widget -d line-pre-redraw _zle_prompt_pre_redraw
+  add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight
+  add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update
+fi
 add-zle-hook-widget line-pre-redraw _zle_syntax_highlight
 (( ${+functions[_zle_autosuggest_update]} )) &&
   add-zle-hook-widget line-pre-redraw _zle_autosuggest_update

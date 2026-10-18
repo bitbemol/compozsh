@@ -210,6 +210,7 @@ _compozsh_help_show() {
   if [[ ! -t 0 || ! -t 1 || -z $TERM || $TERM == dumb || -n ${NO_COLOR:-} ]] ||
      (( ! ${+functions[_zle_picker_run]} || ! ${+functions[_zle_ui_view]} ||
         ! ${+functions[_zle_ui_read_text]} )) ||
+     ! zmodload -F zsh/terminfo p:terminfo 2>/dev/null ||
      [[ -z ${terminfo[smcup]-} || -z ${terminfo[rmcup]-} ]]; then
     "$@"
     return $?

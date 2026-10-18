@@ -440,6 +440,41 @@ _test_shell_state_dump'
 test_case 'all supported peer traversal orders converge on the same complete shell state' \
   _test_peer_order_converges
 
+# Re-sourcing a peer moves its ZLE hooks after any hook a caller added since,
+# keeping the canonical redraw order and the exact numbered entries that
+# add-zle-hook-widget stores, whichever of editor and highlighting loads first.
+_test_peer_zle_hooks_reregister_after_caller_hooks() {
+  test_make_temp_dir || return
+  local mode='' output='' expected=$'line-init 2:_caller_hook 3:_zle_autosuggest_reset
+line-pre-redraw 4:_caller_hook 5:_zle_syntax_highlight 6:_zle_autosuggest_update 7:_zle_prompt_pre_redraw
+line-finish 3:_caller_hook 4:_zle_autosuggest_clear_display 5:_zle_prompt_line_finish'
+
+  for mode in editor-first highlighting-first; do
+    output=$(test_run_interactive "$TEST_TMP_DIR/home-$mode" '
+      source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_palette_color"
+      local -a peers=("$1/.zsh.addons/.zsh.editor" "$1/.zsh.addons/.zsh.highlighting")
+      local -a registered=()
+      local peer="" hook=""
+      [[ $2 == editor-first ]] || peers=("${(@Oa)peers}")
+      _caller_hook() { : }
+      for peer in "${peers[@]}"; do source "$peer" || exit 1; done
+      for hook in line-init line-pre-redraw line-finish; do
+        add-zle-hook-widget "$hook" _caller_hook || exit 2
+      done
+      for peer in "${peers[@]}"; do source "$peer" || exit 3; done
+      for hook in line-init line-pre-redraw line-finish; do
+        zstyle -g registered "zle-$hook" widgets || exit 4
+        print -r -- "$hook ${registered[*]}"
+      done
+    ' "$TEST_REPO_ROOT" "$mode" 2>&1) ||
+      test_fail "$mode hook registration failed: $output" || return
+    test_assert_equal "$expected" "$output" \
+      "$mode re-sourcing changed the registered ZLE hooks" || return
+  done
+}
+test_case 'peer ZLE hooks re-register after caller hooks with exact entries in either order' \
+  _test_peer_zle_hooks_reregister_after_caller_hooks
+
 # Retiring a public name removes only Compozsh's own definition. A user's alias
 # or function that reuses a retired name stays theirs in every load order, and
 # a peer's top-level unalias is only the guard before its own public command.

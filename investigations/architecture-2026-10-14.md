@@ -825,6 +825,76 @@ crossover is near 100 KiB, far above any diskutil answer seen here (7.6 KB
 for the filesystem catalog). Over-limit output is no longer written to disk
 in full: the reader stops after 1 MiB + 5 bytes.
 
+### P5-08: startup hook deletes only for registered hooks (C-11)
+
+`.zsh.editor` and `.zsh.highlighting` delete and re-add their ZLE hooks so
+that any peer order and any re-source end with one canonical hook order. Every
+delete ran at every startup as a hook-function call with a `/dev/null`
+redirection, although most of the named widgets are not registered yet: in
+lexical order the editor's six deletes and highlighting's delete of
+`_zle_syntax_highlight` change nothing. A hook's deletes now run only when
+`zstyle -m` finds one of the peer's widget names in that hook's style. At
+lexical startup that skips the editor's six; highlighting still runs its three,
+one of them a no-op. Deleting an absent widget changes nothing, so the stored
+lists, numbering included, stay the same. The redirections are gone because a
+delete with valid arguments never prints. `peer ZLE hooks re-register after caller hooks with
+exact entries in either order` was added first and passed before and after
+the change, as did the complete-state convergence case. It pins the exact
+numbered entries after a caller hook and a re-source in both peer orders.
+
+The plan's skip when the hooks are already in canonical order was not used.
+At lexical startup the second peer always finds an incomplete list: the
+editor registers before `_zle_syntax_highlight` exists. So that skip would
+save work only on a re-source, while guarding the deletes saves it at
+startup.
+
+`support/ui/.zsh.ui.zle_picker_show` no longer loads `zsh/terminfo` at source
+time. As the other peers do, `_zle_picker_screen_session` loads `p:terminfo`
+when a session opens, and `_compozsh_help_show` loads it before reading
+`smcup`/`rmcup`. The editor still loads the whole module at top level, so the
+complete shell state is unchanged in every order.
+
+Not changed: computing `_MANUAL_CACHE_IMPLEMENTATION` on first cache use. That
+moves the moment the identity is captured, so code redefined after sourcing
+enters the key. The manual-cache tests' provider stand-ins did, and three
+cases then failed with a cache miss in the reuse shell. A performance unit
+must not change behavior, and the source-time deparse costs about 0.1 ms, so
+the identity stays as it is. `manual cache identity follows the loaded owning
+code across shells and re-sourcing`, added as characterization, pins the same
+key across fresh shells and after a re-source, and a new key after
+re-sourcing changed owning code.
+
+Before tree `git archive 2bb16a1`, after tree the working tree; environment as
+in P5-01, load averages 2.6–4.1. The focused metric is a scratch script that
+copies each tree's hook block (from `autoload -Uz add-zle-hook-widget` to the
+end of `.zsh.editor` and of `.zsh.highlighting`). For each run and tree it
+starts one `env -i … LC_ALL=en_US.UTF-8 /bin/zsh -dfi` child with `zsh/zle`
+loaded and stub widgets. The child times the editor block, then defines
+`_zle_syntax_highlight` and times the highlighting block, which is the lexical
+startup order. The first `add-zle-hook-widget` call in each child also loads
+the function, as at startup. The trees alternate which goes first, and the
+script checks that both trees leave identical hook styles. The startup rows
+come from `isolated-startup.zsh … 15 en_US.UTF-8 direct`, and their A/A is
+the baseline tree against itself. Milliseconds, *median (range)*:
+
+| Metric | Mode | Runs | Before | After | Delta | A/A |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Hook blocks, editor then highlighting | fresh child | 31 | 2.947 (2.856–3.169) | 2.690 (2.593–3.061) | −0.257 (−8.7%) | −0.008 (0.3%) |
+| source | warm | 15 | 64.51 (63.50–68.62) | 64.07 (60.92–66.81) | −0.44 (−0.7%) | +0.04 (0.1%) |
+| tty-source | warm | 15 | 63.09 (61.94–65.15) | 61.96 (60.63–63.82) | −1.14 (−1.8%) | +0.27 (0.4%) |
+| process | warm | 15 | 71.49 (69.88–78.12) | 71.11 (67.26–74.69) | −0.38 (−0.5%) | −0.10 (0.1%) |
+| editable | warm | 15 | 96.22 (93.75–99.93) | 94.08 (92.35–96.63) | −2.14 (−2.2%) | +1.16 (1.2%) |
+
+An earlier before/after startup run gave warm source 64.08 → 62.16 ms and
+tty-source 61.81 → 60.24 ms. The fresh rows moved within their noise in both
+runs.
+
+Decision: kept. The focused gain is about 30 times its A/A difference, with
+identical hook state. Warm sourcing moved the same way in both startup runs,
+by more than its A/A difference, but its ranges overlap. The gain is about a
+quarter of the review's 1 ms estimate, because the canonical-order skip would
+not apply at startup and the deparse item was left unchanged.
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*

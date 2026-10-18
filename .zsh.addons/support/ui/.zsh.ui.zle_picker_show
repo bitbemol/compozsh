@@ -362,6 +362,4 @@ _zle_picker_review_style() {
   fi
 }
 
-zmodload zsh/terminfo
-
 :

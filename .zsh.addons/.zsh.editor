@@ -1681,20 +1681,28 @@ _bind_zle_keys autosuggest-accept-all \
 _bind_zle_keys compozsh-context-lens $'\ei'
 unfunction _bind_zle_keys
 
+# Deleting and re-adding moves these hooks after any added since, in one
+# canonical order. A hook's deletes run only when its style may list one of
+# them, since deleting an absent widget changes nothing but costs a call.
 autoload -Uz add-zle-hook-widget
-add-zle-hook-widget -d line-init _zle_autosuggest_reset 2>/dev/null
+zstyle -m zle-line-init widgets '*_zle_autosuggest_reset' &&
+  add-zle-hook-widget -d line-init _zle_autosuggest_reset
 add-zle-hook-widget line-init _zle_autosuggest_reset
 
-add-zle-hook-widget -d line-pre-redraw _zle_prompt_pre_redraw 2>/dev/null
-add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight 2>/dev/null
-add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update 2>/dev/null
+if zstyle -m zle-line-pre-redraw widgets '*_zle_*'; then
+  add-zle-hook-widget -d line-pre-redraw _zle_prompt_pre_redraw
+  add-zle-hook-widget -d line-pre-redraw _zle_syntax_highlight
+  add-zle-hook-widget -d line-pre-redraw _zle_autosuggest_update
+fi
 (( ${+functions[_zle_syntax_highlight]} )) &&
   add-zle-hook-widget line-pre-redraw _zle_syntax_highlight
 add-zle-hook-widget line-pre-redraw _zle_autosuggest_update
 add-zle-hook-widget line-pre-redraw _zle_prompt_pre_redraw
 
-add-zle-hook-widget -d line-finish _zle_autosuggest_clear_display 2>/dev/null
-add-zle-hook-widget -d line-finish _zle_prompt_line_finish 2>/dev/null
+if zstyle -m zle-line-finish widgets '*_zle_*'; then
+  add-zle-hook-widget -d line-finish _zle_autosuggest_clear_display
+  add-zle-hook-widget -d line-finish _zle_prompt_line_finish
+fi
 add-zle-hook-widget line-finish _zle_autosuggest_clear_display
 add-zle-hook-widget line-finish _zle_prompt_line_finish
 

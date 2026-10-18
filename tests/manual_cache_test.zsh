@@ -405,6 +405,46 @@ _test_manual_cache_configuration_base_and_identity() {
 test_case 'manual cache follows ZDOTDIR in both layouts and implementation or locale changes invalidate it' \
   _test_manual_cache_configuration_base_and_identity
 
+# The implementation identity is the loaded owning code: the same code keys the
+# same in every shell and after a re-source, and re-sourcing changed owning code
+# changes the key.
+_test_manual_cache_identity_follows_loaded_code() {
+  test_make_temp_dir || return
+  local manual='' changed='' output='' expected='' run=''
+  manual=$(<"$TEST_REPO_ROOT/.zsh.addons/.zsh.manual") || return
+  changed=${manual/$'\n_manual_cache_record_valid() {\n'/$'\n_manual_cache_record_valid() {\n  :\n'}
+  [[ $changed != "$manual" ]] ||
+    test_fail 'the changed-code fixture left .zsh.manual unchanged' || return
+  test_write_file "$TEST_TMP_DIR/changed/.zsh.manual" "$changed" || return
+
+  for run in first second; do
+    output=$(test_run_interactive "$TEST_TMP_DIR/home-$run" '
+      local key=""
+      source "$1/.zshrc" || exit 1
+      _manual_cache_key || exit 2
+      key=$REPLY
+      source "$1/.zsh.addons/.zsh.manual" || exit 3
+      _manual_cache_key || exit 4
+      [[ $REPLY == "$key" ]] || exit 5
+      source "$2" || exit 6
+      _manual_cache_key || exit 7
+      [[ $REPLY != "$key" ]] || exit 8
+      print -r -- "$key"
+    ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/changed/.zsh.manual" 2>&1) ||
+      test_fail "the $run shell's cache identity check failed: $output" || return
+    [[ ${#output} -eq 64 && $output != *[^0-9a-f]* ]] ||
+      test_fail "the $run shell printed no cache key: $output" || return
+    if [[ -z $expected ]]; then
+      expected=$output
+    else
+      test_assert_equal "$expected" "$output" \
+        'the same code produced a different cache key in a fresh shell' || return
+    fi
+  done
+}
+test_case 'manual cache identity follows the loaded owning code across shells and re-sourcing' \
+  _test_manual_cache_identity_follows_loaded_code
+
 _test_manual_cache_recreates_removed_data() {
   test_make_temp_dir || return
   _test_manual_cache_public_fixture || return
