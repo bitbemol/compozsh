@@ -1820,8 +1820,10 @@ _xcode_logs_status() {
   return 0
 }
 
-# Derive presentation from one captured line. Results belong to the caller;
-# copying and matching retain the original snapshot independently.
+# Derive presentation from one captured line; copying and matching retain the
+# original snapshot independently. REPLY names a native record's severity and
+# stays empty for plain output; reply holds the display rows followed by one
+# role per row: (header body header-role text) or (raw text).
 _xcode_logs_format_line() {
   emulate -L zsh
   local raw=$1 time='' level='' scope='' body='' label='' role=''
@@ -1830,8 +1832,7 @@ _xcode_logs_format_line() {
   local -i MBEGIN=0 MEND=0
   local record_pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:blank:]]+([0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?)[[:blank:]]+(Df|Db|In|Er|Ft)[[:blank:]]+([^][]+)\[[0-9]+:[[:xdigit:]]+\]([[:blank:]](.*))?$'
   local scope_pattern='^\[([^][]+:[^][]+)\]([[:blank:]](.*))?$'
-  _xcode_logs_format_lines=("$raw") _xcode_logs_format_roles=(text)
-  REPLY=0
+  REPLY='' reply=("$raw" text)
   [[ $raw =~ $record_pattern ]] || return 0
   time=${match[1][1,12]} level=$match[3] scope=$match[4] body=$match[6]
   if [[ $body =~ $scope_pattern ]]; then
@@ -1844,9 +1845,7 @@ _xcode_logs_format_line() {
     Er) label=Error role=error ;;
     Ft) label=Fault role=error ;;
   esac
-  _xcode_logs_format_lines=("$time · $label · $scope" "$body")
-  _xcode_logs_format_roles=("$role" text)
-  REPLY=1
+  REPLY=$label reply=("$time · $label · $scope" "$body" "$role" text)
   return 0
 }
 
@@ -1866,9 +1865,8 @@ _xcode_logs_collect() {
   elif [[ -n ${_ZLE_PICKER_EXCLUDE:-} ]]; then
     exclusion="(#i)(*~*${(b)_ZLE_PICKER_EXCLUDE}*)"
   fi
-  local -a lines=("${(@f)_xcode_logs_snapshot}") matched=()
-  local -a _xcode_logs_format_lines=() _xcode_logs_format_roles=()
-  local -i index=0 final_newline=0 changed=0 previous_total=${_xcode_logs_total:-0}
+  local -a lines=("${(@f)_xcode_logs_snapshot}") doc_lines=() doc_roles=()
+  local -i index=0 final_newline=0 changed=0 half=0 previous_total=${_xcode_logs_total:-0}
   [[ $_xcode_logs_snapshot == *$'\n' ]] && final_newline=1
   if [[ -z $_xcode_logs_snapshot ]]; then
     lines=()
@@ -1881,10 +1879,9 @@ _xcode_logs_collect() {
   for line in "${lines[@]}"; do
     (( ++index ))
     _xcode_logs_format_line "$line"
-    level=''
-    if (( REPLY )); then
+    level=$REPLY
+    if [[ -n $level ]]; then
       (( ++_xcode_logs_native ))
-      level=${${_xcode_logs_format_lines[1]#* · }%% · *}
       [[ $level == Error ]] && (( ++_xcode_logs_errors ))
       [[ $level == Fault ]] && (( ++_xcode_logs_faults ))
     fi
@@ -1896,7 +1893,14 @@ _xcode_logs_collect() {
     fi
     [[ $line == ${~exclusion} ]] || continue
     (( ++_xcode_logs_matches ))
-    matched+=("$line")
+    # Keep this pass's presentation so each retained line is formatted once;
+    # a blank row separates a native record from the rows before it.
+    (( half = ${#reply} / 2 ))
+    if [[ -n $level ]] && (( ${#doc_lines} )); then
+      doc_lines+=('' "${(@)reply[1,half]}") doc_roles+=(text "${(@)reply[half+1,-1]}")
+    else
+      doc_lines+=("${(@)reply[1,half]}") doc_roles+=("${(@)reply[half+1,-1]}")
+    fi
     _xcode_logs_text+=$line
     (( index < ${#lines} || final_newline )) && _xcode_logs_text+=$'\n'
   done
@@ -1906,16 +1910,7 @@ _xcode_logs_collect() {
   if [[ $previous_text != "$_xcode_logs_text" ]] ||
      (( !${#_ZLE_PICKER_DOCUMENT_LINES} || (previous_total == 0) != (_xcode_logs_total == 0) )); then
     changed=1
-    _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
-    for line in "${matched[@]}"; do
-      _xcode_logs_format_line "$line"
-      if (( ${#_ZLE_PICKER_DOCUMENT_LINES} && REPLY )); then
-        _ZLE_PICKER_DOCUMENT_LINES+=('')
-        _ZLE_PICKER_DOCUMENT_ROLES+=(text)
-      fi
-      _ZLE_PICKER_DOCUMENT_LINES+=("${_xcode_logs_format_lines[@]}")
-      _ZLE_PICKER_DOCUMENT_ROLES+=("${_xcode_logs_format_roles[@]}")
-    done
+    _ZLE_PICKER_DOCUMENT_LINES=("${doc_lines[@]}") _ZLE_PICKER_DOCUMENT_ROLES=("${doc_roles[@]}")
     if (( !_xcode_logs_matches )); then
       if (( _xcode_logs_total )); then
         _ZLE_PICKER_DOCUMENT_LINES=('No retained lines match this filter.' 'New matching output appears while following live.')

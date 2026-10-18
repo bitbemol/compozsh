@@ -57,6 +57,29 @@ bounded by the existing retained tail. This observation is not a cross-machine
 performance guarantee. Device output and cleanup tests use native-command
 spies; no physical hardware was installed or launched for this change.
 
+The collector formatted every retained line twice: once to read its severity
+and again for each matching line when the document was rebuilt. It now keeps
+the first pass's rows and roles (the formatter returns them through
+`REPLY`/`reply` as a pure helper), so a collection formats each retained line
+once; the document is still replaced only when the matching text changes.
+`benchmarks/xcode-log-collect.zsh` compares two trees over a 200-line mixed
+tail (163 native records, 27 plain and 10 blank lines), with indicative
+medians of 7 alternating runs on the development host under parallel load
+(2026-10-17, en_US.UTF-8; an A/A run of one tree stayed within ±1.1%):
+
+| Workload | Before (ms) | After (ms) | Change |
+| --- | --- | --- | --- |
+| Rebuild, no filter | 27.20 | 14.65 | -46% |
+| Rebuild, query `view` | 17.42 | 13.24 | -24% |
+| Rebuild, query `rv12` | 13.96 | 12.97 | -7% |
+| Unchanged matching text | 14.43 | 14.51 | +0.6% |
+| PTY key to frame, match count changed | 43.96 | 32.29 | -27% |
+| PTY key to frame, match count kept | 23.36 | 23.13 | -1% |
+
+The C locale showed the same shape (rebuild with no filter 26.82 → 14.61 ms,
+typed keys that changed the matches 43.63 → 31.62 ms). The unchanged case
+now keeps rows it discards, within the A/A noise.
+
 The completed change passed all 789 native regression tests, native syntax
 checks, isolated double-sourcing and whitespace checks. Help, public inventory
 and security contracts passed within that suite. Native PTY coverage includes

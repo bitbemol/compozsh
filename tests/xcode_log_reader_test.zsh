@@ -278,3 +278,95 @@ _test_xcode_logs_formatted_copy() {
   test_assert_equal formatted "$output"
 }
 test_case 'Xcode formatted logs separate entries while filtering and copying original metadata' _test_xcode_logs_formatted_copy
+
+_test_xcode_logs_document_views() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.zle_picker_inspect_invalidate"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    local nl=$'\''\n'\''
+    local er="2026-09-02 22:44:52.390 Er Example[123:456] [com.example:network] Request failed"
+    local plain="plain stdout line"
+    local info="2026-09-02 22:44:53.000 In Example[123:456] Retry started"
+    local ft="2026-09-02 22:44:54.5 Ft Example[123:abc] [com.example:db] Store corrupt"
+    local h_er="22:44:52.390 · Error · com.example:network" h_in="22:44:53.000 · Info · Example"
+    local h_ft="22:44:54.5 · Fault · com.example:db"
+    local _xcode_logs_snapshot="$er$nl$plain$nl$info$nl$nl$ft"
+    local _xcode_logs_text="" _xcode_logs_query="" _xcode_logs_notice="" _xcode_logs_severity=all
+    local _xcode_logs_total=0 _xcode_logs_matches=0 _xcode_logs_trimmed=0
+    local _xcode_run_clipboard=/fixture/pbcopy _xcode_run_context=fixture _ZLE_PICKER_EXCLUDE=""
+    local _ZLE_PICKER_DOCUMENT_KEY=""
+    local -i _ZLE_PICKER_INSPECT_WIDTH=0 _ZLE_PICKER_INSPECT_OFFSET=0 _ZLE_PICKER_DOCUMENT_TARGET_ROW=0
+    local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+    local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=() _ZLE_PICKER_DOCUMENT_WIDTHS=()
+    _t_document() {
+      [[ $REPLY == $2 && $_ZLE_PICKER_INSPECT_WIDTH == 0 &&
+         ${(j:|:)_ZLE_PICKER_DOCUMENT_LINES} == "$3" &&
+         ${(j:|:)_ZLE_PICKER_DOCUMENT_ROLES} == "$4" ]] || {
+        print -u2 -r -- "$1: REPLY=$REPLY lines=${(j:|:)_ZLE_PICKER_DOCUMENT_LINES} roles=${(j:|:)_ZLE_PICKER_DOCUMENT_ROLES}"
+        exit 1
+      }
+    }
+    _xcode_logs_collect "" 0
+    _t_document all 1 "$h_er|Request failed|$plain||$h_in|Retry started|||$h_ft|Store corrupt" \
+      "error|text|text|text|info|text|text|text|error|text"
+    [[ $_xcode_logs_text == "$_xcode_logs_snapshot" && $_xcode_logs_matches == 5 &&
+       $_xcode_logs_total == 5 && $_xcode_logs_native == 3 &&
+       $_xcode_logs_errors == 1 && $_xcode_logs_faults == 1 ]] || { print -u2 "all counts"; exit 2; }
+    _ZLE_PICKER_INSPECT_WIDTH=79
+    _xcode_logs_collect "" 0
+    [[ $REPLY == 0 && $_ZLE_PICKER_INSPECT_WIDTH == 79 &&
+       ${#_ZLE_PICKER_DOCUMENT_LINES} == 10 ]] || { print -u2 "unchanged text rebuilt"; exit 3; }
+    _xcode_logs_severity=issues
+    _xcode_logs_collect "" 0
+    _t_document issues 1 "$h_er|Request failed||$h_ft|Store corrupt" "error|text|text|error|text"
+    [[ $_xcode_logs_text == "$er$nl$ft" && $_xcode_logs_matches == 2 &&
+       $_xcode_logs_errors == 1 && $_xcode_logs_faults == 1 ]] || { print -u2 "issues counts"; exit 4; }
+    _xcode_logs_severity=all _ZLE_PICKER_EXCLUDE=FAILED
+    _xcode_logs_collect "" 0
+    _t_document exclusion 1 "$plain||$h_in|Retry started|||$h_ft|Store corrupt" \
+      "text|text|info|text|text|text|error|text"
+    [[ $_xcode_logs_matches == 4 && $_xcode_logs_errors == 1 ]] || { print -u2 "exclusion counts"; exit 5; }
+    _ZLE_PICKER_EXCLUDE=""
+    _xcode_logs_collect zzzz 0
+    _t_document no-match 1 "No retained lines match this filter.|New matching output appears while following live." "info|text"
+    _xcode_logs_snapshot=""
+    _xcode_logs_collect "" 0
+    _t_document empty 1 "Waiting for app output.|New messages appear automatically while following live." "info|text"
+    print documents
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal documents "$output"
+}
+test_case 'Xcode log collection keeps exact document lines and roles across views' _test_xcode_logs_document_views
+
+_test_xcode_logs_format_once() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.xcode"
+    for support_component in "$1/.zsh.addons/support/functions"/.zsh.pure.matching_*(N.); do source "$support_component"; done
+    local _xcode_logs_snapshot="" _xcode_logs_text="" _xcode_logs_query="" _xcode_logs_notice=""
+    local _xcode_logs_total=0 _xcode_logs_matches=0 _xcode_logs_trimmed=0 _xcode_logs_severity=all
+    local _xcode_run_clipboard=/fixture/pbcopy _xcode_run_context=fixture _ZLE_PICKER_EXCLUDE=""
+    local -a _ZLE_PICKER_DOCUMENT_LINES=() _ZLE_PICKER_DOCUMENT_ROLES=()
+    local -A _ZLE_PICKER_DOCUMENT_OFFSETS=() _ZLE_PICKER_DOCUMENT_ROWS=() _ZLE_PICKER_DOCUMENT_WIDTHS=()
+    local -i record=0 calls=0
+    for (( record = 1; record <= 50; ++record )); do
+      _xcode_logs_snapshot+="2026-09-02 22:44:52.390 In Example[123:456] [com.example:view] Record $record"$'\''\n'\''
+    done
+    functions -c _xcode_logs_format_line _test_real_format
+    _xcode_logs_format_line() { (( ++calls )); _test_real_format "$@"; }
+    _xcode_logs_collect "" 0
+    [[ $calls == 50 && $_xcode_logs_matches == 50 &&
+       ${#_ZLE_PICKER_DOCUMENT_LINES} == 149 && ${#_ZLE_PICKER_DOCUMENT_ROLES} == 149 &&
+       $_ZLE_PICKER_DOCUMENT_LINES[-1] == "Record 50" ]] || {
+      print -u2 -r -- "calls=$calls matches=$_xcode_logs_matches lines=${#_ZLE_PICKER_DOCUMENT_LINES} roles=${#_ZLE_PICKER_DOCUMENT_ROLES}"
+      exit 1
+    }
+    print once
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal once "$output"
+}
+test_case 'Xcode log collection formats each retained line once' _test_xcode_logs_format_once

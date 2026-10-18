@@ -60,6 +60,9 @@ document and in a reader-only document in two trees
 `xcode-scheme-parse.zsh` compares parsing plutil's conversion of large and
 entity-dense Xcode scheme lists, and one complete scheme capture, in two
 trees ([excellence run](excellence-2026-10-12.md#performance-results));
+`xcode-log-collect.zsh` compares building the Xcode / Logs reader document
+from a 200-line retained tail, in process and per typed key in a PTY, in two
+trees ([log monitor](xcode-log-monitor.md));
 `file-search-stream.zsh` compares the Git and Spotlight file-search provider
 captures over a real repository and stubbed listings in two trees
 ([excellence run](excellence-2026-10-12.md#performance-results));
