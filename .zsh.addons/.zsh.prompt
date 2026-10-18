@@ -2134,18 +2134,334 @@ _prompt_resolve_project_root() {
   return 1
 }
 
+# Project marker rules, in display order. Each row is `kind:value:evidence`,
+# where evidence holds space-separated alternatives and each alternative joins
+# `+`-separated tokens that must all hold. The capture tests `f:` (regular
+# file), `d:` (directory), `e:` (any entry) and `g:` (a bounded wildcard,
+# relative to the project root); `l:` and `t:` name a language or tool this
+# classification already chose, and `!` negates a token. Kinds: `language`,
+# `custom` (identifies a project without a language), `fallback` (only for an
+# otherwise unidentified folder), `tool`, `framework` and `environment` apply
+# to ordinary roots; `manifest` rows are the exact-manifest subset a saturated
+# root keeps. A `kind/group` row is skipped once an earlier row of its group
+# matched, so the first lockfile wins after a migration.
+typeset -ga _PROMPT_PROJECT_RULES=(
+  'language:zsh f:.zshrc+e:.git'
+  'language:c-cpp g:*.(c|cc|cpp|cxx|hh|hpp|hxx) g:src/*.(c|cc|cpp|cxx|hh|hpp|hxx) g:source/*.(c|cc|cpp|cxx|hh|hpp|hxx) g:Sources/*.(c|cc|cpp|cxx|hh|hpp|hxx) g:lib/*.(c|cc|cpp|cxx|hh|hpp|hxx) g:app/*.(c|cc|cpp|cxx|hh|hpp|hxx) g:include/*.(hh|hpp|hxx)'
+  'custom: f:CMakeLists.txt f:meson.build f:configure.ac f:configure.in f:MODULE.bazel f:WORKSPACE f:WORKSPACE.bazel f:conanfile.py f:conanfile.txt f:vcpkg.json f:xmake.lua'
+  'language:asm g:*.(asm|s|S) g:src/*.(asm|s|S) g:source/*.(asm|s|S) g:Sources/*.(asm|s|S) g:lib/*.(asm|s|S) g:app/*.(asm|s|S)'
+  'language:scheme g:*.(scm|ss) g:src/*.(scm|ss) g:source/*.(scm|ss) g:lib/*.(scm|ss)'
+  'language:racket g:*.rkt g:src/*.rkt g:source/*.rkt g:lib/*.rkt'
+  'language:lisp g:*.(lisp|cl|asd) g:src/*.(lisp|cl|asd) g:source/*.(lisp|cl|asd) g:lib/*.(lisp|cl|asd)'
+  'custom: g:*.(xcodeproj|xcworkspace)'
+  'language:objective-c g:*.(xcodeproj|xcworkspace)+g:*.(m|mm) g:*.mm !g:*.(xcodeproj|xcworkspace)+g:src/*.mm !g:*.(xcodeproj|xcworkspace)+g:source/*.mm !g:*.(xcodeproj|xcworkspace)+g:Sources/*.mm !g:*.(xcodeproj|xcworkspace)+g:app/*.mm'
+  'language:swift f:Package.swift g:*.swift~*/(Project|Workspace|Tuist).swift g:src/*.swift~*/(Project|Workspace|Tuist).swift g:source/*.swift~*/(Project|Workspace|Tuist).swift g:Sources/*.swift~*/(Project|Workspace|Tuist).swift g:app/*.swift~*/(Project|Workspace|Tuist).swift'
+  'language:node f:package.json'
+  'language:typescript f:tsconfig.json'
+  'language:deno f:deno.json f:deno.jsonc'
+  'language:php f:composer.json f:composer.lock g:*.php g:src/*.php g:app/*.php g:public/*.php'
+  'language:powershell g:*.(ps1|psm1|psd1) g:src/*.(ps1|psm1|psd1) g:scripts/*.(ps1|psm1|psd1) g:modules/*.(ps1|psm1|psd1)'
+  'language:kotlin g:*.kt g:*.kts~*.gradle.kts g:src/*.kt g:app/*.kt'
+  'language:lua g:*.lua~*/xmake.lua g:src/*.lua~*/xmake.lua g:lua/*.lua~*/xmake.lua g:lib/*.lua~*/xmake.lua g:*.rockspec'
+  'language:r f:DESCRIPTION f:renv.lock g:*.(R|Rmd|Rproj) g:R/*.R g:src/*.R g:scripts/*.R g:notebooks/*.Rmd'
+  'language:zig f:build.zig g:*.zig g:src/*.zig g:source/*.zig'
+  'language:gdscript f:project.godot'
+  'language:terraform f:.terraform.lock.hcl g:*.(tf|tf.json)'
+  'language:julia f:JuliaProject.toml f:Project.toml f:Manifest.toml g:*.jl g:src/*.jl g:scripts/*.jl'
+  'language:perl f:cpanfile f:Makefile.PL f:Build.PL g:*.(pl|pm) g:lib/*.(pl|pm) g:bin/*.(pl|pm) g:script/*.pl g:scripts/*.pl'
+  'language:fortran f:fpm.toml g:*.(f|f90|f95|f03) g:src/*.(f|f90|f95|f03) g:source/*.(f|f90|f95|f03) g:app/*.(f|f90|f95|f03)'
+  'language:ocaml f:dune-project g:*.(ml|mli|opam) g:src/*.(ml|mli) g:lib/*.(ml|mli)'
+  'custom: f:build.sbt f:build.sc'
+  'language:scala f:build.sbt f:build.sc g:*.scala g:src/*.scala g:app/*.scala'
+  'language:erlang f:rebar.config g:*.(erl|hrl) g:src/*.(erl|hrl) g:include/*.(erl|hrl)'
+  'language:gleam f:gleam.toml'
+  'language:groovy g:*.groovy g:src/*.groovy g:app/*.groovy'
+  'language:python f:pyproject.toml f:setup.py f:setup.cfg f:requirements.txt f:Pipfile f:poetry.lock f:pdm.lock f:hatch.toml f:environment.yml f:environment.yaml f:mkdocs.yml f:mkdocs.yaml f:uv.lock f:.python-version g:*.ipynb g:notebooks/*.ipynb'
+  'language:haskell f:stack.yaml f:cabal.project g:*.cabal'
+  'language:rust f:Cargo.toml'
+  'language:go f:go.mod f:go.work'
+  'language:ruby f:Gemfile f:.ruby-version g:*.gemspec'
+  'language:java g:*.java g:src/*.java g:app/*.java'
+  'custom: f:pom.xml f:build.gradle f:build.gradle.kts f:settings.gradle f:settings.gradle.kts'
+  'language:dotnet g:*.csproj'
+  'language:fsharp g:*.(fsproj|fs) g:src/*.fs g:app/*.fs'
+  'language:visual-basic g:*.(vbproj|vb) g:src/*.vb g:app/*.vb'
+  'language:dotnet g:*.(sln|slnx)+!l:dotnet+!l:fsharp+!l:visual-basic f:global.json+!l:dotnet+!l:fsharp+!l:visual-basic'
+  'language:dart f:pubspec.yaml'
+  'language:elixir f:mix.exs'
+  # Infrastructure-only and cross-language repositories may not contain a
+  # source file at their root, but these manifests still define a project.
+  'custom: f:terragrunt.hcl f:Pulumi.yaml f:Chart.yaml f:kustomization.yaml f:kustomization.yml f:serverless.yml f:serverless.yaml f:pixi.toml f:melos.yaml f:melos.yml f:_quarto.yml f:_quarto.yaml f:Makefile f:makefile f:GNUmakefile f:build.ninja f:buf.yaml f:buf.gen.yaml f:Justfile f:justfile f:Taskfile.yml f:Taskfile.yaml f:Dockerfile f:compose.yaml f:compose.yml f:docker-compose.yaml f:docker-compose.yml f:.devcontainer/devcontainer.json f:flake.nix f:shell.nix f:devenv.nix f:devenv.yaml f:mise.toml f:.mise.toml f:Vagrantfile f:supabase/config.toml'
+  # Shell scripts are ubiquitous in polyglot repos, so identify them only when
+  # no stronger built-in or locally extended project has been found.
+  'fallback:shell g:*.sh g:bin/*.sh g:scripts/*.sh g:src/*.sh'
+  'manifest:swift f:Package.swift'
+  'manifest:node f:package.json'
+  'manifest:typescript f:tsconfig.json'
+  'manifest:deno f:deno.json f:deno.jsonc'
+  'manifest:php f:composer.json f:composer.lock'
+  'manifest:gdscript f:project.godot'
+  'manifest:python f:pyproject.toml f:setup.py f:requirements.txt'
+  'manifest:rust f:Cargo.toml'
+  'manifest:go f:go.mod f:go.work'
+  'manifest:ruby f:Gemfile f:.ruby-version'
+  'manifest:dart f:pubspec.yaml'
+  'manifest:elixir f:mix.exs'
+  'manifest:dotnet f:global.json'
+  # Package managers and build systems.
+  'tool/node:bun f:bun.lock f:bun.lockb'
+  'tool/node:pnpm f:pnpm-lock.yaml'
+  'tool/node:yarn f:yarn.lock'
+  'tool/node:npm f:package-lock.json'
+  'tool:turbo f:turbo.json'
+  'tool:nx f:nx.json'
+  'tool:lerna f:lerna.json'
+  'tool:rush f:rush.json'
+  'tool:composer f:composer.json f:composer.lock'
+  'tool:swiftpm f:Package.swift'
+  'tool:xcode g:*.(xcodeproj|xcworkspace)'
+  'tool:xcworkspace g:*.xcworkspace'
+  'tool:cocoapods t:xcode+f:Podfile t:xcode+f:Podfile.lock'
+  'tool:carthage t:xcode+f:Cartfile t:xcode+f:Cartfile.resolved'
+  'tool:tuist t:xcode+f:Tuist.swift t:xcode+f:Project.swift t:xcode+f:Workspace.swift t:xcode+d:Tuist'
+  'tool:xcodegen t:xcode+f:project.yml t:xcode+f:project.yaml'
+  'tool:swiftlint t:xcode+f:.swiftlint.yml t:xcode+f:.swiftlint.yaml'
+  'tool:swiftformat t:xcode+f:.swiftformat'
+  'tool:fastlane t:xcode+f:Fastfile t:xcode+f:fastlane/Fastfile'
+  'tool:mint t:xcode+f:Mintfile'
+  'tool/python:uv f:uv.lock'
+  'tool/python:poetry f:poetry.lock'
+  'tool/python:pdm f:pdm.lock'
+  'tool/python:pixi f:pixi.toml f:pixi.lock'
+  'tool/python:hatch f:hatch.toml'
+  'tool/python:pipenv f:Pipfile'
+  'tool/python:conda f:environment.yml f:environment.yaml'
+  'tool/python:pip f:requirements.txt'
+  'tool:cargo f:Cargo.toml'
+  'tool:go-modules f:go.mod'
+  'tool:buf f:buf.yaml f:buf.gen.yaml'
+  'tool:stack f:stack.yaml'
+  'tool:cabal f:cabal.project g:*.cabal'
+  'tool:hpack l:haskell+f:package.yaml'
+  'tool:bundler f:Gemfile'
+  'tool:maven f:pom.xml'
+  'tool:gradle f:build.gradle f:build.gradle.kts f:settings.gradle f:settings.gradle.kts'
+  'tool:mill f:build.sc f:mill-build/build.sc'
+  'tool:solution g:*.(sln|slnx)'
+  'tool:nuget f:packages.lock.json f:Directory.Packages.props'
+  'tool:pub f:pubspec.yaml'
+  'tool:melos f:melos.yaml f:melos.yml'
+  'tool:mix f:mix.exs'
+  'tool:renv f:renv.lock'
+  'tool:pak f:pak.lock'
+  'tool:luarocks g:*.rockspec'
+  'tool:cpan f:cpanfile f:Makefile.PL f:Build.PL'
+  'tool:carton f:cpanfile.snapshot'
+  'tool:dzil f:dist.ini'
+  'tool:fpm f:fpm.toml'
+  'tool:dune f:dune-project'
+  'tool:opam g:*.opam'
+  'tool:sbt f:build.sbt'
+  'tool:rebar3 f:rebar.config'
+  'tool:cmake f:CMakeLists.txt'
+  'tool:meson f:meson.build'
+  'tool:autotools f:configure.ac f:configure.in'
+  'tool:bazel f:MODULE.bazel f:WORKSPACE f:WORKSPACE.bazel'
+  'tool:conan f:conanfile.py f:conanfile.txt'
+  'tool:vcpkg f:vcpkg.json'
+  'tool:xmake f:xmake.lua'
+  'tool:make f:Makefile f:makefile f:GNUmakefile'
+  'tool:ninja f:build.ninja'
+  'tool:just f:Justfile f:justfile'
+  'tool:task f:Taskfile.yml f:Taskfile.yaml'
+  'tool:terragrunt f:terragrunt.hcl'
+  'tool:tflint f:.tflint.hcl'
+  'tool:pulumi f:Pulumi.yaml'
+  'tool:helm f:Chart.yaml'
+  'tool:kustomize f:kustomization.yaml f:kustomization.yml'
+  'tool:serverless f:serverless.yml f:serverless.yaml'
+  'tool:asdf g:*.asd'
+  'tool:jupyter g:*.ipynb g:notebooks/*.ipynb'
+  # Frameworks use distinctive config files rather than parsing arbitrary source.
+  'framework:next g:next.config.*'
+  'framework:nuxt g:nuxt.config.*'
+  'framework:vite g:vite.config.*'
+  'framework:astro g:astro.config.*'
+  'framework:remix g:remix.config.*'
+  'framework:gatsby g:gatsby-config.*'
+  'framework:angular f:angular.json'
+  'framework:sveltekit f:svelte.config.js'
+  'framework:expo f:expo-env.d.ts'
+  'framework:react-native f:react-native.config.js'
+  'framework:electron g:forge.config.* g:electron-builder.yml g:electron-builder.yaml g:electron-builder.json g:electron-builder.json5 g:electron-builder.js g:electron-builder.ts'
+  'framework:storybook g:.storybook/main.*'
+  'framework:prisma f:prisma/schema.prisma'
+  'framework:django f:manage.py'
+  'framework:mkdocs f:mkdocs.yml f:mkdocs.yaml'
+  'framework:rails f:config/application.rb+f:bin/rails'
+  'framework:phoenix g:lib/*_web/router.ex'
+  'framework:tauri f:src-tauri/tauri.conf.json f:src-tauri/tauri.conf.json5'
+  'framework:flutter f:pubspec.yaml+d:lib+d:android f:pubspec.yaml+d:lib+d:ios'
+  'framework:laravel f:artisan'
+  'framework:symfony f:symfony.lock'
+  'framework:wordpress f:wp-config.php'
+  'framework:drupal f:core/lib/Drupal.php'
+  'framework:android f:app/src/main/AndroidManifest.xml'
+  'framework:quarto f:_quarto.yml f:_quarto.yaml'
+  'framework:neovim f:lazy-lock.json+d:lua'
+  'framework:supabase f:supabase/config.toml'
+  # Workspace and development-environment signals are intentionally compact.
+  'environment:workspace f:pnpm-workspace.yaml f:turbo.json f:nx.json f:lerna.json f:rush.json f:melos.yaml f:melos.yml f:go.work'
+  'environment:docker f:Dockerfile f:compose.yaml f:compose.yml f:docker-compose.yaml f:docker-compose.yml'
+  'environment:devcontainer f:.devcontainer/devcontainer.json'
+  'environment:nix f:flake.nix f:shell.nix'
+  'environment:devenv f:devenv.nix f:devenv.yaml'
+  'environment:mise f:mise.toml f:.mise.toml'
+  'environment:direnv f:.envrc'
+  'environment:vagrant f:Vagrantfile'
+)
+
+# Capture tokens derived once per shell from the constant rules above, for
+# ordinary and saturated roots; re-sourcing resets them with the table.
+typeset -ga _PROMPT_PROJECT_TOKENS=() _PROMPT_PROJECT_MANIFEST_TOKENS=()
+
+# List the distinct evidence tokens (`f:`, `d:`, `e:`, `g:`) that the rules in
+# the named array mention, negated ones included, in `reply`. Pure.
+_prompt_project_rule_tokens() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local rules_name=$1
+  reply=()
+  [[ $rules_name == [A-Za-z_][A-Za-z0-9_]# ]] || return 1
+  reply=(
+    ${(u)${(M)${${(s:+:)${(j:+:)${(s: :)${(j: :)${(@P)rules_name}#* }}}}#!}:#[fdeg]:*}}
+  )
+}
+
+# Classify one project root from captured marker evidence. Pure: it reads only
+# the rule table, the present evidence tokens and the resolver's source
+# languages named by its validated arguments, plus the saturated (`1`) and
+# custom-marker (`1`) flags, and returns `kind:value` entries (`language`,
+# `tool`, `framework`, `environment`) in `reply`. REPLY is `project` when a
+# language or project marker identified the folder, otherwise empty. A
+# saturated root keeps resolved languages first, then its manifest subset; an
+# ordinary root follows rule order and appends resolved languages before its
+# tools, frameworks and environment signals are decided.
+_prompt_project_classify() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local rules_name=$1 evidence_name=$2 resolved_name=$3 large=$4 custom=$5
+  REPLY=''
+  reply=()
+  [[ $rules_name == [A-Za-z_][A-Za-z0-9_]# &&
+     $evidence_name == [A-Za-z_][A-Za-z0-9_]# &&
+     $resolved_name == [A-Za-z_][A-Za-z0-9_]# &&
+     $large == [01] && $custom == [01] ]] || return 1
+
+  local -a evidence=("${(@P)evidence_name}")
+  local -a resolved=("${(@P)resolved_name}")
+  local row='' kind='' group='' value='' alt='' token='' pattern='' language=''
+  local -i custom_project=$custom held=0 matched=0 merged=0
+  local -a candidates=() languages=() tools=() frameworks=() environment=()
+  local -a groups=()
+
+  # Every alternative needs at least one present evidence token, so only rows
+  # naming one can match; filtering keeps rule order and skips the rest.
+  if (( ${#evidence} )); then
+    pattern="*[ +!](${(j:|:)${(@b)evidence}})(|[ +]*)"
+    candidates=(${(M)${(@P)rules_name}:#$~pattern})
+  fi
+  if (( large )); then
+    candidates=(${(M)candidates:#manifest:*})
+    for language in "${resolved[@]}"; do
+      [[ $language == shell ]] && continue
+      (( ${languages[(Ie)$language]} )) || languages+=("$language")
+    done
+  else
+    candidates=(${candidates:#manifest:*})
+  fi
+  # A sentinel ends the identity rows, so the resolved merge below always runs
+  # before tools, frameworks and environment signals are decided.
+  candidates+=('merge:')
+
+  for row in "${candidates[@]}"; do
+    kind=${${row%% *}%%:*}
+    value=${${row%% *}#*:}
+    row=${row#* }
+    group=''
+    if [[ $kind == */* ]]; then
+      group=${kind#*/}
+      kind=${kind%%/*}
+    fi
+    if (( !merged )) && [[ $kind == (tool|framework|environment|merge) ]]; then
+      merged=1
+      # Preserve language evidence found between the current directory and
+      # its owning root, including source trees deeper than the rules inspect.
+      for language in "${resolved[@]}"; do
+        [[ $language == shell ]] && continue
+        (( ${languages[(Ie)$language]} )) || languages+=("$language")
+      done
+      if (( ! ${#languages} && ! custom_project &&
+            ${resolved[(Ie)shell]} )); then
+        languages+=(shell)
+      fi
+    fi
+    [[ $kind == merge ]] && continue
+    [[ $kind == fallback ]] && (( ${#languages} || custom_project )) && continue
+    [[ -n $group ]] && (( ${groups[(Ie)$group]} )) && continue
+
+    matched=0
+    for alt in ${(s: :)row}; do
+      matched=1
+      for token in ${(s:+:)alt}; do
+        case ${token#!} in
+          (l:*) held=${languages[(Ie)${token#*:}]} ;;
+          (t:*) held=${tools[(Ie)${token#*:}]} ;;
+          (*) held=${evidence[(Ie)${token#!}]} ;;
+        esac
+        [[ $token == !* ]] && held=$(( !held ))
+        if (( !held )); then
+          matched=0
+          break
+        fi
+      done
+      (( matched )) && break
+    done
+    (( matched )) || continue
+
+    [[ -n $group ]] && groups+=("$group")
+    case $kind in
+      (language|manifest|fallback)
+        (( ${languages[(Ie)$value]} )) || languages+=("$value") ;;
+      (custom) custom_project=1 ;;
+      (tool) tools+=("$value") ;;
+      (framework) frameworks+=("$value") ;;
+      (environment) environment+=("$value") ;;
+    esac
+  done
+
+  # A bare Git directory with no recognizable project signal should not add
+  # an otherwise empty context row.
+  (( ${#languages} || custom_project )) && REPLY=project
+  reply=(
+    ${languages/#/language:} ${tools/#/tool:}
+    ${frameworks/#/framework:} ${environment/#/environment:}
+  )
+}
+
 # Find the nearest project directory and render every runtime identified there.
 _prompt_project_context() {
   emulate -L zsh
-  setopt localoptions multibyte
+  setopt localoptions multibyte EXTENDED_GLOB
 
   local dir='' project_root=''
   local language version expected color label
   local runtime_text warning_text
-  local marker hook
-  local -i custom_project=0 large_project=0 index=0
+  local marker hook token
+  local -i large_project=0 custom_marker=0 index=0
   local -i runtime_width=0 warning_width=0
-  local -a languages rendered rendered_widths wildcard_matches root_entries
+  local -a languages rendered rendered_widths matches root_entries markers
+  local -a rules tokens marker_evidence reply=()
   local -a tools frameworks environment warnings warning_widths attention
 
   _PROMPT_PROJECT_NAME_TEXT=''
@@ -2157,312 +2473,65 @@ _prompt_project_context() {
   _prompt_resolve_project_root "$PWD" || return
   project_root=$REPLY
   dir=$project_root
+  [[ -n $dir ]] || return
 
-  if [[ -n $dir ]]; then
-    languages=()
-    custom_project=0
-
-    # Detailed wildcard semantics are useful for ordinary project roots, but
-    # repeatedly proving absent patterns in a directory with thousands of
-    # generated entries makes latency scale with file count. Detect saturation
-    # from an unsorted bounded sample and keep only already-resolved language
-    # evidence plus exact manifest markers for that exceptional case.
-    large_project=$(( _PROMPT_RESOLVED_SOURCE_SCAN_SATURATED ||
-                      _PROMPT_RESOLVED_SOURCE_SCAN_UNSAFE ))
-    if (( !large_project )); then
-      root_entries=("$dir"/*(DNY129oN))
-      (( ${#root_entries} >= 129 )) && large_project=1
-    fi
-    if (( large_project )); then
-      for language in "${_PROMPT_RESOLVED_SOURCE_LANGUAGES[@]}"; do
-        [[ $language == shell ]] && continue
-        (( ${languages[(Ie)$language]} )) || languages+=("$language")
-      done
-      [[ -f "$dir/Package.swift" ]] && languages+=(swift)
-      [[ -f "$dir/package.json" ]] && languages+=(node)
-      [[ -f "$dir/tsconfig.json" ]] && languages+=(typescript)
-      [[ -f "$dir/deno.json" || -f "$dir/deno.jsonc" ]] && languages+=(deno)
-      [[ -f "$dir/composer.json" || -f "$dir/composer.lock" ]] && languages+=(php)
-      [[ -f "$dir/project.godot" ]] && languages+=(gdscript)
-      [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ||
-         -f "$dir/requirements.txt" ]] && languages+=(python)
-      [[ -f "$dir/Cargo.toml" ]] && languages+=(rust)
-      [[ -f "$dir/go.mod" || -f "$dir/go.work" ]] && languages+=(go)
-      [[ -f "$dir/Gemfile" || -f "$dir/.ruby-version" ]] && languages+=(ruby)
-      [[ -f "$dir/pubspec.yaml" ]] && languages+=(dart)
-      [[ -f "$dir/mix.exs" ]] && languages+=(elixir)
-      [[ -f "$dir/global.json" ]] && languages+=(dotnet)
-      languages=(${(u)languages})
-
-      for marker in "${_PROMPT_PROJECT_ROOT_MARKERS[@]}" \
-                    "${PROMPT_PROJECT_MARKERS[@]}"; do
-        if [[ -e "$dir/$marker" ]]; then
-          custom_project=1
-          break
-        fi
-      done
-      if (( ! ${#languages} && ! custom_project &&
-            ${_PROMPT_RESOLVED_SOURCE_LANGUAGES[(Ie)shell]} )); then
-        languages+=(shell)
-      fi
-      (( ${#languages} || custom_project )) || project_root=''
-    else
-
-    [[ -f "$dir/.zshrc" && -e "$dir/.git" ]] && languages+=(zsh)
-
-    # Compiled languages expose a toolchain rather than a runtime. Inspect the
-    # project root and one conventional source level without recursive searches.
-    wildcard_matches=(
-      "$dir"/*.c(NY1oN) "$dir"/*.cc(NY1oN) "$dir"/*.cpp(NY1oN) "$dir"/*.cxx(NY1oN)
-      "$dir"/*.hh(NY1oN) "$dir"/*.hpp(NY1oN) "$dir"/*.hxx(NY1oN)
-      "$dir"/{src,source,Sources,lib,app}/*.c(NY1oN)
-      "$dir"/{src,source,Sources,lib,app}/*.cc(NY1oN)
-      "$dir"/{src,source,Sources,lib,app}/*.cpp(NY1oN)
-      "$dir"/{src,source,Sources,lib,app}/*.cxx(NY1oN)
-      "$dir"/{src,source,Sources,include,lib,app}/*.hh(NY1oN)
-      "$dir"/{src,source,Sources,include,lib,app}/*.hpp(NY1oN)
-      "$dir"/{src,source,Sources,include,lib,app}/*.hxx(NY1oN)
-    )
-    (( ${#wildcard_matches} )) && languages+=(c-cpp)
-    if [[ -f "$dir/CMakeLists.txt" || -f "$dir/meson.build" ||
-          -f "$dir/configure.ac" || -f "$dir/configure.in" ||
-          -f "$dir/MODULE.bazel" || -f "$dir/WORKSPACE" ||
-          -f "$dir/WORKSPACE.bazel" || -f "$dir/conanfile.py" ||
-          -f "$dir/conanfile.txt" || -f "$dir/vcpkg.json" ||
-          -f "$dir/xmake.lua" ]]; then
-      custom_project=1
-    fi
-
-    wildcard_matches=(
-      "$dir"/*.asm(NY1oN) "$dir"/*.s(NY1oN) "$dir"/*.S(NY1oN)
-      "$dir"/{src,source,Sources,lib,app}/*.asm(NY1oN)
-      "$dir"/{src,source,Sources,lib,app}/*.s(NY1oN)
-      "$dir"/{src,source,Sources,lib,app}/*.S(NY1oN)
-    )
-    (( ${#wildcard_matches} )) && languages+=(asm)
-
-    wildcard_matches=("$dir"/*.scm(NY1oN) "$dir"/*.ss(NY1oN) "$dir"/{src,source,lib}/*.scm(NY1oN) "$dir"/{src,source,lib}/*.ss(NY1oN))
-    (( ${#wildcard_matches} )) && languages+=(scheme)
-    wildcard_matches=("$dir"/*.rkt(NY1oN) "$dir"/{src,source,lib}/*.rkt(NY1oN))
-    (( ${#wildcard_matches} )) && languages+=(racket)
-    wildcard_matches=(
-      "$dir"/*.lisp(NY1oN) "$dir"/*.cl(NY1oN) "$dir"/*.asd(NY1oN)
-      "$dir"/{src,source,lib}/*.lisp(NY1oN) "$dir"/{src,source,lib}/*.cl(NY1oN)
-      "$dir"/{src,source,lib}/*.asd(NY1oN)
-    )
-    (( ${#wildcard_matches} )) && languages+=(lisp)
-
-    wildcard_matches=("$dir"/*.xcodeproj(NY1oN) "$dir"/*.xcworkspace(NY1oN))
-    if (( ${#wildcard_matches} )); then
-      custom_project=1
-      wildcard_matches=("$dir"/*.m(NY1oN) "$dir"/*.mm(NY1oN))
-      (( ${#wildcard_matches} )) && languages+=(objective-c)
-    else
-      wildcard_matches=("$dir"/*.mm(NY1oN) "$dir"/{src,source,Sources,app}/*.mm(NY1oN))
-      (( ${#wildcard_matches} )) && languages+=(objective-c)
-    fi
-
-    wildcard_matches=("$dir"/*.swift(NY1oN) "$dir"/{src,source,Sources,app}/*.swift(NY1oN))
-    wildcard_matches=(${wildcard_matches:#*/Project.swift})
-    wildcard_matches=(${wildcard_matches:#*/Workspace.swift})
-    wildcard_matches=(${wildcard_matches:#*/Tuist.swift})
-    [[ -f "$dir/Package.swift" || ${#wildcard_matches} -gt 0 ]] && languages+=(swift)
-
-    [[ -f "$dir/package.json" ]] && languages+=(node)
-    [[ -f "$dir/tsconfig.json" ]] && languages+=(typescript)
-    [[ -f "$dir/deno.json" || -f "$dir/deno.jsonc" ]] && languages+=(deno)
-
-    wildcard_matches=("$dir"/*.php(NY1oN) "$dir"/{src,app,public}/*.php(NY1oN))
-    [[ -f "$dir/composer.json" || -f "$dir/composer.lock" ||
-       ${#wildcard_matches} -gt 0 ]] && languages+=(php)
-
-    wildcard_matches=(
-      "$dir"/*.ps1(NY1oN) "$dir"/*.psm1(NY1oN) "$dir"/*.psd1(NY1oN)
-      "$dir"/{src,scripts,modules}/*.ps1(NY1oN)
-      "$dir"/{src,scripts,modules}/*.psm1(NY1oN)
-      "$dir"/{src,scripts,modules}/*.psd1(NY1oN)
-    )
-    (( ${#wildcard_matches} )) && languages+=(powershell)
-
-    wildcard_matches=(
-      "$dir"/*.kt(NY1oN) "$dir"/*.kts(NY1oN) "$dir"/{src,app}/*.kt(NY1oN)
-    )
-    wildcard_matches=(${wildcard_matches:#*.gradle.kts})
-    (( ${#wildcard_matches} )) && languages+=(kotlin)
-
-    wildcard_matches=("$dir"/*.lua(NY1oN) "$dir"/{src,lua,lib}/*.lua(NY1oN) "$dir"/*.rockspec(NY1oN))
-    wildcard_matches=(${wildcard_matches:#*/xmake.lua})
-    (( ${#wildcard_matches} )) && languages+=(lua)
-
-    wildcard_matches=(
-      "$dir"/*.R(NY1oN) "$dir"/*.Rmd(NY1oN) "$dir"/{R,src,scripts}/*.R(NY1oN)
-      "$dir"/notebooks/*.Rmd(NY1oN) "$dir"/*.Rproj(NY1oN)
-    )
-    [[ -f "$dir/DESCRIPTION" || -f "$dir/renv.lock" ||
-       ${#wildcard_matches} -gt 0 ]] && languages+=(r)
-
-    wildcard_matches=("$dir"/*.zig(NY1oN) "$dir"/{src,source}/*.zig(NY1oN))
-    [[ -f "$dir/build.zig" || ${#wildcard_matches} -gt 0 ]] && languages+=(zig)
-
-    [[ -f "$dir/project.godot" ]] && languages+=(gdscript)
-
-    wildcard_matches=("$dir"/*.tf(NY1oN) "$dir"/*.tf.json(NY1oN))
-    [[ -f "$dir/.terraform.lock.hcl" || ${#wildcard_matches} -gt 0 ]] && languages+=(terraform)
-
-    wildcard_matches=("$dir"/*.jl(NY1oN) "$dir"/{src,scripts}/*.jl(NY1oN))
-    [[ -f "$dir/JuliaProject.toml" || -f "$dir/Project.toml" ||
-       -f "$dir/Manifest.toml" || ${#wildcard_matches} -gt 0 ]] && languages+=(julia)
-
-    wildcard_matches=("$dir"/*.pl(NY1oN) "$dir"/*.pm(NY1oN) "$dir"/{lib,bin,script,scripts}/*.pl(NY1oN) "$dir"/{lib,bin}/*.pm(NY1oN))
-    if [[ -f "$dir/cpanfile" || -f "$dir/Makefile.PL" || -f "$dir/Build.PL" ||
-          ${#wildcard_matches} -gt 0 ]]; then
-      languages+=(perl)
-    fi
-
-    wildcard_matches=(
-      "$dir"/*.f(NY1oN) "$dir"/*.f90(NY1oN) "$dir"/*.f95(NY1oN) "$dir"/*.f03(NY1oN)
-      "$dir"/{src,source,app}/*.f(NY1oN) "$dir"/{src,source,app}/*.f90(NY1oN)
-      "$dir"/{src,source,app}/*.f95(NY1oN) "$dir"/{src,source,app}/*.f03(NY1oN)
-    )
-    [[ -f "$dir/fpm.toml" || ${#wildcard_matches} -gt 0 ]] && languages+=(fortran)
-
-    wildcard_matches=("$dir"/*.ml(NY1oN) "$dir"/*.mli(NY1oN) "$dir"/{src,lib}/*.ml(NY1oN) "$dir"/{src,lib}/*.mli(NY1oN) "$dir"/*.opam(NY1oN))
-    [[ -f "$dir/dune-project" || ${#wildcard_matches} -gt 0 ]] && languages+=(ocaml)
-
-    wildcard_matches=(
-      "$dir"/*.scala(NY1oN) "$dir"/{src,app}/*.scala(NY1oN)
-    )
-    if [[ -f "$dir/build.sbt" || -f "$dir/build.sc" ]]; then
-      languages+=(scala)
-      custom_project=1
-    elif (( ${#wildcard_matches} )); then
-      languages+=(scala)
-    fi
-
-    wildcard_matches=("$dir"/*.erl(NY1oN) "$dir"/*.hrl(NY1oN) "$dir"/{src,include}/*.erl(NY1oN) "$dir"/{src,include}/*.hrl(NY1oN))
-    [[ -f "$dir/rebar.config" || ${#wildcard_matches} -gt 0 ]] && languages+=(erlang)
-
-    [[ -f "$dir/gleam.toml" ]] && languages+=(gleam)
-
-    wildcard_matches=(
-      "$dir"/*.groovy(NY1oN) "$dir"/{src,app}/*.groovy(NY1oN)
-    )
-    (( ${#wildcard_matches} )) && languages+=(groovy)
-
-    wildcard_matches=("$dir"/*.ipynb(NY1oN) "$dir"/notebooks/*.ipynb(NY1oN))
-    if [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ||
-          -f "$dir/setup.cfg" || -f "$dir/requirements.txt" ||
-          -f "$dir/Pipfile" || -f "$dir/poetry.lock" ||
-          -f "$dir/pdm.lock" || -f "$dir/hatch.toml" ||
-          -f "$dir/environment.yml" || -f "$dir/environment.yaml" ||
-          -f "$dir/mkdocs.yml" || -f "$dir/mkdocs.yaml" ||
-          -f "$dir/uv.lock" || -f "$dir/.python-version" ||
-          ${#wildcard_matches} -gt 0 ]]; then
-      languages+=(python)
-    fi
-
-    wildcard_matches=("$dir"/*.cabal(NY1oN))
-    [[ -f "$dir/stack.yaml" || -f "$dir/cabal.project" ||
-       ${#wildcard_matches} -gt 0 ]] && languages+=(haskell)
-
-    [[ -f "$dir/Cargo.toml" ]] && languages+=(rust)
-    [[ -f "$dir/go.mod" || -f "$dir/go.work" ]] && languages+=(go)
-
-    wildcard_matches=("$dir"/*.gemspec(NY1oN))
-    [[ -f "$dir/Gemfile" || -f "$dir/.ruby-version" ||
-       ${#wildcard_matches} -gt 0 ]] && languages+=(ruby)
-
-    wildcard_matches=(
-      "$dir"/*.java(NY1oN) "$dir"/{src,app}/*.java(NY1oN)
-    )
-    if (( ${#wildcard_matches} )); then
-      languages+=(java)
-    fi
-
-    if [[ -f "$dir/pom.xml" || -f "$dir/build.gradle" ||
-          -f "$dir/build.gradle.kts" ||
-          -f "$dir/settings.gradle" || -f "$dir/settings.gradle.kts" ]]; then
-      custom_project=1
-    fi
-
-    wildcard_matches=("$dir"/*.csproj(NY1oN))
-    (( ${#wildcard_matches} )) && languages+=(dotnet)
-    wildcard_matches=("$dir"/*.fsproj(NY1oN) "$dir"/*.fs(NY1oN) "$dir"/{src,app}/*.fs(NY1oN))
-    (( ${#wildcard_matches} )) && languages+=(fsharp)
-    wildcard_matches=("$dir"/*.vbproj(NY1oN) "$dir"/*.vb(NY1oN) "$dir"/{src,app}/*.vb(NY1oN))
-    (( ${#wildcard_matches} )) && languages+=(visual-basic)
-    wildcard_matches=("$dir"/*.sln(NY1oN) "$dir"/*.slnx(NY1oN))
-    if (( ${#wildcard_matches} )) &&
-       (( ! ${languages[(I)dotnet]} && ! ${languages[(I)fsharp]} &&
-          ! ${languages[(I)visual-basic]} )); then
-      languages+=(dotnet)
-    fi
-    if [[ -f "$dir/global.json" ]] &&
-       (( ! ${languages[(I)dotnet]} && ! ${languages[(I)fsharp]} &&
-          ! ${languages[(I)visual-basic]} )); then
-      languages+=(dotnet)
-    fi
-
-    [[ -f "$dir/pubspec.yaml" ]] && languages+=(dart)
-    [[ -f "$dir/mix.exs" ]] && languages+=(elixir)
-
-    # Infrastructure-only and cross-language repositories may not contain a
-    # source file at their root, but these manifests still define a project.
-    if [[ -f "$dir/terragrunt.hcl" || -f "$dir/Pulumi.yaml" ||
-          -f "$dir/Chart.yaml" || -f "$dir/kustomization.yaml" ||
-          -f "$dir/kustomization.yml" || -f "$dir/serverless.yml" ||
-          -f "$dir/serverless.yaml" || -f "$dir/pixi.toml" ||
-          -f "$dir/melos.yaml" || -f "$dir/melos.yml" ||
-          -f "$dir/_quarto.yml" || -f "$dir/_quarto.yaml" ||
-          -f "$dir/Makefile" || -f "$dir/makefile" ||
-          -f "$dir/GNUmakefile" || -f "$dir/build.ninja" ||
-          -f "$dir/buf.yaml" || -f "$dir/buf.gen.yaml" ||
-          -f "$dir/Justfile" ||
-          -f "$dir/justfile" || -f "$dir/Taskfile.yml" ||
-          -f "$dir/Taskfile.yaml" || -f "$dir/Dockerfile" ||
-          -f "$dir/compose.yaml" || -f "$dir/compose.yml" ||
-          -f "$dir/docker-compose.yaml" || -f "$dir/docker-compose.yml" ||
-          -f "$dir/.devcontainer/devcontainer.json" ||
-          -f "$dir/flake.nix" || -f "$dir/shell.nix" ||
-          -f "$dir/devenv.nix" || -f "$dir/devenv.yaml" ||
-          -f "$dir/mise.toml" || -f "$dir/.mise.toml" ||
-          -f "$dir/Vagrantfile" || -f "$dir/supabase/config.toml" ]]; then
-      custom_project=1
-    fi
-
-    for marker in "${PROMPT_PROJECT_MARKERS[@]}"; do
-      if [[ -e "$dir/$marker" ]]; then
-        custom_project=1
-        break
-      fi
-    done
-
-    # Shell scripts are ubiquitous in polyglot repos, so identify them only
-    # when no stronger built-in or locally extended project has been found.
-    if (( ! ${#languages} && ! custom_project )); then
-      wildcard_matches=("$dir"/*.sh(NY1oN) "$dir"/{bin,scripts,src}/*.sh(NY1oN))
-      (( ${#wildcard_matches} )) && languages+=(shell)
-    fi
-
-    # Preserve language evidence found between the current directory and its
-    # owning root, including source trees deeper than the conventional levels
-    # inspected above.
-    for language in "${_PROMPT_RESOLVED_SOURCE_LANGUAGES[@]}"; do
-      [[ $language == shell ]] && continue
-      (( ${languages[(Ie)$language]} )) || languages+=("$language")
-    done
-    if (( ! ${#languages} && ! custom_project &&
-          ${_PROMPT_RESOLVED_SOURCE_LANGUAGES[(Ie)shell]} )); then
-      languages+=(shell)
-    fi
-
-    # A bare Git directory with no recognizable project signal should not add
-    # an otherwise empty context row.
-    (( ${#languages} || custom_project )) || project_root=''
-    fi
+  # Detailed wildcard semantics are useful for ordinary project roots, but
+  # repeatedly proving absent patterns in a directory with thousands of
+  # generated entries makes latency scale with file count. Detect saturation
+  # from an unsorted bounded sample and keep only already-resolved language
+  # evidence plus exact manifest markers for that exceptional case.
+  large_project=$(( _PROMPT_RESOLVED_SOURCE_SCAN_SATURATED ||
+                    _PROMPT_RESOLVED_SOURCE_SCAN_UNSAFE ))
+  if (( !large_project )); then
+    root_entries=("$dir"/*(DNY129oN))
+    (( ${#root_entries} >= 129 )) && large_project=1
   fi
 
-  [[ -z $project_root ]] && return
+  # Capture every marker token the applicable rules name, testing each once
+  # with an exact check or a bounded wildcard; classification below is pure.
+  # The token lists derive from the constant rule table once per shell.
+  if (( large_project )); then
+    if (( ! ${#_PROMPT_PROJECT_MANIFEST_TOKENS} )); then
+      rules=(${(M)_PROMPT_PROJECT_RULES:#manifest:*})
+      _prompt_project_rule_tokens rules
+      _PROMPT_PROJECT_MANIFEST_TOKENS=("${reply[@]}")
+    fi
+    tokens=("${_PROMPT_PROJECT_MANIFEST_TOKENS[@]}")
+  else
+    if (( ! ${#_PROMPT_PROJECT_TOKENS} )); then
+      rules=(${_PROMPT_PROJECT_RULES:#manifest:*})
+      _prompt_project_rule_tokens rules
+      _PROMPT_PROJECT_TOKENS=("${reply[@]}")
+    fi
+    tokens=("${_PROMPT_PROJECT_TOKENS[@]}")
+  fi
+  for token in "${tokens[@]}"; do
+    case $token in
+      (f:*) [[ -f $dir/${token#f:} ]] ;;
+      (d:*) [[ -d $dir/${token#d:} ]] ;;
+      (e:*) [[ -e $dir/${token#e:} ]] ;;
+      (g:*)
+        matches=("$dir"/${~token#g:}(NY1oN))
+        (( ${#matches} )) ;;
+    esac && marker_evidence+=("$token")
+  done
+  markers=("${PROMPT_PROJECT_MARKERS[@]}")
+  (( large_project )) &&
+    markers=("${_PROMPT_PROJECT_ROOT_MARKERS[@]}" "${markers[@]}")
+  for marker in "${markers[@]}"; do
+    if [[ -e "$dir/$marker" ]]; then
+      custom_marker=1
+      break
+    fi
+  done
+
+  _prompt_project_classify _PROMPT_PROJECT_RULES marker_evidence \
+    _PROMPT_RESOLVED_SOURCE_LANGUAGES "$large_project" "$custom_marker" || return
+  [[ $REPLY == project ]] || return
+  languages=(${${(M)reply:#language:*}#language:})
+  tools=(${${(M)reply:#tool:*}#tool:})
+  frameworks=(${${(M)reply:#framework:*}#framework:})
+  environment=(${${(M)reply:#environment:*}#environment:})
   _PROMPT_PROJECT_ROOT_TEXT=$project_root
 
   for language in "${languages[@]}"; do
@@ -2520,199 +2589,6 @@ _prompt_project_context() {
     fi
   done
 
-  # Saturated roots skip optional wildcard-derived decoration. Both paths
-  # converge below on the same extension hooks, warnings and final arrays.
-  if (( ! large_project )); then
-    # Package managers and build systems. Lockfiles take precedence when several
-    # Node or Python artifacts coexist after a migration.
-    if [[ -f "$project_root/bun.lock" || -f "$project_root/bun.lockb" ]]; then
-      tools+=(bun)
-    elif [[ -f "$project_root/pnpm-lock.yaml" ]]; then
-      tools+=(pnpm)
-    elif [[ -f "$project_root/yarn.lock" ]]; then
-      tools+=(yarn)
-    elif [[ -f "$project_root/package-lock.json" ]]; then
-      tools+=(npm)
-    fi
-    [[ -f "$project_root/turbo.json" ]] && tools+=(turbo)
-    [[ -f "$project_root/nx.json" ]] && tools+=(nx)
-    [[ -f "$project_root/lerna.json" ]] && tools+=(lerna)
-    [[ -f "$project_root/rush.json" ]] && tools+=(rush)
-    [[ -f "$project_root/composer.json" || -f "$project_root/composer.lock" ]] && tools+=(composer)
-
-    [[ -f "$project_root/Package.swift" ]] && tools+=(swiftpm)
-    wildcard_matches=("$project_root"/*.xcodeproj(NY1oN) "$project_root"/*.xcworkspace(NY1oN))
-    if (( ${#wildcard_matches} )); then
-      tools+=(xcode)
-
-      wildcard_matches=("$project_root"/*.xcworkspace(NY1oN))
-      (( ${#wildcard_matches} )) && tools+=(xcworkspace)
-      [[ -f "$project_root/Podfile" || -f "$project_root/Podfile.lock" ]] && tools+=(cocoapods)
-      [[ -f "$project_root/Cartfile" || -f "$project_root/Cartfile.resolved" ]] && tools+=(carthage)
-      if [[ -f "$project_root/Tuist.swift" || -f "$project_root/Project.swift" ||
-            -f "$project_root/Workspace.swift" || -d "$project_root/Tuist" ]]; then
-        tools+=(tuist)
-      fi
-      if [[ -f "$project_root/project.yml" || -f "$project_root/project.yaml" ]]; then
-        tools+=(xcodegen)
-      fi
-      [[ -f "$project_root/.swiftlint.yml" ||
-         -f "$project_root/.swiftlint.yaml" ]] && tools+=(swiftlint)
-      [[ -f "$project_root/.swiftformat" ]] && tools+=(swiftformat)
-      [[ -f "$project_root/Fastfile" ||
-         -f "$project_root/fastlane/Fastfile" ]] && tools+=(fastlane)
-      [[ -f "$project_root/Mintfile" ]] && tools+=(mint)
-    fi
-
-    if [[ -f "$project_root/uv.lock" ]]; then
-      tools+=(uv)
-    elif [[ -f "$project_root/poetry.lock" ]]; then
-      tools+=(poetry)
-    elif [[ -f "$project_root/pdm.lock" ]]; then
-      tools+=(pdm)
-    elif [[ -f "$project_root/pixi.toml" || -f "$project_root/pixi.lock" ]]; then
-      tools+=(pixi)
-    elif [[ -f "$project_root/hatch.toml" ]]; then
-      tools+=(hatch)
-    elif [[ -f "$project_root/Pipfile" ]]; then
-      tools+=(pipenv)
-    elif [[ -f "$project_root/environment.yml" ||
-            -f "$project_root/environment.yaml" ]]; then
-      tools+=(conda)
-    elif [[ -f "$project_root/requirements.txt" ]]; then
-      tools+=(pip)
-    fi
-
-    [[ -f "$project_root/Cargo.toml" ]] && tools+=(cargo)
-    [[ -f "$project_root/go.mod" ]] && tools+=('go-modules')
-    [[ -f "$project_root/buf.yaml" || -f "$project_root/buf.gen.yaml" ]] && tools+=(buf)
-    [[ -f "$project_root/stack.yaml" ]] && tools+=(stack)
-    wildcard_matches=("$project_root"/*.cabal(NY1oN))
-    [[ -f "$project_root/cabal.project" || ${#wildcard_matches} -gt 0 ]] && tools+=(cabal)
-    if (( ${languages[(I)haskell]} )) && [[ -f "$project_root/package.yaml" ]]; then
-      tools+=(hpack)
-    fi
-    [[ -f "$project_root/Gemfile" ]] && tools+=(bundler)
-    [[ -f "$project_root/pom.xml" ]] && tools+=(maven)
-    [[ -f "$project_root/build.gradle" || -f "$project_root/build.gradle.kts" ||
-       -f "$project_root/settings.gradle" ||
-       -f "$project_root/settings.gradle.kts" ]] && tools+=(gradle)
-    [[ -f "$project_root/build.sc" || -f "$project_root/mill-build/build.sc" ]] && tools+=(mill)
-    wildcard_matches=("$project_root"/*.sln(NY1oN) "$project_root"/*.slnx(NY1oN))
-    (( ${#wildcard_matches} )) && tools+=(solution)
-    [[ -f "$project_root/packages.lock.json" ||
-       -f "$project_root/Directory.Packages.props" ]] && tools+=(nuget)
-    [[ -f "$project_root/pubspec.yaml" ]] && tools+=(pub)
-    [[ -f "$project_root/melos.yaml" || -f "$project_root/melos.yml" ]] && tools+=(melos)
-    [[ -f "$project_root/mix.exs" ]] && tools+=(mix)
-    [[ -f "$project_root/renv.lock" ]] && tools+=(renv)
-    [[ -f "$project_root/pak.lock" ]] && tools+=(pak)
-    wildcard_matches=("$project_root"/*.rockspec(NY1oN))
-    (( ${#wildcard_matches} )) && tools+=(luarocks)
-    [[ -f "$project_root/cpanfile" || -f "$project_root/Makefile.PL" ||
-       -f "$project_root/Build.PL" ]] && tools+=(cpan)
-    [[ -f "$project_root/cpanfile.snapshot" ]] && tools+=(carton)
-    [[ -f "$project_root/dist.ini" ]] && tools+=(dzil)
-    [[ -f "$project_root/fpm.toml" ]] && tools+=(fpm)
-    [[ -f "$project_root/dune-project" ]] && tools+=(dune)
-    wildcard_matches=("$project_root"/*.opam(NY1oN))
-    (( ${#wildcard_matches} )) && tools+=(opam)
-    [[ -f "$project_root/build.sbt" ]] && tools+=(sbt)
-    [[ -f "$project_root/rebar.config" ]] && tools+=(rebar3)
-
-    [[ -f "$project_root/CMakeLists.txt" ]] && tools+=(cmake)
-    [[ -f "$project_root/meson.build" ]] && tools+=(meson)
-    [[ -f "$project_root/configure.ac" || -f "$project_root/configure.in" ]] && tools+=(autotools)
-    [[ -f "$project_root/MODULE.bazel" || -f "$project_root/WORKSPACE" ||
-       -f "$project_root/WORKSPACE.bazel" ]] && tools+=(bazel)
-    [[ -f "$project_root/conanfile.py" || -f "$project_root/conanfile.txt" ]] && tools+=(conan)
-    [[ -f "$project_root/vcpkg.json" ]] && tools+=(vcpkg)
-    [[ -f "$project_root/xmake.lua" ]] && tools+=(xmake)
-    [[ -f "$project_root/Makefile" || -f "$project_root/makefile" ||
-       -f "$project_root/GNUmakefile" ]] && tools+=(make)
-    [[ -f "$project_root/build.ninja" ]] && tools+=(ninja)
-    [[ -f "$project_root/Justfile" || -f "$project_root/justfile" ]] && tools+=(just)
-    [[ -f "$project_root/Taskfile.yml" || -f "$project_root/Taskfile.yaml" ]] && tools+=(task)
-    [[ -f "$project_root/terragrunt.hcl" ]] && tools+=(terragrunt)
-    [[ -f "$project_root/.tflint.hcl" ]] && tools+=(tflint)
-    [[ -f "$project_root/Pulumi.yaml" ]] && tools+=(pulumi)
-    [[ -f "$project_root/Chart.yaml" ]] && tools+=(helm)
-    [[ -f "$project_root/kustomization.yaml" ||
-       -f "$project_root/kustomization.yml" ]] && tools+=(kustomize)
-    [[ -f "$project_root/serverless.yml" ||
-       -f "$project_root/serverless.yaml" ]] && tools+=(serverless)
-    wildcard_matches=("$project_root"/*.asd(NY1oN))
-    (( ${#wildcard_matches} )) && tools+=(asdf)
-
-    # Frameworks use distinctive config files rather than parsing arbitrary source.
-    wildcard_matches=("$project_root"/next.config.*(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(next)
-    wildcard_matches=("$project_root"/nuxt.config.*(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(nuxt)
-    wildcard_matches=("$project_root"/vite.config.*(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(vite)
-    wildcard_matches=("$project_root"/astro.config.*(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(astro)
-    wildcard_matches=("$project_root"/remix.config.*(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(remix)
-    wildcard_matches=("$project_root"/gatsby-config.*(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(gatsby)
-    [[ -f "$project_root/angular.json" ]] && frameworks+=(angular)
-    [[ -f "$project_root/svelte.config.js" ]] && frameworks+=(sveltekit)
-    [[ -f "$project_root/expo-env.d.ts" ]] && frameworks+=(expo)
-    [[ -f "$project_root/react-native.config.js" ]] && frameworks+=('react-native')
-    wildcard_matches=(
-      "$project_root"/forge.config.*(NY1oN)
-      "$project_root"/electron-builder.{yml,yaml,json,json5,js,ts}(NY1oN)
-    )
-    (( ${#wildcard_matches} )) && frameworks+=(electron)
-    wildcard_matches=("$project_root"/.storybook/main.*(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(storybook)
-    [[ -f "$project_root/prisma/schema.prisma" ]] && frameworks+=(prisma)
-    [[ -f "$project_root/manage.py" ]] && frameworks+=(django)
-    [[ -f "$project_root/mkdocs.yml" || -f "$project_root/mkdocs.yaml" ]] && frameworks+=(mkdocs)
-    [[ -f "$project_root/config/application.rb" && -f "$project_root/bin/rails" ]] && frameworks+=(rails)
-    wildcard_matches=("$project_root"/lib/*_web/router.ex(NY1oN))
-    (( ${#wildcard_matches} )) && frameworks+=(phoenix)
-    [[ -f "$project_root/src-tauri/tauri.conf.json" ||
-       -f "$project_root/src-tauri/tauri.conf.json5" ]] && frameworks+=(tauri)
-    if [[ -f "$project_root/pubspec.yaml" && -d "$project_root/lib" &&
-          ( -d "$project_root/android" || -d "$project_root/ios" ) ]]; then
-      frameworks+=(flutter)
-    fi
-    [[ -f "$project_root/artisan" ]] && frameworks+=(laravel)
-    [[ -f "$project_root/symfony.lock" ]] && frameworks+=(symfony)
-    [[ -f "$project_root/wp-config.php" ]] && frameworks+=(wordpress)
-    [[ -f "$project_root/core/lib/Drupal.php" ]] && frameworks+=(drupal)
-    [[ -f "$project_root/app/src/main/AndroidManifest.xml" ]] && frameworks+=(android)
-    [[ -f "$project_root/_quarto.yml" || -f "$project_root/_quarto.yaml" ]] && frameworks+=(quarto)
-    [[ -f "$project_root/lazy-lock.json" && -d "$project_root/lua" ]] && frameworks+=(neovim)
-    [[ -f "$project_root/supabase/config.toml" ]] && frameworks+=(supabase)
-
-    wildcard_matches=("$project_root"/*.ipynb(NY1oN) "$project_root"/notebooks/*.ipynb(NY1oN))
-    (( ${#wildcard_matches} )) && tools+=(jupyter)
-
-    # Workspace and development-environment signals are intentionally compact.
-    if [[ -f "$project_root/pnpm-workspace.yaml" || -f "$project_root/turbo.json" ||
-          -f "$project_root/nx.json" || -f "$project_root/lerna.json" ||
-          -f "$project_root/rush.json" || -f "$project_root/melos.yaml" ||
-          -f "$project_root/melos.yml" || -f "$project_root/go.work" ]]; then
-      environment+=(workspace)
-    fi
-    if [[ -f "$project_root/Dockerfile" || -f "$project_root/compose.yaml" ||
-          -f "$project_root/compose.yml" || -f "$project_root/docker-compose.yaml" ||
-          -f "$project_root/docker-compose.yml" ]]; then
-      environment+=(docker)
-    fi
-    [[ -f "$project_root/.devcontainer/devcontainer.json" ]] && environment+=(devcontainer)
-    [[ -f "$project_root/flake.nix" || -f "$project_root/shell.nix" ]] && environment+=(nix)
-    [[ -f "$project_root/devenv.nix" || -f "$project_root/devenv.yaml" ]] && environment+=(devenv)
-    [[ -f "$project_root/mise.toml" || -f "$project_root/.mise.toml" ]] && environment+=(mise)
-    [[ -f "$project_root/.envrc" ]] && environment+=(direnv)
-    [[ -f "$project_root/Vagrantfile" ]] && environment+=(vagrant)
-
-  fi
-
   # Custom hooks run after built-in detection and append through the safe helper.
   _PROMPT_PROJECT_EXTRA_SEGMENTS=()
   _PROMPT_PROJECT_EXTRA_WIDTHS=()
@@ -2720,23 +2596,21 @@ _prompt_project_context() {
     (( ${+functions[$hook]} )) && "$hook" "$project_root"
   done
 
-  if (( ! large_project )); then
-    for language in "${tools[@]}"; do
-      _prompt_color_text tool "$language"
-      rendered+=("$REPLY")
-      rendered_widths+=("${(m)#language}")
-    done
-    for language in "${frameworks[@]}"; do
-      _prompt_color_text framework "$language"
-      rendered+=("$REPLY")
-      rendered_widths+=("${(m)#language}")
-    done
-    for language in "${environment[@]}"; do
-      _prompt_color_text container "$language"
-      rendered+=("$REPLY")
-      rendered_widths+=("${(m)#language}")
-    done
-  fi
+  for language in "${tools[@]}"; do
+    _prompt_color_text tool "$language"
+    rendered+=("$REPLY")
+    rendered_widths+=("${(m)#language}")
+  done
+  for language in "${frameworks[@]}"; do
+    _prompt_color_text framework "$language"
+    rendered+=("$REPLY")
+    rendered_widths+=("${(m)#language}")
+  done
+  for language in "${environment[@]}"; do
+    _prompt_color_text container "$language"
+    rendered+=("$REPLY")
+    rendered_widths+=("${(m)#language}")
+  done
   for (( index = 1; index <= ${#_PROMPT_PROJECT_EXTRA_SEGMENTS}; index++ )); do
     rendered+=("${_PROMPT_PROJECT_EXTRA_SEGMENTS[index]}")
     rendered_widths+=("${_PROMPT_PROJECT_EXTRA_WIDTHS[index]:-0}")

@@ -166,6 +166,31 @@ print -r -u $event_fd -- "SOURCE|$(command tty)"
 }
 test_case 'runtime prompt native command clear and resize preserve READY toolchain' _test_runtime_prompt_native_clear
 
+# Build each `name=file,dir/,...` fixture under a fresh project folder, run
+# the detector there and print `name=items` with neutral color syntax
+# removed. A `saturated-` fixture also gets 129 padding entries, which pushes
+# its root onto the bounded saturated path.
+_test_prompt_project_matrix() {
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    _prompt_runtime_version() { REPLY=1; }
+    local root=$2 spec name file items
+    local -a files
+    shift 2
+    for spec in "$@"; do
+      name=${spec%%=*}
+      files=("$root/$name/"${^${(s:,:)spec#*=}})
+      [[ $name == saturated-* ]] && files+=("$root/$name/pad-"{1..129})
+      command mkdir -p -- "$root/$name" ${${(M)files:#*/}%/} ${${files:#*/}:h} || exit 1
+      for file in ${files:#*/}; do : >| "$file"; done
+      builtin cd -- "$root/$name" || exit 2
+      _prompt_project_context
+      items=${(j:,:)_PROMPT_PROJECT_ITEMS}
+      print -r -- "$name=${${items//\%F\{default\}/}//\%f/}"
+    done
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/matrix" "$@"
+}
+
 # Characterize the merged, ordered project items that root and conventional
 # folder language rules produce. `mix.exs` adds a marker-only language that is
 # always last in rule order, so a language the rules miss but the resolver
@@ -292,25 +317,238 @@ _test_prompt_project_detection_rules() {
     'shell-hidden='
   )
 
-  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
-    source "$1/.zsh.addons/.zsh.prompt"
-    _prompt_runtime_version() { REPLY=1; }
-    local root=$2 spec name file items
-    local -a files
-    shift 2
-    for spec in "$@"; do
-      name=${spec%%=*}
-      files=("$root/$name/"${^${(s:,:)spec#*=}})
-      command mkdir -p -- "$root/$name" ${${(M)files:#*/}%/} ${${files:#*/}:h} || exit 1
-      for file in ${files:#*/}; do : >| "$file"; done
-      builtin cd -- "$root/$name" || exit 2
-      _prompt_project_context
-      items=${(j:,:)_PROMPT_PROJECT_ITEMS}
-      print -r -- "$name=${${items//\%F\{default\}/}//\%f/}"
-    done
-  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/matrix" "${specs[@]}") || return
+  output=$(_test_prompt_project_matrix "${specs[@]}") || return
   expected_text=${(F)expected}
   test_assert_equal "$expected_text" "$output"
 }
 test_case 'prompt project detection characterizes root and conventional-folder language rules' \
   _test_prompt_project_detection_rules
+# Characterize marker-driven languages, tools, frameworks and environment
+# signals, one fixture each. Every fixture holds `.git/` and `x.sh`, so the
+# shell fallback also shows whether the markers made the folder a recognized
+# project. `saturated-` fixtures pin the bounded manifest-only path.
+_test_prompt_project_detection_markers() {
+  test_make_temp_dir || return
+  local pair='' output='' expected_text=''
+  local -i index=0
+  local -a specs=() expected=()
+  local -a pairs=(
+    'package.json|node 1'
+    'tsconfig.json|typescript 1'
+    'deno.json|deno 1'
+    'deno.jsonc|deno 1'
+    'composer.json|php 1,composer'
+    'composer.lock|php 1,composer'
+    'DESCRIPTION|r 1'
+    'renv.lock|r 1,renv'
+    'build.zig|zig 1'
+    'project.godot|gdscript 1'
+    '.terraform.lock.hcl|terraform 1'
+    'JuliaProject.toml|julia 1'
+    'Project.toml|julia 1'
+    'Manifest.toml|julia 1'
+    'cpanfile|perl 1,cpan'
+    'Makefile.PL|perl 1,cpan'
+    'Build.PL|perl 1,cpan'
+    'fpm.toml|fortran 1,fpm'
+    'dune-project|ocaml 1,dune'
+    'build.sbt|scala 1,sbt'
+    'build.sc|scala 1,mill'
+    'rebar.config|erlang 1,rebar3'
+    'gleam.toml|gleam 1'
+    'pyproject.toml|python 1'
+    'setup.py|python 1'
+    'setup.cfg|python 1'
+    'requirements.txt|python 1,pip'
+    'Pipfile|python 1,pipenv'
+    'poetry.lock|python 1,poetry'
+    'pdm.lock|python 1,pdm'
+    'hatch.toml|python 1,hatch'
+    'environment.yml|python 1,conda'
+    'environment.yaml|python 1,conda'
+    'mkdocs.yml|python 1,mkdocs'
+    'mkdocs.yaml|python 1,mkdocs'
+    'uv.lock|python 1,uv'
+    '.python-version|python 1'
+    'stack.yaml|haskell 1,stack'
+    'cabal.project|haskell 1,cabal'
+    'Cargo.toml|rust 1,cargo'
+    'go.mod|go 1,go-modules'
+    'go.work|go 1,workspace'
+    'Gemfile|ruby 1,bundler'
+    '.ruby-version|ruby 1'
+    'global.json|dotnet 1'
+    'pubspec.yaml|dart 1,pub'
+    '.zshrc|zsh 1'
+    'CMakeLists.txt|cmake'
+    'meson.build|meson'
+    'configure.ac|autotools'
+    'configure.in|autotools'
+    'MODULE.bazel|bazel'
+    'WORKSPACE|bazel'
+    'WORKSPACE.bazel|bazel'
+    'conanfile.py|conan'
+    'conanfile.txt|conan'
+    'vcpkg.json|vcpkg'
+    'xmake.lua|xmake'
+    'X.xcodeproj/|xcode'
+    'X.xcworkspace/|xcode,xcworkspace'
+    'pom.xml|maven'
+    'build.gradle|gradle'
+    'build.gradle.kts|gradle'
+    'settings.gradle|gradle'
+    'settings.gradle.kts|kotlin 1,gradle'
+    'terragrunt.hcl|terragrunt'
+    'Pulumi.yaml|pulumi'
+    'Chart.yaml|helm'
+    'kustomization.yaml|kustomize'
+    'kustomization.yml|kustomize'
+    'serverless.yml|serverless'
+    'serverless.yaml|serverless'
+    'pixi.toml|pixi'
+    'pixi.lock|shell 1,pixi'
+    'melos.yaml|melos,workspace'
+    'melos.yml|melos,workspace'
+    '_quarto.yml|quarto'
+    '_quarto.yaml|quarto'
+    'Makefile|make'
+    'makefile|make'
+    'GNUmakefile|make'
+    'build.ninja|ninja'
+    'buf.yaml|buf'
+    'buf.gen.yaml|buf'
+    'Justfile|just'
+    'justfile|just'
+    'Taskfile.yml|task'
+    'Taskfile.yaml|task'
+    'Dockerfile|docker'
+    'compose.yaml|docker'
+    'compose.yml|docker'
+    'docker-compose.yaml|docker'
+    'docker-compose.yml|docker'
+    '.devcontainer/devcontainer.json|devcontainer'
+    'flake.nix|nix'
+    'shell.nix|nix'
+    'devenv.nix|devenv'
+    'devenv.yaml|devenv'
+    'mise.toml|mise'
+    '.mise.toml|mise'
+    'Vagrantfile|vagrant'
+    'supabase/config.toml|supabase'
+    'bun.lock|shell 1,bun'
+    'bun.lockb|shell 1,bun'
+    'pnpm-lock.yaml|shell 1,pnpm'
+    'yarn.lock|shell 1,yarn'
+    'package-lock.json|shell 1,npm'
+    'turbo.json|shell 1,turbo,workspace'
+    'nx.json|shell 1,nx,workspace'
+    'lerna.json|shell 1,lerna,workspace'
+    'rush.json|shell 1,rush,workspace'
+    'pnpm-workspace.yaml|shell 1,workspace'
+    'Package.swift|swift 1,swiftpm'
+    'X.xcodeproj/,Podfile|xcode,cocoapods'
+    'X.xcodeproj/,Podfile.lock|xcode,cocoapods'
+    'X.xcodeproj/,Cartfile|xcode,carthage'
+    'X.xcodeproj/,Cartfile.resolved|xcode,carthage'
+    'X.xcodeproj/,Tuist.swift|xcode,tuist'
+    'X.xcodeproj/,Project.swift|xcode,tuist'
+    'X.xcodeproj/,Workspace.swift|xcode,tuist'
+    'X.xcodeproj/,Tuist/|xcode,tuist'
+    'X.xcodeproj/,project.yml|xcode,xcodegen'
+    'X.xcodeproj/,project.yaml|xcode,xcodegen'
+    'X.xcodeproj/,.swiftlint.yml|xcode,swiftlint'
+    'X.xcodeproj/,.swiftlint.yaml|xcode,swiftlint'
+    'X.xcodeproj/,.swiftformat|xcode,swiftformat'
+    'X.xcodeproj/,Fastfile|xcode,fastlane'
+    'X.xcodeproj/,fastlane/Fastfile|xcode,fastlane'
+    'X.xcodeproj/,Mintfile|xcode,mint'
+    'X.xcworkspace/,Podfile|xcode,xcworkspace,cocoapods'
+    'Podfile,Cartfile,Tuist.swift,Tuist/,project.yml,.swiftlint.yml,.swiftformat,Fastfile,Mintfile|shell 1'
+    'uv.lock,poetry.lock,pdm.lock,pixi.toml,hatch.toml,Pipfile,environment.yml,requirements.txt|python 1,uv'
+    'poetry.lock,pdm.lock,pixi.lock,hatch.toml,Pipfile,environment.yaml,requirements.txt|python 1,poetry'
+    'pdm.lock,pixi.toml,hatch.toml,Pipfile,environment.yml,requirements.txt|python 1,pdm'
+    'pixi.toml,hatch.toml,Pipfile,environment.yml,requirements.txt|python 1,pixi'
+    'hatch.toml,Pipfile,environment.yml,requirements.txt|python 1,hatch'
+    'Pipfile,environment.yml,requirements.txt|python 1,pipenv'
+    'environment.yaml,requirements.txt|python 1,conda'
+    'bun.lock,pnpm-lock.yaml,yarn.lock,package-lock.json|shell 1,bun'
+    'pnpm-lock.yaml,yarn.lock,package-lock.json|shell 1,pnpm'
+    'yarn.lock,package-lock.json|shell 1,yarn'
+    'stack.yaml,package.yaml|haskell 1,stack,hpack'
+    'package.yaml|shell 1'
+    'x.cabal,package.yaml|haskell 1,cabal,hpack'
+    'mill-build/build.sc|shell 1,mill'
+    'packages.lock.json|shell 1,nuget'
+    'Directory.Packages.props|shell 1,nuget'
+    'pak.lock|shell 1,pak'
+    'cpanfile.snapshot|shell 1,carton'
+    'dist.ini|shell 1,dzil'
+    '.tflint.hcl|shell 1,tflint'
+    '.envrc|shell 1,direnv'
+    'x.fs,X.sln|fsharp 1,solution'
+    'x.vb,global.json|visual-basic 1'
+    'x.csproj,global.json|dotnet 1'
+    'x.fsproj,X.slnx|fsharp 1,solution'
+    'next.config.js|shell 1,next'
+    'nuxt.config.ts|shell 1,nuxt'
+    'vite.config.mjs|shell 1,vite'
+    'astro.config.mjs|shell 1,astro'
+    'remix.config.js|shell 1,remix'
+    'gatsby-config.js|shell 1,gatsby'
+    'angular.json|shell 1,angular'
+    'svelte.config.js|shell 1,sveltekit'
+    'expo-env.d.ts|shell 1,expo'
+    'react-native.config.js|shell 1,react-native'
+    'forge.config.js|shell 1,electron'
+    'electron-builder.yml|shell 1,electron'
+    'electron-builder.yaml|shell 1,electron'
+    'electron-builder.json|shell 1,electron'
+    'electron-builder.json5|shell 1,electron'
+    'electron-builder.js|shell 1,electron'
+    'electron-builder.ts|shell 1,electron'
+    '.storybook/main.js|shell 1,storybook'
+    'prisma/schema.prisma|shell 1,prisma'
+    'manage.py|shell 1,django'
+    'config/application.rb,bin/rails|shell 1,rails'
+    'config/application.rb|shell 1'
+    'lib/app_web/router.ex|shell 1,phoenix'
+    'src-tauri/tauri.conf.json|shell 1,tauri'
+    'src-tauri/tauri.conf.json5|shell 1,tauri'
+    'pubspec.yaml,lib/,android/|dart 1,pub,flutter'
+    'pubspec.yaml,lib/,ios/|dart 1,pub,flutter'
+    'pubspec.yaml,android/|dart 1,pub'
+    'artisan|shell 1,laravel'
+    'symfony.lock|shell 1,symfony'
+    'wp-config.php|php 1,wordpress'
+    'core/lib/Drupal.php|shell 1,drupal'
+    'app/src/main/AndroidManifest.xml|shell 1,android'
+    'lazy-lock.json,lua/|shell 1,neovim'
+    'lazy-lock.json|shell 1'
+    'x.ipynb,Makefile|python 1,make,jupyter'
+    'Package.swift,X.xcodeproj/,package.json,tsconfig.json,pnpm-lock.yaml,turbo.json,next.config.js,Dockerfile,flake.nix,.envrc,Cargo.toml,go.mod,Gemfile,pom.xml,CMakeLists.txt,Makefile,Justfile,manage.py,pyproject.toml,uv.lock|swift 1,node 1,typescript 1,python 1,rust 1,go 1,ruby 1,pnpm,turbo,swiftpm,xcode,uv,cargo,go-modules,bundler,maven,cmake,make,just,next,django,workspace,docker,nix,direnv'
+  )
+  for pair in "${pairs[@]}"; do
+    (( ++index ))
+    specs+=("m$index=.git/,x.sh,${pair%%|*}")
+    expected+=("m$index=${pair#*|}")
+  done
+  specs+=(
+    'saturated-manifests=Package.swift,package.json,tsconfig.json,deno.jsonc,composer.lock,project.godot,requirements.txt,Cargo.toml,go.work,.ruby-version,pubspec.yaml,mix.exs,global.json,Podfile,Dockerfile'
+    'saturated-resolved=src/x.c,x.fs,mix.exs,global.json'
+    'saturated-subset=setup.cfg,DESCRIPTION,build.zig,stack.yaml,x.sh'
+    'saturated-shell=.git/,x.sh'
+    'saturated-custom=Makefile,x.sh'
+  )
+  expected+=(
+    'saturated-manifests=swift 1,node 1,typescript 1,deno 1,php 1,gdscript 1,python 1,rust 1,go 1,ruby 1,dart 1,elixir 1,dotnet 1'
+    'saturated-resolved=fsharp 1,c-cpp 1,elixir 1,dotnet 1'
+    'saturated-subset=zig 1'
+    'saturated-shell=shell 1'
+    'saturated-custom='
+  )
+  output=$(_test_prompt_project_matrix "${specs[@]}") || return
+  expected_text=${(F)expected}
+  test_assert_equal "$expected_text" "$output"
+}
+test_case 'prompt project detection characterizes tool, framework and environment markers' \
+  _test_prompt_project_detection_markers

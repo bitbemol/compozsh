@@ -284,6 +284,13 @@ short windows use bounded omission.
   conventional directories (see [performance](performance.md)); it never
   executes repository-local wrappers, binaries, manifests or scripts, and
   resolves trusted installed tools through `PATH`.
+- Marker detection is data: `_PROMPT_PROJECT_RULES` in
+  `.zsh.addons/.zsh.prompt` lists languages, project markers, tools,
+  frameworks and environment signals in display order. `_prompt_project_context`
+  captures only the tokens those rules name (exact checks and bounded
+  wildcards at the root and its conventional folders), and the pure
+  `_prompt_project_classify` decides from that evidence. Add a marker as a
+  row with a fixture in the `prompt project detection` tests.
 - Runtime support is an optional capability resolved at invocation; without
   it the prompt keeps project identity and tool markers. Don't duplicate
   probes or readers in the prompt peer or shared UI support. Reading external
