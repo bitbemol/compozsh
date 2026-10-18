@@ -39,10 +39,14 @@ _installer_help() {
     '  A replaced .zshrc or managed copy is archived under .zsh-backups with' \
     '  a timestamp. --clean archives the entire add-on tree, including init.' \
     '  Normal mode refuses unmarked conflicts at .zsh.addons/compozsh.' \
+    '  Both modes compile the shipped peers into the marked, owner-only' \
+    '  .zsh.addons/support/compiled mirror for faster startup; private peers' \
+    '  are never compiled, and a peer changed since loads from its text.' \
     '' \
     'Updating and recovery:' \
     '  Symlink mode requires the repository to stay at its installed path.' \
-    '  Update that clone with git pull, then run exec zsh in each terminal.' \
+    '  Update that clone with git pull, then run exec zsh in each terminal;' \
+    '  rerun the installer to recompile the updated peers for fast startup.' \
     '  Copy mode keeps a snapshot; update the clone and rerun --copy to refresh.' \
     '  Both modes leave private data separate from shipped configuration.' \
     '  Failures and interruptions (Ctrl-C, hangup, termination) roll back;' \
@@ -117,7 +121,8 @@ _installer_restore() {
   command mv -- "$archived" "$original"
 }
 
-# Ship reviewed code/assets, never generated machine-local module data.
+# Ship reviewed code/assets, never generated machine-local module data or
+# compiled code.
 _installer_stage_addons() {
   emulate -L zsh
   local source_dir=$1 destination=$2 item=''
@@ -131,12 +136,94 @@ _installer_stage_addons() {
   (( ! $#items )) || command cp -R "${items[@]}" "$destination/" || return 1
   if [[ -d $source_dir/support && ! -L $source_dir/support ]]; then
     for item in "$source_dir/support"/*(ND); do
-      [[ ${item:t} == cache ]] || support_items+=("$item")
+      [[ ${item:t} == (cache|compiled) ]] || support_items+=("$item")
     done
     command mkdir -p -- "$destination/support" || return 1
     (( ! $#support_items )) || command cp -R "${support_items[@]}" "$destination/support/" || return 1
   fi
   return 0
+}
+
+# List the peers the bootstrap discovers beneath <directory>, the way it does:
+# regular .zsh.<name> files, never support/cache, support/compiled or *.zwc.
+_installer_peers() {
+  emulate -L zsh
+  local directory=$1 file=''
+  reply=()
+  for file in "$directory"/**/.zsh.?*(N.); do
+    [[ $file == "$directory"/support/(cache|compiled)/* || $file == *.zwc ]] ||
+      reply+=("$file")
+  done
+}
+
+# Build the compiled mirror of shipped peers in <mirror>, which must not exist.
+# Each peer <base>/<path> gets <mirror>/.zsh.addons/<path>, a symlink to the
+# peer's absolute path, and that symlink's .zwc; .zshrc's comment describes how
+# the manifest is checked. A separate zsh -f compiles under Zsh's default
+# options and aliases, whose parse context the manifest records, with a umask
+# that keeps the mirror private, and only after the clock has passed the
+# peer's ctime, so any later write moves ctime past the recorded value. A peer
+# that changes while it compiles, or fails to compile, is left out and loads
+# as text.
+_installer_compile() {
+  emulate -L zsh
+  "$commands[zsh]" -f -c '
+    emulate -R zsh
+    umask 077
+    zmodload -F zsh/stat b:zstat || exit 1
+    unset EPOCHSECONDS
+    zmodload -F zsh/datetime p:EPOCHSECONDS || exit 1
+    zmodload -F zsh/zselect b:zselect || exit 1
+    zmodload -F zsh/files b:zf_mkdir b:zf_ln b:zf_rm || exit 1
+    local mirror=$1 base=$2 relative="" peer="" entry="" table="" name=""
+    local recorded_options="" recorded_aliases=""
+    local -a fields=() parse=(aliases posixaliases ignorebraces ignoreclosebraces
+      rcquotes cshjunkiequotes cshjunkieloops kshglob shglob shortloops
+      shortrepeat multifuncdef posixidentifiers posixstrings multibyte)
+    local -A before=() after=() map=()
+    shift 2
+    # The same description as _zsh_addon_parse_context in .zshrc.
+    for name in "${parse[@]}"; do
+      recorded_options+=" $name=${options[$name]-}"
+    done
+    for table in aliases galiases saliases; do
+      map=("${(@Pkv)table}")
+      recorded_aliases+=" $table:"
+      for name in ${(ok)map}; do
+        recorded_aliases+=" ${(qqqq)name}=${(qqqq)map[$name]}"
+      done
+    done
+    zf_mkdir -m 0700 -- "$mirror" || exit 1
+    print -r -- version=1 > "$mirror/.managed-by-compozsh" || exit 1
+    {
+      print -r -- "compozsh-compiled 1"
+      print -r -- "zsh $ZSH_VERSION"
+      print -r -- "base $base"
+      print -r -- "parse ${parse[*]}"
+      print -r -- "options$recorded_options"
+      print -r -- "aliases$recorded_aliases"
+      for relative in "$@"; do
+        [[ $relative != *[[:cntrl:]]* ]] || continue
+        peer=$base/$relative entry=$mirror/.zsh.addons/$relative
+        zf_mkdir -p -- "${entry:h}" && zf_ln -s -- "$peer" "$entry" || exit 1
+        zstat -H before -- "$peer" || continue
+        while (( EPOCHSECONDS <= before[ctime] )); do
+          zselect -t 10
+          zstat -H before -- "$peer" || continue 2
+        done
+        zcompile -R -- "$entry" 2> /dev/null &&
+          zstat -H after -- "$peer" &&
+          [[ "$before[device] $before[inode] $before[size] $before[mtime] $before[ctime]" ==
+             "$after[device] $after[inode] $after[size] $after[mtime] $after[ctime]" ]] || {
+            zf_rm -f -- "$entry.zwc"
+            continue
+          }
+        fields=("$relative" "$before[device]" "$before[inode]" "$before[size]"
+                "$before[mtime]" "$before[ctime]")
+        print -r -- "${(pj:\t:)fields}"
+      done
+    } > "$mirror/manifest"
+  ' compozsh-compile "$@"
 }
 
 _installer_main() {
@@ -195,9 +282,8 @@ _installer_main() {
   local source_initializer="$repository/templates/init.zsh"
   local source_file=''
   local -a source_peers=()
-  for source_file in "$source_addons"/**/.zsh.?*(N.); do
-    [[ $source_file == "$source_addons/support/cache/"* ]] || source_peers+=("$source_file")
-  done
+  _installer_peers "$source_addons"
+  source_peers=("${reply[@]}")
   [[ -s $source_zshrc && -d $source_addons && -s $source_initializer ]] || {
     print -u2 -r -- 'installer: repository components are incomplete'
     return 1
@@ -225,8 +311,10 @@ _installer_main() {
   local initializer="$user_addons/local/init.zsh"
   local managed_addons="$user_addons/compozsh"
   local managed_marker="$managed_addons/.managed-by-compozsh"
+  local compiled="$user_addons/support/compiled"
   local backup_root="$config_base/.zsh-backups"
   local rc_action=install addons_action=preserve initializer_action=create
+  local compiled_action=build
   local -i backup_rc=0 backup_addons=0 backup_managed=0
 
   if [[ $repository == $config_base || $config_base == "$repository"/* ||
@@ -288,6 +376,17 @@ _installer_main() {
   fi
   [[ -e $initializer || -L $initializer ]] && initializer_action=keep
   (( clean )) && initializer_action=create
+  # The compiled mirror is regenerated derived data, so a marked one is
+  # replaced without a backup; anything else at its path is refused.
+  if (( ! clean )) && [[ -e $compiled || -L $compiled ]]; then
+    if [[ -L $compiled || ! -d $compiled ||
+          ! -f $compiled/.managed-by-compozsh || -L $compiled/.managed-by-compozsh ]]; then
+      print -u2 -r -- "installer: $compiled is not managed by this installer"
+      print -u2 -r -- 'Move it elsewhere, or use --clean to archive all existing add-ons.'
+      return 1
+    fi
+    compiled_action=rebuild
+  fi
 
   print -r -- 'Compozsh installation plan'
   print -r -- "  Mode:        $mode"
@@ -295,6 +394,7 @@ _installer_main() {
   print -r -- "  Bootstrap:   $rc_action $active_zshrc"
   print -r -- "  Add-ons:     $addons_action"
   print -r -- "  Initializer: $initializer_action $initializer"
+  print -r -- "  Compiled:    $compiled_action $compiled"
   if (( clean )); then
     print -r -- '  Clean mode:  existing state will be archived, never deleted'
   elif (( backup_rc || backup_managed )); then
@@ -322,9 +422,10 @@ _installer_main() {
     return 1
   }
 
-  local stage_dir='' staged_addons='' backup_dir=''
+  local stage_dir='' staged_addons='' backup_dir='' compiled_stage='' compiled_base=''
   local -i rc_moved=0 addons_moved=0 managed_moved=0
   local -i rc_created=0 addons_created=0 managed_created=0
+  local -i compiled_moved=0 compiled_created=0 support_created=0
   local -i initializer_created=0 transaction_ok=0 result=0
 
   # From here Ctrl-C, a hangup or a termination signal unwinds through the
@@ -445,12 +546,57 @@ _installer_main() {
         }
     fi
 
+    # Compile the peers this layout's bootstrap discovers as shared: the
+    # repository's for a symlink install, the managed namespace's for a copy.
+    if [[ $mode == symlink ]]; then
+      compiled_base=${source_addons:A}
+      _installer_peers "$compiled_base"
+    else
+      compiled_base=${user_addons:A}
+      _installer_peers "$compiled_base/compozsh"
+    fi
+    [[ -d $user_addons/support ]] || support_created=1
+    command mkdir -p -- "$user_addons/support" &&
+      compiled_stage=$(command mktemp -d "$config_base/.compozsh-compiled.XXXXXX") &&
+      _installer_compile "$compiled_stage/compiled" "$compiled_base" \
+        "${(@)reply#"$compiled_base"/}" || {
+        print -u2 -r -- 'installer: could not compile shared add-ons'
+        result=1
+        return 1
+      }
+    if [[ -e $compiled || -L $compiled ]]; then
+      compiled_moved=1
+      command mv -- "$compiled" "$compiled_stage/previous" || {
+        print -u2 -r -- 'installer: could not replace the compiled add-ons'
+        result=1
+        return 1
+      }
+    fi
+    [[ ! -e $compiled && ! -L $compiled ]] || {
+      print -u2 -r -- "installer: $compiled appeared during installation"
+      result=1
+      return 1
+    }
+    compiled_created=1
+    command mv -- "$compiled_stage/compiled" "$compiled" || {
+      print -u2 -r -- 'installer: could not activate the compiled add-ons'
+      result=1
+      return 1
+    }
+
     transaction_ok=1
   } always {
     # Cleanup is bounded local work; a repeated signal must not abandon it.
     trap '' INT HUP TERM
     if (( ! transaction_ok )); then
       print -u2 -r -- 'installer: rolling back the incomplete installation'
+      if (( compiled_created )); then
+        _installer_remove_tree "$compiled" "$user_addons/support" 'compiled' || result=1
+      fi
+      if (( compiled_moved )); then
+        _installer_restore "$compiled_stage/previous" "$compiled" || result=1
+      fi
+      (( support_created )) && command rmdir -- "$user_addons/support" 2>/dev/null
       (( initializer_created )) && command rm -f -- "$initializer"
       if (( managed_created )); then
         _installer_remove_tree "$managed_addons" "$user_addons" \
@@ -479,6 +625,12 @@ _installer_main() {
     if [[ -n $stage_dir && ( -d $stage_dir || -L $stage_dir ) ]]; then
       _installer_remove_tree "$stage_dir" "$config_base" '.compozsh-install.*' || result=1
     fi
+    # The superseded mirror, or one rollback could not put back, is derived
+    # data the next installation regenerates.
+    if [[ -n $compiled_stage && ( -d $compiled_stage || -L $compiled_stage ) ]]; then
+      _installer_remove_tree "$compiled_stage" "$config_base" \
+        '.compozsh-compiled.*' || result=1
+    fi
   }
 
   (( result == 0 && transaction_ok )) || return 1
@@ -490,5 +642,6 @@ _installer_main() {
 _installer_main "$@"
 typeset -i _installer_status=$?
 unfunction _installer_usage _installer_help _installer_choose_mode _installer_backup_path
-unfunction _installer_remove_tree _installer_restore _installer_main
+unfunction _installer_remove_tree _installer_restore _installer_peers
+unfunction _installer_compile _installer_main
 exit $_installer_status

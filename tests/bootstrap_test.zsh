@@ -236,6 +236,43 @@ _test_cache_data_never_autoloads() {
 test_case 'bootstrap excludes module cache data while preserving neighboring peers in both layouts' \
   _test_cache_data_never_autoloads
 
+# A .zwc file is compiled data for its neighbor, never a peer: a private
+# peer's own zcompile output, a stray file beside a shipped peer and anything
+# in the installer-owned support/compiled mirror stay unsourced as text.
+_test_compiled_files_never_autoload() {
+  test_make_temp_dir || return
+  local layout='' output='' base='' shared=''
+  for layout in symlink copy; do
+    base="$TEST_TMP_DIR/$layout"
+    test_write_file "$base/.zsh.addons/work/.zsh.private" 'PRIVATE_PEER=loaded; :' || return
+    test_write_file "$base/.zsh.addons/work/.zsh.private.zwc" 'ZWC_SOURCED=private; :' || return
+    test_write_file "$base/.zsh.addons/.zsh.orphan.zwc" 'ZWC_SOURCED=orphan; :' || return
+    test_write_file "$base/.zsh.addons/support/compiled/.zsh.mirror" 'ZWC_SOURCED=mirror; :' || return
+    if [[ $layout == symlink ]]; then
+      shared="$TEST_TMP_DIR/repository"
+      command mkdir -p "$shared" || return
+      command cp "$TEST_REPO_ROOT/.zshrc" "$shared/.zshrc" || return
+      command cp -R "$TEST_REPO_ROOT/.zsh.addons" "$shared/.zsh.addons" || return
+      command ln -s "$shared/.zshrc" "$base/.zshrc" || return
+      shared="$shared/.zsh.addons"
+    else
+      command cp "$TEST_REPO_ROOT/.zshrc" "$base/.zshrc" || return
+      command cp -R "$TEST_REPO_ROOT/.zsh.addons" "$base/.zsh.addons/compozsh" || return
+      shared="$base/.zsh.addons/compozsh"
+    fi
+    test_write_file "$shared/.zsh.tools.zwc" 'ZWC_SOURCED=shipped; :' || return
+    output=$(test_run_interactive "$base" '
+      source "$HOME/.zshrc" || exit 1
+      print -r -- "${ZWC_SOURCED:-never}|$PRIVATE_PEER|${+functions[mkcd]}"
+    ' 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] ||
+      test_fail "$layout: .zwc files produced loader diagnostics: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal 'never|loaded|1' "$output" "$layout: bootstrap sourced a .zwc file as a peer" || return
+  done
+}
+test_case 'compiled peers: discovery never sources .zwc files or the compiled mirror in either layout' \
+  _test_compiled_files_never_autoload
+
 _test_copy_layout_deduplicates_addons() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" output=''
@@ -378,15 +415,17 @@ _test_shell_state_dump() {
 # its consumers), forward then reverse (every peer repeated with others
 # between), and .zshrc sourced twice (the bootstrap's own re-source path, which
 # tests/verify.zsh checks for diagnostics only). Discovery mirrors the
-# bootstrap's, support/cache excluded. The anchors prove the reference dump
-# reaches each main table, so an empty or truncated dump cannot pass.
+# bootstrap's: support/cache, support/compiled and .zwc files excluded. The
+# anchors prove the reference dump reaches each main table, so an empty or
+# truncated dump cannot pass.
 _test_peer_order_converges() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" mode='' anchor='' state=''
   local reference="$TEST_TMP_DIR/state-lexical"
   local script=$'files=()
 for file in "$1"/.zsh.addons/**/.zsh.?*(N.); do
-  [[ $file == "$1"/.zsh.addons/support/cache/* ]] || files+=("$file")
+  [[ $file == "$1"/.zsh.addons/support/(cache|compiled)/* || $file == *.zwc ]] ||
+    files+=("$file")
 done
 case $2 in
   reverse) files=(${(Oa)files}) ;;
@@ -439,6 +478,216 @@ _test_shell_state_dump'
 }
 test_case 'all supported peer traversal orders converge on the same complete shell state' \
   _test_peer_order_converges
+
+# Install through the real installer into a disposable home.
+# Usage: _test_compiled_install <repository> <home> <symlink|copy>
+_test_compiled_install() {
+  test_run_noninteractive "$2" 'source "$1/install.zsh" "--$2" --yes' "$1" "$3" \
+    > /dev/null 2> "$TEST_TMP_DIR/install.err" ||
+    test_fail "$3 installation failed: $(<"$TEST_TMP_DIR/install.err")"
+}
+
+# Load the installed bootstrap in <home>, write every function source path to
+# <output>.sources, re-source the bootstrap, then write the complete state dump
+# to <output> and load diagnostics to <output>.err. The dump is defined before
+# the bootstrap runs, so initializer options cannot change how it parses.
+# Usage: _test_compiled_capture <home> <output>
+_test_compiled_capture() {
+  local script="$(typeset -f _test_shell_state_dump)"$'
+source "$HOME/.zshrc" || exit 1
+print -rl -- ${(v)functions_source} >| "$1"
+source "$HOME/.zshrc" || exit 2
+_test_shell_state_dump'
+  test_run_interactive "$1" "$script" "$2.sources" > "$2" 2> "$2.err" ||
+    test_fail "the installed shell failed to load: $(<"$2.err")"
+}
+
+# Count captured function source paths under <prefix>.
+# Usage: _test_compiled_count <sources-file> <prefix>
+_test_compiled_count() {
+  local -a sources=("${(@f)$(<"$1")}")
+  REPLY=${#${(M)sources:#$2*}}
+}
+
+# The installer's compiled mirror is only an optimization: in both layouts the
+# installed shell loads shipped peers from it and reaches the same complete
+# state as text loading (the mirror moved aside), including when sourced
+# twice. An initializer's own aliases or parse-affecting options would change
+# how text parses, so the shipped peers then load as text, and the state still
+# matches; options that only matter at run time keep compiled loading.
+_test_compiled_peers_match_text_state() {
+  test_make_temp_dir || return
+  local layout='' home='' compiled='' shared='' variant='' run=''
+  local -A initializers=(
+    inert ':'
+    runtime 'setopt EXTENDED_GLOB NO_CASE_GLOB'
+    aliases "alias rm='rm -i' ll='ls -l'; alias -g G='| grep'"
+    parse 'setopt RC_QUOTES KSH_GLOB IGNORE_BRACES'
+  )
+  for layout in symlink copy; do
+    home="$TEST_TMP_DIR/$layout"
+    compiled="$home/.zsh.addons/support/compiled"
+    _test_compiled_install "$TEST_REPO_ROOT" "$home" "$layout" || return
+    if [[ $layout == symlink ]]; then
+      shared="${TEST_REPO_ROOT:A}/.zsh.addons/"
+    else
+      shared="${home:A}/.zsh.addons/compozsh/"
+    fi
+    test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 ||
+      test_fail "$layout warm-up shell failed to load" || return
+    for variant in inert runtime aliases parse; do
+      print -r -- "$initializers[$variant]" >| "$home/.zsh.addons/local/init.zsh" || return
+      run="$TEST_TMP_DIR/$layout-$variant"
+      _test_compiled_capture "$home" "$run-compiled" || return
+      command mv -- "$compiled" "$TEST_TMP_DIR/aside" || return
+      _test_compiled_capture "$home" "$run-text"
+      command mv -- "$TEST_TMP_DIR/aside" "$compiled" || return
+      [[ -s "$run-text" ]] || test_fail "$layout $variant text loading failed" || return
+      _test_compiled_count "$run-text.sources" "${compiled:A}/"
+      test_assert_equal 0 "$REPLY" "$layout $variant: text run used the mirror" || return
+      _test_compiled_count "$run-compiled.sources" "${compiled:A}/"
+      if [[ $variant == (inert|runtime) ]]; then
+        (( REPLY > 100 )) ||
+          test_fail "$layout $variant: only $REPLY functions came from compiled code" || return
+        _test_compiled_count "$run-compiled.sources" "$shared"
+        test_assert_equal 0 "$REPLY" "$layout $variant: a fresh shipped peer loaded as text" || return
+      else
+        test_assert_equal 0 "$REPLY" \
+          "$layout $variant: compiled code ran under a changed parse context" || return
+      fi
+      if ! command cmp -s -- "$run-text" "$run-compiled"; then
+        test_fail "$layout $variant: compiled loading changed the shell state:"$'\n'"$(
+          command diff -a -- "$run-text" "$run-compiled" | command head -n 40)"
+        return 1
+      fi
+      test_assert_equal "$(<"$run-text.err")" "$(<"$run-compiled.err")" \
+        "$layout $variant: compiled loading changed load diagnostics" || return
+      [[ $variant == parse || ! -s "$run-compiled.err" ]] ||
+        test_fail "$layout $variant: load diagnostics: $(<"$run-compiled.err")" || return
+    done
+  done
+}
+test_case 'compiled peers: both layouts load fresh compiled code with the same complete state as text' \
+  _test_compiled_peers_match_text_state
+
+# Zsh itself uses a .zwc whose mtime is not older than its source, so an edit
+# in the same second, a restored older mtime or a replacement file would run
+# stale code. The bootstrap compares device, inode, size, mtime and ctime
+# instead: any later change moves ctime past the compiled snapshot.
+_test_compiled_peers_never_run_stale_code() {
+  test_make_temp_dir || return
+  local repository='' layout='' home='' shared='' output=''
+  local script='
+    source "$HOME/.zshrc" || exit 1
+    local name="" origin=""
+    for name in probe_a probe_b probe_c mkcd; do
+      origin=text
+      [[ ${functions_source[$name]} == */support/compiled/* ]] && origin=compiled
+      print -rn -- "$name:$origin|"
+    done
+    print -r -- "$(probe_a)|$(probe_b)|$(probe_c)"'
+  for layout in symlink copy; do
+    home="$TEST_TMP_DIR/$layout"
+    repository="$TEST_TMP_DIR/repository-$layout"
+    command mkdir -p "$repository" || return
+    command cp "$TEST_REPO_ROOT/.zshrc" "$TEST_REPO_ROOT/install.zsh" "$repository" || return
+    command cp -R "$TEST_REPO_ROOT/templates" "$TEST_REPO_ROOT/.zsh.addons" "$repository" || return
+    test_write_file "$repository/.zsh.addons/.zsh.zz-probe-a" 'probe_a() { print -r -- old-a; }' || return
+    test_write_file "$repository/.zsh.addons/.zsh.zz-probe-b" 'probe_b() { print -r -- old-b; }' || return
+    test_write_file "$repository/.zsh.addons/.zsh.zz-probe-c" 'probe_c() { print -r -- old-c; }' || return
+    _test_compiled_install "$repository" "$home" "$layout" || return
+    if [[ $layout == symlink ]]; then
+      shared="$repository/.zsh.addons"
+    else
+      shared="$home/.zsh.addons/compozsh"
+    fi
+    output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$layout: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal 'probe_a:compiled|probe_b:compiled|probe_c:compiled|mkcd:compiled|old-a|old-b|old-c' \
+      "$output" "$layout: fresh shipped peers did not load compiled code" || return
+
+    # Same size, immediately, then the original old mtime restored.
+    print -r -- 'probe_a() { print -r -- new-a; }' >| "$shared/.zsh.zz-probe-a" || return
+    command touch -t 202001010000 "$shared/.zsh.zz-probe-a" || return
+    # A replacement file with an old mtime, moved over the original.
+    print -r -- 'probe_b() { print -r -- new-b; }' >| "$TEST_TMP_DIR/replacement" || return
+    command touch -t 202001010000 "$TEST_TMP_DIR/replacement" || return
+    command mv -f -- "$TEST_TMP_DIR/replacement" "$shared/.zsh.zz-probe-b" || return
+    # Metadata only: content unchanged, yet the snapshot no longer matches.
+    command chmod 600 "$shared/.zsh.zz-probe-c" || return
+
+    output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$layout: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal 'probe_a:text|probe_b:text|probe_c:text|mkcd:compiled|new-a|new-b|old-c' \
+      "$output" "$layout: a changed shipped peer did not load its current text" || return
+  done
+}
+test_case 'compiled peers: an edited, retimed or replaced shipped peer loads its text, never stale compiled code' \
+  _test_compiled_peers_never_run_stale_code
+
+# Each unsafe or mismatched mirror falls back to text without diagnostics: a
+# manifest from another Zsh version, a missing manifest, a group-accessible
+# mirror or manifest, and a mirror entry that resolves elsewhere.
+_test_compiled_peers_fall_back_to_text() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" compiled='' manifest='' entry='' condition='' output=''
+  local text_source="${TEST_REPO_ROOT:A}/.zsh.addons/.zsh.tools"
+  compiled="$home/.zsh.addons/support/compiled"
+  manifest="$compiled/manifest"
+  entry="$compiled/.zsh.addons/.zsh.tools"
+  _test_compiled_install "$TEST_REPO_ROOT" "$home" symlink || return
+  local script='source "$HOME/.zshrc" || exit 1; print -r -- "${functions_source[mkcd]}"'
+  output=$(test_run_interactive "$home" "$script") || return
+  test_assert_equal "${compiled:A}/.zsh.addons/.zsh.tools" "$output" \
+    'the fresh installation did not load compiled code' || return
+  command cp -p -- "$manifest" "$TEST_TMP_DIR/manifest" || return
+  command cp -- "$text_source" "$TEST_TMP_DIR/.zsh.tools" || return
+
+  for condition in version missing directory-mode manifest-mode retargeted; do
+    case $condition in
+      version)
+        print -r -- "${$(<"$TEST_TMP_DIR/manifest")/$'\n'zsh /$'\n'zsh 0.0-}" >| "$manifest" ;;
+      missing) command rm -f -- "$manifest" ;;
+      directory-mode) command chmod 0750 "$compiled" ;;
+      manifest-mode) command chmod 0620 "$manifest" ;;
+      retargeted) command ln -sfn -- "$TEST_TMP_DIR/.zsh.tools" "$entry" ;;
+    esac || return
+    output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] ||
+      test_fail "$condition: fallback produced diagnostics: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal "$text_source" "$output" "$condition: the shell ran compiled code" || return
+    command rm -f -- "$manifest" &&
+      command cp -p -- "$TEST_TMP_DIR/manifest" "$manifest" &&
+      command chmod 0700 "$compiled" &&
+      command ln -sfn -- "$text_source" "$entry" || return
+  done
+  output=$(test_run_interactive "$home" "$script") || return
+  test_assert_equal "${compiled:A}/.zsh.addons/.zsh.tools" "$output" \
+    'the restored mirror did not load compiled code again'
+}
+test_case 'compiled peers: a mismatched version, missing manifest or unsafe mirror falls back to text' \
+  _test_compiled_peers_fall_back_to_text
+
+# In a copy installation a private peer at the top of ~/.zsh.addons loads
+# before the managed namespace. One that leaves the parse context alone keeps
+# compiled loading; one that defines an alias or sets a parse option sends
+# every later shipped peer to text.
+_test_compiled_peers_follow_private_parse_changes() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" private='' output='' expected=''
+  _test_compiled_install "$TEST_REPO_ROOT" "$home" copy || return
+  local script='source "$HOME/.zshrc" || exit 1; print -r -- "${${functions_source[mkcd]}#${HOME:A}/.zsh.addons/}"'
+  for private in 'PRIVATE_VALUE=1' "alias rm='rm -i'" 'setopt RC_QUOTES'; do
+    print -r -- "$private" >| "$home/.zsh.addons/.zsh.0-private" || return
+    output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$private: $(<"$TEST_TMP_DIR/errors")" || return
+    expected=compozsh/.zsh.tools
+    [[ $private == PRIVATE_VALUE=1 ]] && expected=support/compiled/.zsh.addons/compozsh/.zsh.tools
+    test_assert_equal "$expected" "$output" "after a private peer running: $private" || return
+  done
+}
+test_case 'compiled peers: a private peer that changes the parse context sends later shipped peers to text' \
+  _test_compiled_peers_follow_private_parse_changes
 
 # Re-sourcing a peer moves its ZLE hooks after any hook a caller added since,
 # keeping the canonical redraw order and the exact numbered entries that

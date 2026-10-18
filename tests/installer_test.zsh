@@ -756,3 +756,77 @@ _test_installer_validates_nested_shared_peers() {
 }
 test_case 'installer syntax-checks nested shared peers before mutation' \
   _test_installer_validates_nested_shared_peers
+
+# The compiled mirror is installer-owned: previews name it, a repeated install
+# refreshes it without a backup, a failed activation restores the previous
+# mirror, --clean archives it with the add-on tree, and an unmarked
+# support/compiled directory is refused before anything changes.
+_test_installer_manages_compiled_mirror() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake_bin="$TEST_TMP_DIR/bin" output=''
+  local compiled="$TEST_TMP_DIR/home/.zsh.addons/support/compiled"
+  local -a backups=() leftovers=()
+
+  output=$(_test_run_installer "$home" "$home" --symlink --dry-run) || return
+  test_assert_contains "$output" "Compiled:    build ${compiled:A:h}/compiled" \
+    'the plan omitted the compiled mirror' || return
+  [[ ! -e "$home/.zsh.addons" ]] || test_fail 'dry run created the add-on tree' || return
+
+  _test_run_installer "$home" "$home" --symlink --yes > /dev/null || return
+  [[ -d $compiled && ! -L $compiled && -f "$compiled/.managed-by-compozsh" &&
+     -f "$compiled/manifest" && -L "$compiled/.zsh.addons/.zsh.tools" &&
+     -f "$compiled/.zsh.addons/.zsh.tools.zwc" ]] ||
+    test_fail 'installation did not build a marked compiled mirror' || return
+  test_assert_equal 700 "$(command stat -f %Lp -- "$compiled")" \
+    'the compiled mirror is reachable by other accounts' || return
+  [[ ! -e "$TEST_REPO_ROOT/.zsh.addons/.zsh.tools.zwc" ]] ||
+    test_fail 'installation placed compiled code beside a shipped peer' || return
+
+  output=$(_test_run_installer "$home" "$home" --symlink --dry-run) || return
+  test_assert_contains "$output" "Compiled:    rebuild ${compiled:A:h}/compiled" \
+    'the plan did not announce rebuilding the mirror' || return
+  print -r -- previous >| "$compiled/.test-previous" || return
+  _test_run_installer "$home" "$home" --symlink --yes > /dev/null || return
+  backups=("$home/.zsh-backups"/compozsh-*(N/))
+  test_assert_equal 0 "${#backups}" 'rebuilding the mirror created a backup' || return
+  [[ -f "$compiled/manifest" && ! -e "$compiled/.test-previous" ]] ||
+    test_fail 'a repeated installation did not rebuild the mirror' || return
+
+  # Only the mirror's activation fails; every other move is real.
+  print -r -- previous >| "$compiled/.test-previous" || return
+  test_write_file "$fake_bin/mv" \
+    $'#!/bin/zsh -f\n[[ ${@[-2]} == */.compozsh-compiled.*/compiled ]] && exit 1\nexec /bin/mv "$@"' || return
+  command chmod +x "$fake_bin/mv" || return
+  path=("$fake_bin" $path)
+  rehash
+  if output=$(_test_run_installer "$home" "$home" --symlink --yes 2>&1); then
+    test_fail 'installer reported success after the mirror failed to activate' || return
+  fi
+  path=("${(@)path:#$fake_bin}")
+  rehash
+  test_assert_contains "$output" 'rolling back' 'mirror failure did not roll back' || return
+  [[ -f "$compiled/.test-previous" && -f "$compiled/manifest" ]] ||
+    test_fail 'rollback did not restore the previous compiled mirror' || return
+  leftovers=("$home"/.compozsh-compiled.*(ND))
+  test_assert_equal 0 "${#leftovers}" 'rollback left mirror staging behind' || return
+
+  _test_run_installer "$home" "$home" --symlink --clean --yes > /dev/null || return
+  backups=("$home/.zsh-backups"/compozsh-*(N/))
+  (( ${#backups} == 1 )) || test_fail 'clean install did not create one backup' || return
+  [[ -f "${backups[1]}/.zsh.addons/support/compiled/.test-previous" ]] ||
+    test_fail 'clean install did not archive the previous mirror' || return
+  [[ -f "$compiled/manifest" && ! -e "$compiled/.test-previous" ]] ||
+    test_fail 'clean install did not build a fresh mirror' || return
+
+  home="$TEST_TMP_DIR/unmarked"
+  test_write_file "$home/.zsh.addons/support/compiled/notes" 'USER DATA' || return
+  if output=$(_test_run_installer "$home" "$home" --symlink --yes 2>&1); then
+    test_fail 'installer replaced an unmarked support/compiled directory' || return
+  fi
+  test_assert_contains "$output" 'is not managed by this installer' || return
+  [[ ! -e "$home/.zshrc" && ! -e "$home/.zsh.addons/local" ]] ||
+    test_fail 'installer changed files before refusing the unmarked mirror' || return
+  test_assert_equal 'USER DATA' "$(<"$home/.zsh.addons/support/compiled/notes")"
+}
+test_case 'compiled peers: installer previews, refreshes, rolls back and archives its compiled mirror' \
+  _test_installer_manages_compiled_mirror

@@ -59,6 +59,16 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   order for reproducible diagnostics, no hidden folders (so a versioned
   `.git` is never walked) and no nested symlink directories. Correctness never
   depends on that order.
+- Parsing the shipped peers is the largest startup cost, so installations
+  load them from the installer's compiled mirror
+  ([repository layout](repository-layout.md#bootstrap-and-loading)). Its check
+  costs one manifest read without a fork, two `zstat` calls per shipped peer
+  and a parse-context description before the first peer and around each peer
+  loaded as text — never per compiled peer. On the reference Mac (macOS 27,
+  Zsh 5.9, 15 alternating runs) it brought warm isolated startup in a symlink
+  installation from 72.1 to 49.1 ms (process) and 94.4 to 74.2 ms (first
+  editable prompt), within the startup budget; a source tree sourced directly,
+  or a peer changed since installation, still parses text.
 - Bound user-controlled display work and result counts, and keep the
   existing fuzzy-history maximum and width/height-aware rendering.
 

@@ -7,12 +7,14 @@ layout when `ZDOTDIR` is unset.
 ## Essentials
 
 - **`.zshrc` is only the bootstrap**: interactive guard, optional initializer,
-  recursive peer discovery and diagnostics. Features go in peers.
+  recursive peer discovery, the compiled-mirror check and diagnostics.
+  Features go in peers.
 - **One ordered boundary.** The optional `local/init.zsh` loads first; every
   `.zsh.<name>` peer after it loads in any order with the same result.
 - **Enabled by filename.** A peer is on when its basename starts with
-  `.zsh.` and off when renamed or removed. There is no registry, allowlist,
-  dependency graph, core module list or lifecycle manager.
+  `.zsh.` and off when renamed or removed; a `.zwc` file is compiled data,
+  never a peer. There is no registry, allowlist, dependency graph, core module
+  list or lifecycle manager.
 - **Private state is off-limits.** The real `~/.zsh.addons/local/init.zsh`,
   private peers, history and machine state are outside the repository; never
   read, copy, overwrite or commit them during repository work.
@@ -67,6 +69,12 @@ compozsh/
   not a peer tier. It follows [caching](caching.md). Both installation layouts
   use it; installs never copy generated source caches, normal updates preserve
   destination caches, and `--clean` archives them with the add-on tree.
+- `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled/` is the installer's marked,
+  owner-only compiled mirror of the shipped peers (never private peers), never
+  discovered as peers. Every installation rebuilds it in both layouts, `--clean`
+  archives it with the add-on tree, and nothing else writes it — not
+  `compozsh --refresh`. Its format and checks are in
+  [Bootstrap and loading](#bootstrap-and-loading) and SECURITY.md.
 - `README.md` is user-facing documentation synchronized with visible behavior,
   keys, installation, extension points and safety guarantees. Its **Shipped
   configuration units** table is the public peer inventory: any change that
@@ -148,8 +156,16 @@ directory once. Discovery collects every file before sourcing any, under fixed
 Zsh options (`emulate -LR zsh`), so glob options set by the initializer or a
 peer cannot change the set: the `.zsh.` prefix matches case-sensitively, hidden
 folders are never searched and nested directory symlinks are never followed.
-Peers are then sourced at top level. Lexical traversal only makes diagnostics
-reproducible:
+Peers are then sourced at top level. A shared peer listed in the installer's
+compiled mirror is sourced through its mirror entry (a symlink to the peer,
+beside the peer's `.zwc`) only while the mirror passes the checks `.zshrc`
+documents and SECURITY.md discloses: ownership, Zsh version, the exact peer
+path, unchanged device, inode, size, mtime and ctime, and the compiling
+shell's parse context (options and aliases) when peers start loading and
+across every text-loaded peer. Otherwise the peer's text loads, so compiled
+loading reaches the same state. Compiled peers report the mirror path in
+`functions_source`, which keeps the `/.zsh.addons/` label suffix. Lexical
+traversal only makes diagnostics reproducible:
 
 - loading the same enabled units in any order produces the same behavior;
 - a peer never calls another peer at source time, relies on sorting before
@@ -170,9 +186,12 @@ overwrite order.
 Keep documentation correct for both layouts. A symlinked `~/.zshrc` resolves
 peers beside the repository file, plus private peers in `~/.zsh.addons`. A
 copied `.zshrc` uses a copied `~/.zsh.addons` with the managed copy in its
-marked `compozsh/` namespace. Whenever repository structure changes, audit
-installation, updating and uninstall instructions together, and update the
-repository tree above in the same change.
+marked `compozsh/` namespace. Both layouts get the compiled mirror; in the
+symlink layout a repository update leaves changed peers on text until
+`install.zsh` runs again, which README's update instructions say. Whenever
+repository structure changes, audit installation, updating and uninstall
+instructions together, and update the repository tree above in the same
+change.
 
 ## Retired decisions
 

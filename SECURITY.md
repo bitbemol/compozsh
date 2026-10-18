@@ -110,7 +110,9 @@ recoverable installer need local state.
 | Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`, written by Zsh's stock `compinit` (called bare by `.zsh.editor`) when a fresh shell finds it missing or its `fpath` file count or Zsh version changed; persists until deleted, including after `--clean` and uninstall | [Zsh-generated shell code](#native-completion-dump) that `compinit` sources: the count, Zsh version and the verbatim first-line words of `fpath` completion files (normally function, command, service, pattern and key names), private entries included, plus completion widget bindings. No `fpath` directory paths, file bodies, history, environment values or project data. Mode follows the umask at write time (0644 under the default 022); an interrupted write can leave `.zcompdump.<host>.<pid>` |
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons`; an initializer moved by `ZSH_LOCAL_INIT` stays at that absolute path (a relative value is ignored) | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted; a rollback that cannot put an item back keeps it there and prints the path |
-| Installer copy staging | `${ZDOTDIR:-$HOME}/.compozsh-install.*`, a mode-0700 directory that exists only while `install.zsh --copy` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The clone's `.zsh.addons` tree without `support/cache` (untracked files included) plus the `.managed-by-compozsh` marker, staged before any active state moves; never sourced |
+| Installer copy staging | `${ZDOTDIR:-$HOME}/.compozsh-install.*`, a mode-0700 directory that exists only while `install.zsh --copy` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The clone's `.zsh.addons` tree without `support/cache` or `support/compiled` (untracked files included) plus the `.managed-by-compozsh` marker, staged before any active state moves; never sourced |
+| Compiled peer mirror | `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled`, a mode-0700 directory written only by `install.zsh` (both layouts) and rebuilt by each installation; persists until the next installation, `--clean` (archived with the add-on tree) or uninstall | [Executable Zsh wordcode](#compiled-peer-mirror): per shipped peer a symlink to its absolute path and the `.zwc` that `zcompile` made from it, never private peers; a `manifest` of the Zsh version, the compiling shell's parse-affecting options and alias tables (normally Zsh's two default aliases), the shipped add-on directory and each peer's relative path, device, inode, size, mtime and ctime; and the `.managed-by-compozsh` marker. No user or project data. Loaded only while fresh |
+| Installer compile staging | `${ZDOTDIR:-$HOME}/.compozsh-compiled.*`, a mode-0700 directory that exists only while `install.zsh` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The new compiled mirror before activation and the superseded one after it; never sourced |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory; discarded with the shell or view | Color-scheme classification, runtime versions, Git state, paths, Context trigger/disclosure flags, positive/exclusion fields and their bookmarks, temporary view snapshots |
 | Local manual summaries | Shell memory until refresh, discovery-selector invalidation or shell exit | Bounded NAME descriptions and page-name/section attribution from the [manual roots](#local-manual-summaries); describes literal names, not executable identity |
@@ -564,7 +566,9 @@ ownership and permission check of `fpath` (an interactive prompt can exclude
 insecure entries or abort) and its default dump path,
 `${ZDOTDIR:-$HOME}/.zcompdump`, resolved when it runs and with no Zsh-version
 suffix. Compozsh adds no `fpath` entry, leaves completion's `use-cache` style
-off (so it writes no `.zcompcache`) and never compiles the dump.
+off (so it writes no `.zcompcache`) and never compiles the dump. (The
+installer's `zcompile` compiles shipped peers only; see
+[compiled peer mirror](#compiled-peer-mirror).)
 
 - **Contents.** A `#files: <count>` and `version: <zsh>` header; the
   `_comps`, `_services`, `_patcomps`, `_postpatcomps`, `_compautos` and
@@ -615,8 +619,9 @@ ls -l "${ZDOTDIR:-$HOME}/.zcompdump"
 ```
 
 The first command should list only `.zsh.editor`'s `autoload -Uz compinit`
-line, its bare `compinit` call and two comments, plus the two commented
-`fpath` lines in `templates/init.zsh`; the second prints the stock functions
+line, its bare `compinit` call and two comments, the two commented `fpath`
+lines in `templates/init.zsh` and `install.zsh`'s `zcompile` of shipped peers
+into their [mirror](#compiled-peer-mirror); the second prints the stock functions
 (on macOS under `/usr/share/zsh/5.9/functions/`) whose `_comp_dumpfile`
 default, header check and `compdump` writer establish the facts above. The
 third should show your account as owner and no `w` for group or other; if it
@@ -1049,6 +1054,54 @@ the existing traversal and retained-failure limits. Inspect
 `.zsh.addons/.zsh.usb`, `.zsh.addons/.zsh.help`, `.zsh.addons/.zsh.tools` and
 `.zsh.addons/.zsh.xcode`.
 
+### Compiled peer mirror
+
+`install.zsh`, in both layouts, compiles the shipped peers it installs (the
+repository's for `--symlink`, the managed `compozsh/` namespace's for `--copy`;
+never private peers) into `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled`.
+Each peer gets a symlink, named like the peer, to the peer's absolute path,
+and beside it the `.zwc` wordcode that `zcompile` produced in a separate
+`zsh -f` under Zsh's default options and aliases with a 077 umask, so the
+directory is mode 0700 and its files owner-only. Nothing else writes it:
+startup only reads it, and `compozsh --refresh` neither checks nor rebuilds
+it. Each installation rebuilds it in a `${ZDOTDIR:-$HOME}/.compozsh-compiled.*`
+staging directory and swaps it in; an existing `support/compiled` without the
+`.managed-by-compozsh` marker is refused before any change.
+
+The bootstrap sources a peer through its mirror entry, so Zsh runs the
+wordcode, only when all of these hold; otherwise it sources the peer's text
+as it would without a mirror:
+
+- the mirror is a real directory owned by you with no group or other access,
+  and its `manifest` a regular file owned by you without group or other write;
+- the manifest names the running `$ZSH_VERSION`, so a Zsh upgrade means text;
+- the mirror entry is a symlink to exactly the discovered peer path;
+- the peer's device, inode, size, mtime and ctime equal the values recorded
+  when it was compiled. The installer compiles a peer only after the clock has
+  passed its ctime and drops it if any value changed meanwhile, and no account
+  can set ctime, so any later write, `chmod`, replacement or `touch` that
+  restores an older mtime puts that peer back on text. Zsh's own check, a
+  `.zwc` not older than its source, would accept same-second edits and
+  restored mtimes. The check relies on the file system recording this
+  machine's clock, as local volumes do;
+- the parse context matches the compiling shell's when peers start loading
+  (no aliases or parse-affecting options from the initializer, and none left
+  by a re-sourced bootstrap), and no peer loaded as text has changed it since.
+
+So the mirror can change startup time, never the resulting shell state; tests
+compare the complete state with and without it in both layouts. In a symlink
+installation a repository update leaves changed peers on text until the
+installer runs again. Discovery never treats a `.zwc` file or anything under
+`support/compiled` as a peer. A `.zwc` placed beside a peer by hand is Zsh's
+own mechanism and outside this check: Zsh's `source` uses it while it is not
+older than the peer.
+
+**Trust.** The mirror is executable configuration with the same trust as the
+add-on tree it lives in: an account that can replace it can already replace
+private peers. Inspect it with `ls -la "${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled"`
+and its first six manifest lines; `zsh tests/run.zsh 'compiled peers'` checks
+discovery, freshness, fallbacks, state equality and the installer lifecycle.
+
 ### Installer backups and temporary residue
 
 The installer never prints the contents of an old `.zshrc` or private add-on,
@@ -1066,7 +1119,11 @@ sources and cleanup removes. An uncatchable termination (`SIGKILL`, power loss),
 or a signal that stops `mktemp` between creating that directory and reporting
 its name, can leave it behind, and an uncatchable termination can also leave a
 partially applied installation whose replaced files remain in the backup.
-Earlier releases named the staging directory `.my-zsh-install.*`. Inspect
+Earlier releases named the staging directory `.my-zsh-install.*`. Every
+installation also builds the [compiled peer mirror](#compiled-peer-mirror) in a
+mode-0700 `${ZDOTDIR:-$HOME}/.compozsh-compiled.*` directory, which holds the
+superseded mirror after the swap and is removed the same way, with the same
+uncatchable-termination limits. Inspect
 `install.zsh`; `zsh tests/run.zsh 'installer'` checks rollback after failures
 and signals, the staging name and its cleanup.
 
@@ -1592,9 +1649,12 @@ git grep -nE '(^|[[:space:]])(source|eval)[[:space:]]' \
 
 The tracked bootstrap sources the optional machine-local initializer and every
 matching peer beneath the repository and user add-on directories, excluding the
-reserved `support/cache` data directory and hidden folders. Discovery runs under
-fixed Zsh options, so glob options set by the initializer or a peer cannot widen
-it (`zsh tests/run.zsh 'peer discovery ignores glob options'`). An explicit
+reserved `support/cache` data directory, the installer's `support/compiled`
+mirror, `.zwc` files and hidden folders. A shared peer may run from that
+[compiled mirror](#compiled-peer-mirror) only under its checks
+(`zsh tests/run.zsh 'compiled peers'`). Discovery runs under fixed Zsh options,
+so glob options set by the initializer or a peer cannot widen it
+(`zsh tests/run.zsh 'peer discovery ignores glob options'`). An explicit
 `ZSH_LOCAL_INIT` must be an absolute path: the bootstrap ignores a relative
 initializer path with a diagnostic and never resolves it against the current
 directory (`zsh tests/run.zsh 'relative ZSH_LOCAL_INIT'`). The tracked

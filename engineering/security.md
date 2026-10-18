@@ -105,12 +105,18 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   initializer, shared peers adjacent to the resolved bootstrap, and private
   peers in the fixed user add-on directory. Add-on names and paths never come
   from the current directory or project metadata, so a relative initializer
-  path is refused with a diagnostic. Two native mechanisms sit outside
-  that list: Zsh's stock functions autoloaded from `fpath` (such as `compinit`
-  and `add-zle-hook-widget`), and stock `compinit`'s sourcing of its
+  path is refused with a diagnostic. A shared peer may run from the
+  installer's compiled mirror (`support/compiled` in the user add-on
+  directory) only under its disclosed freshness, ownership, version and
+  parse-context checks, so compiled code never differs from the peer's current
+  text; private peers are never compiled, only the installer writes the
+  mirror, and discovery never sources `.zwc` files. Two native mechanisms sit
+  outside that list: Zsh's stock functions autoloaded from `fpath` (such as
+  `compinit` and `add-zle-hook-widget`), and stock `compinit`'s sourcing of its
   configuration-base dump. Keep the `compinit` call bare and add no `fpath`
-  entry, completion cache or compiled dump; any of those is new persistence or
-  execution that needs an owner decision and a SECURITY.md update.
+  entry, completion cache or compiled dump; any of those, or another compiled
+  artifact or writer, is new persistence or execution that needs an owner
+  decision and a SECURITY.md update.
 - Add-on installers write only to documented, fixed user-level integration
   directories: stage generated content first, mark installed units, and never
   replace a same-named directory that lacks the installer's marker. Temporary

@@ -201,6 +201,15 @@ same name. `--clean` touches only `.zshrc` and `.zsh.addons`, never `.zshenv`,
 `.zprofile`, `.zlogin`, `.zlogout`, Zsh's `.zcompdump`, the repository or
 exported agent skills.
 
+Both modes also compile the shipped peers with Zsh's `zcompile` into a marked,
+owner-only `~/.zsh.addons/support/compiled` mirror, which cuts warm startup by
+about 20 ms; private peers are never compiled. A shell uses a peer's compiled
+code only while that peer file is unchanged since compilation, the Zsh version
+matches, and your initializer or an earlier private peer has not added aliases
+or changed parse options. Otherwise it loads the peer's text exactly as before,
+so the mirror changes speed, never behavior. Each installation rebuilds the
+mirror; it is safe to delete, and `--clean` archives it with the add-on tree.
+
 ## Apply changes
 
 Open a new terminal, or reload with `exec zsh`. It starts a clean shell instead
@@ -209,10 +218,13 @@ of stacking hooks the way repeated `source ~/.zshrc` would.
 ## Updating
 
 With the recommended symlink installation, pull the repository and start a
-clean shell. The linked bootstrap and adjacent add-ons update together:
+clean shell. The linked bootstrap and adjacent add-ons update together. Peers
+the update changed load from their text until you rerun the installer, which
+recompiles them for fast startup:
 
 ```sh
 git -C "$repo_dir" pull
+zsh "$repo_dir/install.zsh" --symlink
 exec zsh
 ```
 
@@ -1609,7 +1621,9 @@ peers from your `.zsh.addons`; copy installations nest a marked
 `.zsh.addons/compozsh/` namespace, updated only by rerunning `install.zsh --copy`.
 Discovery uses fixed Zsh options, whatever glob options your initializer or
 peers set: the `.zsh.` prefix is case-sensitive and hidden folders such as
-`.archive/` or `.git/` are never searched.
+`.archive/` or `.git/` are never searched. A `.zwc` file is compiled data, never
+a peer, and the `support/cache` and installer-owned `support/compiled`
+directories are never searched for peers.
 
 ```text
 ~/.zsh.addons/
@@ -1796,8 +1810,17 @@ mv "$config_base/.zsh.addons" \
 ```
 
 Do not archive the complete tree when keeping `local/init.zsh` or private peers.
-With a symlink installation, the tree contains only those private files, so it
-can remain untouched. Agent skills exported by `xcode --export-skills` are
+With either installation, archive the installer's compiled mirror of the
+shipped peers too; nothing loads it once the bootstrap is archived:
+
+```sh
+mkdir -p "$config_base/.zsh-backups/uninstall-$stamp"
+mv "$config_base/.zsh.addons/support/compiled" \
+  "$config_base/.zsh-backups/uninstall-$stamp/compiled"
+```
+
+With a symlink installation, the tree then contains only private files and
+caches, so it can remain. Agent skills exported by `xcode --export-skills` are
 independent managed copies and remain installed.
 
 Zsh's completion dump sits directly in the configuration base, outside the

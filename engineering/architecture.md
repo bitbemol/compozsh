@@ -157,7 +157,9 @@ run it again).
 bindings, hook behavior and multiplicity, prompts, effective styles and
 documented fallbacks. A difference in any of those is a defect even when a
 sorted catalog looks equal; incidental source locations or scratch layout may
-differ. Loading a different peer set or changing prerequisites is a different
+differ. Loading shipped peers from the installer's compiled mirror is the same
+peer set: it must reach the same state as their text, and only their source
+locations differ. Loading a different peer set or changing prerequisites is a different
 comparison.
 
 The laws describe setup and safe re-sourcing between interactions. Runtime

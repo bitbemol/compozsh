@@ -91,7 +91,8 @@ test_run_noninteractive() {
 }
 
 # Load shared support as the installed unit, mirroring the .zshrc bootstrap:
-# every regular support/**/.zsh.?* file in lexical order, never support/cache.
+# every regular support/**/.zsh.?* file in lexical order, never support/cache,
+# support/compiled or a .zwc file.
 # Discovery runs under fixed options; files are sourced under the caller's
 # options, as the bootstrap sources them at top level. Child scripts call it
 # after sourcing this file; a test that needs a support unit absent keeps an
@@ -104,7 +105,9 @@ test_source_support() {
     emulate -LR zsh
     local file=''
     for file in "$1/.zsh.addons/support"/**/.zsh.?*(N.); do
-      [[ $file == "$1/.zsh.addons/support/cache/"* ]] || _test_support_files+=("$file")
+      [[ $file == "$1/.zsh.addons/support/cache/"* ||
+         $file == "$1/.zsh.addons/support/compiled/"* || $file == *.zwc ]] ||
+        _test_support_files+=("$file")
     done
   } "$1"
   for _test_support_file in "${_test_support_files[@]}"; do
