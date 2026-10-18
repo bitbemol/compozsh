@@ -143,8 +143,10 @@ short windows use bounded omission.
   environment → `CAUTION` → `CHAIN` → `PIPELINE` → `REDIRECT` → owned task
   entries → `REMOTE` → `GIT` → `NAVIGATE` → `SEARCH` → `ENVIRONMENT` →
   `TEST` / `BUILD` / `RUN`, then alias handling. Place a new kind where it
-  can't steal a more specific or safer view, and add guard tests for the
-  neighbors it could shadow.
+  can't steal a more specific or safer view, and add rows for the neighbors
+  it could shadow to the precedence matrix in `tests/prompt_lens_test.zsh`
+  (`keep their precedence`), which checks each kind alone and against its
+  lower neighbor's evidence.
 - **Rows:** non-READY views show at most five body rows (READY six);
   `EXPANSION` reserves the last row. Order rows from most to least specific
   and reuse captured-fact labels (`PROJECT`, `PATH`, `CURRENT`, `SCOPE`,

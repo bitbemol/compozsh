@@ -966,6 +966,102 @@ _test_living_prompt_interaction_precommand_heads() {
 test_case 'living prompt interaction lens finds precommand heads after chains and pipelines' \
   _test_living_prompt_interaction_precommand_heads
 
+# engineering/prompt.md "Adding an Interaction kind" orders the kinds (first
+# match wins): comment, leading-assignment-only environment, CAUTION, CHAIN,
+# PIPELINE, REDIRECT, owned task entries, REMOTE, GIT, NAVIGATE, SEARCH,
+# ENVIRONMENT, TEST / BUILD / RUN, then alias handling. Each kind first
+# matches alone; then a draft that also carries its lower neighbor's evidence
+# resolves to the higher kind. Owned task entries report the run kind with
+# their own ACTION.
+_test_living_prompt_interaction_kind_precedence_matrix() {
+  test_make_temp_dir || return
+  local output=''
+  # Rows: setup, expected kind, identifying label, its exact value, draft.
+  local -a rows=(
+    # Each kind alone, so every shadowed neighbor demonstrably matches.
+    plain comment 'COMMENT TEXT' 'explain this' '# explain this'
+    plain environment 'ARGUMENT TEXT' EDITOR 'EDITOR=vim'
+    plain caution 'COMMAND TEXT' rm 'rm -rf build'
+    plain chain FLOW 'true → pwd' 'true && pwd'
+    plain pipeline FLOW 'ls → sort' 'ls | sort'
+    plain redirect 'OPERATOR TEXT' '>' 'printf x > out.txt'
+    plain run ACTION 'likely list loaded Compozsh tools' 'compozsh --list'
+    plain remote 'ENDPOINT TEXT' deploy@example.invalid 'ssh deploy@example.invalid'
+    plain git 'OPERATION TEXT' status 'git status'
+    plain navigate 'DESTINATION TEXT' .. 'cd ..'
+    plain search 'QUERY TEXT' needle 'rg needle'
+    plain environment 'ARGUMENT TEXT' analytics 'conda activate analytics'
+    plain test 'TASK TEXT' pytest pytest
+    plain build 'TASK TEXT' build 'xcode build'
+    plain run ACTION 'likely run a shell command' 'printf hello'
+    # Each kind against its lower neighbor's evidence.
+    plain comment 'COMMENT TEXT' 'EDITOR=vim' '# EDITOR=vim'
+    plain environment 'ARGUMENT TEXT' CLEANUP "CLEANUP='rm -rf never-shown'"
+    plain caution 'COMMAND TEXT' rm 'true && rm -rf build'
+    plain chain FLOW 'ls → sort → pwd' 'ls | sort && pwd'
+    plain pipeline FLOW 'ls → sort' 'ls | sort > sorted.txt'
+    plain redirect 'OPERATOR TEXT' '>' 'compozsh --list > tools.txt'
+    plain run ACTION 'likely show task help' 'compozsh help ssh'
+    plain remote 'ENDPOINT TEXT' deploy@example.invalid 'ssh deploy@example.invalid git pull'
+    plain git 'OPERATION TEXT' checkout 'git checkout cd'
+    plain navigate 'DESTINATION TEXT' rg 'cd rg'
+    autocd navigate 'DESTINATION TEXT' rg rg
+    plain search 'QUERY TEXT' export 'rg export'
+    plain environment 'ARGUMENT TEXT' pytest 'conda run pytest'
+    plain test 'TASK TEXT' test 'make test'
+    plain test 'TASK TEXT' test 'xcodebuild test'
+    plain build 'TASK TEXT' build make
+    # Overlaps beyond adjacent kinds: bare xcode is an owned task entry, and
+    # an assignment-only command elsewhere in a chain names no environment.
+    plain run ACTION 'likely open the Xcode action workspace' xcode
+    plain caution 'COMMAND TEXT' rm 'CLEANUP=1; rm -rf build'
+    # Alias handling comes last: it never displaces CAUTION or a structural
+    # view, and a custom alias with a familiar tool name reads as RUN.
+    aliases caution 'COMMAND TEXT' rm 'rm build'
+    aliases pipeline FLOW 'rg → sort' 'rg needle | sort'
+    aliases run ABOUT 'Shell alias · custom definition' 'rg needle'
+  )
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    shift
+    local setup="" kind="" label="" value="" draft="" values=""
+    local -i position=0 matched=0 failures=0
+
+    while (( $# >= 5 )); do
+      setup=$1 kind=$2 label=$3 value=$4 draft=$5
+      shift 5
+      unalias rm 2>/dev/null
+      unalias rg 2>/dev/null
+      _ZLE_AUTOCD_BUFFER="" _ZLE_AUTOCD_PWD=""
+      case $setup in
+        aliases) alias rm="rm -i" rg="print -r --" ;;
+        autocd) _ZLE_AUTOCD_BUFFER=$draft _ZLE_AUTOCD_PWD=$PWD ;;
+      esac
+
+      _prompt_interaction_model "$draft"
+      matched=0
+      for (( position = 1; position <= ${#_PROMPT_INTERACTION_LABELS}; position++ )); do
+        [[ ${_PROMPT_INTERACTION_LABELS[position]} == "$label" &&
+           ${_PROMPT_INTERACTION_VALUES[position]} == "$value" ]] && matched=1
+      done
+      values=${(j:|:)_PROMPT_INTERACTION_VALUES}
+      if [[ $_PROMPT_INTERACTION_KIND != "$kind" || $values == *never-shown* ]] ||
+         (( !matched )); then
+        print -u2 -r -- "${(qqq)draft} ($setup): expected $kind with $label ${(qqq)value}, got $_PROMPT_INTERACTION_KIND ${(qqq)values}"
+        (( ++failures ))
+      fi
+    done
+    (( $# == 0 && !failures )) || exit 1
+    print -r -- precedence-matrix
+  ' "$TEST_REPO_ROOT" "${rows[@]}") || return
+
+  test_assert_equal precedence-matrix "$output"
+}
+test_case 'living prompt interaction kinds keep their precedence against each neighbor' \
+  _test_living_prompt_interaction_kind_precedence_matrix
+
 _test_living_prompt_interaction_edits_are_inert_and_reuse_autosuggestion_state() {
   test_make_temp_dir || return
   local bin="$TEST_TMP_DIR/forbidden-bin"
