@@ -179,7 +179,7 @@ exit 0' || return
       fi
       print restored > "$HOME/restored"
     }
-    _xcode_run_live SIM-456 com.example.app fixture > "$HOME/output"
+    _xcode_run_session simulator SIM-456 com.example.app fixture > "$HOME/output"
     [[ $? == 1 && $calls == 2 ]] || { print -u2 "successful debugger cleared copy failure"; exit 1; }
     local -a remnants=("$HOME/simulator data/tmp"/compozsh-xcode-run.*(N))
     (( !${#remnants} )) || exit 2

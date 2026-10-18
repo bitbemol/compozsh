@@ -11,7 +11,7 @@ exit 7' || return
     source "$1/.zsh.addons/.zsh.xcode"
     path=("$2/bin" $path)
     export TMPDIR=$HOME
-    (( ${+functions[_xcode_run_device_live]} )) || { print -u2 "missing device monitor"; exit 1; }
+    (( ${+functions[_xcode_run_session]} )) || { print -u2 "missing device monitor"; exit 1; }
     _zle_picker_run() {
       local -i attempts=0
       while (( attempts++ < 100 )); do
@@ -24,7 +24,7 @@ exit 7' || return
       print restored > "$HOME/restored"
       _ZLE_PICKER_SELECTED_VALUE=stop
     }
-    _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV" arm64
+    _xcode_run_session device DEVICE-123 com.example.app "App · Apple TV" arm64
     local result=$?
     [[ $result == 7 && -f $HOME/restored ]] || exit 2
     [[ $(<"$HOME/launch") == "devicectl|device|process|launch|--device|DEVICE-123|--terminate-existing|--console|--arch|arm64|com.example.app" ]] || exit 3
@@ -68,15 +68,15 @@ while read -r -u $gate line; do :; done' || return
     test_picker_script observe _console_ready -- cancel -- select stop -- \
       observe _console_ready -- cancel -- select stop -- \
       observe _console_ready -- cancel -- select stop
-    _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV" || exit 1
+    _xcode_run_session device DEVICE-123 com.example.app "App · Apple TV" || exit 1
     [[ $(<"$HOME/stopped") == stopped ]] || exit 2
     command rm "$HOME/restored" "$HOME/stopped"
     export STOP_STATUS=7
-    _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV"
+    _xcode_run_session device DEVICE-123 com.example.app "App · Apple TV"
     [[ $? == 7 ]] || { print -u2 "native termination failure was hidden"; exit 4; }
     command rm "$HOME/restored" "$HOME/stopped"
     export STOP_MODE=ignore
-    _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV" 2> "$HOME/stop-error"
+    _xcode_run_session device DEVICE-123 com.example.app "App · Apple TV" 2> "$HOME/stop-error"
     [[ $? == 1 && $(<"$HOME/stop-error") == *"check or stop the app on the device"* && ! -f $HOME/stopped ]] || exit 5
     local -a leftovers=("$HOME"/compozsh-xcode-device.*(N))
     (( !${#leftovers} )) || exit 3
@@ -132,7 +132,7 @@ while read -r -u $gate line; do :; done' || return
     for expected in 0 7 127 145; do
     export STOP_STATUS=$expected
     {
-      _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV"
+      _xcode_run_session device DEVICE-123 com.example.app "App · Apple TV"
       result=$?
       print -r -u $watchdog_gate -- complete
       wait $watchdog 2>/dev/null
@@ -206,7 +206,7 @@ while read -r -u $gate line; do :; done' || return
     }
     _driver() {
       local before=$(command stty -g) previous="" result=0
-      _xcode_run_device_live DEVICE-123 com.example.app "Example · Apple TV" arm64
+      _xcode_run_session device DEVICE-123 com.example.app "Example · Apple TV" arm64
       result=$?
       [[ $(command stty -g) == "$before" ]] || { print -r -u $events "BAD-STTY:$before:$(command stty -g)"; result=99; }
       (( _ZLE_PICKER_ACTIVE == 0 && _ZLE_PICKER_SCREEN_ACTIVE == 0 )) || result=97

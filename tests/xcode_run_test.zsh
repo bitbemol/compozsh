@@ -138,11 +138,11 @@ _test_xcode_run_pipe_mapping() {
     # Only the valid root opens Run: its first log reader, then actions.
     test_picker_script cancel -- select stop
     for scenario in relative "$HOME/missing" "$HOME/link" "$HOME/link/" "$HOME/link/." "$HOME/linked-child" "$root"$'\''\nextra'\'' "$root"$'\''\t'\''; do
-      _xcode_run_live SIM-456 com.example.app fixture
+      _xcode_run_session simulator SIM-456 com.example.app fixture
       [[ $? != 0 && $launches == 0 ]] || { print -u2 "invalid Simulator root reached launch"; exit 1; }
     done
     scenario=$root
-    _xcode_run_live SIM-456 com.example.app fixture
+    _xcode_run_session simulator SIM-456 com.example.app fixture
     [[ $? == 1 && $launches == 1 && $captures == 9 ]] || exit 2
     local -a remnants=("$root/tmp"/compozsh-xcode-run.*(N))
     (( !${#remnants} )) || exit 3
@@ -373,10 +373,10 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
     _forget_identity() { command rm -f -- "$HOME/identity"; }
     test_picker_script observe _forget_identity -- cancel -- select stop -- \
       observe _forget_identity -- cancel -- select stop
-    _xcode_run_live SIM-456 com.example.app fixture
+    _xcode_run_session simulator SIM-456 com.example.app fixture
     [[ $? == 1 && ! -e $HOME/effects ]] || { print -u2 "initial identity failure silently succeeded"; exit 2; }
     print identity > "$HOME/identity"
-    _xcode_run_live SIM-456 com.example.app fixture
+    _xcode_run_session simulator SIM-456 com.example.app fixture
     [[ $? == 1 && ! -e $HOME/effects ]] || { print -u2 "cleanup identity failure silently succeeded"; exit 3; }
     local -a remnants=("$HOME/simulator data/tmp"/compozsh-xcode-run.*(N))
     (( !${#remnants} )) || exit 4
@@ -419,13 +419,13 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
     _mark_screen() { print screen >> "$HOME/effects"; }
     # Only the stop-failed launch opens Run: its first log reader, then actions.
     test_picker_script observe _mark_screen -- cancel -- select stop
-    _xcode_run_live SIM-456 com.example.app fixture
+    _xcode_run_session simulator SIM-456 com.example.app fixture
     [[ $? == 65 && ! -f $HOME/effects ]] || exit 1
     SCENARIO=malformed
-    _xcode_run_live SIM-456 com.example.app fixture
+    _xcode_run_session simulator SIM-456 com.example.app fixture
     [[ $? == 1 && ! -f $HOME/effects ]] || exit 2
     SCENARIO=stop-failed
-    _xcode_run_live SIM-456 com.example.app fixture
+    _xcode_run_session simulator SIM-456 com.example.app fixture
     [[ $? == 1 && $(<"$HOME/effects") == $'\''screen\nstop-attempt'\'' ]] || exit 3
     local -a remnants=("$HOME/simulator data/tmp"/compozsh-xcode-run.*(N))
     (( !${#remnants} )) || exit 4
@@ -472,19 +472,19 @@ exit 23' || return
     export TMPDIR=$HOME
     source "$1/.zsh.addons/.zsh.xcode"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_plutil_raw"
-    (( ${+functions[_xcode_run_live]} )) || { print -u2 "missing run view"; exit 1; }
+    (( ${+functions[_xcode_run_session]} )) || { print -u2 "missing run view"; exit 1; }
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     source "$1/tests/picker_support.zsh"
     _launched_check() { [[ -p $_xcode_run_fifo && $_xcode_run_pid == 12345 ]] || return 8; }
     _replace_process() { print replaced > "$HOME/replaced"; }
     test_picker_script observe _launched_check -- cancel -- select stop
-    _xcode_run_live SIM-456 com.example.app "App · Simulator" || exit 2
+    _xcode_run_session simulator SIM-456 com.example.app "App · Simulator" || exit 2
     test_picker_script observe _launched_check -- cancel -- select lldb
-    _xcode_run_live SIM-456 com.example.app "App · Simulator"
+    _xcode_run_session simulator SIM-456 com.example.app "App · Simulator"
     [[ $? == 23 ]] || exit 3
     test_picker_script observe _launched_check -- observe _replace_process -- cancel -- select lldb
-    _xcode_run_live SIM-456 com.example.app "App · Simulator"
+    _xcode_run_session simulator SIM-456 com.example.app "App · Simulator"
     [[ $? != 0 ]] || exit 4
     [[ -z $(print -rl -- "$HOME/simulator data/tmp"/compozsh-xcode-run.*(N)) ]] || exit 5
     print lifecycle
@@ -540,7 +540,7 @@ print -r -- "501 Wed Sep 2 12:00:00 2026 /sim/Example.app/Example"' || return
       print -r -- "device:$_xcode_run_device|$_xcode_device_done|$_xcode_device_pid|$_xcode_device_status"
     }
     test_picker_script observe _device_state -- cancel -- select stop
-    _xcode_run_live SIM-456 com.example.app "App · Simulator"
+    _xcode_run_session simulator SIM-456 com.example.app "App · Simulator"
     print -r -- "run:$?"
     local -a markers=($HOME/*-marker(N)); print -r -- "markers:${#markers}"
   ' "$TEST_REPO_ROOT" "$fake_bin" 2>&1) || exit_status=$?
@@ -617,9 +617,9 @@ command cat >> "$HOME/clipboard"' || return
         command rm -f -- "$HOME/restored" "$HOME/fail-copy" "$HOME/clipboard"
         calls=0 owner=""
         if [[ $mode == device ]]; then
-          _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV"
+          _xcode_run_session device DEVICE-123 com.example.app "App · Apple TV"
         else
-          _xcode_run_live SIM-456 com.example.app "App · Simulator"
+          _xcode_run_session simulator SIM-456 com.example.app "App · Simulator"
         fi
         run_status=$?
         print -r -- "$mode $variant:$run_status:$calls:$(<"$HOME/clipboard")"
@@ -641,6 +641,40 @@ remnants:0' "$output" 'device and Simulator Copy-and-reopen diverged'
 }
 test_case 'Xcode run Copy reopens the same device or Simulator owner with identical status' \
   _test_xcode_run_copy_reopen_modes
+
+# One session owner declares every Run reader, log-view and process name for
+# both modes, so state added for one mode cannot be missing from the other. A
+# scoped copy of the caller's own value (name=$name) is not a second owner.
+_test_xcode_run_session_names_declared_once() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local line='' owner='' word='' name=''
+  local -a lines=("${(@f)$(<"$TEST_REPO_ROOT/.zsh.addons/.zsh.xcode")}") repeated=()
+  local -A owners=()
+  for line in "${lines[@]}"; do
+    if [[ $line == (#b)([_[:alnum:]-]##)'() {' ]]; then
+      owner=$match[1]
+    elif [[ $line == [[:space:]]#local\ * ]]; then
+      for word in ${=line}; do
+        [[ $word == (#b)(_xcode_(run|logs|device)_[a-z_]##)(|=*) ]] || continue
+        name=$match[1]
+        [[ $match[3] == "=\$$name" ]] && continue
+        [[ " ${owners[$name]-} " == *" $owner "* ]] || owners[$name]+=" $owner"
+      done
+    fi
+  done
+  for name in ${(k)owners}; do
+    (( ${#${=owners[$name]}} > 1 )) && repeated+=("$name:${owners[$name]}")
+  done
+  test_assert_equal '' "${(F)${(@o)repeated}}" 'Run session names have more than one declaring owner' || return
+  owner=${owners[_xcode_run_device]# }
+  test_assert_equal _xcode_run_session "$owner" 'the Run mode flag has no single session owner' || return
+  for name in _xcode_run_pid _xcode_run_logger _xcode_run_unified_fifo; do
+    test_assert_equal "$owner" "${owners[$name]# }" "$name is not declared by the Run session owner" || return
+  done
+}
+test_case 'Xcode run session names are declared once for both modes' \
+  _test_xcode_run_session_names_declared_once
 
 _test_xcode_lldb_terminal_presentation() {
   test_make_temp_dir || return
@@ -834,7 +868,7 @@ command cat > "$HOME/copied"' || return
       local REPLY=caller-scratch
       command rm -f -- "$HOME/screen-closed"
       {
-        _xcode_run_live SIM-456 com.example.app "App · Simulator"
+        _xcode_run_session simulator SIM-456 com.example.app "App · Simulator"
         result=$?
       } always {
         [[ $REPLY == caller-scratch ]] || result=96

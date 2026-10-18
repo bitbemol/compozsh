@@ -1363,7 +1363,7 @@ _xcode_run() {
       command xcrun devicectl device install app --device "$identifier" "$_XCODE_APP_PATH" || return
       if [[ -o interactive && -t 0 && -t 1 && $TERM != dumb ]] &&
           (( ${+functions[_zle_picker_run]} && ${+functions[_matching_compile]} )); then
-        _xcode_run_device_live "$identifier" "$_XCODE_BUNDLE_ID" "$scheme · $destination" "$arch"
+        _xcode_run_session device "$identifier" "$_XCODE_BUNDLE_ID" "$scheme · $destination" "$arch"
         return $?
       fi
       command xcrun devicectl device process launch --device "$identifier" \
@@ -1426,7 +1426,7 @@ _xcode_run() {
   command xcrun simctl install "$identifier" "$_XCODE_APP_PATH" || return
   if [[ -o interactive && -t 0 && -t 1 && $TERM != dumb ]] &&
       (( ${+functions[_zle_picker_run]} )); then
-    _xcode_run_live "$identifier" "$_XCODE_BUNDLE_ID" "$scheme · $destination · $identifier" "$simulator_launch_arch"
+    _xcode_run_session simulator "$identifier" "$_XCODE_BUNDLE_ID" "$scheme · $destination · $identifier" "$simulator_launch_arch"
     return $?
   fi
   command xcrun simctl launch "${simulator_launch_arguments[@]}" "$identifier" "$_XCODE_BUNDLE_ID"
@@ -2246,61 +2246,121 @@ _xcode_device_stop_drain() {
   (( ${_xcode_device_done:-0} ))
 }
 
-_xcode_run_device_live() {
+# One Run session owns every reader, log-view and process name of both modes,
+# so a shared reader never evaluates an inherited value or writes a global, and
+# app output ends with the session. Mode helpers resolve the private FIFO
+# directory (REPLY), start the app or console with its observers, and stop only
+# what this session started; screen restoration precedes every stop.
+# Usage: _xcode_run_session <device|simulator> <identifier> <bundle> <context> [arch]
+_xcode_run_session() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  unsetopt MONITOR BG_NICE NOTIFY
-  local identifier=$1 bundle=$2 _xcode_run_context=$3 arch=${4:-} REPLY=''
+  unsetopt BG_NICE NOTIFY
+  local mode=$1 identifier=$2 bundle=$3 _xcode_run_context=$4 arch=${5:-}
+  local REPLY='' request='' prefix=''
+  case $mode in
+    (device) prefix=compozsh-xcode-device ;;
+    (simulator) prefix=compozsh-xcode-run ;;
+    (*) return 2 ;;
+  esac
   [[ $identifier == [[:alnum:]][[:alnum:].-]# &&
      $bundle == [[:alnum:]][[:alnum:].-]# ]] || return 2
   [[ -z $arch || ( $arch == [[:alnum:]_][[:alnum:]_]# && ${#arch} -le 40 ) ]] || return 2
-  zmodload zsh/system zsh/parameter zsh/zselect || return 1
-  local temp_root=${TMPDIR:-/tmp} _xcode_run_dir='' _xcode_run_fifo=''
+  # A device console is no terminal job for its whole session.
+  [[ $mode == device ]] && unsetopt MONITOR
+  zmodload zsh/system || return 1
+  local _xcode_run_tmp='' _xcode_run_dir='' _xcode_run_fifo='' _xcode_run_unified_fifo=''
   local _xcode_run_log='' _xcode_run_unified_status='' _xcode_run_lldb='' _xcode_run_identity=''
-  local _xcode_run_clipboard='' _xcode_logs_snapshot='' _xcode_logs_query='' _xcode_logs_notice=''
+  local _xcode_run_clipboard='' _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
+  local _xcode_logs_snapshot='' _xcode_logs_query='' _xcode_logs_notice=''
   local _xcode_logs_exclude='' _xcode_logs_severity=all _xcode_logs_copy_payload=''
-  local -a launch_arguments=() _xcode_run_pending=('' '') _xcode_run_actions_bookmark=('' 1 0)
+  local -a _xcode_run_pending=('' '') _xcode_run_actions_bookmark=('' 1 0)
+  # Filters can contain app data. Keep shared input-loop return state inside
+  # this run even when an interrupt exits directly from the full reader.
   local -a _ZLE_PICKER_BOOKMARK=()
-  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0 _xcode_run_device=1 _xcode_run_fd=-1
-  local -i _xcode_run_unified_fd=-1 _xcode_run_eof=0 _xcode_run_stdout_seen=0 _xcode_run_read_error=0
-  local -i _xcode_run_trimmed=0 _xcode_run_publish=1 _xcode_device_pid=0 _xcode_device_done=0 _xcode_device_status=0
+  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0 _xcode_run_device=0
+  local -i _xcode_run_fd=-1 _xcode_run_unified_fd=-1 _xcode_run_writer=-1
+  local -i _xcode_run_pid=0 _xcode_run_logger=0 _xcode_run_drainer=0
+  local -i _xcode_device_pid=0 _xcode_device_done=0 _xcode_device_status=0
+  local -i _xcode_run_eof=0 _xcode_run_stdout_seen=0 _xcode_run_read_error=0
+  local -i _xcode_run_trimmed=0 _xcode_run_publish=1 _xcode_run_initial_logs=1
   local -i _xcode_logs_captured=0 _xcode_logs_trimmed=0 _xcode_logs_offset=100000 _xcode_logs_follow=1
-  local -i _xcode_logs_row=0 _xcode_logs_width=0 _xcode_logs_copy_count=0 _xcode_run_initial_logs=1
+  local -i _xcode_logs_row=0 _xcode_logs_width=0 _xcode_logs_copy_count=0
   local -i _xcode_logs_exclude_focus=0 _xcode_logs_exclude_shown=0 result=0
-  [[ -n $arch ]] && launch_arguments+=(--arch "$arch")
-  (( ${+functions[_compozsh_effect_copy]} )) && _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
-  _xcode_run_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode-device.XXXXXXXX") || return 1
-  _xcode_run_fifo="$_xcode_run_dir/output"
+  [[ $mode == device ]] && _xcode_run_device=1
   {
+    _xcode_run_${mode}_prepare "$identifier" || return
+    _xcode_run_tmp=$REPLY
+    _xcode_run_dir=$(command mktemp -d "$_xcode_run_tmp/$prefix.XXXXXXXX") || return 1
+    _xcode_run_fifo="$_xcode_run_dir/output"
     command mkfifo -m 600 -- "$_xcode_run_fifo" || return 1
     sysopen -r -o nonblock,cloexec -u _xcode_run_fd "$_xcode_run_fifo" || return 1
-    command xcrun devicectl device process launch --device "$identifier" \
-      --terminate-existing --console "${launch_arguments[@]}" "$bundle" \
-      < /dev/null > "$_xcode_run_fifo" 2>&1 &
-    _xcode_device_pid=$!
+    _xcode_run_${mode}_start "$identifier" "$bundle" "$arch" || return
+    (( ${+functions[_compozsh_effect_copy]} )) &&
+      _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
     _xcode_run_screen || result=$?
-  } always {
-    # Screen restoration precedes termination. Wait only a bounded interval;
-    # an unresponsive native console cannot leave terminal cleanup hanging.
-    (( _xcode_run_read_error )) && result=1
-    _xcode_device_poll
-    if (( _xcode_device_pid > 1 && !_xcode_device_done )); then
-      if ! _xcode_run_stop_child "$_xcode_device_pid" pid _xcode_device_stop_drain; then
-        print -u2 -r -- 'xcode: device console did not stop promptly; check or stop the app on the device'
-        result=1
-      elif (( _xcode_device_status != 0 && _xcode_device_status != 143 )); then
-        result=$_xcode_device_status
-      fi
-    elif (( _xcode_device_done && _xcode_device_status != 0 )); then
-      result=$_xcode_device_status
+    request=$REPLY
+    _xcode_run_logs_stop
+    # Run offers LLDB only with a recorded debugger and launched identity.
+    if [[ $request == lldb ]]; then
+      _xcode_run_attach || result=$?
     fi
+  } always {
+    _xcode_run_logs_stop
+    _xcode_run_${mode}_stop "$result" "$identifier" "$bundle"
+    result=$?
+    (( _xcode_run_writer >= 0 )) && exec {_xcode_run_writer}>&-
     (( _xcode_run_fd >= 0 )) && exec {_xcode_run_fd}<&-
-    if [[ ${_xcode_run_dir:t} == compozsh-xcode-device.* &&
-          ${_xcode_run_dir:h:A} == ${temp_root:A} && ! -L $_xcode_run_dir ]]; then
+    (( _xcode_run_unified_fd >= 0 )) && exec {_xcode_run_unified_fd}<&-
+    if [[ ${_xcode_run_dir:t} == "$prefix".* &&
+          ${_xcode_run_dir:h:A} == "$_xcode_run_tmp" && ! -L $_xcode_run_dir ]]; then
       command rm -f -- "$_xcode_run_fifo"
+      [[ -n $_xcode_run_unified_fifo ]] && command rm -f -- "$_xcode_run_unified_fifo"
       command rmdir -- "$_xcode_run_dir"
     fi
   }
+  return $result
+}
+
+# A device console's private FIFO lives under the host temporary directory.
+_xcode_run_device_prepare() {
+  emulate -L zsh
+  zmodload zsh/parameter zsh/zselect || return 1
+  REPLY=${${TMPDIR:-/tmp}:A}
+}
+
+# The native console writes the selected app's output to the session FIFO. It
+# owns no terminal job; the session polls it and stops it as an owned child.
+_xcode_run_device_start() {
+  emulate -L zsh
+  unsetopt MONITOR BG_NICE NOTIFY
+  local identifier=$1 bundle=$2 arch=$3
+  local -a launch_arguments=()
+  [[ -n $arch ]] && launch_arguments+=(--arch "$arch")
+  command xcrun devicectl device process launch --device "$identifier" \
+    --terminate-existing --console "${launch_arguments[@]}" "$bundle" \
+    < /dev/null > "$_xcode_run_fifo" 2>&1 &
+  _xcode_device_pid=$!
+}
+
+# Wait only a bounded interval: an unresponsive native console cannot leave
+# terminal cleanup hanging. Returns the session status with the console's.
+# Usage: _xcode_run_device_stop <status> <identifier> <bundle>
+_xcode_run_device_stop() {
+  emulate -L zsh
+  local -i result=$1
+  (( _xcode_run_read_error )) && result=1
+  _xcode_device_poll
+  if (( _xcode_device_pid > 1 && !_xcode_device_done )); then
+    if ! _xcode_run_stop_child "$_xcode_device_pid" pid _xcode_device_stop_drain; then
+      print -u2 -r -- 'xcode: device console did not stop promptly; check or stop the app on the device'
+      result=1
+    elif (( _xcode_device_status != 0 && _xcode_device_status != 143 )); then
+      result=$_xcode_device_status
+    fi
+  elif (( _xcode_device_done && _xcode_device_status != 0 )); then
+    result=$_xcode_device_status
+  fi
   return $result
 }
 
@@ -2339,143 +2399,107 @@ _xcode_run_debugger() {
     "${arguments[@]}" --attach-pid "$2"
 }
 
-_xcode_run_live() {
+# simctl interprets output paths inside this Simulator's data filesystem.
+# Resolve only the selected device; host TMPDIR is not its guest /tmp.
+_xcode_run_simulator_prepare() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  unsetopt BG_NICE NOTIFY
-  local identifier=$1 bundle=$2 _xcode_run_context=$3 launch_arch=${4:-} REPLY=''
-  local -a launch_arguments=()
-  [[ $identifier == [[:alnum:]][[:alnum:].-]# &&
-     $bundle == [[:alnum:]][[:alnum:].-]# ]] || return 2
-  if [[ -n $launch_arch ]]; then
-    [[ $launch_arch == [[:alnum:]_][[:alnum:]_]# && ${#launch_arch} -le 40 ]] || return 2
-    launch_arguments+=("--arch=$launch_arch")
-  fi
-  zmodload zsh/system || return 1
-  local _xcode_run_dir='' _xcode_run_fifo='' _xcode_run_log=''
-  local _xcode_run_root='' _xcode_run_tmp='' guest_fifo=''
-  local _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
-  local _xcode_run_identity='' _xcode_run_lldb='' request='' monitor_enabled=''
-  local _xcode_run_unified_fifo='' _xcode_run_unified_status=''
-  local _xcode_run_clipboard='' _xcode_logs_snapshot='' _xcode_logs_query='' _xcode_logs_notice=''
-  local _xcode_logs_exclude='' _xcode_logs_severity=all
-  local -i _xcode_logs_exclude_focus=0 _xcode_logs_exclude_shown=0 _xcode_run_initial_logs=1
-  local _xcode_logs_copy_payload=''
-  local -a _xcode_run_actions_bookmark=('' 1 0)
-  # Filters can contain app data. Keep shared input-loop return state inside
-  # this run even when an interrupt exits directly from the full reader.
-  local -a _ZLE_PICKER_BOOKMARK=()
-  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
-  local -i _xcode_logs_captured=0 _xcode_logs_trimmed=0 _xcode_logs_offset=100000 _xcode_logs_follow=1
-  local -i _xcode_logs_row=0 _xcode_logs_width=0 _xcode_logs_copy_count=0
-  local -a _xcode_run_pending=('' '')
-  local -i _xcode_run_unified_fd=-1 _xcode_run_logger=0 _xcode_run_stdout_seen=0
-  local -i _xcode_run_fd=-1 writer=-1 _xcode_run_pid=0 drainer=0
-  local -i _xcode_run_trimmed=0 _xcode_run_eof=0 _xcode_run_publish=1
-  local -i _xcode_run_read_error=0
-  # Shared readers also serve the device console; scope its flags here so they
-  # never fall back to inherited values or write globals.
-  local -i _xcode_run_device=0 _xcode_device_done=0 _xcode_device_pid=0 _xcode_device_status=0
-  local -i result=0
-  # simctl interprets output paths inside this Simulator's data filesystem.
-  # Resolve only the selected device; host TMPDIR is not its guest /tmp.
-  _xcode_capture_command xcrun simctl getenv "$identifier" SIMULATOR_SHARED_RESOURCES_DIRECTORY || {
+  local root=''
+  _xcode_capture_command xcrun simctl getenv "$1" SIMULATOR_SHARED_RESOURCES_DIRECTORY || {
     print -u2 -r -- 'xcode: cannot resolve the selected Simulator output directory'
     return 1
   }
-  _xcode_run_root=$_XCODE_CAPTURE
-  [[ $_xcode_run_root == /* && $_xcode_run_root != *[[:cntrl:]]* &&
-     $_xcode_run_root == ${_xcode_run_root:a} &&
-     ${#_xcode_run_root} -le 4096 && -d $_xcode_run_root && ! -L $_xcode_run_root &&
-     -d $_xcode_run_root/tmp && ! -L $_xcode_run_root/tmp ]] || {
+  root=$_XCODE_CAPTURE
+  [[ $root == /* && $root != *[[:cntrl:]]* && $root == ${root:a} &&
+     ${#root} -le 4096 && -d $root && ! -L $root &&
+     -d $root/tmp && ! -L $root/tmp ]] || {
     print -u2 -r -- 'xcode: selected Simulator has no safe temporary output directory'
     return 1
   }
-  _xcode_run_root=${_xcode_run_root:A}
-  _xcode_run_tmp=${_xcode_run_root}/tmp
-  [[ ${_xcode_run_tmp:A:h} == "$_xcode_run_root" ]] || return 1
-  _xcode_run_dir=$(command mktemp -d "$_xcode_run_tmp/compozsh-xcode-run.XXXXXXXX") || return 1
-  _xcode_run_fifo="$_xcode_run_dir/output"
-  guest_fifo="/tmp/${_xcode_run_dir:t}/output"
-  {
-    command mkfifo -m 600 -- "$_xcode_run_fifo" || return 1
-    sysopen -r -o nonblock,cloexec -u _xcode_run_fd "$_xcode_run_fifo" || return 1
-    # Keep an initial writer until simctl has opened the app's output handles.
-    sysopen -w -o nonblock,cloexec -u writer "$_xcode_run_fifo" || return 1
-    _xcode_run_logs_start "$identifier" "$bundle" || _xcode_run_logs_stop
-    # Export the guest variable for the launch only, not later ps, LLDB or stop.
-    SIMCTL_CHILD_NSUnbufferedIO=YES _xcode_capture_command xcrun simctl launch \
-      "--stdout=$guest_fifo" "--stderr=$guest_fifo" --terminate-running-process \
-      "${launch_arguments[@]}" "$identifier" "$bundle" || {
-      result=$?
-      print -u2 -r -- "xcode: ${(V)_XCODE_CAPTURE_ERROR}"
-      return $result
-    }
-    exec {writer}>&-
-    writer=-1
-    request=${_XCODE_CAPTURE#"$bundle: "}
-    [[ $_XCODE_CAPTURE == "$bundle: $request" && $request == <-> &&
-       ${#request} -le 10 ]] && (( request > 1 )) || {
-      print -u2 -r -- 'xcode: launch returned no exact PID; manage the app in Simulator'
-      return 1
-    }
-    _xcode_run_pid=$request
-    _xcode_run_identity "$_xcode_run_pid" && _xcode_run_identity=$REPLY
-    _xcode_run_lldb=$(command xcrun --find lldb 2>/dev/null)
-    [[ $_xcode_run_lldb == /* && -x $_xcode_run_lldb && ! -d $_xcode_run_lldb ]] || _xcode_run_lldb=''
-    (( ${+functions[_compozsh_effect_copy]} )) &&
-      _xcode_run_clipboard=$(whence -p pbcopy 2>/dev/null)
-    _xcode_run_screen || result=$?
-    request=$REPLY
-    _xcode_run_logs_stop
-    if [[ $request == lldb ]]; then
-      if [[ -x $_xcode_run_lldb ]] && _xcode_run_is_current; then
-        # Keep the drainer alive even if the app closes stdout while debugging.
-        # Its owned PID then remains a cleanup target until we reap it.
-        sysopen -w -o nonblock,cloexec -u writer "$_xcode_run_fifo" || return 1
-        # The pipe drainer needs no terminal job. Restore the caller's job
-        # control before starting LLDB so debugger interrupts remain native.
-        monitor_enabled=$options[monitor]
-        unsetopt MONITOR
-        _xcode_run_drain &
-        drainer=$!
-        [[ $monitor_enabled == on ]] && setopt MONITOR
-        print -r -- 'LLDB: continue resumes; quit returns and stops this run. App output is discarded while debugging.'
-        _xcode_run_debugger "$_xcode_run_lldb" "$_xcode_run_pid" || result=$?
-      else
-        print -u2 -r -- 'xcode: the launched process ended or changed, or LLDB is unavailable'
-        result=1
-      fi
-    fi
-  } always {
-    _xcode_run_logs_stop
-    # Stop only the still-identical launched process on this exact Simulator.
-    # Identity revalidation narrows, but cannot atomically eliminate, exit races.
-    if (( _xcode_run_pid > 1 )); then
-      if _xcode_run_is_current; then
-        command xcrun simctl terminate "$identifier" "$bundle" || {
-          print -u2 -r -- 'xcode: could not stop the app; stop it in Simulator'
-          (( result == 0 )) && result=1
-        }
-      else
-        print -u2 -r -- 'xcode: could not verify the launched process; check or stop the app in Simulator'
-        (( result == 0 )) && result=1
-      fi
-    fi
-    if (( drainer > 0 )); then
-      _xcode_run_child_state "$drainer" && kill -KILL $drainer 2>/dev/null
-      _xcode_run_wait_child "$drainer"
-    fi
-    (( writer >= 0 )) && exec {writer}>&-
-    (( _xcode_run_fd >= 0 )) && exec {_xcode_run_fd}<&-
-    (( _xcode_run_unified_fd >= 0 )) && exec {_xcode_run_unified_fd}<&-
-    if [[ ${_xcode_run_dir:t} == compozsh-xcode-run.* &&
-          ${_xcode_run_dir:h:A} == "$_xcode_run_tmp" && ! -L $_xcode_run_dir ]]; then
-      command rm -f -- "$_xcode_run_fifo"
-      [[ -n $_xcode_run_unified_fifo ]] && command rm -f -- "$_xcode_run_unified_fifo"
-      command rmdir -- "$_xcode_run_dir"
-    fi
+  root=${root:A}
+  REPLY=$root/tmp
+  [[ ${REPLY:A:h} == "$root" ]]
+}
+
+# Subscribe the Logger observer, then launch with stdout and stderr on the
+# session FIFO's guest path and record the exact launched PID and identity.
+_xcode_run_simulator_start() {
+  emulate -L zsh
+  local identifier=$1 bundle=$2 arch=$3 pid='' guest_fifo="/tmp/${_xcode_run_dir:t}/output"
+  local -a launch_arguments=()
+  local -i result=0
+  [[ -n $arch ]] && launch_arguments+=("--arch=$arch")
+  # Keep an initial writer until simctl has opened the app's output handles.
+  sysopen -w -o nonblock,cloexec -u _xcode_run_writer "$_xcode_run_fifo" || return 1
+  _xcode_run_logs_start "$identifier" "$bundle" || _xcode_run_logs_stop
+  # Export the guest variable for the launch only, not later ps, LLDB or stop.
+  SIMCTL_CHILD_NSUnbufferedIO=YES _xcode_capture_command xcrun simctl launch \
+    "--stdout=$guest_fifo" "--stderr=$guest_fifo" --terminate-running-process \
+    "${launch_arguments[@]}" "$identifier" "$bundle" || {
+    result=$?
+    print -u2 -r -- "xcode: ${(V)_XCODE_CAPTURE_ERROR}"
+    return $result
   }
+  exec {_xcode_run_writer}>&-
+  _xcode_run_writer=-1
+  pid=${_XCODE_CAPTURE#"$bundle: "}
+  [[ $_XCODE_CAPTURE == "$bundle: $pid" && $pid == <-> &&
+     ${#pid} -le 10 ]] && (( pid > 1 )) || {
+    print -u2 -r -- 'xcode: launch returned no exact PID; manage the app in Simulator'
+    return 1
+  }
+  _xcode_run_pid=$pid
+  _xcode_run_identity "$_xcode_run_pid" && _xcode_run_identity=$REPLY
+  _xcode_run_lldb=$(command xcrun --find lldb 2>/dev/null)
+  [[ $_xcode_run_lldb == /* && -x $_xcode_run_lldb && ! -d $_xcode_run_lldb ]] || _xcode_run_lldb=''
+}
+
+# LLDB attaches only to the revalidated launched process after screen
+# restoration; its status becomes the session's.
+_xcode_run_attach() {
+  emulate -L zsh
+  unsetopt BG_NICE NOTIFY
+  local monitor_enabled=''
+  [[ -x $_xcode_run_lldb ]] && _xcode_run_is_current || {
+    print -u2 -r -- 'xcode: the launched process ended or changed, or LLDB is unavailable'
+    return 1
+  }
+  # Keep the drainer alive even if the app closes stdout while debugging.
+  # Its owned PID then remains a cleanup target until the stop reaps it.
+  sysopen -w -o nonblock,cloexec -u _xcode_run_writer "$_xcode_run_fifo" || return 1
+  # The pipe drainer needs no terminal job. Restore the caller's job
+  # control before starting LLDB so debugger interrupts remain native.
+  monitor_enabled=$options[monitor]
+  unsetopt MONITOR
+  _xcode_run_drain &
+  _xcode_run_drainer=$!
+  [[ $monitor_enabled == on ]] && setopt MONITOR
+  print -r -- 'LLDB: continue resumes; quit returns and stops this run. App output is discarded while debugging.'
+  _xcode_run_debugger "$_xcode_run_lldb" "$_xcode_run_pid"
+}
+
+# Stop only the still-identical launched process on this exact Simulator.
+# Identity revalidation narrows, but cannot atomically eliminate, exit races.
+# Returns the session status, made nonzero by a stop it could not verify.
+# Usage: _xcode_run_simulator_stop <status> <identifier> <bundle>
+_xcode_run_simulator_stop() {
+  emulate -L zsh
+  local -i result=$1
+  if (( _xcode_run_pid > 1 )); then
+    if _xcode_run_is_current; then
+      command xcrun simctl terminate "$2" "$3" || {
+        print -u2 -r -- 'xcode: could not stop the app; stop it in Simulator'
+        (( result == 0 )) && result=1
+      }
+    else
+      print -u2 -r -- 'xcode: could not verify the launched process; check or stop the app in Simulator'
+      (( result == 0 )) && result=1
+    fi
+  fi
+  if (( _xcode_run_drainer > 0 )); then
+    _xcode_run_child_state "$_xcode_run_drainer" && kill -KILL $_xcode_run_drainer 2>/dev/null
+    _xcode_run_wait_child "$_xcode_run_drainer"
+  fi
   return $result
 }
 

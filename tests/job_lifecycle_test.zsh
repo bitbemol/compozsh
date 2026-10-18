@@ -377,7 +377,7 @@ while read -r -u $gate line; do :; done' || return
       _ZLE_PICKER_SELECTED_VALUE=stop
     }
     {
-      _xcode_run_device_live DEVICE-123 com.example.app "App · Apple TV" 2> "$HOME/stderr"
+      _xcode_run_session device DEVICE-123 com.example.app "App · Apple TV" 2> "$HOME/stderr"
       result=$?
       print -r -u $watchdog_gate -- complete
       wait $watchdog 2>/dev/null

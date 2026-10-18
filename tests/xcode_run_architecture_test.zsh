@@ -107,7 +107,7 @@ _test_xcode_live_launch_architecture() {
     }
     _xcode_run_logs_start() { return 1 }
     _xcode_run_logs_stop() { : }
-    _xcode_run_live SIM-123 com.example.app Context x86_64 2>/dev/null
+    _xcode_run_session simulator SIM-123 com.example.app Context x86_64 2>/dev/null
     print -r -- "STATUS:$?"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR") || return
   test_assert_contains "$output" '|--arch=x86_64|SIM-123|com.example.app' \
