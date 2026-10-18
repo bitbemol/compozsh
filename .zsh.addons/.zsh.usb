@@ -102,27 +102,12 @@ external-device() {
   return 2
 }
 
-# Limits, and capture state each task clears when it returns. Facts that
-# _usb_flash or _usb_format declares are invocation locals with no global value.
-typeset -ga _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
-typeset -ga _USB_IMAGE_HIGHLIGHTS=()
-typeset -ga _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
-typeset -ga _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
-typeset -ga _USB_IMAGE_KINDS=()
-typeset -ga _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
-typeset -ga _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
-typeset -ga _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=()
-typeset -ga _USB_FORMAT_DETAILS=()
-typeset -ga _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
-typeset -g _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND='' _USB_PLIST=''
-typeset -g _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+# Limits are the only USB globals. Every capture, selection and result fact is
+# a local of _usb_flash or _usb_format, so it has no global value and ends
+# with the task.
 typeset -gi _USB_ISO_TABLE_MAX_BYTES=16777216 _USB_ISO_TABLE_MAX_ENTRIES=65536
-typeset -g _USB_CREATEINSTALLMEDIA_ERROR=''
-typeset -g _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
-typeset -g _USB_IMAGE_CAPTURE_SCOPE=''
 typeset -gi _USB_PLIST_MAX_BYTES=1048576
-typeset -gi _USB_IMAGE_MAX_PER_FOLDER=200
-typeset -gi _USB_IMAGE_MAX_INDEXED=500 _USB_IMAGE_CAPTURE_PARTIAL=0
+typeset -gi _USB_IMAGE_MAX_PER_FOLDER=200 _USB_IMAGE_MAX_INDEXED=500
 typeset -gi _USB_MACOS_TARGET_MINIMUM=15000000000
 
 
@@ -3596,6 +3581,21 @@ _usb_flash() {
   local -i _USB_WRITE_VERIFY_SECONDS=0 _USB_WRITE_VERIFIED=0
   local -i _USB_WRITE_TAIL_VERIFIED=0 _USB_WRITE_PROGRESS_OFFSET=0
   local _USB_PROGRESS_BAR=''
+  local -a _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
+  local -a _USB_IMAGE_HIGHLIGHTS=() _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
+  local -a _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=() _USB_IMAGE_KINDS=()
+  local -a _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
+  local -a _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
+  local _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND='' _USB_PLIST=''
+  local _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
+  local -i _USB_IMAGE_CAPTURE_PARTIAL=0
+  local _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
+  local _USB_CREATEINSTALLMEDIA_ERROR=''
+  # Helper results and the picker's selection and bookmark (filter text
+  # included) are invocation memory too.
+  local REPLY='' _ZLE_PICKER_SELECTED_VALUE=''
+  local -a reply=() _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
 
   {
     [[ $OSTYPE == darwin* ]] || {
@@ -3646,18 +3646,6 @@ _usb_flash() {
     _usb_cleanup_eject
     _usb_inspect_cleanup "$_USB_INSPECT_DEVICE" "$_USB_INSPECT_MOUNT" \
       >/dev/null 2>&1
-    _USB_IMAGE_PATHS=() _USB_IMAGE_LABELS=() _USB_IMAGE_DETAILS=()
-    _USB_IMAGE_HIGHLIGHTS=()
-    _USB_IMAGE_SIZES=() _USB_IMAGE_FINGERPRINTS=()
-    _USB_IMAGE_CREATED=() _USB_IMAGE_MODIFIED=()
-    _USB_IMAGE_KINDS=()
-    _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
-    _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
-    _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND='' _USB_PLIST=''
-    _USB_IMAGE_CAPTURE_SCOPE='' _USB_IMAGE_CAPTURE_PARTIAL=0
-    _USB_IMAGE_DEVICE='' _USB_IMAGE_SOURCE_DISK=''
-    _USB_MEDIA_ERROR='' _USB_INSPECT_DEVICE='' _USB_INSPECT_MOUNT=''
-    _USB_CREATEINSTALLMEDIA_ERROR=''
   }
 }
 
@@ -3728,10 +3716,20 @@ _usb_format() {
   local _USB_SELECTED_VOLUME_NAME=External
   local _USB_FORMAT_ERROR='' _USB_CONFIRM_ERROR=''
   local -i _USB_SELECTED_DISK_SIZE=0
-  # Disk facts captured by this invocation end with it.
+  # Disk and filesystem facts captured by this invocation end with it.
   local _USB_INFO_ID='' _USB_INFO_NAME='' _USB_INFO_PROTOCOL='' _USB_INFO_FINGERPRINT=''
   local -i _USB_INFO_SIZE=0 _USB_INFO_BLOCK_SIZE=512
   local -i _USB_INFO_EXTERNAL=0 _USB_INFO_WHOLE=0 _USB_INFO_PHYSICAL=0 _USB_INFO_WRITABLE=0
+  local -a _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
+  local -a _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
+  local -a _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=() _USB_FORMAT_DETAILS=()
+  local -a _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
+  local _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND='' _USB_PLIST=''
+  # Helper results and the picker's selection and bookmark (filter text
+  # included) are invocation memory too.
+  local REPLY='' _ZLE_PICKER_SELECTED_VALUE=''
+  local -a reply=() _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_BOOKMARK_FOCUS=0
 
   [[ $OSTYPE == darwin* ]] || {
     print -u2 -r -- 'external-device --format: this tool requires macOS'
@@ -3747,36 +3745,27 @@ _usb_format() {
     print -u2 -r -- 'external-device --format: an interactive terminal and the shared support/ui and support/functions components are required'
     return 1
   fi
-  {
-    _zle_picker_run 20 '' 1 0 _usb_format_workspace_controller
-    picker_status=$?
-    (( picker_status == 1 )) && return 0
-    if (( picker_status != 0 )); then
-      print -u2 -r -- "external-device --format: ${_USB_FORMAT_ERROR:-the format workspace failed}"
-      return $picker_status
-    fi
-    _usb_format_confirm "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_LABEL" \
-      "$_USB_SELECTED_FORMAT_LABEL" "$_USB_SELECTED_VOLUME_NAME" || {
-      [[ -n $_USB_CONFIRM_ERROR ]] && print -r -- "$_USB_CONFIRM_ERROR"
-      print -r -- 'Cancelled; nothing was erased.'
-      return 0
-    }
-    _usb_format_execute "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_FINGERPRINT" \
-      "$_USB_SELECTED_FORMAT" "$_USB_SELECTED_VOLUME_NAME" \
-      "$_USB_SELECTED_DISK_SIZE"
-    format_status=$?
-    if (( format_status != 0 )); then
-      print -u2 -r -- "external-device --format: ${_USB_FORMAT_ERROR:-diskutil formatting failed}"
-      return $format_status
-    fi
-    _usb_format_print_summary "$_USB_SELECTED_DISK" \
-      "$_USB_SELECTED_FORMAT_LABEL" "$_USB_SELECTED_VOLUME_NAME"
-  } always {
-    _USB_DISK_IDS=() _USB_DISK_LABELS=() _USB_DISK_DETAILS=()
-    _USB_DISK_SIZES=() _USB_DISK_FINGERPRINTS=()
-    _USB_FORMAT_PERSONALITIES=() _USB_FORMAT_LABELS=()
-    _USB_FORMAT_DETAILS=()
-    _USB_FORMAT_MINIMUM_SIZES=() _USB_FORMAT_MAXIMUM_SIZES=()
-    _USB_CAPTURE_ERROR='' _USB_CAPTURE_ERROR_KIND='' _USB_PLIST=''
+  _zle_picker_run 20 '' 1 0 _usb_format_workspace_controller
+  picker_status=$?
+  (( picker_status == 1 )) && return 0
+  if (( picker_status != 0 )); then
+    print -u2 -r -- "external-device --format: ${_USB_FORMAT_ERROR:-the format workspace failed}"
+    return $picker_status
+  fi
+  _usb_format_confirm "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_LABEL" \
+    "$_USB_SELECTED_FORMAT_LABEL" "$_USB_SELECTED_VOLUME_NAME" || {
+    [[ -n $_USB_CONFIRM_ERROR ]] && print -r -- "$_USB_CONFIRM_ERROR"
+    print -r -- 'Cancelled; nothing was erased.'
+    return 0
   }
+  _usb_format_execute "$_USB_SELECTED_DISK" "$_USB_SELECTED_DISK_FINGERPRINT" \
+    "$_USB_SELECTED_FORMAT" "$_USB_SELECTED_VOLUME_NAME" \
+    "$_USB_SELECTED_DISK_SIZE"
+  format_status=$?
+  if (( format_status != 0 )); then
+    print -u2 -r -- "external-device --format: ${_USB_FORMAT_ERROR:-diskutil formatting failed}"
+    return $format_status
+  fi
+  _usb_format_print_summary "$_USB_SELECTED_DISK" \
+    "$_USB_SELECTED_FORMAT_LABEL" "$_USB_SELECTED_VOLUME_NAME"
 }

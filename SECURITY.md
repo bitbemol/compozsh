@@ -1182,8 +1182,11 @@ flash or format task returns, except for these
 `0600` files or `0700` directories owned by the invoking user. Privileged
 output reaches them only through redirections opened by that user's shell; no
 `sudo` command receives a temporary path. `zsh tests/run.zsh 'USB invocation state'`
-checks that every `_USB_*` shell parameter is back to its load-time value after
-leaving `--flash` or `--format` at drive selection and after a failed write.
+checks that the only `_USB_*` parameters at load are fixed limits, and that
+every `_USB_*` parameter, `REPLY`, `reply` and the picker's selection and
+bookmark (which can hold filter text) are back to their load-time values after
+leaving `--flash` or `--format` at drive selection, after a failed write and
+after a completed format.
 
 | Name | Created during | Contents and bounds |
 | --- | --- | --- |

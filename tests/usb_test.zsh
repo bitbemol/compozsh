@@ -2588,8 +2588,9 @@ test_case 'USB format catalog failure is reported, not treated as cancel' \
 # Script helper: _usb_flash and _usb_format declare their capture and result
 # facts as typed locals, so nothing holds them at load. _test_usb_invocation_state
 # sets reply to those names; with "declare" it also declares each globally with
-# the entry point's type and initial value, so a script that calls a USB helper
-# directly runs it against the same typed state (integer assignment included).
+# the entry point's type and initial value (arrays start empty), so a script
+# that calls a USB helper directly runs it against the same typed state
+# (integer assignment included).
 _test_usb_invocation_state_script() {
   REPLY='
   _test_usb_invocation_state() {
@@ -2603,7 +2604,13 @@ _test_usb_invocation_state_script() {
         flags=("${(@M)words:#-*}")
         for word in "${(@M)words:#_USB_*}"; do
           reply+=("${word%%=*}")
-          [[ ${1-} == declare ]] && typeset -g "${flags[@]}" -- "${(Q)word}"
+          [[ ${1-} == declare ]] || continue
+          if (( ${flags[(Ie)-a]} )); then
+            typeset -g "${flags[@]}" -- "${word%%=*}"
+            set -A "${word%%=*}"
+          else
+            typeset -g "${flags[@]}" -- "${(Q)word}"
+          fi
         done
       done
     done
@@ -2613,16 +2620,19 @@ _test_usb_invocation_state_script() {
 }
 
 # Disk identity, image identity and writer diagnostics last only as long as
-# the external-device invocation: no name an entry point scopes exists at load,
-# and afterwards every _USB_* parameter is back to its load-time value, whether
-# the user leaves at Step 2 or a write fails.
+# the external-device invocation: only the USB limits exist at load, and
+# afterwards every _USB_* parameter, REPLY and reply, and the picker selection
+# and bookmark are back to their load-time values, whether the user leaves at
+# Step 2, a write fails or a format completes.
 _test_usb_invocation_state_ends_when_external_device_returns() {
   test_make_temp_dir || return
   local image="$TEST_TMP_DIR/media/compozsh-invocation.img" output='' snapshot='' REPLY=''
   # 65,535 bytes plus the trailing newline: one 64 KiB, 512-byte-aligned image.
   test_write_file "$image" "${(l:65535::x:)}" || return
   _test_usb_invocation_state_script
+  # Support subset: the picker state declarations; the fixture stands in for the engine.
   output=$(test_run_interactive "$TEST_TMP_DIR/home" "$REPLY"'
+    source "$1/.zsh.addons/support/ui/.zsh.ui.state" || exit
     source "$1/.zsh.addons/support/functions/.zsh.impure.usb_result_reset" || exit
     for usb_component in "$1/.zsh.addons/support/functions"/.zsh.pure.usb_*(N.); do
       source "$usb_component" || exit
@@ -2644,12 +2654,19 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
       esac
     }
     _matching_compile() { :; }
-    # Step 2 captures the drives; Escape or a selection follows. Later screens
-    # run their real controller.
+    # Step 2 captures the drives; Escape or a selection follows. Like the
+    # engine, an accepted view leaves its selection and bookmark (the filter
+    # text included) in the caller scope. Later screens run their real
+    # controller.
+    _picker_outputs() {
+      _ZLE_PICKER_SELECTED_VALUE=1 _ZLE_PICKER_BOOKMARK=("Sentinel filter" 1 0)
+      _ZLE_PICKER_BOOKMARK_FOCUS=1
+    }
     _zle_picker_run() {
       case $5 in
         (_usb_workspace_controller)
           _usb_external_disks_capture 1 "" raw-image || return 2
+          _picker_outputs
           print -r -- "captured:flash:${(j:,:)_USB_DISK_IDS}" >> "$HOME/trace"
           [[ $scenario == write ]] || return 1
           _usb_workspace_request flash-verify 1 1 "${_USB_IMAGE_PATHS[1]}" disk9 "" \
@@ -2657,18 +2674,32 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
           return 0 ;;
         (_usb_format_workspace_controller)
           _usb_external_disks_capture 1 "" format || return 2
+          _picker_outputs
           print -r -- "captured:format:${(j:,:)_USB_DISK_IDS}" >> "$HOME/trace"
-          return 1 ;;
+          [[ $scenario == format ]] || return 1
+          _USB_SELECTED_DISK=disk9 _USB_SELECTED_DISK_LABEL=${_USB_DISK_LABELS[1]}
+          _USB_SELECTED_DISK_FINGERPRINT=${_USB_DISK_FINGERPRINTS[1]}
+          _USB_SELECTED_DISK_SIZE=${_USB_DISK_SIZES[1]}
+          _USB_SELECTED_FORMAT=APFS _USB_SELECTED_FORMAT_LABEL=APFS
+          return 0 ;;
         (*) "$5" ;;
       esac
     }
     # Every device, privilege and terminal effect is a stand-in.
     _usb_confirm() { return 0; }
+    _usb_format_confirm() { return 0; }
     _usb_authorize() { return 0; }
     _usb_authorization_valid() { return 0; }
     _usb_unmount() { return 0; }
     _usb_eject() { return 0; }
-    _usb_diskutil_erase_run() { print -r -- unexpected-erase >> "$HOME/trace"; return 1; }
+    _usb_diskutil_erase_run() {
+      if [[ $scenario == format ]]; then
+        print -r -- "erase:$2:$3:$4" >> "$HOME/trace"
+        return 0
+      fi
+      print -r -- unexpected-erase >> "$HOME/trace"
+      return 1
+    }
     _usb_hdiutil_detach() { print -r -- unexpected-detach >> "$HOME/trace"; return 1; }
     _usb_raw_write_session_run() {
       print -u2 -r -- compozsh-write-stage:verify
@@ -2680,11 +2711,12 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
     }
     _usb_state_snapshot() {
       local name=""
-      for name in ${(ok)parameters[(I)_USB_*]}; do
+      for name in ${(ok)parameters[(I)(_USB_*|REPLY|reply|_ZLE_PICKER_SELECTED_VALUE|_ZLE_PICKER_BOOKMARK|_ZLE_PICKER_BOOKMARK_FOCUS)]}; do
         print -r -- "$name ${parameters[$name]}=${(j: :)${(@qq)${(@P)name}}}"
       done
     }
     _invocation_fixture() {
+      REPLY=load-reply reply=(load-reply)
       _usb_state_snapshot >| "$HOME/baseline"
       external-device --flash "$image" 2>> "$HOME/errors"
       print -r -- "flash-escape:$?" >> "$HOME/trace"
@@ -2696,6 +2728,10 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
       external-device --flash "$image" 2>> "$HOME/errors"
       print -r -- "flash-write:$?" >> "$HOME/trace"
       _usb_state_snapshot >| "$HOME/after-flash-write"
+      scenario=format
+      external-device --format 2>> "$HOME/errors"
+      print -r -- "format-write:$?" >> "$HOME/trace"
+      _usb_state_snapshot >| "$HOME/after-format-write"
       print -r -- END-USB-INVOCATION
     }
     source "$1/tests/pty_support.zsh" || exit 2
@@ -2710,14 +2746,19 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
     [[ $captured == *END-USB-INVOCATION* ]] || exit 4
     print -r -- "trace:${(j:,:)${(f)$(<"$HOME/trace")}}"
     local -a baseline=("${(@f)$(<"$HOME/baseline")}") current=() added=() removed=()
-    # A name an entry point scopes has no global value (engineering/zsh.md).
-    local -a load_names=("${(@)baseline%% *}") scoped=()
+    # A name an entry point scopes has no global value (engineering/zsh.md);
+    # the only USB parameters at load are its limits.
+    local -a load_names=("${(@M)${(@)baseline%% *}:#_USB_*}") scoped=()
+    local -a limits=(_USB_IMAGE_MAX_INDEXED _USB_IMAGE_MAX_PER_FOLDER
+      _USB_ISO_TABLE_MAX_BYTES _USB_ISO_TABLE_MAX_ENTRIES
+      _USB_MACOS_TARGET_MINIMUM _USB_PLIST_MAX_BYTES)
     _test_usb_invocation_state
     scoped=("${reply[@]}")
     print -r -- "scoped-names:${#scoped}"
     print -r -- "scoped-at-load:${(j:,:)${(@)load_names:*scoped}}"
-    print -r -- "load-constant:${#${(@M)load_names:#_USB_PLIST_MAX_BYTES}}"
-    for snapshot in after-flash-escape after-format-escape after-flash-write; do
+    print -r -- "load-limits:${#${(@)load_names:*limits}}"
+    print -r -- "load-state:${(j:,:)${(@)load_names:|limits}}"
+    for snapshot in after-flash-escape after-format-escape after-flash-write after-format-write; do
       current=("${(@f)$(<"$HOME/$snapshot")}")
       added=(${current:|baseline}) removed=(${baseline:|current})
       print -r -- "${snapshot}:added:${(j:;:)added}"
@@ -2727,15 +2768,17 @@ _test_usb_invocation_state_ends_when_external_device_returns() {
   ' "$TEST_REPO_ROOT" "$image") || return
 
   test_assert_contains "$output" \
-    'trace:captured:flash:disk9,flash-escape:0,captured:format:disk9,format-escape:0,captured:flash:disk9,result:raw-image:6:drive-read-failed,flash-write:6' \
-    'the external-device fixture did not capture the drive and fail the write as staged' || return
-  test_assert_contains "$output" 'load-constant:1' \
+    'trace:captured:flash:disk9,flash-escape:0,captured:format:disk9,format-escape:0,captured:flash:disk9,result:raw-image:6:drive-read-failed,flash-write:6,captured:format:disk9,erase:APFS:External:/dev/disk9,format-write:0' \
+    'the external-device fixture did not capture the drive, fail the write and complete the format as staged' || return
+  test_assert_contains "$output" $'\nload-limits:6\n' \
     'the parameter snapshot did not see the load-time USB limits' || return
+  test_assert_contains "$output" $'\nload-state:\n' \
+    'a USB parameter other than a limit has a load-time global value' || return
   [[ $output == *$'\n'scoped-names:<1->$'\n'* ]] ||
     test_fail "the USB entry points declared no invocation-local state: ${(qqq)output}" || return
   test_assert_contains "$output" $'\nscoped-at-load:\n' \
     'a name a USB entry point scopes has a load-time global value' || return
-  for snapshot in after-flash-escape after-format-escape after-flash-write; do
+  for snapshot in after-flash-escape after-format-escape after-flash-write after-format-write; do
     test_assert_contains "$output" $'\n'"${snapshot}:added:"$'\n' \
       "external-device left new or changed USB state after $snapshot" || return
     test_assert_contains "$output" $'\n'"${snapshot}:removed:"$'\n' \
