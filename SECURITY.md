@@ -1385,14 +1385,17 @@ another remote operation.
   disables commit-signature verification, so commit history and root-commit
   documents never run a configured verifier program or mix its output into
   captured commit IDs.
-- **One local-only Git entry.** Branch snapshots, Search's Git discovery, Git
-  review (manual and automatic) and the worktree workspace's captures and
-  operations reach Git only through one shared support entry,
-  `_compozsh_git_local`. Every call it makes disables optional locks, lazy
-  fetches, terminal prompts, transport protocols, the pager, replacement
-  objects, filesystem monitors, the untracked cache, hooks and
+- **One local-only Git entry.** Prompt status, filter-name discovery, branch
+  snapshots, Search's Git discovery, Git review (manual and automatic), the
+  worktree workspace's captures and operations, and every `g --discard-all`
+  read, cleanup, restore and verification reach Git only through one shared
+  support entry, `_compozsh_git_local`. Every call it makes disables optional
+  locks, lazy fetches, terminal prompts, transport protocols, the pager,
+  replacement objects, filesystem monitors, the untracked cache, hooks and
   commit-signature verification; each feature only adds its own controls.
-  Without the entry these features run no Git command.
+  Without the entry these features run no Git command. Only transparent `g`
+  and `git` arguments and confirmed branch switches or creations call Git
+  directly.
 - **Repository selection.** Interactive branch, review, worktree and explicit
   discard workspaces, and explicit-root review providers, use the current
   folder's repository, temporarily shadowing inherited Git directory, worktree,

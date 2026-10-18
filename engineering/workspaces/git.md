@@ -24,8 +24,9 @@ invocation. Disabling them keeps ordinary `g` switch/copy and Git delegation.
   call Compozsh makes on its own, Search discovery included, to one read
   baseline (the local-only environment, no pager or replacement refs,
   fsmonitor and hooks off); only transparent `g`/`git` arguments and explicit
-  switches are exempt. The same test requires the branch, Search, review and
-  worktree wrappers to reach Git only through the shared local-only entry.
+  switches are exempt. The same test requires the shared local-only entry to
+  be the only other direct Git call: the prompt, filter discovery, discard
+  and the branch, Search, review and worktree wrappers reach Git through it.
 - **Review is read-only.** Review views dispatch no stage, discard, commit,
   checkout, clipboard or app action; adding a mutation shortcut needs a
   separately authorized design and behavioral tests. Worktree mutations happen
@@ -150,10 +151,13 @@ focus.
   and `log.showSignature` off) and the selector policy: `root` shadows
   inherited Git directory, worktree, common-directory, index, object-store,
   alternate-object and namespace selectors; `inherit` keeps them for the
-  branch reads, whose `g` caller already shadowed them. `--exec` replaces the
-  process for the review worker. Wrappers add only their own `-c` flags and
-  exported variables and fail closed without the entry; the prompt, filter
-  discovery and discard keep their own calls under the static baseline.
+  branch reads, whose `g` caller already shadowed them, and for the prompt,
+  filter discovery and discard, which honor the caller's chosen repository
+  (`g --discard-all` shadows the selectors before it starts). `--exec`
+  replaces the process for the review worker and inside the prompt's command
+  substitutions, keeping one fork per Git read. Callers add only their own
+  `-c` flags and exported variables, keep their own bounded capture, and fail
+  closed without the entry.
 - One ordered marker table in `_compozsh_git_operation <git-dir>
   label|fail-closed` decides whether a Git operation is in progress: merge,
   merge autostash, cherry-pick, revert, bisect log and start, both rebase

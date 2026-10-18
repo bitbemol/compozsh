@@ -217,8 +217,105 @@ caller environment kept' "status:$exit_status"$'\n'"$output" \
 test_case 'shared Git entry gives every wrapper the same local-only environment and read flags' \
   _test_shared_git_entry_wrappers
 
+# The prompt, filter discovery and guarded discard reach Git through the same
+# entry with the inherit policy: every call, from the prompt's status and
+# metadata reads to discard's validation, cleanup, restore and verification,
+# carries the shared set and keeps the caller's chosen repository selectors.
+# The logging git answers just enough for each flow to run to completion.
+_test_shared_git_entry_inherit_callers() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/sh
+count=0
+[ -f "$COMPOZSH_TEST_GIT_LOGS/count" ] && read -r count < "$COMPOZSH_TEST_GIT_LOGS/count"
+count=$((count + 1))
+printf "%s\n" "$count" > "$COMPOZSH_TEST_GIT_LOGS/count"
+{ for argument do printf "arg %s\n" "$argument"; done; env | LC_ALL=C sort | grep "^GIT_"; } > "$COMPOZSH_TEST_GIT_LOGS/call.$count"
+case " $* " in
+  *" config "*) exit 1 ;;
+  *" --show-toplevel "*) printf "%s\n" "$COMPOZSH_TEST_GIT_ROOT" ;;
+  *" --absolute-git-dir "*) printf "%s\n" "$COMPOZSH_TEST_GIT_ROOT/.git" ;;
+  *" --verify "*) printf "%s\n" 0123456789abcdef0123456789abcdef01234567 ;;
+  *" --porcelain=v2 "*) printf "# branch.oid 0123456789abcdef0123456789abcdef01234567\n# branch.head main\n" ;;
+  *" --porcelain=v1 "*) [ -e "$COMPOZSH_TEST_GIT_LOGS/cleaned" ] || printf " M file\n" ;;
+  *" clean "*) : > "$COMPOZSH_TEST_GIT_LOGS/cleaned" ;;
+esac
+exit 0' || return
+  command chmod +x "$TEST_TMP_DIR/bin/git" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH="$2:$PATH" COMPOZSH_TEST_GIT_LOGS="$HOME/logs" COMPOZSH_TEST_GIT_ROOT="$HOME/root"
+    local root="$HOME/root" name="" line="" label="" setting="" joined="" count=""
+    local -i index=0 found=0
+    local -a report=() arguments=() environment=() missing=() ambient=(
+      GIT_ALTERNATE_OBJECT_DIRECTORIES=/ambient/alternates GIT_COMMON_DIR=/ambient/common
+      GIT_DIR=/ambient/git-dir GIT_INDEX_FILE=/ambient/index GIT_NAMESPACE=ambient
+      GIT_OBJECT_DIRECTORY=/ambient/objects GIT_WORK_TREE=/ambient/work-tree)
+    command mkdir -p -- "$COMPOZSH_TEST_GIT_LOGS" "$root/.git" || exit 1
+    for name in prompt navigation tools; do source "$1/.zsh.addons/.zsh.$name" || exit 1; done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    builtin cd "$root" || exit 1
+    export "${ambient[@]}" GIT_OPTIONAL_LOCKS=1 GIT_NO_LAZY_FETCH=0 GIT_TERMINAL_PROMPT=1 GIT_ALLOW_PROTOCOL=file
+    _prompt_git
+    report+=("prompt $_PROMPT_GIT_TEXT")
+    _tools_git_discard_all <<< y > /dev/null 2>&1
+    report+=("discard status=$?")
+    count=$(<$COMPOZSH_TEST_GIT_LOGS/count)
+    [[ $count == <1-99> ]] || exit 2
+    for (( index = 1; index <= count; ++index )); do
+      arguments=() environment=() missing=()
+      for line in "${(@f)$(<$COMPOZSH_TEST_GIT_LOGS/call.$index)}"; do
+        if [[ $line == "arg "* ]]; then arguments+=("${line#arg }"); else environment+=("$line"); fi
+      done
+      found=${arguments[(i)(config|status|rev-parse|clean|restore)]}
+      label="${arguments[found]-} ${arguments[found+1]-}"
+      joined="|${(j:|:)arguments}|"
+      for setting in --no-pager --no-replace-objects "-C|$root" "-c|core.fsmonitor=false" \
+          "-c|core.untrackedCache=false" "-c|core.hooksPath=/dev/null" "-c|log.showSignature=false" \
+          GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL= "${ambient[@]}"; do
+        if [[ $setting == GIT_* ]]; then
+          (( ${environment[(Ie)$setting]} )) || missing+=("${setting%%=*}")
+        else
+          [[ $joined == *"|$setting|"* ]] || missing+=("${setting//|/ }")
+        fi
+      done
+      (( ${#missing} )) && report+=("${label%%=0*}: missing ${(j:, :)missing}") ||
+        report+=("${label%%=0*}: ok")
+    done
+    [[ $GIT_DIR == /ambient/git-dir && $GIT_WORK_TREE == /ambient/work-tree &&
+       $GIT_OPTIONAL_LOCKS == 1 && $GIT_NO_LAZY_FETCH == 0 && $GIT_TERMINAL_PROMPT == 1 &&
+       $GIT_ALLOW_PROTOCOL == file ]] &&
+      report+=("caller environment kept") || report+=("caller environment changed")
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+prompt main no-upstream
+discard status=0
+config --null: ok
+status --porcelain=v2: ok
+rev-parse --absolute-git-dir: ok
+rev-parse --show-toplevel: ok
+rev-parse --verify: ok
+rev-parse --absolute-git-dir: ok
+config --null: ok
+status --porcelain=v1: ok
+rev-parse --show-toplevel: ok
+rev-parse --verify: ok
+rev-parse --absolute-git-dir: ok
+config --null: ok
+status --porcelain=v1: ok
+clean -fdq: ok
+restore --source: ok
+status --porcelain=v1: ok
+caller environment kept' "status:$exit_status"$'\n'"$output" \
+    'a prompt, filter-discovery or discard Git call lost the shared local-only set or inherited selectors'
+}
+test_case 'shared Git entry gives prompt, filter discovery and discard the same local-only set with inherited selectors' \
+  _test_shared_git_entry_inherit_callers
+
 # Support installs as a unit, but a peer loaded without the shared entry fails
-# closed: no wrapper runs Git, and none carries an inline copy of the controls.
+# closed: no wrapper, prompt read, filter discovery or discard runs Git, and
+# none carries an inline copy of the controls.
 _test_shared_git_entry_missing_fails_closed() {
   test_make_temp_dir || return
   local output='' exit_status=0
@@ -231,8 +328,11 @@ exit 0' || return
     local name="" worker=""
     local -a report=()
     # Support subset: everything except the shared local-only Git entry.
-    for name in navigation find git-review git-worktree; do source "$1/.zsh.addons/.zsh.$name" || exit 1; done
-    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded" || exit 1
+    for name in navigation find git-review git-worktree prompt tools; do source "$1/.zsh.addons/.zsh.$name" || exit 1; done
+    for name in impure.compozsh_capture_bounded impure.compozsh_git_filter_config \
+        pure.compozsh_git_filter_overrides impure.compozsh_git_operation; do
+      source "$1/.zsh.addons/support/functions/.zsh.$name" || exit 1
+    done
     (( ! ${+functions[_compozsh_git_local]} )) || exit 2
     _git_review_git "$HOME" status; report+=("review $?")
     worker=$(_GIT_REVIEW_WORKER_EXEC=1 _git_review_git "$HOME" status; print -rn -- "returned $?")
@@ -240,6 +340,11 @@ exit 0' || return
     _git_worktree_git "$HOME" worktree list; report+=("worktree $?")
     _git_branch_read "$HOME" for-each-ref; report+=("branch $?")
     _file_search_git "$HOME" ls-files -z; report+=("find $?")
+    builtin cd "$HOME" || exit 3
+    _compozsh_git_filter_config "$HOME" clean; report+=("filter $?")
+    GIT_DIR=$HOME _prompt_git; report+=("prompt $? ${_PROMPT_GIT_TEXT:-none}")
+    _tools_git_discard_all < /dev/null > "$HOME/discard-output" 2>&1
+    report+=("discard $?: $(<$HOME/discard-output)")
     [[ -e $HOME/git-calls ]] && report+=("Git ran: $(<$HOME/git-calls)") || report+=("Git never ran")
     print -rl -- "${report[@]}"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
@@ -249,8 +354,11 @@ review worker returned 2
 worktree 2
 branch 2
 find 2
+filter 2
+prompt 1 none
+discard 1: g --discard-all: shared Git safety support is unavailable; nothing was discarded
 Git never ran' "status:$exit_status"$'\n'"$output" \
-    'a wrapper ran Git without the shared local-only entry'
+    'a wrapper or caller ran Git without the shared local-only entry'
 }
-test_case 'shared Git entry missing leaves every explicit-root wrapper failing closed' \
+test_case 'shared Git entry missing leaves every wrapper, the prompt and discard failing closed' \
   _test_shared_git_entry_missing_fails_closed

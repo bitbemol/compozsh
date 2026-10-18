@@ -674,8 +674,8 @@ test_case 'security: installer temporary names are compozsh-named and disclosed'
   _test_installer_temporary_names_are_disclosed
 
 # Every Git call Compozsh makes on its own (prompt, Search, branch, review,
-# worktree and discard reads) keeps one local-only read baseline, so a wrapper
-# copied into a new peer cannot silently drop a control. A `command git`,
+# worktree and discard) keeps one local-only read baseline, so a wrapper copied
+# into a new peer cannot silently drop a control. A `command git`,
 # `command "$git_binary"`, `exec git` or `exec "$git_binary"` call needs the
 # four variables inline or as `local -x` earlier in its function (opened by
 # `name() {` and closed by `}` at column 0), and the pager, replace-object,
@@ -683,6 +683,8 @@ test_case 'security: installer temporary names are compozsh-named and disclosed'
 # form one statement; comment lines are ignored. Only the transparent `git` and
 # `g` arguments, which keep the user's own Git semantics, and explicit
 # switches after cleanup, which keep repository hooks by design, are exempt.
+# The runtime check also requires the shared `_compozsh_git_local` entry to be
+# the only direct call it checks, so every passive site reaches Git through it.
 _security_git_read_baseline() {
   emulate -L zsh
   setopt EXTENDED_GLOB
@@ -754,7 +756,7 @@ _test_passive_git_calls_keep_the_read_baseline() {
   emulate -L zsh
   test_make_temp_dir || return
   local fixture="$TEST_TMP_DIR/.zsh.fixture" shown='' found='' expected='' entry=''
-  local -a zsh_files=() lines=() checked=()
+  local -a zsh_files=() lines=()
   test_write_file "$fixture" 'read_inline() {
   out=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
     GIT_ALLOW_PROTOCOL='"''"' command git --no-pager --no-replace-objects \
@@ -820,23 +822,25 @@ allow .zsh.addons/.zsh.output git: command git "${git_color_arguments[@]}" "$@"'
   done
   (( ${#lines} == ${#${(@f)expected}} )) ||
     { test_fail "Git read baseline exemptions changed:"$'\n'"${(F)lines}"; return 1; }
-  # Guard against a vacuous scan: every known passive Git call was checked.
-  lines=(${(M)${(f)found}:#ok *})
-  for entry in _compozsh_git_filter_config _compozsh_git_local _prompt_git \
-      _tools_git_discard_all; do
-    checked=(${(M)lines:#ok * $entry})
-    (( ${#checked} )) || { test_fail "Git read baseline scan did not check $entry"; return 1; }
-  done
-  # Explicit-root wrappers reach Git only through the shared local-only entry,
-  # with their selector policy, and make no Git call or flag copy of their own.
-  local wrapper='' file='' policy='' body='' line='' MATCH='' MBEGIN='' MEND=''
+  # The shared entry is the only checked direct Git call: every passive site,
+  # prompt and discard included, reaches Git through it. This also guards
+  # against a vacuous scan.
+  lines=(${(u)${(M)${(f)found}:#ok *}})
+  [[ ${(F)lines} == 'ok .zsh.addons/support/functions/.zsh.impure.compozsh_git_local _compozsh_git_local' ]] ||
+    { test_fail "a Git call bypasses the shared local-only entry:"$'\n'"${(F)lines}"; return 1; }
+  # Every caller reaches Git only through the shared local-only entry, with its
+  # selector policy and folder, and makes no Git call or flag copy of its own.
+  local wrapper='' file='' policy='' folder='' body='' line='' MATCH='' MBEGIN='' MEND=''
   local -a match=() mbegin=() mend=()
   local call='(command|exec)[[:space:]]+(git|"\$git_binary")'
   local controls='GIT_OPTIONAL_LOCKS|GIT_ALLOW_PROTOCOL|core\.fsmonitor|core\.hooksPath|--no-pager'
   local -i inside=0
-  for entry in .zsh.git-review:_git_review_git:root .zsh.git-worktree:_git_worktree_git:root \
-      .zsh.navigation:_git_branch_read:inherit .zsh.find:_file_search_git:root; do
-    file=${entry%%:*} wrapper=${${entry#*:}%%:*} policy=${entry##*:} body='' inside=0
+  for entry in .zsh.git-review:_git_review_git:root:root .zsh.git-worktree:_git_worktree_git:root:root \
+      .zsh.navigation:_git_branch_read:inherit:root .zsh.find:_file_search_git:root:root \
+      .zsh.prompt:_prompt_git:inherit:PWD .zsh.tools:_tools_git_discard_all:inherit:root \
+      support/functions/.zsh.impure.compozsh_git_filter_config:_compozsh_git_filter_config:inherit:root; do
+    file=${entry%%:*} wrapper=${${entry#*:}%%:*} policy=${${entry%:*}##*:} folder=${entry##*:}
+    body='' inside=0
     while IFS= read -r line || [[ -n $line ]]; do
       [[ $line == "$wrapper() {"* ]] && inside=1
       (( inside )) || continue
@@ -844,7 +848,7 @@ allow .zsh.addons/.zsh.output git: command git "${git_color_arguments[@]}" "$@"'
       [[ $line == \}* ]] && break
     done < "$TEST_REPO_ROOT/.zsh.addons/$file"
     [[ -n $body ]] || { test_fail "$wrapper is missing from $file"; return 1; }
-    [[ $body == *"_compozsh_git_local $policy \"\$root\" "* ]] ||
+    [[ $body == *"_compozsh_git_local $policy \"\$$folder\" "* ]] ||
       { test_fail "$wrapper does not call _compozsh_git_local with the $policy policy"; return 1; }
     [[ ! $body =~ $call && ! $body =~ $controls ]] ||
       { test_fail "$wrapper keeps its own Git call or local-only controls"; return 1; }

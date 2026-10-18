@@ -6,7 +6,8 @@
 # verifiers off). The root policy also shadows inherited repository selectors
 # so the directory alone chooses the repository; inherit keeps them for callers
 # that already chose. Callers add their own -c flags and exported variables;
-# --exec replaces the calling process, as the review worker requires.
+# --exec replaces the calling process: the review worker needs it, and the
+# prompt's command substitutions use it to keep one fork per Git read.
 # Usage: _compozsh_git_local <root|inherit> <dir> [--exec] [--] <git-arguments...>
 _compozsh_git_local() {
   emulate -L zsh

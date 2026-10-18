@@ -241,17 +241,19 @@ _prompt_git() {
   _prompt_has_git_context "$PWD" || return
   # Keep PWD as well: a relative GIT_DIR or GIT_WORK_TREE resolves against it.
   cache_key="${PWD}${separator}${REPLY}${separator}${GIT_DIR:-}${separator}${GIT_WORK_TREE:-}"
-  (( ${+functions[_compozsh_git_filter_config]} &&
+  (( ${+functions[_compozsh_git_local]} &&
+     ${+functions[_compozsh_git_filter_config]} &&
      ${+functions[_compozsh_git_operation]} )) || return
   _compozsh_git_filter_config "$PWD" clean || return
   filter_config=("${reply[@]}")
-  # Prompt rendering is passive: suppress repository-controlled fsmonitor,
-  # hook, and content-filter commands as well as lazy network fetches.
-  git_output=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
-    GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
-    -c core.fsmonitor=false -c core.untrackedCache=false \
-    -c core.hooksPath=/dev/null "${filter_config[@]}" status \
-    --porcelain=v2 --branch --show-stash 2>/dev/null) || return
+  # Prompt rendering is passive: the shared entry suppresses repository-
+  # controlled fsmonitor and hook commands and lazy network fetches, and the
+  # discovered overrides neutralize content filters. The inherit policy keeps
+  # the caller's chosen GIT_DIR and GIT_WORK_TREE, as native Git would.
+  # --exec replaces only this substitution's subshell, so each render still
+  # forks once for Git, as a direct external command would.
+  git_output=$(_compozsh_git_local inherit "$PWD" --exec -- "${filter_config[@]}" \
+    status --porcelain=v2 --branch --show-stash 2>/dev/null) || return
 
   # Split in memory: Zsh backs here-strings with temporary files, and this
   # output names changed and untracked paths.
@@ -307,9 +309,7 @@ _prompt_git() {
      [[ -d ${_PROMPT_GIT_DIR_CACHE[$cache_key]} ]]; then
     git_dir=${_PROMPT_GIT_DIR_CACHE[$cache_key]}
   else
-    git_dir=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
-      GIT_ALLOW_PROTOCOL='' command git --no-pager --no-replace-objects \
-      -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+    git_dir=$(_compozsh_git_local inherit "$PWD" --exec -- \
       rev-parse --absolute-git-dir 2>/dev/null)
     [[ -n $git_dir ]] && _PROMPT_GIT_DIR_CACHE[$cache_key]=$git_dir
   fi
