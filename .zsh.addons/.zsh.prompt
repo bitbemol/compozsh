@@ -644,27 +644,32 @@ _prompt_command_heads() {
 # Derive an interaction model from literal editor text and already-captured
 # prompt/editor facts. Zsh's lexer identifies structure without evaluating,
 # expanding, resolving, or executing anything from BUFFER.
+#
+# The model runs as ordered steps — lex, heads, classify, rows, enrich — that
+# share the facts declared here through Zsh's dynamic scope instead of copying
+# tokens between calls. Each step reads only facts earlier steps captured,
+# writes only the facts it owns (named in its comment) and keeps its scratch
+# words local. Like the model, every step is provider-free.
 _prompt_interaction_model() {
   local alias_enabled=${_prompt_alias_enabled:-${options[aliases]}}
   emulate -L zsh
   setopt localoptions extendedglob multibyte
 
-  local buffer=$1 bounded_buffer='' token='' plain=''
-  local command_name='' command_lower=''
+  local buffer=$1 bounded_buffer='' interaction_view=''
+  # Lexical facts (lex).
+  local -a tokens=() plain_tokens=() alias_records=()
+  local -i token_count=0 autocd=0
+  # Head facts (heads).
+  local command_name='' command_lower='' assignment_name=''
   local operation='' operation_lower='' first_operand='' last_operand=''
-  local query_text='' task_text='' environment_text='' remote_text=''
-  local redirect_operator='' redirect_text='' flow_text='' assignment_name=''
-  local action='' suggestion='' control_text='' caution_command=''
-  local alias_text='' alias_kind='' alias_summary=''
-  local comment_text=''
-  local endpoint_scheme='' endpoint_authority=''
+  local redirect_operator='' redirect_text=''
   local redirect_label='OUTPUT TEXT'
   local redirect_action='likely redirect command output'
-  local -a tokens=() plain_tokens=() flow_heads=() flow_operators=() alias_records=()
-  local -a command_heads=()
-  local -i index=0 command_index=0 operation_index=0 token_count=0
-  local -i pipe_count=0 chain_count=0
-  local -i caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0 autocd=0
+  local -a command_heads=() flow_heads=() flow_operators=()
+  local -i command_index=0 operation_index=0 pipe_count=0 chain_count=0
+  # View facts (classify).
+  local comment_text='' caution_command='' action='' task_operation=''
+  local task_text='' query_text='' remote_text='' environment_text=''
   [[ -n ${_ZLE_AUTOCD_BUFFER:-} &&
      ${_ZLE_AUTOCD_BUFFER:-} == "$buffer" &&
      ${_ZLE_AUTOCD_PWD:-} == "$PWD" ]] && autocd=1
@@ -679,43 +684,34 @@ _prompt_interaction_model() {
   bounded_buffer=${buffer[1,512]}
   if (( ${#buffer} > 512 )) &&
      [[ -z ${bounded_buffer//[[:space:]]/} ]]; then
-    _PROMPT_INTERACTION_KIND=run
-    _prompt_interaction_add ANALYSIS 'first 512 characters only' warning
-    _prompt_interaction_add ACTION \
-      'may contain shell structure beyond the lens bound' warning
-    _prompt_interaction_add_context
-    return 0
+    _PROMPT_INTERACTION_KIND=run interaction_view=overflow
+  elif [[ -z ${bounded_buffer//[[:space:]]/} ]]; then
+    interaction_view=ready
+  elif (( ! ${+functions[_compozsh_is_assignment]} ||
+          ! ${+functions[_compozsh_is_redirection]} )); then
+    # Without lexical support, do not misidentify assignment values as
+    # commands or disclose arguments whose role cannot be established.
+    _PROMPT_INTERACTION_KIND=run interaction_view=unavailable
+  else
+    _prompt_interaction_lex
+    _prompt_interaction_heads
+    _prompt_interaction_classify
   fi
-  if [[ -z ${bounded_buffer//[[:space:]]/} ]]; then
-    [[ -n $_PROMPT_PROJECT_NAME_TEXT ]] &&
-      _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
-    [[ -n $_PROMPT_FULL_PATH_TEXT ]] &&
-      _prompt_interaction_add PATH "$_PROMPT_FULL_PATH_TEXT" path
-    [[ -n $_PROMPT_GIT_TEXT ]] &&
-      _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
-    (( ${#_PROMPT_PROJECT_ITEMS} )) &&
-      _prompt_interaction_add @TOOLCHAIN available tool
-    [[ -n $_PROMPT_ENV_TEXT ]] &&
-      _prompt_interaction_add ENV "$_PROMPT_ENV_TEXT" environment
-    [[ -n $_PROMPT_LAST_OUTCOME_TEXT ]] &&
-      _prompt_interaction_add LAST "$_PROMPT_LAST_OUTCOME_TEXT" \
-        "${_PROMPT_LAST_OUTCOME_ROLE:-info}"
-    if (( ! ${#_PROMPT_INTERACTION_LABELS} )) &&
-       [[ -n $_PROMPT_SESSION_TEXT ]]; then
-      _prompt_interaction_add SESSION "$_PROMPT_SESSION_TEXT" identity
-    fi
-    return 0
-  fi
+  _prompt_interaction_rows
+  # Only a draft that names a command gains descriptions and editor rows.
+  case $interaction_view in
+    overflow|ready|unavailable|comment|assignment) ;;
+    *) _prompt_interaction_enrich ;;
+  esac
+  return 0
+}
 
-  # Without lexical support, do not misidentify assignment values as commands
-  # or disclose arguments whose role cannot be established.
-  if (( ! ${+functions[_compozsh_is_assignment]} ||
-        ! ${+functions[_compozsh_is_redirection]} )); then
-    _PROMPT_INTERACTION_KIND=run
-    _prompt_interaction_add ANALYSIS 'Draft details unavailable' muted
-    _prompt_interaction_add_context
-    return 0
-  fi
+# Lex step: split the bounded draft into at most 64 literal words, their
+# unquoted plain forms and the current alias references among them.
+# Writes tokens, plain_tokens, token_count and alias_records.
+_prompt_interaction_lex() {
+  emulate -L zsh
+  setopt localoptions extendedglob multibyte
 
   tokens=("${(@Z+c+)bounded_buffer}") 2>/dev/null
   if (( ! ${#tokens} )); then
@@ -724,25 +720,24 @@ _prompt_interaction_model() {
     tokens=("${tokens[@]:0:64}")
   fi
   token_count=${#tokens}
-  for token in "${tokens[@]}"; do
-    plain_tokens+=("${(Q)token}")
-  done
+  plain_tokens=("${(@Q)tokens}")
+  alias_records=()
   if [[ $alias_enabled == on ]]; then
     _prompt_alias_expansions "${tokens[@]}"
     alias_records=("${reply[@]}")
   fi
+}
 
-  if [[ ${tokens[1]} == \#* ]]; then
-    _PROMPT_INTERACTION_KIND=comment
-    comment_text=${plain_tokens[1]#\#}
-    comment_text=${comment_text# }
-    _prompt_interaction_add "COMMENT TEXT" \
-      "${comment_text:-comment}" info
-    _prompt_interaction_add ACTION \
-      'likely remain an interactive shell comment' info
-    _prompt_interaction_add_context
-    return 0
-  fi
+# Heads step: find the command each pipeline or chain stage names, the
+# draft's own head, its first semantic word and literal operands, the visible
+# connectors and the last literal redirection. Writes the head facts; a draft
+# of assignments alone keeps command_index 0 and records only the first
+# assignment's name.
+_prompt_interaction_heads() {
+  emulate -L zsh
+  setopt localoptions extendedglob multibyte
+  local plain=''
+  local -i index=0 skip_next=0
 
   # Every pipeline and chain command finds its head by the same lexical rule.
   # The first head names the draft. Assignment values are never copied into
@@ -751,7 +746,7 @@ _prompt_interaction_model() {
   command_heads=("${reply[@]}")
   plain=${plain_tokens[1]}
   # A literal alias named env/command/etc. is the head itself, not evidence
-  # that the draft uses the native precommand form. Read its definition below.
+  # that the draft uses the native precommand form. Enrich reads its definition.
   if [[ $alias_enabled == on && ${tokens[1]} == "$plain" ]] &&
      (( ${+aliases[$plain]} || ${+galiases[$plain]} )); then
     command_index=1
@@ -772,16 +767,8 @@ _prompt_interaction_model() {
     fi
     [[ $plain == ('|'|'|&'|'&&'|'||'|';'|'&') ]] || command_index=$index
   done
-  (( command_index )) && command_name=${plain_tokens[command_index]}
-
-  if (( ! command_index )); then
-    _PROMPT_INTERACTION_KIND=environment
-    _prompt_interaction_add "ARGUMENT TEXT" \
-      "${assignment_name:-shell assignment}" environment
-    _prompt_interaction_add ACTION 'likely update shell environment' info
-    _prompt_interaction_add_context
-    return 0
-  fi
+  (( command_index )) || return 0
+  command_name=${plain_tokens[command_index]}
   # Command and subcommand names remain case-sensitive, just like Zsh.
   command_lower=$command_name
   # An observed directory is not an executable with a familiar tool name.
@@ -892,6 +879,28 @@ _prompt_interaction_model() {
         ;;
     esac
   fi
+}
+
+# Classify step: the first match in engineering/prompt.md "Adding an
+# Interaction kind" precedence names the kind; alias handling follows in the
+# enrich step. Writes _PROMPT_INTERACTION_KIND, interaction_view (the row
+# shape) and the literal view facts those rows show.
+_prompt_interaction_classify() {
+  emulate -L zsh
+  setopt localoptions extendedglob multibyte
+  local token='' plain='' endpoint_scheme='' endpoint_authority=''
+  local -i index=0 caution=0 is_test=0 is_build=0 skip_next=0 saw_option=0
+
+  if [[ ${tokens[1]} == \#* ]]; then
+    _PROMPT_INTERACTION_KIND=comment interaction_view=comment
+    comment_text=${plain_tokens[1]#\#}
+    comment_text=${comment_text# }
+    return 0
+  fi
+  if (( ! command_index )); then
+    _PROMPT_INTERACTION_KIND=environment interaction_view=assignment
+    return 0
+  fi
 
   case $command_lower in
     rm|rmdir|dd|eval|kill|pkill)
@@ -942,85 +951,48 @@ _prompt_interaction_model() {
   fi
 
   if (( caution )); then
-    _PROMPT_INTERACTION_KIND=caution
-    _prompt_interaction_add "COMMAND TEXT" \
-      "${caution_command:-$command_name}" danger
-    if [[ ${caution_command:-$command_name} == "$command_name" &&
-          $command_lower == (git|g) && -n $operation ]]; then
-      _prompt_interaction_add "OPERATION TEXT" "$operation" warning
-    fi
-    [[ ${caution_command:-$command_name} == "$command_name" &&
-       -n $last_operand &&
-       ( $command_lower != (git|g) || $last_operand != "$operation" ) ]] &&
-      _prompt_interaction_add "ARGUMENT TEXT" "$last_operand" warning
-    _prompt_interaction_add ACTION \
-      'appears caution-worthy · review literal text before Return' danger
-    _prompt_interaction_add_context
+    _PROMPT_INTERACTION_KIND=caution interaction_view=caution
   elif (( chain_count )); then
-    _PROMPT_INTERACTION_KIND=chain
-    flow_text=${(j: → :)flow_heads}
-    control_text=${(j: :)flow_operators}
-    _prompt_interaction_add FLOW "$flow_text" info
-    _prompt_interaction_add STEPS "$(( chain_count + pipe_count + 1 ))" info
-    _prompt_interaction_add CONTROL "$control_text" warning
-    _prompt_interaction_add ACTION \
-      'likely sequence literal shell commands' info
-    _prompt_interaction_add_context
+    _PROMPT_INTERACTION_KIND=chain interaction_view=chain
   elif (( pipe_count )); then
-    _PROMPT_INTERACTION_KIND=pipeline
-    flow_text=${(j: → :)flow_heads}
-    _prompt_interaction_add FLOW "$flow_text" info
-    _prompt_interaction_add STAGES "$(( pipe_count + 1 ))" info
-    [[ -n $redirect_text ]] &&
-      _prompt_interaction_add "$redirect_label" "$redirect_text" warning
-    _prompt_interaction_add ACTION \
-      'likely compose literal command output' info
-    _prompt_interaction_add_context
+    _PROMPT_INTERACTION_KIND=pipeline interaction_view=pipeline
   elif [[ -n $redirect_operator ]]; then
-    _PROMPT_INTERACTION_KIND=redirect
-    _prompt_interaction_add "OPERATOR TEXT" "$redirect_operator" warning
-    [[ -n $redirect_text ]] &&
-      _prompt_interaction_add "$redirect_label" "$redirect_text" warning
-    _prompt_interaction_add ACTION "$redirect_action" info
-    _prompt_interaction_add_context
+    _PROMPT_INTERACTION_KIND=redirect interaction_view=redirect
   elif [[ $command_lower == (compozsh|external-device) ]] ||
        { [[ $command_lower == xcode ]] &&
          (( token_count == command_index || ${plain_tokens[(Ie)--export-skills]} || ${plain_tokens[(Ie)--help]} )); }; then
-    local task_action='likely open a task workspace' task_operation=''
-    _PROMPT_INTERACTION_KIND=run
+    # Owned task entries share the run kind unless they change environment.
+    _PROMPT_INTERACTION_KIND=run interaction_view=task
+    action='likely open a task workspace' task_operation=''
     if (( ${plain_tokens[(Ie)--help]} )) ||
        [[ $command_lower == compozsh && $first_operand == help ]]; then
-      task_action='likely show task help'
+      action='likely show task help'
       task_operation=help
       (( ${plain_tokens[(Ie)--help]} )) && task_operation=--help
     elif [[ $command_lower == xcode ]] && (( ${plain_tokens[(Ie)--export-skills]} )); then
       _PROMPT_INTERACTION_KIND=environment
       task_operation=--export-skills
-      task_action='likely review or export Apple skills for local agents'
+      action='likely review or export Apple skills for local agents'
     elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--sudo-touch-id]} )); then
       _PROMPT_INTERACTION_KIND=environment
       task_operation=--sudo-touch-id
-      task_action='likely inspect or manage Touch ID authentication for sudo'
+      action='likely inspect or manage Touch ID authentication for sudo'
     elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--refresh]} )); then
       _PROMPT_INTERACTION_KIND=environment
       task_operation=--refresh
-      task_action='likely refresh this shell’s cached capabilities'
+      action='likely refresh this shell’s cached capabilities'
     elif [[ $command_lower == compozsh ]] && (( ${plain_tokens[(Ie)--list]} )); then
       task_operation=--list
-      task_action='likely list loaded Compozsh tools'
+      action='likely list loaded Compozsh tools'
     else
       case $command_lower in
-        xcode) task_action='likely open the Xcode action workspace' ;;
-        external-device) task_action='likely open the external-device task chooser' ;;
-        compozsh) task_action='likely explore loaded tools and their help' ;;
+        xcode) action='likely open the Xcode action workspace' ;;
+        external-device) action='likely open the external-device task chooser' ;;
+        compozsh) action='likely explore loaded tools and their help' ;;
       esac
     fi
-    _prompt_interaction_add 'COMMAND TEXT' "$command_name" info
-    [[ -n $task_operation ]] && _prompt_interaction_add 'OPERATION TEXT' "$task_operation" info
-    _prompt_interaction_add ACTION "$task_action" info
-    _prompt_interaction_add_context
   elif [[ $command_lower == (ssh|scp|sftp|rsync|curl|wget) ]]; then
-    _PROMPT_INTERACTION_KIND=remote
+    _PROMPT_INTERACTION_KIND=remote interaction_view=remote
     case $command_lower in
       ssh|sftp)
         skip_next=0
@@ -1098,16 +1070,8 @@ _prompt_interaction_model() {
       remote_text=${remote_text##*@}
       remote_text=${remote_text%%/*}
     fi
-    _prompt_interaction_add "COMMAND TEXT" "$command_name" info
-    [[ -n $remote_text ]] &&
-      _prompt_interaction_add "ENDPOINT TEXT" "$remote_text" warning
-    _prompt_interaction_add ACTION \
-      'command may contact a remote system' warning
-    _prompt_interaction_add_context
   elif [[ $command_lower == (git|g) ]]; then
-    _PROMPT_INTERACTION_KIND=git
-    _prompt_interaction_add "OPERATION TEXT" \
-      "${operation:-repository command}" git
+    _PROMPT_INTERACTION_KIND=git interaction_view=git
     case $operation_lower in
       branches) action='likely open the local recent-branch workspace' ;;
       help) action='likely show Git or Compozsh Git help' ;;
@@ -1123,26 +1087,15 @@ _prompt_interaction_model() {
       merge|rebase|cherry-pick) action='likely integrate repository history' ;;
       *) action='likely run a Git operation' ;;
     esac
-    _prompt_interaction_add ACTION "$action" info
-    [[ -n $_PROMPT_GIT_BRANCH_TEXT ]] &&
-      _prompt_interaction_add BRANCH "$_PROMPT_GIT_BRANCH_TEXT" git
-    [[ -n $_PROMPT_PROJECT_NAME_TEXT ]] &&
-      _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
   elif [[ $command_lower == (cd|pushd|popd|j|z|mkcd) || $autocd == 1 ]]; then
-    _PROMPT_INTERACTION_KIND=navigate
+    _PROMPT_INTERACTION_KIND=navigate interaction_view=navigate
     action='likely change shell location · Tab can browse'
     if (( autocd )); then
       first_operand=$command_name
       action='likely change shell location via AUTO_CD · Tab can browse'
     fi
-    [[ -n $first_operand ]] &&
-      _prompt_interaction_add "DESTINATION TEXT" "$first_operand" path
-    _prompt_interaction_add ACTION "$action" info
-    [[ -n $_PROMPT_FULL_PATH_TEXT ]] &&
-      _prompt_interaction_add FROM "$_PROMPT_FULL_PATH_TEXT" path
-    _prompt_interaction_add_context
   elif [[ $command_lower == (rg|grep|egrep|fgrep|find|mdfind|ag|ack) ]]; then
-    _PROMPT_INTERACTION_KIND=search
+    _PROMPT_INTERACTION_KIND=search interaction_view=search
     skip_next=0
     if [[ $command_lower == find ]]; then
       for (( index = command_index + 1; index < token_count; index++ )); do
@@ -1168,29 +1121,12 @@ _prompt_interaction_model() {
         break
       done
     fi
-    [[ -n $query_text ]] &&
-      _prompt_interaction_add "QUERY TEXT" "$query_text" info
-    _prompt_interaction_add ACTION 'likely search literal local input' info
-    if [[ -n $_PROMPT_PROJECT_NAME_TEXT ]]; then
-      _prompt_interaction_add SCOPE "$_PROMPT_PROJECT_NAME_TEXT" project
-    else
-      _prompt_interaction_add SCOPE "$_PROMPT_FULL_PATH_TEXT" path
-    fi
-    [[ -n $_PROMPT_GIT_TEXT ]] &&
-      _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
   elif [[ $command_lower == (conda|pyenv|rbenv|nvm|mise|direnv|export|unset|source|.) ]]; then
-    _PROMPT_INTERACTION_KIND=environment
+    _PROMPT_INTERACTION_KIND=environment interaction_view=environment
     environment_text=$last_operand
     if [[ $command_lower == (export|unset) && -n $environment_text ]]; then
       environment_text=${environment_text%%=*}
     fi
-    [[ -n $environment_text ]] &&
-      _prompt_interaction_add "ARGUMENT TEXT" "$environment_text" environment
-    _prompt_interaction_add ACTION \
-      'likely change the current shell environment' info
-    [[ -n $_PROMPT_ENV_TEXT ]] &&
-      _prompt_interaction_add CURRENT "$_PROMPT_ENV_TEXT" environment
-    _prompt_interaction_add_context
   else
     # Exact high-signal test/build forms. Unknown tools remain the neutral RUN
     # lens rather than receiving a guessed purpose.
@@ -1230,36 +1166,187 @@ _prompt_interaction_model() {
     fi
 
     if (( is_test )); then
-      _PROMPT_INTERACTION_KIND=test
+      _PROMPT_INTERACTION_KIND=test interaction_view=test
+    elif (( is_build )); then
+      _PROMPT_INTERACTION_KIND=build interaction_view=build
+    else
+      _PROMPT_INTERACTION_KIND=run interaction_view=run
+    fi
+  fi
+}
+
+# Rows step: append the classified view's rows, most specific first, then the
+# smallest useful captured anchor. Reads the shared facts; writes only rows.
+_prompt_interaction_rows() {
+  emulate -L zsh
+  setopt localoptions extendedglob multibyte
+
+  case $interaction_view in
+    overflow)
+      _prompt_interaction_add ANALYSIS 'first 512 characters only' warning
+      _prompt_interaction_add ACTION \
+        'may contain shell structure beyond the lens bound' warning
+      ;;
+    ready)
+      [[ -n $_PROMPT_PROJECT_NAME_TEXT ]] &&
+        _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
+      [[ -n $_PROMPT_FULL_PATH_TEXT ]] &&
+        _prompt_interaction_add PATH "$_PROMPT_FULL_PATH_TEXT" path
+      [[ -n $_PROMPT_GIT_TEXT ]] &&
+        _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
+      (( ${#_PROMPT_PROJECT_ITEMS} )) &&
+        _prompt_interaction_add @TOOLCHAIN available tool
+      [[ -n $_PROMPT_ENV_TEXT ]] &&
+        _prompt_interaction_add ENV "$_PROMPT_ENV_TEXT" environment
+      [[ -n $_PROMPT_LAST_OUTCOME_TEXT ]] &&
+        _prompt_interaction_add LAST "$_PROMPT_LAST_OUTCOME_TEXT" \
+          "${_PROMPT_LAST_OUTCOME_ROLE:-info}"
+      if (( ! ${#_PROMPT_INTERACTION_LABELS} )) &&
+         [[ -n $_PROMPT_SESSION_TEXT ]]; then
+        _prompt_interaction_add SESSION "$_PROMPT_SESSION_TEXT" identity
+      fi
+      return 0
+      ;;
+    unavailable)
+      _prompt_interaction_add ANALYSIS 'Draft details unavailable' muted
+      ;;
+    comment)
+      _prompt_interaction_add "COMMENT TEXT" \
+        "${comment_text:-comment}" info
+      _prompt_interaction_add ACTION \
+        'likely remain an interactive shell comment' info
+      ;;
+    assignment)
+      _prompt_interaction_add "ARGUMENT TEXT" \
+        "${assignment_name:-shell assignment}" environment
+      _prompt_interaction_add ACTION 'likely update shell environment' info
+      ;;
+    caution)
+      _prompt_interaction_add "COMMAND TEXT" \
+        "${caution_command:-$command_name}" danger
+      if [[ ${caution_command:-$command_name} == "$command_name" &&
+            $command_lower == (git|g) && -n $operation ]]; then
+        _prompt_interaction_add "OPERATION TEXT" "$operation" warning
+      fi
+      [[ ${caution_command:-$command_name} == "$command_name" &&
+         -n $last_operand &&
+         ( $command_lower != (git|g) || $last_operand != "$operation" ) ]] &&
+        _prompt_interaction_add "ARGUMENT TEXT" "$last_operand" warning
+      _prompt_interaction_add ACTION \
+        'appears caution-worthy · review literal text before Return' danger
+      ;;
+    chain)
+      _prompt_interaction_add FLOW "${(j: → :)flow_heads}" info
+      _prompt_interaction_add STEPS "$(( chain_count + pipe_count + 1 ))" info
+      _prompt_interaction_add CONTROL "${(j: :)flow_operators}" warning
+      _prompt_interaction_add ACTION \
+        'likely sequence literal shell commands' info
+      ;;
+    pipeline)
+      _prompt_interaction_add FLOW "${(j: → :)flow_heads}" info
+      _prompt_interaction_add STAGES "$(( pipe_count + 1 ))" info
+      [[ -n $redirect_text ]] &&
+        _prompt_interaction_add "$redirect_label" "$redirect_text" warning
+      _prompt_interaction_add ACTION \
+        'likely compose literal command output' info
+      ;;
+    redirect)
+      _prompt_interaction_add "OPERATOR TEXT" "$redirect_operator" warning
+      [[ -n $redirect_text ]] &&
+        _prompt_interaction_add "$redirect_label" "$redirect_text" warning
+      _prompt_interaction_add ACTION "$redirect_action" info
+      ;;
+    task)
+      _prompt_interaction_add 'COMMAND TEXT' "$command_name" info
+      [[ -n $task_operation ]] &&
+        _prompt_interaction_add 'OPERATION TEXT' "$task_operation" info
+      _prompt_interaction_add ACTION "$action" info
+      ;;
+    remote)
+      _prompt_interaction_add "COMMAND TEXT" "$command_name" info
+      [[ -n $remote_text ]] &&
+        _prompt_interaction_add "ENDPOINT TEXT" "$remote_text" warning
+      _prompt_interaction_add ACTION \
+        'command may contact a remote system' warning
+      ;;
+    git)
+      _prompt_interaction_add "OPERATION TEXT" \
+        "${operation:-repository command}" git
+      _prompt_interaction_add ACTION "$action" info
+      [[ -n $_PROMPT_GIT_BRANCH_TEXT ]] &&
+        _prompt_interaction_add BRANCH "$_PROMPT_GIT_BRANCH_TEXT" git
+      [[ -n $_PROMPT_PROJECT_NAME_TEXT ]] &&
+        _prompt_interaction_add PROJECT "$_PROMPT_PROJECT_NAME_TEXT" project
+      return 0
+      ;;
+    navigate)
+      [[ -n $first_operand ]] &&
+        _prompt_interaction_add "DESTINATION TEXT" "$first_operand" path
+      _prompt_interaction_add ACTION "$action" info
+      [[ -n $_PROMPT_FULL_PATH_TEXT ]] &&
+        _prompt_interaction_add FROM "$_PROMPT_FULL_PATH_TEXT" path
+      ;;
+    search)
+      [[ -n $query_text ]] &&
+        _prompt_interaction_add "QUERY TEXT" "$query_text" info
+      _prompt_interaction_add ACTION 'likely search literal local input' info
+      if [[ -n $_PROMPT_PROJECT_NAME_TEXT ]]; then
+        _prompt_interaction_add SCOPE "$_PROMPT_PROJECT_NAME_TEXT" project
+      else
+        _prompt_interaction_add SCOPE "$_PROMPT_FULL_PATH_TEXT" path
+      fi
+      [[ -n $_PROMPT_GIT_TEXT ]] &&
+        _prompt_interaction_add GIT "$_PROMPT_GIT_TEXT" git
+      return 0
+      ;;
+    environment)
+      [[ -n $environment_text ]] &&
+        _prompt_interaction_add "ARGUMENT TEXT" "$environment_text" environment
+      _prompt_interaction_add ACTION \
+        'likely change the current shell environment' info
+      [[ -n $_PROMPT_ENV_TEXT ]] &&
+        _prompt_interaction_add CURRENT "$_PROMPT_ENV_TEXT" environment
+      ;;
+    test)
       _prompt_interaction_add "TASK TEXT" "${task_text:-test}" tool
       _prompt_interaction_add ACTION 'likely run project tests' info
       (( ${#_PROMPT_PROJECT_ITEMS} )) &&
         _prompt_interaction_add @TOOLCHAIN available tool
-      _prompt_interaction_add_context
-    elif (( is_build )); then
-      _PROMPT_INTERACTION_KIND=build
+      ;;
+    build)
       _prompt_interaction_add "TASK TEXT" "${task_text:-build}" tool
       _prompt_interaction_add ACTION 'likely build the current project' info
       (( ${#_PROMPT_PROJECT_ITEMS} )) &&
         _prompt_interaction_add @TOOLCHAIN available tool
-      _prompt_interaction_add_context
-    else
-      _PROMPT_INTERACTION_KIND=run
+      ;;
+    *)
       _prompt_interaction_add "COMMAND TEXT" "$command_name" info
       [[ -n $first_operand ]] &&
         _prompt_interaction_add "ARGUMENT TEXT" "$first_operand" info
       _prompt_interaction_add ACTION 'likely run a shell command' info
-      _prompt_interaction_add_context
-    fi
-  fi
+      ;;
+  esac
+  _prompt_interaction_add_context
+}
+
+# Enrich step: alias handling (last in the kind precedence), same-source help,
+# captured manual summaries, the visible autosuggestion prefix and alias
+# expansions. Reads the shared facts; may replace the kind and rows only as
+# alias handling documents. Every lookup is optional and provider-free.
+_prompt_interaction_enrich() {
+  emulate -L zsh
+  setopt localoptions extendedglob multibyte
+  local alias_text='' alias_kind='' alias_summary='' suggestion=''
+  local description_label='' description_text=''
+  local manual_summary='' manual_source=''
+  local -i index=0 description_index=0 action_index=0
 
   # Same-source help and current alias definitions enrich only a simple literal
   # command. Preserve structural views and do not inspect ghost text.
   if [[ $_PROMPT_INTERACTION_KIND != (pipeline|chain|redirect) ]] &&
      (( !autocd && command_index == 1 && ${#buffer} <= 512 && token_count < 64 )) &&
      [[ ${tokens[1]} == "$command_name" ]]; then
-    local -i description_index=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
-    local description_label='' description_text=''
+    description_index=${_PROMPT_INTERACTION_LABELS[(Ie)ACTION]}
     if [[ ${alias_records[1]-} == 1 ]]; then
       alias_kind=$alias_records[3] alias_text=$alias_records[4]
     fi
@@ -1322,8 +1409,8 @@ _prompt_interaction_model() {
   if [[ -z ${alias_kind:-} ]] &&
      (( !autocd && ${+functions[_manual_summary_lookup]} )) &&
      _manual_summary_lookup "$command_name"; then
-    local manual_summary=$REPLY manual_source=${reply[2]:-${_MANUAL_SOURCES[$command_name]}}
-    local -i action_index=${_PROMPT_INTERACTION_LABELS[(i)ACTION]}
+    manual_summary=$REPLY manual_source=${reply[2]:-${_MANUAL_SOURCES[$command_name]}}
+    action_index=${_PROMPT_INTERACTION_LABELS[(i)ACTION]}
     if [[ ${_PROMPT_INTERACTION_VALUES[action_index]-} == 'likely run a shell command' ]]; then
       _PROMPT_INTERACTION_LABELS[action_index]=ABOUT
       _PROMPT_INTERACTION_VALUES[action_index]=$manual_summary

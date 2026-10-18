@@ -1062,6 +1062,51 @@ _test_living_prompt_interaction_kind_precedence_matrix() {
 test_case 'living prompt interaction kinds keep their precedence against each neighbor' \
   _test_living_prompt_interaction_kind_precedence_matrix
 
+# The model's lex, heads, classify, rows and enrich steps share its facts
+# through dynamic scope. Every view must end with that state: only the lens
+# globals the model owns (already defined) and reply/REPLY may change.
+_test_living_prompt_interaction_steps_keep_state_local() {
+  test_make_temp_dir || return
+  local output=''
+
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.prompt"
+    for unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$unit"; done
+    shift
+    local draft="" long="${(l:600:: :)}"
+    local -a before=() after=() leaked=()
+    alias ll="ls -l"
+    _ZLE_AUTOCD_BUFFER=docs _ZLE_AUTOCD_PWD=$PWD
+    reply=() REPLY=""
+    _prompt_interaction_model ""
+    before=("${(@k)parameters}")
+
+    for draft in "$long" "$@"; do
+      _prompt_interaction_model "$draft"
+      [[ -n $_PROMPT_INTERACTION_KIND ]] || exit 2
+    done
+    unfunction _compozsh_is_assignment
+    _prompt_interaction_model ls
+    [[ $_PROMPT_INTERACTION_KIND == run ]] || exit 3
+
+    after=("${(@k)parameters}")
+    leaked=(${after:|before})
+    (( ! ${#leaked} )) || {
+      print -u2 -r -- "interaction steps leaked: ${(j: :)${(@o)leaked}}"
+      exit 1
+    }
+    print -r -- steps-local
+  ' "$TEST_REPO_ROOT" "" "# note" "EDITOR=vim" "rm -rf build" "true && pwd" \
+    "ls | sort > out.txt" "printf x > out.txt" "compozsh --refresh" "xcode" \
+    "curl https://user@example.invalid/x" "ssh -i key host" "git -C repo push --force" \
+    "g --review" "cd .." docs "rg -e pat needle" "find . -name x" "export A=1" \
+    "swift test --filter Unit" "make" "printf hello" ll) || return
+
+  test_assert_equal steps-local "$output"
+}
+test_case 'living prompt interaction steps keep their shared state local to each view' \
+  _test_living_prompt_interaction_steps_keep_state_local
+
 _test_living_prompt_interaction_edits_are_inert_and_reuse_autosuggestion_state() {
   test_make_temp_dir || return
   local bin="$TEST_TMP_DIR/forbidden-bin"
