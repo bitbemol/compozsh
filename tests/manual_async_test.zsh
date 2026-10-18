@@ -407,6 +407,55 @@ _test_manual_async_failed_transport() {
 test_case 'manual async rejects failed truncated and trailing transports without retry loops and preserves capability fallback' \
   _test_manual_async_failed_transport
 
+_test_manual_async_transport_cleanup() {
+  test_make_temp_dir || return
+  test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.manual"
+    export TMPDIR=$HOME
+    local commands_before="$(whence -w rm rmdir mkdir mv ln)" fifo="" interrupted=""
+    local -a residue=()
+    [[ $commands_before == *"rm: command"*"rmdir: command"* ]] || exit 1
+    _manual_prompt_capture() { local line=""; IFS= read -r line; return 1; }
+    _manual_prompt_request || exit 2
+    [[ $_MANUAL_ASYNC_STATE == running && $_MANUAL_ASYNC_FD == <-> ]] || exit 3
+    [[ "$(whence -w rm rmdir mkdir mv ln)" == "$commands_before" ]] || {
+      print -u2 -- "transport cleanup changed command lookup"; exit 4
+    }
+    residue=("$HOME"/compozsh-manual-async.*(N))
+    (( ! ${#residue} )) || exit 5
+    _manual_async_cancel
+    residue=("$HOME"/compozsh-manual-async.*(N))
+    (( ! ${#residue} )) || exit 6
+    # A failure after the FIFO exists still removes both transport names.
+    sysopen() { [[ -p ${@[-1]} ]] && fifo=${@[-1]}; return 1; }
+    _manual_async_start && exit 7
+    unfunction sysopen
+    _manual_async_cancel
+    [[ $fifo == "$HOME"/compozsh-manual-async.*/data ]] || exit 8
+    residue=("$HOME"/compozsh-manual-async.*(N))
+    (( ! ${#residue} )) || exit 9
+    # So does an interrupt while the owner starts.
+    interrupted=$(
+      TRAPINT() { return 130; }
+      zpty() {
+        local -a pipes=("$HOME"/compozsh-manual-async.*/data(Np))
+        print -r -- "fifo:${#pipes}"
+        kill -INT $sysparams[pid]
+      }
+      _manual_async_start
+      print -r -- continued
+    )
+    [[ $interrupted == *fifo:1* && $interrupted != *continued* ]] || {
+      print -u2 -- "interrupt was not exercised: $interrupted"; exit 10
+    }
+    residue=("$HOME"/compozsh-manual-async.*(N))
+    (( ! ${#residue} )) || exit 11
+    [[ "$(whence -w rm rmdir mkdir mv ln)" == "$commands_before" ]] || exit 12
+  ' "$TEST_REPO_ROOT"
+}
+test_case 'manual async cancellation removes its transport without shadowing rm or rmdir' \
+  _test_manual_async_transport_cleanup
+
 _test_manual_async_exit_cleanup() {
   test_make_temp_dir || return
   test_run_interactive "$TEST_TMP_DIR/home" '

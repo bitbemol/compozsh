@@ -378,8 +378,11 @@ _manual_async_owner() {
 _manual_async_start() {
   emulate -L zsh
   local directory=''
+  # Only the prefixed file builtins load, so the user's rm and rmdir stay
+  # external; the cleanup below then needs no forked helper.
   zmodload zsh/zpty 2>/dev/null && zmodload zsh/zselect 2>/dev/null &&
-    zmodload zsh/datetime 2>/dev/null || return 1
+    zmodload zsh/datetime 2>/dev/null &&
+    zmodload -F zsh/files b:zf_rm b:zf_rmdir 2>/dev/null || return 1
   directory=$(command /usr/bin/mktemp -d "${TMPDIR:-/tmp}/compozsh-manual-async.XXXXXXXX" 2>/dev/null) || return 1
   [[ -d $directory && ! -L $directory && ${directory:t} == compozsh-manual-async.* ]] || return 1
   {
@@ -397,8 +400,8 @@ _manual_async_start() {
   } always {
     # All endpoints are inherited open descriptors now. No private document
     # data ever becomes a regular file, and callbacks need no filesystem I/O.
-    command /bin/rm -f -- "$directory/data" 2>/dev/null
-    command /bin/rmdir -- "$directory" 2>/dev/null
+    builtin zf_rm -f -- "$directory/data" 2>/dev/null
+    builtin zf_rmdir -- "$directory" 2>/dev/null
   }
   return 0
 }

@@ -488,6 +488,57 @@ directory, `<before>` the `git archive` copy and `<after>` the working tree:
 /bin/zsh -df investigations/benchmarks/workspace-first-frame.zsh <before> <after> browse,history,review 9 5
 ```
 
+### P5-02: manual async transport cleanup without forks (C-04, U68, HELP-04)
+
+`_manual_async_start` unlinked its FIFO and its directory with
+`command /bin/rm` and `command /bin/rmdir`, two fork-and-exec helpers in the
+first TTY `precmd`. It now loads only the prefixed `zf_rm` and `zf_rmdir`
+builtins of `zsh/files` (`zmodload -F`) and calls them through `builtin`, so
+the user's `rm` and `rmdir` stay external, and a later `zmodload zsh/files` of
+the user's own still enables every builtin. `mktemp` and `mkfifo` stay
+external, and worker-side commands are unchanged. The plan placed the load at
+source time beside `zsh/system` and `zsh/stat`; it sits instead beside the
+`zsh/zpty`, `zsh/zselect` and `zsh/datetime` checks in `_manual_async_start`,
+so source time is unchanged and a failed load falls back to synchronous
+capture like those, before any temporary name exists. The FIFO and directory
+are still mode 0600 and 0700 and both unlinked once opened, so SECURITY.md's
+transport row holds unchanged. A new case, `manual async cancellation removes
+its transport without shadowing rm or rmdir`, passed before and after the
+change: command lookup for `rm`, `rmdir`, `mkdir`, `mv` and `ln` is unchanged,
+and no `compozsh-manual-async.*` name survives a running start and its
+cancellation, a failure after the FIFO exists, or an interrupt while the owner
+starts. It fails for a full `zmodload zsh/files` and for a dropped `rmdir`.
+
+Before tree `git archive 5979387`, after tree the working tree; environment as
+in P5-01, load averages 2.8–6.2. The focused rows come from a scratch script:
+each run starts one `env -i … LC_ALL=en_US.UTF-8 /bin/zsh -dfi` shell per
+tree, alternating which goes first, with `TMPDIR` in the scratch area. Each
+shell sources that tree's `.zsh.manual`, stubs `_manual_prompt_capture` to fail
+at once, and times with `EPOCHREALTIME` its first `_manual_async_start`
+(module loads included, as at the first prompt) and nine more start/cancel
+cycles. Its A/A (baseline against baseline, 21 runs) differed by −0.07 ms
+(first call) and −0.04 ms (later calls). Milliseconds, *median (range)*:
+
+| Metric | Mode | Runs | Before | After | Delta |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `_manual_async_start`, first call | focused | 21 | 13.97 (11.72–16.65) | 9.25 (8.41–10.78) | −4.72 (−33.8%) |
+| `_manual_async_start`, median of 9 later calls | focused | 21 | 9.73 (8.29–11.51) | 5.89 (4.92–6.97) | −3.84 (−39.5%) |
+| editable | warm | 15 | 98.77 (92.34–113.37) | 94.13 (89.40–105.23) | −4.64 (−4.7%) |
+| editable | warm, second pass | 15 | 96.93 (94.90–111.57) | 92.88 (90.67–115.61) | −4.05 (−4.2%) |
+| editable | fresh | 15 | 236.60 (229.02–271.88) | 231.41 (221.90–266.17) | −5.18 (−2.2%) |
+| editable | fresh, second pass | 15 | 233.42 (231.82–267.17) | 232.80 (227.18–264.71) | −0.62 (−0.3%) |
+
+Decision: kept. The focused ranges do not overlap, and the A/A noise is under
+0.1 ms. The warm first editable prompt gains 4.0–4.6 ms in both passes, at the
+excellence run's 3× warm A/A threshold of 4.47 ms (P5-01's warm editable A/A
+was −0.68 ms). Fresh editable startup is dominated by the completion dump and
+too noisy to resolve the gain. Process, source and tty-source never start
+capture and moved within noise (warm: −2.07, −1.42 and −0.99 ms).
+
+```zsh
+TMPDIR=<scratch>/tmp /bin/zsh -df investigations/benchmarks/isolated-startup.zsh <before> <after> 15 en_US.UTF-8 direct
+```
+
 ## Unresolved and skipped findings
 
 *Filled in at the end.*
