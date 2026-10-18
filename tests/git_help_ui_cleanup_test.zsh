@@ -7,7 +7,6 @@ _test_git_notice_scoped_content() {
     test_source_support "$1" || exit
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
-    local root=/fixture/repository
     _ZLE_PICKER_TITLE=Branches _ZLE_PICKER_SUBTITLE="repository · local branches"
     _ZLE_PICKER_QUERY_LABEL="Filter branches"
     _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices
@@ -26,7 +25,7 @@ _test_git_notice_scoped_content() {
       }
     }
     test_picker_script observe _notice_labels -- abort
-    _git_review_unavailable
+    _git_review_unavailable /fixture/repository
     [[ $? == 130 && $_ZLE_PICKER_TITLE == Branches &&
        $_ZLE_PICKER_QUERY_LABEL == "Filter branches" &&
        $_ZLE_PICKER_SUBTITLE == "repository · local branches" &&
@@ -86,8 +85,8 @@ _test_git_review_explicit_root_selectors() {
     command mkfifo "$HOME/events" || exit 7
     exec {event_fd}<> "$HOME/events" || exit 8
     _zle_picker_run() {
-      [[ $root == "${HOME:A}/primary" && $_git_compare_branch == primary ]] || return 73
-      _git_review_resolve "$root" HEAD && [[ $REPLY == "$expected" ]] || return 74
+      [[ $_git_review_root == "${HOME:A}/primary" && $_git_compare_branch == primary ]] || return 73
+      _git_review_resolve "$_git_review_root" HEAD && [[ $REPLY == "$expected" ]] || return 74
       return 1
     }
     _git_review_entry_driver() {
@@ -141,9 +140,8 @@ _test_git_notice_native() {
       print -r -u $event_fd -- "FRAME|$_ZLE_PICKER_GUIDE_ACTIVE"
     }
     _git_notice_controller() {
-      local root=/fixture/repository
       local _ZLE_PICKER_QUERY_LABEL="Filter branches" _ZLE_PICKER_TITLE=Branches
-      _git_review_unavailable
+      _git_review_unavailable /fixture/repository
       local -i result=$?
       [[ $result == 1 && $_ZLE_PICKER_TITLE == Branches &&
          $_ZLE_PICKER_QUERY_LABEL == "Filter branches" ]] || print -r -u $event_fd -- BAD-RETURN

@@ -240,7 +240,7 @@ _test_keyboard_guide_caller_facts_and_roles() {
     _zle_picker_loop() { _ZLE_PICKER_INSPECT_KEY="" _ZLE_PICKER_INSPECT_WIDTH=0; _capture_roles; }
     _GIT_BRANCH_REMOTE_NAMES=([remote:refs/remotes/origin/feature]=feature)
     _GIT_BRANCH_REMOTE_OIDS=([remote:refs/remotes/origin/feature]=0123456789abcdef0123456789abcdef01234567)
-    _zle_ui_view action _git_branch_remote_confirm_view remote:refs/remotes/origin/feature
+    _zle_ui_view action _git_branch_remote_confirm_view /fixture/repository remote:refs/remotes/origin/feature
     [[ ${(j:|:)headings} == "LOCAL BRANCH|FROM REMOTE-TRACKING REF|COMMIT" ]] || {
       print -u2 -r -- "Branch plan headings: ${(j:|:)headings}"; exit 3; }
     local agent_path=/Applications/Xcode.app

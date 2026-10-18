@@ -320,7 +320,7 @@ _test_git_review_failures() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zsh.addons/.zsh.navigation"
     source "$1/.zsh.addons/.zsh.git-review"
-    local root=/fixture clipboard_binary="" _ZLE_PICKER_TITLE=Branches step=0 scenario=""
+    local _ZLE_PICKER_TITLE=Branches step=0 scenario=""
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit
     _ZLE_PICKER_TITLE=Branches
@@ -337,7 +337,7 @@ _test_git_review_failures() {
         observe _count_view -- select commits -- observe _unavailable_notice -- abort
       _git_review_prepare() { [[ $scenario == revision ]]; }
       _git_review_capture() { return 2; }
-      _git_review_branch_choose
+      _git_review_branch_choose /fixture ""
       [[ $? == 130 && $step == 3 && $_ZLE_PICKER_TITLE == Branches ]] || exit 1
     done
     print failures
@@ -345,6 +345,36 @@ _test_git_review_failures() {
   test_assert_equal failures "$output"
 }
 test_case 'Git review propagates abort from failed config or ref capture and restores the parent title' _test_git_review_failures
+
+# Another peer opens review for a folder through one entry; the capture and
+# its configuration stay inside review, and REPLY names why it could not open.
+_test_git_review_open_entry() {
+  test_make_temp_dir || return
+  local output
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.git-review"
+    command mkdir -p "$HOME/repo/sub" "$HOME/plain" || exit 1
+    command git -C "$HOME/repo" init -q || exit 1
+    local REPLY="" calls="" expected="${HOME:A}/repo||1"
+    local -i result=0
+    _GIT_REVIEW_DATA=outer _GIT_REVIEW_CONFIG=(outer) _GIT_REVIEW_TRUNCATED=0
+    _git_review_menu() { calls+="$1|$2|$3;"; REPLY=0123abcd; return 7; }
+    _git_review_open "$HOME/repo/sub" 1; result=$?
+    [[ $result == 7 && -z $REPLY && $calls == "$expected;" ]] || { print -r -- "open $result $REPLY $calls"; exit 2; }
+    calls=""
+    _git_review_open "$HOME/plain"; result=$?
+    [[ $result == 1 && $REPLY == outside && -z $calls ]] || { print -r -- "outside $result $REPLY $calls"; exit 3; }
+    _git_review_prepare() { return 2; }
+    _git_review_open "$HOME/repo"; result=$?
+    [[ $result == 1 && $REPLY == unsafe && -z $calls ]] || { print -r -- "unsafe $result $REPLY $calls"; exit 4; }
+    [[ $_GIT_REVIEW_DATA == outer && ${(j: :)_GIT_REVIEW_CONFIG} == outer ]] || exit 5
+    print opened
+  ' "$TEST_REPO_ROOT") || return
+  test_assert_equal opened "$output"
+}
+test_case 'Git review opens for a folder through one entry and names why it could not' _test_git_review_open_entry
 
 _test_git_review_merges() {
   test_make_temp_dir || return

@@ -301,7 +301,7 @@ _draft_inspect_widget() {
   (( ${+functions[_directory_browser_session]} )) && _DRAFT_INSPECT_VALUES+=(files)
   (( ${+functions[_history_fuzzy_search_widget]} )) && _DRAFT_INSPECT_VALUES+=(history)
   (( ${+functions[_compozsh_tool_explore]} )) && _DRAFT_INSPECT_VALUES+=(tools)
-  if (( ${+functions[_git_review_menu]} && ${+functions[_zle_ui_collect_choices]} )); then
+  if (( ${+functions[_git_review_open]} && ${+functions[_zle_ui_collect_choices]} )); then
     _DRAFT_INSPECT_VALUES+=(git)
   fi
   if (( ${+functions[_compozsh_compose_open]} )); then
@@ -373,13 +373,27 @@ _draft_inspect_choose() {
   _zle_picker_loop --bookmark "$1" 10
 }
 
+# Review resolves and prepares the current folder itself; the inspector only
+# says, in its own words, why review could not open. REPLY ends here.
+_draft_inspect_review() {
+  emulate -L zsh
+  local REPLY=''
+  _git_review_open "$_DRAFT_INSPECT_SCOPE" 1 && return 0
+  local -i result=$?
+  case $REPLY in
+    (outside) _zle_ui_read_text 'Git / Unavailable' "$_DRAFT_INSPECT_SCOPE" \
+      'This folder is not in a Git working tree. Your draft is unchanged.' ;;
+    (unsafe) _zle_ui_read_text 'Git / Unavailable' "$_DRAFT_INSPECT_SCOPE" \
+      'Unable to establish safe local Git inspection.' ;;
+    (*) return $result ;;
+  esac
+}
+
 _draft_inspect_controller() {
   emulate -L zsh
   local -a bookmark=('' 1 0 '' 0 0 0)
   local -i result=0
-  local selected='' root='' _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
-  local -a _GIT_REVIEW_CONFIG=()
-  local -i _GIT_REVIEW_TRUNCATED=0
+  local selected=''
   while true; do
     _zle_ui_view action _draft_inspect_choose bookmark
     result=$?
@@ -391,18 +405,7 @@ _draft_inspect_controller() {
       read) _zle_ui_read_text 'Draft / Read' 'Literal text · Enter or Escape returns to Inspect' "$_DRAFT_INSPECT_BUFFER" ;;
       tools) _compozsh_tool_explore ;;
       compose) _compozsh_compose_open "$_DRAFT_INSPECT_BUFFER" "$_DRAFT_INSPECT_SCOPE" ;;
-      git)
-        if _git_review_capture "$_DRAFT_INSPECT_SCOPE" rev-parse --show-toplevel &&
-           (( !_GIT_REVIEW_TRUNCATED )); then
-          root=${_GIT_REVIEW_DATA%$'\n'}
-          if [[ -d $root ]] && _git_review_prepare "$root"; then
-            _git_review_menu "$root" '' 1
-          else
-            _zle_ui_read_text 'Git / Unavailable' "$_DRAFT_INSPECT_SCOPE" 'Unable to establish safe local Git inspection.'
-          fi
-        else
-          _zle_ui_read_text 'Git / Unavailable' "$_DRAFT_INSPECT_SCOPE" 'This folder is not in a Git working tree. Your draft is unchanged.'
-        fi ;;
+      git) _draft_inspect_review ;;
     esac
     result=$?
     (( result > 1 )) && return $result
@@ -1315,7 +1318,7 @@ _files_workspace_choose() {
         _directory_browser_choose ;;
       (recents)
         (( ${+functions[_directory_recents_choose]} )) || return 4
-        _directory_recents_choose "$recents_notice" ;;
+        _directory_recents_choose "$mode" "$_directory_browser_clipboard" "$recents_notice" ;;
       (search-*)
         (( ${+functions[_file_search_choose]} )) || return 4
         _directory_browser_absolute "${_DIRECTORY_PICKER_LOCATION:-./}"

@@ -3387,17 +3387,19 @@ _git_review_compare_choose() {
   done
 }
 
+# The shared picker run passes its session no arguments, so the session's
+# root, like its comparison, arrives through a prefixed name.
 _git_review_direct_choose() {
   if (( ${#_git_compare_direct} )); then
-    _git_review_view "$root" comparison '' "$_git_compare_to" "$_git_compare_before"
+    _git_review_view "$_git_review_root" comparison '' "$_git_compare_to" "$_git_compare_before"
   else
-    _git_review_menu "$root" "$_git_compare_branch" 1
+    _git_review_menu "$_git_review_root" "$_git_compare_branch" 1
   fi
 }
 
 _git_review_session() {
   emulate -L zsh
-  local root='' _git_compare_branch='' _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
+  local _git_review_root='' _git_compare_branch='' _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
   local _git_compare_method=${1:-exact} _git_compare_from='' _git_compare_to='' _git_compare_before=''
   local _git_compare_from_label=${2:-} _git_compare_to_label=${3:-} _git_compare_context='' _git_compare_method_label=''
   local -a _GIT_REVIEW_CONFIG=() _git_compare_direct=("$@")
@@ -3419,25 +3421,25 @@ _git_review_session() {
     _git_review_capture "$PWD" rev-parse --show-toplevel || {
       _GIT_REVIEW_ERROR='Run inside a Git working tree.'; return 1
     }
-    root=${_GIT_REVIEW_DATA%$'\n'}
-    (( !_GIT_REVIEW_TRUNCATED )) && [[ -d $root ]] || return 1
-    _git_review_prepare "$root" || { _GIT_REVIEW_ERROR='Unable to establish safe local Git inspection.'; return 1; }
+    _git_review_root=${_GIT_REVIEW_DATA%$'\n'}
+    (( !_GIT_REVIEW_TRUNCATED )) && [[ -d $_git_review_root ]] || return 1
+    _git_review_prepare "$_git_review_root" || { _GIT_REVIEW_ERROR='Unable to establish safe local Git inspection.'; return 1; }
     if (( $# )); then
-      _git_review_resolve "$root" "$2" || return 1
+      _git_review_resolve "$_git_review_root" "$2" || return 1
       _git_compare_from=$REPLY
-      _git_review_resolve "$root" "$3" || return 1
+      _git_review_resolve "$_git_review_root" "$3" || return 1
       _git_compare_to=$REPLY
-      _git_review_compare_base "$root" "$1" "$_git_compare_from" "$_git_compare_to" || return 1
+      _git_review_compare_base "$_git_review_root" "$1" "$_git_compare_from" "$_git_compare_to" || return 1
       _git_compare_before=$REPLY
       _git_review_comparison_context
-    elif _git_review_capture "$root" symbolic-ref --quiet HEAD; then
+    elif _git_review_capture "$_git_review_root" symbolic-ref --quiet HEAD; then
       _git_compare_branch=${_GIT_REVIEW_DATA%$'\n'}
       if (( _GIT_REVIEW_TRUNCATED )) || [[ $_git_compare_branch != refs/heads/* ]]; then
         _git_compare_branch=''
       else
         _git_compare_branch=${_git_compare_branch#refs/heads/}
       fi
-      _git_review_resolve "$root" HEAD || _git_compare_branch=''
+      _git_review_resolve "$_git_review_root" HEAD || _git_compare_branch=''
     fi
     _GIT_REVIEW_ERROR=''
     _zle_picker_run 10 '' 1 0 _git_review_direct_choose
@@ -3497,7 +3499,7 @@ _git_review_menu() {
     (( result == 0 )) || return $result
     choice=$_ZLE_PICKER_SELECTED_VALUE bookmark=("${_ZLE_PICKER_BOOKMARK[@]}") focus=$_ZLE_PICKER_BOOKMARK_FOCUS
     if ! _git_review_prepare "$root"; then
-      _git_review_unavailable; result=$?
+      _git_review_unavailable "$root"; result=$?
     elif [[ $choice == compare ]]; then
       _git_review_compare_choose "$root" "$selected"; result=$?
     elif [[ $choice == atlas ]]; then
@@ -3507,7 +3509,7 @@ _git_review_menu() {
         oid=$REPLY
         _git_review_view "$root" commits "$selected" "$oid"; result=$?
       else
-        _git_review_unavailable; result=$?
+        _git_review_unavailable "$root"; result=$?
       fi
     else
       _git_review_view "$root" working; result=$?
@@ -3519,14 +3521,43 @@ _git_review_menu() {
   done
 }
 
-# Called inside g's existing screen owner. Branch accept/copy returns unchanged
-# to navigation for post-cleanup dispatch; review never performs either action.
+# The one entry another peer uses to open review for a folder, such as the
+# Draft inspector's current folder: resolve its working tree, establish safe
+# local inspection, then open the review menu (stay 1 keeps it open after a
+# view returns). The capture and its configuration end with this call. When
+# review cannot open, before any view, it returns 1 with the caller's REPLY
+# set to outside (no Git working tree) or unsafe (no safe inspection);
+# otherwise it returns the menu's status with REPLY empty.
+# Usage: _git_review_open <folder> [stay]
+_git_review_open() {
+  emulate -L zsh
+  local folder=$1 root='' _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
+  local -a _GIT_REVIEW_CONFIG=()
+  local -i stay=${2:-0} result=0 _GIT_REVIEW_TRUNCATED=0
+  REPLY=outside
+  _git_review_capture "$folder" rev-parse --show-toplevel && (( !_GIT_REVIEW_TRUNCATED )) || return 1
+  root=${_GIT_REVIEW_DATA%$'\n'}
+  REPLY=unsafe
+  [[ -d $root ]] && _git_review_prepare "$root" || return 1
+  _git_review_menu "$root" '' "$stay"
+  result=$?
+  # Resolution inside the views sets REPLY to object IDs.
+  REPLY=''
+  return $result
+}
+
+# Called inside g's existing screen owner, with the repository root, the
+# clipboard capability and the Branches bookmark and focus. Branch accept/copy
+# returns unchanged to navigation for post-cleanup dispatch; review never
+# performs either action.
+# Usage: _git_review_branch_choose <root> <clipboard> <bookmark fields 1-6> <focus>
 _git_review_branch_choose() {
   emulate -L zsh
   setopt EXTENDED_GLOB
-  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=1 focus=${7:-0} result=0
+  local root=$1 clipboard=$2
+  local -i _ZLE_PICKER_WORKSPACE_ACTIONS=1 focus=${9:-0} result=0
   local _ZLE_PICKER_OPTIONS_KIND=git _ZLE_PICKER_OPTIONS_LABEL=review selected=''
-  local -a bookmark=("${1:-}" "${2:-1}" "${3:-0}" "${4:-}" "${5:-0}" "${6:-0}") _GIT_REVIEW_CONFIG=()
+  local -a bookmark=("${3:-}" "${4:-1}" "${5:-0}" "${6:-}" "${7:-0}" "${8:-0}") _GIT_REVIEW_CONFIG=()
   local collector=${_ZLE_PICKER_COLLECTOR:-_zle_ui_collect_choices}
   local -a _ZLE_PICKER_EMPTY_LINES=()
   local _GIT_REVIEW_DATA='' _GIT_REVIEW_ERROR=''
@@ -3539,7 +3570,7 @@ _git_review_branch_choose() {
   while true; do
     _ZLE_PICKER_COLLECTOR=$collector
     _ZLE_PICKER_DIGIT_SELECT=1
-    _ZLE_PICKER_COPY_ENABLED=$(( ${#clipboard_binary} > 0 ))
+    _ZLE_PICKER_COPY_ENABLED=$(( ${#clipboard} > 0 ))
     view_bookmark=("${bookmark[1]-}" "${bookmark[2]-}" "${bookmark[3]-}" \
       "${bookmark[4]-}" "${bookmark[5]:-0}" "${bookmark[6]:-0}" "$focus")
     _zle_picker_loop --bookmark view_bookmark "${ZSH_NAVIGATION_PICKER_MAX_RESULTS:-10}"
@@ -3554,12 +3585,14 @@ _git_review_branch_choose() {
   done
 }
 
+# Usage: _git_review_unavailable <root>
 _git_review_unavailable() {
-  _zle_ui_view notice _git_review_unavailable_view
+  _zle_ui_view notice _git_review_unavailable_view "$@"
 }
 
 _git_review_unavailable_view() {
   emulate -L zsh
+  local root=$1
   _ZLE_PICKER_TITLE='Git review' _ZLE_PICKER_BROWSE_LABEL='unavailable'
   _ZLE_PICKER_SUBTITLE="${root:t} · read-only" _ZLE_PICKER_QUERY_LABEL='Filter notice'
   _ZLE_PICKER_COLLECTOR=_zle_ui_collect_choices

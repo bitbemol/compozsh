@@ -104,7 +104,6 @@ _test_files_recents_bookmark() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/.zshrc"
     local -a _FILES_RECENTS_BOOKMARK=("" 1 0 "" 0 0 0)
-    local _directory_browser_clipboard="" mode=insert
     local -i visits=0
     _zle_picker_loop() {
       (( ++visits ))
@@ -117,8 +116,8 @@ _test_files_recents_bookmark() {
       _ZLE_PICKER_ACTION=browse
       _ZLE_PICKER_SELECTED_VALUE=$HOME
     }
-    _directory_recents_choose || exit
-    _directory_recents_choose || exit
+    _directory_recents_choose insert "" || exit
+    _directory_recents_choose insert "" || exit
     [[ $_FILES_RECENTS_BOOKMARK[1] == previous ]] || exit 23
     print restored
   ' "$TEST_REPO_ROOT") || return
