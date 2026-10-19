@@ -325,7 +325,8 @@ _test_xcode_product_choice_native() {
           _until "DONE:0:$HOME/Second.app:com.example.second" || exit 7
         elif [[ $scenario == cancel ]]; then
           zpty -w -n product $'\''\e'\''
-          _until "DONE:130::" || exit 8
+          # Escape is a cancel (1), not the Ctrl-C abort (130).
+          _until "DONE:1::" || exit 8
         else
           command rmdir "$HOME/Second.app"
           command ln -s "$HOME/First.app" "$HOME/Second.app"
@@ -339,6 +340,8 @@ _test_xcode_product_choice_native() {
     done
     # Each scenario opens and leaves one product choice screen.
     test_pty_screen_sessions "$trace" 3 || exit 10
+    # The cancel, not the replacement refusal (also 1), names this error.
+    [[ $trace == *"product result: 1 Run cancelled; no product was launched"* ]] || exit 13
     [[ $trace != *"command not found"* && $trace != *"bad math"* &&
        $trace != *"read-only variable"* && $trace != *"error in flags"* ]] || exit 10
     print product-choice

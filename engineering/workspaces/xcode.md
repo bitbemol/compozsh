@@ -124,8 +124,10 @@ same-source help companion; any other arguments delegate directly to
   released on return; beyond it, Run fails with guidance that names the bound
   and `ZSH_XCODE_CAPTURE_MAX_BYTES`. Several
   runnable products require an explicit shared Run product choice after
-  building; without interactive UI, ambiguity fails. Revalidate the chosen
-  leaf. Never infer products by recursive filesystem search.
+  building; Escape there launches nothing and returns 1, the shared cancel
+  status ([task semantics](../full-screen.md#task-semantics)), and without
+  interactive UI, ambiguity fails. Revalidate the chosen leaf. Never infer
+  products by recursive filesystem search.
 - **Mac:** open a new instance of the exact built app with native `open`, or
   run a built command-line product in the restored terminal, honoring the
   captured architecture. An app launch status is not its exit status.

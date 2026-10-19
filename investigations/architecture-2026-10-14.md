@@ -449,6 +449,10 @@ the orchestrator re-verified and committed after a full suite.
   old mirror entry, its `.zwc` wordcode and its manifest record, even when no
   other peer changed. Before, they stayed in `~/.zsh.addons/support/compiled`
   until the next installation (F01, SEC-A-01).
+- Pressing Escape in Xcode's **Run product** choice (Build & Run with several
+  runnable products) now makes `xcode` exit with status 1, the cancel status
+  of every other workspace, instead of 130, which is reserved for Ctrl-C.
+  Nothing is launched either way, and Ctrl-C still exits 130 (F07, CON-C-02).
 
 ## Performance results
 

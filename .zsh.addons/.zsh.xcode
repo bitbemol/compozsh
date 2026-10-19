@@ -1245,9 +1245,9 @@ _xcode_build_settings_capture() {
     done
     _zle_picker_run 10 '' 1 0 _xcode_run_product_controller
     result=$?
+    # The shared run's status passes through: 1 cancel, 130 Ctrl-C, 2 editor.
     (( result == 0 )) || {
       _XCODE_CAPTURE_ERROR='Run cancelled; no product was launched'
-      (( result == 1 )) && return 130
       return $result
     }
     [[ $_ZLE_PICKER_SELECTED_VALUE == <1-100> ]] || return 2
