@@ -128,8 +128,10 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   directory) only under its disclosed freshness, ownership, version and
   parse-context checks, so compiled code never differs from the peer's current
   text; private peers are never compiled, and discovery never sources `.zwc`
-  files. `support/compile.zsh` is Compozsh's only writer of the mirror, in a
-  separate `zsh -f` that parses and never runs peers: for the installer, at
+  files. `support/compile.zsh` is Compozsh's only writer of the mirror, in
+  Apple's `/bin/zsh -f` (by absolute path from `/`, never a `PATH` lookup; a
+  shell of a version `/bin/zsh` cannot match starts none and loads text)
+  that parses and never runs peers: for the installer, at
   startup for the discovered shipped peers lacking a fresh record, and after
   `compinit` for the completion dump, only into a missing or user-owned,
   marked, owner-only mirror, under a lock, through atomic renames and within a

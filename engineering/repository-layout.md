@@ -9,6 +9,9 @@ layout when `ZDOTDIR` is unset.
 - **`.zshrc` is only the bootstrap**: interactive guard, optional initializer,
   recursive peer discovery, the compiled-mirror check (with its startup
   recompile of changed shipped peers) and diagnostics. Features go in peers.
+  The owner accepted that fork-free mirror check, which grew `.zshrc`, as
+  part of the minimal bootstrap (decision 2026-10-18): moving it into a
+  sourced file would come close to an extra initialization phase.
 - **One ordered boundary.** The optional `local/init.zsh` loads first; every
   `.zsh.<name>` peer after it loads in any order with the same result.
 - **Enabled by filename.** A peer is on when its basename starts with
@@ -74,7 +77,8 @@ compozsh/
   compiled mirror of the shipped peers (every regular `.zsh.<name>` file in
   the shared add-on directory, tracked or not; never private peers) and of
   Zsh's completion dump, never discovered as peers. Of Compozsh's code only
-  `.zsh.addons/support/compile.zsh`, run in a separate `zsh -f`, writes it:
+  `.zsh.addons/support/compile.zsh`, run in Apple's `/bin/zsh -f` from `/`
+  (never a `zsh` found on `PATH`), writes it:
   every installation rebuilds it in both layouts, interactive startup
   recompiles just the shipped peers without a fresh record (creating a missing
   mirror) and drops the entry, wordcode and record of a removed or renamed
@@ -178,8 +182,10 @@ shell's parse context (options and aliases) when peers start loading and
 across every text-loaded peer. Otherwise the peer's text loads, so compiled
 loading reaches the same state. Before any peer loads, shipped peers with no
 record matching their current metadata are compiled by
-`support/compile.zsh` in a separate `zsh -f` (only parsing them, never
-running them) when the mirror is absent or the user's own and the parse
+`support/compile.zsh` in Apple's `/bin/zsh -f`, run from `/` and never found
+on `PATH` (only parsing them, never running them; no child starts when
+`/bin/zsh` is missing or its `zsh` note in the mirror records another Zsh
+version than the running one, so that shell loads text) when the mirror is absent or the user's own and the parse
 context matches the manifest's (a record whose peer no longer exists starts
 that compile too, which deletes every entry the new manifest does not name);
 the manifest is then read again, so a changed peer runs compiled in the first

@@ -71,13 +71,15 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   editable prompt), within the startup budget; without a configuration-base
   `.zsh.addons` directory nothing is compiled and every peer parses as text.
   A shipped peer that is new or changed is recompiled once
-  by the next shell, which forks one `zsh -f` for just those peers and stops
+  by the next shell, which forks one `/bin/zsh -f` for just those peers and stops
   starting new ones after about 300 ms; a fresh mirror adds no fork, so warm
   startup keeps the cost above. `compinit` likewise reads its dump from the
   mirror's compiled copy while that copy's record is fresh (a few `zstat`
   calls, one small manifest read and a parse-context description before
-  `compinit`); a new or changed dump costs one `zsh -f` fork after `compinit`
-  in the first shell that can compile it.
+  `compinit`); a new or changed dump costs one `/bin/zsh -f` fork after `compinit`
+  in the first shell that can compile it. A shell whose Zsh version differs
+  from `/bin/zsh`'s forks no compile once the mirror's `zsh` note records
+  that `/bin/zsh`; it loads text.
 - Bound user-controlled display work and result counts, and keep the
   existing fuzzy-history maximum and width/height-aware rendering.
 

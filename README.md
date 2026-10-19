@@ -211,7 +211,10 @@ peer's compiled code only while that peer file is unchanged since compilation,
 the Zsh version matches, and nothing that ran first (a startup file such as
 `/etc/zshenv`, your initializer or an earlier private peer) has added aliases
 or changed parse options. Otherwise it loads the peer's text exactly as
-before, so the mirror changes speed, never behavior. When a shipped peer is
+before, so the mirror changes speed, never behavior. Compiling always uses
+Apple's `/bin/zsh`, never a `zsh` found on your `PATH`, so a shell running
+another Zsh version (Homebrew's, for example) loads text and stops trying to
+compile until `/bin/zsh` itself changes. When a shipped peer is
 new or has changed (after `git pull`, an edit or a Zsh update), the next shell
 recompiles just the changed peers into the mirror and uses them at once; it
 creates a missing mirror the same way, and drops the compiled copy of a

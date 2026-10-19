@@ -1,10 +1,16 @@
 # Compile shipped peers, and Zsh's completion dump, into Compozsh's private
 # compiled mirror. Not a peer: its name does not match .zsh.<name>, so
 # discovery never sources it. The installer, the bootstrap and .zsh.editor run
-# it in a separate zsh -f:
+# it with Apple's /bin/zsh by that absolute path, never a zsh found on PATH,
+# with / as the working directory:
 #
-#   zsh -f compile.zsh <install|startup> <mirror> <base> <zsh-version|''> <relative>...
-#   zsh -f compile.zsh dump <mirror> <dump> <zsh-version> [settle]
+#   /bin/zsh -f compile.zsh <install|startup> <mirror> <base> <zsh-version|''> <relative>...
+#   /bin/zsh -f compile.zsh dump <mirror> <dump> <zsh-version> [settle]
+#
+# A <zsh-version> other than this Zsh's is refused (exit 3): nothing is
+# compiled, and the checked mirror's zsh note records this /bin/zsh's version
+# and device, inode, size, mtime and ctime, so the callers start no further
+# compile child until /bin/zsh changes.
 #
 # Each <base>/<relative> peer gets <mirror>/.zsh.addons/<relative>, a symlink to
 # the peer, and that symlink's .zwc; .zshrc's comment describes how the
@@ -49,8 +55,7 @@ builtin alias run-help=man which-command=whence 2> /dev/null
 (( ${#aliases} == 2 && ! ${#galiases} && ! ${#saliases} )) &&
   [[ ${aliases[run-help]-} == man && ${aliases[which-command]-} == whence ]] || exit 1
 umask 077
-[[ $# -ge 4 && $1 == (install|startup|dump) && $2 == /* && $3 == /* &&
-   ( -z $4 || $4 == "$ZSH_VERSION" ) ]] || exit 2
+[[ $# -ge 4 && $1 == (install|startup|dump) && $2 == /* && $3 == /* ]] || exit 2
 [[ $1 != dump || ( $3 == */.zcompdump && /$3/ != */../* && $3 != *[[:cntrl:]]* &&
    -n $4 && ( $# == 4 || ( $# == 5 && $5 == settle ) ) ) ]] || exit 2
 unset EPOCHSECONDS EPOCHREALTIME
@@ -63,12 +68,13 @@ typeset mode=$1 mirror=$2 base=$3 relative='' temp='' line=''
 typeset table='' name='' recorded_options='' recorded_aliases='' identity=''
 typeset lock=$2/.lock
 typeset -F deadline=0
-typeset -i limit=524288 locked=0
+typeset -i limit=524288 locked=0 refused=0
 typeset -a parse=(aliases posixaliases ignorebraces ignoreclosebraces
   rcquotes cshjunkiequotes cshjunkieloops kshglob shglob shortloops
   shortrepeat multifuncdef posixidentifiers posixstrings multibyte)
 typeset -a header=() records=() lines=() fields=() link=() residue=()
 typeset -A before=() after=() facts=() kept=() handled=() map=() named=()
+[[ -z $4 || $4 == "$ZSH_VERSION" ]] || refused=1
 shift 4
 
 # The same description as _zsh_addon_parse_context in .zshrc.
@@ -197,13 +203,22 @@ locked=1
 {
   # Temporary files left by an interrupted run are never used; drop them, and
   # compinit's own zcompdump.<host>.<pid> staging once it is a minute old.
-  lines=("$mirror"/manifest.compozsh-tmp-*(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-*.zwc(ND)
+  lines=("$mirror"/(manifest|zsh).compozsh-tmp-*(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-*.zwc(ND)
     "$mirror"/zcompdump*.compozsh-tmp-*(N))
   residue=("$mirror"/zcompdump.*(N.mm+0))
   lines+=("${(@)${(@)residue:#*/zcompdump.(zwc|manifest)}:#*.compozsh-tmp-*}")
   (( ! $#lines )) || zf_rm -f -- "${lines[@]}"
 
-  if [[ $mode == dump ]]; then
+  # Another shell's version: record which Zsh this /bin/zsh is instead.
+  if (( refused )); then
+    if zstat -H facts -- /bin/zsh 2> /dev/null; then
+      identity="$facts[device]"$'\t'"$facts[inode]"$'\t'"$facts[size]"
+      identity+=$'\t'"$facts[mtime]"$'\t'"$facts[ctime]"
+      temp=$mirror/zsh.compozsh-tmp-$$
+      print -rl -- "compozsh-zsh 1" "zsh $ZSH_VERSION" "$identity" > "$temp" &&
+        zf_mv -f -- "$temp" "$mirror/zsh"
+    fi
+  elif [[ $mode == dump ]]; then
     if _compile_file "$base" "$mirror/zcompdump" && (( $#records )); then
       temp=$mirror/zcompdump.manifest.compozsh-tmp-$$
       print -rl -- "${header[@]}" "${records[@]}" > "$temp" &&
@@ -225,7 +240,7 @@ locked=1
     fi
   fi
 
-  if [[ $mode != dump ]]; then
+  if (( ! refused )) && [[ $mode != dump ]]; then
     for relative in "$@"; do
       _compile_relative "$relative" || continue
       [[ $mode == install ]] || (( EPOCHREALTIME < deadline )) || break
@@ -242,8 +257,9 @@ locked=1
   fi
 } always {
   trap '' INT HUP TERM
-  lines=("$mirror"/manifest.compozsh-tmp-$$(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-$$.zwc(ND)
+  lines=("$mirror"/(manifest|zsh).compozsh-tmp-$$(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-$$.zwc(ND)
     "$mirror"/zcompdump*.compozsh-tmp-$$(N) "$mirror"/zcompdump.compozsh-tmp-$$.zwc(N))
   (( ! $#lines )) || zf_rm -f -- "${lines[@]}"
   (( locked )) && zf_rmdir -- "$lock" 2> /dev/null
 }
+(( ! refused )) || exit 3

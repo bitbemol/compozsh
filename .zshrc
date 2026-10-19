@@ -58,10 +58,14 @@ fi
 # the state it reaches. When a shipped peer has no valid record (new, edited,
 # or the mirror is missing), or a record names a peer that no longer exists
 # (removed or renamed), and the context allows compiled code, the shipped
-# support/compile.zsh runs once in a separate zsh -f to compile just those
-# peers (time-boxed, under a lock, written atomically) and drop every entry
-# the new manifest does not name, and the manifest is read again; it never
-# runs a peer, and any failure leaves those peers on text.
+# support/compile.zsh runs once in Apple's /bin/zsh -f, started from / and
+# never a zsh found on PATH, to compile just those peers (time-boxed, under a
+# lock, written atomically) and drop every entry the new manifest does not
+# name, and the manifest is read again; it never runs a peer, and any failure
+# leaves those peers on text. No child starts when /bin/zsh is missing, or
+# when the mirror's zsh note, which compile.zsh writes when it refuses a
+# shell of another version, records this exact /bin/zsh (device, inode, size,
+# mtime and ctime) as another Zsh version: that shell always loads text.
 typeset -aU _zsh_addon_dirs=(
   "${_zsh_shared_addons_dir:A}"
   "${_zsh_user_addons_dir:A}"
@@ -176,13 +180,24 @@ if (( ${#_zsh_addon_stale} )) && [[ $_zsh_addon_mirror == ok ]]; then
   if [[ $_zsh_addon_context == "$_zsh_addon_expected" ]]; then
     () {
       emulate -LR zsh
-      local script=$_zsh_addon_shipped/support/compile.zsh zsh_bin=${commands[zsh]-}
-      [[ $zsh_bin == /* ]] || zsh_bin=/bin/zsh
-      [[ -f $script && ! -L $script ]] || return 0
-      "$zsh_bin" -f -- "$script" startup "$1" "$_zsh_addon_base" "$ZSH_VERSION" \
-        "${(@)_zsh_addon_stale#"$_zsh_addon_base"/}" < /dev/null > /dev/null 2>&1
-    } "${_zsh_user_addons_dir:A}/support/compiled"
-    _zsh_addon_read_mirror "${_zsh_user_addons_dir:A}/support/compiled"
+      local script=$_zsh_addon_shipped/support/compile.zsh identity=''
+      local -a lines=()
+      local -A facts=()
+      [[ -f $script && ! -L $script && -f /bin/zsh && -x /bin/zsh ]] &&
+        zstat -H facts -- /bin/zsh 2>/dev/null || return 1
+      identity="$facts[device]"$'\t'"$facts[inode]"$'\t'"$facts[size]"
+      identity+=$'\t'"$facts[mtime]"$'\t'"$facts[ctime]"
+      zstat -L -H facts -- "$1/zsh" 2>/dev/null &&
+        (( facts[uid] == EUID && (facts[mode] & 8#170022) == 8#100000 )) &&
+        lines=("${(@f)$(<"$1/zsh")}")
+      [[ ${lines[1]-} == 'compozsh-zsh 1' && ${lines[3]-} == "$identity" &&
+         ${lines[2]-} != "zsh $ZSH_VERSION" ]] && return 1
+      ( builtin cd -q -- / &&
+          exec /bin/zsh -f -- "$script" startup "$1" "$_zsh_addon_base" "$ZSH_VERSION" \
+            "${(@)_zsh_addon_stale#"$_zsh_addon_base"/}" ) < /dev/null > /dev/null 2>&1
+      return 0
+    } "${_zsh_user_addons_dir:A}/support/compiled" &&
+      _zsh_addon_read_mirror "${_zsh_user_addons_dir:A}/support/compiled"
   fi
 fi
 if (( ${#_zsh_addon_compiled} )); then

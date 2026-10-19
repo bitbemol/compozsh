@@ -64,16 +64,30 @@ _zle_compdump_state() {
   fi
 }
 
-# Run the shipped support/compile.zsh in a separate zsh -f to compile <dump>
-# into <mirror>, passing settle when compinit rewrote its dump at the mirror
-# entry. It never runs the dump; any failure leaves the plain dump in use.
+# Run the shipped support/compile.zsh in Apple's /bin/zsh -f, started from /
+# and never a zsh found on PATH, to compile <dump> into <mirror>, passing
+# settle when compinit rewrote its dump at the mirror entry. It never runs the
+# dump; any failure leaves the plain dump in use. No child starts when
+# /bin/zsh is missing or <mirror>'s zsh note records this exact /bin/zsh as
+# another Zsh version, the same check as .zshrc's.
 # Usage: _zle_compdump_compile <script> <dump> <mirror> [settle]
 _zle_compdump_compile() {
   emulate -L zsh
-  local script=$1 zsh_bin=${commands[zsh]-}
-  [[ $zsh_bin == /* ]] || zsh_bin=/bin/zsh
-  [[ -f $script && ! -L $script ]] || return 0
-  "$zsh_bin" -f -- "$script" dump "$3" "${2:A}" "$ZSH_VERSION" "${@[4,-1]}" \
+  local script=$1 identity=''
+  local -a lines=()
+  local -A facts=()
+  [[ -f $script && ! -L $script && -f /bin/zsh && -x /bin/zsh ]] &&
+    zmodload -F zsh/stat b:zstat 2>/dev/null &&
+    zstat -H facts -- /bin/zsh 2>/dev/null || return 0
+  identity="$facts[device]"$'\t'"$facts[inode]"$'\t'"$facts[size]"
+  identity+=$'\t'"$facts[mtime]"$'\t'"$facts[ctime]"
+  zstat -L -H facts -- "$3/zsh" 2>/dev/null &&
+    (( facts[uid] == EUID && (facts[mode] & 8#170022) == 8#100000 )) &&
+    lines=("${(@f)$(<"$3/zsh")}")
+  [[ ${lines[1]-} == 'compozsh-zsh 1' && ${lines[3]-} == "$identity" &&
+     ${lines[2]-} != "zsh $ZSH_VERSION" ]] && return 0
+  ( builtin cd -q -- / &&
+      exec /bin/zsh -f -- "$script" dump "$3" "${2:A}" "$ZSH_VERSION" "${@[4,-1]}" ) \
     < /dev/null > /dev/null 2>&1
   return 0
 }

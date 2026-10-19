@@ -160,12 +160,14 @@ _installer_peers() {
 # Build the compiled mirror of shipped peers in <mirror>, which must not exist,
 # with the same .zsh.addons/support/compile.zsh that startup uses to recompile
 # changed peers; that file describes the mirror. Install mode compiles every
-# listed peer, waiting for the clock to pass a just-edited peer's ctime.
+# listed peer, waiting for the clock to pass a just-edited peer's ctime. Like
+# startup, it runs Apple's /bin/zsh from /, never a zsh found on PATH.
 # Usage: _installer_compile <mirror> <base> <relative>...
 _installer_compile() {
   emulate -L zsh
-  "$commands[zsh]" -f -- "$_INSTALLER_REPOSITORY/.zsh.addons/support/compile.zsh" \
-    install "$1" "$2" '' "${@[3,-1]}" < /dev/null
+  ( builtin cd -q -- / &&
+      exec /bin/zsh -f -- "$_INSTALLER_REPOSITORY/.zsh.addons/support/compile.zsh" \
+        install "$1" "$2" '' "${@[3,-1]}" ) < /dev/null
 }
 
 _installer_main() {
@@ -236,7 +238,7 @@ _installer_main() {
   }
   for source_file in "$source_zshrc" "$source_initializer" \
                      "${source_peers[@]}"; do
-    "$commands[zsh]" -n "$source_file" || {
+    /bin/zsh -n -- "$source_file" || {
         print -u2 -r -- \
           "installer: repository Zsh file does not parse: $source_file"
         return 1

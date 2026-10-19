@@ -975,6 +975,110 @@ _test_compiled_peers_create_missing_mirror() {
 test_case 'compiled peers: a missing mirror is created private and marked, filled and used without the installer' \
   _test_compiled_peers_create_missing_mirror
 
+# Startup, the dump compile and the installer run Apple's /bin/zsh by its
+# absolute path, never a zsh found on PATH, which may be a version-manager
+# shim or a project's own binary: a PATH zsh that records any run stays unrun
+# while the installer compiles, the first shell after an edit recompiles the
+# peer with /bin/zsh, and a later shell compiles the completion dump.
+_test_compiled_peers_never_run_path_zsh() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" fake="$TEST_TMP_DIR/project/bin" output=''
+  local repository="$TEST_TMP_DIR/home-repository" marker="$TEST_TMP_DIR/path-zsh-ran"
+  local compiled="$TEST_TMP_DIR/home/.zsh.addons/support/compiled"
+  local script='PATH=$1:$PATH; builtin cd -q -- "${1:h}" || exit 1'$'\n'$_test_compiled_probe_script
+  local -i run=0
+  test_write_file "$fake/zsh" "#!/bin/sh
+echo ran >> ${(qq)marker}
+exit 1" && command chmod 0755 "$fake/zsh" || return
+  command mkdir -p -- "$repository" &&
+    command cp "$TEST_REPO_ROOT/.zshrc" "$TEST_REPO_ROOT/install.zsh" "$repository" &&
+    command cp -R "$TEST_REPO_ROOT/templates" "$TEST_REPO_ROOT/.zsh.addons" "$repository" || return
+  test_write_file "$repository/.zsh.addons/.zsh.zz-probe" 'probe() { print -r -- old; }' || return
+  test_run_noninteractive "$home" 'PATH=$3:$PATH; source "$1/install.zsh" "--$2" --yes' \
+    "$repository" symlink "$fake" > /dev/null 2> "$TEST_TMP_DIR/install.err" ||
+    test_fail "installation with a PATH zsh failed: $(<"$TEST_TMP_DIR/install.err")" || return
+  [[ ! -e $marker ]] || test_fail 'the installer ran the zsh found on PATH' || return
+  output=$(test_run_interactive "$home" "$script" "$fake") || return
+  test_assert_equal 'compiled|old' "$output" 'the installer did not compile with /bin/zsh' || return
+
+  print -r -- 'probe() { print -r -- new; }' >| "$repository/.zsh.addons/.zsh.zz-probe" || return
+  _test_compiled_tick || return
+  output=$(test_run_interactive "$home" "$script" "$fake" 2> "$TEST_TMP_DIR/errors") || return
+  [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$(<"$TEST_TMP_DIR/errors")" || return
+  test_assert_equal 'compiled|new' "$output" 'startup did not recompile with /bin/zsh' || return
+  for (( run = 1; run <= 3; run++ )); do
+    [[ -f $compiled/zcompdump.zwc ]] && break
+    _test_compiled_tick || return
+    test_run_interactive "$home" "$script" "$fake" > /dev/null || return
+  done
+  [[ -f $compiled/zcompdump.zwc && -f $compiled/zcompdump.manifest ]] ||
+    test_fail 'the completion dump was not compiled with /bin/zsh' || return
+  [[ ! -e $marker ]] || test_fail 'startup or the dump compile ran the zsh found on PATH' || return
+  test_assert_equal "zsh $(/bin/zsh -fc 'print -r -- $ZSH_VERSION')" \
+    "${${(f)"$(<"$compiled/manifest")"}[2]}" 'the manifest names another Zsh' || return
+}
+test_case 'compiled peers: startup, the dump compile and the installer never run a PATH zsh, only /bin/zsh' \
+  _test_compiled_peers_never_run_path_zsh
+
+# compile.zsh refuses to compile for a shell of another Zsh version; instead
+# it records in the mirror's zsh note which version this exact /bin/zsh is.
+# While the note matches /bin/zsh's device, inode, size, mtime and ctime and
+# names another version, startup and the dump compile start no compile child:
+# the shell loads text and nothing is written. A note for another /bin/zsh,
+# as after an OS update, is ignored and the next shells compile again.
+_test_compiled_peers_skip_mismatched_bin_zsh() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" compiled='' identity='' version='' output=''
+  local text_source="${TEST_REPO_ROOT:A}/.zsh.addons/.zsh.tools"
+  local compile="${TEST_REPO_ROOT:A}/.zsh.addons/support/compile.zsh"
+  local script='source "$HOME/.zshrc" || exit 1; print -r -- "${functions_source[mkcd]}"'
+  local -A facts=()
+  local -i run=0
+  compiled="$home/.zsh.addons/support/compiled"
+  _test_compiled_install "$TEST_REPO_ROOT" "$home" symlink || return
+  # The first shell writes the dump; once the clock passed it, the second
+  # compiles it.
+  test_run_interactive "$home" "$script" > /dev/null && _test_compiled_tick &&
+    test_run_interactive "$home" "$script" > /dev/null || return
+  [[ -f $compiled/zcompdump.manifest ]] || test_fail 'the dump was not compiled' || return
+  zmodload -F zsh/stat b:zstat || return
+  zstat -H facts -- /bin/zsh || return
+  identity="$facts[device]"$'\t'"$facts[inode]"$'\t'"$facts[size]"$'\t'"$facts[mtime]"
+  identity+=$'\t'"$facts[ctime]"
+  version=$(/bin/zsh -fc 'print -r -- $ZSH_VERSION') || return
+
+  command rm -f -- "$compiled/manifest" "$compiled/zcompdump.manifest" || return
+  if /bin/zsh -f -- "$compile" startup "${compiled:A}" "${TEST_REPO_ROOT:A}/.zsh.addons" \
+      0.0-other .zsh.tools < /dev/null > /dev/null 2>&1; then
+    test_fail 'compile.zsh compiled for another Zsh version'
+    return 1
+  fi
+  [[ ! -e $compiled/manifest ]] || test_fail 'a refused compile wrote a manifest' || return
+  test_assert_equal "compozsh-zsh 1"$'\n'"zsh $version"$'\n'"$identity" \
+    "$(<"$compiled/zsh")" 'a refused compile did not record /bin/zsh' || return
+  test_assert_equal 600 "$(command stat -f %Lp -- "$compiled/zsh")" \
+    'the zsh note is reachable by other accounts' || return
+
+  print -rl -- 'compozsh-zsh 1' 'zsh 0.0-other' "$identity" >| "$compiled/zsh" || return
+  output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors") || return
+  [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$(<"$TEST_TMP_DIR/errors")" || return
+  test_assert_equal "$text_source" "$output" 'a peer loaded compiled code' || return
+  [[ ! -e $compiled/manifest && ! -e $compiled/zcompdump.manifest ]] ||
+    test_fail 'a compile child ran although /bin/zsh is another Zsh version' || return
+
+  print -rl -- 'compozsh-zsh 1' 'zsh 0.0-other' $'0\t0\t0\t0\t0' >| "$compiled/zsh" || return
+  for (( run = 1; run <= 4; run++ )); do
+    output=$(test_run_interactive "$home" "$script") || return
+    [[ $output == "$text_source" ]] || break
+  done
+  test_assert_equal "${compiled:A}/.zsh.addons/.zsh.tools" "$output" \
+    'a note for another /bin/zsh stopped compiling' || return
+  [[ -f $compiled/zcompdump.manifest ]] ||
+    test_fail 'a note for another /bin/zsh stopped the dump compile' || return
+}
+test_case 'compiled peers: a /bin/zsh recorded as another Zsh version means text with no compile child' \
+  _test_compiled_peers_skip_mismatched_bin_zsh
+
 # Two shells starting together after every shipped peer changed both load the
 # new code; at most one compiles at a time (the other loads text), and the
 # mirror ends consistent: no lock or temporary file is left, and later shells
