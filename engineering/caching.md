@@ -9,7 +9,9 @@ system data.
   the cache missing, stale, corrupt or unwritable.
 - **Public data only.** Never persist user or project information or
   fingerprints of it; each producer documents the public provenance of every
-  field.
+  field. The rule covers every file Compozsh generates for itself, not only
+  caches: the compiled mirror, its manifests and any future generated artifact
+  ([security](security.md#persistent-storage)).
 - **No new machinery.** No cache manager, daemon, polling, registry, load
   phase or per-project cache; no cache I/O at source time or while typing or
   resizing. The manual producer's bounded asynchronous capture is the only
@@ -47,7 +49,9 @@ system data.
   the available-tool catalog. Do not persist negative lookups indefinitely.
 - Match a schema version and the relevant public source/implementation identity.
   Each producer documents what changes invalidate its results and what requires
-  explicit refresh. There is no universal TTL that proves freshness.
+  explicit refresh. There is no universal TTL that proves freshness, and a
+  timestamp alone never does; generated artifacts need their source's full file
+  identity ([security](security.md#persistent-storage)).
 - On a miss or invalidation, compute at a bounded capture boundary and publish
   eligible successful results. Unknown input during editing is an immediate
   fallback, never a synchronous scan, formatter, executable probe or disk write.

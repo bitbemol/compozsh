@@ -78,6 +78,24 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
 - Public system data may use an optional persistent cache under the
   [caching contract](caching.md), with explicit provenance and no private
   inputs or fingerprints of them.
+- The rule against persisting user or project information covers every file
+  Compozsh generates for itself, not only caches: the compiled mirror
+  (`support/compiled`) with its `manifest` and `zcompdump.manifest`, its lock
+  and staging files, and any future generated artifact. Such a file holds only
+  its source in another form (a shipped peer's wordcode, the compiled copy of
+  Zsh's completion dump) plus metadata limited to public data (such as the Zsh
+  version and Zsh's default parse context) and file identity (path, device,
+  inode, size, mtime and ctime). User-defined aliases, environment values,
+  history and other user-controlled values are never written; the
+  [owner dropped](../investigations/architecture-2026-10-14.md#owner-decisions)
+  P6-02 (compiling private peers) because its manifest recorded alias names
+  and values.
+- A generated artifact is fresh only while its source's full file identity
+  (device, inode, size, mtime and ctime) and, where the artifact depends on
+  them, the Zsh version and any other recorded input, such as the mirror's
+  parse context, equal the recorded values. A timestamp alone never proves
+  freshness: `zrecompile`-style checks, which accept a `.zwc` not older than
+  its source, ran stale code in two local tests on 2026-10-18.
 - The existing local history and recovery boundaries stay fully disclosed in
   SECURITY.md; don't silently expand them.
 - Preserve `NO_CLOBBER`/`CLOBBER_EMPTY` protections and terminal-only color

@@ -35,9 +35,11 @@ handoff checklist is for the implementing agent — you only review and report.
    only when they didn't. Weakening a product invariant or one of CLAUDE.md's
    safety rules is always blocking, whatever approval is claimed. Any other
    owner decision listed in CLAUDE.md's "Ask only when really in doubt" rule is
-   blocking unless your prompt quotes the user's own words accepting that
-   trade-off; a bare request or an agent's summary is not acceptance, so if the
-   prompt is silent, report it as needing the owner's decision.
+   blocking unless the owner's own words accept that trade-off. A verbatim,
+   dated quote of the owner's chat answer, recorded in the run's committed
+   investigation record (its Owner decisions section), is acceptance; a bare
+   request, an agent's summary or a quote found only in your prompt is not, so
+   if no such record exists, report it as needing the owner's decision.
 3. Check synchronization: public commands and `--help` companions
    (same-source `_compozsh_help_<command>`, `usage:` first line, a preceding
    `unalias`), README usage and the **Shipped configuration units** table,

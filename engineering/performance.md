@@ -107,9 +107,11 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   `xcrun`, one `codesign`), keyed by the launcher's selectors and rechecked by
   file identity before each run ([SECURITY.md](../SECURITY.md#local-only-git-controls)).
 - Reproducible public system data may use disposable persistent caches under
-  the [caching contract](caching.md). Never persist user or project facts or
-  make a feature depend on a cache. Zsh's native completion dump is not
-  feature-state storage; SECURITY.md
+  the [caching contract](caching.md). Never persist user or project facts, in
+  a cache or in the compiled mirror or any other generated file
+  ([persistent storage](security.md#persistent-storage), which also defines
+  their freshness), or make a feature depend on a cache. Zsh's native
+  completion dump is not feature-state storage; SECURITY.md
   [discloses it](../SECURITY.md#native-completion-dump).
 
 ## Approved background work

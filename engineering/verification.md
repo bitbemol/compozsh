@@ -170,7 +170,7 @@ zsh tests/run.zsh      # full suite
 zsh tests/verify.zsh   # syntax of every shipped Zsh file, git diff --check, silent double re-source
 ```
 
-The full suite takes about 3–4 minutes. The Xcode Logger cleanup timing test
+The full suite takes about 5 minutes. The Xcode Logger cleanup timing test
 is environment-sensitive; rerun it alone before treating a failure as a
 regression.
 
