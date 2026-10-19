@@ -117,18 +117,24 @@ _xcode_capture_limit() {
 
 # Capture first-party output through native bounded stream sinks. Excess bytes
 # are drained without retention; no partial stdout is returned for parsing.
-# Stdout keeps the user limit unless the caller declares its own validated
-# stdout bound in a caller-local _XCODE_CAPTURE_BOUND (Build & Run settings).
+# Stdout keeps the user limit unless the caller passes its own bound as
+# `--stdout-bound <bytes> --` before the command (Build & Run settings). The
+# bound is an explicit operand, so no inherited or caller-scope parameter can
+# change it.
 _xcode_capture_command() {
   emulate -L zsh
   setopt EXTENDED_GLOB
 
   local temp_root=${TMPDIR:-/tmp} capture_dir='' stdout_file='' stderr_file=''
   local output='' diagnostic='' stdout_status='' stderr_status=''
-  local max_bytes='' REPLY=''
+  local max_bytes=${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144} REPLY=''
   local -i command_status=0
   _XCODE_CAPTURE='' _XCODE_CAPTURE_ERROR=''
-  _xcode_capture_limit "${_XCODE_CAPTURE_BOUND:-${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}}"
+  if [[ $1 == --stdout-bound && $3 == -- ]]; then
+    max_bytes=$2
+    shift 3
+  fi
+  _xcode_capture_limit "$max_bytes"
   max_bytes=$REPLY
 
   capture_dir=$(command mktemp -d "${temp_root%/}/compozsh-xcode.XXXXXX") || {
@@ -1175,12 +1181,12 @@ _xcode_build_settings_capture() {
   # bounded for 100 targets (5 MiB) unless the user limit is larger. The
   # document stays in this invocation's memory and is released on return.
   _xcode_capture_limit "${ZSH_XCODE_CAPTURE_MAX_BYTES:-262144}"
-  local _XCODE_CAPTURE_BOUND=$REPLY _XCODE_CAPTURE=''
-  (( _XCODE_CAPTURE_BOUND >= 5242880 )) || _XCODE_CAPTURE_BOUND=5242880
-  _xcode_capture_command "${_XCODE_COMMAND[@]}" || {
+  local bound=$REPLY _XCODE_CAPTURE=''
+  (( bound >= 5242880 )) || bound=5242880
+  _xcode_capture_command --stdout-bound "$bound" -- "${_XCODE_COMMAND[@]}" || {
     result=$?
-    [[ $_XCODE_CAPTURE_ERROR == "output exceeded the ${_XCODE_CAPTURE_BOUND}-byte capture limit" ]] &&
-      _XCODE_CAPTURE_ERROR="build settings exceeded the ${_XCODE_CAPTURE_BOUND}-byte Build & Run bound (about 100 targets); choose a scheme with fewer targets or raise ZSH_XCODE_CAPTURE_MAX_BYTES"
+    [[ $_XCODE_CAPTURE_ERROR == "output exceeded the ${bound}-byte capture limit" ]] &&
+      _XCODE_CAPTURE_ERROR="build settings exceeded the ${bound}-byte Build & Run bound (about 100 targets); choose a scheme with fewer targets or raise ZSH_XCODE_CAPTURE_MAX_BYTES"
     return $result
   }
   json=$_XCODE_CAPTURE _XCODE_CAPTURE=''

@@ -101,6 +101,39 @@ _test_xcode_capture_limit_helper_normalizes_explicit_text() {
 test_case 'Xcode capture limit helper normalizes explicit decimal text without arithmetic' \
   _test_xcode_capture_limit_helper_normalizes_explicit_text
 
+_test_xcode_capture_ignores_inherited_bound() {
+  test_make_temp_dir || return
+  local output='' error_file="$TEST_TMP_DIR/stderr" expected=''
+  local -i result=0
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    # An inherited environment value arrives as an exported global. Neither a
+    # smaller nor a larger one may replace the user limit of an ordinary capture.
+    export _XCODE_CAPTURE_BOUND=4096
+    source "$1/.zsh.addons/.zsh.xcode"
+    export TMPDIR=$2
+    local payload=${(l:5000::x:)} limit="" bound=""
+    local -a cases=("" 4096 4096 9223372036854775807)
+    for limit bound in "${cases[@]}"; do
+      ZSH_XCODE_CAPTURE_MAX_BYTES=$limit _XCODE_CAPTURE_BOUND=$bound
+      _XCODE_CAPTURE=stale _XCODE_CAPTURE_ERROR=stale
+      _xcode_capture_command /bin/zsh -dfc '\''print -rn -- "$1"'\'' capture "$payload"
+      print -r -- "${limit:-default}:$?:${#_XCODE_CAPTURE}:$_XCODE_CAPTURE_ERROR"
+    done
+    local -a leftovers=("$2"/compozsh-xcode.*(N))
+    print -r -- "leftovers:${#leftovers}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2> "$error_file") || result=$?
+  test_assert_equal '' "$(<"$error_file")" \
+    'Xcode capture with an inherited bound emitted diagnostics' || return
+  test_assert_equal 0 "$result" 'Xcode capture with an inherited bound aborted' || return
+  expected=$'default:0:5000:\n'
+  expected+=$'4096:1:0:output exceeded the 4096-byte capture limit\n'
+  expected+='leftovers:0'
+  test_assert_equal "$expected" "$output" \
+    'an inherited _XCODE_CAPTURE_BOUND replaced the user capture limit'
+}
+test_case 'Xcode capture ignores an inherited capture bound and keeps the user limit' \
+  _test_xcode_capture_ignores_inherited_bound
+
 _test_xcode_build_settings_capture_bounds_targets() {
   test_make_temp_dir || return
   local output='' error_file="$TEST_TMP_DIR/stderr" expected=''
