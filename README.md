@@ -68,7 +68,10 @@ plug-in manager.
 
 - Zsh 5.9 or newer (current macOS releases ship with Zsh 5.9); older releases
   are deliberately unsupported
-- Git, for cloning and the repository-aware prompt, navigation and tools
+- Git, for cloning and the repository-aware prompt, navigation and tools. On
+  macOS, Apple's `/usr/bin/git` needs Xcode or the Command Line Tools; until
+  one is installed, the prompt and Search treat Git as absent instead of
+  opening macOS's install offer, which only Git commands you run bring up
 - A terminal with Unicode and color support; no patched font is required
 - Full Xcode, only for the Xcode workspace; physical-device Run needs a device
   supported by that Xcode's `devicectl`, and the skill exporter needs Xcode 27

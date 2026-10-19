@@ -311,6 +311,9 @@ _prompt_git() {
   (( ${+functions[_compozsh_git_local]} &&
      ${+functions[_compozsh_git_filter_config]} &&
      ${+functions[_compozsh_git_operation]} )) || return
+  # Without Apple's developer tools, /usr/bin/git would make macOS offer to
+  # install them at every prompt; a passive render shows no Git context.
+  _compozsh_git_local available || return
   # Resolve here, in the prompt's own shell: every read below runs in a command
   # substitution, where a resolution would be lost with the subshell.
   _compozsh_git_local resolve || :

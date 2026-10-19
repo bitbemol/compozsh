@@ -86,7 +86,9 @@ private capabilities in focused peers; the shared UI owns screen cleanup.
 
 - Ctrl-F in Browse opens **Search descendants** for the displayed folder,
   never the highlighted child. Resolve the default source once on entry: Git
-  inside a worktree (same subfolder scope), otherwise Spotlight for exactly
+  inside a worktree (same subfolder scope) when `_compozsh_git_local
+  available` (never Apple's `/usr/bin/git` without developer tools, which
+  would offer their installation), otherwise Spotlight for exactly
   home or `/` on macOS, otherwise a bounded filesystem walk. Show the source
   before submission; explicit Ctrl-X choices bypass the default. Missing or
   failed Spotlight never triggers a filesystem fallback.

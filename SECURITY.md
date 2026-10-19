@@ -1648,6 +1648,27 @@ another remote operation.
   the file yourself with
   `codesign --verify --strict -R '=anchor apple and identifier "com.apple.git"' "$(xcrun --find git)"`
   (expected: no output, status 0).
+- **Missing developer tools.** Without Xcode or the Command Line Tools,
+  running `/usr/bin/git` or `/usr/bin/xcrun` makes macOS offer to install
+  them. When `PATH` selects `/usr/bin/git`, the prompt and Search's choice of
+  source first look for a developer directory the way the launcher does, with
+  file tests only: an exported, non-empty `DEVELOPER_DIR`, else the first
+  xcode-select link (`/var/select/developer_dir`, `/var/db/xcode_select_link`,
+  `/usr/share/xcode-select/xcode_dir_link`), else Xcode, the Command Line Tools
+  or Xcode beta at their default places, each counted only when it (or its
+  `Contents/Developer`) holds `usr/lib/libxcrun.dylib`. With none, the prompt
+  shows no Git context and runs neither its Git reads nor the launcher
+  resolution above, and Search chooses a non-Git source; nothing is
+  remembered, so the next prompt after an install finds Git again. Git you
+  start yourself (`g`, `git`, the Git workspaces, an explicitly chosen Git
+  Search, `g --discard-all`) still runs `/usr/bin/git`, which may bring up the
+  offer, and a Git elsewhere on `PATH` is unaffected. Inspect
+  `_compozsh_git_local_developer_dir` in
+  `.zsh.addons/support/functions/.zsh.impure.compozsh_git_local`; without
+  running either tool,
+  `ls -l /var/db/xcode_select_link /Applications/Xcode.app/Contents/Developer/usr/lib/libxcrun.dylib /Library/Developer/CommandLineTools/usr/lib/libxcrun.dylib`
+  shows which of the usual candidates exist (the focused test is
+  `without developer tools`).
 - **Repository selection.** Interactive branch, review, worktree and explicit
   discard workspaces, and explicit-root review providers, use the current
   folder's repository, temporarily shadowing inherited Git directory, worktree,
@@ -2052,6 +2073,7 @@ server.
 | Branch catalog and remote fallback | `absent from the reflog`, `branch remote` |
 | Git filter, selector, Files, promisor and signature-verifier controls | `shared Git`, `Git selectors`, `Files Git`, `promisor fetch`, `signature verifier` |
 | Direct Apple Git behind `/usr/bin/git`: signature, identity, selectors, `PATH` choice and refresh | `git shim` |
+| No passive `/usr/bin/git` or `xcrun` run without Apple's developer tools | `without developer tools` |
 | Git comparison bounds | `Git comparison` |
 | Discard with a dirty submodule | `g --discard-all preserves dirty submodule` |
 | Worktrees | `worktree ` |

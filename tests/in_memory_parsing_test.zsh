@@ -244,6 +244,7 @@ _test_in_memory_prompt_porcelain_parsing() {
     _compozsh_git_filter_config() { reply=(); }
     _compozsh_git_operation() { REPLY=""; }
     _compozsh_git_local() {
+      [[ $1 == available ]] && return 0
       (( ${argv[(Ie)status]} )) || return 1
       print -r -- "$_IN_MEMORY_PORCELAIN"
     }

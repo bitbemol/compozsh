@@ -625,10 +625,12 @@ _file_search_capture() {
 # Resolve once on explicit Search entry, never on startup or keystrokes. Broad
 # macOS scopes stay index-backed even when mdfind is unavailable: the user may
 # choose a walk explicitly, but a missing/failed index must not trigger one.
+# Choosing is passive, so Apple's /usr/bin/git without developer tools (which
+# would make macOS offer to install them) counts as no Git.
 _file_search_default_provider() {
   emulate -L zsh
   local root=$1
-  if (( ${+commands[git]} )) &&
+  if (( ${+functions[_compozsh_git_local]} )) && _compozsh_git_local available &&
      [[ $(_file_search_git "$root" rev-parse --is-inside-work-tree 2>/dev/null) == true ]]; then
     REPLY=git
   elif [[ $OSTYPE == darwin* && ( ${root:A} == ${HOME:A} || ${root:A} == / ) ]]; then

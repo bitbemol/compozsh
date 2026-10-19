@@ -14,14 +14,23 @@
 # that file as com.apple.git. Later calls, in subshells too, run it directly
 # while the selectors and the file's identity still match; any change runs
 # /usr/bin/git. compozsh --refresh forgets it.
+# Without Apple's developer tools, running /usr/bin/git or /usr/bin/xcrun makes
+# macOS offer to install them. `available` fails then (and when PATH has no
+# Git), so passive readers such as the prompt and Search skip Git, and
+# `resolve` never asks xcrun; a call the user started still runs the launcher.
 # Usage: _compozsh_git_local <root|inherit> <dir> [--exec] [--] <git-arguments...>
-#        _compozsh_git_local resolve
+#        _compozsh_git_local resolve|available
 _compozsh_git_local() {
   emulate -L zsh
   local REPLY=''
   local -a reply=()
   if (( $# == 1 )) && [[ $1 == resolve ]]; then
     _compozsh_git_local_resolve
+    return
+  fi
+  if (( $# == 1 )) && [[ $1 == available ]]; then
+    [[ -n ${commands[git]-} ]] || return 1
+    [[ ${commands[git]} != /usr/bin/git ]] || _compozsh_git_local_developer_dir
     return
   fi
   (( $# >= 2 )) && [[ $1 == (root|inherit) ]] || return 2
@@ -77,6 +86,37 @@ _compozsh_git_local_identity() {
   REPLY="$facts[device] $facts[inode] $facts[mode] $facts[uid] $facts[size] $facts[mtime] $facts[ctime]"
 }
 
+# Whether Apple's launcher has a developer directory, found the way the
+# launcher looks but with file tests only: an exported, non-empty
+# DEVELOPER_DIR, else the first xcode-select link, else Xcode, the Command Line
+# Tools or Xcode beta at their default places, each counted only when it (or
+# its Contents/Developer) holds the launcher's usr/lib/libxcrun.dylib. REPLY is
+# that directory; a test seam replaces only this.
+_compozsh_git_local_developer_dir() {
+  emulate -L zsh
+  local candidate='' link=''
+  local -a candidates=()
+  REPLY=''
+  if [[ ${(t)DEVELOPER_DIR-} == *-export* && -n $DEVELOPER_DIR ]]; then
+    candidates=("$DEVELOPER_DIR" "$DEVELOPER_DIR/Contents/Developer")
+  else
+    for link in /var/select/developer_dir /var/db/xcode_select_link \
+        /usr/share/xcode-select/xcode_dir_link; do
+      [[ -L $link ]] || continue
+      candidates=("${link:A}" "${link:A}/Contents/Developer")
+      break
+    done
+    (( ${#candidates} )) || candidates=(/Applications/Xcode.app/Contents/Developer
+      /Library/Developer/CommandLineTools /Applications/Xcode-beta.app/Contents/Developer)
+  fi
+  for candidate in "${candidates[@]}"; do
+    [[ $candidate == /* && -f $candidate/usr/lib/libxcrun.dylib ]] || continue
+    REPLY=$candidate
+    return 0
+  done
+  return 1
+}
+
 # Ask the launcher which Git it would start; a test seam replaces only this.
 _compozsh_git_local_find() {
   emulate -L zsh
@@ -106,11 +146,13 @@ _compozsh_git_local_direct() {
 
 # Resolve once per shell and selector set, in the parent shell only: a memo
 # written in a subshell would die with it. A refusal is remembered too, so a
-# failing check never repeats at every prompt.
+# failing check never repeats at every prompt. Without developer tools xcrun
+# would offer to install them, so nothing is asked or remembered.
 _compozsh_git_local_resolve() {
   emulate -L zsh
   local key='' found='' identity=''
   (( ZSH_SUBSHELL == 0 )) && [[ ${commands[git]-} == /usr/bin/git ]] || return 1
+  _compozsh_git_local_developer_dir || return 1
   zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
   _compozsh_git_local_key
   key=$REPLY

@@ -490,7 +490,8 @@ test_case 'git shim runs a verified Apple Git directly and falls back once it is
 # selectors reuse the answer (a refusal included), a changed exported
 # DEVELOPER_DIR, TOOLCHAINS or SDKROOT resolves again, a subshell never
 # resolves (its memo would die with it), compozsh --refresh forgets the answer,
-# and a Git chosen elsewhere on PATH is never resolved or replaced.
+# and a Git chosen elsewhere on PATH is never resolved or replaced. The probe
+# seam reports a developer directory throughout, so only selectors vary.
 _test_git_shim_resolution_keys() {
   test_make_temp_dir || return
   local output='' exit_status=0
@@ -504,6 +505,7 @@ _test_git_shim_resolution_keys() {
     local -a report=()
     : > "$HOME/finds"
     GIT_SHIM_CANDIDATE=$2/script/git
+    _compozsh_git_local_developer_dir() { REPLY=/fixture/Developer; }
     _compozsh_git_local_find() { print -r -- find >> "$HOME/finds"; REPLY=$GIT_SHIM_CANDIDATE; }
     _shim_step() {
       local -a finds=("${(@f)$(<$HOME/finds)}")
@@ -595,3 +597,88 @@ output matches /usr/bin/git' "status:$exit_status"$'\n'"$output" \
 }
 test_case 'git shim lets the prompt run the Apple Git behind /usr/bin/git directly with identical output' \
   _test_git_shim_prompt_direct
+
+# Without Apple's developer tools, /usr/bin/git and /usr/bin/xcrun make macOS
+# offer to install them. Passive reads (the prompt's status, its filter
+# discovery and the shim resolve, and Search's default provider) ask the
+# developer-directory probe first and start neither when it finds none; a Git
+# elsewhere on PATH still runs, and with a developer directory the launcher
+# runs as before. The probe seam (_compozsh_git_local_developer_dir) stands in
+# for the machine's state, the xcrun seam records each find, Git's trace
+# records every launcher-started Git and a PATH Git records its own calls. The
+# real probe follows an exported DEVELOPER_DIR, an Xcode bundle's
+# Contents/Developer included, to the launcher's libxcrun.dylib.
+_test_git_launcher_without_developer_tools() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/sh
+printf "%s\n" "$*" >> "$HOME/path-git"
+case " $* " in
+  *" config "*) exit 1 ;;
+  *" --porcelain=v2 "*) printf "# branch.oid 0123456789abcdef0123456789abcdef01234567\n# branch.head path-git\n" ;;
+  *" --is-inside-work-tree "*) printf "true\n" ;;
+  *" --absolute-git-dir "*) printf "%s/.git\n" "$PWD" ;;
+esac
+exit 0' || return
+  command chmod +x "$TEST_TMP_DIR/bin/git" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    local repo="$HOME/repository" developer=none name=""
+    local -a report=()
+    command git init -qb main "$repo" || exit 1
+    command git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
+      -c commit.gpgsign=false commit --allow-empty -qm fixture || exit 1
+    for name in prompt find tools; do source "$1/.zsh.addons/.zsh.$name" || exit 1; done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    functions[_test_real_probe]=$functions[_compozsh_git_local_developer_dir]
+    _compozsh_git_local_developer_dir() { [[ $developer != none ]] || return 1; REPLY=$developer; }
+    _compozsh_git_local_find() { print -r -- find >> "$HOME/finds"; return 1; }
+    _passive_row() {
+      local -x GIT_TRACE2_EVENT=$HOME/trace
+      local -a lines=()
+      local resolved=0 provider="" started=0
+      : > "$HOME/finds"; : > "$HOME/path-git"; : > "$HOME/trace"
+      _tools_refresh
+      builtin cd "$repo" || exit 2
+      _prompt_git
+      _compozsh_git_local resolve; resolved=$?
+      _file_search_default_provider "$repo"; provider=$REPLY
+      lines=("${(@f)$(<$HOME/finds)}")
+      report+=("$1: prompt ${_PROMPT_GIT_TEXT:-none}, Search $provider, resolve $resolved, xcrun finds ${#${(@)lines:#}}")
+      lines=("${(@f)$(<$HOME/trace)}")
+      started="${#${(@M)lines:#*\"event\":\"start\"*}}"
+      (( started )) && report+=("$1: launcher Git ran") || report+=("$1: launcher Git never ran")
+      [[ -s $HOME/path-git ]] && report+=("$1: PATH Git ran") || report+=("$1: PATH Git never ran")
+    }
+    _passive_row "no tools"
+    PATH=$2:/usr/bin:/bin _passive_row "no tools, PATH Git"
+    developer=/fixture/Developer _passive_row "tools"
+    command mkdir -p -- "$HOME/developer/usr/lib" "$HOME/Fixture.app/Contents/Developer/usr/lib" \
+      "$HOME/empty" || exit 3
+    : > "$HOME/developer/usr/lib/libxcrun.dylib"
+    : > "$HOME/Fixture.app/Contents/Developer/usr/lib/libxcrun.dylib"
+    for name in developer Fixture.app empty missing; do
+      report+=("$(export DEVELOPER_DIR=$HOME/$name; REPLY=""
+        _test_real_probe; print -rn -- "probe $name: status $? ${${REPLY#$HOME/}:-none}")")
+    done
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+no tools: prompt none, Search local, resolve 1, xcrun finds 0
+no tools: launcher Git never ran
+no tools: PATH Git never ran
+no tools, PATH Git: prompt path-git no-upstream, Search git, resolve 1, xcrun finds 0
+no tools, PATH Git: launcher Git never ran
+no tools, PATH Git: PATH Git ran
+tools: prompt main no-upstream, Search git, resolve 1, xcrun finds 1
+tools: launcher Git ran
+tools: PATH Git never ran
+probe developer: status 0 developer
+probe Fixture.app: status 0 Fixture.app/Contents/Developer
+probe empty: status 1 none
+probe missing: status 1 none' "status:$exit_status"$'\n'"$output" \
+    'a passive Git read started Apple'\''s launcher or xcrun without developer tools'
+}
+test_case 'passive Git reads never start the launcher or xcrun without developer tools' \
+  _test_git_launcher_without_developer_tools
