@@ -637,6 +637,73 @@ _test_compiled_peers_never_run_stale_code() {
 test_case 'compiled peers: an edited, retimed or replaced shipped peer never runs stale compiled code' \
   _test_compiled_peers_never_run_stale_code
 
+# Freshness is rechecked just before each compiled peer loads, not only before
+# the first: a shipped peer changed while earlier peers load (here by an
+# earlier peer, same size with its old mtime restored, which Zsh's own .zwc
+# check accepts) loads its new text in that same shell, and one moved away
+# meanwhile fails to load instead of running the wordcode left behind.
+_test_compiled_peers_recheck_before_loading() {
+  test_make_temp_dir || return
+  local repository='' layout='' home='' target='' output=''
+  local script='
+    PROBE_EDIT=$1 PROBE_EDIT_TARGET=$2
+    source "$HOME/.zshrc" || exit 1
+    local name="" origin=""
+    for name in probe_a probe_b; do
+      origin=text
+      [[ ${functions_source[$name]-} == */support/compiled/* ]] && origin=compiled
+      (( ${+functions[$name]} )) || origin=none
+      print -rn -- "$name:$origin|"
+    done
+    (( ! ${+functions[probe_b]} )) || probe_b'
+  local editor='probe_a() { :; }
+case ${PROBE_EDIT-} in
+  (edit)
+    print -r -- '\''probe_b() { print -r -- new-b; }'\'' >| "$PROBE_EDIT_TARGET" &&
+      command touch -t 202001010000 -- "$PROBE_EDIT_TARGET" ;;
+  (move) command mv -- "$PROBE_EDIT_TARGET" "$PROBE_EDIT_TARGET.moved" ;;
+esac'
+  for layout in symlink copy; do
+    home="$TEST_TMP_DIR/$layout"
+    repository="$TEST_TMP_DIR/repository-$layout"
+    command mkdir -p -- "$repository" || return
+    command cp "$TEST_REPO_ROOT/.zshrc" "$TEST_REPO_ROOT/install.zsh" "$repository" || return
+    command cp -R "$TEST_REPO_ROOT/templates" "$TEST_REPO_ROOT/.zsh.addons" "$repository" || return
+    test_write_file "$repository/.zsh.addons/.zsh.zz-probe-a" "$editor" || return
+    test_write_file "$repository/.zsh.addons/.zsh.zz-probe-b" 'probe_b() { print -r -- old-b; }' || return
+    _test_compiled_install "$repository" "$home" "$layout" || return
+    if [[ $layout == symlink ]]; then
+      target="$repository/.zsh.addons/.zsh.zz-probe-b"
+    else
+      target="$home/.zsh.addons/compozsh/.zsh.zz-probe-b"
+    fi
+    output=$(test_run_interactive "$home" "$script" '' "$target" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$layout: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal 'probe_a:compiled|probe_b:compiled|old-b' "$output" \
+      "$layout: fresh shipped probes did not load compiled code" || return
+
+    output=$(test_run_interactive "$home" "$script" edit "$target" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$layout: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal 'probe_a:compiled|probe_b:text|new-b' "$output" \
+      "$layout: a peer changed during loading ran its stale compiled code" || return
+
+    # Once the clock has passed the edit, a shell compiles and runs it.
+    _test_compiled_tick || return
+    output=$(test_run_interactive "$home" "$script" '' "$target" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$layout: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal 'probe_a:compiled|probe_b:compiled|new-b' "$output" \
+      "$layout: the edited probe was not recompiled" || return
+
+    output=$(test_run_interactive "$home" "$script" move "$target" 2> "$TEST_TMP_DIR/errors") || return
+    test_assert_equal 'probe_a:compiled|probe_b:none|' "$output" \
+      "$layout: a peer moved away during loading ran its compiled code" || return
+    [[ $(<"$TEST_TMP_DIR/errors") == *"add-on failed to load: "*/.zsh.zz-probe-b* ]] ||
+      test_fail "$layout: the vanished peer was not reported: $(<"$TEST_TMP_DIR/errors")" || return
+  done
+}
+test_case 'compiled peers: a shipped peer changed while earlier peers load runs its new text' \
+  _test_compiled_peers_recheck_before_loading
+
 # A mirror that is not provably this user's private, marked folder falls back
 # to text without diagnostics and is never written: group access, a missing
 # marker, a symlinked marker or a symlinked mirror. Records that do not match

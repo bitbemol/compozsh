@@ -48,30 +48,32 @@ fi
 # size, mtime and ctime. A shipped peer runs from the mirror only when the
 # mirror and manifest are the user's and closed to other accounts, the version
 # matches, the mirror entry links to this exact file and the file's metadata
-# still equals the record; any later write moves its ctime past the record.
-# The parse context must match too: when peers start loading (so an
-# initializer's aliases or parse options, or a re-sourced bootstrap's own
-# aliases, mean text), and across every peer loaded as text. Shipped peers
-# never parse differently under each other's definitions (the peer-order
-# convergence test), so compiled peers may change it. Otherwise the peer's
-# text is sourced, so the mirror changes only how fast a shell starts, never
-# the state it reaches. When a shipped peer has no valid record (new, edited,
-# or the mirror is missing), or a record names a peer that no longer exists
-# (removed or renamed), and the context allows compiled code, the shipped
-# support/compile.zsh runs once in Apple's /bin/zsh -f, started from / and
-# never a zsh found on PATH, to compile just those peers (time-boxed, under a
-# lock, written atomically) and drop every entry the new manifest does not
-# name, and the manifest is read again; it never runs a peer, and any failure
-# leaves those peers on text. No child starts when /bin/zsh is missing, or
-# when the mirror's zsh note, which compile.zsh writes when it refuses a
-# shell of another version, records this exact /bin/zsh (device, inode, size,
-# mtime and ctime) as another Zsh version: that shell always loads text.
+# still equals the record, checked again just before that peer loads (an
+# earlier peer may have changed it); any later write moves its ctime past the
+# record, even in the same second as its compile. The parse context must
+# match too: when peers start loading (so an initializer's aliases or parse
+# options, or a re-sourced bootstrap's own aliases, mean text), and across
+# every peer loaded as text. Shipped peers never parse differently under each
+# other's definitions (the peer-order convergence test), so compiled peers may
+# change it. Otherwise the peer's text is sourced, so the mirror changes only
+# how fast a shell starts, never the state it reaches. When a shipped peer has
+# no valid record (new, edited, or the mirror is missing), or a record names a
+# peer that no longer exists (removed or renamed), and the context allows
+# compiled code, the shipped support/compile.zsh runs once in Apple's
+# /bin/zsh -f, started from / and never a zsh found on PATH, to compile just
+# those peers (time-boxed, under a lock, written atomically) and drop every
+# entry the new manifest does not name, and the manifest is read again; it
+# never runs a peer, and any failure leaves those peers on text. No child
+# starts when /bin/zsh is missing, or when the mirror's zsh note, which
+# compile.zsh writes when it refuses a shell of another version, records this
+# exact /bin/zsh (device, inode, size, mtime and ctime) as another Zsh
+# version: that shell always loads text.
 typeset -aU _zsh_addon_dirs=(
   "${_zsh_shared_addons_dir:A}"
   "${_zsh_user_addons_dir:A}"
 )
 typeset -a _zsh_addon_files=() _zsh_addon_parse=() _zsh_addon_stale=()
-typeset -A _zsh_addon_compiled=()
+typeset -A _zsh_addon_compiled=() _zsh_addon_identity=() _zsh_addon_facts=()
 typeset _zsh_addon_file='' _zsh_addon_source='' _zsh_addon_mirror=''
 typeset _zsh_addon_context='' _zsh_addon_expected='' _zsh_addon_shipped=''
 typeset _zsh_addon_base=''
@@ -104,21 +106,23 @@ _zsh_addon_parse_context() {
 # it changes.
 # _zsh_addon_mirror is "ok" when the mirror is absent from an existing add-on
 # directory, or is a marked directory of this user's closed to other accounts.
+# Its zstat calls run once or twice per shipped peer, so the function silences
+# stderr once, for its whole run, rather than with a redirect per call.
 _zsh_addon_read_mirror() {
   emulate -LR zsh
   local compiled=$1 line='' base='' file='' entry=''
   local -a lines=() fields=() link=() gone=()
   local -A facts=() known=()
-  _zsh_addon_compiled=() _zsh_addon_parse=() _zsh_addon_stale=()
-  _zsh_addon_expected='' _zsh_addon_mirror=''
-  zmodload -F zsh/stat b:zstat 2>/dev/null || return 0
-  if ! zstat -L -H facts -- "$compiled" 2>/dev/null; then
+  _zsh_addon_compiled=() _zsh_addon_identity=() _zsh_addon_parse=()
+  _zsh_addon_stale=() _zsh_addon_expected='' _zsh_addon_mirror=''
+  zmodload -F zsh/stat b:zstat || return 0
+  if ! zstat -L -H facts -- "$compiled"; then
     [[ -d ${compiled:h:h} ]] && _zsh_addon_mirror=ok
   elif (( facts[uid] == EUID && (facts[mode] & 8#170077) == 8#40000 )) &&
-      zstat -L -H facts -- "$compiled/.managed-by-compozsh" 2>/dev/null &&
+      zstat -L -H facts -- "$compiled/.managed-by-compozsh" &&
       (( facts[uid] == EUID && (facts[mode] & 8#170000) == 8#100000 )); then
     _zsh_addon_mirror=ok
-    zstat -L -H facts -- "$compiled/manifest" 2>/dev/null &&
+    zstat -L -H facts -- "$compiled/manifest" &&
       (( facts[uid] == EUID && (facts[mode] & 8#170022) == 8#100000 )) &&
       lines=("${(@f)$(<"$compiled/manifest")}")
   fi
@@ -134,7 +138,7 @@ _zsh_addon_read_mirror() {
       (( ${#fields} == 6 || ${#fields} == 7 )) &&
         [[ $fields[1] != /* && /$fields[1]/ != */../* ]] || continue
       file=$base/$fields[1] entry=$compiled/.zsh.addons/$fields[1]
-      if ! zstat -H facts -- "$file" 2>/dev/null; then
+      if ! zstat -H facts -- "$file"; then
         gone+=("$file")
         continue
       fi
@@ -142,9 +146,10 @@ _zsh_addon_read_mirror() {
          "${(j: :)fields[2,6]}" ]] || continue
       if (( ${#fields} == 7 )); then
         known[$file]=1
-      elif zstat -L -A link +link -- "$entry" 2>/dev/null && [[ ${link[1]-} == "$file" ]]; then
+      elif zstat -L -A link +link -- "$entry" && [[ ${link[1]-} == "$file" ]]; then
         known[$file]=1
         _zsh_addon_compiled[$file]=$entry
+        _zsh_addon_identity[$file]=${(j: :)fields[2,6]}
       fi
     done
   fi
@@ -153,7 +158,7 @@ _zsh_addon_read_mirror() {
     (( ${+known[$file]} )) || _zsh_addon_stale+=("$file")
   done
   _zsh_addon_stale+=("${gone[@]}")
-}
+} 2>/dev/null
 () {
   emulate -LR zsh
   local dir='' file=''
@@ -206,6 +211,17 @@ if (( ${#_zsh_addon_compiled} )); then
 fi
 for _zsh_addon_file in "${_zsh_addon_files[@]}"; do
   _zsh_addon_source=${_zsh_addon_compiled[$_zsh_addon_file]:-$_zsh_addon_file}
+  # Read a compiled peer's identity again just before it loads: an earlier
+  # peer, or an edit in the same second as its compile, may have changed it
+  # since the manifest was read, and Zsh's own .zwc check would accept that.
+  # It runs once per compiled peer, so it stays inline and has no redirect (a
+  # peer that vanished fails to load anyway); braced subscripts keep it
+  # independent of options a peer set.
+  if [[ $_zsh_addon_source != "$_zsh_addon_file" ]]; then
+    builtin zstat -H _zsh_addon_facts -- "$_zsh_addon_file" &&
+      [[ ${_zsh_addon_identity[$_zsh_addon_file]} == "${_zsh_addon_facts[device]} ${_zsh_addon_facts[inode]} ${_zsh_addon_facts[size]} ${_zsh_addon_facts[mtime]} ${_zsh_addon_facts[ctime]}" ]] ||
+      _zsh_addon_source=$_zsh_addon_file
+  fi
   if (( ${#_zsh_addon_compiled} )) && [[ $_zsh_addon_source == "$_zsh_addon_file" ]]; then
     _zsh_addon_parse_context
     _zsh_addon_expected=$_zsh_addon_context
@@ -221,7 +237,7 @@ done
 
 unset _zsh_config_file _zsh_shared_addons_dir _zsh_user_addons_dir
 unset _zsh_local_init _zsh_addon_dirs _zsh_addon_files _zsh_addon_file
-unset _zsh_addon_parse _zsh_addon_compiled _zsh_addon_source _zsh_addon_stale
-unset _zsh_addon_context _zsh_addon_expected _zsh_addon_mirror
-unset _zsh_addon_shipped _zsh_addon_base
+unset _zsh_addon_parse _zsh_addon_compiled _zsh_addon_identity _zsh_addon_source
+unset _zsh_addon_stale _zsh_addon_context _zsh_addon_expected _zsh_addon_mirror
+unset _zsh_addon_shipped _zsh_addon_base _zsh_addon_facts
 unfunction _zsh_addon_parse_context _zsh_addon_read_mirror

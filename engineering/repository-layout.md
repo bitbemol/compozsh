@@ -180,7 +180,8 @@ Peers are then sourced at top level. A shared peer listed in the
 compiled mirror is sourced through its mirror entry (a symlink to the peer,
 beside the peer's `.zwc`) only while the mirror passes the checks `.zshrc`
 documents and SECURITY.md discloses: ownership, Zsh version, the exact peer
-path, unchanged device, inode, size, mtime and ctime, and the compiling
+path, unchanged device, inode, size, mtime and ctime (checked again just
+before that peer loads, after the peers before it), and the compiling
 shell's parse context (options and aliases) when peers start loading and
 across every text-loaded peer. Otherwise the peer's text loads, so compiled
 loading reaches the same state. Before any peer loads, shipped peers with no

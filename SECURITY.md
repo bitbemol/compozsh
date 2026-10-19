@@ -1172,8 +1172,16 @@ as it would without a mirror:
   ctime, so any later write, `chmod`, replacement or `touch` that restores an
   older mtime puts that peer back on text until it is recompiled. Zsh's own
   check (and `zrecompile`), a `.zwc` not older than its source, would accept
-  same-second edits and restored mtimes. The check relies on the file system
-  recording this machine's clock, as local volumes do;
+  same-second edits and restored mtimes. The values are read again just before
+  each compiled peer loads, so a peer changed while earlier peers load (by one
+  of them, or by an edit in the same second as its compile) loads its new
+  text, and one removed meanwhile fails to load rather than running the
+  wordcode left behind
+  (`zsh tests/run.zsh 'changed while earlier peers load'`); the wordcode a
+  shell runs is the text the peer held at that last check, and only a write
+  racing it, as with any file read while it is being written, can still meet
+  the code compiled from the text it replaces. The check relies on the file
+  system recording this machine's clock, as local volumes do;
 - the parse context matches the compiling shell's when peers start loading
   (exactly Zsh's default parse-affecting options and its two built-in aliases,
   unchanged by any system or personal startup file, the initializer or a
@@ -1817,7 +1825,7 @@ peer.
 Inspect the only automatic source boundary:
 
 ```sh
-sed -n '1,220p' .zshrc
+cat .zshrc
 git grep -nE '(^|[[:space:]])(source|eval)[[:space:]]' \
   -- .zshrc install.zsh '.zsh.addons/**' templates
 ```

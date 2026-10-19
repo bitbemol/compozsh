@@ -125,9 +125,10 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   from the current directory or project metadata, so a relative initializer
   path is refused with a diagnostic. A shared peer may run from the
   compiled mirror (`support/compiled` in the user add-on
-  directory) only under its disclosed freshness, ownership, version and
-  parse-context checks, so compiled code never differs from the peer's current
-  text; private peers are never compiled, and discovery never sources `.zwc`
+  directory) only under its disclosed freshness (file identity, checked again
+  just before each compiled peer loads), ownership, version and parse-context
+  checks, so compiled code never differs from the peer's text at that last
+  check; private peers are never compiled, and discovery never sources `.zwc`
   files. `support/compile.zsh` is Compozsh's only writer of the mirror, in
   Apple's `/bin/zsh -f` (by absolute path from `/`, never a `PATH` lookup; a
   shell of a version `/bin/zsh` cannot match starts none and loads text)
