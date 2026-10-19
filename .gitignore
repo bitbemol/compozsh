@@ -5,6 +5,7 @@
 /.zsh_history
 /.zcompdump*
 /.zsh-backups/
+/.zsh_sessions/
 .claude/settings.local.json
 CLAUDE.local.md
 .claude/worktrees/
