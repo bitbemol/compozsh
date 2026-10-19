@@ -65,10 +65,10 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   costs one manifest read without a fork, a `zstat` of the mirror, its marker
   and its manifest, two `zstat` calls per shipped peer, a third just before
   each compiled peer loads (its freshness recheck), and a parse-context
-  description before the first peer and around each peer loaded as text —
-  never per compiled peer. On the reference Mac (macOS 27,
-  Zsh 5.9, 15 alternating runs) it brought warm isolated startup in a symlink
-  installation from 72.1 to 49.1 ms (process) and 94.4 to 74.2 ms (first
+  description before the first peer and around each peer loaded as text; the
+  parse-context description is never per compiled peer. On the reference Mac
+  (macOS 27, Zsh 5.9, 15 alternating runs) it brought warm isolated startup
+  in a symlink installation from 72.1 to 49.1 ms (process) and 94.4 to 74.2 ms (first
   editable prompt), within the startup budget; without a configuration-base
   `.zsh.addons` directory nothing is compiled and every peer parses as text.
   A shipped peer that is new or changed is recompiled once

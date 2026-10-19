@@ -217,7 +217,9 @@ the Zsh version matches, and nothing that ran first (a startup file such as
 `/etc/zshenv`, your initializer or an earlier private peer) has added, removed
 or changed aliases (for example `unalias run-help`) or changed parse options.
 Otherwise it loads the peer's text exactly as before, so the mirror changes
-speed, never behavior. Compiling always uses
+speed, never behavior, except that `whence -v` and `functions_source` name the
+mirror entry, not the peer file, as the source of a compiled peer's functions.
+Compiling always uses
 Apple's `/bin/zsh`, never a `zsh` found on your `PATH`, so a shell running
 another Zsh version (Homebrew's, for example) loads text and stops trying to
 compile until `/bin/zsh` itself changes. When a shipped peer is
@@ -749,7 +751,7 @@ Inside a Git working tree, run `g` for the branch selector:
 ```text
 Branches · local branches · recent first · 3 shown
 example-app
-Search ‹›
+Filter choices ‹›
 [ 0] ● feature/prompt-navigation
 [ 1]   main
 [ 2]   feature/runtime-line

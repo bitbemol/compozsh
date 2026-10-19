@@ -5071,7 +5071,7 @@ _test_usb_temporary_capture_and_progress_files_are_removed() {
   test_assert_equal 'compozsh-createinstallmedia:600,compozsh-usb-inspect:700,compozsh-usb-progress:600' \
     "$observed" 'USB capture, mount and progress files were not the disclosed owner-only names'
 }
-test_case 'USB temporary disk metadata, ISO listing, mount and progress files are owner-only and removed' \
+test_case 'USB temporary ISO listing, mount and progress files are owner-only and removed' \
   _test_usb_temporary_capture_and_progress_files_are_removed
 
 _test_usb_temporary_refused_inspection_removes_its_own_mount_point() {

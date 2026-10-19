@@ -80,13 +80,14 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   inputs or fingerprints of them.
 - The rule against persisting user or project information covers every file
   Compozsh generates for itself, not only caches: the compiled mirror
-  (`support/compiled`) with its `manifest` and `zcompdump.manifest`, its lock
-  and staging files, and any future generated artifact. Such a file holds only
-  its source in another form (a shipped peer's wordcode, the compiled copy of
-  Zsh's completion dump) plus metadata limited to public data (such as the Zsh
-  version and Zsh's default parse context) and file identity (path, device,
-  inode, size, mtime and ctime). User-defined aliases, environment values,
-  history and other user-controlled values are never written; the
+  (`support/compiled`) with its `manifest`, `zcompdump.manifest` and `zsh`
+  note, its lock and staging files, and any future generated artifact. Such
+  a file holds only its source in another form (a shipped peer's wordcode,
+  the compiled copy of Zsh's completion dump) plus metadata limited to public
+  data (such as the Zsh version and Zsh's default parse context) and file
+  identity (path, device, inode, size, mtime and ctime). User-defined
+  aliases, environment values, history and other user-controlled values are
+  never written; the
   [owner dropped](../investigations/architecture-2026-10-14.md#owner-decisions)
   P6-02 (compiling private peers) because its manifest recorded alias names
   and values.
@@ -131,7 +132,9 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   check; private peers are never compiled, and discovery never sources `.zwc`
   files. `support/compile.zsh` is Compozsh's only writer of the mirror, in
   Apple's `/bin/zsh -f` (by absolute path from `/`, never a `PATH` lookup; a
-  shell of a version `/bin/zsh` cannot match starts none and loads text)
+  shell of a version `/bin/zsh` cannot match starts one compile child, which
+  refuses and records `/bin/zsh` in the mirror's `zsh` note, and then none
+  while that note matches; it loads text)
   that parses and never runs peers: for the installer, at
   startup for the discovered shipped peers lacking a fresh record, and after
   `compinit` for the completion dump, only into a missing or user-owned,

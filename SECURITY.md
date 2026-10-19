@@ -1592,8 +1592,8 @@ or resizes the terminal. A `REMOTE` or remote-related `ACTION` row is advisory
 text and does not create a connection. The compiles that interactive startup
 and `.zsh.editor` may start run Apple's `/bin/zsh -f` by that absolute path
 from `/` ([compiled peer mirror](#compiled-peer-mirror)), never a `zsh`
-resolved through `PATH`, so no version-manager shim or project directory
-policy runs as a shell starts.
+resolved through `PATH`, so these compiles start no version-manager shim or
+project directory policy.
 
 ### Local-only Git controls
 
