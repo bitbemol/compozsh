@@ -1,9 +1,10 @@
 # View state ends with its view: configuration, results, labels and bookmarks
 # are scoped to the journey that opened them (SECURITY.md, engineering/zsh.md).
 
-# Each journey's names, types and values, plus REPLY, are compared with a
-# snapshot taken before it opened; the scripted picker follows the engine's
-# protocol (tests/picker_support.zsh), so the views' own scoping is what runs.
+# Each journey's picker, choice and feature globals (names, types and values),
+# plus REPLY, are compared with a snapshot taken before it opened; the scripted
+# picker follows the engine's protocol (tests/picker_support.zsh), so the
+# views' own scoping is what runs.
 _test_view_state_files_journeys() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/tree/alpha/inner" "$TEST_TMP_DIR/home/tree/beta" || return
@@ -17,7 +18,7 @@ _test_view_state_files_journeys() {
     dirstack=("$HOME/tree" "$HOME/tree/beta")
     # Sorted: the listing follows the parameter table, not declaration order.
     _view_state_snapshot() {
-      local -a lines=("${(@f)$(typeset -p -m "_ZLE_PICKER_*")}")
+      local -a lines=("${(@f)$(typeset -p -m "(_ZLE_PICKER|_ZLE_UI_CHOICE|_NAVIGATION)_*")}")
       print -rl -- "${(@o)lines}"
       typeset -p REPLY
     }
@@ -88,7 +89,7 @@ _test_view_state_search_branch_help_journeys() {
     builtin cd -- "$HOME" || exit
     dirstack=("$HOME/tree")
     _view_state_snapshot() {
-      local -a lines=("${(@f)$(typeset -p -m "(_ZLE_PICKER|_NAVIGATION_PICKER|_GIT_RECENT)_*")}")
+      local -a lines=("${(@f)$(typeset -p -m "(_ZLE_PICKER|_ZLE_UI_CHOICE|_NAVIGATION|_GIT_RECENT|_GIT_BRANCH)_*")}")
       print -rl -- "${(@o)lines}"
       typeset -p REPLY
     }
@@ -192,7 +193,7 @@ _test_view_state_usb_review_xcode_journeys() {
     print -r -- changed >| "$repo/notes.txt"
     builtin cd -- "$HOME" || exit
     _view_state_snapshot() {
-      local -a lines=("${(@f)$(typeset -p -m "_ZLE_PICKER_*")}")
+      local -a lines=("${(@f)$(typeset -p -m "(_ZLE_PICKER|_ZLE_UI_CHOICE|_GIT_REVIEW)_*")}")
       print -rl -- "${(@o)lines}"
       typeset -p REPLY
     }
