@@ -746,6 +746,75 @@ _test_compiled_peers_follow_private_parse_changes() {
 test_case 'compiled peers: a private peer that changes the parse context sends later shipped peers to text' \
   _test_compiled_peers_follow_private_parse_changes
 
+# Zsh reads /etc/zshenv even under zsh -f, so the child that runs compile.zsh
+# may start with a system file's aliases. Here the child defines them itself
+# just before sourcing compile.zsh, as /etc/zshenv would (/etc is never
+# touched). In every mode the manifests then record exactly Zsh's built-in
+# defaults, never such an alias's name or value, the dump's wordcode is parsed
+# without it, and a shell that has the extra alias loads text.
+_test_compiled_peers_record_only_default_aliases() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" compiled='' base='' dump='' line='' file='' output=''
+  local script="${TEST_REPO_ROOT:A}/.zsh.addons/support/compile.zsh"
+  local zshenv='alias leaked=sentinel-value; alias -g gleaked=gsentinel; alias -s sleaked=ssentinel'
+  local defaults="aliases aliases: \$'run-help'=\$'man' \$'which-command'=\$'whence' galiases: saliases:"
+  local probe='source "$HOME/.zshrc" || exit 1; print -r -- "${functions_source[mkcd]}"'
+  local -a clean=() lines=() fields=() relatives=()
+  compiled="$home/.zsh.addons/support/compiled"
+  dump="$TEST_TMP_DIR/dump/.zcompdump"
+  _test_compiled_install "$TEST_REPO_ROOT" "$home" symlink || return
+  clean=("${(@f)$(<"$compiled/manifest")}")
+  base=${clean[3]#base }
+  for line in "${(@)clean[7,-1]}"; do
+    fields=("${(@ps:\t:)line}")
+    [[ $fields[1] == - ]] && fields=("${(@)fields[2,-1]}")
+    relatives+=("$fields[1]")
+  done
+  (( $#relatives > 10 )) || test_fail 'the installed manifest lists too few peers' || return
+
+  # Rebuild the installed mirror, and compile one peer at startup and a dump,
+  # each in a child that already has the extra aliases.
+  command rm -rf -- "$compiled" && command mkdir -p -- "$TEST_TMP_DIR/startup" || return
+  test_write_file "$dump" 'leaked; print -r -- gleaked' || return
+  _test_compiled_tick || return
+  test_run_noninteractive "$home" "$zshenv"'; . "$@"' "$script" \
+    install "$compiled" "$base" '' "${relatives[@]}" < /dev/null 2> "$TEST_TMP_DIR/errors"
+  test_run_noninteractive "$home" "$zshenv"'; . "$@"' "$script" \
+    startup "$TEST_TMP_DIR/startup/support/compiled" "$base" "$ZSH_VERSION" .zsh.tools \
+    < /dev/null 2>> "$TEST_TMP_DIR/errors"
+  test_run_noninteractive "$home" "$zshenv"'; . "$@"' "$script" \
+    dump "$TEST_TMP_DIR/dump/support/compiled" "$dump" "$ZSH_VERSION" \
+    < /dev/null 2>> "$TEST_TMP_DIR/errors"
+  for file in "$compiled/manifest" "$TEST_TMP_DIR/startup/support/compiled/manifest" \
+      "$TEST_TMP_DIR/dump/support/compiled/zcompdump.manifest"; do
+    [[ -f $file ]] ||
+      test_fail "${file#$TEST_TMP_DIR/} was not written: $(<"$TEST_TMP_DIR/errors")" || return
+    lines=("${(@f)$(<"$file")}")
+    [[ ${(F)lines} != *(leaked|sentinel)* ]] ||
+      test_fail "${file#$TEST_TMP_DIR/} records a startup file's alias: ${lines[6]-}" || return
+    test_assert_equal "$defaults" "${lines[6]-}" \
+      "${file#$TEST_TMP_DIR/}: the recorded aliases are not Zsh's built-in defaults" || return
+    test_assert_equal "${(F)clean[4,5]}" "${(F)lines[4,5]}" \
+      "${file#$TEST_TMP_DIR/}: the recorded parse options differ from a clean compile" || return
+  done
+  test_assert_equal "${(F)clean[1,6]}" "${(F)${(@f)$(<"$compiled/manifest")}[1,6]}" \
+    'the rebuilt manifest header differs from a clean installation' || return
+  file="$TEST_TMP_DIR/dump/support/compiled/zcompdump.zwc"
+  [[ -f $file && $(<"$file") != *sentinel* ]] ||
+    test_fail 'the dump was not compiled, or was parsed with a startup file alias' || return
+
+  output=$(test_run_interactive "$home" "$zshenv; $probe" 2> "$TEST_TMP_DIR/errors") || return
+  [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$(<"$TEST_TMP_DIR/errors")" || return
+  test_assert_equal "${TEST_REPO_ROOT:A}/.zsh.addons/.zsh.tools" "$output" \
+    'a shell with a startup file alias ran compiled code' || return
+  output=$(test_run_interactive "$home" "$probe" 2> "$TEST_TMP_DIR/errors") || return
+  [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$(<"$TEST_TMP_DIR/errors")" || return
+  test_assert_equal "${compiled:A}/.zsh.addons/.zsh.tools" "$output" \
+    'a shell with only the default aliases did not load the compiled code'
+}
+test_case 'compiled peers: a startup file alias in the compiling zsh -f is never recorded and means text' \
+  _test_compiled_peers_record_only_default_aliases
+
 # Install a copy of the repository with a probe peer into <home>.
 # Sets REPLY to the directory holding the installed shipped peers.
 # Usage: _test_compiled_probe_install <home> <symlink|copy>

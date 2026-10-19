@@ -205,8 +205,9 @@ Both modes also compile the shipped peers with Zsh's `zcompile` into a marked,
 owner-only `~/.zsh.addons/support/compiled` mirror, which cuts warm startup by
 about 20 ms; private peers are never compiled. A shell uses a peer's compiled
 code only while that peer file is unchanged since compilation, the Zsh version
-matches, and your initializer or an earlier private peer has not added aliases
-or changed parse options. Otherwise it loads the peer's text exactly as before,
+matches, and nothing that ran first (a startup file such as `/etc/zshenv`,
+your initializer or an earlier private peer) has added aliases or changed parse
+options. Otherwise it loads the peer's text exactly as before,
 so the mirror changes speed, never behavior. When a shipped peer is new or has
 changed (after `git pull`, an edit or a Zsh update), the next shell recompiles
 just the changed peers into the mirror and uses them at once; it creates a
@@ -220,8 +221,9 @@ The mirror also holds a compiled copy of Zsh's completion dump
 shell compiles the dump into the mirror once the dump is older than the current
 second, and later shells load that copy only while the dump file is provably
 unchanged since then (same file, size and timestamps, not just an mtime
-comparison), the Zsh version matches, and your initializer or an earlier peer
-has not added aliases or changed parse options. Otherwise the dump loads as
+comparison), the Zsh version matches, and nothing that ran first (a startup
+file, your initializer or an earlier peer) has added aliases or changed parse
+options. Otherwise the dump loads as
 text as before. `compinit` still checks
 `fpath` and rewrites the dump at its usual path whenever `fpath` changes.
 

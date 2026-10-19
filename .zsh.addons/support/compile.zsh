@@ -9,13 +9,15 @@
 # Each <base>/<relative> peer gets <mirror>/.zsh.addons/<relative>, a symlink to
 # the peer, and that symlink's .zwc; .zshrc's comment describes how the
 # manifest is checked. zcompile only parses, never runs, a peer. Compilation
-# uses Zsh's default options and aliases, which the manifest records as the
-# parse context, and a 077 umask. A peer is compiled only after the clock has
-# passed its ctime, so any later write moves ctime past the recorded value; a
-# peer that changes while it compiles is left out. A peer over 512 KiB, or one
-# that fails to compile, gets a text record so startup does not retry it until
-# it changes. New wordcode and the manifest are written under temporary names
-# and renamed into place, so an interrupted run leaves nothing a shell uses.
+# uses Zsh's default options and only its built-in aliases (run-help and
+# which-command, whatever /etc/zshenv defined), which the manifest records as
+# the parse context, and a 077 umask. A peer is compiled only after the clock
+# has passed its ctime, so any later write moves ctime past the recorded
+# value; a peer that changes while it compiles is left out. A peer over
+# 512 KiB, or one that fails to compile, gets a text record so startup does
+# not retry it until it changes. New wordcode and the manifest are written
+# under temporary names and renamed into place, so an interrupted run leaves
+# nothing a shell uses.
 #
 # install: <mirror> must not exist; it is created, and every peer is compiled,
 # waiting for the clock where needed. startup: an existing mirror is used only
@@ -35,6 +37,15 @@
 # changed): that new dump is renamed to <dump>, where compinit itself would
 # have written it, or deleted if the rename fails, before anything else.
 emulate -R zsh
+# Zsh reads /etc/zshenv even under zsh -f. Reset the alias tables to Zsh's
+# built-in defaults before reading further, so this file, every compile and
+# the manifest's record share a fixed, public context, never a startup file's
+# aliases; when that fails, write nothing.
+builtin unalias -m '*' 2> /dev/null
+builtin unalias -s -m '*' 2> /dev/null
+builtin alias run-help=man which-command=whence 2> /dev/null
+(( ${#aliases} == 2 && ! ${#galiases} && ! ${#saliases} )) &&
+  [[ ${aliases[run-help]-} == man && ${aliases[which-command]-} == whence ]] || exit 1
 umask 077
 [[ $# -ge 4 && $1 == (install|startup|dump) && $2 == /* && $3 == /* &&
    ( -z $4 || $4 == "$ZSH_VERSION" ) ]] || exit 2
