@@ -752,6 +752,50 @@ _test_usb_worker_progress_reaps_an_aborted_worker() {
 test_case 'USB temporary worker progress reaps an aborted worker and removes its progress file' \
   _test_usb_worker_progress_reaps_an_aborted_worker
 
+# The progress loop removes only the two disclosed progress templates, after a
+# run or invalid arguments alike; any other compozsh-* name it is handed stays.
+_test_usb_worker_progress_removes_only_its_templates() {
+  test_make_temp_dir || return
+  local capture_root="$TEST_TMP_DIR/progress" output=''
+  command mkdir -p "$capture_root" || return
+  output=$(test_run_interactive "$TEST_TMP_DIR/home" '
+    source "$1/.zsh.addons/.zsh.usb" || exit
+    TMPDIR=$2
+    _test_usb_progress_reader() { return 0; }
+    _test_usb_progress_report() {
+      local run_status=$2 file=$3
+      [[ -e $file ]] || file=""
+      print -r -- "$1:${3:t}:$run_status:${file:t}|"
+    }
+    local name=""
+    for name in compozsh-other.Ab12Cd compozsh-usb-iso.Ab12Cd \
+        compozsh-usb-progress.Ab12Cd compozsh-createinstallmedia.Ab12Cd; do
+      : >| "$2/$name" || exit
+      _usb_worker_progress_run "$2/$name" stderr _test_usb_progress_reader -- true
+      _test_usb_progress_report run $? "$2/$name"
+      : >| "$2/$name" || exit
+      _usb_worker_progress_run "$2/$name" invalid
+      _test_usb_progress_report invalid $? "$2/$name"
+    done
+  ' "$TEST_REPO_ROOT" "$capture_root") || return
+
+  local name=''
+  for name in compozsh-other.Ab12Cd compozsh-usb-iso.Ab12Cd; do
+    test_assert_contains "$output" "run:$name:0:$name|" \
+      "the worker loop removed $name after a run" || return
+    test_assert_contains "$output" "invalid:$name:2:$name|" \
+      "the worker loop removed $name after invalid arguments" || return
+  done
+  for name in compozsh-usb-progress.Ab12Cd compozsh-createinstallmedia.Ab12Cd; do
+    test_assert_contains "$output" "run:$name:0:|" \
+      "the worker loop left its own $name after a run" || return
+    test_assert_contains "$output" "invalid:$name:2:|" \
+      "the worker loop left its own $name after invalid arguments" || return
+  done
+}
+test_case 'USB temporary worker progress removes only its two disclosed templates' \
+  _test_usb_worker_progress_removes_only_its_templates
+
 _test_usb_result_dispatch_preserves_media_and_status() {
   test_make_temp_dir || return
   local output=''

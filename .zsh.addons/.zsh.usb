@@ -2557,8 +2557,9 @@ _usb_write_geometry() {
 }
 
 # Runs one native USB worker in the background with its output in the
-# caller's new owner-only `progress_file`, a compozsh-* file directly in
-# TMPDIR, and removes that file on every exit, invalid arguments included.
+# caller's new owner-only `progress_file`, a `compozsh-usb-progress.*` or
+# `compozsh-createinstallmedia.*` file directly in TMPDIR, and removes that
+# file on every exit, invalid arguments included; any other name stays.
 # The file captures standard error (`stderr`, standard output stays the
 # caller's) or both streams (`both`). While the worker runs, `reader` gets
 # `running`, the file and its own arguments every quarter second, and once
@@ -2603,7 +2604,7 @@ _usb_worker_progress_run() {
       builtin kill -INT $worker 2>/dev/null
       wait $worker 2>/dev/null
     fi
-    if [[ ${progress_file:t} == compozsh-?*.?* &&
+    if [[ ${progress_file:t} == compozsh-(usb-progress|createinstallmedia).?* &&
           ${progress_file:h:A} == ${temp_root:A} ]]; then
       command /bin/rm -f -- "$progress_file"
     fi

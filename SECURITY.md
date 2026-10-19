@@ -1435,9 +1435,11 @@ calls immediately after `mktemp`. Each block removes the exact path `mktemp`
 returned, on normal return, handled failure or an interrupt that unwinds Zsh,
 after checking that the name sits directly in `${TMPDIR:-/tmp}` and starts
 with its own `compozsh-usb-iso.` or `compozsh-usb-inspect.` prefix or, in the
-worker loop, with `compozsh-`. An interrupt between a `mktemp` call and the
-start of that block can leave the name; for the progress files that window
-includes entering the worker loop. Progress views first wait for their
+worker loop, with either progress prefix, `compozsh-usb-progress.` or
+`compozsh-createinstallmedia.`; the loop leaves any other name it is handed in
+place. An interrupt between a `mktemp` call and the start of that block can
+leave the name; for the progress files that window includes entering the
+worker loop. Progress views first wait for their
 native worker to exit, because a command started with `&` while the `MONITOR`
 option is off ignores `SIGINT` (`man zshmisc`, SIGNALS). A second interrupt
 during that wait skips the rest of the worker loop's `always` block: the
@@ -1475,7 +1477,8 @@ of their `mktemp` calls.
 `dd` and `createinstallmedia` to check removal after success and handled
 failure, and each name and mode while it exists, for every name except
 `compozsh-usb-iso.*` (removal only; `tar` has no stand-in seam); the
-`diskutil` stand-in sees no file at all.
+`diskutil` stand-in sees no file at all. It also checks that the worker loop
+leaves another `compozsh-*` name in place.
 `zsh tests/run.zsh 'ISO inspection'` covers the failed-detach
 retry and a later refused inspection.
 `zsh tests/run.zsh 'external-media temporary'` fails when a
