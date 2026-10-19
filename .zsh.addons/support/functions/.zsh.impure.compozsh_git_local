@@ -14,11 +14,12 @@
 # that file as com.apple.git. Later calls, in subshells too, run it directly
 # while the selectors and the file's identity still match; any change runs
 # /usr/bin/git. compozsh --refresh forgets it.
-# Without Apple's developer tools, running /usr/bin/git or /usr/bin/xcrun makes
-# macOS offer to install them. `available` fails then (and when PATH has no
-# Git), so passive readers such as the prompt and Search skip Git, and
-# `resolve` never asks xcrun; a call the user started still runs the launcher.
-# The shared _compozsh_developer_dir decides, and a missing one counts as none.
+# On macOS without Apple's developer tools, running /usr/bin/git or
+# /usr/bin/xcrun makes macOS offer to install them. `available` fails then (and
+# when PATH has no Git), so passive readers such as the prompt and Search skip
+# Git, and `resolve` never asks xcrun; a call the user started still runs the
+# launcher. The shared _compozsh_developer_dir decides, and a missing one counts
+# as none. Elsewhere /usr/bin/git is an ordinary Git and nothing is gated.
 # Usage: _compozsh_git_local <root|inherit> <dir> [--exec] [--] <git-arguments...>
 #        _compozsh_git_local resolve|available
 _compozsh_git_local() {
@@ -32,7 +33,7 @@ _compozsh_git_local() {
   if (( $# == 1 )) && [[ $1 == available ]]; then
     [[ -n ${commands[git]-} ]] || return 1
     [[ ${commands[git]} != /usr/bin/git ]] && return 0
-    (( ${+functions[_compozsh_developer_dir]} )) && _compozsh_developer_dir
+    _compozsh_git_local_launcher_ready
     return
   fi
   (( $# >= 2 )) && [[ $1 == (root|inherit) ]] || return 2
@@ -59,6 +60,15 @@ _compozsh_git_local() {
   command "$git_binary" --no-pager --no-replace-objects -C "$dir" \
     -c core.fsmonitor=false -c core.untrackedCache=false \
     -c core.hooksPath=/dev/null -c log.showSignature=false "$@"
+}
+
+# Only on macOS is /usr/bin/git Apple's launcher, which needs a developer
+# directory (or offers to install one); elsewhere it is an ordinary Git.
+_compozsh_git_local_launcher_ready() {
+  emulate -L zsh
+  local REPLY=''
+  [[ $OSTYPE == darwin* ]] || return 0
+  (( ${+functions[_compozsh_developer_dir]} )) && _compozsh_developer_dir
 }
 
 # The selectors that choose the Git /usr/bin/git starts: the PATH choice, the
@@ -117,13 +127,13 @@ _compozsh_git_local_direct() {
 
 # Resolve once per shell and selector set, in the parent shell only: a memo
 # written in a subshell would die with it. A refusal is remembered too, so a
-# failing check never repeats at every prompt. Without developer tools xcrun
-# would offer to install them, so nothing is asked or remembered.
+# failing check never repeats at every prompt. On macOS without developer
+# tools xcrun would offer to install them, so nothing is asked or remembered.
 _compozsh_git_local_resolve() {
   emulate -L zsh
   local key='' found='' identity=''
   (( ZSH_SUBSHELL == 0 )) && [[ ${commands[git]-} == /usr/bin/git ]] || return 1
-  (( ${+functions[_compozsh_developer_dir]} )) && _compozsh_developer_dir || return 1
+  _compozsh_git_local_launcher_ready || return 1
   zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
   _compozsh_git_local_key
   key=$REPLY

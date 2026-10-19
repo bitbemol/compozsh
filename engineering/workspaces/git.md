@@ -167,13 +167,15 @@ focus.
   match, and `/usr/bin/git` otherwise. A subshell never resolves, a refusal is
   remembered per selector set, and `compozsh --refresh` forgets it
   ([SECURITY.md](../../SECURITY.md#local-only-git-controls)).
-- Without Apple's developer tools, running `/usr/bin/git` or `xcrun` makes
-  macOS offer to install them, so passive reads never do. `_compozsh_git_local
-  available` fails when `PATH` has no Git, or selects `/usr/bin/git` while
-  the shared `_compozsh_developer_dir` entry (file tests only, mirroring the
-  launcher's search; the test seam) is missing or finds no developer
-  directory; the prompt then shows no Git context and Search picks a non-Git
-  default, and `resolve` runs no `xcrun` and remembers nothing. The prompt's
+- On macOS without Apple's developer tools, running `/usr/bin/git` or `xcrun`
+  makes macOS offer to install them, so passive reads never do.
+  `_compozsh_git_local available` fails when `PATH` has no Git, or, where
+  `OSTYPE` is Darwin, selects `/usr/bin/git` while the shared
+  `_compozsh_developer_dir` entry (file tests only, mirroring the launcher's
+  search; the test seam) is missing or finds no developer directory; the
+  prompt then shows no Git context and Search picks a non-Git default, and
+  `resolve` runs no `xcrun` and remembers nothing. Elsewhere `/usr/bin/git` is
+  an ordinary Git, which passive reads run as usual. The prompt's
   runtime probes use the same entry
   ([prompt](../prompt.md#project-and-runtime-context)). Git the user starts
   (`g`, `git`, the workspaces, an explicit Git Search, discard) still runs the

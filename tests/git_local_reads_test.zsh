@@ -682,3 +682,58 @@ probe missing: status 1 none' "status:$exit_status"$'\n'"$output" \
 }
 test_case 'passive Git reads never start the launcher or xcrun without developer tools' \
   _test_git_launcher_without_developer_tools
+
+# Only on macOS is /usr/bin/git Apple's launcher; elsewhere it is an ordinary
+# Git. With the platform seam (OSTYPE, as the runtime gate reads it) set to
+# Linux and no developer directory, the prompt's Git summary and Search's
+# default provider still run /usr/bin/git; the Darwin row is the control that
+# keeps the gate. The direct-run seam (_compozsh_git_local_direct) hands the
+# entry a recording stand-in in place of /usr/bin/git and the xcrun seam fails,
+# so neither a real Git nor xcrun runs, and the fixture repository is files.
+_test_git_launcher_gate_is_darwin_only() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/sh
+printf "%s\n" "$*" >> "$HOME/stand-in"
+case " $* " in
+  *" config "*) exit 1 ;;
+  *" --porcelain=v2 "*) printf "# branch.oid 0123456789abcdef0123456789abcdef01234567\n# branch.head stand-in\n" ;;
+  *" --is-inside-work-tree "*) printf "true\n" ;;
+  *" --absolute-git-dir "*) printf "%s/.git\n" "$PWD" ;;
+esac
+exit 0' || return
+  command chmod +x "$TEST_TMP_DIR/bin/git" || return
+  test_write_file "$TEST_TMP_DIR/home/repository/.git/HEAD" 'ref: refs/heads/main' || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH=/usr/bin:/bin
+    local repo="$HOME/repository" stand_in="$2/git" name=""
+    local -a report=()
+    for name in prompt find tools; do source "$1/.zsh.addons/.zsh.$name" || exit 1; done
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    [[ ${commands[git]-} == /usr/bin/git ]] || exit 2
+    _compozsh_developer_dir() { return 1; }
+    _compozsh_git_local_find() { return 1; }
+    _compozsh_git_local_direct() { REPLY=$stand_in; }
+    _platform_row() {
+      local OSTYPE=$1 provider="" ran=""
+      : > "$HOME/stand-in"
+      _tools_refresh
+      builtin cd "$repo" || exit 3
+      _prompt_git
+      _file_search_default_provider "$repo"; provider=$REPLY
+      [[ -s $HOME/stand-in ]] && ran=ran || ran="never ran"
+      report+=("$1: prompt ${_PROMPT_GIT_TEXT:-none}, Search $provider, /usr/bin/git $ran")
+    }
+    _platform_row darwin25.0
+    _platform_row linux-gnu
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+darwin25.0: prompt none, Search local, /usr/bin/git never ran
+linux-gnu: prompt stand-in no-upstream, Search git, /usr/bin/git ran' \
+    "status:$exit_status"$'\n'"$output" \
+    'outside macOS a passive Git read skipped /usr/bin/git without developer tools'
+}
+test_case 'passive Git reads still run /usr/bin/git outside macOS without developer tools' \
+  _test_git_launcher_gate_is_darwin_only

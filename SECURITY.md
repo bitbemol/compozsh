@@ -1655,9 +1655,9 @@ another remote operation.
   (expected: no output, status 0).
 - **Missing developer tools.** Without Xcode or the Command Line Tools,
   running one of Apple's `/usr/bin` launchers, such as `git`, `xcrun`, the
-  compilers, `swift` or `python3`, makes macOS offer to install them. Three
-  passive reads first look for a developer directory the way the launcher
-  does, with file tests only (`_compozsh_developer_dir`): an exported,
+  compilers, `swift` or `python3`, makes macOS offer to install them. On
+  macOS, three passive reads first look for a developer directory the way the
+  launcher does, with file tests only (`_compozsh_developer_dir`): an exported,
   non-empty `DEVELOPER_DIR`, else the first xcode-select link
   (`/var/select/developer_dir`, `/var/db/xcode_select_link`,
   `/usr/share/xcode-select/xcode_dir_link`), else Xcode, the Command Line Tools
@@ -1673,7 +1673,8 @@ another remote operation.
   runtimes again. Git you start yourself (`g`, `git`, the Git workspaces, an
   explicitly chosen Git Search, `g --discard-all`) still runs `/usr/bin/git`,
   which may bring up the offer, and a Git or runtime elsewhere on `PATH` is
-  unaffected. Inspect
+  unaffected. On other systems `/usr/bin/git` is an ordinary Git and these
+  reads run it as usual. Inspect
   `.zsh.addons/support/functions/.zsh.impure.compozsh_developer_dir` and its
   callers in `.zsh.impure.compozsh_git_local` and
   `.zsh.impure.prompt_runtime_version`. Without running any launcher,
