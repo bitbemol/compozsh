@@ -266,3 +266,193 @@ xcode-accept:0:released' "$output"
 }
 test_case 'view state: USB browse, Git review and xcode leave no picker state behind' \
   _test_view_state_usb_review_xcode_journeys
+
+# Views reach the picker engine only through _zle_ui_view, which scopes every
+# view default to its configure function's call (engineering/architecture.md,
+# shared behavior ownership). The scan prints one record per statement in
+# FILES that names a word of NAMES, skipping comments, function heads and
+# ${+functions[...]} capability tests:
+#   opens FILE FUNCTION NAME    NAME is _zle_ui_view's configure argument
+#   view FILE FUNCTION NAME     FUNCTION is a configure function
+#   session FILE FUNCTION NAME  _zle_picker_run given a session controller,
+#                               which opens the screen that its views share
+#   other FILE:LINE FUNCTION NAME
+# Configure functions are the words after `_zle_ui_view KIND`; -c adds them
+# to NAMES. Names built at run time ("$callback") are invisible to the scan.
+# Usage: _view_state_engine_references [-c] NAMES FILE...
+_view_state_engine_references() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local -i add_configures=0 number=0 start=0 index=0
+  [[ $1 == -c ]] && { add_configures=1; shift; }
+  local file='' line='' statement='' trimmed='' function_name='' word='' rest=''
+  local record='' scan='' kind='' shown=''
+  local -a records=() found=() words=() arguments=()
+  local -A names=() configures=()
+  for word in ${(s: :)1}; do
+    names[$word]=1
+  done
+  shift
+  for file in "$@"; do
+    number=0 statement='' function_name=''
+    for line in "${(@f)$(<"$file")}"; do
+      (( ++number ))
+      [[ -z $statement ]] && start=$number
+      trimmed=${line##[[:space:]]#}
+      [[ -z $statement && $trimmed == \#* ]] && continue
+      [[ -z $statement && $line == [A-Za-z_][A-Za-z0-9_-]#'() {'* ]] &&
+        function_name=${line%%'() {'*}
+      if [[ $line == *\\ ]]; then
+        statement+="${trimmed%\\} "
+        continue
+      fi
+      statement+=$trimmed
+      records+=("${file#$TEST_REPO_ROOT/}"$'\t'$start$'\t'$function_name$'\t'$statement)
+      rest=$statement
+      while [[ $rest == *_zle_ui_view* ]]; do
+        rest=${rest#*_zle_ui_view}
+        [[ $rest == (#b)[[:space:]]##[^[:space:]]##[[:space:]]##([A-Za-z_][A-Za-z0-9_]#)(|[^A-Za-z0-9_]*) ]] &&
+          configures[$match[1]]=1
+      done
+      [[ $line == \}* || ( $line == [A-Za-z_]*'() {'* && $line == *'}' ) ]] &&
+        function_name=''
+      statement=''
+    done
+  done
+  (( add_configures )) && for word in ${(k)configures}; do names[$word]=1; done
+  for record in "${records[@]}"; do
+    shown=${record%%$'\t'*} rest=${record#*$'\t'}
+    start=${rest%%$'\t'*} rest=${rest#*$'\t'}
+    function_name=${rest%%$'\t'*} statement=${rest#*$'\t'}
+    scan=${statement//functions\[[A-Za-z0-9_]##\]/}
+    [[ $scan == [A-Za-z_][A-Za-z0-9_-]#'() {'* ]] && scan=${scan#*'() {'}
+    found=()
+    for word in ${(s: :)${scan//[^A-Za-z0-9_]/ }}; do
+      (( ${+names[$word]} )) && found+=("$word")
+    done
+    for word in ${(u)found}; do
+      if [[ $statement == *_zle_ui_view[[:space:]]##[^[:space:]]##[[:space:]]##$word(|[^A-Za-z0-9_]*) ]]; then
+        kind=opens
+      elif (( ${+configures[$function_name]} )); then
+        kind=view
+      else
+        kind=other
+        if [[ $word == _zle_picker_run ]]; then
+          words=(${(z)statement})
+          index=${words[(ie)_zle_picker_run]}
+          arguments=("${(@)words[index+1,index+5]}")
+          (( ${#arguments} == 5 )) && [[ -z ${(M)arguments:#[\;\&\|\)\}]##} &&
+            ${arguments[5]} == [A-Za-z_][A-Za-z0-9_]# ]] && kind=session
+        fi
+      fi
+      if [[ $kind == other ]]; then
+        print -r -- "other $shown:$start ${function_name:-<top level>} $word"
+      else
+        print -r -- "$kind $shown $function_name $word"
+      fi
+    done
+  done
+}
+
+_test_view_state_engine_calls_go_through_views() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  test_make_temp_dir || return
+  local fixture="$TEST_TMP_DIR/.zsh.fixture" found='' expected='' entry='' shown=''
+  local -a files=() lines=() helpers=() unexpected=()
+  test_write_file "$fixture" '_fixture_open() {
+  _zle_ui_view choice _fixture_view "$@"
+}
+_fixture_view() {
+  # A comment that names _zle_picker_loop is not a call.
+  (( ${+functions[_zle_picker_loop]} )) || return 1
+  _fixture_pick 10
+  _zle_picker_loop '"''"' 10
+}
+_fixture_pick() {
+  _zle_picker_loop --bookmark bookmark "$1"
+}
+_fixture_session() {
+  _zle_picker_run 10 '"''"' 1 \
+    0 _fixture_controller
+}
+_fixture_controller() {
+  _fixture_open && _fixture_view
+}
+_fixture_direct() {
+  if _zle_picker_loop "$1" 10; then return 0; fi
+  REPLY=$(_zle_picker_run 10 '"''"')
+}' || return
+  found=$(_view_state_engine_references -c '_zle_picker_loop _zle_picker_run _fixture_pick' "$fixture")
+  shown=${fixture#$TEST_REPO_ROOT/}
+  found=${found//"$shown"/fixture}
+  expected='opens fixture _fixture_open _fixture_view
+view fixture _fixture_view _fixture_pick
+view fixture _fixture_view _zle_picker_loop
+other fixture:11 _fixture_pick _zle_picker_loop
+session fixture _fixture_session _zle_picker_run
+other fixture:18 _fixture_controller _fixture_view
+other fixture:21 _fixture_direct _zle_picker_loop
+other fixture:22 _fixture_direct _zle_picker_run'
+  test_assert_equal "$expected" "$found" 'view entry scan reported the wrong sites' || return
+
+  # Helpers that call the engine inside a view they do not configure. Each
+  # entry is FILE FUNCTION; the scan below checks that every reference to it
+  # sits in a configure function or in another helper listed here.
+  local -a allowed=(
+    # One bookmarked pass shared by Browse (_directory_browser_view) and its
+    # Folder actions (_directory_browser_actions_view), which configure it.
+    '.zsh.addons/.zsh.editor _directory_browser_pick'
+    # Bare g's branch session hands its view to Git review, which adds the
+    # review options to the view _git_branch_view configured.
+    '.zsh.addons/.zsh.git-review _git_review_branch_choose'
+    # The tool catalog's session controller: _compozsh_view configures the
+    # view and runs it in place or through _zle_picker_run.
+    '.zsh.addons/.zsh.help _compozsh_browse_loop'
+    # Bare g's session controller, which _git_branch_view runs through
+    # _zle_picker_run inside its own view.
+    '.zsh.addons/.zsh.navigation _git_branch_session'
+    # One pass of the image browser, repeated by _usb_browse_image_path_view
+    # inside its own view.
+    '.zsh.addons/.zsh.usb _usb_browse_choose'
+  )
+  helpers=(${allowed##* })
+  files=("$TEST_REPO_ROOT/.zshrc" "$TEST_REPO_ROOT"/.zsh.addons/**/.zsh.?*(N.))
+  files=(${files:#$TEST_REPO_ROOT/.zsh.addons/support/(ui|cache|compiled)/*})
+  (( ${#files} > 40 )) || { test_fail 'peer file inventory is unexpectedly small'; return 1; }
+  found=$(_view_state_engine_references -c "_zle_picker_loop _zle_picker_run ${helpers[*]}" "${files[@]}")
+  # Guard against a vacuous scan: most views and every workspace session.
+  lines=(${(M)${(f)found}:#view * _zle_picker_loop})
+  (( ${#lines} >= 20 )) || { test_fail "the scan found only ${#lines} view loops"; return 1; }
+  lines=(${(M)${(f)found}:#session *})
+  (( ${#lines} >= 10 )) || { test_fail "the scan found only ${#lines} workspace sessions"; return 1; }
+  # A direct engine call outside a view must open one through _zle_ui_view.
+  for entry in ${(M)${(f)found}:#other * _zle_picker_(loop|run)}; do
+    entry=${${entry#other }% *}
+    (( ${allowed[(Ie)${entry/:<-> / }]} )) || unexpected+=("$entry")
+  done
+  (( ! ${#unexpected} )) || {
+    test_fail "a peer calls the picker engine outside a _zle_ui_view view (engineering/architecture.md):"$'\n'"${(F)unexpected}"
+    return 1
+  }
+  for entry in "${allowed[@]}"; do
+    lines=(${(M)${(f)found}:#other ${entry% *}:<-> ${entry##* } _zle_picker_(loop|run)})
+    (( ${#lines} )) ||
+      { test_fail "allowlisted engine caller no longer calls the engine: $entry"; return 1; }
+  done
+  # Allowlisted helpers run only inside views, and configure functions only
+  # through _zle_ui_view, so neither runs the engine outside a view's scope.
+  for entry in ${${(f)found}:#* _zle_picker_(loop|run)}; do
+    if (( ${helpers[(Ie)${entry##* }]} )); then
+      [[ $entry == (opens|view)\ * ]] && continue
+      [[ $entry == other\ * ]] && (( ${helpers[(Ie)${${entry% *}##* }]} )) && continue
+    else
+      [[ $entry == opens\ * ]] && continue
+    fi
+    unexpected+=("$entry")
+  done
+  (( ! ${#unexpected} )) ||
+    test_fail "a view helper or configure function runs outside _zle_ui_view:"$'\n'"${(F)unexpected}"
+}
+test_case 'view state: peers reach the picker engine only through _zle_ui_view views' \
+  _test_view_state_engine_calls_go_through_views
