@@ -152,6 +152,10 @@ _test_branch_catalog_row_bound() {
     [[ $_ZLE_PICKER_BROWSE_LABEL == *partial* ]] || exit 9
     _git_branch_collect qqq 10
     [[ $_ZLE_PICKER_EMPTY_LABEL == *captured* ]] || exit 10
+    [[ $_ZLE_PICKER_BROWSE_LABEL == *partial* && $_ZLE_PICKER_INSPECT_ACTION == switch ]] || {
+      print -u2 -r -- "no-match label: $_ZLE_PICKER_BROWSE_LABEL; action: $_ZLE_PICKER_INSPECT_ACTION"
+      exit 14
+    }
     [[ $(_git_branch_stack_print) == *$'\''\nPartial: captured branches only'\''* ]] || exit 13
     print bounded
   ' "$TEST_REPO_ROOT") || return

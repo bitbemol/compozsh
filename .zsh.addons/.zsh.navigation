@@ -370,7 +370,9 @@ _git_branch_collect() {
   fi
   _ZLE_PICKER_EMPTY_LABEL=$empty
   _ZLE_PICKER_WORKSPACE_ACTIONS=$(( ${+functions[_git_review_branch_choose]} ))
-  if (( !${#_ZLE_PICKER_RESULTS} )); then
+  # A partial catalog keeps its local label and action: it cannot rule out a
+  # local branch, so the remote fallback stays off and only the notice shows.
+  if (( !${#_ZLE_PICKER_RESULTS} && !${_GIT_RECENT_PARTIAL:-0} )); then
     local -a _ZLE_UI_CHOICE_VALUES=("${_GIT_BRANCH_REMOTE_VALUES[@]}")
     local -a _ZLE_UI_CHOICE_LABELS=("${_GIT_BRANCH_REMOTE_LABELS[@]}")
     local -a _ZLE_UI_CHOICE_SEARCH_LABELS=()
@@ -380,6 +382,8 @@ _git_branch_collect() {
     _ZLE_PICKER_BROWSE_LABEL='known remote-tracking refs · captured locally'
     _ZLE_PICKER_EMPTY_LABEL=${_GIT_BRANCH_REMOTE_NOTICE:-$empty}
     (( ${#_ZLE_PICKER_RESULTS} )) && _ZLE_PICKER_WORKSPACE_ACTIONS=0
+  elif (( !${#_ZLE_PICKER_RESULTS} )); then
+    _ZLE_PICKER_EMPTY_LABEL=${_GIT_BRANCH_REMOTE_NOTICE:-$empty}
   fi
   # Filtering selects the first row; without matches the pane keeps its entry.
   (( ${#_ZLE_PICKER_RESULTS} )) && _git_branch_inspect_select "$_ZLE_PICKER_RESULTS[1]"
