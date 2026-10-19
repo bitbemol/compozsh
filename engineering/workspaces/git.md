@@ -69,8 +69,9 @@ signed reflog never runs a configured verifier.
 - `g --worktree` is the sole worktree entry. `.zsh.git-worktree` owns capture,
   temporary choices and actions; `g` keeps its recent-branch default and
   transparent Git arguments.
-- Reuse the navigation fuzzy collector and shared UI (text entry, keys, guide,
-  focus, screen lifecycle). Options consume the selected registered path.
+- Reuse the shared choice collector (`_zle_ui_collect_choices` through
+  `_zle_ui_choices`) and shared UI (text entry, keys, guide, focus, screen
+  lifecycle). Options consume the selected registered path.
   Creation composes branch, captured start commit and new folder into one
   explicit action after restoration; parent browsing uses the hierarchy keys;
   Back preserves caller bookmarks.
