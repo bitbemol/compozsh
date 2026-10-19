@@ -128,12 +128,18 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   directory) only under its disclosed freshness, ownership, version and
   parse-context checks, so compiled code never differs from the peer's current
   text; private peers are never compiled, and discovery never sources `.zwc`
-  files. Only `support/compile.zsh` writes the mirror, in a separate `zsh -f`
-  that parses and never runs peers: for the installer, at startup for the
-  discovered shipped peers lacking a fresh record, and after `compinit` for
-  the completion dump, only into a missing or
-  user-owned, marked, owner-only mirror, under a lock, through atomic renames
-  and within a time and size bound; every failure means text. Two native mechanisms sit
+  files. `support/compile.zsh` is Compozsh's only writer of the mirror, in a
+  separate `zsh -f` that parses and never runs peers: for the installer, at
+  startup for the discovered shipped peers lacking a fresh record, and after
+  `compinit` for the completion dump, only into a missing or user-owned,
+  marked, owner-only mirror, under a lock, through atomic renames and within a
+  time and size bound; every failure means text. The one other writer is
+  stock `compdump`: when `compinit` was given the compiled copy but must rewrite
+  its dump, it writes `zcompdump.<host>.<pid>` in the mirror under the user's
+  umask and renames it over the `zcompdump` entry, and `.zsh.editor` has
+  `compile.zsh` move it to the usual dump path (or delete it) at once; a
+  rewritten dump left at the entry is never loaded as the compiled copy, and
+  the next dump compile replaces it with the symlink. Two native mechanisms sit
   outside that list: Zsh's stock functions autoloaded from `fpath` (such as
   `compinit` and `add-zle-hook-widget`), and stock `compinit`'s sourcing of its
   configuration-base dump. Keep `compinit`'s full audit and its usual dump

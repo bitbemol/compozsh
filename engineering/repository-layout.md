@@ -71,16 +71,22 @@ compozsh/
   use it; installs never copy generated source caches, normal updates preserve
   destination caches, and `--clean` archives them with the add-on tree.
 - `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled/` is the marked, owner-only
-  compiled mirror of the shipped peers (never private peers) and of Zsh's
-  completion dump, never discovered as peers. Only
+  compiled mirror of the shipped peers (every regular `.zsh.<name>` file in
+  the shared add-on directory, tracked or not; never private peers) and of
+  Zsh's completion dump, never discovered as peers. Of Compozsh's code only
   `.zsh.addons/support/compile.zsh`, run in a separate `zsh -f`, writes it:
   every installation rebuilds it in both layouts, interactive startup
   recompiles just the shipped peers without a fresh record (creating a missing
   mirror) and drops the entry, wordcode and record of a removed or renamed
   one, and `.zsh.editor` compiles a new or changed dump after `compinit`,
-  under a lock with atomic renames and a time box. `--clean`
-  archives it with the add-on tree, `compozsh --refresh` never writes it, and
-  deleting it is always safe. Its format and checks are in
+  under a lock with atomic renames and a time box. The one other writer is
+  stock `compdump`: when `compinit` was given the compiled copy but must rewrite
+  its dump, it stages `zcompdump.<host>.<pid>` there and renames it over the
+  `zcompdump` entry, and `.zsh.editor` has `compile.zsh` move it to the usual
+  dump path (or delete it) at once; a rewritten dump left at the entry is
+  never loaded as the compiled copy. `--clean` archives the mirror with the
+  add-on tree, `compozsh --refresh` never writes it, and deleting it is always
+  safe. Its format and checks are in
   [Bootstrap and loading](#bootstrap-and-loading) and SECURITY.md.
 - `README.md` is user-facing documentation synchronized with visible behavior,
   keys, installation, extension points and safety guarantees. Its **Shipped
@@ -163,7 +169,7 @@ directory once. Discovery collects every file before sourcing any, under fixed
 Zsh options (`emulate -LR zsh`), so glob options set by the initializer or a
 peer cannot change the set: the `.zsh.` prefix matches case-sensitively, hidden
 folders are never searched and nested directory symlinks are never followed.
-Peers are then sourced at top level. A shared peer listed in the installer's
+Peers are then sourced at top level. A shared peer listed in the
 compiled mirror is sourced through its mirror entry (a symlink to the peer,
 beside the peer's `.zwc`) only while the mirror passes the checks `.zshrc`
 documents and SECURITY.md discloses: ownership, Zsh version, the exact peer

@@ -201,21 +201,25 @@ same name. `--clean` touches only `.zshrc` and `.zsh.addons`, never `.zshenv`,
 `.zprofile`, `.zlogin`, `.zlogout`, Zsh's `.zcompdump`, the repository or
 exported agent skills.
 
-Both modes also compile the shipped peers with Zsh's `zcompile` into a marked,
-owner-only `~/.zsh.addons/support/compiled` mirror, which cuts warm startup by
-about 20 ms; private peers are never compiled. A shell uses a peer's compiled
-code only while that peer file is unchanged since compilation, the Zsh version
-matches, and nothing that ran first (a startup file such as `/etc/zshenv`,
-your initializer or an earlier private peer) has added aliases or changed parse
-options. Otherwise it loads the peer's text exactly as before,
-so the mirror changes speed, never behavior. When a shipped peer is new or has
-changed (after `git pull`, an edit or a Zsh update), the next shell recompiles
-just the changed peers into the mirror and uses them at once; it creates a
-missing mirror the same way, and drops the compiled copy of a shipped peer
-that was removed or renamed. Compiling only parses a peer, never runs it, and
-stops starting new peers after about 300 ms, so a large update can take a few
-shells; a peer over 512 KiB stays text. Each installation rebuilds the mirror;
-deleting it is always safe, and `--clean` archives it with the add-on tree.
+Both modes also compile the shipped peers, every regular `.zsh.<name>` file in
+the shared add-on directory, tracked or not (the clone's `.zsh.addons` for
+`--symlink`, the `compozsh/` namespace for `--copy`), with Zsh's `zcompile`
+into a marked, owner-only `~/.zsh.addons/support/compiled` mirror, which cuts
+warm startup by about 20 ms. Private peers in `~/.zsh.addons` are never
+compiled, so keep personal code there: it always loads as text. A shell uses a
+peer's compiled code only while that peer file is unchanged since compilation,
+the Zsh version matches, and nothing that ran first (a startup file such as
+`/etc/zshenv`, your initializer or an earlier private peer) has added aliases
+or changed parse options. Otherwise it loads the peer's text exactly as
+before, so the mirror changes speed, never behavior. When a shipped peer is
+new or has changed (after `git pull`, an edit or a Zsh update), the next shell
+recompiles just the changed peers into the mirror and uses them at once; it
+creates a missing mirror the same way, and drops the compiled copy of a
+shipped peer that was removed or renamed. Compiling only parses a peer, never
+runs it, and stops starting new peers after about 300 ms, so a large update
+can take a few shells; a peer over 512 KiB stays text. Each installation
+rebuilds the mirror; deleting it is always safe, and `--clean` archives it
+with the add-on tree.
 
 The mirror also holds a compiled copy of Zsh's completion dump
 (`~/.zcompdump`), which saves about 5 ms more. After `compinit` has run, a
@@ -224,9 +228,9 @@ second, and later shells load that copy only while the dump file is provably
 unchanged since then (same file, size and timestamps, not just an mtime
 comparison), the Zsh version matches, and nothing that ran first (a startup
 file, your initializer or an earlier peer) has added aliases or changed parse
-options. Otherwise the dump loads as
-text as before. `compinit` still checks
-`fpath` and rewrites the dump at its usual path whenever `fpath` changes.
+options. Otherwise the dump loads as text as before. `compinit` still checks
+`fpath` and rewrites the dump whenever `fpath` changes; a dump it rewrites
+while using the compiled copy is moved back to its usual path at once.
 
 ## Apply changes
 
