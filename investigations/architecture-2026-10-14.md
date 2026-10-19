@@ -1,10 +1,13 @@
 # Architecture pass, 2026-10-14
 
-> **Status (2026-10-18): complete.** All six phases, the project-rule commits
+> **Status (2026-10-19): complete.** All six phases, the project-rule commits
 > and a final security and contract review with before/after measurements
-> ran on branch `architecture/2026-10-14`. Open items are the non-blocking
-> review findings, two owner questions, a proposed CLAUDE.md change and the
-> manual Terminal.app checks, listed below.
+> ran on branch `architecture/2026-10-14`. The owner then answered the
+> final-review questions, and a follow-up batch landed in 16 commits after
+> two more review rounds (see [Follow-ups](#follow-ups-after-the-final-review)).
+> The branch was then fast-forwarded into the local `main`, not pushed.
+> Open items are the remaining non-blocking findings, a proposed CLAUDE.md
+> change and the manual Terminal.app checks, listed below.
 
 ## Summary
 
@@ -493,6 +496,69 @@ only, F03 and F05 tests only, and F06 one collector branch in
 | `c9a6416` | F07 (CON-C-02) | Return 1, not 130, when Escape cancels Xcode's Run product choice |
 | `fe442d8` | F08 (CON-B-02) | Name the shared choice collector in the worktree contract |
 | `3056c45` | F09 (CON-B-03) | Record the engine-held Git guide paragraphs as a known exception |
+### Follow-ups after the final review
+
+The owner chose "Fix follow-ups, then PR" on 2026-10-18 (Owner decisions),
+then changed the delivery: "we dont need the pr, we can push to main, but do
+not push wait for me to push, just make the commit on main and i can check it
+tomorrow". So no pull request was opened. The branch was fast-forwarded into
+the local `main`, and nothing was pushed.
+
+The batch ran in five steps:
+
+1. **FU-01 to FU-08** ran in two parallel worktree lanes and landed on the
+   first attempt. The integrated suite passed 1,141 with 0 failures.
+2. **A security and contract review** of those eight commits found three
+   blocking items, which FU-09 fixed:
+   - a README claim that only Git could bring up the developer-tools offer;
+   - a README mock label;
+   - a compile-child count in the security contract.
+3. **FU-10** fixed three issues FU-09's agent reported: a non-macOS
+   regression of the Git gate, `.zsh_sessions/`, and Apple's `java` stub.
+4. **A second review** of FU-09 and FU-10 found one blocking item, which
+   FU-11 fixed: a `PATH` link to `/usr/bin/git` skipped the developer-tools
+   gate.
+5. **Instead of a third review round,** the orchestrator reviewed FU-11's
+   diff itself, so the review cycle would converge.
+
+Every unit was test-first, with red evidence quoted in its commit or report.
+The final full suite passed 1,145 with 0 failures.
+
+| Commit | Unit (findings) | Subject |
+| --- | --- | --- |
+| `e95015b` | FU-01 (SEC-A-03, CON-A-03) | Compile with Apple's /bin/zsh from / and skip mismatched shells |
+| `9c8e3f1` | FU-02 (SEC-A-08, CON-A-06, SEC-A-06, CON-A-04) | Ignore the compiled mirror in Git and bound the install clock wait |
+| `7199e9c` | FU-03 (SEC-A-05) | Recheck each compiled peer's identity just before sourcing it |
+| `dedae56` | FU-04 (SEC-A-07, SEC-A-09, CON-A-05, SEC-B-04, CON-B-07, CON-A-07, CON-A-09, CON-A-10) | Correct the compiled-mirror, shared Git entry and README disclosures |
+| `c51fdbc` | FU-05 (SEC-C-02) | Narrow the USB progress cleanup to its two disclosed templates |
+| `c551963` | FU-06 (SEC-C-03) | Pass the Xcode settings capture bound explicitly, not by scope |
+| `997bf54` | FU-07 (SEC-B-03) | Keep g --worktree from leaving values in the caller's REPLY |
+| `01f8b36` | FU-08 (no-developer-tools item) | Skip passive Git reads when Apple's developer tools are missing |
+| `74d92d3` | FU-09 (SEC-FU-01, SEC-FU-05, CON-FU-03) | Leave Apple's runtime launchers unrun without developer tools |
+| `383a40a` | FU-09 (SEC-FU-04, CON-FU-07) | Ignore clone-root shell state and name a missing /bin/zsh |
+| `7996a54` | FU-09 (SEC-FU-02, SEC-FU-03, CON-FU-01, CON-FU-02, CON-FU-05, CON-FU-06, CON-FU-08) | Correct compile, mirror and branch-view disclosures |
+| `0a58bd5` | FU-10 (non-Darwin regression from 01f8b36) | Gate passive Git on developer tools only on macOS |
+| `9e009c2` | FU-10 (`.zsh_sessions/`) | Ignore Terminal's session state at the clone root |
+| `40b37a4` | FU-10 (`/usr/bin/java` stub) | Leave Apple's java stub unrun without a JDK |
+| `28166cf` | FU-11 (SEC-L-02, CON-L-02, SEC-L-07) | Ignore history residue; qualify the mirror's state claim |
+| `7c52460` | FU-11 (SEC-L-01, CON-L-01, SEC-L-04, SEC-L-05, SEC-L-06, CON-L-03, CON-L-04, CON-L-05) | Gate a PATH link to /usr/bin/git and a JAVA_HOME of the stub |
+
+Measured cost of the follow-ups: `839dce0` (before them) against the final
+tree, en_US.UTF-8, alternating.
+
+- **Startup**, symlink install, 11 runs: warm process 44.9 → 41.4 ms, first
+  editable prompt 63.3 → 61.5 ms, fresh process 186.7 → 185.9 ms. There is
+  no cost, and the gain is near noise.
+- **Prompt render**, 11 shells × 40 renders: outside 7.31 → 7.29 ms, clean
+  15.41 → 15.65 ms, dirty 16.95 → 17.09 ms, large 31.3 → 32.4 ms. All ranges
+  overlap, so these are within noise. The new per-prompt developer-tools
+  check is file tests only: about 34 µs per call, as the contract reviewer
+  measured.
+
+Not changed on purpose: the missing-`/bin/zsh` installer message (SEC-L-03)
+has no test. `/bin/zsh` cannot be removed or shadowed in a test, and a seam
+that lets the installer read an overridable Zsh path would weaken the "never
+a `PATH` zsh" boundary for a message-only gain.
 
 The record itself has seven commits: `d859737`, `6e0c652`, `8632534`,
 `2a04e48`, `1ab553f`, `f507cb6` and the commit that completes it.
@@ -657,6 +723,21 @@ The record itself has seven commits: `d859737`, `6e0c652`, `8632534`,
   runnable products) now makes `xcode` exit with status 1, the cancel status
   of every other workspace, instead of 130, which is reserved for Ctrl-C.
   Nothing is launched either way, and Ctrl-C still exits 130 (F07, CON-C-02).
+- Shells started in any folder compile with Apple's `/bin/zsh`, run from `/`.
+  A `zsh` found on `PATH` is never used. A shell of another Zsh version loads
+  text, and after the first refused attempt it starts no compile child (FU-01).
+- Git ignores the compiled mirror, `.zsh_history*`, `.zsh_sessions/`,
+  `.zcompdump*` and `.zsh-backups/` when your configuration base is a clone
+  (FU-02, FU-09, FU-10, FU-11).
+- On a Mac without Apple's developer tools, the prompt's Git context, its
+  runtime probes of Apple's `/usr/bin` launchers (`python3`, `swift`, `clang`,
+  `cc`, `c++`), the `java` stub without a JDK, and Search's default source no
+  longer bring up macOS's install offer. Those runtimes show `not-installed`.
+  Git and runtime commands you run yourself still can bring up the offer, and
+  so can a version-manager shim elsewhere on `PATH`. Outside macOS,
+  `/usr/bin/git` works as before (FU-08 to FU-11).
+- `g --worktree` no longer leaves a worktree path or name in your `$REPLY`
+  (FU-07).
 
 ## Tests
 
@@ -1569,6 +1650,12 @@ Planning also left out some findings:
   `_directory_browser_actions_view`.
 
 ### Final review findings not fixed
+
+*Update 2026-10-19:* the follow-up batch closed the following, so they are no
+longer open: SEC-A-03, SEC-A-05 to SEC-A-09, SEC-B-03, SEC-B-04, SEC-C-02,
+SEC-C-03, CON-A-03 to CON-A-07, CON-A-09, CON-A-10, CON-B-07, CON-B-10, and
+the no-developer-tools item. The list below is kept as written at the final
+review.
 
 F01–F09 fixed all 11 blocking findings. Four non-blocking ones are also
 resolved:
