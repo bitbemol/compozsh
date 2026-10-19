@@ -223,6 +223,13 @@ These are Compozsh controls, not claims about macOS-wide standards.
   sets `_ZLE_PICKER_GUIDE_FACTS` label/description pairs from live settings
   when it configures the view (the Files views state the configured
   `ZSH_FILE_SEARCH_MAX_*` limits); the guide lists them after the key lines.
+  Known exception, still to move: the Branches review, Worktrees, Git review
+  document and Git file-view paragraphs (Scope, History, Move, Removal,
+  Disclosure, Line numbers, Snapshot, Tree, Folder and similar facts) are
+  engine text in `support/ui/.zsh.ui.zle_picker_guide_render`, selected by
+  `_ZLE_PICKER_OPTIONS_KIND` (`git`, `worktree`, `file-views`) and the
+  document capabilities, and sit among the key lines. They belong in
+  `_ZLE_PICKER_GUIDE_FACTS`, set by `.zsh.git-review` and `.zsh.git-worktree`.
   Caller-supplied context lines arrive as raw captured facts; the guide
   sanitizes and fits them like every other row and paints them as
   unemphasized literal text.
