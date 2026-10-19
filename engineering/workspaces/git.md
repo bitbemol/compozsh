@@ -170,12 +170,14 @@ focus.
 - Without Apple's developer tools, running `/usr/bin/git` or `xcrun` makes
   macOS offer to install them, so passive reads never do. `_compozsh_git_local
   available` fails when `PATH` has no Git, or selects `/usr/bin/git` while
-  `_compozsh_git_local_developer_dir` (file tests only, mirroring the
-  launcher's search; the test seam) finds no developer directory; the prompt
-  then shows no Git context and Search picks a non-Git default, and `resolve`
-  runs no `xcrun` and remembers nothing. Git the user starts (`g`, `git`, the
-  workspaces, an explicit Git Search, discard) still runs the launcher, so
-  macOS can offer the tools.
+  the shared `_compozsh_developer_dir` entry (file tests only, mirroring the
+  launcher's search; the test seam) is missing or finds no developer
+  directory; the prompt then shows no Git context and Search picks a non-Git
+  default, and `resolve` runs no `xcrun` and remembers nothing. The prompt's
+  runtime probes use the same entry
+  ([prompt](../prompt.md#project-and-runtime-context)). Git the user starts
+  (`g`, `git`, the workspaces, an explicit Git Search, discard) still runs the
+  launcher, so macOS can offer the tools.
 - One ordered marker table in `_compozsh_git_operation <git-dir>
   label|fail-closed` decides whether a Git operation is in progress: merge,
   merge autostash, cherry-pick, revert, bisect log and start, both rebase

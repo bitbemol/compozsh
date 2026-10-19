@@ -28,7 +28,8 @@ _in_memory_git_repository() {
 _in_memory_source_git() {
   local unit=''
   for unit in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) \
-      "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded"; do
+      "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_capture_bounded" \
+      "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_developer_dir"; do
     source "$unit" || return
   done
 }

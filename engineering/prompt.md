@@ -299,6 +299,13 @@ short windows use bounded omission.
   it the prompt keeps project identity and tool markers. Don't duplicate
   probes or readers in the prompt peer or shared UI support. Reading external
   state is an observation boundary even when nothing is mutated.
+- Without Apple's developer tools, a probe that would run one of Apple's
+  `/usr/bin` launchers (`c++`, `clang++`, `g++`, `clang`, `cc`, `swift`,
+  `python3`, or a link to one) would make macOS offer to install them. When
+  the shared `_compozsh_developer_dir` file-test probe is missing or finds no
+  developer directory, `_prompt_runtime_version` reports `not-installed`,
+  runs nothing and caches nothing
+  ([SECURITY.md](../SECURITY.md#local-only-git-controls)).
 - Version probes cache in memory only, keyed by every environment selector
   that can change the answer, and `compozsh --refresh` invalidates them.
   Preserve neutral-directory probes, trust checks and normal/reverse/rotated/

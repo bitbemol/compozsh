@@ -424,6 +424,9 @@ project requirements. These checks are not an atomic snapshot of a concurrently
 changing tree. Captured text stays in invocation memory; the installed-version
 cache is shell memory, refreshable with `compozsh --refresh`, and disappears
 with the shell. Missing runtime support leaves project identity/tool markers.
+Without Apple's developer tools, a runtime whose probe would run one of
+Apple's `/usr/bin` launchers shows as `not-installed` and runs nothing
+([missing developer tools](#local-only-git-controls)).
 Probing installed runtimes is an [external
 boundary](#independently-controlled-network-capable-software). Inspect without
 executing: `git grep -n . HEAD -- .zsh.addons/support/functions/`.
@@ -1649,26 +1652,37 @@ another remote operation.
   `codesign --verify --strict -R '=anchor apple and identifier "com.apple.git"' "$(xcrun --find git)"`
   (expected: no output, status 0).
 - **Missing developer tools.** Without Xcode or the Command Line Tools,
-  running `/usr/bin/git` or `/usr/bin/xcrun` makes macOS offer to install
-  them. When `PATH` selects `/usr/bin/git`, the prompt and Search's choice of
-  source first look for a developer directory the way the launcher does, with
-  file tests only: an exported, non-empty `DEVELOPER_DIR`, else the first
-  xcode-select link (`/var/select/developer_dir`, `/var/db/xcode_select_link`,
+  running one of Apple's `/usr/bin` launchers, such as `git`, `xcrun`, the
+  compilers, `swift` or `python3`, makes macOS offer to install them. Three
+  passive reads first look for a developer directory the way the launcher
+  does, with file tests only (`_compozsh_developer_dir`): an exported,
+  non-empty `DEVELOPER_DIR`, else the first xcode-select link
+  (`/var/select/developer_dir`, `/var/db/xcode_select_link`,
   `/usr/share/xcode-select/xcode_dir_link`), else Xcode, the Command Line Tools
   or Xcode beta at their default places, each counted only when it (or its
-  `Contents/Developer`) holds `usr/lib/libxcrun.dylib`. With none, the prompt
-  shows no Git context and runs neither its Git reads nor the launcher
-  resolution above, and Search chooses a non-Git source; nothing is
-  remembered, so the next prompt after an install finds Git again. Git you
-  start yourself (`g`, `git`, the Git workspaces, an explicitly chosen Git
-  Search, `g --discard-all`) still runs `/usr/bin/git`, which may bring up the
-  offer, and a Git elsewhere on `PATH` is unaffected. Inspect
-  `_compozsh_git_local_developer_dir` in
-  `.zsh.addons/support/functions/.zsh.impure.compozsh_git_local`; without
-  running either tool,
-  `ls -l /var/db/xcode_select_link /Applications/Xcode.app/Contents/Developer/usr/lib/libxcrun.dylib /Library/Developer/CommandLineTools/usr/lib/libxcrun.dylib`
-  shows which of the usual candidates exist (the focused test is
-  `without developer tools`).
+  `Contents/Developer`) holds `usr/lib/libxcrun.dylib`. With none, when `PATH`
+  selects `/usr/bin/git` the prompt shows no Git context and runs neither its
+  Git reads nor the launcher resolution above, and Search's default source is
+  not Git; and when a C, C++, Objective-C, assembly, Swift or Python runtime
+  probe would run `/usr/bin/c++`, `clang++`, `g++`, `clang`, `cc`, `swift` or
+  `python3` (found on `PATH`, directly or through a link), the prompt shows
+  that runtime as `not-installed` and runs nothing. That answer is never
+  remembered, so the next prompt after an install finds Git and probes those
+  runtimes again. Git you start yourself (`g`, `git`, the Git workspaces, an
+  explicitly chosen Git Search, `g --discard-all`) still runs `/usr/bin/git`,
+  which may bring up the offer, and a Git or runtime elsewhere on `PATH` is
+  unaffected. Inspect
+  `.zsh.addons/support/functions/.zsh.impure.compozsh_developer_dir` and its
+  callers in `.zsh.impure.compozsh_git_local` and
+  `.zsh.impure.prompt_runtime_version`. Without running any launcher,
+  `ls -lf /var/select/developer_dir /var/db/xcode_select_link /usr/share/xcode-select/xcode_dir_link /Applications/Xcode.app/Contents/Developer/usr/lib/libxcrun.dylib /Library/Developer/CommandLineTools/usr/lib/libxcrun.dylib /Applications/Xcode-beta.app/Contents/Developer/usr/lib/libxcrun.dylib`
+  lists each of these paths that exists, in the order the probe checks them
+  (each missing one is reported as `No such file or directory` first); an
+  exported `DEVELOPER_DIR` replaces them all. The prompt shows Git and those
+  runtimes when the first entry listed is a link (`->`) to a folder that
+  holds `usr/lib/libxcrun.dylib` itself or under `Contents/Developer`, or,
+  with no link listed, when any `libxcrun.dylib` is listed; six missing paths
+  mean it shows neither (the focused tests are `without developer tools`).
 - **Repository selection.** Interactive branch, review, worktree and explicit
   discard workspaces, and explicit-root review providers, use the current
   folder's repository, temporarily shadowing inherited Git directory, worktree,
@@ -2073,7 +2087,7 @@ server.
 | Branch catalog and remote fallback | `absent from the reflog`, `branch remote` |
 | Git filter, selector, Files, promisor and signature-verifier controls | `shared Git`, `Git selectors`, `Files Git`, `promisor fetch`, `signature verifier` |
 | Direct Apple Git behind `/usr/bin/git`: signature, identity, selectors, `PATH` choice and refresh | `git shim` |
-| No passive `/usr/bin/git` or `xcrun` run without Apple's developer tools | `without developer tools` |
+| Without Apple's developer tools, the prompt's Git context and runtime probes and Search's default source run no `/usr/bin` Git, `xcrun`, compiler, `swift` or `python3` launcher | `without developer tools` |
 | Git comparison bounds | `Git comparison` |
 | Discard with a dirty submodule | `g --discard-all preserves dirty submodule` |
 | Worktrees | `worktree ` |

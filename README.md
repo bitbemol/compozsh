@@ -69,9 +69,11 @@ plug-in manager.
 - Zsh 5.9 or newer (current macOS releases ship with Zsh 5.9); older releases
   are deliberately unsupported
 - Git, for cloning and the repository-aware prompt, navigation and tools. On
-  macOS, Apple's `/usr/bin/git` needs Xcode or the Command Line Tools; until
-  one is installed, the prompt and Search treat Git as absent instead of
-  opening macOS's install offer, which only Git commands you run bring up
+  macOS, Apple's `/usr/bin/git` needs Xcode or the Command Line Tools, as do
+  Apple's `/usr/bin` compilers, `swift` and `python3`. Until one is installed,
+  the prompt's Git context, its runtime versions from those launchers (shown
+  as `not-installed`) and Search's default source never bring up macOS's
+  install offer; Git commands you run can
 - A terminal with Unicode and color support; no patched font is required
 - Full Xcode, only for the Xcode workspace; physical-device Run needs a device
   supported by that Xcode's `devicectl`, and the skill exporter needs Xcode 27
@@ -1539,6 +1541,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `.zsh.xcode` | `xcode`: schemes, destinations, Build/Test/Run, live logs, LLDB and `--export-skills` |
 | `support/.zsh.appearance` | Sole owner of light/dark palette defaults; one-shot scheme selection that keeps overrides |
 | `support/functions/.zsh.impure.compozsh_capture_bounded` | Bounded command capture |
+| `support/functions/.zsh.impure.compozsh_developer_dir` | Apple developer-directory check by file tests, before passive reads start a `/usr/bin` launcher |
 | `support/functions/.zsh.impure.compozsh_effect_copy` | Clipboard writes |
 | `support/functions/.zsh.impure.compozsh_effect_open` | File Open/Reveal |
 | `support/functions/.zsh.impure.compozsh_git_filter_config` | Git filter-name reads |

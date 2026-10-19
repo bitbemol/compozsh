@@ -173,6 +173,20 @@ _prompt_runtime_version() {
     binary=''
   fi
 
+  # Apple's /usr/bin compilers, swift and python3 are launchers for the active
+  # developer directory: without Xcode or the Command Line Tools, running one
+  # (or a link to one) makes macOS offer to install them. The shared file-test
+  # probe decides, a missing probe counting as no tools; such a runtime is not
+  # installed, is never run, and is not cached, so the next prompt after an
+  # install probes it.
+  if [[ -n $binary && $OSTYPE == darwin* &&
+        ${binary:A} == /usr/bin/(c++|cc|clang|clang++|g++|python3|swift) ]]; then
+    if (( ! ${+functions[_compozsh_developer_dir]} )) || ! _compozsh_developer_dir; then
+      REPLY='not-installed'
+      return
+    fi
+  fi
+
   if [[ -z $binary && $language == kotlin && -x "$project_root/gradlew" ]]; then
     REPLY='gradle-managed'
     _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY

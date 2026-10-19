@@ -505,7 +505,7 @@ _test_git_shim_resolution_keys() {
     local -a report=()
     : > "$HOME/finds"
     GIT_SHIM_CANDIDATE=$2/script/git
-    _compozsh_git_local_developer_dir() { REPLY=/fixture/Developer; }
+    _compozsh_developer_dir() { REPLY=/fixture/Developer; }
     _compozsh_git_local_find() { print -r -- find >> "$HOME/finds"; REPLY=$GIT_SHIM_CANDIDATE; }
     _shim_step() {
       local -a finds=("${(@f)$(<$HOME/finds)}")
@@ -603,7 +603,7 @@ test_case 'git shim lets the prompt run the Apple Git behind /usr/bin/git direct
 # discovery and the shim resolve, and Search's default provider) ask the
 # developer-directory probe first and start neither when it finds none; a Git
 # elsewhere on PATH still runs, and with a developer directory the launcher
-# runs as before. The probe seam (_compozsh_git_local_developer_dir) stands in
+# runs as before. The probe seam (_compozsh_developer_dir) stands in
 # for the machine's state, the xcrun seam records each find, Git's trace
 # records every launcher-started Git and a PATH Git records its own calls. The
 # real probe follows an exported DEVELOPER_DIR, an Xcode bundle's
@@ -631,8 +631,8 @@ exit 0' || return
     for name in prompt find tools; do source "$1/.zsh.addons/.zsh.$name" || exit 1; done
     source "$1/tests/support.zsh"
     test_source_support "$1" || exit 1
-    functions[_test_real_probe]=$functions[_compozsh_git_local_developer_dir]
-    _compozsh_git_local_developer_dir() { [[ $developer != none ]] || return 1; REPLY=$developer; }
+    functions[_test_real_probe]=$functions[_compozsh_developer_dir]
+    _compozsh_developer_dir() { [[ $developer != none ]] || return 1; REPLY=$developer; }
     _compozsh_git_local_find() { print -r -- find >> "$HOME/finds"; return 1; }
     _passive_row() {
       local -x GIT_TRACE2_EVENT=$HOME/trace

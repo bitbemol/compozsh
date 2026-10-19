@@ -1,0 +1,40 @@
+# Entry point: _compozsh_developer_dir
+# Impure: reads the filesystem with file tests only; runs nothing.
+# Ordinary support peer; no cross-peer calls at source time.
+
+# Without Xcode or the Command Line Tools, running one of Apple's /usr/bin
+# launchers (git, the compilers, swift, python3, xcrun) makes macOS offer to
+# install them. Passive readers ask this first and leave the launcher unrun
+# when it fails. It finds the developer directory the way the launcher looks,
+# with file tests only: an exported, non-empty DEVELOPER_DIR, else the first
+# xcode-select link, else Xcode, the Command Line Tools or Xcode beta at their
+# default places, each counted only when it (or its Contents/Developer) holds
+# the launcher's usr/lib/libxcrun.dylib. REPLY is that directory. Tests replace
+# this function to stand in for the machine.
+# Usage: _compozsh_developer_dir
+_compozsh_developer_dir() {
+  emulate -L zsh
+  local candidate='' link=''
+  local -a candidates=()
+  REPLY=''
+  if [[ ${(t)DEVELOPER_DIR-} == *-export* && -n $DEVELOPER_DIR ]]; then
+    candidates=("$DEVELOPER_DIR" "$DEVELOPER_DIR/Contents/Developer")
+  else
+    for link in /var/select/developer_dir /var/db/xcode_select_link \
+        /usr/share/xcode-select/xcode_dir_link; do
+      [[ -L $link ]] || continue
+      candidates=("${link:A}" "${link:A}/Contents/Developer")
+      break
+    done
+    (( ${#candidates} )) || candidates=(/Applications/Xcode.app/Contents/Developer
+      /Library/Developer/CommandLineTools /Applications/Xcode-beta.app/Contents/Developer)
+  fi
+  for candidate in "${candidates[@]}"; do
+    [[ $candidate == /* && -f $candidate/usr/lib/libxcrun.dylib ]] || continue
+    REPLY=$candidate
+    return 0
+  done
+  return 1
+}
+
+:

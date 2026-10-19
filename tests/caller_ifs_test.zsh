@@ -84,7 +84,7 @@ _test_caller_ifs_git_review_records() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/tests/support.zsh" && source "$1/tests/caller_ifs_test.zsh" || exit 1
     source "$1/.zsh.addons/.zsh.git-review" || exit 2
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component" || exit 3; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component" || exit 3; done
     source "$1/.zsh.addons/.zsh.git-syntax" || exit 4
     _caller_ifs_review_fixture
     _caller_ifs_each _caller_ifs_syntax_probe _caller_ifs_tree_probe \
@@ -109,7 +109,7 @@ _test_caller_ifs_prompt_ahead_count() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" '
     source "$1/tests/support.zsh" && source "$1/tests/caller_ifs_test.zsh" || exit 1
     source "$1/.zsh.addons/.zsh.prompt" || exit 2
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component" || exit 3; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component" || exit 3; done
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
     export GIT_AUTHOR_DATE=2026-01-02T03:04:05Z GIT_COMMITTER_DATE=2026-01-02T03:04:05Z
     command git init -q -b main "$HOME/repository" && builtin cd -- "$HOME/repository" || exit 4

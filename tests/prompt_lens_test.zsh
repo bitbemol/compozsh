@@ -97,7 +97,7 @@ _test_living_prompt_fingerprint_uses_only_high_signal_changes() {
     source "$1/.zsh.addons/.zsh.editor"
     (( ${+functions[_prompt_interaction_update]} )) || exit 90
 
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component"; done
 
     _consume_lens() {
       BUFFER=x
@@ -193,7 +193,7 @@ _test_living_prompt_git_operation_follows_nested_repository() {
     source "$1/.zsh.addons/.zsh.shell"
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.editor"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component"; done
 
     # Visit a plain folder inside the outer repository first, so its Git
     # directory is resolved while the folder is not yet a repository.
@@ -268,7 +268,7 @@ exec "$REAL_GIT" "$@"' || return
     source "$1/.zsh.addons/.zsh.shell"
     source "$1/.zsh.addons/.zsh.prompt"
     source "$1/.zsh.addons/.zsh.editor"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component"; done
     export REAL_GIT=${commands[git]} GIT_RESOLVE_LOG="$HOME/resolves"
     [[ -n $REAL_GIT ]] || exit 90
     path=("$2" $path)
@@ -614,7 +614,7 @@ _test_living_prompt_interaction_lens_ready_morphs_and_returns_to_base() {
     for lexical_unit in "$1/.zsh.addons/support/functions"/.zsh.pure.compozsh_is_*(N.); do source "$lexical_unit"; done
     source "$1/.zsh.addons/.zsh.editor"
 
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component"; done
 
     _focus_render() {
       _prompt_interaction_update || :

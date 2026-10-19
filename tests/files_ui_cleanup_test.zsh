@@ -125,6 +125,7 @@ _test_files_git_explicit_folder_scope() {
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect"
     source "$1/.zsh.addons/support/functions/.zsh.impure.zle_ui_collect_choices"
     source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_git_local"
+    source "$1/.zsh.addons/support/functions/.zsh.impure.compozsh_developer_dir"
     local name="" root=""
     for name in current foreign; do
       command git init -qb main "$HOME/$name" || exit 1

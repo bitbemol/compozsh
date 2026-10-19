@@ -566,7 +566,7 @@ _test_prompt_disables_repository_git_filters() {
   output=$(test_run_interactive "$TEST_TMP_DIR/home" $'
     export FILTER_PROBE=$2
     source "$1/.zsh.addons/.zsh.prompt"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component"; done
     builtin cd -- "$3" || exit
     _prompt_git
     [[ -e $2 ]]; filter_ran=$(( !$? ))
@@ -595,7 +595,7 @@ _test_prompt_git_counts_stay_text_until_validated() {
     path=("$2" $path)
     rehash
     source "$1/.zsh.addons/.zsh.prompt"
-    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_capture_bounded(N.); do source "$git_support_component"; done
+    for git_support_component in "$1/.zsh.addons/support/functions"/.zsh.{pure,impure}.compozsh_git_*(N.) "$1/.zsh.addons/support/functions"/.zsh.impure.compozsh_{capture_bounded,developer_dir}(N.); do source "$git_support_component"; done
     builtin cd -- "$3" || exit
     local header=$\'# branch.oid 0123456789abcdef\\n# branch.head main\\n# branch.upstream origin/main\'
     local counts=""
@@ -729,6 +729,84 @@ _test_prompt_runtime_probe_is_neutral_and_offline() {
 }
 test_case 'prompt probes installed runtimes from a neutral offline context' \
   _test_prompt_runtime_probe_is_neutral_and_offline
+
+# Without Apple's developer tools, the /usr/bin compilers, swift and python3
+# are launchers that make macOS offer to install them. A C, Swift or Python
+# project's prompt asks the developer-directory probe first (its seam,
+# _compozsh_developer_dir, stands in for the machine) and shows the runtime as
+# not installed without running the launcher, a link to one included, and
+# remembers nothing; a python3 elsewhere on PATH still runs. With a developer
+# directory the launchers are probed as before. The version-probe recorder
+# answers for /usr/bin itself, so no real launcher runs here.
+_test_prompt_runtime_launchers_without_developer_tools() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output='' exit_status=0
+  test_write_file "$home/projects/c/CMakeLists.txt" 'project(fixture C)' || return
+  test_write_file "$home/projects/c/main.c" 'int main(void) { return 0; }' || return
+  test_write_file "$home/projects/swift/Package.swift" '// fixture' || return
+  test_write_file "$home/projects/python/pyproject.toml" '[project]' || return
+  test_write_file "$TEST_TMP_DIR/bin/python3" $'#!/bin/sh\nprintf "Python 3.99.0\\n"' || return
+  command chmod +x "$TEST_TMP_DIR/bin/python3" || return
+  command mkdir -p -- "$TEST_TMP_DIR/link" || return
+  command ln -s /usr/bin/python3 "$TEST_TMP_DIR/link/python3" || return
+  output=$(test_run_noninteractive "$home" '
+    export PATH=/usr/bin:/bin
+    setopt EXTENDED_GLOB
+    local developer=none name="" item=""
+    local -a report=() items=() probes=()
+    source "$1/.zsh.addons/.zsh.prompt" || exit 1
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    functions[_test_real_version_probe]=$functions[_prompt_version_probe]
+    _prompt_version_probe() {
+      if [[ ${1:A} == /usr/bin/* ]]; then
+        print -r -- "${1:A}" >> "$HOME/probes"
+      else
+        print -r -- "stand-in ${1:t}" >> "$HOME/probes"
+      fi
+      case ${1:A} in
+        (/usr/bin/python3) print -r -- "Python 3.9.6" ;;
+        (/usr/bin/swift) print -r -- "Apple Swift version 6.2 (swiftlang-6.2.0.19.9)" ;;
+        (/usr/bin/*) print -r -- "Apple clang version 17.0.0 (clang-1700.3.19.1)" ;;
+        (*) _test_real_version_probe "$@" ;;
+      esac
+    }
+    _compozsh_developer_dir() { [[ $developer != none ]] || return 1; REPLY=$developer; }
+    _row() {
+      : > "$HOME/probes"
+      items=()
+      for name in c swift python; do
+        builtin cd -q -- "$HOME/projects/$name" || exit 2
+        _prompt_project_context
+        for item in "${_PROMPT_PROJECT_ITEMS[@]}"; do
+          item=${item//\%F\{[^\}]##\}/}
+          items+=("${item//\%f/}")
+        done
+      done
+      probes=(${(f)"$(<$HOME/probes)"})
+      (( ${#probes} )) || probes=(nothing)
+      report+=("$1: ${(j:, :)items}" "$1 ran: ${(j:, :)probes}")
+    }
+    _row "no tools"
+    PATH=$2:/usr/bin:/bin _row "no tools, linked python3"
+    PATH=$3:/usr/bin:/bin _row "no tools, PATH python3"
+    developer=/fixture/Developer _row "tools"
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/link" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+no tools: c/c++ not-installed, cmake, swift not-installed, swiftpm, python not-installed
+no tools ran: nothing
+no tools, linked python3: c/c++ not-installed, cmake, swift not-installed, swiftpm, python not-installed
+no tools, linked python3 ran: nothing
+no tools, PATH python3: c/c++ not-installed, cmake, swift not-installed, swiftpm, python 3.99.0
+no tools, PATH python3 ran: stand-in python3
+tools: c/c++ clang 17.0.0, cmake, swift 6.2, swiftpm, python 3.9.6
+tools ran: /usr/bin/c++, /usr/bin/swift, /usr/bin/python3' \
+    "status:$exit_status"$'\n'"$output" \
+    'a prompt runtime probe ran Apple'\''s launcher without developer tools'
+}
+test_case 'prompt runtime probes run no Apple launcher without developer tools' \
+  _test_prompt_runtime_launchers_without_developer_tools
 
 _test_prompt_metadata_stays_inside_project() {
   test_make_temp_dir || return
