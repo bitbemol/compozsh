@@ -203,6 +203,26 @@ Later rounds, asked in chat and quoted as answered:
     "Record, then agents may act (Recommended)". Approvals quoted and dated in
     this section are acceptance, and implementing agents may commit against
     them. Patch-only mode is no longer required.
+- **Final-review owner questions and next step, 2026-10-18.** These were
+  asked in chat after the final review (see
+  [Owner questions from the final review](#owner-questions-from-the-final-review)):
+  - **Which Zsh compiles at startup.** Answer: "Apple's /bin/zsh, run from /
+    (Recommended)". The startup and dump compiles run `/bin/zsh -f` with `/`
+    as the working directory. A different running Zsh version stays on text.
+    The boundary is disclosed in SECURITY.md.
+  - **Is `.zshrc` still a minimal bootstrap.** Answer: "Accept it
+    (Recommended)". The layout contract says so.
+  - **Next step.** Answer: "Fix follow-ups, then PR (Recommended)". A short
+    batch handles the two answers above and the safety and privacy
+    follow-ups, then a pull request is opened for review. The follow-ups
+    are:
+    - `.gitignore` for `support/compiled/`;
+    - a bounded installer ctime wait;
+    - the USB progress cleanup pattern;
+    - the inherited Xcode capture bound;
+    - the `g --worktree` `$REPLY` leak;
+    - behavior on a Mac without developer tools;
+    - the disclosure-accuracy items from the final review.
 
 ## Commits
 
