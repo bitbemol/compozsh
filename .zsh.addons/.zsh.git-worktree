@@ -999,6 +999,11 @@ _git_worktree_session() {
   emulate -L zsh
   local -i result=0 index=0
   # Invocation state is discarded even on abort. No peer source-time dependency.
+  # Like bare g, the last results, selection, bookmark and REPLY end here too:
+  # identities, chosen folders and names, and view contexts pass through them.
+  local REPLY='' _ZLE_PICKER_ACTION=select _ZLE_PICKER_SELECTED_VALUE=''
+  local -a reply=() _ZLE_PICKER_RESULTS=() _ZLE_PICKER_LABELS=() _ZLE_PICKER_BOOKMARK=()
+  local -i _ZLE_PICKER_ACCEPTED=0 _ZLE_PICKER_BOOKMARK_FOCUS=0
   local _GWT_ROOT='' _GWT_COMMON='' _GWT_ROOT_ID='' _GWT_COMMON_ID=''
   local _GWT_DATA='' _GWT_ERROR='' _GWT_HEAD='' _GWT_HEAD_REF=''
   local -a _GWT_PATHS=() _GWT_BRANCHES=() _GWT_OIDS=() _GWT_STATES=()
@@ -1024,8 +1029,6 @@ _git_worktree_session() {
     return $?
   } always {
     [[ -n $_GWT_ERROR ]] && print -u2 -r -- "g --worktree: ${(V)_GWT_ERROR}"
-    _ZLE_PICKER_SELECTED_VALUE='' _ZLE_PICKER_BOOKMARK=()
-    _ZLE_PICKER_BOOKMARK_FOCUS=0
   }
 }
 

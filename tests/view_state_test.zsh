@@ -68,9 +68,10 @@ recents-to-browse:0:released' "$output"
 test_case 'view state: Browse and Recents leave no picker configuration, results or bookmark behind' \
   _test_view_state_files_journeys
 
-# Search runs inside the Files journey; bare g and the tool explorer require a
-# terminal, so they run in a PTY with the same scripted engine and snapshots,
-# which also cover the branch catalog that g captures for its view.
+# Search runs inside the Files journey; bare g, g --worktree and the tool
+# explorer require a terminal, so they run in a PTY with the same scripted
+# engine and snapshots, which also cover the branch catalog that g captures for
+# its view, the worktree session's own state and the caller's reply array.
 _test_view_state_search_branch_help_journeys() {
   test_make_temp_dir || return
   command mkdir -p "$TEST_TMP_DIR/home/tree/alpha/inner" "$TEST_TMP_DIR/home/tree/beta" || return
@@ -89,9 +90,9 @@ _test_view_state_search_branch_help_journeys() {
     builtin cd -- "$HOME" || exit
     dirstack=("$HOME/tree")
     _view_state_snapshot() {
-      local -a lines=("${(@f)$(typeset -p -m "(_ZLE_PICKER|_ZLE_UI_CHOICE|_NAVIGATION|_GIT_RECENT|_GIT_BRANCH)_*")}")
+      local -a lines=("${(@f)$(typeset -p -m "(_ZLE_PICKER|_ZLE_UI_CHOICE|_NAVIGATION|_GIT_RECENT|_GIT_BRANCH|_GWT)_*")}")
       print -rl -- "${(@o)lines}"
-      typeset -p REPLY
+      typeset -p REPLY reply
     }
     # A query view returns the submitted text; the scripted engine selects a
     # result its collector returned, so the step offers the text first.
@@ -108,6 +109,7 @@ _test_view_state_search_branch_help_journeys() {
     }
     _view_state_journeys() {
       local REPLY=unchanged before="" journey=""
+      local -a reply=(unchanged)
       local -i result=0
       test_picker_script cancel
       before=$(_view_state_snapshot)
@@ -128,6 +130,14 @@ _test_view_state_search_branch_help_journeys() {
               observe _view_state_offer alpha -- select alpha -- cancel -- cancel ;;
           (g-cancel) test_picker_script cancel ;;
           (g-accept) test_picker_script select feature ;;
+          (worktree-cancel) test_picker_script cancel ;;
+          # Creation passes the parent chooser and the folder-name prompt; after
+          # g-accept, main is the local branch that no worktree uses.
+          (worktree-create)
+            test_picker_script select create -- select existing -- select main -- \
+              select parent -- select use -- select name -- \
+              observe _view_state_offer created -- select created -- select apply ;;
+          (worktree-enter) test_picker_script select enter -- select "${HOME:A}/created" ;;
           (tools-cancel) test_picker_script cancel ;;
           (tools-read) test_picker_script select g -- select 1 -- cancel -- cancel -- cancel ;;
           (help-direct) test_picker_script select 1 -- cancel -- cancel ;;
@@ -137,6 +147,11 @@ _test_view_state_search_branch_help_journeys() {
           (recents-*) _directory_browser_session ./ insert command recents || result=$? ;;
           (search-*) _directory_browser_session "~/tree/" insert command || result=$? ;;
           (g-*) builtin cd -- "$repo" && { g || result=$?; }; builtin cd -- "$HOME" ;;
+          (worktree-*)
+            builtin cd -- "$repo" && { g --worktree || result=$?; }
+            # Accepting enters the created checkout, so the final action ran.
+            [[ $journey == worktree-cancel || $PWD == "${HOME:A}/created" ]] || result=3
+            builtin cd -- "$HOME" ;;
           (tools-*) compozsh || result=$? ;;
           (help-direct) compozsh --help || result=$? ;;
         esac
@@ -145,14 +160,15 @@ _test_view_state_search_branch_help_journeys() {
     }
     _view_state_journeys search-cancel search-accept search-file-actions recents-to-search
     _view_state_terminal() {
-      _view_state_journeys g-cancel g-accept tools-cancel tools-read help-direct
+      _view_state_journeys g-cancel g-accept worktree-cancel worktree-create worktree-enter \
+        tools-cancel tools-read help-direct
       print -r -- VIEW-STATE-DONE
     }
     test_pty_start view-state _view_state_terminal || exit
     {
       test_pty_expect view-state "" VIEW-STATE-DONE 20 || exit
     } always { zpty -d view-state; }
-    print -rl -- ${(M)${(f)TEST_PTY_OUTPUT//$'\''\r'\''}:#(g|tools|help)-*}
+    print -rl -- ${(M)${(f)TEST_PTY_OUTPUT//$'\''\r'\''}:#(g|worktree|tools|help)-*}
   ' "$TEST_REPO_ROOT" 2>&1) || return
   test_assert_equal 'search-cancel:1:released
 search-accept:0:released
@@ -160,11 +176,14 @@ search-file-actions:1:released
 recents-to-search:1:released
 g-cancel:0:released
 g-accept:0:released
+worktree-cancel:0:released
+worktree-create:0:released
+worktree-enter:0:released
 tools-cancel:0:released
 tools-read:0:released
 help-direct:0:released' "$output"
 }
-test_case 'view state: Search, branches and help browse leave no picker state behind' \
+test_case 'view state: Search, branches, worktrees and help browse leave no picker state behind' \
   _test_view_state_search_branch_help_journeys
 
 # The USB image browser, Git review (its menu and the working-changes document)
