@@ -1306,9 +1306,9 @@ test_case 'compiled peers: the install compile waits at most about 2 s for peers
   _test_compiled_install_bounds_future_ctime_wait
 
 # A shell whose ZDOTDIR is a clone creates the compiled mirror (and module
-# caches) inside the clone's add-on directory, and its history, Terminal's
-# per-session state, completion dump (with interrupted-write residue) and the
-# installer's recovery copies at the clone's root; their paths, names and
+# caches) inside the clone's add-on directory, and its history and completion
+# dump (each with interrupted-write residue), Terminal's per-session state and
+# the installer's recovery copies at the clone's root; their paths, names and
 # contents are never offered to a commit. Shipped peers and support files stay
 # visible.
 _test_compiled_mirror_is_git_ignored() {
@@ -1322,7 +1322,8 @@ _test_compiled_mirror_is_git_ignored() {
     for file in .zsh.addons/.zsh.example .zsh.addons/support/compile.zsh \
         .zsh.addons/support/compiled/{.managed-by-compozsh,manifest,zcompdump.manifest,zcompdump.zwc} \
         .zsh.addons/support/compiled/.zsh.addons/.zsh.example.zwc \
-        .zsh.addons/support/cache/module/data .zsh_history .zcompdump \
+        .zsh.addons/support/cache/module/data .zsh_history .zsh_history.new \
+        .zsh_history.LOCK .zcompdump \
         .zcompdump.host.123 .zsh-backups/compozsh-20261019-000000/.zshrc \
         .zsh_sessions/{_expiration_check_timestamp,FIXTURE.history,FIXTURE.session}; do
       print -r -- fixture >| $file || exit 1
