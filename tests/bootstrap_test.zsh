@@ -1306,19 +1306,22 @@ test_case 'compiled peers: the install compile waits at most about 2 s for peers
   _test_compiled_install_bounds_future_ctime_wait
 
 # A shell whose ZDOTDIR is a clone creates the compiled mirror (and module
-# caches) inside the clone's add-on directory; their paths and names are
-# never offered to a commit. Shipped peers and support files stay visible.
+# caches) inside the clone's add-on directory, and its history, completion
+# dump (with interrupted-write residue) and the installer's recovery copies at
+# the clone's root; their paths, names and contents are never offered to a
+# commit. Shipped peers and support files stay visible.
 _test_compiled_mirror_is_git_ignored() {
   test_make_temp_dir || return
   local output='' script='export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
     command git init -q -- "$HOME/clone" && builtin cd -q -- "$HOME/clone" &&
       command cp -- "$1" .gitignore || exit 1
     command mkdir -p -- .zsh.addons/support/compiled/.zsh.addons \
-      .zsh.addons/support/cache/module || exit 1
+      .zsh.addons/support/cache/module .zsh-backups/compozsh-20261019-000000 || exit 1
     for file in .zsh.addons/.zsh.example .zsh.addons/support/compile.zsh \
         .zsh.addons/support/compiled/{.managed-by-compozsh,manifest,zcompdump.manifest,zcompdump.zwc} \
         .zsh.addons/support/compiled/.zsh.addons/.zsh.example.zwc \
-        .zsh.addons/support/cache/module/data; do
+        .zsh.addons/support/cache/module/data .zsh_history .zcompdump \
+        .zcompdump.host.123 .zsh-backups/compozsh-20261019-000000/.zshrc; do
       print -r -- fixture >| $file || exit 1
     done
     command ln -s -- "$HOME/clone/.zsh.addons/.zsh.example" \
@@ -1328,9 +1331,9 @@ _test_compiled_mirror_is_git_ignored() {
     "${TEST_REPO_ROOT:A}/.gitignore" 2> "$TEST_TMP_DIR/errors") ||
     test_fail "the Git fixture failed: $(<"$TEST_TMP_DIR/errors")" || return
   test_assert_equal $'?? .gitignore\n?? .zsh.addons/.zsh.example\n?? .zsh.addons/support/compile.zsh' \
-    "$output" 'Git offers generated mirror or cache files, or hides shipped files'
+    "$output" 'Git offers generated mirror, cache, history, dump or backup files, or hides shipped files'
 }
-test_case 'compiled peers: Git ignores the compiled mirror and module caches inside a clone' \
+test_case 'compiled peers: Git ignores the compiled mirror, module caches, history, completion dump and recovery copies inside a clone' \
   _test_compiled_mirror_is_git_ignored
 
 # Print, from a new shell in <home>, where compinit's dump came from (PROBE is

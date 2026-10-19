@@ -238,6 +238,13 @@ _installer_main() {
     print -u2 -r -- 'installer: repository contains no shared add-ons'
     return 1
   }
+  # Apple's /bin/zsh checks and compiles the shipped files; without it every
+  # file would seem not to parse.
+  [[ -f /bin/zsh && -x /bin/zsh ]] || {
+    print -u2 -r -- \
+      'installer: /bin/zsh, which checks and compiles the shipped files, is missing'
+    return 1
+  }
   for source_file in "$source_zshrc" "$source_initializer" \
                      "${source_peers[@]}"; do
     /bin/zsh -n -- "$source_file" || {

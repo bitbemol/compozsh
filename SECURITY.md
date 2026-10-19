@@ -1197,10 +1197,12 @@ function a compiled peer defines (`functions_source` names the mirror entry),
 never the rest of the resulting shell state; tests compare the complete state
 apart from those paths with and without it in both layouts. Discovery
 never treats a `.zwc` file or anything under `support/compiled` as a peer, and
-Git ignores `.zsh.addons/support/compiled/` (like `support/cache/`), so a
+Git ignores `.zsh.addons/support/compiled/` (like `support/cache/`) and, at
+the clone's root only, `.zsh_history`, `.zcompdump*` and `.zsh-backups/`, so a
 shell whose `ZDOTDIR` is a clone never offers the mirror's absolute paths or
-compiled completion names to a commit
-(`zsh tests/run.zsh 'Git ignores the compiled mirror'`). A
+compiled completion names, its default history file, its completion dump
+(with interrupted-write residue) or the installer's recovery copies to a
+commit (`zsh tests/run.zsh 'Git ignores the compiled mirror'`). A
 `.zwc` placed beside a peer by hand is Zsh's own mechanism and outside this
 check: Zsh's `source` uses it while it is not older than the peer.
 

@@ -2,6 +2,9 @@
 .zsh.addons/local/init.zsh
 .zsh.addons/support/cache/
 .zsh.addons/support/compiled/
+/.zsh_history
+/.zcompdump*
+/.zsh-backups/
 .claude/settings.local.json
 CLAUDE.local.md
 .claude/worktrees/
