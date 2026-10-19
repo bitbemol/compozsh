@@ -13,13 +13,16 @@
 # launcher would start, but only once /usr/bin/codesign proves Apple signed
 # that file as com.apple.git. Later calls, in subshells too, run it directly
 # while the selectors and the file's identity still match; any change runs
-# /usr/bin/git. compozsh --refresh forgets it.
+# /usr/bin/git. compozsh --refresh forgets it. Only that exact PATH entry is
+# resolved: a link's target can change while the key stays the same, so a link
+# to the launcher always runs through it.
 # On macOS without Apple's developer tools, running /usr/bin/git or
-# /usr/bin/xcrun makes macOS offer to install them. `available` fails then (and
-# when PATH has no Git), so passive readers such as the prompt and Search skip
-# Git, and `resolve` never asks xcrun; a call the user started still runs the
-# launcher. The shared _compozsh_developer_dir decides, and a missing one counts
-# as none. Elsewhere /usr/bin/git is an ordinary Git and nothing is gated.
+# /usr/bin/xcrun makes macOS offer to install them. `available` fails then,
+# when PATH's Git is /usr/bin/git directly or through a link (and when PATH has
+# no Git), so passive readers such as the prompt and Search skip Git, and
+# `resolve` never asks xcrun; a call the user started still runs the launcher.
+# The shared _compozsh_developer_dir decides, and a missing one counts as none.
+# Elsewhere /usr/bin/git is an ordinary Git and nothing is gated.
 # Usage: _compozsh_git_local <root|inherit> <dir> [--exec] [--] <git-arguments...>
 #        _compozsh_git_local resolve|available
 _compozsh_git_local() {
@@ -32,7 +35,7 @@ _compozsh_git_local() {
   fi
   if (( $# == 1 )) && [[ $1 == available ]]; then
     [[ -n ${commands[git]-} ]] || return 1
-    [[ ${commands[git]} != /usr/bin/git ]] && return 0
+    [[ ${commands[git]:A} != /usr/bin/git ]] && return 0
     _compozsh_git_local_launcher_ready
     return
   fi

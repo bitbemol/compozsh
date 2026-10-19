@@ -166,11 +166,14 @@ focus.
   runs it directly while the launcher's selectors and the file's identity
   match, and `/usr/bin/git` otherwise. A subshell never resolves, a refusal is
   remembered per selector set, and `compozsh --refresh` forgets it
-  ([SECURITY.md](../../SECURITY.md#local-only-git-controls)).
+  ([SECURITY.md](../../SECURITY.md#local-only-git-controls)). Only that exact
+  `PATH` entry resolves: a link's target can change while the key stays the
+  same, so a link to the launcher always runs through it.
 - On macOS without Apple's developer tools, running `/usr/bin/git` or `xcrun`
   makes macOS offer to install them, so passive reads never do.
   `_compozsh_git_local available` fails when `PATH` has no Git, or, where
-  `OSTYPE` is Darwin, selects `/usr/bin/git` while the shared
+  `OSTYPE` is Darwin, selects `/usr/bin/git` (directly or through a link,
+  judged by the resolved path) while the shared
   `_compozsh_developer_dir` entry (file tests only, mirroring the launcher's
   search; the test seam) is missing or finds no developer directory; the
   prompt then shows no Git context and Search picks a non-Git default, and

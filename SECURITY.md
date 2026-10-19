@@ -431,7 +431,8 @@ Apple's `/usr/bin` launchers shows as `not-installed` and runs nothing
 may offer to install one. When the Java probe would run it (found on `PATH`,
 directly or through a link), the prompt first looks, with file tests only,
 for a runtime the stub could start: an exported absolute `JAVA_HOME` that
-holds an executable `bin/java`, any visible entry in
+holds an executable `bin/java` other than the stub itself (not
+`JAVA_HOME=/usr`, nor a `bin/java` linked to the stub), any visible entry in
 `/Library/Java/JavaVirtualMachines` or
 `$HOME/Library/Java/JavaVirtualMachines`, or
 `/Library/Internet Plug-Ins/JavaAppletPlugin.plugin`. With none, Java shows as
@@ -1658,7 +1659,8 @@ another remote operation.
   next prompt verifies again. A changed `PATH` choice, exported
   `DEVELOPER_DIR`, `TOOLCHAINS` or `SDKROOT`, or xcode-select link resolves
   again; `compozsh --refresh` forgets the answer. A Git chosen elsewhere on
-  `PATH` is never resolved, verified or replaced, transparent `g` and `git`
+  `PATH`, a link to `/usr/bin/git` included (it runs through the launcher), is
+  never resolved, verified or replaced, transparent `g` and `git`
   arguments always run the `PATH` choice, and other entry callers only reuse a
   prompt's answer. The direct Git runs without the `SDKROOT`, `MANPATH`,
   `CPATH` and `LIBRARY_PATH` the launcher adds. Git does not use them, and
@@ -1680,18 +1682,20 @@ another remote operation.
   `/usr/share/xcode-select/xcode_dir_link`), else Xcode, the Command Line Tools
   or Xcode beta at their default places, each counted only when it (or its
   `Contents/Developer`) holds `usr/lib/libxcrun.dylib`. With none, when `PATH`
-  selects `/usr/bin/git` the prompt shows no Git context and runs neither its
-  Git reads nor the launcher resolution above, and Search's default source is
-  not Git; and when a C, C++, Objective-C, assembly, Swift or Python runtime
-  probe would run `/usr/bin/c++`, `clang++`, `g++`, `clang`, `cc`, `swift` or
-  `python3` (found on `PATH`, directly or through a link), the prompt shows
+  selects `/usr/bin/git`, directly or through a link, the prompt shows no Git
+  context and runs neither its Git reads nor the launcher resolution above,
+  and Search's default source is not Git; and when a C, C++, Objective-C,
+  assembly, Swift or Python runtime probe would run `/usr/bin/c++`, `clang++`,
+  `g++`, `clang`, `cc`, `swift` or `python3` (found on `PATH`, directly or
+  through a link), the prompt shows
   that runtime as `not-installed` and runs nothing. That answer is never
   remembered, so the next prompt after an install finds Git and probes those
   runtimes again. Git you start yourself (`g`, `git`, the Git workspaces, an
   explicitly chosen Git Search, `g --discard-all`) still runs `/usr/bin/git`,
   which may bring up the offer, and a Git or runtime elsewhere on `PATH` is
-  unaffected. On other systems `/usr/bin/git` is an ordinary Git and these
-  reads run it as usual. Inspect
+  unaffected (a shim there that starts one of these launchers, such as
+  pyenv's `system` Python, can still bring it up). On other systems
+  `/usr/bin/git` is an ordinary Git and these reads run it as usual. Inspect
   `.zsh.addons/support/functions/.zsh.impure.compozsh_developer_dir` and its
   callers in `.zsh.impure.compozsh_git_local` and
   `.zsh.impure.prompt_runtime_version`. Without running any launcher,

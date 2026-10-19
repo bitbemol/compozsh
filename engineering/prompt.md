@@ -299,20 +299,21 @@ short windows use bounded omission.
   it the prompt keeps project identity and tool markers. Don't duplicate
   probes or readers in the prompt peer or shared UI support. Reading external
   state is an observation boundary even when nothing is mutated.
-- Without Apple's developer tools, a probe that would run one of Apple's
-  `/usr/bin` launchers (`c++`, `clang++`, `g++`, `clang`, `cc`, `swift`,
-  `python3`, or a link to one) would make macOS offer to install them. When
-  the shared `_compozsh_developer_dir` file-test probe is missing or finds no
-  developer directory, `_prompt_runtime_version` reports `not-installed`,
-  runs nothing and caches nothing
+- On macOS, without Apple's developer tools, a probe that would run one of
+  Apple's `/usr/bin` launchers (`c++`, `clang++`, `g++`, `clang`, `cc`,
+  `swift`, `python3`, or a link to one) would make macOS offer to install
+  them. When the shared `_compozsh_developer_dir` file-test probe is missing
+  or finds no developer directory, `_prompt_runtime_version` reports
+  `not-installed`, runs nothing and caches nothing
   ([SECURITY.md](../SECURITY.md#local-only-git-controls)).
 - On macOS, `/usr/bin/java` is Apple's stub for an installed JDK; without one
   it fails and may offer to install one. When `java` resolves to it (or a
   link to it) and the private `_prompt_runtime_java_present` file-test probe
   (the test seam) finds no runtime the stub could start (an exported absolute
-  `JAVA_HOME` holding an executable `bin/java`, any visible entry in the
-  system or `HOME`'s `Library/Java/JavaVirtualMachines` folder, or Oracle's
-  legacy Java plug-in), `_prompt_runtime_version` reports `not-installed`,
+  `JAVA_HOME` holding an executable `bin/java` other than the stub itself,
+  any visible entry in the system or `HOME`'s
+  `Library/Java/JavaVirtualMachines` folder, or Oracle's legacy Java
+  plug-in), `_prompt_runtime_version` reports `not-installed`,
   runs nothing and caches nothing
   ([SECURITY.md](../SECURITY.md#runtime-and-project-context)).
 - Version probes cache in memory only, keyed by every environment selector

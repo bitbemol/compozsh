@@ -1,5 +1,6 @@
 # Entry point: _compozsh_developer_dir
-# Impure: reads the filesystem with file tests only; runs nothing.
+# Impure: reads the ambient DEVELOPER_DIR (only when exported) and the
+# filesystem, with file tests only; runs nothing.
 # Ordinary support peer; no cross-peer calls at source time.
 
 # Without Xcode or the Command Line Tools, running one of Apple's /usr/bin

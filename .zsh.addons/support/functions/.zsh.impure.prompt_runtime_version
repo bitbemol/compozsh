@@ -489,15 +489,19 @@ _prompt_version_probe() {
 }
 
 # Whether Apple's /usr/bin/java stub has a runtime to start, by file tests only:
-# an exported absolute JAVA_HOME with an executable bin/java, any visible entry
+# an exported absolute JAVA_HOME with an executable bin/java that is not the
+# stub itself (JAVA_HOME=/usr, or a bin/java linked to it), any visible entry
 # in the system or HOME's Library/Java/JavaVirtualMachines folder, or Oracle's
 # legacy Java plug-in, the places the stub looks. Tests replace this function
 # to stand in for the machine.
 _prompt_runtime_java_present() {
   emulate -L zsh
+  local java=''
   local -a runtimes=()
-  [[ ${(t)JAVA_HOME-} == *-export* && $JAVA_HOME == /* &&
-     -f $JAVA_HOME/bin/java && -x $JAVA_HOME/bin/java ]] && return 0
+  if [[ ${(t)JAVA_HOME-} == *-export* && $JAVA_HOME == /* ]]; then
+    java=$JAVA_HOME/bin/java
+    [[ -f $java && -x $java && ${java:A} != /usr/bin/java ]] && return 0
+  fi
   runtimes=(/Library/Java/JavaVirtualMachines/*(N)
     '/Library/Internet Plug-Ins/JavaAppletPlugin.plugin'(N))
   [[ ${HOME-} == /* ]] && runtimes+=("$HOME"/Library/Java/JavaVirtualMachines/*(N))

@@ -605,12 +605,20 @@ test_case 'git shim lets the prompt run the Apple Git behind /usr/bin/git direct
 # elsewhere on PATH still runs, and with a developer directory the launcher
 # runs as before. The probe seam (_compozsh_developer_dir) stands in
 # for the machine's state, the xcrun seam records each find, Git's trace
-# records every launcher-started Git and a PATH Git records its own calls. The
-# real probe follows an exported DEVELOPER_DIR, an Xcode bundle's
-# Contents/Developer included, to the launcher's libxcrun.dylib.
+# records every launcher-started Git and a PATH Git records its own calls.
+# A PATH link to /usr/bin/git is the launcher too. A recording stand-in can't
+# play one (a link that resolves to /usr/bin/git runs it), so the linked rows
+# ask only the entry's decisions, which run nothing even where the gate misses
+# the link: `available` (which the prompt and Search obey, as the first row
+# shows) and `resolve`, which leaves a link to the launcher (no xcrun find)
+# with or without tools. The real probe follows an exported DEVELOPER_DIR, an
+# Xcode bundle's Contents/Developer included, to the launcher's
+# libxcrun.dylib.
 _test_git_launcher_without_developer_tools() {
   test_make_temp_dir || return
   local output='' exit_status=0
+  command mkdir -p -- "$TEST_TMP_DIR/link" || return
+  command ln -s /usr/bin/git "$TEST_TMP_DIR/link/git" || return
   test_write_file "$TEST_TMP_DIR/bin/git" '#!/bin/sh
 printf "%s\n" "$*" >> "$HOME/path-git"
 case " $* " in
@@ -651,9 +659,21 @@ exit 0' || return
       (( started )) && report+=("$1: launcher Git ran") || report+=("$1: launcher Git never ran")
       [[ -s $HOME/path-git ]] && report+=("$1: PATH Git ran") || report+=("$1: PATH Git never ran")
     }
+    _linked_row() {
+      local available=0 resolved=0
+      local -a lines=()
+      : > "$HOME/finds"
+      [[ ${commands[git]-} == "$2/git" && ${commands[git]:A} == /usr/bin/git ]] || exit 4
+      _compozsh_git_local available; available=$?
+      _compozsh_git_local resolve; resolved=$?
+      lines=("${(@f)$(<$HOME/finds)}")
+      report+=("$1: available $available, resolve $resolved, xcrun finds ${#${(@)lines:#}}")
+    }
     _passive_row "no tools"
     PATH=$2:/usr/bin:/bin _passive_row "no tools, PATH Git"
+    PATH=$3:/usr/bin:/bin _linked_row "no tools, linked launcher" "$3"
     developer=/fixture/Developer _passive_row "tools"
+    developer=/fixture/Developer PATH=$3:/usr/bin:/bin _linked_row "tools, linked launcher" "$3"
     command mkdir -p -- "$HOME/developer/usr/lib" "$HOME/Fixture.app/Contents/Developer/usr/lib" \
       "$HOME/empty" || exit 3
     : > "$HOME/developer/usr/lib/libxcrun.dylib"
@@ -663,7 +683,7 @@ exit 0' || return
         _test_real_probe; print -rn -- "probe $name: status $? ${${REPLY#$HOME/}:-none}")")
     done
     print -rl -- "${report[@]}"
-  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/bin" "$TEST_TMP_DIR/link" 2>&1) || exit_status=$?
   test_assert_equal 'status:0
 no tools: prompt none, Search local, resolve 1, xcrun finds 0
 no tools: launcher Git never ran
@@ -671,9 +691,11 @@ no tools: PATH Git never ran
 no tools, PATH Git: prompt path-git no-upstream, Search git, resolve 1, xcrun finds 0
 no tools, PATH Git: launcher Git never ran
 no tools, PATH Git: PATH Git ran
+no tools, linked launcher: available 1, resolve 1, xcrun finds 0
 tools: prompt main no-upstream, Search git, resolve 1, xcrun finds 1
 tools: launcher Git ran
 tools: PATH Git never ran
+tools, linked launcher: available 0, resolve 1, xcrun finds 0
 probe developer: status 0 developer
 probe Fixture.app: status 0 Fixture.app/Contents/Developer
 probe empty: status 1 none

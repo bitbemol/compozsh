@@ -735,9 +735,11 @@ test_case 'prompt probes installed runtimes from a neutral offline context' \
 # project's prompt asks the developer-directory probe first (its seam,
 # _compozsh_developer_dir, stands in for the machine) and shows the runtime as
 # not installed without running the launcher, a link to one included, and
-# remembers nothing; a python3 elsewhere on PATH still runs. With a developer
-# directory the launchers are probed as before. The version-probe recorder
-# answers for /usr/bin itself, so no real launcher runs here.
+# remembers nothing; a python3 elsewhere on PATH still runs, and a missing
+# probe counts as no developer directory. With one, or outside macOS (the
+# platform seam is OSTYPE, as the gate reads it), the launchers are probed as
+# before. The version-probe recorder answers for /usr/bin itself, so no real
+# launcher runs here.
 _test_prompt_runtime_launchers_without_developer_tools() {
   test_make_temp_dir || return
   local home="$TEST_TMP_DIR/home" output='' exit_status=0
@@ -791,6 +793,11 @@ _test_prompt_runtime_launchers_without_developer_tools() {
     PATH=$2:/usr/bin:/bin _row "no tools, linked python3"
     PATH=$3:/usr/bin:/bin _row "no tools, PATH python3"
     developer=/fixture/Developer _row "tools"
+    _PROMPT_RUNTIME_VERSION_CACHE=()
+    OSTYPE=linux-gnu _row "not macOS, no tools"
+    _PROMPT_RUNTIME_VERSION_CACHE=()
+    unfunction _compozsh_developer_dir
+    _row "no probe"
     print -rl -- "${report[@]}"
   ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/link" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
   test_assert_equal 'status:0
@@ -801,7 +808,11 @@ no tools, linked python3 ran: nothing
 no tools, PATH python3: c/c++ not-installed, cmake, swift not-installed, swiftpm, python 3.99.0
 no tools, PATH python3 ran: stand-in python3
 tools: c/c++ clang 17.0.0, cmake, swift 6.2, swiftpm, python 3.9.6
-tools ran: /usr/bin/c++, /usr/bin/swift, /usr/bin/python3' \
+tools ran: /usr/bin/c++, /usr/bin/swift, /usr/bin/python3
+not macOS, no tools: c/c++ clang 17.0.0, cmake, swift 6.2, swiftpm, python 3.9.6
+not macOS, no tools ran: /usr/bin/c++, /usr/bin/swift, /usr/bin/python3
+no probe: c/c++ not-installed, cmake, swift not-installed, swiftpm, python not-installed
+no probe ran: nothing' \
     "status:$exit_status"$'\n'"$output" \
     'a prompt runtime probe ran Apple'\''s launcher without developer tools'
 }
@@ -893,8 +904,10 @@ test_case 'prompt runtime probes run no Apple Java stub without a JDK' \
 
 # The real JDK probe, from files alone, finds nothing to run when HOME's
 # JavaVirtualMachines folder holds only hidden files and JAVA_HOME is
-# unexported or holds no bin/java. It applies only on a machine whose system
-# folder and Java plug-in hold no runtime, since those count too.
+# unexported, holds no bin/java, or holds the stub itself as bin/java
+# (JAVA_HOME=/usr, or a bin/java linked to /usr/bin/java; making the link runs
+# nothing). It applies only on a machine whose system folder and Java plug-in
+# hold no runtime, since those count too.
 _test_prompt_runtime_java_probe_finds_no_jdk() {
   test_make_temp_dir || return
   local output='' exit_status=0
@@ -919,12 +932,20 @@ _test_prompt_runtime_java_probe_finds_no_jdk() {
       print -rn -- "unexported JAVA_HOME: status $?")")
     report+=("$(HOME=$root/empty; export JAVA_HOME=$root/empty; _prompt_runtime_java_present
       print -rn -- "JAVA_HOME without bin/java: status $?")")
+    command mkdir -p -- "$root/stub/bin" && command ln -s /usr/bin/java "$root/stub/bin/java" ||
+      exit 3
+    report+=("$(HOME=$root/empty; export JAVA_HOME=/usr; _prompt_runtime_java_present
+      print -rn -- "JAVA_HOME=/usr: status $?")")
+    report+=("$(HOME=$root/empty; export JAVA_HOME=$root/stub; _prompt_runtime_java_present
+      print -rn -- "JAVA_HOME with bin/java linked to the stub: status $?")")
     print -rl -- "${report[@]}"
   ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
   test_assert_equal 'status:0
 hidden files only: status 1
 unexported JAVA_HOME: status 1
-JAVA_HOME without bin/java: status 1' \
+JAVA_HOME without bin/java: status 1
+JAVA_HOME=/usr: status 1
+JAVA_HOME with bin/java linked to the stub: status 1' \
     "status:$exit_status"$'\n'"$output" \
     'the JDK probe counted a runtime the java stub could not start'
 }
