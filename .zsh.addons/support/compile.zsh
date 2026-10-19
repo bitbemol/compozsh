@@ -17,7 +17,9 @@
 # 512 KiB, or one that fails to compile, gets a text record so startup does
 # not retry it until it changes. New wordcode and the manifest are written
 # under temporary names and renamed into place, so an interrupted run leaves
-# nothing a shell uses.
+# nothing a shell uses. Once a peer manifest is in place, every mirror entry
+# and .zwc it does not name (a removed or renamed peer's, or one from a
+# previous base) is deleted.
 #
 # install: <mirror> must not exist; it is created, and every peer is compiled,
 # waiting for the clock where needed. startup: an existing mirror is used only
@@ -66,7 +68,7 @@ typeset -a parse=(aliases posixaliases ignorebraces ignoreclosebraces
   rcquotes cshjunkiequotes cshjunkieloops kshglob shglob shortloops
   shortrepeat multifuncdef posixidentifiers posixstrings multibyte)
 typeset -a header=() records=() lines=() fields=() link=() residue=()
-typeset -A before=() after=() facts=() kept=() handled=() map=()
+typeset -A before=() after=() facts=() kept=() handled=() map=() named=()
 shift 4
 
 # The same description as _zsh_addon_parse_context in .zshrc.
@@ -158,6 +160,29 @@ _compile_file() {
   return 0
 }
 
+# Remove every mirror entry and wordcode file that the records do not name:
+# those of a removed or renamed peer, or of a peer under a previous base. Runs
+# only inside a real .zsh.addons directory of this user's; ** never follows a
+# symlinked directory. Usage: _compile_prune
+_compile_prune() {
+  local entry=''
+  named=() residue=()
+  zstat -L -H facts -- "$mirror/.zsh.addons" 2> /dev/null &&
+    (( facts[uid] == EUID && (facts[mode] & 8#170000) == 8#40000 )) || return 0
+  for entry in "${records[@]}"; do
+    entry=${entry#-$'\t'}
+    named[${entry%%$'\t'*}]=1
+  done
+  for entry in "$mirror"/.zsh.addons/**/*(D@N); do
+    (( ${+named[${entry#"$mirror"/.zsh.addons/}]} )) || residue+=("$entry")
+  done
+  for entry in "$mirror"/.zsh.addons/**/*.zwc(D.N); do
+    [[ $entry == *.compozsh-tmp-* ]] ||
+      (( ${+named[${${entry#"$mirror"/.zsh.addons/}%.zwc}]} )) || residue+=("$entry")
+  done
+  (( ! $#residue )) || zf_rm -f -- "${residue[@]}"
+}
+
 TRAPINT() { return $(( 128 + $1 )) }
 TRAPHUP() { return $(( 128 + $1 )) }
 TRAPTERM() { return $(( 128 + $1 )) }
@@ -213,7 +238,7 @@ locked=1
     done
     temp=$mirror/manifest.compozsh-tmp-$$
     print -rl -- "${header[@]}" "${records[@]}" > "$temp" &&
-      zf_mv -f -- "$temp" "$mirror/manifest"
+      zf_mv -f -- "$temp" "$mirror/manifest" && _compile_prune
   fi
 } always {
   trap '' INT HUP TERM

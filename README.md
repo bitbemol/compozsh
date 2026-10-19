@@ -211,7 +211,8 @@ options. Otherwise it loads the peer's text exactly as before,
 so the mirror changes speed, never behavior. When a shipped peer is new or has
 changed (after `git pull`, an edit or a Zsh update), the next shell recompiles
 just the changed peers into the mirror and uses them at once; it creates a
-missing mirror the same way. Compiling only parses a peer, never runs it, and
+missing mirror the same way, and drops the compiled copy of a shipped peer
+that was removed or renamed. Compiling only parses a peer, never runs it, and
 stops starting new peers after about 300 ms, so a large update can take a few
 shells; a peer over 512 KiB stays text. Each installation rebuilds the mirror;
 deleting it is always safe, and `--clean` archives it with the add-on tree.

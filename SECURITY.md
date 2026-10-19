@@ -111,7 +111,7 @@ recoverable installer need local state.
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons`; an initializer moved by `ZSH_LOCAL_INIT` stays at that absolute path (a relative value is ignored) | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted; a rollback that cannot put an item back keeps it there and prints the path |
 | Installer copy staging | `${ZDOTDIR:-$HOME}/.compozsh-install.*`, a mode-0700 directory that exists only while `install.zsh --copy` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The clone's `.zsh.addons` tree without `support/cache` or `support/compiled` (untracked files included) plus the `.managed-by-compozsh` marker, staged before any active state moves; never sourced |
-| Compiled peer mirror | `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled`, a mode-0700 directory written by `install.zsh` (both layouts; rebuilt by each installation) and by interactive startup, which creates it when missing, recompiles shipped peers that are new or changed and, after `compinit`, compiles a new or changed completion dump; persists until the next installation, `--clean` (archived with the add-on tree) or uninstall | [Executable Zsh wordcode](#compiled-peer-mirror): per shipped peer a symlink to its absolute path and the `.zwc` that `zcompile` made from it, never private peers; for the [completion dump](#native-completion-dump) a `zcompdump` symlink to it, its `zcompdump.zwc` (the dump's names, compiled) and a `zcompdump.manifest` of the Zsh version, the dump's path, the same parse context and the dump's device, inode, size, mtime and ctime; a `manifest` of the Zsh version, the parse context it was compiled under (always Zsh's default parse-affecting options and its two built-in aliases, `run-help` and `which-command`; never an alias a startup file defined), the shipped add-on directory and each peer's relative path, device, inode, size, mtime and ctime (a `-` record marks a peer that stays text until it changes); the `.managed-by-compozsh` marker; and, only while a compile runs, a `.lock` directory and `*.compozsh-tmp-<pid>` files. No user or project data beyond the dump's names. Loaded only while fresh |
+| Compiled peer mirror | `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled`, a mode-0700 directory written by `install.zsh` (both layouts; rebuilt by each installation) and by interactive startup, which creates it when missing, recompiles shipped peers that are new or changed, drops the entry, wordcode and record of a shipped peer that was removed or renamed and, after `compinit`, compiles a new or changed completion dump; persists until the next installation, `--clean` (archived with the add-on tree) or uninstall, except that a removed or renamed peer's entry lasts only until the next shell that can compile | [Executable Zsh wordcode](#compiled-peer-mirror): per shipped peer a symlink to its absolute path and the `.zwc` that `zcompile` made from it, never private peers; for the [completion dump](#native-completion-dump) a `zcompdump` symlink to it, its `zcompdump.zwc` (the dump's names, compiled) and a `zcompdump.manifest` of the Zsh version, the dump's path, the same parse context and the dump's device, inode, size, mtime and ctime; a `manifest` of the Zsh version, the parse context it was compiled under (always Zsh's default parse-affecting options and its two built-in aliases, `run-help` and `which-command`; never an alias a startup file defined), the shipped add-on directory and each peer's relative path, device, inode, size, mtime and ctime (a `-` record marks a peer that stays text until it changes); the `.managed-by-compozsh` marker; and, only while a compile runs, a `.lock` directory and `*.compozsh-tmp-<pid>` files. No user or project data beyond the dump's names. Loaded only while fresh |
 | Installer compile staging | `${ZDOTDIR:-$HOME}/.compozsh-compiled.*`, a mode-0700 directory that exists only while `install.zsh` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The new compiled mirror before activation and the superseded one after it; never sourced |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory; discarded with the shell or view | Color-scheme classification, runtime versions, Git state, paths, Context trigger/disclosure flags, positive/exclusion fields and their bookmarks, temporary view snapshots |
@@ -1102,8 +1102,12 @@ checks nor rebuilds it):
   refused before any change.
 - Interactive startup, before any peer loads, when a discovered shipped peer
   has no record matching its current metadata (new, edited, or after a Zsh
-  update) or the mirror is missing. It passes only those peers; their paths
-  come from discovery, never from the current directory. The mirror must be a
+  update), a record names a peer file that no longer exists (removed or
+  renamed), or the mirror is missing. It passes only those peers; their paths
+  come from discovery or the manifest, never from the current directory.
+  Once the new manifest is in place, it deletes every symlink and `.zwc` under
+  the mirror's `.zsh.addons` that the manifest does not name, so a removed or
+  renamed shipped peer leaves no entry, wordcode or record. The mirror must be a
   real directory owned by you with no group or other access and holding a
   regular-file marker; a missing one is created (with `support/` if needed,
   only inside an existing add-on directory), and anything else at that path
@@ -1161,8 +1165,11 @@ startup compile can leave the `.lock` directory, which the next compile
 after a minute removes, and `*.compozsh-tmp-<pid>` files, which are never
 used and which the next compile deletes; an interrupted `compinit` rewrite
 through the mirror can leave `zcompdump.<host>.<pid>`, which a compile deletes
-once it is a minute old. Deleting the whole mirror is always safe: the next
-shell rebuilds it.
+once it is a minute old. The entry, wordcode and record of a shipped peer
+that was removed or renamed remain until the next shell whose parse context
+allows compiling (and that finds no live lock), or until the next
+installation; `--clean` archives whatever is present. Deleting the whole
+mirror is always safe: the next shell rebuilds it.
 
 **Trust.** The mirror is executable configuration with the same trust as the
 add-on tree it lives in: an account that can replace it can already replace

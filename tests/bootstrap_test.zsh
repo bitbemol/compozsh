@@ -894,6 +894,59 @@ _test_compiled_peers_recompile_changed_peers() {
 test_case 'compiled peers: the first shell after an edit recompiles just that peer and later shells reuse it' \
   _test_compiled_peers_recompile_changed_peers
 
+# Fail unless the mirror <compiled> keeps no entry, wordcode or manifest record
+# for the relative path <rel>.
+# Usage: _test_compiled_dropped <compiled> <rel> <label>
+_test_compiled_dropped() {
+  local line=''
+  [[ ! -L $1/.zsh.addons/$2 && ! -e $1/.zsh.addons/$2 ]] ||
+    test_fail "$3: the mirror entry $2 remains" || return
+  [[ ! -e $1/.zsh.addons/$2.zwc ]] || test_fail "$3: the wordcode of $2 remains" || return
+  for line in "${(@)${(@f)"$(<"$1/manifest")"}[7,-1]}"; do
+    line=${line#-$'\t'}
+    [[ ${line%%$'\t'*} != "$2" ]] || test_fail "$3: the manifest still records $2" || return
+  done
+}
+
+# A shipped peer removed or renamed after installation leaves nothing in the
+# mirror: the next shell that may compile drops its entry, wordcode and record,
+# even when no other shipped peer changed, and the other entries stay in use.
+_test_compiled_peers_drop_removed_peers() {
+  test_make_temp_dir || return
+  local layout='' home='' shared='' output='' compiled='' rel=''
+  local -i run=0
+  local script='source "$HOME/.zshrc" || exit 1
+    [[ ${functions_source[mkcd]} == */support/compiled/* ]] && print -r -- compiled'
+  for layout in symlink copy; do
+    home="$TEST_TMP_DIR/$layout"
+    compiled="$home/.zsh.addons/support/compiled"
+    _test_compiled_probe_install "$home" "$layout" || return
+    shared=$REPLY
+    rel=.zsh.zz-probe
+    [[ $layout == symlink ]] || rel=compozsh/$rel
+    [[ -L $compiled/.zsh.addons/$rel && -f $compiled/.zsh.addons/$rel.zwc ]] ||
+      test_fail "$layout: the installed probe has no mirror entry" || return
+
+    command mv -- "$shared/.zsh.zz-probe" "$shared/.zsh.zz-probe-renamed" || return
+    _test_compiled_tick || return
+    for (( run = 1; run <= 3; run++ )); do
+      output=$(test_run_interactive "$home" "$_test_compiled_probe_script" 2> "$TEST_TMP_DIR/errors") || return
+      [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$layout: $(<"$TEST_TMP_DIR/errors")" || return
+      [[ $output != 'compiled|old' ]] || break
+    done
+    test_assert_equal 'compiled|old' "$output" "$layout: the renamed probe was not compiled" || return
+    _test_compiled_dropped "$compiled" "$rel" "$layout: after a rename" || return
+
+    command rm -f -- "$shared/.zsh.zz-probe-renamed" || return
+    output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors") || return
+    [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$layout: $(<"$TEST_TMP_DIR/errors")" || return
+    test_assert_equal compiled "$output" "$layout: the other shipped peers left the mirror" || return
+    _test_compiled_dropped "$compiled" "$rel-renamed" "$layout: after a deletion" || return
+  done
+}
+test_case 'compiled peers: a removed or renamed shipped peer leaves no mirror entry, wordcode or record behind' \
+  _test_compiled_peers_drop_removed_peers
+
 # A missing mirror, or a missing support folder, is created by the next shell:
 # a mode-0700 folder with the marker and a manifest, filled without the
 # installer and used at once.

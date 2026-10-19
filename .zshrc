@@ -56,10 +56,12 @@ fi
 # convergence test), so compiled peers may change it. Otherwise the peer's
 # text is sourced, so the mirror changes only how fast a shell starts, never
 # the state it reaches. When a shipped peer has no valid record (new, edited,
-# or the mirror is missing) and the context allows compiled code, the shipped
+# or the mirror is missing), or a record names a peer that no longer exists
+# (removed or renamed), and the context allows compiled code, the shipped
 # support/compile.zsh runs once in a separate zsh -f to compile just those
-# peers (time-boxed, under a lock, written atomically), and the manifest is
-# read again; it never runs a peer, and any failure leaves those peers on text.
+# peers (time-boxed, under a lock, written atomically) and drop every entry
+# the new manifest does not name, and the manifest is read again; it never
+# runs a peer, and any failure leaves those peers on text.
 typeset -aU _zsh_addon_dirs=(
   "${_zsh_shared_addons_dir:A}"
   "${_zsh_user_addons_dir:A}"
@@ -92,14 +94,16 @@ _zsh_addon_parse_context() {
 }
 # Read the mirror's manifest into _zsh_addon_compiled (fresh entries),
 # _zsh_addon_parse and _zsh_addon_expected, and list in _zsh_addon_stale the
-# shipped peers with no record matching their current metadata. A "-" record
-# names a peer that stays text (too large or not compilable) until it changes.
+# shipped peers with no record matching their current metadata, plus each
+# recorded peer that no longer exists, whose entry the compile then drops. A
+# "-" record names a peer that stays text (too large or not compilable) until
+# it changes.
 # _zsh_addon_mirror is "ok" when the mirror is absent from an existing add-on
 # directory, or is a marked directory of this user's closed to other accounts.
 _zsh_addon_read_mirror() {
   emulate -LR zsh
   local compiled=$1 line='' base='' file='' entry=''
-  local -a lines=() fields=() link=()
+  local -a lines=() fields=() link=() gone=()
   local -A facts=() known=()
   _zsh_addon_compiled=() _zsh_addon_parse=() _zsh_addon_stale=()
   _zsh_addon_expected='' _zsh_addon_mirror=''
@@ -126,9 +130,12 @@ _zsh_addon_read_mirror() {
       (( ${#fields} == 6 || ${#fields} == 7 )) &&
         [[ $fields[1] != /* && /$fields[1]/ != */../* ]] || continue
       file=$base/$fields[1] entry=$compiled/.zsh.addons/$fields[1]
-      zstat -H facts -- "$file" 2>/dev/null &&
-        [[ "$facts[device] $facts[inode] $facts[size] $facts[mtime] $facts[ctime]" ==
-           "${(j: :)fields[2,6]}" ]] || continue
+      if ! zstat -H facts -- "$file" 2>/dev/null; then
+        gone+=("$file")
+        continue
+      fi
+      [[ "$facts[device] $facts[inode] $facts[size] $facts[mtime] $facts[ctime]" ==
+         "${(j: :)fields[2,6]}" ]] || continue
       if (( ${#fields} == 7 )); then
         known[$file]=1
       elif zstat -L -A link +link -- "$entry" 2>/dev/null && [[ ${link[1]-} == "$file" ]]; then
@@ -141,6 +148,7 @@ _zsh_addon_read_mirror() {
   for file in "${(@M)_zsh_addon_files:#$_zsh_addon_shipped/*}"; do
     (( ${+known[$file]} )) || _zsh_addon_stale+=("$file")
   done
+  _zsh_addon_stale+=("${gone[@]}")
 }
 () {
   emulate -LR zsh

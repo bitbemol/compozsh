@@ -444,6 +444,11 @@ the orchestrator re-verified and committed after a full suite.
   `g --discard-all` go through the shared local-only Git entry. They now also
   disable commit-signature verification and the untracked cache. If shared
   support is missing, `g --discard-all` refuses before running Git (P4-29).
+- Removing or renaming a shipped peer (after `git pull`, for example) now
+  removes its compiled copy too: the next shell that can compile deletes the
+  old mirror entry, its `.zwc` wordcode and its manifest record, even when no
+  other peer changed. Before, they stayed in `~/.zsh.addons/support/compiled`
+  until the next installation (F01, SEC-A-01).
 
 ## Performance results
 

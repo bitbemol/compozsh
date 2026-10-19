@@ -76,7 +76,8 @@ compozsh/
   `.zsh.addons/support/compile.zsh`, run in a separate `zsh -f`, writes it:
   every installation rebuilds it in both layouts, interactive startup
   recompiles just the shipped peers without a fresh record (creating a missing
-  mirror), and `.zsh.editor` compiles a new or changed dump after `compinit`,
+  mirror) and drops the entry, wordcode and record of a removed or renamed
+  one, and `.zsh.editor` compiles a new or changed dump after `compinit`,
   under a lock with atomic renames and a time box. `--clean`
   archives it with the add-on tree, `compozsh --refresh` never writes it, and
   deleting it is always safe. Its format and checks are in
@@ -173,8 +174,10 @@ loading reaches the same state. Before any peer loads, shipped peers with no
 record matching their current metadata are compiled by
 `support/compile.zsh` in a separate `zsh -f` (only parsing them, never
 running them) when the mirror is absent or the user's own and the parse
-context matches the manifest's; the manifest is then read again, so a changed
-peer runs compiled in the first shell that can compile it. Compiled peers report the mirror path in
+context matches the manifest's (a record whose peer no longer exists starts
+that compile too, which deletes every entry the new manifest does not name);
+the manifest is then read again, so a changed peer runs compiled in the first
+shell that can compile it. Compiled peers report the mirror path in
 `functions_source`, which keeps the `/.zsh.addons/` label suffix. Lexical
 traversal only makes diagnostics reproducible:
 
