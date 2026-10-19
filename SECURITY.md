@@ -1189,8 +1189,10 @@ as it would without a mirror:
   While a manifest exists and the context does not match, startup does not
   compile either.
 
-So the mirror can change startup time, never the resulting shell state; tests
-compare the complete state with and without it in both layouts. Discovery
+So the mirror can change startup time and the source path Zsh records for each
+function a compiled peer defines (`functions_source` names the mirror entry),
+never the rest of the resulting shell state; tests compare the complete state
+apart from those paths with and without it in both layouts. Discovery
 never treats a `.zwc` file or anything under `support/compiled` as a peer, and
 Git ignores `.zsh.addons/support/compiled/` (like `support/cache/`), so a
 shell whose `ZDOTDIR` is a clone never offers the mirror's absolute paths or
@@ -1214,11 +1216,16 @@ present. Deleting the whole mirror is always safe: the next shell rebuilds it.
 
 **Trust.** The mirror is executable configuration with the same trust as the
 add-on tree it lives in: an account that can replace it can already replace
-private peers. Inspect it, and check every entry independently of Compozsh's
-own code, with:
+private peers. Its access checks read ownership and POSIX mode bits only:
+extended ACLs on the mirror, which it can inherit from `support/`, are not
+inspected or removed (Zsh has no native way to read them, and startup starts
+no process just to check them), so an ACL that grants another account access to the
+mirror gives it the same access as one on the add-on tree. Inspect it (`ls -e`
+also lists any ACL), and check every entry independently of Compozsh's own
+code, with:
 
 ```sh
-ls -laR "${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled"
+ls -laeR "${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled"
 sed -n '1,6p' "${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled/manifest"
 zsh -fc 'zmodload -F zsh/stat b:zstat; m=${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled
   b=${${(f)"$(<$m/manifest)"}[3]#base }
@@ -1230,10 +1237,11 @@ zsh -fc 'zmodload -F zsh/stat b:zstat; m=${ZDOTDIR:-$HOME}/.zsh.addons/support/c
     r=fresh || r=stale; print -r -- "$r dump -> $(readlink $m/zcompdump)"'
 ```
 
-The last command lists every compiled entry as `fresh` (used) or `stale`
-(ignored; the next shell recompiles it) with its link target, which must be
-the shipped peer or, for the dump, `${ZDOTDIR:-$HOME}/.zcompdump`; a fresh
-dump is still used only under the parse context it was compiled in.
+The last command compares file identity only. It lists every compiled entry
+as `fresh` (used while the running Zsh version and parse context also match
+those its manifest records, which the second command shows for the peers) or
+`stale` (ignored; the next shell recompiles it) with its link target, which
+must be the shipped peer or, for the dump, `${ZDOTDIR:-$HOME}/.zcompdump`.
 `zsh tests/run.zsh 'compiled peers'` checks discovery, freshness, fallbacks,
 state equality, startup recompilation, locking, interrupted compiles, the size
 bound and the installer lifecycle;
@@ -2026,7 +2034,8 @@ server.
 | Runtime metadata bounds and installed-runtime probes | `runtime versions`, `bounded direct metadata`, `prompt probes installed runtimes` |
 | Manual capture, formatter and transport | `manual coverage`, `manual summaries`, `manual async` |
 | Public manual cache and installer exclusion | `manual cache`, `cache data`, `installer excludes generated` |
-| Native completion dump call, path, contents, mode and `--clean` survival | `native completion dump`, `clean installer touches only` |
+| Native completion dump call, path, contents, mode and `--clean` survival; its compiled copy's freshness, fallbacks and rewrite | `native completion dump`, `clean installer touches only`, `compiled completion dump` |
+| Compiled peer mirror: freshness, ownership, parse context, `/bin/zsh` only, startup recompile, locking, size bound, Git ignore and installer lifecycle | `compiled peers` |
 | Installer rollback after failures and signals, copy staging name and cleanup | `installer` |
 | Matching and exclusion | `exclusion`, `matching component` |
 | Captured-data parsing without temporary files | `here-string`, `filter override builder`, `worktree removal` |

@@ -209,9 +209,10 @@ warm startup by about 20 ms. Private peers in `~/.zsh.addons` are never
 compiled, so keep personal code there: it always loads as text. A shell uses a
 peer's compiled code only while that peer file is unchanged since compilation,
 the Zsh version matches, and nothing that ran first (a startup file such as
-`/etc/zshenv`, your initializer or an earlier private peer) has added aliases
-or changed parse options. Otherwise it loads the peer's text exactly as
-before, so the mirror changes speed, never behavior. Compiling always uses
+`/etc/zshenv`, your initializer or an earlier private peer) has added, removed
+or changed aliases (for example `unalias run-help`) or changed parse options.
+Otherwise it loads the peer's text exactly as before, so the mirror changes
+speed, never behavior. Compiling always uses
 Apple's `/bin/zsh`, never a `zsh` found on your `PATH`, so a shell running
 another Zsh version (Homebrew's, for example) loads text and stops trying to
 compile until `/bin/zsh` itself changes. When a shipped peer is
@@ -230,10 +231,11 @@ shell compiles the dump into the mirror once the dump is older than the current
 second, and later shells load that copy only while the dump file is provably
 unchanged since then (same file, size and timestamps, not just an mtime
 comparison), the Zsh version matches, and nothing that ran first (a startup
-file, your initializer or an earlier peer) has added aliases or changed parse
-options. Otherwise the dump loads as text as before. `compinit` still checks
-`fpath` and rewrites the dump whenever `fpath` changes; a dump it rewrites
-while using the compiled copy is moved back to its usual path at once.
+file, your initializer or an earlier peer) has added, removed or changed
+aliases or changed parse options. Otherwise the dump loads as text as before.
+`compinit` still checks `fpath` and rewrites the dump whenever `fpath` changes;
+a dump it rewrites while using the compiled copy is moved back to its usual
+path at once.
 
 ## Apply changes
 
@@ -1537,7 +1539,7 @@ defines one internal entry point named after the file with a leading `_`.
 | `support/functions/.zsh.impure.compozsh_effect_copy` | Clipboard writes |
 | `support/functions/.zsh.impure.compozsh_effect_open` | File Open/Reveal |
 | `support/functions/.zsh.impure.compozsh_git_filter_config` | Git filter-name reads |
-| `support/functions/.zsh.impure.compozsh_git_local` | Local-only Git calls for explicit roots |
+| `support/functions/.zsh.impure.compozsh_git_local` | Local-only Git calls for an explicit root or the caller's repository selectors; when `PATH` selects `/usr/bin/git`, runs the Apple-signed Git behind it directly |
 | `support/functions/.zsh.impure.compozsh_git_operation` | Git operation-marker reads |
 | `support/functions/.zsh.impure.compozsh_job_reap` | Owned child reaping without job-table sweeps |
 | `support/functions/.zsh.impure.compozsh_palette_color` | Palette-role resolution |
@@ -1691,6 +1693,7 @@ _compozsh_help_postgres-status() {
     '  postgres-status    Run psql --list with your current settings.'
 }
 
+unalias postgres-status 2>/dev/null
 postgres-status() {
   emulate -L zsh
 
@@ -1698,7 +1701,7 @@ postgres-status() {
     local -a help=(_compozsh_help_postgres-status)
     (( ${+functions[_compozsh_help_show]} )) && help=(_compozsh_help_show "${help[@]}")
     "${help[@]}"
-    return 0
+    return $?
   fi
   (( $# == 0 )) || {
     print -u2 -r -- 'usage: postgres-status'
@@ -1713,7 +1716,10 @@ postgres-status() {
 ```
 
 Handle `--help` first through a static `_compozsh_help_<command>` companion, so
-`compozsh` and the help workspace can show it safely. Start help with a
+`compozsh` and the help workspace can show it safely, and return its status
+(130 when Ctrl-C aborts the help workspace). Put `unalias <command>
+2>/dev/null` before the definition, because an existing alias of that name
+would stop it from parsing. Start help with a
 `usage:` line and a one-sentence summary, keep headings unindented and body
 text indented by two spaces, and use headings such as `Options:` and
 `Examples:`. Run `exec zsh` after adding or renaming an add-on.

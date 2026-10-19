@@ -11,7 +11,10 @@ system data.
   fingerprints of it; each producer documents the public provenance of every
   field. The rule covers every file Compozsh generates for itself, not only
   caches: the compiled mirror, its manifests and any future generated artifact
-  ([security](security.md#persistent-storage)).
+  ([security](security.md#persistent-storage)). Such an artifact may hold only
+  its source in another form plus public metadata and file identity: the
+  compiled completion dump may carry what Zsh's dump already holds (its
+  `fpath` names, private entries included) and nothing more.
 - **No new machinery.** No cache manager, daemon, polling, registry, load
   phase or per-project cache; no cache I/O at source time or while typing or
   resizing. The manual producer's bounded asynchronous capture is the only
