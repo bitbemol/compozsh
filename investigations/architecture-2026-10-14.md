@@ -94,6 +94,43 @@ Owner-approved units run in patch-only mode. The implementing agent builds and
 verifies the change, then the orchestrator, who received these answers
 directly, re-verifies and commits it.
 
+Later rounds, asked in chat and quoted as answered:
+
+- **Git shim check (P5-12), 2026-10-17.** The planned ancestor-ownership
+  check rejected Xcode in `/Applications` (root:admin 0775), so it would have
+  saved nothing on the owner's Mac.
+  - The owner asked: "can we be sure we only use official apple git? your
+    change implies we could get injected a fake git".
+  - The owner then answered: "1 and unit test so we are sure this works as
+    expected and it blocks fake gits".
+  - So Compozsh calls the real Git directly only when `/usr/bin/codesign`
+    verifies it as `anchor apple and identifier "com.apple.git"`, and its
+    file identity is rechecked on every use.
+- **zcompile kept, 2026-10-18.** After an explanation of what `zcompile`
+  writes and where, the owner answered "well let's keep it".
+- **Automatic recompilation, 2026-10-18.** This reverses "installer only".
+  The owner asked that "the system can detect changes and compile without
+  user intervention so we are always best speed". Measurements and a web
+  check followed: `zrecompile` and the common "zcompare" snippet decide by
+  mtime only, and ran stale code in two local tests. The owner then chose:
+  - "At startup, changed files only (Recommended)";
+  - "Compozsh files + your own peers (Recommended)";
+  - for `.zcompdump`, "Yes, with the strict check (Recommended)".
+- **Private peers dropped, 2026-10-18.** P6-02's design recorded alias names
+  and values (user data) in the manifest. Its measured gain was 0.6–2 ms.
+  The owner answered "1": drop it. Private peers stay text, and no user data
+  is written.
+- **Project rules and approvals, 2026-10-18.**
+  - Asked whether to apply the proposed `CLAUDE.md` and `.claude/` updates,
+    the owner answered "yes, let's start making a global files for all agents
+    and projects, this way proojects just have projecr specific rules".
+    General rules now live in the owner's `~/.claude/CLAUDE.md`. This
+    repository receives only the project-specific updates.
+  - Asked how agents should treat chat approvals, the owner answered
+    "Record, then agents may act (Recommended)". Approvals quoted and dated in
+    this section are acceptance, and implementing agents may commit against
+    them. Patch-only mode is no longer required.
+
 ## Commits
 
 ### Phase 1: breakage and safety
@@ -249,6 +286,64 @@ The orchestrator then integrated the work:
 | `7bd92c0` | P4-30 (U11 follow-up, excellence open owner question 2), patch | usb | Refuse USB image sources that sit on a virtual disk |
 | `70203b0` | P4-31 (Git audit note, excellence open owner question 4), patch | git | Bound the bare g branch catalog with an honest partial notice |
 | `450393e` | P4-29 (A2-05, D-05), patch | prompt | Route prompt, filter and discard Git reads through the shared entry |
+
+### Phase 5: performance and compiled startup
+
+P5-01 to P5-08 landed on their first attempt, at 13–26 minutes each. P5-09
+to P5-11 were dropped by owner decision.
+
+Two units were owner-approved patches. The orchestrator re-verified each one
+(red at the prior HEAD, then green) and committed it after a full suite:
+
+- P5-13 (zcompile) had 1,119 passed, 0 failed.
+- P5-12 (the git shim) came back for an owner decision on its signature
+  check, was rerun with the owner's answer, then had 1,123 passed, 0 failed.
+
+Measured results:
+
+| Change | Result |
+| --- | --- |
+| `zcompile` | Warm process startup 72 → 49 ms (−32%), first editable prompt 94 → 74 ms (−21%) |
+| Git shim | Prompt render 23.2 → 16.4 ms in a clean repository (−29%), 24.8 → 18.1 ms dirty (−27%), 40.6 → 33.7 ms large (−17%) |
+
+| Commit | Unit | Subject |
+| --- | --- | --- |
+| `5979387` | P5-01 (C-02, C-04, C-05, C-11) | Record the performance baseline and let startup runs use installs |
+| `9229ac2` | P5-02 (C-04, U68) | Clean up the manual async transport with zsh/files builtins |
+| `a740b01` | P5-03 (C-05, U69) | Validate help-description identity in parts each prompt |
+| `a498176` | P5-04 (C-07, U64) | Look up highlighter command categories with keyed existence tests |
+| `5d6f6c5` | P5-05 (A2-07) | Key the prompt Git-directory memo by repository, not folder |
+| `86a2917` | P5-06 (C-08) | Parse prompt Git status in a pure helper with array counting |
+| `2bb16a1` | P5-07 (A1-12) | Capture diskutil plists in memory instead of a temporary file |
+| `c2642ca` | P5-08 (C-11) | Delete startup ZLE hooks only when they are registered |
+| `2ae4be2` | P5-13 (C-02a, C-09), patch | Precompile shipped peers with fresh-only zcompile; skip .zwc files |
+| `4a037b3` | P5-12 (A2-08a), patch | Run the Apple-signed Git behind /usr/bin/git directly for Compozsh reads |
+
+### Phase 6: automatic recompilation
+
+These units came from the owner's fourth-round request. Each was a patch that
+the orchestrator re-verified and committed after a full suite.
+
+- **P6-01:** shipped peers that are new or changed are recompiled at startup,
+  under a lock, with atomic writes, a 300 ms box, a 512 KiB bound and silent
+  text fallback.
+  - Full suite: 1,128 passed, 0 failed.
+  - Warm startup was unchanged.
+  - A one-time cost falls on the first shell after an edit: about 104 ms for
+    the largest peer, about 280 ms for all 88.
+- **P6-02** (private peers) was dropped by the owner (see Owner decisions).
+- **P6-03:** a compiled completion dump is loaded from the private mirror
+  only while the dump is provably unchanged. Its manifest holds no user data.
+  - Full suite: 1,130 passed, 0 failed.
+  - Warm process startup 50.0 → 45.5 ms (−9%), first editable prompt
+    73.7 → 69.1 ms (−6%).
+  - The compiled dump is used only when no alias is defined before the editor
+    peer runs `compinit`, so an initializer alias means the plain dump.
+
+| Commit | Unit | Subject |
+| --- | --- | --- |
+| `bf10351` | P6-01, patch | Recompile changed shipped peers at startup into the private mirror |
+| `ee38661` | P6-03, patch | Load a strictly checked compiled completion dump from the private mirror |
 
 ## Release notes
 
