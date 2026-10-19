@@ -73,7 +73,9 @@ plug-in manager.
   Apple's `/usr/bin` compilers, `swift` and `python3`. Until one is installed,
   the prompt's Git context, its runtime versions from those launchers (shown
   as `not-installed`) and Search's default source never bring up macOS's
-  install offer; Git commands you run can
+  install offer; Git commands you run can. Apple's `/usr/bin/java` likewise
+  needs a JDK, and until one is installed the prompt shows Java as
+  `not-installed` without running it
 - A terminal with Unicode and color support; no patched font is required
 - Full Xcode, only for the Xcode workspace; physical-device Run needs a device
   supported by that Xcode's `devicectl`, and the skill exporter needs Xcode 27

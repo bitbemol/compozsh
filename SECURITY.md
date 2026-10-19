@@ -426,7 +426,22 @@ cache is shell memory, refreshable with `compozsh --refresh`, and disappears
 with the shell. Missing runtime support leaves project identity/tool markers.
 Without Apple's developer tools, a runtime whose probe would run one of
 Apple's `/usr/bin` launchers shows as `not-installed` and runs nothing
-([missing developer tools](#local-only-git-controls)).
+([missing developer tools](#local-only-git-controls)). On macOS,
+`/usr/bin/java` is Apple's stub for an installed JDK; without one it fails and
+may offer to install one. When the Java probe would run it (found on `PATH`,
+directly or through a link), the prompt first looks, with file tests only,
+for a runtime the stub could start: an exported absolute `JAVA_HOME` that
+holds an executable `bin/java`, any visible entry in
+`/Library/Java/JavaVirtualMachines` or
+`$HOME/Library/Java/JavaVirtualMachines`, or
+`/Library/Internet Plug-Ins/JavaAppletPlugin.plugin`. With none, Java shows as
+`not-installed`, nothing runs and the answer is never remembered, so the next
+prompt after an install probes it. Without running anything,
+`ls /Library/Java/JavaVirtualMachines ~/Library/Java/JavaVirtualMachines '/Library/Internet Plug-Ins/JavaAppletPlugin.plugin'`
+shows what counts: an entry listed under either folder, or an existing
+plug-in, means the prompt runs the stub, as does such a `JAVA_HOME` (inspect
+`_prompt_runtime_java_present` in
+`.zsh.addons/support/functions/.zsh.impure.prompt_runtime_version`).
 Probing installed runtimes is an [external
 boundary](#independently-controlled-network-capable-software). Inspect without
 executing: `git grep -n . HEAD -- .zsh.addons/support/functions/`.
@@ -2092,6 +2107,7 @@ server.
 | Git filter, selector, Files, promisor and signature-verifier controls | `shared Git`, `Git selectors`, `Files Git`, `promisor fetch`, `signature verifier` |
 | Direct Apple Git behind `/usr/bin/git`: signature, identity, selectors, `PATH` choice and refresh | `git shim` |
 | Without Apple's developer tools, the prompt's Git context and runtime probes and Search's default source run no `/usr/bin` Git, `xcrun`, compiler, `swift` or `python3` launcher | `without developer tools` |
+| Without a JDK, the prompt's Java probe runs no `/usr/bin/java` stub, and its file tests count only runtimes the stub could start | `Java stub` |
 | Git comparison bounds | `Git comparison` |
 | Discard with a dirty submodule | `g --discard-all preserves dirty submodule` |
 | Worktrees | `worktree ` |

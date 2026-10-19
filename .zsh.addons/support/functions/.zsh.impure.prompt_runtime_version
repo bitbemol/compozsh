@@ -187,6 +187,17 @@ _prompt_runtime_version() {
     fi
   fi
 
+  # Apple's /usr/bin/java is a stub that runs an installed JDK; with none it
+  # fails and may offer to install one. When the file-test probe finds no
+  # runtime the stub could start, Java (found directly or through a link) is
+  # not installed: nothing runs and nothing is cached, so the next prompt after
+  # an install probes it.
+  if [[ -n $binary && $OSTYPE == darwin* && ${binary:A} == /usr/bin/java ]] &&
+     ! _prompt_runtime_java_present; then
+    REPLY='not-installed'
+    return
+  fi
+
   if [[ -z $binary && $language == kotlin && -x "$project_root/gradlew" ]]; then
     REPLY='gradle-managed'
     _PROMPT_RUNTIME_VERSION_CACHE[$cache_key]=$REPLY
@@ -475,6 +486,22 @@ _prompt_version_probe() {
   local -x DOTNET_NOLOGO=1
   builtin cd -- / || return 1
   command "$@"
+}
+
+# Whether Apple's /usr/bin/java stub has a runtime to start, by file tests only:
+# an exported absolute JAVA_HOME with an executable bin/java, any visible entry
+# in the system or HOME's Library/Java/JavaVirtualMachines folder, or Oracle's
+# legacy Java plug-in, the places the stub looks. Tests replace this function
+# to stand in for the machine.
+_prompt_runtime_java_present() {
+  emulate -L zsh
+  local -a runtimes=()
+  [[ ${(t)JAVA_HOME-} == *-export* && $JAVA_HOME == /* &&
+     -f $JAVA_HOME/bin/java && -x $JAVA_HOME/bin/java ]] && return 0
+  runtimes=(/Library/Java/JavaVirtualMachines/*(N)
+    '/Library/Internet Plug-Ins/JavaAppletPlugin.plugin'(N))
+  [[ ${HOME-} == /* ]] && runtimes+=("$HOME"/Library/Java/JavaVirtualMachines/*(N))
+  (( ${#runtimes} ))
 }
 
 typeset -gA _PROMPT_RUNTIME_VERSION_CACHE

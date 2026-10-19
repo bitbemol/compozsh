@@ -306,6 +306,15 @@ short windows use bounded omission.
   developer directory, `_prompt_runtime_version` reports `not-installed`,
   runs nothing and caches nothing
   ([SECURITY.md](../SECURITY.md#local-only-git-controls)).
+- On macOS, `/usr/bin/java` is Apple's stub for an installed JDK; without one
+  it fails and may offer to install one. When `java` resolves to it (or a
+  link to it) and the private `_prompt_runtime_java_present` file-test probe
+  (the test seam) finds no runtime the stub could start (an exported absolute
+  `JAVA_HOME` holding an executable `bin/java`, any visible entry in the
+  system or `HOME`'s `Library/Java/JavaVirtualMachines` folder, or Oracle's
+  legacy Java plug-in), `_prompt_runtime_version` reports `not-installed`,
+  runs nothing and caches nothing
+  ([SECURITY.md](../SECURITY.md#runtime-and-project-context)).
 - Version probes cache in memory only, keyed by every environment selector
   that can change the answer, and `compozsh --refresh` invalidates them.
   Preserve neutral-directory probes, trust checks and normal/reverse/rotated/

@@ -808,6 +808,129 @@ tools ran: /usr/bin/c++, /usr/bin/swift, /usr/bin/python3' \
 test_case 'prompt runtime probes run no Apple launcher without developer tools' \
   _test_prompt_runtime_launchers_without_developer_tools
 
+# On macOS, /usr/bin/java is Apple's stub for an installed JDK: without one it
+# fails and may offer to install one. A Java project's prompt on Darwin asks
+# the JDK probe first (its seam, _prompt_runtime_java_present, stands in for
+# the machine) and shows Java as not installed without running the stub, a
+# link to it included, and remembers nothing; a java elsewhere on PATH still
+# runs, and with a JDK, or outside macOS, /usr/bin/java is probed as before.
+# The version-probe recorder answers for /usr/bin itself, so no real java
+# runs. The real probe counts an entry in HOME's JavaVirtualMachines folder
+# and an exported JAVA_HOME that holds bin/java.
+_test_prompt_runtime_java_stub_without_jdk() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" output='' exit_status=0
+  test_write_file "$home/projects/java/Main.java" 'class Main {}' || return
+  test_write_file "$TEST_TMP_DIR/bin/java" $'#!/bin/sh\nprintf "openjdk version 17.0.9 2023-10-17\\n"' || return
+  command chmod +x "$TEST_TMP_DIR/bin/java" || return
+  command mkdir -p -- "$TEST_TMP_DIR/link" || return
+  command ln -s /usr/bin/java "$TEST_TMP_DIR/link/java" || return
+  output=$(test_run_noninteractive "$home" '
+    export PATH=/usr/bin:/bin
+    setopt EXTENDED_GLOB
+    local jdk=none item="" root=$HOME
+    local -a report=() items=() probes=()
+    source "$1/.zsh.addons/.zsh.prompt" || exit 1
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    functions[_test_real_version_probe]=$functions[_prompt_version_probe]
+    functions[_test_real_java_present]=$functions[_prompt_runtime_java_present]
+    _prompt_version_probe() {
+      if [[ ${1:A} == /usr/bin/* ]]; then
+        print -r -- "${1:A}" >> "$HOME/probes"
+        print -r -- "openjdk version 21.0.2 2024-01-16"
+      else
+        print -r -- "stand-in ${1:t}" >> "$HOME/probes"
+        _test_real_version_probe "$@"
+      fi
+    }
+    _prompt_runtime_java_present() { [[ $jdk != none ]]; }
+    _row() {
+      : > "$HOME/probes"
+      items=()
+      builtin cd -q -- "$HOME/projects/java" || exit 2
+      _prompt_project_context
+      for item in "${_PROMPT_PROJECT_ITEMS[@]}"; do
+        item=${item//\%F\{[^\}]##\}/}
+        items+=("${item//\%f/}")
+      done
+      probes=(${(f)"$(<$HOME/probes)"})
+      (( ${#probes} )) || probes=(nothing)
+      report+=("$1: ${(j:, :)items}" "$1 ran: ${(j:, :)probes}")
+    }
+    _row "no JDK"
+    PATH=$2:/usr/bin:/bin _row "no JDK, linked java"
+    PATH=$3:/usr/bin:/bin _row "no JDK, PATH java"
+    jdk=found _row "JDK"
+    _PROMPT_RUNTIME_VERSION_CACHE=()
+    OSTYPE=linux-gnu _row "not macOS, no JDK"
+    command mkdir -p -- "$root/user/Library/Java/JavaVirtualMachines/fixture.jdk" \
+      "$root/jdk/bin" "$root/empty" || exit 3
+    print -r -- "#!/bin/sh" > "$root/jdk/bin/java" && command chmod +x "$root/jdk/bin/java" || exit 3
+    report+=("$(HOME=$root/user; _test_real_java_present; print -rn -- "probe user bundle: status $?")")
+    report+=("$(HOME=$root/empty; export JAVA_HOME=$root/jdk; _test_real_java_present
+      print -rn -- "probe exported JAVA_HOME: status $?")")
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR/link" "$TEST_TMP_DIR/bin" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+no JDK: java not-installed
+no JDK ran: nothing
+no JDK, linked java: java not-installed
+no JDK, linked java ran: nothing
+no JDK, PATH java: java 17.0.9
+no JDK, PATH java ran: stand-in java
+JDK: java 21.0.2
+JDK ran: /usr/bin/java
+not macOS, no JDK: java 21.0.2
+not macOS, no JDK ran: /usr/bin/java
+probe user bundle: status 0
+probe exported JAVA_HOME: status 0' \
+    "status:$exit_status"$'\n'"$output" \
+    'a prompt Java probe ran Apple'\''s java stub without a JDK'
+}
+test_case 'prompt runtime probes run no Apple Java stub without a JDK' \
+  _test_prompt_runtime_java_stub_without_jdk
+
+# The real JDK probe, from files alone, finds nothing to run when HOME's
+# JavaVirtualMachines folder holds only hidden files and JAVA_HOME is
+# unexported or holds no bin/java. It applies only on a machine whose system
+# folder and Java plug-in hold no runtime, since those count too.
+_test_prompt_runtime_java_probe_finds_no_jdk() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  local -a system_runtimes=(/Library/Java/JavaVirtualMachines/*(N)
+    '/Library/Internet Plug-Ins/JavaAppletPlugin.plugin'(N))
+  if (( ${#system_runtimes} )); then
+    print -u2 -r -- '      not applicable here: this machine has a system Java runtime'
+    return 0
+  fi
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    local root=$HOME
+    local -a report=()
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    command mkdir -p -- "$root/hidden/Library/Java/JavaVirtualMachines" "$root/jdk/bin" \
+      "$root/empty" || exit 2
+    : > "$root/hidden/Library/Java/JavaVirtualMachines/.DS_Store" || exit 2
+    print -r -- "#!/bin/sh" > "$root/jdk/bin/java" && command chmod +x "$root/jdk/bin/java" || exit 2
+    report+=("$(HOME=$root/hidden; unset JAVA_HOME; _prompt_runtime_java_present
+      print -rn -- "hidden files only: status $?")")
+    report+=("$(HOME=$root/empty; typeset +x JAVA_HOME=$root/jdk; _prompt_runtime_java_present
+      print -rn -- "unexported JAVA_HOME: status $?")")
+    report+=("$(HOME=$root/empty; export JAVA_HOME=$root/empty; _prompt_runtime_java_present
+      print -rn -- "JAVA_HOME without bin/java: status $?")")
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+hidden files only: status 1
+unexported JAVA_HOME: status 1
+JAVA_HOME without bin/java: status 1' \
+    "status:$exit_status"$'\n'"$output" \
+    'the JDK probe counted a runtime the java stub could not start'
+}
+test_case 'prompt runtime Java stub probe finds no JDK from files alone' \
+  _test_prompt_runtime_java_probe_finds_no_jdk
+
 _test_prompt_metadata_stays_inside_project() {
   test_make_temp_dir || return
   local project="$TEST_TMP_DIR/project" private_file="$TEST_TMP_DIR/private"
