@@ -1,8 +1,81 @@
 # Architecture pass, 2026-10-14
 
-> **Status (2026-10-14): in progress.** Planning is done and the phases are
-> being worked through on branch `architecture/2026-10-14`. The sections
-> below fill in as each phase lands.
+> **Status (2026-10-18): complete.** All six phases, the project-rule commits
+> and a final security and contract review with before/after measurements
+> ran on branch `architecture/2026-10-14`. Open items are the non-blocking
+> review findings, two owner questions, a proposed CLAUDE.md change and the
+> manual Terminal.app checks, listed below.
+
+## Summary
+
+- **Scope.** A structural pass on `architecture/2026-10-14`, stacked on the
+  excellence run's tip `ad67877` (itself `main` at `36cdcda` plus that run's
+  82 commits). Five read-only review lenses ran at `4d93c93` on 2026-10-14;
+  the record started at 17:10 that day and the final measurements ended on
+  2026-10-18 at about 21:40 CST, about 100 h of wall clock.
+- **Units.** Planning produced 87 units. The owner dropped 9 and two were
+  added for the excellence run's open questions (P4-30, P4-31), leaving 80
+  units in five phases. The owner's fourth-round request added phase 6 (three
+  units), and the owner then dropped P6-02 for privacy. 82 units landed as
+  commits, each on the first attempt of the run that landed it. Phase 2's
+  first run, slowed by laptop sleep, landed only P2-03, and its retry landed
+  the other 11. P5-12 came back once for an owner decision.
+- **Commits.** 101 including this one: 82 unit commits, 3 project-rule
+  commits (two of them units P7-01 and P7-02), 9 final-review fixes and 7
+  record commits. Product code changed in 49 files (+4,935/−3,282 lines) and
+  tests in 106 files (+9,115/−917).
+- **What changed.**
+  - Phase 1 landed 16 breakage and safety units, for example splits on the
+    caller's IFS, Ctrl-C statuses, `path` locals emptying `PATH` and
+    worktree scans in large repositories. It also routed Git reads through
+    one local-only entry.
+  - Phase 2 made the PTY and picker test helpers linear and shared.
+  - Phase 3 gave the shared engine an explicit API. Views reach it only
+    through `_zle_ui_view`, so their state ends when they close.
+  - Phase 4 decomposed the USB, Xcode, Git and prompt peers in four parallel
+    lanes.
+  - Phases 5 and 6 brought startup within its budget. Shipped peers and the
+    completion dump load from a compiled mirror that is used only while
+    strict file-identity checks pass and is recompiled at startup. Compozsh's
+    Git reads run the Apple-signed Git directly.
+- **Final review.** Six security and contract passes over three slices of
+  `excellence/2026-10-12..HEAD` raised 48 findings, 11 of them blocking. Nine
+  fix commits resolved all 11. F02, F05 and this record also resolved four
+  non-blocking ones, so 33 remain as follow-ups.
+- **Tests.** The suite went from 1,022 cases to 1,133, all passing in
+  322.5 s, and `zsh tests/verify.zsh` passes. Two runs lost cases to laptop
+  sleep, and each of those cases passed when run alone. The Xcode Logger
+  timing flake did not occur in any recorded full run.
+- **Latency.** Final tree against `main` (`36cdcda`) and against the
+  excellence run's end (`ad67877`), in one session:
+  - Warm isolated startup in a symlink installation went from 71.7 to
+    43.3 ms (−40%; −39% against the excellence end). That is within
+    performance.md's roughly 50 ms budget.
+  - The warm first editable prompt went from 95.4 to 63.1 ms (−34%), and
+    fresh startup is 7–11% faster.
+  - Git prompt rendering is 29–34% faster, and Return in a PTY 31–34% in a
+    repository.
+  - The Git review chooser is 23–26% faster. Git-source Search is 46%
+    faster than `main`, mostly from the excellence run, plus 6–7% here.
+  - Browse, local Search, Ctrl-R history and fresh direct-layout startup
+    moved within noise. Two slowdowns of under 1 ms were not investigated:
+    rendering outside Git (+0.16 ms) and warm Browse (+0.85 ms).
+- **Owner decisions.** These are quoted in [Owner decisions](#owner-decisions):
+  - all five phases, and `zcompile` for the startup budget (kept after an
+    explanation, then recompiled automatically at startup);
+  - one shared Git-read entry, a larger Xcode settings bound, and the Git
+    shim resolved once and only for Git that `codesign` verifies as Apple's
+    `com.apple.git`;
+  - retired-name shims removed, nine low-value units dropped, virtual-disk
+    USB sources refused, the bare `g` catalog bounded and history size
+    unchanged;
+  - private-peer compiling dropped for privacy;
+  - general agent rules moved to a global file, plus the recorded-approval
+    rule.
+- **Dropped.** P2-09, P2-10, P3-08, P3-14, P3-15, P4-15, P5-09, P5-10 and
+  P5-11 were dropped by the owner on 2026-10-14, and P6-02 on 2026-10-18 for
+  privacy. Not chosen at the start: deferring `compinit`, native `autoload`,
+  splitting peers and caching Git filter names.
 
 ## Purpose
 
@@ -345,6 +418,65 @@ the orchestrator re-verified and committed after a full suite.
 | `bf10351` | P6-01, patch | Recompile changed shipped peers at startup into the private mirror |
 | `ee38661` | P6-03, patch | Load a strictly checked compiled completion dump from the private mirror |
 
+### Project rules
+
+These three commits follow the owner's answers under "Project rules and
+approvals, 2026-10-18" (see [Owner decisions](#owner-decisions)). Under the
+recorded-approval rule, the implementing agents committed them directly:
+
+- `e2c957a` records the approval rule in CLAUDE.md and the contract
+  reviewer: an owner answer quoted and dated in the run's record is
+  acceptance. It extends security.md's persistent-storage rule from caches
+  to every file Compozsh generates, and refreshes the suite note to about
+  1,130 cases in about 5 minutes. General workflow rules went to the owner's
+  global `~/.claude/CLAUDE.md`, outside the repository.
+- `27e6cbc` (P7-01) is a static view-state test. It checks that peers outside
+  `support/ui` reach the picker engine only through `_zle_ui_view`, or
+  through a `_zle_picker_run` that opens a screen session. It names five
+  helpers as exceptions, with reasons.
+- `0e31ea3` (P7-02) fixes a review finding. `support/compile.zsh` recorded
+  the compiling shell's alias tables, which `/etc/zshenv` can fill, in the
+  mirror's manifests and baked them into the wordcode. It now resets the
+  alias tables to Zsh's built-in `run-help` and `which-command` and records
+  only that public context, so a shell with any other alias loads text.
+
+| Commit | Unit | Subject |
+| --- | --- | --- |
+| `e2c957a` | rules | Record approval rules and the generated-file data rule in contracts |
+| `27e6cbc` | P7-01 | Guard that peers reach the picker engine only through _zle_ui_view |
+| `0e31ea3` | P7-02 | Record only Zsh's built-in aliases in the compiled mirror manifests |
+
+### Final review
+
+Six read-only passes (security and contract, one each for slices A, B and C)
+ran at `0e31ea3` over `excellence/2026-10-12..HEAD`:
+
+- **A:** the bootstrap, the installer, compiled startup and the prompt.
+- **B:** Git workspaces, navigation and shared UI.
+- **C:** USB, Xcode, tests, investigations and agent tooling.
+
+They raised 48 findings, 11 of them blocking. Triage grouped the blocking
+ones into nine tasks, and each landed on its first attempt in 2–27 minutes.
+F01 and F07 ran the full suite (1,133 passed, 0 failed, both times). The
+others ran focused filters: F02, F04, F08 and F09 changed documentation
+only, F03 and F05 tests only, and F06 one collector branch in
+`.zsh.navigation`.
+
+| Commit | Task (findings) | Subject |
+| --- | --- | --- |
+| `cfb03f5` | F01 (SEC-A-01) | Drop the compiled copy of a removed or renamed peer at the next shell |
+| `7372eff` | F02 (SEC-A-01, SEC-A-02, CON-A-01) | Disclose which peers compile and stock compdump as the mirror's other writer |
+| `082977e` | F03 (SEC-B-01) | Pin that inherited zero-based and cancel-bookmark flags are discarded |
+| `bc2375d` | F04 (SEC-C-01, CON-C-01) | Describe where the USB progress files' cleanup lives |
+| `40d6735` | F05 (CON-B-01, SEC-B-02) | Widen the view-state snapshots to the choice, branch and review globals |
+| `399fd9d` | F06 (CON-B-04) | Keep the partial label when no branch matches in a partial catalog |
+| `c9a6416` | F07 (CON-C-02) | Return 1, not 130, when Escape cancels Xcode's Run product choice |
+| `fe442d8` | F08 (CON-B-02) | Name the shared choice collector in the worktree contract |
+| `3056c45` | F09 (CON-B-03) | Record the engine-held Git guide paragraphs as a known exception |
+
+The record itself has seven commits: `d859737`, `6e0c652`, `8632534`,
+`2a04e48`, `1ab553f`, `f507cb6` and the commit that completes it.
+
 ## Release notes
 
 - Ctrl-C in a Compozsh workspace now exits with status 130 from every
@@ -444,6 +576,58 @@ the orchestrator re-verified and committed after a full suite.
   `g --discard-all` go through the shared local-only Git entry. They now also
   disable commit-signature verification and the untracked cache. If shared
   support is missing, `g --discard-all` refuses before running Git (P4-29).
+- `external-device` no longer writes diskutil property lists (the external
+  disk list, disk or volume info and the filesystem catalog) to
+  `compozsh-usb.*` files in `TMPDIR`. It reads them into memory with a 1 MiB
+  limit, which saves about 4 ms per capture, and `external-device --format`
+  no longer requires `mktemp` or `rm` (P5-07).
+- Smaller speedups:
+  - the first prompt's manual-description capture starts about 4 ms sooner
+    (P5-02);
+  - checking help descriptions saves about 0.7 ms per prompt (P5-03);
+  - syntax highlighting redraws 1.4 to 2 times faster (P5-04);
+  - the first render in a new folder of a known repository is about 7.6 ms
+    faster (P5-05);
+  - the prompt's Git status in a repository with 3,000 changes is about
+    5 ms faster (P5-06).
+- Startup is faster. Both installation modes compile the shipped peers with
+  Zsh's `zcompile` into a marked, owner-only `~/.zsh.addons/support/compiled`
+  mirror, and the installation plan shows a `Compiled:` line.
+  - A shell uses a peer's compiled code only while that file is unchanged
+    since compilation (same file, size, mtime and ctime), the Zsh version
+    matches and nothing that ran first has added aliases or changed parse
+    options. Otherwise it loads the text as before.
+  - The installer refuses an unmarked `support/compiled` before any change,
+    and `--clean` archives the mirror.
+  - `.zwc` files are never sourced as peers. Before, a private peer compiled
+    with `zcompile` printed errors at startup (P5-13).
+- Changed shipped peers are recompiled automatically. After `git pull`, an
+  edit of a shipped peer or a Zsh update, the next shell recompiles just the
+  changed peers and uses them at once, so the installer need not run again.
+  - That shell is slower once, by up to about 300 ms after a full update
+    (the time box), and a large update can take a few shells.
+  - Peers over 512 KiB stay text, and a missing mirror is recreated.
+  - Compiled code is used only from an owner-only mirror that carries its
+    `.managed-by-compozsh` marker (P6-01).
+- After `compinit` has run once, later shells load a compiled copy of
+  `~/.zcompdump` from the mirror, only while the dump is provably unchanged.
+  `compinit` still rewrites the dump when `fpath` changes, and no
+  `.zcompdump.zwc` appears beside it (P6-03).
+- The mirror's manifests record only Zsh's built-in aliases (`run-help` and
+  `which-command`). An alias that `/etc/zshenv`, the initializer or an
+  earlier private peer defines is never written to disk, and such a shell
+  loads peers and the dump as text (P7-02).
+- When `git` on your `PATH` is Apple's `/usr/bin/git`, Compozsh's own Git
+  reads run the Apple Git behind it directly. That covers the prompt's
+  status and the review, branch, Search, worktree and discard reads.
+  - Once per shell, `/usr/bin/codesign` must verify the file as Apple's
+    `com.apple.git`, and its file identity is rechecked before every run.
+  - A typical repository prompt draws about 7 ms faster, and a new shell's
+    first Git prompt pays about 9 ms once.
+  - If any check fails, Compozsh keeps using `/usr/bin/git`.
+    `compozsh --refresh` forgets the choice.
+  - Git commands you run yourself are unchanged, and so is a different Git
+    that comes earlier on `PATH` (P5-12).
 - Removing or renaming a shipped peer (after `git pull`, for example) now
   removes its compiled copy too: the next shell that can compile deletes the
   old mirror entry, its `.zwc` wordcode and its manifest record, even when no
@@ -454,9 +638,195 @@ the orchestrator re-verified and committed after a full suite.
   of every other workspace, instead of 130, which is reserved for Ctrl-C.
   Nothing is launched either way, and Ctrl-C still exits 130 (F07, CON-C-02).
 
+## Tests
+
+Full-suite runs at the end of each phase and at the orchestrator's
+re-verifications. Every unit ran the full suite or the focused filters its
+plan required, and logs are kept with the run's local artifacts (not
+distributed).
+
+| Point | Commit | Passed | Failed | Time |
+| --- | --- | ---: | ---: | ---: |
+| Start (excellence run final) | `1a8b868` | 1,022 | 0 | 227.8 s |
+| P1-01 | `d6c2070` | 1,023 | 0 | 220.7 s |
+| Phase 1 commit units (P1-13) | `a638476` | 1,041 | 0 | 260.9 s |
+| Phase 1 patches (orchestrator) | `e38fb40` | 1,044 | 1 | — |
+| Phase 2 first-run gate | `e026df7` | 1,041 | 5 | 9,104.5 s |
+| End of phase 2 (P2-14) | `4964137` | 1,049 | 0 | 240.2 s |
+| End of phase 3 (P3-13) | `4ed0cfe` | 1,062 | 0 | 248.3 s |
+| Phase 4 lanes integrated | `d2eb3cf` | 1,099 | 0 | 254.2 s |
+| End of phase 4 (patches) | `450393e` | 1,104 | 0 | 258.8 s |
+| Phase 5 commit units (P5-08) | `c2642ca` | 1,113 | 0 | 267.5 s |
+| P5-13 (orchestrator) | `2ae4be2` | 1,119 | 0 | 283.0 s |
+| P5-12 (orchestrator) | `4a037b3` | 1,123 | 0 | 280.0 s |
+| P6-01 (orchestrator) | `bf10351` | 1,128 | 0 | 306.2 s |
+| P6-03 (orchestrator) | `ee38661` | 1,130 | 0 | 310.1 s |
+| P7-02 | `0e31ea3` | 1,132 | 0 | 320.6 s |
+| F01 | `cfb03f5` | 1,133 | 0 | 320.6 s |
+| F07 | `c9a6416` | 1,133 | 0 | 321.8 s |
+| **Final** | `3056c45` | **1,133** | **0** | **322.5 s** |
+
+Failures and flakes:
+
+- **Laptop sleep in phase 1.** The run over the three patch commits had one
+  failure. *PTY expectation fails at its deadline while output never stops*
+  measured 248 s against its 2–3 s window, because the Mac slept mid-run on
+  battery power. Run alone, it passed 3 times out of 3.
+- **Laptop sleep in phase 2's first run.** Its one gate took 9,104 s instead
+  of about 225 s, and five PTY deadline or timing cases failed:
+  - *Action matching missing capability uses public native and refusal
+    fallbacks*;
+  - *file actions navigate directories, require explicit file actions, and
+    restore a paged search*;
+  - *Git Working changes survives worker exit during native auto-refresh*;
+  - *Git review native g preserves screens bookmarks resize abort switching
+    unborn review and peer fallback*;
+  - *tool descriptions react through native ZLE without submitting aliases
+    or privileged modes*.
+
+  Each passed when rerun alone at `e026df7`, and so did the group reruns.
+  Nine other units of that run reached their time boxes and two were
+  skipped, so none of their changes was kept (see
+  [Run notes](#run-notes)).
+- **Xcode Logger.** The cleanup timing test did not flake in any recorded
+  full run of the pass, so nothing was rerun for it.
+- **Caught inside units.** Some failures were caught and fixed before their
+  unit committed:
+  - P1-13: a Find test stub;
+  - P3-04: a load-time unset approach (71 failures), reverted, then one
+    support-subset rule;
+  - P3-12: six tests that built Git review documents or plans by hand;
+  - P4-03: the support-subset harness rule;
+  - P4-30: a test pinning the old `--flash` help phrase;
+  - F01: the convergence case caught a `{ … }` block that did not parse
+    under an initializer with `IGNORE_BRACES`.
+
+  None of these reached a commit.
+- **Stray stderr, no failing case.** Two lines appear in full logs:
+  - `tests/support.zsh:6: read-only variable: TEST_ZSH_BIN` predates the
+    pass (see the [excellence run](excellence-2026-10-12.md#tests)).
+  - `_git_review_view:1: command not found: _zle_ui_view` has appeared since
+    P3-04 (`0351913`). It comes from *Git syntax response is released when
+    the review session ends*, whose fixture loads Git review without the
+    shared UI.
+
+The net change is 111 cases (1,022 → 1,133). Behavior fixes added or
+tightened tests, and the phase 2 migrations kept each migrated assertion's
+meaning or made it stricter. The last full run printed no `FAIL` line, and
+`zsh tests/verify.zsh` gave syntax ok, whitespace ok and re-source ok.
+
 ## Performance results
 
-*Filled in by performance units and the final comparison.*
+### Final comparison: main, the excellence run's end and the final tree
+
+The final tree (`3056c45`) was measured against `main` at `36cdcda` and
+against the excellence run's end at `ad67877`. Both baselines were scratch
+copies checked blob for blob against those commits. The same scripts ran on
+the same Mac (Apple M3 Max on AC power, Darwin 27.0.0, `/bin/zsh` 5.9, Git
+2.54.0 (Apple Git-157), `LC_ALL=en_US.UTF-8`), with `TMPDIR` in a disposable
+directory, load 1.5–4.3 and runs sequential.
+
+Each benchmark call compares one pair of trees and alternates them run by
+run. Across pairs, the first pair alternated per metric. Each pair has its
+own *Final* column. Milliseconds; median (min–max).
+
+*Verdict* is *faster* or *slower* when the ranges do not overlap and the
+change exceeds that metric's A/A difference. It is *noise* when the ranges
+overlap or the change is within A/A, and *marginal* when the two pairs
+disagree.
+
+Startup used `isolated-startup.zsh` with 15 runs per tree. *Symlink* means
+each tree installed by its own installer, unmeasured, into the run's
+`ZDOTDIR`. *Direct* sources the tree's `.zshrc`.
+
+| Metric | Mode | Runs | Main `36cdcda` | Final | Δ | Excellence end `ad67877` | Final | Δ | Verdict |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Startup process, symlink | fresh | 15 | 209.81 (208.16–211.67) | 188.19 (185.37–194.65) | −10.3% | 209.81 (207.55–211.90) | 189.26 (187.90–195.78) | −9.8% | faster |
+| Startup process, symlink | warm | 15 | 71.71 (68.95–76.22) | 43.34 (41.08–67.97) | −39.6% | 71.04 (68.50–73.93) | 43.45 (40.95–63.02) | −38.8% | faster |
+| Startup source, symlink | fresh | 15 | 205.21 (203.65–207.24) | 183.48 (180.52–189.46) | −10.6% | 205.16 (203.11–207.17) | 184.24 (183.27–190.64) | −10.2% | faster |
+| Startup source, symlink | warm | 15 | 65.47 (63.05–69.16) | 37.10 (35.34–61.34) | −43.3% | 64.32 (62.41–66.90) | 37.18 (35.28–57.02) | −42.2% | faster |
+| Startup editable, symlink | fresh | 15 | 231.37 (229.13–233.95) | 213.44 (211.03–223.67) | −7.7% | 231.51 (228.03–237.84) | 215.18 (212.85–221.89) | −7.1% | faster |
+| Startup editable, symlink | warm | 15 | 95.40 (93.34–96.05) | 63.12 (62.66–65.49) | −33.8% | 94.32 (92.81–95.40) | 63.59 (61.68–67.77) | −32.6% | faster |
+| Startup tty-source, symlink | warm | 15 | 62.26 (61.13–62.67) | 33.81 (33.40–36.81) | −45.7% | 60.76 (60.35–61.27) | 33.95 (33.57–37.47) | −44.1% | faster |
+| Startup process, direct | fresh | 15 | 214.23 (211.74–220.79) | 212.77 (209.71–215.73) | −0.7% | 213.12 (208.74–215.51) | 212.05 (208.59–213.70) | −0.5% | noise |
+| Startup process, direct | warm | 15 | 71.49 (69.67–75.01) | 42.22 (40.48–298.25) | −40.9% | 69.70 (67.26–73.17) | 43.07 (41.05–295.46) | −38.2% | faster |
+| Startup editable, direct | warm | 15 | 95.51 (93.65–97.52) | 63.18 (61.48–64.16) | −33.8% | 94.68 (92.47–98.25) | 64.06 (61.97–67.94) | −32.3% | faster |
+| Prompt render, outside | render | 11×40 | 7.08 (7.05–7.15) | 7.23 (7.21–7.30) | +2.2% | 7.17 (7.14–7.20) | 7.23 (7.21–7.30) | +0.9% | slower, small |
+| Prompt render, clean | render | 11×40 | 23.80 (23.58–23.97) | 15.71 (15.55–15.85) | −34.0% | 23.79 (23.64–24.23) | 15.64 (15.51–16.28) | −34.2% | faster |
+| Prompt render, dirty | render | 11×40 | 25.88 (25.65–26.03) | 17.10 (16.97–17.32) | −33.9% | 25.90 (25.76–26.38) | 17.08 (16.95–17.24) | −34.1% | faster |
+| Prompt render, large | render | 11×40 | 45.56 (44.88–47.09) | 32.50 (31.29–32.84) | −28.7% | 46.53 (45.19–47.08) | 32.28 (31.34–32.97) | −30.6% | faster |
+| Prompt Return, outside | pty | 11×15 | 9.80 (9.77–9.95) | 9.20 (9.14–9.66) | −6.1% | 9.74 (9.67–10.77) | 8.94 (8.91–9.44) | −8.2% | faster |
+| Prompt Return, clean | pty | 11×15 | 28.48 (27.90–28.76) | 18.75 (18.50–18.93) | −34.2% | 26.74 (26.61–32.72) | 17.64 (17.41–21.46) | −34.0% | faster |
+| Prompt Return, dirty | pty | 11×15 | 30.91 (30.49–31.60) | 20.32 (20.06–20.58) | −34.3% | 28.91 (28.69–34.30) | 19.25 (18.93–27.79) | −33.4% | faster |
+| Prompt Return, large | pty | 11×15 | 51.00 (49.87–56.74) | 35.36 (35.12–35.63) | −30.7% | 48.27 (47.76–53.01) | 33.68 (33.18–36.98) | −30.2% | faster |
+| Frame browse | fresh | 11 | 82.25 (81.77–83.01) | 83.40 (80.53–84.53) | +1.4% | 83.11 (82.16–84.44) | 83.37 (82.23–83.90) | +0.3% | noise |
+| Frame browse | warm | 11×5 | 84.63 (84.11–84.98) | 85.48 (85.06–86.95) | +1.0% | 84.30 (83.95–85.21) | 85.00 (84.59–85.87) | +0.8% | marginal |
+| Frame search | fresh | 11 | 518.82 (511.89–526.96) | 509.45 (496.62–511.89) | −1.8% | 512.58 (508.82–513.27) | 510.18 (506.25–514.88) | −0.5% | noise |
+| Frame search | warm | 11×5 | 498.85 (496.55–502.56) | 491.78 (488.91–507.06) | −1.4% | 492.97 (488.70–495.89) | 491.28 (488.04–496.64) | −0.3% | noise |
+| Frame search-git | fresh | 11 | 210.86 (195.19–215.37) | 114.08 (107.45–118.96) | −45.9% | 122.89 (109.97–125.51) | 115.65 (112.76–118.93) | −5.9% | faster than main; noise against excellence |
+| Frame search-git | warm | 11×5 | 209.92 (205.67–212.99) | 112.21 (109.01–113.51) | −46.5% | 120.95 (117.95–123.68) | 112.19 (106.68–114.43) | −7.2% | faster |
+| Frame history | fresh | 11 | 7.47 (7.16–7.79) | 7.56 (7.36–7.69) | +1.2% | 7.82 (7.62–8.02) | 7.67 (7.43–8.01) | −1.9% | noise |
+| Frame history | warm | 11×5 | 15.32 (14.45–16.40) | 15.44 (13.77–16.42) | +0.8% | 14.74 (11.82–15.73) | 15.21 (14.84–16.73) | +3.2% | noise |
+| Frame review | fresh | 11 | 64.58 (60.14–75.68) | 48.96 (48.30–56.84) | −24.2% | 65.34 (61.80–71.16) | 48.40 (46.99–49.42) | −25.9% | faster |
+| Frame review | warm | 11×5 | 59.31 (58.54–72.40) | 45.83 (44.92–53.28) | −22.7% | 59.21 (58.86–59.86) | 45.65 (45.08–47.36) | −22.9% | faster |
+
+*Frame browse* is Tab after `cd ~/Downloads/`. *Frame search* is a local
+walk of about 10,500 entries, and *search-git* the Git source in the review
+repository. *Frame history* is Ctrl-R over 20,000 commands, and *frame
+review* the `g --review` chooser in a dirty 2,400-file repository.
+
+Where the A/A was missing or marginal, same-session A/As (final against
+final) were run: render outside −0.015 ms, Browse +0.11/+0.19 ms, Search
++2.21/−0.84 ms. The other A/As are the recorded ones in
+[P5-01](#p5-01-performance-baseline-at-the-end-of-phase-4-c-02-c-04-c-05-c-11)
+and the unit sections.
+
+- **Startup.** Compiled loading (P5-13, P6-01, P6-03) accounts for the
+  startup rows.
+  - Warm process startup, 43.3 ms, is within performance.md's roughly 50 ms
+    budget.
+  - The warm first editable prompt, which adds the first prompt's capture,
+    is 63 ms.
+  - Fresh symlink startup gains about 21 ms, partly because the installer's
+    unmeasured precompile runs before the first shell.
+  - A fresh direct `ZDOTDIR` has no mirror, so its peers load as text, and
+    that row moved within noise.
+- **Startup maxima.** The final tree's maxima in the warm startup rows come
+  from run 1 paying a one-time compile that priming leaves for later. In the
+  symlink layout the ctime barrier defers the dump compile to the first
+  shell that starts in a later second: a probe gave 67.8 ms, then 33–35 ms.
+  In the direct layout the priming PTY's manual cache creates
+  `ZDOTDIR/.zsh.addons`, which makes the mirror eligible, so run 1 compiles
+  every peer: a probe gave 275 ms, then 46 ms. Medians are unaffected.
+- **Prompt.** The Git rows come mostly from the Git shim (P5-12), and the
+  large repository also from the pure status parser (P5-06). The prompt and
+  frame scripts load the final tree's peers as text, so those rows measure
+  runtime, not compiled loading.
+- **Git-source Search.** Most of the gain against `main` came in the
+  excellence run (about 211 → 123 ms). Within this pass, warm is a further
+  8.8 ms with ranges that do not overlap, consistent with the Git shim.
+- **Small slowdowns, not investigated.** Rendering outside Git is
+  +0.06–0.16 ms. That is beyond its 0.02 ms A/A but close to the 0.12 ms
+  drift the final tree showed between sessions, and Return outside Git is
+  0.6 ms faster. Warm Browse is +0.70–0.85 ms (about 1%).
+- **Earlier observations not reproduced.** P5-01 noted outside-Git
+  rendering at 7.67 ms against 4.11 ms at `36cdcda`, and Ctrl-R fresh at
+  11.1 ms. In this harness `main` itself renders outside Git in 7.08 ms, so
+  that comparison mixed harnesses, and every tree's Ctrl-R fresh is about
+  7.5 ms.
+- **Idle gaps.** Back-to-back warm non-TTY startups of the final tree reach
+  33–35 ms. The benchmark's roughly 43 ms reflects shells that start after
+  idle gaps, about 14 ms slower in probes. This environment effect applies
+  to every tree.
+
+Reproduce with the [P5-01 commands](#p5-01-performance-baseline-at-the-end-of-phase-4-c-02-c-04-c-05-c-11),
+using `git archive` copies of `36cdcda` and `ad67877` as `<before>` and the
+tree at `3056c45` as `<after>`. Use the `symlink` and `direct` layouts, and
+for `workspace-first-frame.zsh` the scenarios `browse,history`, `search` and
+`search-git,review` with 11 runs and 5 warm samples.
+
+The sections below are the per-unit measurements, recorded as each unit
+landed. The phase 5 and 6 summaries are also in [Commits](#commits).
 
 ### P2-01: picker screen-session trace checks (D-03)
 
@@ -497,6 +867,48 @@ and a file with an invalid or incomplete character falls back to the line
 scan, so the pre-filter never hides a line the old loop would report (pinned
 by `security: network-client scan names the offending line of a fixture
 file`, which passes against both scans in C and UTF-8).
+
+### P4-27 and P4-28: project detection from marker tables, one read per folder (C-06, U62, PROMPT-04)
+
+These numbers are indicative only, because the other phase 4 lanes were
+loading the machine. The before tree was a `git archive` of each unit's
+parent and the after tree the lane's working tree, with `TMPDIR` in the
+scratch area and `en_US.UTF-8`.
+
+P4-27 alone reached parity. Per `_prompt_project_context` call (300 calls
+after 20 warm-up calls, runtime probe stubbed), a small Node project went
+from 3.27 to 3.21 ms and a Swift/Xcode project from 2.79 to 2.84 ms. Its
+first table-walking version cost 8.6 ms. Two changes restored parity:
+filtering rows by the evidence present, in one match, and deriving the 282
+capture tokens once per shell from the constant table.
+
+P4-28 added `investigations/benchmarks/prompt-project-detect.zsh`. It
+reports the median of per-shell medians (5 shells × 30 samples) of project
+detection (*context*) and of the complete prompt update outside Git
+(*update*). Its A/A (2 shells × 10 samples) differed by about 3–6%.
+Milliseconds:
+
+| Fixture | Context before | Context after | Update before | Update after |
+| --- | ---: | ---: | ---: | ---: |
+| small | 3.05 | 1.39 | 3.33 | 1.66 |
+| C (`src/` and `include/`, 40 files each) | 3.86 | 2.86 | 4.16 | 3.19 |
+| 800 `.tsx` files in `src/` | 16.33 | 4.60 | 16.60 | 4.92 |
+| 5,000 `.json` files in `src/` | 91.92 | 23.23 | 91.99 | 23.53 |
+| 800 `.png` files in `public/` | 4.36 | 3.21 | 4.68 | 3.54 |
+| no project (walks to `/`) | 5.82 | 5.84 | | |
+
+Decision: kept.
+- **Regression check.** `prompt-git-render.zsh render` (5 shells × 20
+  samples) gave outside 7.94 → 8.10 ms (within noise), clean 29.02 → 28.02,
+  dirty 31.26 → 29.88 and large 52.72 → 50.85.
+- **Against the hypothesis.** The small project reached 1.4 ms rather than
+  about 1 ms, and 5,000 `.json` files 23 ms rather than about 6 ms. The
+  rest is the resolver's own bounded scan of `src/` and its root-marker
+  checks at each level, which are outside these units. The same reason
+  leaves the no-project fixture unchanged.
+- **Not rerun.** P4-28 asked phase 5 to rerun this benchmark on a quiet
+  machine. That did not happen, and the final comparison does not cover
+  project detection.
 
 ### P5-01: performance baseline at the end of phase 4 (C-02, C-04, C-05, C-11)
 
@@ -999,10 +1411,658 @@ by more than its A/A difference, but its ranges overlap. The gain is about a
 quarter of the review's 1 ms estimate, because the canonical-order skip would
 not apply at startup and the deparse item was left unchanged.
 
+### P5-13: compiled shipped peers (C-02a, C-09)
+
+Method: the before tree was `git archive c2642ca` and the after tree the
+patched working tree, using `isolated-startup.zsh … 15 en_US.UTF-8 <layout>`.
+Each tree's own installer ran unmeasured first. *A/A* is the before tree
+against itself. Milliseconds, *median (range)*:
+
+| Metric | Layout | Mode | Runs | Before | After | Delta | A/A |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| process | symlink | warm | 15 | 72.12 (68.00–79.54) | 49.08 (45.90–58.22) | −23.04 (−31.9%) | −0.28 |
+| source | symlink | warm | 15 | 65.16 (61.97–71.64) | 42.13 (39.80–48.66) | −23.03 (−35.3%) | −1.12 |
+| editable | symlink | warm | 15 | 94.36 (90.02–108.89) | 74.15 (68.31–84.28) | −20.21 (−21.4%) | −0.73 |
+| process | symlink | fresh | 15 | 217.32 (208.60–240.53) | 197.45 (187.44–219.84) | −19.87 (−9.1%) | +2.02 |
+| editable | symlink | fresh | 15 | 238.15 (225.63–268.35) | 237.29 (215.45–250.78) | −0.86 (−0.4%) | +2.52 |
+| process | copy | warm | 15 | 70.92 (68.11–80.59) | 51.06 (47.34–56.05) | −19.86 (−28.0%) | |
+| source | copy | warm | 15 | 64.23 (62.34–74.05) | 44.36 (41.40–48.62) | −19.87 (−30.9%) | |
+| editable | copy | warm | 15 | 93.75 (91.70–102.20) | 71.37 (70.25–83.42) | −22.38 (−23.9%) | |
+| editable | copy | fresh | 15 | 244.45 (239.93–259.79) | 219.12 (215.90–254.65) | −25.33 (−10.4%) | |
+
+Decision: kept. Warm startup moved far beyond its A/A in both layouts.
+Fresh editable startup is dominated by `compinit` and stayed within noise
+in the symlink layout.
+
+The parse context is compared only where peers load as text, never at each
+compiled peer. A first version that compared it at every compiled peer cost
+about 8 ms: warm process startup was 57.6 ms instead of 49.1 ms.
+
+### P5-12: the Apple-signed Git run directly (A2-08a)
+
+Method: the before tree was `git archive 2ae4be2` and the after tree the
+patched working tree, using `prompt-git-render.zsh` in render (11 shells ×
+40 samples), pty (11 × 15) and fresh (21 first renders) modes. The render
+A/A differed by +2.1% (clean), −1.2% (dirty), −2.8% (large) and +1.6%
+(outside). Milliseconds, *median (range)*:
+
+| Metric | Mode | Runs | Before | After | Delta |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Prompt render, clean | render | 11×40 | 23.17 (22.46–26.51) | 16.43 (15.51–20.44) | −29.1% |
+| Prompt render, dirty | render | 11×40 | 24.84 (23.43–30.71) | 18.06 (17.12–19.80) | −27.3% |
+| Prompt render, large | render | 11×40 | 40.55 (38.71–45.40) | 33.71 (31.85–36.66) | −16.9% |
+| Prompt render, outside | render | 11×40 | 7.50 (7.42–8.30) | 7.48 (7.42–8.21) | −0.3% |
+| Prompt Return, clean | pty | 11×15 | 25.54 (25.25–31.83) | 18.85 (18.50–19.26) | −26.2% |
+| Prompt Return, dirty | pty | 11×15 | 27.46 (26.82–34.22) | 20.38 (20.21–22.97) | −25.8% |
+| Prompt Return, large | pty | 11×15 | 42.34 (41.55–50.19) | 35.26 (34.86–38.34) | −16.7% |
+| Prompt Return, outside | pty | 11×15 | 9.21 (9.13–9.90) | 9.17 (9.11–13.26) | −0.4% |
+| First render, clean | fresh | 21 | 36.68 (35.53–81.76) | 45.44 (44.09–58.84) | +23.9% |
+| First render, dirty | fresh | 21 | 38.21 (37.01–44.74) | 47.00 (46.13–54.05) | +23.0% |
+| First render, large | fresh | 21 | 53.78 (51.96–60.00) | 61.43 (60.41–69.19) | +14.2% |
+| First render, outside | fresh | 21 | 13.20 (13.04–14.41) | 13.24 (12.95–14.34) | +0.3% |
+
+Decision: kept. Inside repositories every steady-state row gains 7–7.5 ms,
+far beyond its A/A. A shell's first Git prompt pays the owner-approved one
+`xcrun --find git` and one `codesign` check, about +8.8 ms, and the second
+prompt recovers it. Outside Git nothing is resolved.
+
+### P6-01: startup recompilation (owner request, 2026-10-18)
+
+Method: the before tree was `git archive 4a037b3`, where a changed peer
+stays text until the installer runs again, and the after tree the patched
+working tree, in a symlink installation. Warm isolated startup with every
+peer fresh stayed the same (15 runs):
+- process: 47.89 (46.17–52.75) → 47.40 (44.55–54.41) ms, −1.0%;
+- first editable prompt: 70.34 (68.05–81.46) → 69.33 (68.24–81.29) ms,
+  −1.4%.
+
+The cost falls on the shells after a shipped peer changes. These are
+process wall-clock times in milliseconds over 10 runs, *median (range)*:
+
+| Change | Shell | Before | After | Delta |
+| --- | --- | ---: | ---: | ---: |
+| Largest peer touched | first | 49.3 (47.7–82.7) | 103.6 (100.2–139.7) | +110% |
+| Largest peer touched | second | 48.8 (47.1–51.2) | 45.6 (43.7–46.5) | −6.6% |
+| Five largest peers touched | first | 61.6 (60.2–95.0) | 220.9 (206.3–253.9) | +259% |
+| Five largest peers touched | second | 60.9 (59.3–63.2) | 44.1 (43.9–45.5) | −27.6% |
+| All 88 peers touched | first | 78.3 (70.6–106.7) | 279.9 (256.5–329.5) | +258% |
+| All 88 peers touched | second | 73.5 (69.1–83.3) | 49.2 (45.8–52.9) | −33.1% |
+| All 88 peers touched | third | 75.5 (69.7–78.6) | 48.9 (45.6–54.2) | −35.2% |
+
+Decision: kept. The first shell after a change pays the compile once,
+within the 300 ms box, as the owner accepted. Every later shell is compiled
+without running the installer.
+
+### P6-03: compiled completion dump (owner request, 2026-10-18)
+
+Method: the before tree was `git archive bf10351` and the after tree the
+patched working tree, using `isolated-startup.zsh … symlink` with 12
+alternating runs. Milliseconds, *median (range)*:
+
+| Metric | Mode | Runs | Before | After | Delta |
+| --- | --- | ---: | ---: | ---: | ---: |
+| process | warm | 12 | 49.96 (48.70–53.26) | 45.47 (43.73–67.24) | −9.0% |
+| source | warm | 12 | 43.06 (42.36–46.16) | 38.54 (37.32–60.85) | −10.5% |
+| editable | warm | 12 | 73.67 (72.94–80.05) | 69.08 (68.45–70.27) | −6.2% |
+| process | fresh | 12 | 198.28 (195.06–213.43) | 198.05 (194.70–201.12) | −0.1% |
+
+Decision: kept.
+- The after median of warm process startup is below the before minimum,
+  and the editable ranges do not overlap. This unit recorded no A/A; P5-01's
+  symlink warm A/A was −1.43 ms.
+- The after maxima are the first warm run compiling the dump once.
+- A fresh shell has no dump yet, so nothing is compiled and no child runs.
+
 ## Unresolved and skipped findings
 
-*Filled in at the end.*
+### Dropped units
+
+The owner dropped these units on 2026-10-14, quoted under
+[Owner decisions](#owner-decisions):
+
+| Unit | Finding | Title |
+| --- | --- | --- |
+| P2-09 | D-10 | Add a `test_git_repo` fixture helper and use it in Git tests |
+| P2-10 | D-10 | Use `test_git_repo` in the remaining fixture setups |
+| P3-08 | B-10 | Share one per-level bookmark stack for the folder browsers |
+| P3-14 | B-13 | Pin golden frames for four view kinds at three widths |
+| P3-15 | B-13 | Build picker frames through one row-append helper |
+| P4-15 | A1-13 | Promote the USB progress and Xcode destination parsers to support |
+| P5-09 | U63, GIT-05 | Exclude local branch names from the remote fallback with a set |
+| P5-10 | U66, USB-07 | Read Custom-path image sizes with `zstat` instead of `stat` forks |
+| P5-11 | U67, USB-08 | Scan ISO archive listings in bounded chunks, not per line |
+
+On 2026-10-18 the owner also dropped P6-02, *Compile private peers at
+startup under the same strict checks*. Its manifest would have recorded
+alias names and values, which are user data, for a measured 0.6–2 ms. The
+patch is not applied, and private peers stay text.
+
+Planning also left out some findings:
+- C-01, deferring `compinit`; C-02 (b), loading peer internals on first
+  call; C-03, native `autoload`; C-08 (b), caching Git filter names; and the
+  A1-13 and A2 peer splits. The owner did not choose these.
+- D-09's engine part. No unit splits `_zle_picker_loop` or
+  `_zle_picker_render` directly.
+- A2's unnumbered proposals, kept as follow-up candidates: split
+  `_git_review_syntax_idle`, `_git_review_view` and
+  `_git_worktree_create_choose`, and add a pure action builder for
+  `_directory_browser_actions_view`.
+
+### Final review findings not fixed
+
+F01–F09 fixed all 11 blocking findings. Four non-blocking ones are also
+resolved:
+- SEC-B-02, by F05;
+- CON-A-08, by F02;
+- CON-A-11 and CON-C-03, by this record (the phase 5 and 6 release notes,
+  commit tables and performance sections above).
+
+The other 33 are left for follow-up, grouped by consequence. Items without
+an ID are observations from the review passes and the fix units.
+
+Safety and privacy:
+
+- **SEC-A-03, CON-A-03.** Startup runs the first `zsh` on `PATH`, from the
+  start directory. That directory is often a project, and none of the
+  safeguards for the prompt's other `PATH` commands apply. If that `zsh`
+  reports another version than the running shell, every startup forks a
+  compile child that refuses at once. See the owner question below.
+- **SEC-A-08, CON-A-06.** `.gitignore` covers `support/cache/` but not
+  `.zsh.addons/support/compiled/`. With `ZDOTDIR` at a clone, the mirror
+  lands in the working tree. Its `zcompdump.manifest` holds the home path,
+  and `zcompdump.zwc` the dump's private completion names. Add the path to
+  `.gitignore`.
+- **SEC-A-06, CON-A-04.** In install mode, a peer whose ctime is in the
+  future makes `compile.zsh` poll every 10 ms until the clock catches up,
+  with no bound, after the user confirmed. Cap the wait (about 2 s), leave
+  that peer without a record, and add a test seam.
+- **SEC-C-02.** `_usb_worker_progress_run` deletes any `compozsh-?*.?*` name
+  directly in `TMPDIR`. Before, each site deleted only its own template.
+  Narrow the check to the two disclosed progress templates and test that
+  another `compozsh-*` file is left alone.
+- **SEC-C-03.** An inherited `_XCODE_CAPTURE_BOUND` replaces the stdout
+  bound of every Xcode capture. Pass the bound explicitly, or shadow it in
+  `xcode()`, and test an exported value.
+- **SEC-B-03.** `g --worktree` can leave a worktree path or name in the
+  user's `$REPLY`. Make `REPLY` and `reply` local in
+  `_git_worktree_session`, and add cancel and accept journeys to the
+  view-state snapshot.
+- **No developer tools.** On a Mac without developer tools, the prompt's
+  `/usr/bin/git` reads and the new `xcrun --find git` can make macOS offer
+  its command line developer tools dialog. The reviewer did not test this,
+  and SECURITY.md does not mention it.
+
+Disclosure and documentation accuracy:
+
+- **SEC-A-05.** Freshness is checked for all peers before the loop. A
+  same-second edit right after this shell's own startup compile can run the
+  pre-edit wordcode once, which SECURITY.md's "never differs" wording does
+  not allow for. Either `zstat` each peer again before sourcing it (one more
+  `zstat` per compiled peer, and update performance.md), or disclose the
+  window.
+- **SEC-A-07.** The mirror's owner-only check reads the POSIX mode bits only.
+  Extended ACLs, which the mirror can inherit from `support/`, are not
+  inspected. Disclose this in the mirror section.
+- **SEC-A-09, CON-A-05.** Three accuracy gaps in SECURITY.md's mirror text:
+  - compiled loading changes the function source paths Zsh reports;
+  - the audit script's "fresh (used)" omits the version and parse-context
+    conditions;
+  - the Focused regression checks table has no rows for `compiled peers`
+    or `compiled completion dump`.
+- **SEC-B-04, CON-B-07.** The README unit list and architecture.md's
+  ownership table describe the shared Git entry too narrowly. It also
+  serves the prompt, filter discovery and discard, uses a root/inherit
+  selector policy and runs the verified Apple Git.
+- **CON-A-07.** README's add-on authoring example returns 0 after
+  `_compozsh_help_show`, which discards the 130 from Ctrl-C. Its definition
+  also lacks the `unalias` line before it, a gap that predates the pass.
+- **CON-A-09.** caching.md's "Public data only" rule covers the mirror,
+  whose `zcompdump.zwc` holds private completion names. State the
+  generated-artifact carve-out from security.md#persistent-storage there,
+  and see the CLAUDE.md proposal below.
+- **CON-A-10.** README says compiled code is skipped when something "has
+  added aliases". Removing or redefining one, as with the common
+  `unalias run-help`, also sends every peer and the dump to text.
+- **CON-A-12.** "Compiled mirror" is used across contracts, but the
+  glossary does not define it.
+- **CON-B-10.** README's mock of the `g` branch picker shows `Search ‹›`,
+  but the view shows `Filter choices`. This predates the pass.
+- **SEC-C-04.** A USB test description still promises disk-metadata
+  temporary files, which `2bb16a1` removed. Only contributors see it.
+
+Correctness and contracts:
+
+- **CON-B-06.** The branch inspector fills in the selected row only while
+  input is idle. During key repeat, frames can paint "Details unavailable in
+  this snapshot." for rows whose details were captured, and git.md says that
+  never happens. Either build text for the bounded result prefix or reword
+  the contract.
+- **CON-B-08.** If the shared Git entry is missing, bare `g` reports "not
+  inside a Git working tree" instead of naming the missing support.
+- **SEC-A-04, CON-A-13, CON-B-11.** The recorded parse context omits some
+  lexer inputs:
+  - the comment character `${histchars[3]}`;
+  - reserved words disabled with `disable -r` (the known limit below);
+  - `.zshrc` takes its option list from the manifest instead of pinning
+    its own.
+
+  The proposal is to add `${histchars[3]}` and the sorted
+  `${(k)dis_reswords}` to the context in all three places, written
+  identically, at no fork cost.
+
+Test coverage:
+
+- **CON-A-02.** `tests/verify.zsh` claims to syntax-check every shipped Zsh
+  file but skips `.zsh.addons/support/compile.zsh`.
+- **SEC-B-05.** No test checks SECURITY.md's claim that the inline picker
+  sizes itself from the prompt without running the prompt's substitutions.
+- **CON-C-04.** Two phase 4 Xcode tests stub `_zle_picker_run` by hand
+  instead of using `test_picker_script`.
+- **CON-C-05.** No test covers Ctrl-C → 130 after an Xcode test run, or
+  Ctrl-C (not Escape) in the Run product choice, and P1-11's status matrix
+  leaves out `xcode`.
+- **Settle branch.** The branch that deletes a rewritten dump when its
+  rename fails has no test (security review, slice A).
+- **Stray stderr.** The `_zle_ui_view` line in [Tests](#tests) comes from a
+  fixture that loads Git review without the shared UI. Load the support
+  there.
+
+Performance:
+
+- **CON-C-06.** With the 5 MiB Build & Run bound, product resolution can pipe
+  the whole settings document to `plutil` hundreds of times. Measure a
+  100-target resolution, and if it is slow, convert once. P1-14 estimated a
+  pause of about 0.12 s per 40-KiB target.
+- **Small slowdowns.** Non-TTY rendering outside Git (+0.16 ms) and warm
+  Browse (+0.85 ms) were not investigated.
+- **Benchmark priming.** Proposal: `isolated-startup.zsh` could prime with
+  one more unmeasured shell after a second boundary, so that run 1 no longer
+  pays a deferred compile.
+
+Code hygiene and proposals:
+
+- **CON-B-05, CON-B-09.** Stale comments: three in `.zsh.find` still say
+  the loop clears capabilities between passes, and one in `.zsh.navigation`
+  calls the bounded branch catalog "complete".
+- **F03 proposal.** Read `_ZLE_PICKER_ZERO_BASED` and
+  `_ZLE_PICKER_CANCEL_BOOKMARK` as text instead of in arithmetic. That
+  removes the evaluation hazard even if the load-time unset list drifts,
+  but it departs from the rest of the flag family.
+- **F09 proposal.** Move the Git review, worktree and file-view guide
+  paragraphs out of `support/ui/.zsh.ui.zle_picker_guide_render` into
+  `_ZLE_PICKER_GUIDE_FACTS`, set by the Git peers. That changes the visible
+  guide order and touches `support/ui`, so it needs its own unit and the
+  full suite.
+- **F01 proposal.** A peer with a `-` text record keeps the unused `.zwc`
+  from an earlier successful compile. Pruning `.zwc` files for such records
+  would remove it.
+- **Minor.**
+  - `_usb_diskutil_plist_capture` strips trailing newlines one at a time, a
+    quadratic cost only for pathological output.
+  - `/bin/df -P` runs without `--`. This predates the pass, and the path is
+    always absolute.
+  - F02's commit subject is 76 characters, over the 72-character limit. It
+    was not amended, because commits are not rewritten.
+  - `27e6cbc`'s message cites an Owner decisions entry that does not name
+    the view-state guard. No decision depends on it.
+
+### Owner questions from the final review
+
+1. **Which Zsh compiles at startup (SEC-A-03, CON-A-03).** The bootstrap and
+   `.zsh.editor` run `${commands[zsh]} -f` in the start directory.
+   - (a) Run `/bin/zsh -f` from `/`. That is the platform Zsh the product
+     targets, and `compile.zsh` already refuses a version mismatch, so a
+     different running Zsh stays on text.
+   - (b) Keep the `PATH` lookup, but run from `/` and skip a candidate
+     inside `$PWD`'s repository.
+   - (c) Keep the current behavior and list the startup `zsh -f` among
+     SECURITY.md's external boundaries.
+
+   *Recommendation:* (a), together with the disclosure from (c). It runs
+   no project-chosen binary, adds no fork and stops the refusing child on
+   every startup. It changes which program executes, so it is your
+   decision.
+2. **Is the bootstrap still minimal (contract review, slice A).** `.zshrc`
+   grew from 62 lines to 212 for the mirror check, and repository-layout's
+   Essentials now name that check as bootstrap duty.
+   - (a) Accept it as minimal and say so in the layout contract.
+   - (b) Ask for a smaller design.
+
+   *Recommendation:* (a). The check is fork-free and falls back to text on
+   every failure. Moving it into a sourced support file would come close to
+   the extra initialization phase that CLAUDE.md's Simple structure rules
+   out.
+
+### Proposed CLAUDE.md change
+
+This phase may not edit CLAUDE.md, so the change is listed here. CLAUDE.md's
+*Fast* invariant says optional caches may hold public system data only. The
+compiled mirror's `zcompdump.zwc`, however, holds the dump's private
+completion names, which security.md#persistent-storage permits as "its
+source in another form". The proposal is a parenthetical such as: *(a
+generated artifact may also hold its own source in another form; see
+`engineering/security.md#persistent-storage`)*. Its wording and placement
+are the owner's decision (CON-A-09).
+
+The slice B contract reviewer also proposed refreshing CLAUDE.md's suite
+note. `e2c957a` already did that, and the note now says about 1,130 cases in
+about 5 minutes.
+
+### Known limits
+
+- **Aliases and parse options.** Compiled loading assumes Zsh's built-in
+  aliases and a clean parse context. If an initializer, `/etc/zshenv` or an
+  earlier private peer defines, removes or changes an alias (including
+  `unalias run-help`), or changes a parse option, every peer loads as text.
+  The completion dump then loads as text too, as a plain `.zcompdump`.
+  This is correct, only slower.
+- **`disable -r`.** Disabled reserved words are not recorded in the parse
+  context, so a startup file that runs `disable -r` can make a peer's text
+  parse differently from its compiled wordcode, which would still load. See
+  SEC-A-04 above.
+- **Concurrent prune.** If a peer is edited between one shell's validation
+  and its `source`, and another shell's compile prunes that entry in the same
+  window, the first shell prints "add-on failed to load" once instead of
+  loading the peer. It never runs stale code (F01).
+- **One-time costs, owner-accepted.** A shell's first Git prompt costs about
+  9 ms more for `xcrun` and `codesign` (P5-12). The first shell after a
+  shipped-peer update costs up to about 300 ms more (P6-01).
 
 ## Manual Terminal.app acceptance pending
 
-*Filled in at the end.*
+PTY tests can't judge how Terminal.app looks. These checks come from the
+unit results, deduplicated, plus one from the final review (item 21). Use
+disposable folders, repositories and media, and a disposable USB stick for
+any write. Items marked *optional* are not required by a contract.
+
+Prompt and editing:
+
+1. **Narrow context row** (P4-22, `2f724b2`).
+   - In a Git project, type a draft, then drag the window narrower than 12
+     columns. The prompt shows the single context row, abbreviated with …,
+     above the `❯` input line with no wrapping. Further typing leaves that
+     row unchanged.
+   - Widen the window again. The Interaction lens comes back with the draft
+     intact.
+   - At a normal width, Option-I while typing still opens and closes the
+     pinned Context lens with no flicker or stale context row.
+2. **Prompt Git summary through the shared entry and Apple Git** (P4-29,
+   `450393e`; P5-12, `4a037b3`).
+   - In clean, dirty (staged, modified, untracked, stash), detached-HEAD and
+     mid-rebase repositories, the Git summary text and colour match the
+     previous build, and the prompt redraws promptly.
+   - With `GIT_DIR` and `GIT_WORK_TREE` exported to another repository, the
+     prompt follows them.
+
+Full-screen and shared UI:
+
+3. **Ctrl-C status** (P1-11, `5ba73f2`). In a disposable repository, run
+   `g` and press Ctrl-C. The alternate screen closes cleanly with the prompt
+   and draft restored, and `echo $?` prints 130. Do the same for
+   `external-device` (Tasks screen) and `g --help`. Escape still gives 0 in
+   each.
+4. **Unbound keys stay inert** (P1-10, `95795de`). Open a query view (for
+   example the volume-name field) and a plain choice list, and type some
+   text in each.
+   - Left, Right, Home, End and F1 (Fn-F1 where needed) each beep or do
+     nothing, and the view stays open with the typed text kept.
+   - Escape, Ctrl-G and an Option-letter chord such as Option-Q (with Option
+     as Meta) still cancel.
+5. **Inline fallback below the prompt** (P3-13, `4ed0cfe`). Use a profile
+   that declares the terminal as vt100 (no alternate screen) and a 16-row
+   window.
+   - At a multi-line living prompt, press Ctrl-R. Nothing scrolls, the
+     prompt's first line stays visible and at least one spare row remains
+     below the frame.
+   - Enlarge the window to 24 rows. The frame grows without scrolling.
+   - Ctrl-G restores the prompt and draft.
+6. **Alternate screen after the terminfo move** (P5-08, `c2642ca`). Ctrl-R
+   history and `compozsh --help` still open on the alternate screen and give
+   back the prompt and scrollback unchanged on exit.
+7. **Guide limits and plan headings** (P3-12, `15d4e36`).
+   - Set `ZSH_FILE_SEARCH_MAX_VISITED=5000` and
+     `ZSH_FILE_SEARCH_MAX_CANDIDATES=300`, open Browse (path + Tab) and
+     press Ctrl-K. The Limits row reads "Walk: 5,000 entries; captured
+     matches: 300", with its label in heading style and in the same column
+     as the key rows.
+   - In bare `g`, choose a remote-tracking branch to create. LOCAL BRANCH,
+     FROM REMOTE-TRACKING REF and COMMIT show in heading style in the plan
+     pane.
+   - In the composer, a draft line "TARGET" or "Safety first" is neither
+     bold nor warning-coloured in the plan.
+   - In `g --review` Working changes, added and removed diff lines keep
+     their review colours.
+
+Git:
+
+8. **Review and navigation entries** (P3-04, `0351913`; P4-19, `40dfbb4`).
+   - In a Git working tree, press Option-Return and choose "Review this
+     working tree". The Git review menu opens for the repository root, and
+     Escape returns to Draft / Inspect with the draft and cursor unchanged.
+   - Do the same in a folder outside any repository. "Git / Unavailable"
+     shows "This folder is not in a Git working tree. Your draft is
+     unchanged.", and Escape returns.
+   - In bare `g`:
+     - Branches shows the repository name, and copy is offered when
+       `pbcopy` is available.
+     - Ctrl-X opens review choices, and Back returns to Branches.
+     - With no local match, a remote-tracking ref opens "Create local
+       branch", with the repository name as subtitle.
+   - In Recents (Option-Tab), copy is offered, and Actions lists Insert path
+     or Change directory to match how Files was opened.
+   - `g --review` opens the same menu as before. In Working changes, these
+     behave as before: Option-number selection, Ctrl-R refresh,
+     auto-refresh, the file views (All files, Tree) and Escape back to the
+     menu.
+9. **Bounded branch catalog** (P4-31, `70203b0`; F06, `399fd9d`).
+   - In an ordinary repository, run `g`, press Tab for details, then hold
+     Down and Up through the list. Details follow the selection with no
+     visible flashes of "Details unavailable in this snapshot." on
+     intermediate frames. CON-B-06 predicts such flashes while keys are
+     queued.
+   - Type a filter. Details switch to the first result at once. Clear the
+     filter, and details match the selected row.
+   - Press Ctrl-X, open review, then go back. The same selection and its
+     details return.
+   - Use a repository with more than 5,000 local branches, for example
+     generated with packed-refs:
+     - the header reads "local branches · recent first · partial";
+     - the current branch is first, even if it sorts last by name;
+     - a non-matching filter shows the partial notice that points to
+       `g switch` and `g branch --list`, with no remote rows, and the header
+       keeps "partial";
+     - Tab details end with the "Partial catalog" paragraph.
+10. **Discard** (P4-29, `450393e`). In a dirty repository, `g --discard-all`
+    shows the same printed status, confirmation picker and result message as
+    before, and discards after confirmation. On cancel it reports
+    "Cancelled; nothing was changed."
+
+Xcode:
+
+11. **Build & Run with 7 or more targets** (P1-14, `05991b0`). Open `xcode`
+    in a real project whose scheme builds 7 or more targets (an app plus
+    frameworks or extensions). Choose My Mac, then Build & Run. The app
+    launches with no capture-limit error. Expect a pause after the build
+    while products resolve, roughly 0.12 s per 40-KiB target (see CON-C-06).
+12. **Run monitor and reader positions** (P3-10, `00500ab`).
+    - During an Xcode Run, with the inspector not focused, make the window
+      shorter, then taller. The run monitor keeps the newest app output
+      visible both times.
+    - Open Read output. It opens at the tail.
+    - Scroll up so the reader pauses, then resize narrow, wide and narrow
+      again. The same log line stays at the top.
+    - Type a filter. The reader jumps to the first matching line.
+    - In Git review, scroll a folder summary and let an automatic refresh
+      happen with no other change. The folder summary keeps its position.
+13. **LLDB and device cleanup** (P4-14, `6b1470a`).
+    - Run Build & Run on a booted Simulator, choose Enter LLDB, then quit
+      LLDB. The prompt comes back cleanly with no "[1] done" job notice, the
+      app stops, and no `compozsh-xcode-run.*` directory remains under the
+      Simulator's `data/tmp`. The unit's note said the opposite, but the
+      contract requires this cleanup.
+    - Run Build & Run on a paired device, then press Escape. The console
+      stops, and no `compozsh-xcode-device.*` directory remains under
+      `TMPDIR`.
+14. **Test results with several locations** (P4-10, `d576e74`). Run
+    `xcode`, then Test, on a project where one failing test reports at least
+    two source locations, for example an assertion in a helper the test
+    calls.
+    - The Done overview lists each location on its own indented line under
+      the test name.
+    - The failure inspector lists each location under "Involved files".
+    - "Copy report and done" pastes one `- path:line` line per location.
+    - The passing and empty-bundle windows look unchanged: success colour,
+      passive lines and Limits.
+15. **Cancel and result actions** (P3-04, `0351913`). Run bare `xcode` in a
+    project and cancel. Then run a test action and choose a result action.
+    The screen restores and the chosen action runs.
+16. *Optional:* **export-skills help** (P4-08, `aedefea`). With colour on,
+    check that `xcode --export-skills --help` renders the indented vendor
+    rows readably. That includes the `Codex in Xcode:` line, whose path is
+    on the next line. Check both the help workspace and the printed help.
+
+External devices:
+
+17. **Step 3 refusal line** (P1-08, `5d6a1f4`). Check at 80 columns and at a
+    wide width. Run `external-device`, choose an image and a drive, add a
+    checksum that does not match, then choose Flash without verification.
+    - Step 3 shows one red passive line starting "The image integrity check
+      must match before flashing". At 80 columns it is truncated cleanly.
+    - The line has no `[n]` index and no selection stop.
+    - The line disappears after the next action, for example Remove image
+      checksum.
+18. **Image browser keys** (P1-09, `32f1f4e`; P3-04, `0351913`). Run
+    `external-device --flash`, choose Custom path to media… and highlight an
+    `.iso`.
+    - Ctrl-X, Ctrl-O, Right and Tab each give the bell (or visual bell) and
+      keep the same row highlighted.
+    - The footer shows no ^X or ^O hints, and the Ctrl-K guide lists no
+      Ctrl-O, Ctrl-X or Ctrl-E lines.
+    - Right on a folder still opens it, and Left returns with its selection
+      restored.
+    - Hidden toggling and the filter behave as before.
+    - Return on the `.iso` goes to Step 2, and Escape returns cleanly.
+19. **Worker progress** (P4-07, `8cc78c9`).
+    - Flash with verification. Step 3 progress still advances every quarter
+      second, and the title switches from "Writing image" to "Verifying USB
+      against image".
+    - Ctrl-C during the write leaves no `compozsh-usb-progress.*` file in
+      `$TMPDIR`.
+    - Flash a macOS installer. "Creating macOS installer" shows live
+      `createinstallmedia` lines, and the final line remains after it exits.
+20. **Virtual-disk refusal** (P4-30, `7bd92c0`).
+    - Attach a small `.dmg` or sparsebundle that holds an `.iso`, for
+      example with `hdiutil attach`. Run
+      `external-device --flash /Volumes/<image>/<file>.iso` and choose it.
+      The Media compatibility screen shows the red line "Media on a virtual
+      disk · Nothing can be written", the detail text and only "Choose
+      another media". Return or Escape goes back to Step 1 with no drive
+      list.
+    - Put an `.iso` on the internal disk and on an external USB disk. Both
+      reach Step 2, and the drive holding the image is not listed.
+    - *Optional:* media on an AppleRAID set is refused the same way.
+21. **Localized filesystem names** (P5-07, `2bb16a1`; raised by the final
+    review). diskutil now runs under `LC_ALL=C`. On a Mac whose system
+    language is not English, compare the filesystem names in
+    `external-device --format`'s format choice with the previous build.
+    P5-07's scratch check varied only the `LC_*` locale, not the system
+    language.
+
+Startup:
+
+22. **Compiled startup and recompilation** (P5-13, `2ae4be2`; P6-01,
+    `bf10351`).
+    - After `zsh install.zsh --symlink`, a new window shows no load
+      diagnostics. `compozsh --list` shows the same labels as before, for
+      example `mkcd · ✓ help · .zsh.tools`.
+    - Edit a shipped peer in the clone, or `git pull` a change, then open a
+      new tab. Its prompt appears slightly later, once, with no output or
+      diagnostics, and the edit takes effect. The next tab is fast.
+      `ls -la ~/.zsh.addons/support/compiled` shows no `.lock` and no
+      `*.compozsh-tmp-*` file.
+    - In that first slower tab, type ahead at once. No keystrokes are lost.
+    - After an update, open two tabs at the same moment. Neither shows
+      diagnostics, and both prompts work.
+    - After an update, press Ctrl-C while the first tab starts, then open
+      another tab. It starts normally with no diagnostics, and the mirror
+      holds no temporary files. A leftover `.lock` clears after a minute.
+
+## Run notes
+
+**Timeline (CST).** *Unit time* is the sum of the units' own elapsed
+minutes from their result files.
+
+| Phase | Window | Units landed | Unit time | Notes |
+| --- | --- | ---: | ---: | --- |
+| Reviews and planning | 2026-10-14, until 17:10 | — | — | Five read-only lenses at `4d93c93`, then a plan of 87 units |
+| 1 | 10-14 17:10 → 10-15 09:46 | 16 | 4.0 h | Commit units 17:55–20:49; the three patch units committed 04:06–08:20 |
+| 2, first run | 10-15 09:46 → 10-16 20:08 | 1 | 25.1 h | Time boxes reached while the Mac slept on battery |
+| 2, retry | 10-17 11:32 → 13:54 | 11 | 2.3 h | On AC power |
+| 3 | 10-17 13:54 → 17:54 | 12 | 3.9 h | |
+| 4 | 10-17 17:54 → 20:40 | 30 | 7.8 h | Four lanes in about 2.5 h, then integration and three patches |
+| 5 | 10-17 20:40 → 10-18 01:09 | 10 | 4.0 h | Includes P5-12's rerun after its owner decision |
+| 6 | 10-18 01:09 → 18:19 | 2 | 1.6 h | Includes dropped P6-02. P6-03 started after the owner's answers of about 17:37 |
+| Project rules | 10-18 18:19 → 19:05 | 3 commits | — | |
+| Final review | 10-18 19:05 → about 21:40 | 9 fixes | 1.2 h | Six review passes, triage, fixes, final suite and measurements |
+
+Unit time adds up to about 50 h, and half of it is phase 2's lost first
+run. The pass took about 100 h of wall clock, which includes waits for
+owner answers and the nights.
+
+**Laptop sleep.** Phase 1's patch re-verification and phase 2's first run
+ran on battery, and the Mac slept between maintenance wakes. The power log
+showed 1,187 sleep entries during phase 2's first run. Unit time boxes count
+wall clock, so nine units of that run timed out with nothing kept, apart
+from a saved patch for P2-01. P2-06 and P2-07 were skipped because P2-04 had
+not landed, and the run's one gate took 9,104 s. Some of those units also
+reported stalled tool calls, classifier timeouts and cut-off responses
+during the gaps. Phase 1 lost only one PTY case. The retry on AC power
+landed all 11 units in 2.4 h of wall clock, which bears out the excellence
+run's proposal to keep the machine awake. No later unit reported sleep.
+
+**Parallel lanes.** With the owner's approval, phase 4 ran in four git
+worktree lanes (`lane/p4-usb`, `lane/p4-xcode`, `lane/p4-git` and
+`lane/p4-prompt`), each owning disjoint peer files. Inside a lane, units ran
+one at a time, and lane agents did not edit this record. The orchestrator
+fast-forwarded the USB lane and cherry-picked the other three without
+conflicts, so the Xcode, Git and prompt units have new commit IDs on this
+branch. The lane worktrees are gone, and the four lane branches remain in
+the local repository.
+
+**From patch mode to recorded approvals.** Until 2026-10-18, owner-approved
+units ran in patch-only mode: P1-14 to P1-16, P4-29 to P4-31, P5-12, P5-13
+and P6-01 to P6-03.
+- The agent built and verified the change, saved a patch and reset the
+  tree.
+- The orchestrator had the owner's answers directly. It applied the patch,
+  re-verified red at the prior HEAD and then green, ran the full suite and
+  committed.
+
+On 2026-10-18 the owner answered "Record, then agents may act
+(Recommended)". From then on, implementing agents committed against the
+dated quotes in [Owner decisions](#owner-decisions): P7-01, P7-02 and
+F01–F09. Agents still treated approvals relayed only in workflow text as
+carrying no authority.
+
+**Global rules file.** At the owner's request on 2026-10-18, general agent
+rules moved into the owner's global `~/.claude/CLAUDE.md`, outside the
+repository. This repository received only the project-specific updates
+(`e2c957a`). That file is not part of the repository or of this record's
+evidence.
+
+**Scratch cleanup by macOS.** The run's scratch area lives under
+`/private/tmp`, and macOS's own `/tmp` cleanup removed older scratch files
+there mid-run. The unit result files and logs this record draws on were
+intact.
+
+**Processes.** Twelve idle `/bin/zsh -dfi` shells from P5-02's focused
+benchmark were still running at the end of the run (PIDs 7051–9124, started
+2026-10-17 21:12, 0% CPU). Each sources `.zsh.manual` and times
+`_manual_async_start`. F06 reported them. They were left for the
+orchestrator to stop, because no later agent had started them. They used no
+CPU, so measurements were unaffected.
+
+**Reviews.** Delegation was forbidden inside units, so each unit applied the
+`security-reviewer` and `contract-reviewer` checklists itself. The final
+review ran them as six separate read-only passes, and each pass confirmed
+an unchanged tree and diff hash at its start and end.

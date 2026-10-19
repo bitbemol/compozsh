@@ -14,7 +14,7 @@ when work spans sessions (record progress and remaining steps there).
 
 | Record | What it establishes | Backs |
 | --- | --- | --- |
-| [architecture-2026-10-14](architecture-2026-10-14.md) | Structural pass after the excellence run: five review lenses, owner decisions on startup and shared Git reads, phased fixes and measurements | [architecture](../engineering/architecture.md), [performance](../engineering/performance.md#measuring-latency) |
+| [architecture-2026-10-14](architecture-2026-10-14.md) | Structural pass after the excellence run: five review lenses, owner decisions (compiled startup mirror, shared and Apple-signed Git reads, generated-file data rule), 82 units in six phases, final review, before/after latency, open questions and pending manual checks | [architecture](../engineering/architecture.md), [performance](../engineering/performance.md#measuring-latency), [security](../engineering/security.md#persistent-storage) |
 | [arithmetic-input-validation](arithmetic-input-validation.md) | Text that reached Zsh arithmetic, the sweep's site ledger and validation bounds | [Zsh conventions](../engineering/zsh.md#idioms), [security](../engineering/security.md#handling-sensitive-data) |
 | [composer-and-atlas](composer-and-atlas.md) | Command composer, help Compose example and change atlas boundaries | [interaction design](../engineering/interaction-design.md) |
 | [critical-path-performance](critical-path-performance.md) | Measured hot-path optimizations and deferred provider findings | [performance](../engineering/performance.md) |
@@ -95,6 +95,9 @@ measurement and design decision before implementation.
   visit budget, is fixed: the walk skips `.git` at any depth, 2026-10-12.)
 - **Native peer compilation** (`zcompile`): deferred until artifact freshness
   and loader behavior have a design. ([critical path](critical-path-performance.md#deferred-findings))
+  *Shipped 2026-10-18:* the compiled mirror, with full file-identity
+  freshness and startup recompilation
+  ([architecture pass](architecture-2026-10-14.md#owner-decisions)).
 - **Xcode repeated workflows:** keeping a workspace across actions, or
   cross-invocation caching, changes the release-on-action contract and needs a
   revalidation/freshness decision. ([discovery](xcode-discovery-performance.md#recommended-implementation-order), item 3)
@@ -115,8 +118,9 @@ measurement and design decision before implementation.
 - `sudo` and other prefix commands are classified as the command itself, so
   `sudo rm -rf x` shows `RUN` rather than `CAUTION`.
 - `g --help` says "Ctrl-X is inactive here" (`_compozsh_help_g`), which
-  reads as stale; the shared UI also carries an `atlas` options kind no caller
-  sets.
+  reads as stale. (The shared UI's unused `atlas` options kind was removed in
+  the [architecture pass](architecture-2026-10-14.md#phase-3-engine-api-and-scoping),
+  P3-11.)
 - Some `print` calls in `.zsh.tools`, `.zsh.sudo-touch-id` and
   `.zsh.navigation` lack `-r --`. At least one is a security issue, not
   style: `.zsh.tools:329` prints a sanitized repository path without `-r`,
