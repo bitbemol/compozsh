@@ -510,8 +510,8 @@ _test_compiled_count() {
 }
 
 # The compiled mirror is only an optimization: in both layouts the
-# installed shell loads shipped peers from it and reaches the same complete
-# state as text loading (the mirror replaced by an unmarked folder, which the
+# installed shell loads shipped peers and the completion dump from it and
+# reaches the same complete state as text loading (the mirror replaced by an unmarked folder, which the
 # bootstrap neither uses nor writes), including when sourced twice. An initializer's own aliases or parse-affecting options would change
 # how text parses, so the shipped peers then load as text, and the state still
 # matches; options that only matter at run time keep compiled loading.
@@ -535,6 +535,12 @@ _test_compiled_peers_match_text_state() {
     fi
     test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 ||
       test_fail "$layout warm-up shell failed to load" || return
+    # A second warm-up, once the clock passed the dump's write, compiles it.
+    _test_compiled_tick || return
+    test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 ||
+      test_fail "$layout second warm-up shell failed to load" || return
+    [[ -L $compiled/zcompdump && -f $compiled/zcompdump.zwc ]] ||
+      test_fail "$layout: the completion dump was not compiled" || return
     for variant in inert runtime aliases parse; do
       print -r -- "$initializers[$variant]" >| "$home/.zsh.addons/local/init.zsh" || return
       run="$TEST_TMP_DIR/$layout-$variant"
@@ -954,6 +960,168 @@ _test_compiled_peers_bound_startup_compile() {
 }
 test_case 'compiled peers: startup compile work is bounded and an oversized peer stays text' \
   _test_compiled_peers_bound_startup_compile
+
+# Print, from a new shell in <home>, where compinit's dump came from (PROBE is
+# set only by planted wordcode or dump text), _comp_dumpfile and whether the
+# mirror entry is still the symlink to the dump.
+typeset -g _test_compiled_dump_script='
+  source "$HOME/.zshrc" || exit 1
+  local mirror=${HOME:A}/.zsh.addons/support/compiled
+  print -r -- "${PROBE-none}|${_comp_dumpfile#$HOME/}|$(command readlink -- "$mirror/zcompdump")"'
+
+# Replace the mirror's compiled dump with wordcode made from the current dump
+# plus a PROBE=compiled line, keeping its manifest record, so a shell reveals
+# whether it loaded the wordcode. Usage: _test_compiled_dump_plant <home>
+_test_compiled_dump_plant() {
+  local compiled="$1/.zsh.addons/support/compiled"
+  command mkdir -p -- "$TEST_TMP_DIR/plant" &&
+    command cp -- "$1/.zcompdump" "$TEST_TMP_DIR/plant/zcompdump" &&
+    print -r -- 'typeset -g PROBE=compiled' >> "$TEST_TMP_DIR/plant/zcompdump" &&
+    command rm -f -- "$compiled/zcompdump.zwc" &&
+    zcompile -R -- "$compiled/zcompdump.zwc" "$TEST_TMP_DIR/plant/zcompdump"
+}
+
+# Zsh's own source would take <dump>.zwc whenever it is not older than the
+# dump. The completion dump's wordcode lives only in the private mirror and
+# loads only while the dump's device, inode, size, mtime and ctime equal the
+# compiled record: an edit, a same-size edit with its mtime restored or a
+# replacement with an old mtime means the plain dump. An unsafe mirror or an
+# initializer alias (which changes how the dump parses) means the plain dump.
+_test_compiled_dump_never_runs_stale_code() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" compiled='' output='' dump=''
+  local -a lines=()
+  compiled="$home/.zsh.addons/support/compiled"
+  dump="$home/.zcompdump"
+  _test_compiled_install "$TEST_REPO_ROOT" "$home" symlink || return
+  test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 || return
+  _test_compiled_tick || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script" 2> "$TEST_TMP_DIR/errors") || return
+  [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$(<"$TEST_TMP_DIR/errors")" || return
+  [[ -L $compiled/zcompdump && -f $compiled/zcompdump.zwc &&
+     -f $compiled/zcompdump.manifest && ! -e $dump.zwc ]] ||
+    test_fail 'a later shell did not compile the dump into the mirror only' || return
+  test_assert_equal "${dump:A}" "$(command readlink -- "$compiled/zcompdump")" \
+    'the compiled dump entry does not link to the dump' || return
+  lines=("${(@f)$(<"$compiled/zcompdump.manifest")}")
+  test_assert_equal "compozsh-compiled-dump 1|zsh $ZSH_VERSION|dump ${dump:A}" \
+    "${(j:|:)lines[1,3]}" 'the dump manifest header differs' || return
+  test_assert_equal "$(command stat -f '%d %i %z %m %c' -- "$dump")" \
+    "${lines[7]//$'\t'/ }" 'the dump manifest does not record exactly its identity' || return
+  test_assert_equal 7 "${#lines}" 'the dump manifest records more than the dump identity' || return
+
+  _test_compiled_dump_plant "$home" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal "compiled|.zcompdump|${dump:A}" "$output" \
+    'a fresh compiled dump was not loaded through the mirror' || return
+
+  # An edit appends a line; the next shell loads it, never older wordcode.
+  print -r -- 'typeset -g PROBE=edited' >> "$dump" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal 'edited|.zcompdump' "${output%|*}" 'an edited dump ran stale wordcode' || return
+
+  # Same size, same second, original mtime restored.
+  _test_compiled_tick || return
+  test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 || return
+  _test_compiled_dump_plant "$home" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal 'compiled' "${output%%|*}" 'the recompiled dump was not used' || return
+  command cp -p -- "$dump" "$TEST_TMP_DIR/dump.orig" &&
+    command sed -i '' -e 's/PROBE=edited/PROBE=retime/' "$dump" &&
+    command touch -r "$TEST_TMP_DIR/dump.orig" "$dump" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal 'retime' "${output%%|*}" 'a retimed same-size edit ran stale wordcode' || return
+
+  # A replacement with an old mtime, moved over the dump.
+  _test_compiled_tick || return
+  test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 || return
+  _test_compiled_dump_plant "$home" || return
+  command sed -e 's/PROBE=retime/PROBE=moved/' "$dump" >| "$TEST_TMP_DIR/replacement" &&
+    command touch -t 202001010000 "$TEST_TMP_DIR/replacement" &&
+    command mv -f -- "$TEST_TMP_DIR/replacement" "$dump" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal 'moved' "${output%%|*}" 'a replaced dump ran stale wordcode' || return
+
+  # A fresh record under an initializer alias, or in a group-readable mirror.
+  _test_compiled_tick || return
+  test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 || return
+  _test_compiled_dump_plant "$home" || return
+  print -r -- "alias ll='ls -l'" >| "$home/.zsh.addons/local/init.zsh" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal 'moved|.zcompdump' "${output%|*}" \
+    'the compiled dump ran under a changed parse context' || return
+  print -r -- ':' >| "$home/.zsh.addons/local/init.zsh" &&
+    command chmod 0750 "$compiled" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal 'moved|.zcompdump' "${output%|*}" \
+    'the compiled dump loaded from an unsafe mirror' || return
+  command chmod 0700 "$compiled" || return
+}
+test_case 'compiled completion dump: an edited, retimed or replaced dump, an alias or an unsafe mirror means the plain dump' \
+  _test_compiled_dump_never_runs_stale_code
+
+# compaudit still guards fpath while the compiled dump is fresh. When fpath
+# changes, compinit regenerates its dump even while loading through the
+# mirror. The new dump still lands at its usual path (never left in the
+# mirror), the shell completes the new command, and later shells compile it.
+_test_compiled_dump_regenerates_at_usual_path() {
+  test_make_temp_dir || return
+  local home="$TEST_TMP_DIR/home" compiled='' output='' dump='' run=''
+  local -a residue=()
+  compiled="$home/.zsh.addons/support/compiled"
+  dump="$home/.zcompdump"
+  _test_compiled_install "$TEST_REPO_ROOT" "$home" symlink || return
+  test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 || return
+  _test_compiled_tick || return
+  test_run_interactive "$home" 'source "$HOME/.zshrc"' > /dev/null 2>&1 || return
+  [[ -f $compiled/zcompdump.zwc ]] || test_fail 'the dump was not compiled' || return
+  _test_compiled_dump_plant "$home" || return
+  output=$(test_run_interactive "$home" "$_test_compiled_dump_script") || return
+  test_assert_equal 'compiled' "${output%%|*}" 'the planted compiled dump was not used' || return
+
+  local script='
+    source "$HOME/.zshrc" || exit 1
+    print -r -- "${PROBE-none}|${_comps[zzprobe]-}|${_comp_dumpfile#$HOME/}"'
+
+  # compaudit still checks fpath first: an insecure entry aborts compinit
+  # (no answer on standard input) before any dump loads.
+  command mkdir -p -- "$TEST_TMP_DIR/insecure" &&
+    command chmod 777 "$TEST_TMP_DIR/insecure" || return
+  print -r -- "fpath=(${(q)TEST_TMP_DIR}/insecure \$fpath)" >| "$home/.zsh.addons/local/init.zsh" || return
+  output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors" < /dev/null) || return
+  test_assert_contains "$(<"$TEST_TMP_DIR/errors")" 'compinit: initialization aborted' \
+    'compaudit did not check fpath before the compiled dump' || return
+  test_assert_equal 'none||' "$output" 'an aborted compinit still loaded a dump' || return
+  test_assert_equal "${dump:A}" "$(command readlink -- "$compiled/zcompdump")" \
+    'an aborted compinit changed the compiled dump entry' || return
+
+  # Regeneration sources no dump, so the planted wordcode never runs.
+  test_write_file "$TEST_TMP_DIR/extra/_zzprobe" '#compdef zzprobe' || return
+  command chmod 755 "$TEST_TMP_DIR/extra" || return
+  print -r -- "fpath=(${(q)TEST_TMP_DIR}/extra \$fpath)" >| "$home/.zsh.addons/local/init.zsh" || return
+  output=$(test_run_interactive "$home" "$script" 2> "$TEST_TMP_DIR/errors") || return
+  [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$(<"$TEST_TMP_DIR/errors")" || return
+  test_assert_equal 'none|_zzprobe|.zcompdump' "$output" \
+    'an fpath change did not regenerate the dump' || return
+  [[ -f $dump && ! -L $dump && $(<"$dump") == *zzprobe* ]] ||
+    test_fail 'the regenerated dump did not replace the dump at its usual path' || return
+  [[ ! -f $compiled/zcompdump || -L $compiled/zcompdump ]] ||
+    test_fail 'the regenerated dump was left in the mirror' || return
+  residue=("$compiled"/zcompdump.*(DN) "$home"/.zcompdump?*(DN))
+  residue=("${(@)residue:#*/zcompdump.(zwc|manifest)}")
+  (( ! $#residue )) || test_fail "regeneration left: ${residue[*]}" || return
+
+  for run in 1 2 3; do
+    _test_compiled_tick || return
+    output=$(test_run_interactive "$home" "$script") || return
+    [[ -L $compiled/zcompdump && -f $compiled/zcompdump.zwc ]] && break
+  done
+  test_assert_equal 'none|_zzprobe|.zcompdump' "$output" 'the regenerated dump lost the new completion' || return
+  [[ -L $compiled/zcompdump && -f $compiled/zcompdump.zwc ]] ||
+    test_fail 'later shells did not recompile the regenerated dump' || return
+}
+test_case 'compiled completion dump: an fpath change regenerates the dump at its usual path and later shells recompile it' \
+  _test_compiled_dump_regenerates_at_usual_path
 
 # Re-sourcing a peer moves its ZLE hooks after any hook a caller added since,
 # keeping the canonical redraw order and the exact numbered entries that

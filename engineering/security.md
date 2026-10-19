@@ -111,16 +111,20 @@ retention, cleanup, crash residue, recovery behavior and uninstall result.
   parse-context checks, so compiled code never differs from the peer's current
   text; private peers are never compiled, and discovery never sources `.zwc`
   files. Only `support/compile.zsh` writes the mirror, in a separate `zsh -f`
-  that parses and never runs peers: for the installer, and at startup for the
-  discovered shipped peers lacking a fresh record, only into a missing or
+  that parses and never runs peers: for the installer, at startup for the
+  discovered shipped peers lacking a fresh record, and after `compinit` for
+  the completion dump, only into a missing or
   user-owned, marked, owner-only mirror, under a lock, through atomic renames
   and within a time and size bound; every failure means text. Two native mechanisms sit
   outside that list: Zsh's stock functions autoloaded from `fpath` (such as
   `compinit` and `add-zle-hook-widget`), and stock `compinit`'s sourcing of its
-  configuration-base dump. Keep the `compinit` call bare and add no `fpath`
-  entry, completion cache or compiled dump; any of those, or another compiled
-  artifact or writer, is new persistence or execution that needs an owner
-  decision and a SECURITY.md update.
+  configuration-base dump. Keep `compinit`'s full audit and its usual dump
+  path: `-d` names only the compiled mirror's checked `zcompdump` entry (a
+  symlink to that dump, used while its record is fresh, with `_comp_dumpfile`
+  restored and a rewritten dump moved back at once), and no `fpath` entry,
+  completion cache or other compiled artifact or writer; any of those is new
+  persistence or execution that needs an owner decision and a SECURITY.md
+  update.
 - Add-on installers write only to documented, fixed user-level integration
   directories: stage generated content first, mark installed units, and never
   replace a same-named directory that lacks the installer's marker. Temporary

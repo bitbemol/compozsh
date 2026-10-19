@@ -215,6 +215,16 @@ stops starting new peers after about 300 ms, so a large update can take a few
 shells; a peer over 512 KiB stays text. Each installation rebuilds the mirror;
 deleting it is always safe, and `--clean` archives it with the add-on tree.
 
+The mirror also holds a compiled copy of Zsh's completion dump
+(`~/.zcompdump`), which saves about 5 ms more. After `compinit` has run, a
+shell compiles the dump into the mirror once the dump is older than the current
+second, and later shells load that copy only while the dump file is provably
+unchanged since then (same file, size and timestamps, not just an mtime
+comparison), the Zsh version matches, and your initializer or an earlier peer
+has not added aliases or changed parse options. Otherwise the dump loads as
+text as before. `compinit` still checks
+`fpath` and rewrites the dump at its usual path whenever `fpath` changes.
+
 ## Apply changes
 
 Open a new terminal, or reload with `exec zsh`. It starts a clean shell instead
@@ -1122,7 +1132,10 @@ your own `fpath` entries, but never `fpath` directory paths, history or project
 data. Zsh rewrites it when it is missing, when the number of completion files
 in `fpath` changes or when Zsh is updated. Its mode follows your umask, and
 because new shells run it as code, it should not be writable by group or
-other. Deleting it loses nothing; the next new shell recreates it.
+other. Deleting it loses nothing; the next new shell recreates it. Its compiled
+copy in `support/compiled` (`zcompdump`, `zcompdump.zwc` and
+`zcompdump.manifest`) holds the same names plus the dump's file identity and is
+used only while the dump is unchanged.
 
 See [SECURITY.md](SECURITY.md), the [caching contract](engineering/caching.md)
 and the measured [startup results](investigations/terminal-startup-latency.md).
@@ -1815,7 +1828,8 @@ mv "$config_base/.zsh.addons" \
 
 Do not archive the complete tree when keeping `local/init.zsh` or private peers.
 With either installation, archive the compiled mirror of the shipped peers
-too; nothing loads or rebuilds it once the bootstrap is archived:
+and the completion dump too; nothing loads or rebuilds it once the bootstrap is
+archived:
 
 ```sh
 mkdir -p "$config_base/.zsh-backups/uninstall-$stamp"

@@ -73,7 +73,11 @@ prompt and ZLE redraw. Those paths are latency-sensitive.
   A shipped peer that is new or changed is recompiled once
   by the next shell, which forks one `zsh -f` for just those peers and stops
   starting new ones after about 300 ms; a fresh mirror adds no fork, so warm
-  startup keeps the cost above.
+  startup keeps the cost above. `compinit` likewise reads its dump from the
+  mirror's compiled copy while that copy's record is fresh (a few `zstat`
+  calls, one small manifest read and a parse-context description before
+  `compinit`); a new or changed dump costs one `zsh -f` fork after `compinit`
+  in the first shell that can compile it.
 - Bound user-controlled display work and result counts, and keep the
   existing fuzzy-history maximum and width/height-aware rendering.
 

@@ -1,8 +1,10 @@
-# Compile shipped peers into Compozsh's private compiled mirror. Not a peer:
-# its name does not match .zsh.<name>, so discovery never sources it. The
-# installer and the bootstrap both run it in a separate zsh -f:
+# Compile shipped peers, and Zsh's completion dump, into Compozsh's private
+# compiled mirror. Not a peer: its name does not match .zsh.<name>, so
+# discovery never sources it. The installer, the bootstrap and .zsh.editor run
+# it in a separate zsh -f:
 #
 #   zsh -f compile.zsh <install|startup> <mirror> <base> <zsh-version|''> <relative>...
+#   zsh -f compile.zsh dump <mirror> <dump> <zsh-version> [settle]
 #
 # Each <base>/<relative> peer gets <mirror>/.zsh.addons/<relative>, a symlink to
 # the peer, and that symlink's .zwc; .zshrc's comment describes how the
@@ -23,17 +25,28 @@
 # a lock older than a minute is treated as abandoned. Only the listed peers are
 # compiled, peers edited this second are left for the next shell, and no new
 # peer starts compiling after 300 ms. Still-valid records are kept.
+#
+# dump: checks or creates the mirror as startup does and compiles the absolute
+# <dump> (compinit's ${ZDOTDIR:-$HOME}/.zcompdump) as <mirror>/zcompdump, a
+# symlink to it, beside zcompdump.zwc and a zcompdump.manifest that records the
+# same header fields and only the dump's device, inode, size, mtime and ctime.
+# The same clock, change, size and failure rules apply. With settle, compinit
+# just loaded through the mirror but rewrote its dump at the entry path (fpath
+# changed): that new dump is renamed to <dump>, where compinit itself would
+# have written it, or deleted if the rename fails, before anything else.
 emulate -R zsh
 umask 077
-[[ $# -ge 4 && $1 == (install|startup) && $2 == /* && $3 == /* &&
+[[ $# -ge 4 && $1 == (install|startup|dump) && $2 == /* && $3 == /* &&
    ( -z $4 || $4 == "$ZSH_VERSION" ) ]] || exit 2
+[[ $1 != dump || ( $3 == */.zcompdump && /$3/ != */../* && $3 != *[[:cntrl:]]* &&
+   -n $4 && ( $# == 4 || ( $# == 5 && $5 == settle ) ) ) ]] || exit 2
 unset EPOCHSECONDS EPOCHREALTIME
 zmodload -F zsh/stat b:zstat &&
   zmodload -F zsh/datetime p:EPOCHSECONDS p:EPOCHREALTIME &&
   zmodload -F zsh/zselect b:zselect &&
   zmodload -F zsh/files b:zf_mkdir b:zf_ln b:zf_rm b:zf_mv b:zf_rmdir || exit 1
 
-typeset mode=$1 mirror=$2 base=$3 relative='' peer='' entry='' temp='' line=''
+typeset mode=$1 mirror=$2 base=$3 relative='' temp='' line=''
 typeset table='' name='' recorded_options='' recorded_aliases='' identity=''
 typeset lock=$2/.lock
 typeset -F deadline=0
@@ -41,7 +54,7 @@ typeset -i limit=524288 locked=0
 typeset -a parse=(aliases posixaliases ignorebraces ignoreclosebraces
   rcquotes cshjunkiequotes cshjunkieloops kshglob shglob shortloops
   shortrepeat multifuncdef posixidentifiers posixstrings multibyte)
-typeset -a header=() records=() lines=() fields=() link=()
+typeset -a header=() records=() lines=() fields=() link=() residue=()
 typeset -A before=() after=() facts=() kept=() handled=() map=()
 shift 4
 
@@ -58,6 +71,7 @@ for table in aliases galiases saliases; do
 done
 header=("compozsh-compiled 1" "zsh $ZSH_VERSION" "base $base"
   "parse ${parse[*]}" "options$recorded_options" "aliases$recorded_aliases")
+[[ $mode != dump ]] || header[1,3]=("compozsh-compiled-dump 1" "zsh $ZSH_VERSION" "dump $base")
 
 if [[ $mode == install ]]; then
   zf_mkdir -m 0700 -- "$mirror" &&
@@ -80,10 +94,57 @@ else
   (( deadline = EPOCHREALTIME + 0.3 ))
 fi
 
+# settle: compinit replaced the entry symlink with its new dump; move it home.
+if [[ $mode == dump && ${1-} == settle ]] &&
+    zstat -L -H facts -- "$mirror/zcompdump" 2> /dev/null &&
+    (( facts[uid] == EUID && (facts[mode] & 8#170000) == 8#100000 )); then
+  zf_mv -f -- "$mirror/zcompdump" "$base" 2> /dev/null ||
+    zf_rm -f -- "$mirror/zcompdump" 2> /dev/null
+fi
+
 # Accept a relative path below <base> without control characters or ..
 # components. Usage: _compile_relative <relative>
 _compile_relative() {
   [[ -n $1 && $1 != /* && /$1/ != */../* && $1 != *[[:cntrl:]]* ]]
+}
+
+# Compile <file> through <entry>, a mirror symlink to it, into <entry>.zwc and
+# add its record, led by <name> when given, to records: identity only after a
+# compile during which the file did not change, or a "-" text record. A file
+# changed this second waits (install) or is left for the next shell.
+# Usage: _compile_file <file> <entry> [<name>]
+_compile_file() {
+  local file=$1 entry=$2 name=${3:+$3$'\t'} temp=$2.compozsh-tmp-$$.zwc
+  zstat -H before -- "$file" 2> /dev/null || return 1
+  while (( EPOCHSECONDS <= before[ctime] )); do
+    [[ $mode == install ]] || return 1
+    zselect -t 10
+    zstat -H before -- "$file" 2> /dev/null || return 1
+  done
+  identity="$before[device]"$'\t'"$before[inode]"$'\t'"$before[size]"
+  identity+=$'\t'"$before[mtime]"$'\t'"$before[ctime]"
+  if (( before[size] > limit )); then
+    records+=("-"$'\t'"$name$identity")
+    return 0
+  fi
+  link=()
+  zstat -L -A link +link -- "$entry" 2> /dev/null
+  if [[ ${link[1]-} != "$file" ]]; then
+    zf_rm -f -- "$entry" "$entry.zwc" 2> /dev/null
+    zf_mkdir -p -- "${entry:h}" && zf_ln -s -- "$file" "$entry" || return 1
+  fi
+  if zcompile -R -- "$temp" "$entry" 2> /dev/null; then
+    zstat -H after -- "$file" 2> /dev/null &&
+      [[ "$after[device] $after[inode] $after[size] $after[mtime] $after[ctime]" ==
+         "${identity//$'\t'/ }" ]] && zf_mv -f -- "$temp" "$entry.zwc" &&
+      records+=("$name$identity")
+  else
+    zstat -H after -- "$file" 2> /dev/null &&
+      [[ "$after[device] $after[inode] $after[size] $after[mtime] $after[ctime]" ==
+         "${identity//$'\t'/ }" ]] && records+=("-"$'\t'"$name$identity")
+  fi
+  zf_rm -f -- "$temp" 2> /dev/null
+  return 0
 }
 
 TRAPINT() { return $(( 128 + $1 )) }
@@ -98,12 +159,22 @@ if ! zf_mkdir -m 0700 -- "$lock" 2> /dev/null; then
 fi
 locked=1
 {
-  # Temporary files left by an interrupted run are never used; drop them.
-  lines=("$mirror"/manifest.compozsh-tmp-*(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-*.zwc(ND))
+  # Temporary files left by an interrupted run are never used; drop them, and
+  # compinit's own zcompdump.<host>.<pid> staging once it is a minute old.
+  lines=("$mirror"/manifest.compozsh-tmp-*(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-*.zwc(ND)
+    "$mirror"/zcompdump*.compozsh-tmp-*(N))
+  residue=("$mirror"/zcompdump.*(N.mm+0))
+  lines+=("${(@)${(@)residue:#*/zcompdump.(zwc|manifest)}:#*.compozsh-tmp-*}")
   (( ! $#lines )) || zf_rm -f -- "${lines[@]}"
 
+  if [[ $mode == dump ]]; then
+    if _compile_file "$base" "$mirror/zcompdump" && (( $#records )); then
+      temp=$mirror/zcompdump.manifest.compozsh-tmp-$$
+      print -rl -- "${header[@]}" "${records[@]}" > "$temp" &&
+        zf_mv -f -- "$temp" "$mirror/zcompdump.manifest"
+    fi
   # Keep the previous manifest's records whose peers are still unchanged.
-  if [[ $mode == startup ]] && zstat -L -H facts -- "$mirror/manifest" 2> /dev/null &&
+  elif [[ $mode == startup ]] && zstat -L -H facts -- "$mirror/manifest" 2> /dev/null &&
       (( facts[uid] == EUID && (facts[mode] & 8#170000) == 8#100000 )); then
     lines=("${(@f)$(<"$mirror/manifest")}")
     if [[ ${(pj:\n:)lines[1,6]} == ${(pj:\n:)header} ]]; then
@@ -118,52 +189,25 @@ locked=1
     fi
   fi
 
-  for relative in "$@"; do
-    _compile_relative "$relative" || continue
-    [[ $mode == install ]] || (( EPOCHREALTIME < deadline )) || break
-    handled[$relative]=1
-    peer=$base/$relative entry=$mirror/.zsh.addons/$relative
-    temp=$entry.compozsh-tmp-$$.zwc
-    zstat -H before -- "$peer" 2> /dev/null || continue
-    while (( EPOCHSECONDS <= before[ctime] )); do
-      [[ $mode == install ]] || continue 2
-      zselect -t 10
-      zstat -H before -- "$peer" 2> /dev/null || continue 2
+  if [[ $mode != dump ]]; then
+    for relative in "$@"; do
+      _compile_relative "$relative" || continue
+      [[ $mode == install ]] || (( EPOCHREALTIME < deadline )) || break
+      handled[$relative]=1
+      _compile_file "$base/$relative" "$mirror/.zsh.addons/$relative" "$relative"
     done
-    identity="$before[device]"$'\t'"$before[inode]"$'\t'"$before[size]"
-    identity+=$'\t'"$before[mtime]"$'\t'"$before[ctime]"
-    if (( before[size] > limit )); then
-      records+=("-"$'\t'"$relative"$'\t'"$identity")
-      continue
-    fi
-    link=()
-    zstat -L -A link +link -- "$entry" 2> /dev/null
-    if [[ ${link[1]-} != "$peer" ]]; then
-      zf_rm -f -- "$entry" "$entry.zwc" 2> /dev/null
-      zf_mkdir -p -- "${entry:h}" && zf_ln -s -- "$peer" "$entry" || continue
-    fi
-    if zcompile -R -- "$temp" "$entry" 2> /dev/null; then
-      zstat -H after -- "$peer" 2> /dev/null &&
-        [[ "$after[device] $after[inode] $after[size] $after[mtime] $after[ctime]" ==
-           "${identity//$'\t'/ }" ]] && zf_mv -f -- "$temp" "$entry.zwc" &&
-        records+=("$relative"$'\t'"$identity")
-    else
-      zstat -H after -- "$peer" 2> /dev/null &&
-        [[ "$after[device] $after[inode] $after[size] $after[mtime] $after[ctime]" ==
-           "${identity//$'\t'/ }" ]] && records+=("-"$'\t'"$relative"$'\t'"$identity")
-    fi
-    zf_rm -f -- "$temp" 2> /dev/null
-  done
 
-  for relative line in "${(@kv)kept}"; do
-    (( ${+handled[$relative]} )) || records+=("$line")
-  done
-  temp=$mirror/manifest.compozsh-tmp-$$
-  print -rl -- "${header[@]}" "${records[@]}" > "$temp" &&
-    zf_mv -f -- "$temp" "$mirror/manifest"
+    for relative line in "${(@kv)kept}"; do
+      (( ${+handled[$relative]} )) || records+=("$line")
+    done
+    temp=$mirror/manifest.compozsh-tmp-$$
+    print -rl -- "${header[@]}" "${records[@]}" > "$temp" &&
+      zf_mv -f -- "$temp" "$mirror/manifest"
+  fi
 } always {
   trap '' INT HUP TERM
-  lines=("$mirror"/manifest.compozsh-tmp-$$(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-$$.zwc(ND))
+  lines=("$mirror"/manifest.compozsh-tmp-$$(N) "$mirror"/.zsh.addons/**/*.compozsh-tmp-$$.zwc(ND)
+    "$mirror"/zcompdump*.compozsh-tmp-$$(N) "$mirror"/zcompdump.compozsh-tmp-$$.zwc(N))
   (( ! $#lines )) || zf_rm -f -- "${lines[@]}"
   (( locked )) && zf_rmdir -- "$lock" 2> /dev/null
 }

@@ -3,10 +3,108 @@
 # -----------------------------------------------------------------------------
 
 autoload -Uz compinit
+
+# Set REPLY to "fresh" when compinit may load <dump> through the compiled
+# mirror <mirror>: <dump> is a regular file, a private, marked mirror of this
+# user's holds zcompdump, a symlink to exactly <dump>, beside its .zwc, and zcompdump.manifest records the
+# running Zsh, this dump and its current device, inode, size, mtime and ctime,
+# and the parse context compinit sources it in (its own emulate -L zsh and
+# EXTENDED_GLOB, then the alias tables) equals the compiling shell's. REPLY is
+# "stale" when compiling the dump after compinit could make a later shell
+# fresh, and empty when it could not (no dump, a text record, an unsafe mirror
+# or another parse context). Reads metadata and the manifest only.
+# Usage: _zle_compdump_state <dump> <mirror>
+_zle_compdump_state() {
+  emulate -L zsh
+  setopt extendedglob
+  local dump=$1 mirror=$2 context=options name='' table=''
+  local -a lines=() link=()
+  local -A facts=() map=()
+  REPLY=''
+  [[ $dump == /* ]] && zmodload -F zsh/stat b:zstat 2>/dev/null &&
+    zstat -L -H facts -- "$dump" 2>/dev/null &&
+    (( (facts[mode] & 8#170000) == 8#100000 )) || return 0
+  if ! zstat -L -H facts -- "$mirror" 2>/dev/null; then
+    [[ -d ${mirror:h:h} ]] && REPLY=stale
+    return 0
+  fi
+  (( facts[uid] == EUID && (facts[mode] & 8#170077) == 8#40000 )) &&
+    zstat -L -H facts -- "$mirror/.managed-by-compozsh" 2>/dev/null &&
+    (( facts[uid] == EUID && (facts[mode] & 8#170000) == 8#100000 )) || return 0
+  REPLY=stale
+  zstat -L -H facts -- "$mirror/zcompdump.manifest" 2>/dev/null &&
+    (( facts[uid] == EUID && (facts[mode] & 8#170022) == 8#100000 )) || return 0
+  lines=("${(@f)$(<"$mirror/zcompdump.manifest")}")
+  [[ ${lines[1]-} == 'compozsh-compiled-dump 1' && ${lines[4]-} == 'parse '* &&
+     ${#lines} == 7 ]] || return 0
+  # The same description as support/compile.zsh records.
+  for name in ${(s: :)lines[4]#parse }; do
+    context+=" $name=${options[$name]-}"
+  done
+  context+=$'\n'aliases
+  for table in aliases galiases saliases; do
+    map=("${(@Pkv)table}")
+    context+=" $table:"
+    for name in ${(ok)map}; do
+      context+=" ${(qqqq)name}=${(qqqq)map[$name]}"
+    done
+  done
+  if [[ $context != "${lines[5]}"$'\n'"${lines[6]}" ]]; then
+    REPLY=''
+    return 0
+  fi
+  [[ ${lines[2]} == "zsh $ZSH_VERSION" && ${lines[3]} == "dump ${dump:A}" ]] || return 0
+  zstat -L -H facts -- "$dump" 2>/dev/null || return 0
+  if [[ ${lines[7]} == "-"$'\t'"$facts[device]"$'\t'"$facts[inode]"$'\t'"$facts[size]"$'\t'"$facts[mtime]"$'\t'"$facts[ctime]" ]]; then
+    REPLY=''
+  elif [[ ${lines[7]} == "$facts[device]"$'\t'"$facts[inode]"$'\t'"$facts[size]"$'\t'"$facts[mtime]"$'\t'"$facts[ctime]" ]] &&
+      zstat -L -A link +link -- "$mirror/zcompdump" 2>/dev/null &&
+      [[ ${link[1]-} == "${dump:A}" && -f $mirror/zcompdump.zwc ]]; then
+    REPLY=fresh
+  fi
+}
+
+# Run the shipped support/compile.zsh in a separate zsh -f to compile <dump>
+# into <mirror>, passing settle when compinit rewrote its dump at the mirror
+# entry. It never runs the dump; any failure leaves the plain dump in use.
+# Usage: _zle_compdump_compile <script> <dump> <mirror> [settle]
+_zle_compdump_compile() {
+  emulate -L zsh
+  local script=$1 zsh_bin=${commands[zsh]-}
+  [[ $zsh_bin == /* ]] || zsh_bin=/bin/zsh
+  [[ -f $script && ! -L $script ]] || return 0
+  "$zsh_bin" -f -- "$script" dump "$3" "${2:A}" "$ZSH_VERSION" "${@[4,-1]}" \
+    < /dev/null > /dev/null 2>&1
+  return 0
+}
+
 # Preserve compinit's full ownership/permission audit on a fresh shell, but do
-# not repeat the same initialization when this file is sourced again.
+# not repeat the same initialization when this file is sourced again. While
+# _zle_compdump_state proves the compiled dump current, compinit gets the mirror
+# entry as its dump path, so Zsh's own source reads the wordcode; afterwards
+# _comp_dumpfile names the usual dump again. If compinit instead rewrote its
+# dump (fpath changed), the new file at the entry moves to the usual path. The
+# wrapper has no emulate: compinit runs under the caller's options as before.
 if (( ! ${+_comps} )) || [[ ${(t)_comps} != association* ]]; then
-  compinit
+  () {
+    local _zle_dump=${ZDOTDIR:-$HOME}/.zcompdump _zle_dump_state=''
+    local _zle_dump_mirror=${${:-${ZDOTDIR:-$HOME}/.zsh.addons}:A}/support/compiled
+    () {
+      local REPLY=''
+      _zle_compdump_state "$_zle_dump" "$_zle_dump_mirror"
+      _zle_dump_state=$REPLY
+    }
+    if [[ $_zle_dump_state == fresh ]]; then
+      compinit -d "$_zle_dump_mirror/zcompdump"
+      (( ! ${+_comp_dumpfile} )) || _comp_dumpfile=$_zle_dump
+      [[ -L $_zle_dump_mirror/zcompdump ]] ||
+        _zle_compdump_compile "$1" "$_zle_dump" "$_zle_dump_mirror" settle
+    else
+      compinit
+      [[ $_zle_dump_state != stale ]] ||
+        _zle_compdump_compile "$1" "$_zle_dump" "$_zle_dump_mirror"
+    fi
+  } "${${(%):-%x}:A:h}/support/compile.zsh"
 fi
 
 zstyle ':completion:*' menu select

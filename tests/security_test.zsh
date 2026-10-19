@@ -490,14 +490,16 @@ _test_view_helpers_keep_path_and_command_hash() {
 test_case 'security: Search, Recents and Git review rows keep PATH and the command hash (no locals tied to PATH-like specials)' \
   _test_view_helpers_keep_path_and_command_hash
 
-# SECURITY.md's completion-dump row assumes a bare compinit call: no -d path,
-# -C/-i/-u audit bypass, fpath entry, compiled dump or completion cache.
+# SECURITY.md's completion-dump row assumes compinit's stock audit and dump
+# path: no -C/-i/-u audit bypass, no fpath entry, no completion cache, no
+# compdump call, and -d only for the checked compiled mirror entry.
 _test_completion_dump_call_matches_disclosure() {
   emulate -L zsh
   setopt EXTENDED_GLOB
   local security="$(<"$TEST_REPO_ROOT/SECURITY.md")"
   local file='' line='' trimmed=''
   local fpath_entry='(^|[^[:alnum:]_])(fpath|FPATH)(\[[^]]*\])?\+?='
+  local compdump_call='(^|[^[:alnum:]_.])compdump([^[:alnum:]_.]|$)'
   local -a calls=()
   _security_runtime_files
 
@@ -505,20 +507,21 @@ _test_completion_dump_call_matches_disclosure() {
     while IFS= read -r line; do
       trimmed=${line##[[:space:]]#}
       [[ $trimmed == \#* ]] && continue
-      if [[ $trimmed == *(compdump|use-cache|cache-path)* || $trimmed =~ $fpath_entry ]]; then
-        test_fail "completion dump, cache or fpath entry entered ${file#$TEST_REPO_ROOT/}: $trimmed"
+      if [[ $trimmed == *(use-cache|cache-path)* || $trimmed =~ $compdump_call ||
+            $trimmed =~ $fpath_entry ]]; then
+        test_fail "completion dump writer, cache or fpath entry entered ${file#$TEST_REPO_ROOT/}: $trimmed"
         return 1
       fi
       [[ $trimmed == *compinit* ]] && calls+=("${file#$TEST_REPO_ROOT/}:$trimmed")
     done < "$file"
   done
   test_assert_equal \
-    '.zsh.addons/.zsh.editor:autoload -Uz compinit|.zsh.addons/.zsh.editor:compinit' \
-    "${(j:|:)calls}" 'compinit invocation differs from the disclosed bare call' || return
+    '.zsh.addons/.zsh.editor:autoload -Uz compinit|.zsh.addons/.zsh.editor:compinit -d "$_zle_dump_mirror/zcompdump"|.zsh.addons/.zsh.editor:compinit' \
+    "${(j:|:)calls}" 'compinit invocation differs from the disclosed calls' || return
   test_assert_contains "$security" '| Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`' \
     'security inventory omits the native completion dump'
 }
-test_case 'security: native completion dump keeps the disclosed bare compinit call' \
+test_case 'security: native completion dump keeps the disclosed compinit calls' \
   _test_completion_dump_call_matches_disclosure
 
 _test_completion_dump_records_names_without_paths() {

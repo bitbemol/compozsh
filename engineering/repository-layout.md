@@ -30,7 +30,7 @@ compozsh/
 │       ├── .zsh.appearance  palette defaults and light/dark selection
 │       ├── functions/     .zsh.pure.<entry> and .zsh.impure.<entry> shared entries
 │       ├── ui/            .zsh.ui.<entry> shared UI entries and .zsh.ui.state
-│       ├── compile.zsh    compiles shipped peers into the compiled mirror (not a peer)
+│       ├── compile.zsh    compiles shipped peers and the completion dump into the compiled mirror (not a peer)
 │       └── git-syntax.vim adapter asset for .zsh.git-syntax (not a peer)
 ├── install.zsh            symlink/copy installer with preview, backups and rollback
 ├── templates/init.zsh     inert starter for the private initializer
@@ -71,11 +71,13 @@ compozsh/
   use it; installs never copy generated source caches, normal updates preserve
   destination caches, and `--clean` archives them with the add-on tree.
 - `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled/` is the marked, owner-only
-  compiled mirror of the shipped peers (never private peers), never discovered
-  as peers. Only `.zsh.addons/support/compile.zsh`, run in a separate `zsh -f`,
-  writes it: every installation rebuilds it in both layouts, and interactive
-  startup recompiles just the shipped peers without a fresh record (creating a
-  missing mirror) under a lock with atomic renames and a time box. `--clean`
+  compiled mirror of the shipped peers (never private peers) and of Zsh's
+  completion dump, never discovered as peers. Only
+  `.zsh.addons/support/compile.zsh`, run in a separate `zsh -f`, writes it:
+  every installation rebuilds it in both layouts, interactive startup
+  recompiles just the shipped peers without a fresh record (creating a missing
+  mirror), and `.zsh.editor` compiles a new or changed dump after `compinit`,
+  under a lock with atomic renames and a time box. `--clean`
   archives it with the add-on tree, `compozsh --refresh` never writes it, and
   deleting it is always safe. Its format and checks are in
   [Bootstrap and loading](#bootstrap-and-loading) and SECURITY.md.

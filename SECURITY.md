@@ -107,11 +107,11 @@ recoverable installer need local state.
 | Data | Location and lifetime | Contents and bounds |
 | --- | --- | --- |
 | Command history | `${HISTFILE:-${ZDOTDIR:-$HOME}/.zsh_history}` by default | Zsh's normal local, shared history and the in-memory history picker |
-| Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`, written by Zsh's stock `compinit` (called bare by `.zsh.editor`) when a fresh shell finds it missing or its `fpath` file count or Zsh version changed; persists until deleted, including after `--clean` and uninstall | [Zsh-generated shell code](#native-completion-dump) that `compinit` sources: the count, Zsh version and the verbatim first-line words of `fpath` completion files (normally function, command, service, pattern and key names), private entries included, plus completion widget bindings. No `fpath` directory paths, file bodies, history, environment values or project data. Mode follows the umask at write time (0644 under the default 022); an interrupted write can leave `.zcompdump.<host>.<pid>` |
+| Native completion dump | `${ZDOTDIR:-$HOME}/.zcompdump`, written by Zsh's stock `compinit` (called by `.zsh.editor` with its full audit, and with `-d` only for the [compiled copy](#native-completion-dump)) when a fresh shell finds it missing or its `fpath` file count or Zsh version changed; persists until deleted, including after `--clean` and uninstall | [Zsh-generated shell code](#native-completion-dump) that `compinit` sources: the count, Zsh version and the verbatim first-line words of `fpath` completion files (normally function, command, service, pattern and key names), private entries included, plus completion widget bindings. No `fpath` directory paths, file bodies, history, environment values or project data. Mode follows the umask at write time (0644 under the default 022); an interrupted write can leave `.zcompdump.<host>.<pid>`, or `zcompdump.<host>.<pid>` in the compiled mirror while the compiled copy was in use |
 | Private initialization and peers | `${ZDOTDIR:-$HOME}/.zsh.addons`; an initializer moved by `ZSH_LOCAL_INIT` stays at that absolute path (a relative value is ignored) | User-owned machine setup and extensions loaded by the bootstrap |
 | Recovery copies | `${ZDOTDIR:-$HOME}/.zsh-backups/compozsh-*` | Configuration the installer replaced, preserved instead of deleted; a rollback that cannot put an item back keeps it there and prints the path |
 | Installer copy staging | `${ZDOTDIR:-$HOME}/.compozsh-install.*`, a mode-0700 directory that exists only while `install.zsh --copy` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The clone's `.zsh.addons` tree without `support/cache` or `support/compiled` (untracked files included) plus the `.managed-by-compozsh` marker, staged before any active state moves; never sourced |
-| Compiled peer mirror | `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled`, a mode-0700 directory written by `install.zsh` (both layouts; rebuilt by each installation) and by interactive startup, which creates it when missing and recompiles shipped peers that are new or changed; persists until the next installation, `--clean` (archived with the add-on tree) or uninstall | [Executable Zsh wordcode](#compiled-peer-mirror): per shipped peer a symlink to its absolute path and the `.zwc` that `zcompile` made from it, never private peers; a `manifest` of the Zsh version, the compiling shell's parse-affecting options and alias tables (normally Zsh's two default aliases), the shipped add-on directory and each peer's relative path, device, inode, size, mtime and ctime (a `-` record marks a peer that stays text until it changes); the `.managed-by-compozsh` marker; and, only while a compile runs, a `.lock` directory and `*.compozsh-tmp-<pid>` files. No user or project data. Loaded only while fresh |
+| Compiled peer mirror | `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled`, a mode-0700 directory written by `install.zsh` (both layouts; rebuilt by each installation) and by interactive startup, which creates it when missing, recompiles shipped peers that are new or changed and, after `compinit`, compiles a new or changed completion dump; persists until the next installation, `--clean` (archived with the add-on tree) or uninstall | [Executable Zsh wordcode](#compiled-peer-mirror): per shipped peer a symlink to its absolute path and the `.zwc` that `zcompile` made from it, never private peers; for the [completion dump](#native-completion-dump) a `zcompdump` symlink to it, its `zcompdump.zwc` (the dump's names, compiled) and a `zcompdump.manifest` of the Zsh version, the dump's path, the same parse context and the dump's device, inode, size, mtime and ctime; a `manifest` of the Zsh version, the compiling shell's parse-affecting options and alias tables (normally Zsh's two default aliases), the shipped add-on directory and each peer's relative path, device, inode, size, mtime and ctime (a `-` record marks a peer that stays text until it changes); the `.managed-by-compozsh` marker; and, only while a compile runs, a `.lock` directory and `*.compozsh-tmp-<pid>` files. No user or project data beyond the dump's names. Loaded only while fresh |
 | Installer compile staging | `${ZDOTDIR:-$HOME}/.compozsh-compiled.*`, a mode-0700 directory that exists only while `install.zsh` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The new compiled mirror before activation and the superseded one after it; never sourced |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory; discarded with the shell or view | Color-scheme classification, runtime versions, Git state, paths, Context trigger/disclosure flags, positive/exclusion fields and their bookmarks, temporary view snapshots |
@@ -559,17 +559,16 @@ concurrency.
 
 ### Native completion dump
 
-`.zsh.editor` runs Zsh's stock `compinit` with no options once per fresh shell;
-re-sourcing skips it while `_comps` exists, and if the initializer or an
-earlier private peer already ran `compinit`, that call owns the dump instead.
-Without `-d`, `-C`, `-i`, `-u` or `-D`, `compinit` keeps its full `compaudit`
-ownership and permission check of `fpath` (an interactive prompt can exclude
-insecure entries or abort) and its default dump path,
-`${ZDOTDIR:-$HOME}/.zcompdump`, resolved when it runs and with no Zsh-version
-suffix. Compozsh adds no `fpath` entry, leaves completion's `use-cache` style
-off (so it writes no `.zcompcache`) and never compiles the dump. (Compozsh's
-`zcompile`, in `.zsh.addons/support/compile.zsh`, compiles shipped peers only;
-see [compiled peer mirror](#compiled-peer-mirror).)
+`.zsh.editor` runs Zsh's stock `compinit` once per fresh shell; re-sourcing
+skips it while `_comps` exists, and if the initializer or an earlier private
+peer already ran `compinit`, that call owns the dump instead. Without `-C`,
+`-i`, `-u` or `-D`, `compinit` keeps its full `compaudit` ownership and
+permission check of `fpath` (an interactive prompt can exclude insecure
+entries or abort). Its dump is `${ZDOTDIR:-$HOME}/.zcompdump`, resolved when it
+runs and with no Zsh-version suffix; `compinit` gets `-d` only for the compiled
+copy below, and `_comp_dumpfile` names that usual path afterwards either way.
+Compozsh adds no `fpath` entry and leaves completion's `use-cache` style off
+(so it writes no `.zcompcache`).
 
 - **Contents.** A `#files: <count>` and `version: <zsh>` header; the
   `_comps`, `_services`, `_patcomps`, `_postpatcomps`, `_compautos` and
@@ -608,7 +607,27 @@ see [compiled peer mirror](#compiled-peer-mirror).)
   with group or other write, other accounts that can reach the configuration
   base could change code `compinit` sources, so keep a umask without group or
   other write (the macOS default 022 qualifies). Zsh's `.` would load a
-  `.zcompdump.zwc` no older than the dump if another tool created one.
+  `.zcompdump.zwc` no older than the dump if another tool created one;
+  Compozsh never creates one.
+- **Compiled copy.** After `compinit`, a dump that is a regular file with no
+  fresh record is compiled by `.zsh.addons/support/compile.zsh` in a separate
+  `zsh -f` (the same rules, lock, atomic renames and fallbacks as the
+  [compiled peer mirror](#compiled-peer-mirror); a dump written in the current
+  second waits for the next shell) into `zcompdump.zwc` beside `zcompdump`, a
+  symlink to the dump, with a `zcompdump.manifest` holding only the header,
+  parse context and the dump's identity. `compinit` is then given that symlink
+  as `-d`, so Zsh's `.` reads the wordcode, only while the mirror passes the
+  peer checks, the manifest names the running Zsh and this dump, the dump's
+  device, inode, size, mtime and ctime equal the record, and the parse context
+  `compinit` sources it in (its own `emulate -L zsh`, then the alias tables)
+  equals the compiling shell's; any other case loads the text dump, and a dump
+  over 512 KiB or one that fails to compile stays text until it changes. The
+  header check and `fpath` scan are unchanged: when they differ, `compinit`
+  rewrites its dump at the symlink's path, and `.zsh.editor` has the same
+  script rename that new dump onto `${ZDOTDIR:-$HOME}/.zcompdump` at once (or
+  delete it if the rename fails, so the next shell rewrites the dump itself).
+  Its staging file `zcompdump.<host>.<pid>` left by an interruption is deleted
+  by a later compile once a minute old.
 
 Independently read the call and Zsh's own implementation:
 
@@ -620,9 +639,12 @@ ls -l "${ZDOTDIR:-$HOME}/.zcompdump"
 ```
 
 The first command should list only `.zsh.editor`'s `autoload -Uz compinit`
-line, its bare `compinit` call and two comments, the two commented `fpath`
-lines in `templates/init.zsh` and `.zsh.addons/support/compile.zsh`'s `zcompile`
-of shipped peers into their [mirror](#compiled-peer-mirror) with its comments;
+line, its `compinit -d` call for the compiled copy and bare `compinit` call
+with their comments and its `_zle_compdump_state` and `_zle_compdump_compile`
+helpers, the two commented `fpath` lines in `templates/init.zsh` and
+`.zsh.addons/support/compile.zsh`'s `zcompile` of shipped peers and the dump
+into their [mirror](#compiled-peer-mirror) with its `zcompdump` names and
+comments;
 the second prints the stock functions
 (on macOS under `/usr/share/zsh/5.9/functions/`) whose `_comp_dumpfile`
 default, header check and `compdump` writer establish the facts above. The
@@ -1059,14 +1081,15 @@ the existing traversal and retained-failure limits. Inspect
 ### Compiled peer mirror
 
 Compozsh compiles the shipped peers (the repository's for `--symlink`, the
-managed `compozsh/` namespace's for `--copy`; never private peers) into
+managed `compozsh/` namespace's for `--copy`; never private peers), and Zsh's
+[completion dump](#native-completion-dump), into
 `${ZDOTDIR:-$HOME}/.zsh.addons/support/compiled`. Each peer gets a symlink,
 named like the peer, to the peer's absolute path, and beside it the `.zwc`
 wordcode that `zcompile` produced. One shipped file,
 `.zsh.addons/support/compile.zsh` (not a peer: discovery never sources it),
 does all compiling, always in a separate `zsh -f` under Zsh's default options
 and aliases with a 077 umask, so the directory is mode 0700 and its files
-owner-only. `zcompile` only parses a peer; it never runs it. Two callers run
+owner-only. `zcompile` only parses a peer; it never runs it. Three callers run
 that file, and nothing else writes the mirror (`compozsh --refresh` neither
 checks nor rebuilds it):
 
@@ -1095,6 +1118,9 @@ checks nor rebuilds it):
   `zsh` it runs is the first one on your `PATH` (an absolute path), otherwise
   `/bin/zsh`, and it refuses to write unless that Zsh reports the running
   `$ZSH_VERSION`.
+- `.zsh.editor`, right after `compinit`, for the completion dump only, under
+  the same mirror rules, lock, bounds, `zsh` choice, `/dev/null` input and
+  silent fallbacks, as its [compiled copy](#native-completion-dump) describes.
 
 The bootstrap sources a peer through its mirror entry, so Zsh runs the
 wordcode, only when all of these hold; otherwise it sources the peer's text
@@ -1129,8 +1155,10 @@ check: Zsh's `source` uses it while it is not older than the peer.
 **Residue.** An uncatchable termination (`SIGKILL`, power loss) during a
 startup compile can leave the `.lock` directory, which the next compile
 after a minute removes, and `*.compozsh-tmp-<pid>` files, which are never
-used and which the next compile deletes. Deleting the whole mirror is always
-safe: the next shell rebuilds it.
+used and which the next compile deletes; an interrupted `compinit` rewrite
+through the mirror can leave `zcompdump.<host>.<pid>`, which a compile deletes
+once it is a minute old. Deleting the whole mirror is always safe: the next
+shell rebuilds it.
 
 **Trust.** The mirror is executable configuration with the same trust as the
 add-on tree it lives in: an account that can replace it can already replace
@@ -1144,14 +1172,21 @@ zsh -fc 'zmodload -F zsh/stat b:zstat; m=${ZDOTDIR:-$HOME}/.zsh.addons/support/c
   b=${${(f)"$(<$m/manifest)"}[3]#base }
   for l in ${${(f)"$(<$m/manifest)"}[7,-1]}; do f=(${(ps:\t:)l}); [[ $f[1] == - ]] && continue
     zstat -H s -- $b/$f[1]; [[ "$s[device] $s[inode] $s[size] $s[mtime] $s[ctime]" == "${f[2,6]}" ]] &&
-    r=fresh || r=stale; print -r -- "$r $f[1] -> $(readlink $m/.zsh.addons/$f[1])"; done'
+    r=fresh || r=stale; print -r -- "$r $f[1] -> $(readlink $m/.zsh.addons/$f[1])"; done
+  l=(${(f)"$(<$m/zcompdump.manifest)"}); zstat -H s -- ${l[3]#dump }
+  [[ "$s[device] $s[inode] $s[size] $s[mtime] $s[ctime]" == "${(j: :)${(ps:\t:)l[7]}}" ]] &&
+    r=fresh || r=stale; print -r -- "$r dump -> $(readlink $m/zcompdump)"'
 ```
 
 The last command lists every compiled entry as `fresh` (used) or `stale`
 (ignored; the next shell recompiles it) with its link target, which must be
-the shipped peer. `zsh tests/run.zsh 'compiled peers'` checks discovery,
-freshness, fallbacks, state equality, startup recompilation, locking,
-interrupted compiles, the size bound and the installer lifecycle.
+the shipped peer or, for the dump, `${ZDOTDIR:-$HOME}/.zcompdump`; a fresh
+dump is still used only under the parse context it was compiled in.
+`zsh tests/run.zsh 'compiled peers'` checks discovery, freshness, fallbacks,
+state equality, startup recompilation, locking, interrupted compiles, the size
+bound and the installer lifecycle;
+`zsh tests/run.zsh 'compiled completion dump'` checks the dump's freshness,
+fallbacks and rewrite at its usual path.
 
 ### Installer backups and temporary residue
 
@@ -1745,8 +1780,10 @@ starter is inert, but an existing private initializer or peer is user-owned
 code and must be audited separately. Within that boundary, peers autoload
 stock Zsh functions from `fpath` (such as `compinit` and
 `add-zle-hook-widget`), and `.zsh.editor`'s `compinit` also sources Zsh's own
-[completion dump](#native-completion-dump) from the configuration base and
-autoloads completion functions. Compozsh adds no `fpath` entry, and neither
+[completion dump](#native-completion-dump) from the configuration base (or,
+while it is provably unchanged, its compiled copy in that mirror, after which
+the same `compile.zsh` may compile a new or changed dump) and autoloads
+completion functions. Compozsh adds no `fpath` entry, and neither
 path comes from the current directory while `fpath` holds only absolute
 directories; an inherited relative `FPATH` entry would make `autoload` search
 the current directory.
