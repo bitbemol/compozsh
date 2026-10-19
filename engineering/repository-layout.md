@@ -88,9 +88,12 @@ compozsh/
   its dump, it stages `zcompdump.<host>.<pid>` there and renames it over the
   `zcompdump` entry, and `.zsh.editor` has `compile.zsh` move it to the usual
   dump path (or delete it) at once; a rewritten dump left at the entry is
-  never loaded as the compiled copy. `--clean` archives the mirror with the
-  add-on tree, `compozsh --refresh` never writes it, and deleting it is always
-  safe. Its format and checks are in
+  never loaded as the compiled copy. An installation waits at most about 2 s
+  in total for the clock to pass a peer's ctime; a peer still ahead of it
+  gets no record and loads as text. `--clean` archives the mirror with the
+  add-on tree, `compozsh --refresh` never writes it, Git ignores it (like
+  `support/cache/`) in case a shell's `ZDOTDIR` is a clone, and deleting it
+  is always safe. Its format and checks are in
   [Bootstrap and loading](#bootstrap-and-loading) and SECURITY.md.
 - `README.md` is user-facing documentation synchronized with visible behavior,
   keys, installation, extension points and safety guarantees. Its **Shipped

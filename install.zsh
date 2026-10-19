@@ -160,8 +160,10 @@ _installer_peers() {
 # Build the compiled mirror of shipped peers in <mirror>, which must not exist,
 # with the same .zsh.addons/support/compile.zsh that startup uses to recompile
 # changed peers; that file describes the mirror. Install mode compiles every
-# listed peer, waiting for the clock to pass a just-edited peer's ctime. Like
-# startup, it runs Apple's /bin/zsh from /, never a zsh found on PATH.
+# listed peer, waiting at most about 2 s in total for the clock to pass a
+# just-edited peer's ctime (a peer still ahead of it gets no record and loads
+# as text). Like startup, it runs Apple's /bin/zsh from /, never a zsh found
+# on PATH.
 # Usage: _installer_compile <mirror> <base> <relative>...
 _installer_compile() {
   emulate -L zsh

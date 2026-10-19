@@ -28,11 +28,16 @@
 # previous base) is deleted.
 #
 # install: <mirror> must not exist; it is created, and every peer is compiled,
-# waiting for the clock where needed. startup: an existing mirror is used only
-# when it is a directory of this user's with no group or other access and the
-# .managed-by-compozsh marker; a missing one is created. Work happens under a
-# lock directory, which a concurrent run leaves alone (its shell loads text);
-# a lock older than a minute is treated as abandoned. Only the listed peers are
+# waiting for the clock where needed, but at most 2 s in total from the start:
+# a peer whose ctime is still ahead of the clock then (the clock moved back,
+# or a network volume's server runs fast) gets no record and loads as text
+# until a shell compiles it once the clock has passed it.
+#
+# startup: an existing mirror is used only when it is a directory of this
+# user's with no group or other access and the .managed-by-compozsh marker; a
+# missing one is created. Work happens under a lock directory, which a
+# concurrent run leaves alone (its shell loads text); a lock older than a
+# minute is treated as abandoned. Only the listed peers are
 # compiled, peers edited this second are left for the next shell, and no new
 # peer starts compiling after 300 ms. Still-valid records are kept.
 #
@@ -95,6 +100,7 @@ header=("compozsh-compiled 1" "zsh $ZSH_VERSION" "base $base"
 if [[ $mode == install ]]; then
   zf_mkdir -m 0700 -- "$mirror" &&
     print -r -- version=1 > "$mirror/.managed-by-compozsh" || exit 1
+  (( deadline = EPOCHREALTIME + 2 ))
 else
   if ! zstat -L -H facts -- "$mirror" 2> /dev/null; then
     # Create support/ only inside an add-on directory that is this user's.
@@ -130,13 +136,14 @@ _compile_relative() {
 # Compile <file> through <entry>, a mirror symlink to it, into <entry>.zwc and
 # add its record, led by <name> when given, to records: identity only after a
 # compile during which the file did not change, or a "-" text record. A file
-# changed this second waits (install) or is left for the next shell.
+# whose ctime the clock has not passed waits (install, until the deadline) or
+# is left, without a record, for the next shell.
 # Usage: _compile_file <file> <entry> [<name>]
 _compile_file() {
   local file=$1 entry=$2 name=${3:+$3$'\t'} temp=$2.compozsh-tmp-$$.zwc
   zstat -H before -- "$file" 2> /dev/null || return 1
   while (( EPOCHSECONDS <= before[ctime] )); do
-    [[ $mode == install ]] || return 1
+    [[ $mode == install ]] && (( EPOCHREALTIME < deadline )) || return 1
     zselect -t 10
     zstat -H before -- "$file" 2> /dev/null || return 1
   done

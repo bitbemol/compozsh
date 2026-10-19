@@ -1187,6 +1187,85 @@ _test_compiled_peers_bound_startup_compile() {
 test_case 'compiled peers: startup compile work is bounded and an oversized peer stays text' \
   _test_compiled_peers_bound_startup_compile
 
+# A peer whose ctime lies ahead of the clock (the clock moved back, or a
+# network volume's server clock runs fast) is never compiled before the clock
+# passes it. The installer's compile waits for the clock at most about 2 s in
+# total, however many peers are ahead, then leaves those peers without an
+# entry, wordcode or record (they load as text until a shell compiles them
+# once the clock has passed them) and compiles the rest. No account can set
+# ctime, so a zstat wrapper, defined before compile.zsh is sourced as a
+# startup file could, reports three peers' ctime 8 s ahead; a compile that
+# waits for that clock still ends, only late.
+_test_compiled_install_bounds_future_ctime_wait() {
+  test_make_temp_dir || return
+  local base="$TEST_TMP_DIR/base" mirror="$TEST_TMP_DIR/mirror" name='' prelude=''
+  local -F started=0 elapsed=0
+  local -a lines=() records=()
+  zmodload -F zsh/datetime p:EPOCHSECONDS p:EPOCHREALTIME || return
+  for name in .zsh.ahead-1 .zsh.ahead-2 .zsh.current .zsh.ahead-3; do
+    test_write_file "$base/$name" "${name//[.-]/_}() { :; }" || return
+  done
+  _test_compiled_tick || return
+  prelude='zstat() {
+      builtin zstat "$@" || return
+      [[ $1 == -H && ${@[-1]} == */.zsh.ahead-* ]] || return 0
+      case $2 in
+        (before) before[ctime]='$(( EPOCHSECONDS + 8 ))' ;;
+        (after) after[ctime]='$(( EPOCHSECONDS + 8 ))' ;;
+      esac
+    }
+    . "$@"'
+  (( started = EPOCHREALTIME ))
+  test_run_noninteractive "$TEST_TMP_DIR/home" "$prelude" \
+    "${TEST_REPO_ROOT:A}/.zsh.addons/support/compile.zsh" install "$mirror" "${base:A}" '' \
+    .zsh.ahead-1 .zsh.ahead-2 .zsh.current .zsh.ahead-3 < /dev/null 2> "$TEST_TMP_DIR/errors" ||
+    test_fail "the install compile failed: $(<"$TEST_TMP_DIR/errors")" || return
+  (( elapsed = EPOCHREALTIME - started ))
+  [[ ! -s "$TEST_TMP_DIR/errors" ]] || test_fail "$(<"$TEST_TMP_DIR/errors")" || return
+  (( elapsed < 5 )) ||
+    test_fail "the install compile waited ${elapsed%.*} s for peers ahead of the clock" || return
+  lines=("${(@f)$(<"$mirror/manifest")}")
+  records=("${(@)lines[7,-1]}")
+  test_assert_equal 1 "${#records}" "the manifest records: ${(j:, :)records}" || return
+  [[ ${records[1]} == .zsh.current$'\t'* && -f $mirror/.zsh.addons/.zsh.current.zwc ]] ||
+    test_fail 'the peer behind the clock was not compiled after the wait ended' || return
+  for name in .zsh.ahead-1 .zsh.ahead-2 .zsh.ahead-3; do
+    [[ ! -e $mirror/.zsh.addons/$name && ! -L $mirror/.zsh.addons/$name &&
+       ! -e $mirror/.zsh.addons/$name.zwc ]] ||
+      test_fail "$name, still ahead of the clock, has a mirror entry or wordcode" || return
+  done
+}
+test_case 'compiled peers: the install compile waits at most about 2 s for peers ahead of the clock' \
+  _test_compiled_install_bounds_future_ctime_wait
+
+# A shell whose ZDOTDIR is a clone creates the compiled mirror (and module
+# caches) inside the clone's add-on directory; their paths and names are
+# never offered to a commit. Shipped peers and support files stay visible.
+_test_compiled_mirror_is_git_ignored() {
+  test_make_temp_dir || return
+  local output='' script='export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    command git init -q -- "$HOME/clone" && builtin cd -q -- "$HOME/clone" &&
+      command cp -- "$1" .gitignore || exit 1
+    command mkdir -p -- .zsh.addons/support/compiled/.zsh.addons \
+      .zsh.addons/support/cache/module || exit 1
+    for file in .zsh.addons/.zsh.example .zsh.addons/support/compile.zsh \
+        .zsh.addons/support/compiled/{.managed-by-compozsh,manifest,zcompdump.manifest,zcompdump.zwc} \
+        .zsh.addons/support/compiled/.zsh.addons/.zsh.example.zwc \
+        .zsh.addons/support/cache/module/data; do
+      print -r -- fixture >| $file || exit 1
+    done
+    command ln -s -- "$HOME/clone/.zsh.addons/.zsh.example" \
+      .zsh.addons/support/compiled/.zsh.addons/.zsh.example || exit 1
+    command git status --porcelain --untracked-files=all'
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" "$script" \
+    "${TEST_REPO_ROOT:A}/.gitignore" 2> "$TEST_TMP_DIR/errors") ||
+    test_fail "the Git fixture failed: $(<"$TEST_TMP_DIR/errors")" || return
+  test_assert_equal $'?? .gitignore\n?? .zsh.addons/.zsh.example\n?? .zsh.addons/support/compile.zsh' \
+    "$output" 'Git offers generated mirror or cache files, or hides shipped files'
+}
+test_case 'compiled peers: Git ignores the compiled mirror and module caches inside a clone' \
+  _test_compiled_mirror_is_git_ignored
+
 # Print, from a new shell in <home>, where compinit's dump came from (PROBE is
 # set only by planted wordcode or dump text), _comp_dumpfile and whether the
 # mirror entry is still the symlink to the dump.

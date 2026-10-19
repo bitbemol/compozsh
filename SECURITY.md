@@ -1104,7 +1104,11 @@ checks nor rebuilds it):
   new mirror in a `${ZDOTDIR:-$HOME}/.compozsh-compiled.*` staging directory
   and swaps it in;
   an existing `support/compiled` without the `.managed-by-compozsh` marker is
-  refused before any change.
+  refused before any change. It waits for the clock to pass a just-written
+  peer's ctime, at most about 2 s in total; a peer whose ctime is still ahead
+  of the clock then (the clock moved back, or a network volume's server clock
+  runs fast) gets no entry or record and loads as text until a shell compiles
+  it once the clock has passed it (`zsh tests/run.zsh 'peers ahead of the clock'`).
 - Interactive startup, before any peer loads, when a discovered shipped peer
   has no record matching its current metadata (new, edited, or after a Zsh
   update), a record names a peer file that no longer exists (removed or
@@ -1179,7 +1183,11 @@ as it would without a mirror:
 
 So the mirror can change startup time, never the resulting shell state; tests
 compare the complete state with and without it in both layouts. Discovery
-never treats a `.zwc` file or anything under `support/compiled` as a peer. A
+never treats a `.zwc` file or anything under `support/compiled` as a peer, and
+Git ignores `.zsh.addons/support/compiled/` (like `support/cache/`), so a
+shell whose `ZDOTDIR` is a clone never offers the mirror's absolute paths or
+compiled completion names to a commit
+(`zsh tests/run.zsh 'Git ignores the compiled mirror'`). A
 `.zwc` placed beside a peer by hand is Zsh's own mechanism and outside this
 check: Zsh's `source` uses it while it is not older than the peer.
 
