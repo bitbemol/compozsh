@@ -1392,18 +1392,25 @@ before that session releases the device. `_usb_execute` treats a write without
 that session's `compozsh-write-verified` evidence as an incomplete-evidence
 failure and never rereads the drive afterwards; `flash-only` skips read-back.
 
-Each capture file lives only inside the function that created it, whose
-`always` block removes the exact path `mktemp` returned on normal return,
-handled failure or an interrupt that unwinds Zsh. An interrupt in the instant
-between a `mktemp` call and the start of its `always` block can leave that
-file. Most sites also recheck the `compozsh-` name and `${TMPDIR:-/tmp}` parent
-first. Progress views first wait for their
+Each of these names is removed by an `always` block. The ISO listing
+(`compozsh-usb-iso.*`) and the inspection mount point
+(`compozsh-usb-inspect.*`) use the block of the function that created them.
+The progress files, `compozsh-usb-progress.*` from `_usb_write_image` and
+`compozsh-createinstallmedia.*` from `_usb_createinstallmedia_run`, use the
+block of the shared worker loop `_usb_worker_progress_run`, which the creator
+calls immediately after `mktemp`. Each block removes the exact path `mktemp`
+returned, on normal return, handled failure or an interrupt that unwinds Zsh,
+after checking that the name sits directly in `${TMPDIR:-/tmp}` and starts
+with its own `compozsh-usb-iso.` or `compozsh-usb-inspect.` prefix or, in the
+worker loop, with `compozsh-`. An interrupt between a `mktemp` call and the
+start of that block can leave the name; for the progress files that window
+includes entering the worker loop. Progress views first wait for their
 native worker to exit, because a command started with `&` while the `MONITOR`
 option is off ignores `SIGINT` (`man zshmisc`, SIGNALS). A second interrupt
-during that wait skips the rest of the `always` block: the privileged worker
-keeps running after `external-device` returns, its capture file remains, and
-the outer cleanup can request `diskutil eject` while the write continues. A
-mount point is removed the same way, but only after `hdiutil detach` succeeds;
+during that wait skips the rest of the worker loop's `always` block: the
+privileged worker keeps running after `external-device` returns, its progress
+file remains, and the outer cleanup can request `diskutil eject` while the
+write continues. The mount point is removed only after `hdiutil detach` succeeds;
 when detaching fails, the image stays attached read-only there, detaching is
 retried before the next inspection and when `external-device --flash` returns,
 and a further failure leaves both in place without a separate notice. An
@@ -1427,7 +1434,10 @@ residue: `no matches found`, status 1) and `hdiutil info` (no residue: no
 `compozsh-usb-inspect.*` mount point); release an attachment with
 `hdiutil detach /dev/diskN`, then remove its empty directory with `rmdir`. Read
 the creation and cleanup sites with
-`grep -n -e mktemp -e 'rm -f' -e rmdir .zsh.addons/.zsh.usb`.
+`grep -n -e mktemp -e 'rm -f' -e rmdir .zsh.addons/.zsh.usb`. The `rmdir` call is
+in `_usb_mount_cleanup`, which the inspection's `always` block calls, and the
+progress files' shared `rm -f` is in `_usb_worker_progress_run`, away from both
+of their `mktemp` calls.
 `zsh tests/run.zsh 'USB temporary'` uses stand-ins for `diskutil`, `hdiutil`,
 `dd` and `createinstallmedia` to check removal after success and handled
 failure, and each name and mode while it exists, for every name except
