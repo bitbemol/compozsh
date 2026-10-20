@@ -318,7 +318,7 @@ _tools_git_discard_all() {
 
   (( ${+functions[_compozsh_sanitize]} )) && _compozsh_sanitize "$root" || REPLY=${(V)root}
   display_root=$REPLY
-  print -- "Discarded all working-tree changes in ${display_root}."
+  print -r -- "Discarded all working-tree changes in ${display_root}."
 }
 
 # Refresh cached executable versions and capabilities after installing or

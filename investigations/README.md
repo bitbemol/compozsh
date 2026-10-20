@@ -121,12 +121,6 @@ measurement and design decision before implementation.
   reads as stale. (The shared UI's unused `atlas` options kind was removed in
   the [architecture pass](architecture-2026-10-14.md#phase-3-engine-api-and-scoping),
   P3-11.)
-- Some `print` calls in `.zsh.tools`, `.zsh.sudo-touch-id` and
-  `.zsh.navigation` lack `-r --`. At least one is a security issue, not
-  style: `.zsh.tools:329` prints a sanitized repository path without `-r`,
-  and sanitization replaces control characters but not backslash escapes, so a
-  directory name containing `\e[…` could inject terminal sequences after
-  `g --discard-all`.
 - Leftover `my-zsh` identifiers: highlight memo tags (`my-zsh-picker`,
   `my-zsh-autosuggestion`) and the test harness's `my-zsh-tests.*`
   temporary-directory prefix.

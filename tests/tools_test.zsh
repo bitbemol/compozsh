@@ -225,6 +225,36 @@ _test_git_discard_all_scope() {
 test_case 'g --discard-all restores tracked data and preserves ignored files' \
   _test_git_discard_all_scope
 
+# The sanitizer removes control bytes, but backslash escapes are plain text
+# until a print without -r turns them into terminal controls.
+_test_git_discard_all_prints_root_literally() {
+  test_make_temp_dir || return
+  local repo="$TEST_TMP_DIR/repo\\e[31mred\\a" output=''
+  command git init -q -- "$repo" || return
+  command git -C "$repo" config user.name 'Zsh Tests' || return
+  command git -C "$repo" config user.email 'zsh-tests.invalid@example.invalid' || return
+  test_write_file "$repo/tracked.txt" 'baseline' || return
+  command git -C "$repo" add tracked.txt || return
+  command git -C "$repo" commit -qm baseline || return
+  test_write_file "$repo/tracked.txt" 'changed' || return
+
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit
+    source "$1/.zsh.addons/.zsh.tools"
+    source "$1/.zsh.addons/.zsh.navigation"
+    builtin cd -- "$2" || exit
+    g --discard-all <<< y 2>/dev/null | command tail -n 1
+  ' "$TEST_REPO_ROOT" "$repo") || return
+  [[ $output != *[$'\e\a']* ]] ||
+    test_fail "g --discard-all turned folder-name text into terminal controls: ${(qqqq)output}" ||
+    return
+  test_assert_equal "Discarded all working-tree changes in ${repo:A}." "$output" \
+    'g --discard-all did not print the repository folder literally'
+}
+test_case 'g --discard-all prints the repository folder name literally' \
+  _test_git_discard_all_prints_root_literally
+
 _test_git_discard_all_disables_repository_filters() {
   test_make_temp_dir || return
   local repo="$TEST_TMP_DIR/repository"
