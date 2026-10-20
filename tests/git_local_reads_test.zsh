@@ -545,6 +545,47 @@ PATH git ran' "status:$exit_status"$'\n'"$output" \
 test_case 'shared Git entry resolves the system git shim once per shell and honors its selectors, PATH and refresh' \
   _test_git_shim_resolution_keys
 
+# Switching Xcode with xcode-select, or installing or removing one at a default
+# place, changes the developer directory the launcher uses without changing any
+# exported selector; the memo must follow it.
+_test_git_shim_follows_developer_dir() {
+  test_make_temp_dir || return
+  local output='' exit_status=0
+  test_write_file "$TEST_TMP_DIR/script/git" $'#!/bin/sh\necho fake' || return
+  command chmod +x "$TEST_TMP_DIR/script/git" || return
+  output=$(test_run_noninteractive "$TEST_TMP_DIR/home" '
+    export PATH=/usr/bin:/bin
+    source "$1/tests/support.zsh"
+    test_source_support "$1" || exit 1
+    local -a report=()
+    : > "$HOME/finds"
+    fixture_developer=/fixture/Xcode.app/Contents/Developer
+    _compozsh_developer_dir() { REPLY=$fixture_developer; }
+    _compozsh_git_local_find() { print -r -- find >> "$HOME/finds"; REPLY=$2/script/git; }
+    _shim_step() {
+      local -a finds=("${(@f)$(<$HOME/finds)}")
+      report+=("$1 finds ${#${(@)finds:#}}")
+    }
+    _compozsh_git_local resolve; _shim_step first
+    _compozsh_git_local resolve; _shim_step "same directory"
+    fixture_developer=/fixture/Xcode-beta.app/Contents/Developer
+    _compozsh_git_local resolve; _shim_step "switched"
+    _compozsh_git_local resolve; _shim_step "switched again"
+    fixture_developer=/Library/Developer/CommandLineTools
+    _compozsh_git_local resolve; _shim_step "Command Line Tools"
+    print -rl -- "${report[@]}"
+  ' "$TEST_REPO_ROOT" "$TEST_TMP_DIR" 2>&1) || exit_status=$?
+  test_assert_equal 'status:0
+first finds 1
+same directory finds 1
+switched finds 2
+switched again finds 2
+Command Line Tools finds 3' "status:$exit_status"$'\n'"$output" \
+    'the git shim kept a Git resolved for another developer directory'
+}
+test_case 'git shim resolves again when the developer directory the launcher uses changes' \
+  _test_git_shim_follows_developer_dir
+
 # End to end with the real resolver: the prompt resolves once in its own shell,
 # and every prompt Git read, all inside command substitutions, runs Apple's Git
 # directly. Trace2 records SDKROOT only for runs launched through the shim,

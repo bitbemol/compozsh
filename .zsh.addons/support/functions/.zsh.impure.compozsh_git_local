@@ -76,19 +76,22 @@ _compozsh_git_local_launcher_ready() {
 
 # The selectors that choose the Git /usr/bin/git starts: the PATH choice, the
 # exported developer-directory, toolchain and SDK selectors (an unexported one
-# never reaches the launcher) and the xcode-select link, quoted unambiguously.
+# never reaches the launcher) and the developer directory the launcher would
+# use, found the way it looks, so an xcode-select switch or an Xcode installed
+# or removed at a default place counts too; quoted unambiguously.
 _compozsh_git_local_key() {
   emulate -L zsh
-  local name='' value=''
-  local -a link=()
+  local name='' value='' developer=''
+  if (( ${+functions[_compozsh_developer_dir]} )) && _compozsh_developer_dir; then
+    developer=$REPLY
+  fi
   REPLY=${(qqqq)commands[git]-}
   for name in DEVELOPER_DIR TOOLCHAINS SDKROOT; do
     value=-
     [[ ${(tP)name} == *-export* ]] && value=${(qqqq)${(P)name}}
     REPLY+=" $value"
   done
-  zstat -L -A link +link -- /var/db/xcode_select_link 2>/dev/null || link=()
-  REPLY+=" ${(qqqq)link[1]-}"
+  REPLY+=" ${(qqqq)developer}"
 }
 
 # A file's identity as zstat reports it: device, inode, mode, owner, size and

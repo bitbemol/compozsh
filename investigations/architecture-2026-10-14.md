@@ -563,6 +563,29 @@ a `PATH` zsh" boundary for a message-only gain.
 The record itself has seven commits: `d859737`, `6e0c652`, `8632534`,
 `2a04e48`, `1ab553f`, `f507cb6` and the commit that completes it.
 
+### After the 4.7.0 release (2026-10-20)
+
+The owner pushed `9f85f56` and published it as 4.7.0, then asked for a 4.7.1
+with the two proposed fixes ("yes let's do the next 4.7.1 with the items you
+propose"), on branch `fix/4.7.1`:
+
+- **`g --discard-all` message.** The success line printed the sanitized
+  root with `print --`, so backslash escapes in a folder name (`\e[31m`, `\a`)
+  reached the terminal as controls. It now uses `print -r --`. An audit of
+  every shipped `print` without `-r` that expands a value found no other case
+  (the operation label, `-f '%s'` formats and a Perl `print` are safe).
+- **Git shim key.** The memo's key tracked only `/var/db/xcode_select_link`,
+  while `_compozsh_developer_dir` (the launcher's lookup) checks
+  `/var/select/developer_dir` first and falls back to default places. The key
+  now holds the developer directory that lookup returns, so an xcode-select
+  switch through either link, or Xcode or the Command Line Tools installed or
+  removed at a default place, resolves again. Which link `xcode-select -s`
+  writes on macOS 27 was not checked (it needs `sudo`); the fix holds either
+  way. Cost of `_compozsh_git_local_key`, 10 alternating rounds of 2,000
+  calls on this Mac (no xcode-select link, Xcode at its default place): old
+  26 µs per call (A/A 25–26), new 34 µs (range 34–35), about 0.04 ms for a
+  prompt's five Git reads.
+
 ## Release notes
 
 - Ctrl-C in a Compozsh workspace now exits with status 130 from every

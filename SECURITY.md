@@ -115,7 +115,7 @@ recoverable installer need local state.
 | Installer compile staging | `${ZDOTDIR:-$HOME}/.compozsh-compiled.*`, a mode-0700 directory that exists only while `install.zsh` runs; removed on success, handled failure, and Ctrl-C, hangup or termination signals ([residue limits](#installer-backups-and-temporary-residue)) | The new compiled mirror before activation and the superseded one after it; never sourced |
 | Optional sudo Touch ID policy | `/etc/pam.d/sudo_local` until explicit disable; `/etc/pam.d/.compozsh-sudo-touch-id.*` during enable and after an abnormal interruption | Three fixed lines enabling Apple's `pam_tid`, created only by `compozsh --sudo-touch-id enable`; ACL-free, `root:wheel`, mode `0444` before publication |
 | Prompt, appearance, and picker facts | Shell memory; discarded with the shell or view | Color-scheme classification, runtime versions, Git state, paths, Context trigger/disclosure flags, positive/exclusion fields and their bookmarks, temporary view snapshots |
-| Direct Git behind `/usr/bin/git` | Shell memory until `compozsh --refresh` or shell exit; replaced when a selector changes | Only when `PATH` selects `/usr/bin/git`: the Git path `/usr/bin/xcrun --find git` names, its device, inode, mode, owner, size and modification/change times, and the selectors it was resolved under (the `PATH` choice, exported `DEVELOPER_DIR`, `TOOLCHAINS` and `SDKROOT`, and the `/var/db/xcode_select_link` target), or a refusal ([Apple's Git launcher](#local-only-git-controls)) |
+| Direct Git behind `/usr/bin/git` | Shell memory until `compozsh --refresh` or shell exit; replaced when a selector changes | Only when `PATH` selects `/usr/bin/git`: the Git path `/usr/bin/xcrun --find git` names, its device, inode, mode, owner, size and modification/change times, and the selectors it was resolved under (the `PATH` choice, exported `DEVELOPER_DIR`, `TOOLCHAINS` and `SDKROOT`, and the developer directory the launcher would use, found with file tests from the xcode-select links or the default places), or a refusal ([Apple's Git launcher](#local-only-git-controls)) |
 | Local manual summaries | Shell memory until refresh, discovery-selector invalidation or shell exit | Bounded NAME descriptions and page-name/section attribution from the [manual roots](#local-manual-summaries); describes literal names, not executable identity |
 | Manual background transport | Shell memory, native PTYs and an unlinked kernel FIFO during one request | At most 16 MiB / 8,192 records in 8-KiB reads from one capture process under two supervisors; mode-0600 FIFO in a mode-0700 `${TMPDIR:-/tmp}/compozsh-manual-async.*` directory, both unlinked once opened; no regular file of descriptions or selectors |
 | Public OS manual cache | `${ZDOTDIR:-$HOME}/.zsh.addons/support/cache/.zsh.manual.cache`, until refresh/replacement/removal | Protected OS manual NAME descriptions, aliases, relative page IDs and a public freshness key, owner-only and inert; `.zsh.manual.lock` and bounded `.zsh.manual.cache.*` staging residue. No private selectors or custom manuals |
@@ -1657,10 +1657,12 @@ another remote operation.
   recorded before and confirmed after the check, then compared again before
   every direct run; any difference runs `/usr/bin/git` for that call, and the
   next prompt verifies again. A changed `PATH` choice, exported
-  `DEVELOPER_DIR`, `TOOLCHAINS` or `SDKROOT`, or xcode-select link resolves
-  again; `compozsh --refresh` forgets the answer. A Git chosen elsewhere on
-  `PATH`, a link to `/usr/bin/git` included (it runs through the launcher), is
-  never resolved, verified or replaced, transparent `g` and `git`
+  `DEVELOPER_DIR`, `TOOLCHAINS` or `SDKROOT`, or developer directory (an
+  xcode-select switch, or Xcode or the Command Line Tools installed or removed
+  at a default place, found as under **Missing developer tools** below)
+  resolves again; `compozsh --refresh` forgets the answer. A Git chosen
+  elsewhere on `PATH`, a link to `/usr/bin/git` included (it runs through the
+  launcher), is never resolved, verified or replaced, transparent `g` and `git`
   arguments always run the `PATH` choice, and other entry callers only reuse a
   prompt's answer. The direct Git runs without the `SDKROOT`, `MANPATH`,
   `CPATH` and `LIBRARY_PATH` the launcher adds. Git does not use them, and
