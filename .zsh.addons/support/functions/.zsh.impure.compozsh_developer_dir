@@ -10,8 +10,8 @@
 # with file tests only: an exported, non-empty DEVELOPER_DIR, else the first
 # xcode-select link, else Xcode, the Command Line Tools or Xcode beta at their
 # default places, each counted only when it (or its Contents/Developer) holds
-# the launcher's usr/lib/libxcrun.dylib. REPLY is that directory. Tests replace
-# this function to stand in for the machine.
+# the launcher's usr/lib/libxcrun.dylib. REPLY is that directory; the direct-Git
+# memo also keys on it. Tests replace this function to stand in for the machine.
 # Usage: _compozsh_developer_dir
 _compozsh_developer_dir() {
   emulate -L zsh

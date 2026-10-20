@@ -569,22 +569,61 @@ The owner pushed `9f85f56` and published it as 4.7.0, then asked for a 4.7.1
 with the two proposed fixes ("yes let's do the next 4.7.1 with the items you
 propose"), on branch `fix/4.7.1`:
 
-- **`g --discard-all` message.** The success line printed the sanitized
-  root with `print --`, so backslash escapes in a folder name (`\e[31m`, `\a`)
-  reached the terminal as controls. It now uses `print -r --`. An audit of
-  every shipped `print` without `-r` that expands a value found no other case
-  (the operation label, `-f '%s'` formats and a Perl `print` are safe).
-- **Git shim key.** The memo's key tracked only `/var/db/xcode_select_link`,
-  while `_compozsh_developer_dir` (the launcher's lookup) checks
-  `/var/select/developer_dir` first and falls back to default places. The key
-  now holds the developer directory that lookup returns, so an xcode-select
-  switch through either link, or Xcode or the Command Line Tools installed or
-  removed at a default place, resolves again. Which link `xcode-select -s`
-  writes on macOS 27 was not checked (it needs `sudo`); the fix holds either
-  way. Cost of `_compozsh_git_local_key`, 10 alternating rounds of 2,000
-  calls on this Mac (no xcode-select link, Xcode at its default place): old
-  26 µs per call (A/A 25–26), new 34 µs (range 34–35), about 0.04 ms for a
-  prompt's five Git reads.
+- **`g --discard-all` message (`e9aba03`).** The success line printed the
+  sanitized root with `print --`, so backslash escapes in a folder name
+  (`\e[31m`, `\a`) reached the terminal as controls. It now uses
+  `print -r --`. An audit of every shipped `print` without `-r` that expands a
+  value found no other case (the operation label, `-f '%s'` formats and a Perl
+  `print` are safe), and the security reviewer's independent audit agreed.
+  The remaining `print` calls without `-r` print fixed strings only, which
+  the Zsh conventions accept, so the backlog entry was removed.
+- **Git shim key (`b44e364`).** The memo's key tracked only
+  `/var/db/xcode_select_link`, while `_compozsh_developer_dir` (the launcher's
+  lookup) checks `/var/select/developer_dir` first and falls back to default
+  places. The key now holds the developer directory that lookup returns, so
+  an xcode-select switch through whichever of its three links the lookup
+  reads first, or Xcode or the Command Line Tools installed or removed at a
+  default place, resolves again. Which link `xcode-select -s` writes on
+  macOS 27 was not checked (it needs `sudo`), so the key is exactly as right
+  as the lookup's order; see the proposal below.
+
+Cost, on this Mac (no xcode-select link, Xcode at its default place,
+en_US.UTF-8):
+
+- `_compozsh_git_local_key`, 10 alternating rounds of 2,000 calls: old 26 µs
+  per call (range 26–26; A/A 25–26), new 34 µs (34–35). A prompt computes the
+  key about five times (twice in resolve, then once per direct read), about
+  0.04 ms.
+- End to end, `investigations/benchmarks/prompt-git-render.zsh render 11 40`
+  on `git archive` trees of `9f85f56` and the branch: medians (min–max of
+  per-shell medians) in ms. All ranges overlap, and the differences are the
+  size of the A/A run's, so there is no measurable change.
+
+| Fixture | 4.7.0 | Branch | A/A: 4.7.0 | A/A: 4.7.0 copy |
+| --- | --- | --- | --- | --- |
+| outside | 12.57 (12.41–12.98) | 12.49 (12.40–12.61) | 12.33 (12.29–12.66) | 12.40 (12.29–12.54) |
+| clean | 17.30 (16.51–21.49) | 16.86 (16.39–17.69) | 16.51 (16.40–17.14) | 16.53 (16.44–17.52) |
+| dirty | 19.29 (18.16–23.51) | 19.26 (18.09–20.53) | 17.95 (17.78–19.12) | 18.03 (17.82–19.31) |
+| large | 34.65 (33.44–38.06) | 35.23 (33.46–36.88) | 33.96 (32.81–35.31) | 34.14 (32.90–36.23) |
+
+Both reviewers returned PASS with no blocking findings, and each confirmed
+both new tests fail with their fix reverted. Their wording notes were
+applied (the inventory row now names an exported `DEVELOPER_DIR` first, and
+the focused-check table selects the discard test with `name literally`).
+Not changed:
+
+- **Proposal (A2).** If both `/var/select/developer_dir` and
+  `/var/db/xcode_select_link` exist and the real launcher prefers the second,
+  a switch that rewrites only that link would keep the memo. Adding the raw
+  targets of all three links to the key (three `zstat -L +link` calls) would
+  re-resolve on any link change whatever the order. It was left out because
+  the fixed system paths can't be changed in a test without a new seam, and
+  the Git that runs is still a verified Apple Git.
+- **Pre-existing (A4).** `g --discard-all` prints Git's porcelain lists with
+  `print -r`, unsanitized. Git C-quotes control bytes, but with
+  `core.quotePath=false` UTF-8-encoded C1 controls pass through, as they do
+  from `git status` itself. Routing both lists through `_compozsh_sanitize`
+  would be a separate change.
 
 ## Release notes
 
